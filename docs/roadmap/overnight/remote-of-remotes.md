@@ -357,3 +357,32 @@ Parked by the factory (review/remote-of-remotes-8, 2026-11-21 23:49).
 
 Failed its gates 8 times (the kill rule). Blocking findings:
 - ergostat/remote/compose.py:141 (_shown, called from one) with finish at compose.py:513-287 (lesson-3, lesson-7): the remote box's show list (info["show"]) is built from `made` before finish learns which composed names are taken by a local part or an earlier remote. A local stock.m-a-open plus remote m's show: [stock.a-open] (or its top system's served show) leaves {"part": "stock:m-a-open", "missing": False}. measures.refs and measures._sensors (remote/measures.py:28-42, 70-73) then read the LOCAL stock and its sensor, so m's closed box shows our own value as m's measure, with staleness from our sensor (looks fresh) and no remote-show-unresolved finding. This is the round-2 class again (a remote reference silently attaching to the local part that took its name), and it exists only because this branch defers put to finish. Fix: in finish, mark show entries whose part was not put as missing (and say so), and extend test_a_local_part_named_like_an_imported_one_wins with a show: on remote m naming a-open, asserting it is missing and never reads the local stock.
+
+### Continued, round 1
+
+Every finding of review 8, blocking and not:
+- *Blocking, the box's show list built before `finish` knew which names were taken (lesson-3, lesson-7).* After
+  `finish` puts a remote's parts, any entry of that remote's `info["show"]` whose stock, flow or auxiliary was not
+  put (its name taken, or cut because what it names was taken) is marked `missing: True`, with a
+  `remote-show-unresolved` finding. This covers both the `show:` written here and the top systems' served `show:`.
+  So `measures.mark` draws it as "not served" and never reads the local part's sensor. In
+  `test_a_local_part_named_like_an_imported_one_wins`, remote m has `show: [stock.a-open, stock.other]` and also
+  a served top system with the same show. Both cases assert `stock:m-a-open` is missing, `stock:m-other` is not,
+  the finding is there, and `measures.mark` gives "not served" even with a fresh local reading. With the marking
+  turned off by hand, the test fails (`assert (False is True)`). The change was then put back.
+- *Non-blocking, readings.py swallowed an OSError from `keep()` (raised in reviews 6, 7 and 8).* The reason
+  ("its relay file readings.json could not be written (WHY)") is now passed to `cache.note` as its why. To keep it,
+  `cache.note` now stores `why` when the read succeeded too, where it used to store "". This is one line in
+  `ergostat/remote/cache.py`, a file the definition does not list. It was the most direct way to record the
+  reason, and its only caller is `readings.answer`. The new `test_a_relay_file_that_cannot_be_written_is_said`
+  asserts that the reading is still taken and that the status's `read_why` names the failure. With the old
+  `read_why=""` put back by hand, it fails. SPEC §4c *Readings through a middle* says so.
+- *Non-blocking, the over-wide SPEC §4c Names taken line.* Reflowed, and the line now says how the box's show
+  is handled.
+
+Size: about 20 net lines added outside `tests/` and `docs/`, within 380. These pass, run in groups of at most
+three files: `test_remote_chain.py`, `test_remote_proposals.py` and `test_remote_lines.py` (82, the chain file's
+31 among them); `test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` (23);
+`test_remote_mtls.py` (23). Ruff is clean. Not run here: the whole unit suite, the four browser files and
+`demo_check`. This clone has no `origin`, and local `main` is already merged, so there was nothing to merge
+(lesson-7: the queue merges).

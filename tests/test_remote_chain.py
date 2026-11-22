@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from ergostat import spec as sp
-from ergostat.remote import cache, client, compose, instance, readings, serve, tokens
+from ergostat.remote import cache, client, compose, instance, measures, readings, serve, tokens
 from ergostat.store import state_dir
 from tests.ports import free_port, free_ports
 
@@ -303,11 +303,28 @@ def test_a_composed_name_that_is_not_a_name_is_refused(tmp_path, bad):
 
 def test_a_local_part_named_like_an_imported_one_wins(tmp_path):
     lroot = tmp_path / "l"
-    write(lroot, L + "include: [more.yaml]\n")
+    write(lroot, L + "    show: [stock.a-open, stock.other]\ninclude: [more.yaml]\n")
     write(lroot, "stocks:\n  m-a-open:\n    description: our own\n    sensor: {run: echo 1}\n", "more.yaml")
-    plant(lroot, "l", "m", body("e" * 16, {"stocks": {"a-open": {"via": []}, "other": {"via": []}},
-                                           "flows": {"a-drain": {"from": "a-open", "to": "other", "via": []}},
-                                           "auxiliaries": {"a-load": {"equation": "stock.a-open * 2", "via": []}}}))
+    served = {"systems": {"top": {"via": [], "show": ["stock.a-open", "stock.other"]}},
+              "stocks": {"a-open": {"via": []}, "other": {"via": []}},
+              "flows": {"a-drain": {"from": "a-open", "to": "other", "via": []}},
+              "auxiliaries": {"a-load": {"equation": "stock.a-open * 2", "via": []}}}
+    plant(lroot, "l", "m", body("e" * 16, served))
+    spec, problems = load(lroot / "ergostat.yaml")
+    assert not codes(problems, "defined-twice")
+    shown = {x["part"]: x for x in spec.remotes["m"]["show"]}  # m's box never shows our stock as m's measure
+    assert shown["stock:m-a-open"]["missing"] is True and shown["stock:m-other"]["missing"] is False
+    assert any("stock:m-a-open" in p.message for p in codes(problems, "remote-show-unresolved"))
+    box = {"remote": {"name": "m", "state": "ok"}, "label": "m",
+           "measures": [{"part": "stock:m-a-open", "value": "1"}]}
+    measures.mark(spec, box, {"at": time.time(), "times": {"sensor/m-a-open.main": time.time()}})
+    assert box["measures"][0]["missing"] and box["measures"][0]["value"] == "not served"
+    write(lroot, L + "include: [more.yaml]\n")                # its top system's served show: the same
+    spec, problems = load(lroot / "ergostat.yaml")
+    shown = {x["part"]: x for x in spec.remotes["m"]["show"]}
+    assert shown["stock:m-a-open"].get("missing") is True and not shown["stock:m-other"].get("missing")
+    assert codes(problems, "remote-show-unresolved")
+    plant(lroot, "l", "m", body("e" * 16, {k: v for k, v in served.items() if k != "systems"}))
     spec, problems = load(lroot / "ergostat.yaml")
     assert not codes(problems, "defined-twice")
     assert spec.stocks["m-a-open"].description == "our own" and "m-other" in spec.stocks
@@ -377,6 +394,18 @@ def test_a_reading_with_no_time_or_no_now_is_stale(tmp_path, monkeypatch):
     assert v is None and "without its own time" in why
     _answering(monkeypatch, {"now": now, "series": {"sensor/x.main": {"value": 4, "time": now - 1}}})
     assert readings.read(spec, spec.sources["m"], s) == (4.0, "")
+
+
+def test_a_relay_file_that_cannot_be_written_is_said(tmp_path, monkeypatch):
+    spec, s = _consumer(tmp_path)
+    _answering(monkeypatch, {"now": time.time(), "series": {"sensor/x.main": {"value": 4, "time": time.time()}}})
+
+    def refused(*_a):
+        raise OSError("disk full")
+    monkeypatch.setattr(readings, "keep", refused)
+    v, _ = readings.read(spec, spec.sources["m"], s)
+    st = cache.status(cache.folder("l", tmp_path / "l", "m"))
+    assert v == 4 and st["read_ok"] is True and "could not be written (disk full)" in st["read_why"]
 
 
 def test_a_reading_from_the_future_is_refused(tmp_path, monkeypatch):

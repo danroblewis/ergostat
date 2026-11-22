@@ -157,14 +157,15 @@ def answer(spec, src, period: float) -> tuple[dict | None, str]:
         why = "" if body is not None else f"{src.name} at {src.url}: {why or 'no answer'}"
         _kept[key] = {"t": time.time(), "answer": body, "why": why, "series": series, "refs": refs}
         d = _folder(spec, src.name)
+        relay = ""
         if d is not None:
             try:
                 keep(d, body, why)
-            except OSError:
-                pass
+            except OSError as e:                     # fails toward stale (the old file ages), and is said
+                relay = f"its relay file {RELAYED} could not be written ({e})"
     if d is not None:
         try:
-            cache.note(d, body is not None, why, (body or {}).get("version"))
+            cache.note(d, body is not None, why or relay, (body or {}).get("version"))
         except OSError:
             pass
         have = (spec.remotes.get(src.name) or {}).get("version")

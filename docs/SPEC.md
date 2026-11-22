@@ -917,10 +917,12 @@ consumer L, which composes them like any of M's (`stock.m-a-open`, in the system
   `defined-twice`); between two remotes whose parts get the same name (remote `m`'s `a-open`, remote `m-a`'s
   `open`) the first declared wins. Each remote's own box system is put when `remotes:` is read, before any
   remote's parts, so a box keeps its name against another remote's served system (remote `m-a`'s box `m-a`
-  against remote `m`'s served system `a`) whichever is declared first. The part not put is cut from the rest of its remote, as above (a flow's
-  end at it becomes a cloud, a cause or an equation naming it is dropped), so a remote's flow never drains
-  the local part, or another remote's part, that took its name. A local reference belongs to the remote
-  with the longest matching prefix.
+  against remote `m`'s served system `a`) whichever is declared first. The part not put is cut from the
+  rest of its remote, as above (a flow's end at it becomes a cloud, a cause or an equation naming it is
+  dropped), so a remote's flow never drains the local part, or another remote's part, that took its name.
+  A part on the remote's box (its `show:` here, or its top systems' served `show:`) that is not put is
+  drawn as not served (**remote-show-unresolved**), so the box never shows the local part that took its
+  name as the remote's measure. A local reference belongs to the remote with the longest matching prefix.
 - *Readings through a middle.* When M reads A, it keeps A's whole answer in
   `<state>/remotes/a/readings.json`, replaced each time, never merged: A's `instance` (from A's `/readings`),
   when M got it, and each reading's value and age at A (A's `now` less its `time`). When A does not answer the
@@ -931,7 +933,9 @@ consumer L, which composes them like any of M's (`stock.m-a-open`, in the system
   these as for any reading. What the tests show: a hop adds no freshness (A's clock 1,000 s ahead, M serving
   the origin's age; A down, M serving the old time marked unreachable). Between A stopping and M's next read
   of A, M still serves A's last answer unmarked, and L may take it while its age is within the limit; once
-  L's reading has failed after A stopped, L records nothing newer for it (the three-instance test).
+  L's reading has failed after A stopped, L records nothing newer for it (the three-instance test). When
+  M cannot write the file, the old one is kept (so it ages) and the reason is kept in the remote's status
+  as its readings' why.
 - *Size.* An answer longer than `BODY_MOST` = 16 MB fails the call (*answer too large*).
 
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote

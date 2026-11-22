@@ -291,6 +291,10 @@ def _id(ref: str, remote: str) -> str:
     return f"{'flow' if kind == 'flow' else 'stock'}:{remote}-{n}"
 
 
+def _node(section: str, pname: str) -> str:
+    return f"{'flow' if section == 'flows' else 'stock'}:{pname}"
+
+
 def _shown(doc, name: str, info: dict, secs: dict, made: dict, only, local, at) -> list[dict] | None:
     """What the remote's own box shows (SPEC §4c): its ``show:`` here, in the remote's own names, each one it does not
     serve kept as missing, with a finding; else its top systems' served ``show:``, in served order, once each; None:
@@ -542,6 +546,15 @@ def finish(doc, put) -> None:
             one = SINGULAR.get(section, section)
             info["parts"][f"{one}.{pname}"] = True
             info["names"][f"{one}.{pname}"] = f"{one}.{pname[len(remote) + 1:]}"       # served names only
+        lost = {_node(s, p) for s, p, _g, _v in pending
+                if s in ("stocks", "flows", "auxiliaries") and (s, p) not in kept}
+        for x in info.get("show") or []:       # a shown part not put never reads the local part that took its name
+            if x["part"] in lost and not x.get("missing"):
+                x["missing"] = True
+                doc.problems.append(Problem(
+                    "finding", f"remote {remote}: its box shows {x['part']}, which is not composed here (its name is "
+                    "taken, or what it names is): it is drawn as not served", info["where"], "remote-show-unresolved",
+                    f"system.{remote}"))
     for section, entries in doc.sections.items():
         for ename, entry in list(entries.items()):
             if isinstance(getattr(entry, "where", None), RemoteVia):
