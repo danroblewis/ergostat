@@ -41,3 +41,47 @@ Family `dev/bin/cx_branching.py` and `dev/model/complexity-branching.yaml`.
 150 net lines outside `tests/` and `docs/`.
 
 From the owner's request of 2026-11-22: measure ergostat's code complexity in many forms and slices, as stocks on main, backfilled from git history.
+
+## Where it stopped
+
+Built: points 1-5 and every acceptance test named above, in `tests/test_factory_cx_branching.py`, plus four more:
+nearest-rank percentiles; a file that does not parse is no value and only the code scope's Python counts; the
+`branching` report (order, the cap of 30, tests left out); the series' descriptions and parts say Python only. Nothing
+within the definition is left. `complexity.py record`, named in the stocks' descriptions as in the frame's, belongs to
+cx-backfill-run.
+
+Choices made with nobody to ask (each easy to reverse):
+- `complexity-cyclomatic-p99` is `driven-by: [+stock.complexity-cyclomatic, +flow.gaps-merged, -flow.removals-merged]`,
+  more than point 3's `[+stock.complexity-cyclomatic]`. With the stock alone, `ergostat check` raised a new
+  `system-splits@system.code-health`. The complexity subsystem grows from 3 parts to 12, which is at or over the
+  architecture's `CLUSTER` of 4, and nothing links it to the rest of code-health. The two added causes are the ones
+  `code-long-functions` already has. A flow measured by `changes:` cannot take a flow cause (`measured-not-caused`), so
+  the auxiliary is the only place for them. With them, check finds nothing new.
+- Percentiles and the median are by nearest rank: the smallest value with at least p% of all functions at or below it.
+  For 99 functions of complexity 1 and one of 25, p99 is 1. With no function at all, the percentiles and the max get no
+  value, never 0.
+- What counts: the definition's list exactly. An `else` on a loop or a `try`, `finally`, `with` and `try` itself add
+  nothing. Each `match` case counts, the wildcard included. Each `except` clause counts (`except*` too). A lambda's
+  branches count in the function it is written in. A class body inside a function counts in that function, but its
+  methods are counted separately.
+- Names: `Class.method`, a nested function `outer.inner` (not Python's `outer.<locals>.inner`). Lines run from the `def`
+  line to the function's last line, nested functions included and decorators left out.
+- Histograms are kept as sorted `[value, count]` pairs, since the frame's row measures are numbers or lists. Per file the
+  row also keeps `functions`, `cyclomatic` and `function_lines` (the sums).
+- A `.py` file that does not parse is cached as `{"unparsed": why}`. Only in the code scope does it fail the family at
+  that commit (no value, retried as the frame retries). Elsewhere (tests, docs) it is ignored. Files that are not Python
+  measure `{}`. `ENV` is the Python minor version, since `ast` changes with it.
+- The report lists at most 30 functions, from the over-10 lists only, so it is shorter when fewer than 30 are over 10.
+  It is ordered by complexity, then lines, then path and name, all descending except path and name.
+- `tests/test_factory_cx_frame.py` (outside the Files list, made necessary by this family): `test_the_commands` assumed
+  `size` was the only family (`list` equality, `measure` output starting with `size`). It now reads the size family's
+  lines. The frame's check test leaves out every `complexity*.yaml` in its "before" model, since this family's file
+  needs the `complexity` system.
+
+Size: 139 net lines in dev/ (cx_branching.py 105, complexity-branching.yaml 34), within 150.
+
+Tests: `tests/test_factory_cx_branching.py` (26 passed, the `ergostat check` test among them) and
+`tests/test_factory_cx_frame.py` (14 passed), each run alone. Ruff is clean. I broke the code and watched tests fail
+(lesson-9) for three faults: comprehension `if`s not counted (the branch-kind test fails), a median taken over distinct
+values (the median test fails with 30 for 3), and nested functions dropped (the nested test fails). The unit suite and
+the browser files were not run here. This gap changes no page.
