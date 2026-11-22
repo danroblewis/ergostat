@@ -14,3 +14,62 @@ Acceptance tests: the request-count browser test; the LRU unit test; on a copy o
 Budget: 130 net lines outside tests.
 
 Milestone: pages-answer-fast. Owner items: 2. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built (round 1), 129 net lines outside tests, docs and dev (budget 130):
+- `ergostat/web/goal_work.py`: the table keyed (goal, what, window), each entry with when it was worked out and the
+  model's mtime as its tag (another model's entry is never served). One daemon thread fills it, the never-worked-out
+  first, then the oldest past its life. A pass is budgeted at 2 s and the thread rests 2 s between passes. It ends 10
+  minutes after the last ask and starts again on the next one. `forget()` (an accepted or dismissed loop proposal)
+  drops entries, and work already under way when forget is called is not kept (a counter compared under the lock:
+  lesson-1). A failed identification is stored as `{"failed": ...}` and shows "could not be worked out" rather than
+  "being worked out" for ever (lesson-3).
+- The budget, as built: a pass starts another goal only while the time spent plus the slowest goal seen so far fits
+  the budget. A pass therefore stays within budget unless one goal takes longer than any goal before it. Work under
+  way cannot be cut short in Python, so a goal slower than the whole budget is its pass's only goal (tested). This is
+  narrower than the definition's "never exceeds": no thread can stop an identification half-way.
+- `control_api.performances` / `summary`: `/api/loops?perf=1` carries, per goal, the fields performanceWord
+  (control.js) and processWord/nextWord (review.js) read, without the charts. It carries `{"working": true}` until
+  the goal is worked out, and null for a loop that is no goal of the model's. The request itself never identifies
+  anything. A past moment (`at=`) is its own window key.
+- Each loop in `/api/loops` carries its stock's points from the snapshot, so pageLoops no longer asks for the graph.
+- `Live.keep` is an LRU of 256 (`KEPT_MOST`).
+- review.js's list of loops on the Model page reads the same answer. It asks again every 3 s while some goals are
+  still being worked out, at most 40 times, and stops once the list is gone or the tab is hidden.
+- `ergostat snapshot` makes the `loops?perf=1` answer from the loop-control answers it already takes, so a
+  snapshot's Loops and Model pages work offline.
+- SPEC §12 (performance) says the page asks once, with the background, its budget and its life.
+
+Most reversible choices, made with nobody to ask:
+- The perf word is still worked out in the page (performanceWord) from the summary the server sends, not as a string
+  on the server, so the column and loop-control cannot disagree on wording.
+- Budget 2 s a pass with a 2 s rest: half the time at most on one thread. This is a number to tune; it was not
+  measured on the factory.
+- `numbers_api._analyse_loops`, the Model page's existing per-goal loop worker for the review queue, was left as it
+  is. Folding it into goal_work is a move of its own; that and forecast-on-first-paint-window-horizon are the next
+  users of the table. The move to the after_snapshot hook waits for perf-answers-never-wait-for-a-snapshot.
+
+Tests (each seen to fail with the code it guards broken: the LRU evicting the newest; the budget check without the
+slowest; forget's counter ignored; the page also asking for the graph; the summary without `performance`):
+- `tests/test_goal_work.py`: the LRU (of 40, the most recently used kept; nothing dropped under 256); a pass within
+  its budget with a 0.3 s identification; one goal slower than the budget is its pass's only goal; work under way
+  when forget is called is not kept; a failure is said; the loops answer's points are the snapshot's, and its perf
+  equals `summary(loop-control)` at one moment.
+- `tests/test_page_polling.py::test_the_loops_page_asks_once_for_every_goal` (image-squeeze demo): the page's opening
+  requests were status, projects and loops?perf=1 (3), with no graph and no loop-control. The column fills, and each
+  of the 15 goals' cells equals performanceWord(loop-control).
+
+Not run here: the factory-state acceptance (table in under 3 s, a second tab's /items HTML in under 0.5 s). No copy
+of the factory's state is in this container. The merge queue's full suites were not run either.
+
+Seen while running, and not changed by this branch:
+- `tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` failed once (1 poll alive, not 2) in the first
+  full run of the file. It passed alone, in the second full run of the file (18 passed, rc 0) and in a run of three
+  named tests. Not proven unrelated: the background passes take CPU from the page server's other answers, and this
+  test gives the Record page 4 s with fixed sleeps.
+- `tests/test_diagram_rendering.py::test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`
+  fails every time at its last assertion ("Nothing waiting."). The queue holds a structural proposal ("A missing
+  delay on an inflow, as DELAY3") that the residual test found in the test's seeded record (numbers/structural, not
+  touched here). It failed the same with the old clear-at-16 cache put back. I could not run it on main: `git
+  checkout main -- ergostat` and `git worktree add --detach /tmp/ergostat-main-check main` were refused.
