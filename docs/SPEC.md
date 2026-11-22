@@ -2231,6 +2231,12 @@ goals:
 
 A goal exists whether or not anything serves it. A goal nothing serves is **missing feedback**.
 
+**Upkeep goals.** The API's `loops` are the goals' states, each with its `system` (null without a spec) and, for a
+goal a once library template among the owner's upkeep templates made (`modelling` alone for now: not `upkeep`,
+repair or interventions), `upkeep: <template>`: the modelling system's own work, counted beside the system's goals
+and not among them. `/api/status` carries `goals_off` (`system` off, `open`, `unknown`, and `own: {modelling: n}`,
+upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off`.
+
 **Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
 
 ```yaml

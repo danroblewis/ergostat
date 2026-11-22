@@ -18,6 +18,7 @@ from .durations import human
 from .spec.goal_per import cascade_setpoint as per_setpoint
 from .spec.goal_per import says as per_says
 from .spec.goal_per import worst as per_worst
+from .spec.ir import OWN_TEMPLATES, upkeep_of
 from .spec.observer import opted, shown_stale
 
 WINDOW = 3600.0
@@ -301,7 +302,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         answers.sort()
         cycled = bool(last_read and last_read >= since and ((decisions and decisions[-1]["time"] >= since)
                                                            or (last_open and last_open >= since)))
-        loops[lp.name] = {"stock": c.holds, "setpoint": c.setpoint, "tolerance": c.tolerance, "band": c.band_text(), "value": value,
+        own = upkeep_of(spec, g) if g is not None else None
+        loops[lp.name] = {"system": g.system if g is not None else None, **({"upkeep": own} if own else {}), "stock": c.holds,
+                          "setpoint": c.setpoint, "tolerance": c.tolerance, "band": c.band_text(), "value": value,
                           "error": error, "status": status, "gaps": lp.gaps, "sensors": lp.sensors, "valves": lp.valves,
                           "flows": lp.flows, "controller": c.name, "last_read": last_read,
                           "last_decision": decisions[-1] if decisions else None, "last_opening": last_open,
@@ -606,6 +609,21 @@ def ladder_hints(project, snap: dict) -> list[dict]:
 
 LEVELS = {"bad": 0, "warn": 1, "hint": 2}
 UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
+
+
+def goals_off(snap: dict, names: bool = False) -> dict:
+    """The only count of goals not holding: ``system`` (off) and ``open`` count the goals no upkeep template made,
+    ``own`` each upkeep template's goals off or open, ``unknown`` every goal without a reading (an upkeep goal's
+    too); ``names`` gives the sorted names instead of counts. SPEC §8, upkeep goals."""
+    out: dict = {"system": [], "unknown": [], "open": [], "own": {t: [] for t in sorted(OWN_TEMPLATES)}}
+    for name, lp in sorted(snap["loops"].items()):
+        t, s = lp.get("upkeep"), lp["status"]
+        if t and s in ("off", "open"):
+            out["own"].setdefault(t, []).append(name)
+        elif s == "unknown" or (not t and s in ("open", "off")):
+            out[{"off": "system"}.get(s, s)].append(name)
+    return out if names else {**{k: len(out[k]) for k in ("system", "unknown", "open")},
+                              "own": {t: len(v) for t, v in out["own"].items()}}
 
 
 def setpoint_text(lp: dict) -> str:
