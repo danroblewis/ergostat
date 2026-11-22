@@ -122,6 +122,9 @@ button:disabled { color: var(--muted); cursor: default; }
 button.on { background: var(--fill); border-color: var(--line-strong); color: var(--ink); font-weight: 600; }
 button.ghost, .menu-btn { border-color: transparent; background: transparent; }
 button.ghost:hover, .menu-btn:hover { background: var(--fill); }
+/* a name that opens its evidence: read as the name it is (its colour and weight kept), pressed as a button */
+button.name { border: 0; background: none; padding: 0; min-height: 0; color: inherit; font-weight: inherit; text-align: inherit; }
+button.name:hover:not(:disabled) { background: none; text-decoration: underline; }
 label.check { display: inline-flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
 
 /* a menu: a button and what it holds, floating; the one thing with a shadow */
@@ -186,6 +189,8 @@ tr.click:hover td { background: var(--fill); }
 tbody.group th { color: var(--ink); font-size: var(--text); font-weight: 600; padding-top: var(--sp-4); border-bottom-color: var(--line); }
 tbody.group th .muted { font-weight: 400; }
 td.cell { max-width: 18em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.runs-table td.cell { max-width: none; white-space: normal; overflow-wrap: anywhere; }   /* an agent's recent runs: wrapped, to fit the panel */
+details.runs-resources summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); }
 td.data { overflow-wrap: anywhere; min-width: 16em; }
 td.data details summary { cursor: pointer; list-style: none; }
 td.data pre, table.fields pre { margin: var(--sp-2) 0 0; white-space: pre-wrap; font-size: var(--text-sm); background: var(--chrome); padding: var(--sp-2); border-radius: var(--radius); }
@@ -680,10 +685,13 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .side { border-left: 0; border-top: var(--hair) solid var(--line); }
   .detail { position: fixed; inset: 0; width: auto; z-index: 20; border-left: 0; }
 }
+/* a phone, or 200% zoom: the tabs on a row of their own, wrapped onto two rows, never scrolled sideways */
+@media (max-width: 759px) {
+  .bar nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow-x: visible; }
+  .bar nav a { min-height: var(--sp-6); }
+}
 @media (max-width: 700px) {
   .bar { gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3) 0; }
-  .bar nav { order: 3; flex: 1 0 100%; min-height: var(--sp-6);
-    -webkit-mask-image: linear-gradient(to right, var(--ink) 85%, transparent); mask-image: linear-gradient(to right, var(--ink) 85%, transparent); }
   #when { margin-left: auto; }
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
@@ -723,7 +731,8 @@ svg.canvas rect.hull-mark.xhover { stroke-width: 4px; vector-effect: non-scaling
    several), drawn always and shown only when asked (the menu's toggle, or C held). Pointed at in the other
    pane, the ring is thick, haloed and pulses once, in the accent (or its groups' colours, when shown), and
    the rest of that pane steps back. The rings keep their width on the screen at any zoom */
-svg.canvas g .corr-ring.corr-ring, svg.canvas g .corr-halo.corr-halo {   /* (over what styles an outline's rect) */
+svg.canvas g .corr-ring.corr-ring, svg.canvas g .corr-halo.corr-halo,   /* (over what styles an outline's rect) */
+svg.g-canvas g .corr-ring.corr-ring, svg.g-canvas g .corr-halo.corr-halo {   /* (the Guide's drawings: never shown) */
   display: none; fill: none; stroke: var(--ring); stroke-dasharray: var(--dash, none); stroke-dashoffset: var(--dash-at, 0);
   pointer-events: none; vector-effect: non-scaling-stroke; stroke-linecap: butt; }
 body.corr-on svg.canvas g .corr-ring.corr-ring { display: inline; stroke-width: 3px; }
