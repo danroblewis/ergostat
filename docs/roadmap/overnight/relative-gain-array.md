@@ -284,3 +284,14 @@ kept (d36e1258): main's `review_of`, then the branch's `ALL` and `signature(...,
 were given this round beyond the conflict, and nothing else changed. Run in round 7, one group at a time: `test_rga` +
 `test_control` + `test_redesign` (112 passed), `test_redesign_memory` + `test_architecture_review` +
 `test_spec_mcp_explain` (27). Ruff is clean. I did not run the whole unit suite or the browser files.
+
+Round 8, answering the one finding (blocking): the round-7 merge of main had spliced the branch's done-text into the
+middle of `docs/GAPS.md`'s System architecture review entry again, and two of main's *Left* clauses still listed the
+relative gain array. The four spliced lines are gone, so main's fragments read as they do on main. The done-text is
+added once, at the end of the entry's first sentence of what is done, before that sentence's *Left*, without cutting
+any of main's text. The relative gain array is taken off all three of the entry's *Left* clauses, and nothing else in
+them changed except that one line was rewrapped to the file's width. Main's own repeated fragments in this entry (three
+runs of done-text, each ending in its own *Left*) are left as they are. Cleaning them up belongs in its own gap
+(lesson-13). In `git diff main`, the entry's only changes are the done-text added once and the relative gain array
+dropped from each *Left*. `rg "relative gain" docs/GAPS.md` finds it only in that done-text. No code changed. A shell
+`git show main:docs/GAPS.md > /tmp/gaps_main.md && cp ...` was refused, so the edit was made with the editor.
