@@ -669,3 +669,54 @@ lines with `sed -n`. The read tool was used instead. Also refused: `git merge-ba
 It was run again without the `echo`, and returned rc 0.
 
 Overrun reason: 786 net lines against 450 (allow.py 670, +8 this round so that iterators are shaped only where used up; approve.py 89; approver.md 14; fix.py +6; stats.py +8; template +2; compile.py -3); every line beyond the plan's ~280 for allow.py is a fail-closed branch asked for at the plan review, review rounds 1 to 7 and the park, kept rather than cut as the review asked.
+
+### Continued, round 5: review 8's findings (a loop's state after an early exit; size; AGENT-GUIDE wrap)
+
+Each finding of review 8 is answered here, blocking and not (lesson-12):
+- **Blocking: a `break` or `return` that ends a `for` early left the loop's state untainted.** That state is the
+  target's last value and how far the iterable was used up. `Fix.control` now returns, for a changed, removed or
+  controlled `break` (its own loop) or `return` (every `for` it leaves, up to the function), what `Fix.left` finds,
+  and G3 taints those names. `Fix.left` taints the loop's target names. It also gives a reason unless the loop's
+  iterable is shaped (`shaped(iter, lazy=True)`). A shaped iterable is a fresh value, so it can't be a shared iterator,
+  a parameter, `os.listdir(...)` or a call's result. That makes the target the only state left. The review offered a
+  second remedy, tainting every name the iterable reads, which I did not take. It is not enough on its own:
+  `for p in g(): break`, with `g` returning a module-level generator `G`, taints `g` and not `G`, and a parameter
+  `xs` given `it` by `first(it)` taints `xs` and not `it`. Both of these returned `[]` with the iterable rule off
+  (below). The stricter refusal is also the more reversible choice. A `continue` leaves the loop running to its end,
+  so it still controls only the body. The `raise` branch of `control` now returns an empty set rather than `None`.
+  The `None` made the changed-raise test's reason a guard error, which failed closed.
+- **Not blocking: size** (786 against 450). It is answered by the overrun reason below. This round adds +13 net, and
+  nothing was cut, since each branch is fail-closed.
+- **Not blocking: AGENT-GUIDE line 700 ran past 120 columns.** It is rewrapped, with the new clause about loops.
+- SPEC §12r's G4 says the rule. SECURITY's opening paragraph and GAPS's guard entry say it in plain words.
+
+**Tests**, each with an accepted twin in which nothing reads the loop's state after the loop:
+- `test_break_taints_the_loop_target`: a loop over a shaped `names` that a fix ends early, then an unchanged
+  `os.remove(p)` or `if p == 'a': os.remove('x')`. Both are refused. The twin is `os.remove('fixed')`. The simpler
+  form is also refused: `for p in os.listdir('.')` ended early, then an unchanged `os.remove(p)`.
+- `test_break_over_a_shared_iterator_refused`: the review's trace, and the same with the removing loop's own target
+  `q`, so only the used-up iterator is shared. The twin breaks out of a loop over `names`, and the removing loop has an
+  iterator of its own.
+- `test_return_in_a_loop_in_a_function`: a `return` added to `def first(xs): for p in xs: ...`, with
+  `first(it)` and then an unchanged loop removing what is left in `it`. This is refused. The same `return` in a loop
+  over the shaped `names` is refused when `os.remove(p)` or `if p == 'a': ...` follows the call, and is accepted
+  with `os.remove('fixed')`.
+
+**Seen to fail with the code broken** (each mutation applied, then restored):
+- The target taint off: the `if p == 'a'` case of both the break and return tests fails. The `os.remove(p)` cases
+  are still refused by the escape analysis (`p` aliases `names`, and the alias is passed to `os.remove`), which is
+  why the `if` case was added.
+- The shaped-iterable rule off: the `q` variant of the shared-iterator test and the parameter case of the return
+  test return `[]`, so those bypasses were real. The break test fails on its expected reason.
+- `break` not calling `left` (round 7's code): the break-target and shared-iterator tests fail. `return` not
+  calling `left`: the return test fails.
+
+Run: `tests/test_repair_allow.py`, `tests/test_repair_approver.py` and `tests/test_gaps_doc.py`: 127 passed, 1 skipped
+(sandbox). The earlier guard tests pass unchanged. Ruff is clean. Not run here: the unit suite, the four browser
+files, and `test_repair2` (bwrap cannot make its namespaces in this container). The factory runs them. This clone has
+only `main`, and `git merge-base --is-ancestor main HEAD` returns rc 0, so there was nothing to merge.
+
+Refused in this round: writing a probe script to `/tmp/probe_q.py` with the write tool (outside the working
+directory), then `uv run python /tmp/probe_q.py`. The test was reordered instead, so its own failure shows the result.
+
+Overrun reason: 799 net lines against 450 (allow.py 683, +13 this round so that a for ended early taints its target and must be over a shaped value; approve.py 89; approver.md 14; fix.py +6; stats.py +8; template +2; compile.py -3); every line beyond the plan's ~280 for allow.py is a fail-closed branch asked for at the plan review, review rounds 1 to 8 and the park, kept rather than cut as the review asked.

@@ -18,7 +18,8 @@ lets it be asked: the guard reads the program before and after and accepts only 
 or call anything else. A list or dict counts as plain only if nothing in your program fills it in place, hands it to a
 call or keeps it where the guard cannot follow it, since that code could put anything in it. A generator or iterator
 counts only where it is used up at once, never kept in a variable, since a fix that reads it would empty it for the
-code after. Everything else goes to you, and so does every fix the AI does not approve. The guard says only
+code after. A `break` or `return` the fix makes, removes or steers may end a loop early only over such a plain value,
+and nothing after the loop may use its variable unchecked. Everything else goes to you, and so does every fix the AI does not approve. The guard says only
 what the AI may be asked about; the AI can still approve a wrong fix within that. What the guard does not see:
 
 - **Implicit errors.** Any lookup or division may raise, so a fix can make the program stop earlier, or get further

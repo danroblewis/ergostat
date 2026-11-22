@@ -133,7 +133,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   anything aliased with it or taken from it, and a name reached as an attribute (`__main__.paths`) is read as that
   name; reading such fills as shaped bindings would let more through. A generator or an `enumerate`, `zip` or
   `reversed` iterator is shaped only where it is used up in the same expression (a `for`'s iterable, `list(...)`,
-  `'-'.join(...)`), never held by a name, so a name holding one goes to the person. *Left*:
+  `'-'.join(...)`), never held by a name, so a name holding one goes to the person. A `for` ended early by a
+  changed, removed or controlled `break` or `return` must be over a shaped value, and its target is tainted, so a loop
+  over `os.listdir(...)`, a parameter or a shared iterator that a fix ends early goes to the person. *Left*:
   `inbox/interventions.py` reads `stats.asked`, so an action the AI approved is still counted there as an
   intervention, as one answered through the MCP already is; a fix that calls one of the module's own functions always
   goes to the person (the plan's "pure function" form was dropped).

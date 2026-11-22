@@ -6326,7 +6326,11 @@ reason.
 - **G4, control.** Controlled, and held to G2: the bodies of an unchanged `if`, `for` or `while` whose header reads a
   tainted name (a `while` itself fails G2); the whole loop after a changed, removed or controlled `continue` or
   `break`; the rest of the function after such a `return`; the rest of the module after such a `raise` at module
-  level. A changed or removed `raise` inside a function is refused.
+  level. A changed or removed `raise` inside a function is refused. A `for` that such a `break` (its own loop) or
+  `return` (every loop it leaves, up to the function) ends early keeps loop state that the code after it may read:
+  the target's last value, and how far the iterable was used up. The target's names are tainted (G3), and the
+  iterable must be shaped (a fresh value, so never a shared iterator, a parameter or a call's result), or the fix is
+  refused.
 - **G5, exception paths.** Nothing changed, removed, controlled or tainted may sit lexically inside a `try` or `with`;
   when any of it is inside a function, the module may hold no `try` or `with` at all: a fix that newly raises could
   otherwise run a handler, a `finally` or an `__exit__` that never ran before.

@@ -436,6 +436,44 @@ def test_removed_return_controls_the_rest_of_the_function():
     assert change(f.format(r="return\n    "), f.format(r="")) == []
 
 
+NAMES = "names = json.loads('[\"a\", \"b\"]')\n"
+
+
+def test_break_taints_the_loop_target():
+    loop = NAMES + "for p in names:\n    print('x')\n{b}{last}\n"
+    steer = "if p == 'a':\n    os.remove('x')"                 # p stays shaped: only the taint of p refuses this
+    for last, ok in (("os.remove(p)", False), (steer, False), ("os.remove('fixed')", True)):
+        why = change(loop.format(b="", last=last), loop.format(b="    break\n", last=last))
+        assert (why == []) is ok, (last, why)
+    assert refused(change(loop.format(b="", last=steer), loop.format(b="    break\n", last=steer)), "steered by the change")
+    # the simpler form: a loop over os.listdir left early changes which file the unchanged os.remove gets
+    loop = "for p in os.listdir('.'):\n    print('x')\n{b}os.remove(p)\n"
+    assert refused(change(loop.format(b=""), loop.format(b="    break\n")), "a for left early", "not shaped")
+
+
+def test_break_over_a_shared_iterator_refused():
+    tail = "it = (q for q in os.listdir('.'))\nfor q in it:\n    os.remove(q)\n"
+    # the removing loop has a target of its own, so only how far ``it`` was used up is shared
+    loop = "it = (f for f in os.listdir('.'))\nfor p in it:\n    print('seen')\n{b}for q in it:\n    os.remove(q)\n"
+    assert refused(change(loop.format(b=""), loop.format(b="    break\n")), "a for left early", "not shaped")
+    # the review's trace: the first loop shares ``it`` and ``p`` with the unchanged loop that removes files
+    loop = loop.replace("for q in it:\n    os.remove(q)", "for p in it:\n    os.remove(p)")
+    assert refused(change(loop.format(b=""), loop.format(b="    break\n")), "a for left early", "not shaped")
+    # the twin: the loop left early is over a shaped list, and the removing loop has an iterator of its own
+    loop = NAMES + "for p in names:\n    print('seen')\n{b}" + tail
+    assert change(loop.format(b=""), loop.format(b="    break\n")) == []
+
+
+def test_return_in_a_loop_in_a_function():
+    f = "def first(xs):\n    for p in xs:\n        print('x')\n{r}it = (q for q in os.listdir('.'))\nfirst(it)\n"
+    f += "for q in it:\n    os.remove(q)\n"
+    assert refused(change(f.format(r=""), f.format(r="        return\n")), "a for left early", "not shaped")
+    f = NAMES + "def first():\n    for p in names:\n        print('x')\n{r}first()\n{last}\n"
+    for last, ok in (("os.remove(p)", False), ("if p == 'a':\n    os.remove('x')", False), ("os.remove('fixed')", True)):
+        why = change(f.format(r="", last=last), f.format(r="        return\n", last=last))
+        assert (why == []) is ok, (last, why)
+
+
 # ---- G5
 
 

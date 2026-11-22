@@ -12,6 +12,7 @@ import ast
 import builtins
 import copy
 import difflib
+import itertools
 
 LINES = 40
 CALLS = frozenset("len int float str bool abs min max round sorted list dict tuple set enumerate zip range isinstance "
@@ -527,13 +528,11 @@ class Fix:
         n0 = -1
         while n0 != (n0 := len(controlled) + len(tainted) + len(names) + len(hot) + len(raised)):
             for s, inside, owner, lst, i in removed:
-                names |= binds(s)
-                self.control(s, inside, owner, lst, i, controlled, raised, True)
+                names |= binds(s) | self.control(s, inside, owner, lst, i, controlled, raised, True)
                 hot |= holders(self.chain(owner))
             for s in list(changed.values()) + list(controlled.values()):
-                names |= binds(s)
                 owner, lst, i = self.at[id(s)]
-                self.control(s, [], owner, lst, i + 1, controlled, raised, id(s) in changed)
+                names |= binds(s) | self.control(s, [], owner, lst, i + 1, controlled, raised, id(s) in changed)
                 hot |= holders(self.chain(owner))
             for k, (owner, lst, i) in list(self.at.items()):
                 s = lst[i]
@@ -573,27 +572,41 @@ class Fix:
             return None
         return path(r, []) or [r]
 
-    def control(self, s, inside, owner, lst, i, controlled, why, own) -> None:
+    def control(self, s, inside, owner, lst, i, controlled, why, own) -> set[str]:
         """G4: what a changed, removed or controlled continue, break, return or raise reaches. ``inside``: for a
-        statement nested in a removed one, its removed enclosers; ``own``: changed or removed, not only controlled."""
+        statement nested in a removed one, its removed enclosers; ``own``: changed or removed, not only controlled.
+        Returns the names a ``for`` left early by it still holds (G3 taints them)."""
         chain = [*inside[::-1], *self.chain(owner)]
         if isinstance(s, (ast.Continue, ast.Break)):
             loop = next((c for c in chain if isinstance(c, (*LOOPS, *FUNCS, ast.ClassDef))), None)
             if isinstance(loop, LOOPS) and not any(c is loop for c in inside):
                 for x in [y for b in (loop.body, loop.orelse) for t in b for y in (t, *inner(t))]:
                     controlled.setdefault(id(x), x)
+                return self.left([loop], why) if isinstance(s, ast.Break) else set()
         elif isinstance(s, ast.Return):
             if inside and any(isinstance(c, FUNCS) for c in inside):
-                return
+                return set()
             for x in self.rest(owner, lst, i, FUNCS):
                 controlled.setdefault(id(x), x)
+            return self.left(list(itertools.takewhile(lambda c: not isinstance(c, FUNCS), chain)), why)
         elif isinstance(s, ast.Raise):
             if any(isinstance(c, FUNCS) for c in chain):
                 if own and not any(isinstance(c, FUNCS) for c in inside):
                     why.add(f"line {s.lineno}: a raise changed or removed inside a function")
-                return
+                return set()
             for x in self.rest(owner, lst, i, ()):
                 controlled.setdefault(id(x), x)
+        return set()
+
+    def left(self, chain, why) -> set[str]:
+        """A ``for`` left early keeps its target's last value and how far its iterable was used up. The target is
+        tainted; the iterable must be shaped (a fresh value, never a shared iterator or a parameter), else a reason."""
+        out: set[str] = set()
+        for f in (c for c in chain if isinstance(c, (ast.For, ast.AsyncFor))):
+            out |= targets(f.target) or {x.id for x in ast.walk(f.target) if isinstance(x, ast.Name)}
+            if not self.sn.shaped(f.iter, True):
+                why.add(f"line {f.lineno}: a for left early by the change, over a value not shaped")
+        return out
 
     def uses(self, hot) -> list[str]:
         """A function or class holding the change is reached only by a call G3 follows: never decorated (a decorator
