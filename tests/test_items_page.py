@@ -934,3 +934,85 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+TICKETS = """
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({d!r})))
+t = time.time() - 30000
+steps = ["ticket.pick-up", "ticket.locate", "ticket.work", "ticket.open-pr", "ticket.ask-review"]
+for i in range(1, 9):
+    item = f"ticket/PROJ-{{100 + i}}"
+    for j, ev in enumerate(steps[: 2 + i % 4]):
+        data = {{}}
+        if j == 0:
+            data = {{"title": f"Make the export of the quarterly figures keep its column order, case {{i}}",
+                     "repo": "some-organisation/platform-services-monorepo"}}
+        if ev == "ticket.open-pr":
+            data = {{"pr": 7000 + i,
+                     "pr_url": f"https://git.example.com/some-organisation/platform-services-monorepo/pull/{{7000 + i}}"}}
+        if ev == "ticket.ask-review":
+            data = {{"repings": 2, "ci_failures": 1, "ai_cost_usd": 1.2345}}
+        p.events.add(ev, item=item, data=data, at=t + i * 600 + j * 60)
+p.events.add("ergostat.lease.taken", item="ticket/PROJ-103", data={{"block": "ask-review", "ttl": 2400, "max": 3,
+             "back": "pr-open", "tier": "program", "run": "run3aaaaaaaa", "fence": 1}})
+"""
+
+FITS = """() => {
+  const wrap = [...document.querySelectorAll('.table-wrap')].find((w) => w.textContent.includes('PROJ-101'));
+  const right = wrap.getBoundingClientRect().right;
+  return { wide: wrap.scrollWidth - wrap.clientWidth,
+           out: [...wrap.querySelectorAll('th')].filter((e) => e.getBoundingClientRect().right > right + 0.5).map((e) => e.textContent),
+           clipped: [...wrap.querySelectorAll('th, td')].filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent),
+           pr: [...wrap.querySelectorAll('td a[href*="/pull/"]')].map((a) => a.textContent),
+           shown: [...wrap.querySelectorAll('th')].filter((e) => e.offsetParent).map((e) => e.textContent) };
+}"""
+
+
+def test_the_items_table_fits_at_1440_px(browser, tmp_path):
+    """At 1440x900 the ticket table's every header ends within its container and no cell's text is clipped; a pull
+    request's address is a short link ('PR #7001'). At phone width the id, the state and the time in it are kept."""
+    d = tmp_path / "ticket-factory"
+    shutil.copytree(ROOT / "examples" / "ticket-factory", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    home = tmp_path / "home"
+    subprocess.run([sys.executable, "-c", TICKETS.format(d=str(d))], env={**os.environ, "ERGOSTAT_HOME": str(home)},
+                   check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        deadline = time.monotonic() + 120              # a loaded machine starts it slowly: wait for it, not a count
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    pytest.fail("the page never came up")
+                time.sleep(0.2)
+        pg.goto(f"{url}/items?kind=ticket")
+        pg.wait_for_function("""() => document.body.innerText.includes('PROJ-108')
+                                && document.body.innerText.includes('leased by')""")
+        got = pg.evaluate(FITS)
+        assert got["wide"] <= 0 and not got["out"], got
+        assert not got["clipped"], got
+        assert got["pr"] and all(t.startswith("PR #70") for t in got["pr"]), got
+        assert {"latest", "last", "in state"} <= set(got["shown"]), got
+        pg.set_viewport_size({"width": 390, "height": 844})
+        pg.wait_for_function(f"() => ({FITS})().shown.length === 3")
+        got = pg.evaluate(FITS)
+        assert got["shown"] == ["item", "state", "in state"], got
+        assert got["wide"] <= 0, got
+        assert not errors, errors
+    finally:
+        pg.close()
+        proc.terminate()
+        proc.wait(timeout=10)

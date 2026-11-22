@@ -25,3 +25,26 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. 10 net lines outside tests (pages.js +3 net, style.css +5).
+
+- `fieldView` in a table cell (small) shows a pull or merge request's address (`…/pull/N`, `…/pulls/N`,
+  `…/merge_requests/N`) as a link `PR #N`, the full address in its title. Other URLs are unchanged.
+- "Wrap the row's secondary fields onto a second line" was taken as the most reversible reading: in the kinds' lists
+  (`table.kind-items`, a class added beside `items`) a field's cell wraps its text onto more lines instead of
+  cutting it with an ellipsis, the headers may wrap, and 'latest' is no longer kept to one line. No row layout or
+  markup was restructured. With the short link alone the ticket table still overflowed by 191 px, so the wrapping is
+  needed.
+- At 700 px or narrower the lists keep only the item, its state and 'in state' (`.keep`); the remote section's
+  table, which also has class `items`, is not touched.
+- The demo on :8791 is not reachable from this container; the test serves a copy of `examples/ticket-factory` with
+  eight seeded tickets (long titles and repo names, GitHub-style pr_url, one lease, so the lease columns show).
+
+Test: `tests/test_items_page.py::test_the_items_table_fits_at_1440_px`. It failed before the change (393 px over,
+six headers past the edge, titles clipped) and fails with each piece broken in turn: no short link (no `PR #`
+link), no wrapping (191 px over, `events`, `latest`, `last` out), no phone rule (times out waiting for three
+columns). Run here: that test, `tests/test_items_page.py` whole (22 passed) and `tests/test_page_refresh.py` (8
+passed), with Playwright under the watchdog; ruff clean. Not run here: the unit suite, the other two browser files,
+demo_check (no example changed). Main was not merged again: local `main` is this branch's base.
