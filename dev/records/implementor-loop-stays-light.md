@@ -27,3 +27,50 @@ The owner (2026-11-21): "We only want to run a minimum set of specific tests dur
 
 ## Size budget
 40 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1, built, with one condition on the dependency.
+
+**Done.** `dev/bin/onmain.py`: `FAST` is now `fast(cfg)`, which is ruff, then `build` (`unit` when no build is set),
+then `browser` only if `[suites] build_browser` is the boolean `true`. `AGAIN` maps `build` to `alone`.
+`dev/bin/implement.py` (outside Files to touch; 3 lines are needed because it called `browser_ready` and summed
+`onmain.FAST`) now calls `agents.browser_ready` only when the round runs the browser files. `dev/bin/queue.py` is
+unchanged: it still runs ruff, unit plus browser, then demo, and its skip check is untouched. `dev/bin/agents.py`:
+the implementor's broad `Bash(uv run python scripts/suite_watch.py:*)` is replaced by
+`Bash(uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs tests/test_*)`.
+`DENY` gains `… suite_watch.py * -n*` and `… * --numprocesses*`. `[agents] session_cpus` (`settings()`) is the
+`--cpus` of `run_args`, which every AI session's container uses. Empty or absent gives the suites' 4. A value that is
+not a number, or is outside (0, 4], is refused (`Refused`). Suite containers (`contained`) and the git-only `finish`
+container keep `LIMITS`' 4. `dev/factory.toml` has `session_cpus = 1.5` and `build_browser = false`, each with a
+comment. `dev/prompts/implementor.md` now says this. Net lines outside tests and docs: 32.
+
+**Most reversible choices made here (nobody to ask):**
+- `build-suite-configurable` (the `depends-on`) is **not on main** at 07f9b250: there is no `[suites] build` and no
+  `scripts/affected_tests.py`. I did not build it here. Until it lands, `fast()` falls back to the whole `unit`
+  suite (the behaviour before this gap, minus the browser), so "never runs the whole unit suite" holds only once
+  `[suites] build` is set. The prompt says this ("the unit suite while none is set").
+- The quarantine handling (`fac.deselected`, and `suites()`' quarantined run beside) keys on `unit`/`browser`. A
+  `build` suite therefore gets no deselection and no beside-run. That belongs to the dependency or a gap of its own.
+- The permission relies on Claude Code reading a `*` that is not at the end as "anything", and `:*` as "a space
+  then anything". `tests/test_agents.py::permits` models that reading. I did not check it against the real binary:
+  `claude --version` was refused here. A prefix cannot stop flags after the file, so the `-n`/`--numprocesses` deny
+  rules carry that.
+- `Bash(uv run python -m pytest:*)` is unchanged (point 2 names only the `suite_watch` command). A session can still
+  run `uv run python -m pytest -n 4` without the watchdog. Closing that is a gap of its own.
+
+**The instance's live edits this replaces (point 5):** the hand edits to `dev/bin/agents.py` `run_args` (a session's
+`--cpus`) and `TOOLS` (the implementor's `suite_watch` permission), and `[agents] session_cpus` in
+`factory.local.toml`. Once this lands, drop the `agents.py` edits. The local key can be removed, since 1.5 is now the
+default, or kept as an override (it is read the same way). The brief this session got also differed from
+`dev/prompts/implementor.md` at point 3: it had no browser-file command. So the live prompt looks hand-edited too,
+and this version replaces that edit as well.
+
+**Run:** `tests/test_agents.py` (10 passed, including the real Chromium launch), `tests/test_factory.py` (126
+passed, 2 skipped: both are `docker_ready()` tests, and there is no Docker here), `tests/test_factory_manager.py`,
+`_sessions.py`, `_times.py`, `_knowledge.py` (all passed), and ruff (clean). Break checks (lesson-9): I forced the
+browser into `fast()`, gave sessions a fixed "4", dropped the `-n` deny rule and dropped `browser` from the queue's
+step. Each of the six new tests failed. Restoring the broad `suite_watch.py:*` permission, and separately removing
+the 4-CPU ceiling, failed the permission and CPU tests. **Not run:** the whole unit suite and the four browser files
+(the prompt forbids it; the queue runs them). origin/main: the clone has no remote. Local `main` (07f9b250) is
+this branch's base.
