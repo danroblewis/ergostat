@@ -19,14 +19,15 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 
 /* a loop's behaviour, with hysteresis: its class (the words without their numbers) changes only once the new class
    has held for HOLD_SHARE of the window (a minute at least), and within a class its numbers are kept as long;
-   remembered across reloads, so a reload alone never flips it */
+   remembered across reloads (by project), so a reload alone never flips it; a word not seen within the last hold is
+   stale and the new one is shown at once */
 const HOLD_SHARE = 0.05;
 function steadyWord(name, word, win) {
-  const key = `ergostat.behaviour.${name}`, now = Date.now(), hold = Math.max(60, HOLD_SHARE * win) * 1000;
+  const key = `ergostat.behaviour.${S.status?.name || ""}.${name}`, now = Date.now(), hold = Math.max(60, HOLD_SHARE * win) * 1000;
   const cls = (w) => w.replace(/[\d(−-].*$/, "").replace(/[,\s]+$/, "");
   let k = null;
   try { k = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { /* none kept */ }
-  if (!k || typeof k.word !== "string") k = { word, at: now };
+  if (!k || typeof k.word !== "string" || !(now - k.seen < hold)) k = { word, at: now };
   else if (cls(k.word) !== cls(word)) {                    // another class: it must hold before it is shown
     if (k.next !== cls(word)) Object.assign(k, { next: cls(word), since: now });
     if (now - k.since >= hold) k = { word, at: now };
@@ -34,6 +35,7 @@ function steadyWord(name, word, win) {
     delete k.next;
     if (now - k.at >= hold) k = { word, at: now };
   }
+  k.seen = now;
   try { localStorage.setItem(key, JSON.stringify(k)); } catch (e) { /* this page only */ }
   return k.word;
 }

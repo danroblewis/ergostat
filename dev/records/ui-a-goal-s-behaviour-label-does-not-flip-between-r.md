@@ -55,3 +55,25 @@ Run: that test, `test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snap
 `tests/test_web_access.py` (26 passed) and `tests/test_graph_cli_web.py` (31 passed); ruff clean. Not run: the whole
 unit suite and the four browser files in full (left to the factory and the merge queue). `main` has not moved since
 the clone, so there was nothing to merge.
+
+## Where it stopped (round 2)
+
+Main (277a9c6c) merged in first. Its one conflict was in `tests/test_graph_cli_web.py`, and both sides' tests are kept.
+
+The review's one finding is answered in `steadyWord` (pages.js), with about 3 more net lines of code (about 32 in all):
+- A kept word holds a change back only if this browser saw it within the last hold (`seen`, stamped on each use). A
+  word that is older than the hold, or has no readable stamp, is stale, and the new word is shown at once. So a browser
+  that saw 'within its bound' yesterday shows 'flapping' at once on reopening.
+- The key is scoped to the project: `ergostat.behaviour.<S.status.name>.<goal>`, like the sibling keys. A word kept
+  for another project, or under the old unscoped key, is never read.
+
+Test: `test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named` now also plants kept words and reloads:
+- A kept word seen a second ago still holds a change back.
+- A word seen a day ago, plus fresh words under another project's key and the old unscoped key, gives 'flapping
+  (23 crossings ...)' at once.
+
+Two breaks each made the test fail: no staleness check (it showed 'within its bound'), and the unscoped key.
+
+Run: that test and `tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (2 passed, rc 0, under the
+watchdog); `tests/test_graph_cli_web.py` (33 passed); ruff clean. Not run: the whole unit suite and the four browser
+files in full (left to the factory and the merge queue).

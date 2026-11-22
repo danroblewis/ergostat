@@ -2425,6 +2425,19 @@ def test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named(browser, t
             assert "<1%" in cells and "0%" not in cells, cells
             assert "flapping" in perf["flappy"] and "23 crossings" in perf["flappy"], perf
         assert loaded[0] >= 5 and len(set(seen)) == 1, (loaded, seen)
+
+        def flappy_after(kept):                          # kept words, by key suffix and age in ms; then a reload
+            pg.evaluate("""(kept) => { const t = Date.now();
+                for (const [k, age] of kept) localStorage.setItem(k.replace('$P', S.status.name),
+                  JSON.stringify({ word: 'within its bound', at: t - age, seen: t - age })); }""", kept)
+            pg.goto(url + "/loops")
+            pg.wait_for_function("() => document.querySelector('td[data-perf=\"flappy\"]')?.textContent", timeout=20000)
+            return pg.evaluate("() => document.querySelector('td[data-perf=\"flappy\"]').textContent")
+        own = "ergostat.behaviour.$P.flappy"
+        assert flappy_after([[own, 1000]]) == "within its bound"       # seen a moment ago: the change is held back
+        # seen a day ago (older than the hold), or kept under another project or no project: the new word at once
+        word = flappy_after([[own, 864e5], ["ergostat.behaviour.another.flappy", 0], ["ergostat.behaviour.flappy", 0]])
+        assert "flapping" in word and "23 crossings" in word, word
         rows = pg.evaluate("() => performanceRows({ performance: { constraint: { share: 0.003, share_off: 0, mean: 1, worst: 1 } } })")
         past = dict(rows)["past its bound"]
         assert past.startswith("<1% of the time (0% past its tolerance)") and "by any amount" in past and "time off" in past, past
