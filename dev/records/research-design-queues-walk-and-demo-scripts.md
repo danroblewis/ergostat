@@ -61,3 +61,29 @@ Not checked: the first test run's the-job runner (pid 740, its stop timed out at
 cannot run ps; it had already been sent SIGTERM.
 
 Overrun reason: the scripts are 290 lines against 200. About 30 are module docstrings that give the usage, the stop's wait-then-kill of the process group (lesson-6), the start lock (lesson-1), and walk's up-front refusal of malformed steps account for the rest.
+
+Round 2 (answering review 1; every finding):
+- Blocking, stop's SIGKILL reached only the runner's process group: fixed. stop now finds the runner's pid only while the
+  runner holds its run.pid lock (a stale file's pid may be another's now). It records the runner and every descendant
+  with its start time, once before `run --stop` and every 0.5 s while it waits. Then it sweeps whatever of them is
+  still alive with the start time it was seen with: SIGTERM, then SIGKILL after 5 s, to each pid and to the groups they
+  lead (never demo_up's own group). Left alive, or still running, means rc 1 and the state is kept. It does not call
+  reap.stop as it is: that lists processes with ps, this container has no ps, and an empty list would read as nothing
+  to stop (lesson-3). So demo_up reads /proc where there is one and falls back to reap.tree (ps) elsewhere, and uses
+  reap.descendants. If it can list neither, stop does nothing and exits 1. New test
+  test_demo_up_stop_ends_what_the_runner_left: a fake runner that ignores SIGTERM and holds run.pid's lock, with a
+  child in its own session that also ignores SIGTERM. stop must end both. Broken on purpose (only the runner swept),
+  the test fails, and the broken stop also returned 0 with the child alive. Not covered: a process the runner starts
+  after the last look and leaves behind when it ends (said in docs/DEVELOPMENT.md).
+- walk.py proxy user and password are now percent-decoded (unquote). The test asserts password "p@".
+- demo_up start fails at once (rc 1, stopped, state removed) when `ergostat run` exits non-zero. New test
+  test_demo_up_fails_at_once_when_run_fails.
+- walk.py refuses a non-boolean dark (`{"dark": "false"}`) before Chromium starts. Asserted in
+  test_walk_refuses_bad_shot_names.
+- server.py from=/to= (a finding of another gap's review, ui-from-a-crossing-...): outside this gap, left alone.
+Tests: tests/test_walk_scripts.py, 14 passed (202.6 s, under the watchdog with playwright==1.63.0, nothing left
+behind). The file took 92.8 s in round 1; the reason for the difference was not looked into. ruff is clean. main was
+merged in and was already up to date.
+Refused here: a `cat >> ... <<EOF` append to this file (written with the edit tool instead).
+
+Overrun reason: the scripts are 356 lines against 200. Round 1's 290 are explained above. The other 66 are the descendant sweep that stop needs so that agent runs and daemons in their own sessions do not survive it (lesson-6), the locked-pid read that keeps it off a reused pid, the /proc listing (this container has no ps, so reap.stop alone would fail open), and the fail-at-once on a failed run.

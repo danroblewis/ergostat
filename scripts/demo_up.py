@@ -10,6 +10,7 @@ an ERGOSTAT_HOME of its own beside the copy. One start at a time per demo: a sec
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import json
 import os
@@ -22,14 +23,72 @@ import time
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parent.parent)]
 from demo_check import DEMOS, ERGOSTAT, OFFLINE, fresh_copy  # noqa: E402
+
+from ergostat.library import reap  # noqa: E402
 
 STATE = Path(os.environ.get("DEMO_UP_STATE") or "/tmp/ergostat-demo-up")   # DEMO.json: what start made, for stop
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 WAIT = 90                                    # seconds for the demo's web to answer
-STOP_WAIT = 60                               # seconds a stopping runner is given before its process group is killed
+STOP_WAIT = 60                               # seconds a stopping runner is given before what is left is killed
+KILL_GRACE = 5                               # seconds between SIGTERM and SIGKILL for what is left
 OWNER_PORT = 8790                            # the owner's page: never taken here
+
+
+def table(started: dict) -> dict[int, tuple[int, int]]:
+    """Every live process: pid → (parent, group), its start time put in ``started``. From /proc where there is one
+    (a container may have no ps), else ps (reap.tree). Zombies are left out: they have ended."""
+    if not Path("/proc/self/stat").is_file():
+        return reap.tree(started)
+    got = {}
+    for d in Path("/proc").iterdir():
+        try:
+            f = (d / "stat").read_text().rsplit(")", 1)[1].split() if d.name.isdigit() else ["Z"]
+        except (OSError, IndexError):
+            continue
+        if f[0] not in ("Z", "X"):
+            got[int(d.name)], started[int(d.name)] = (int(f[1]), int(f[2])), f[19]
+    return got
+
+
+def look(pid: int | None, seen: dict) -> tuple[dict, set[int]]:
+    """Add ``pid`` and every descendant of it now to ``seen`` (pid → start time). The table, and those seen alive now
+    with the start time they were seen with (never a pid used again)."""
+    procs = table(now := {})
+    if pid in procs:
+        seen.update({p: now[p] for p in reap.descendants(pid, procs) | {pid} if p in now})
+    return procs, {p for p, s in seen.items() if now.get(p) == s}
+
+
+def runner_pid(home: str) -> int | None:
+    """The runner's pid from the home this script made for the copy, only while it holds its run.pid's lock (a
+    file nobody holds is stale, and its pid may be another's now: as ergostat's runner.running_pid)."""
+    for path in Path(home).glob("*/run.pid"):
+        with contextlib.suppress(OSError, ValueError), open(path) as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return int(f.read().strip())
+    return None
+
+
+def sweep(pid: int | None, seen: dict) -> set[int]:
+    """Stop the runner, everything seen under it (an agent run or daemon is a session of its own, outside the runner's
+    group) and the groups they lead: SIGTERM, then SIGKILL. What is left alive is returned."""
+    for sig, grace in ((signal.SIGTERM, KILL_GRACE), (signal.SIGKILL, 2)):
+        procs, live = look(pid, seen)
+        for g in {procs[p][1] for p in live} - {os.getpgrp(), 0}:
+            with contextlib.suppress(OSError):
+                os.killpg(g, sig)
+        for p in live - {os.getpid()}:
+            with contextlib.suppress(OSError):
+                os.kill(p, sig)
+        end = time.monotonic() + grace
+        while live and time.monotonic() < end:
+            time.sleep(0.1)
+            live = look(None, seen)[1]
+    return look(None, seen)[1]
 
 
 def demo_dir(name: str) -> Path:
@@ -84,6 +143,11 @@ def start(name: str, port: int | None) -> int:
     m = re.search(r"· log (\S+)", r.stdout)
     st["log"] = m.group(1) if m else str(copy.parent / "up.log")
     saved.write_text(json.dumps(st))                 # before the wait: a stop meanwhile finds it
+    if r.returncode != 0:                            # (a model with errors: no wait for a web that will not come)
+        print(f"{name}: ergostat run failed (rc {r.returncode}). log: {st['log']}\n{r.stdout}{r.stderr}",
+              file=sys.stderr)
+        stop(name)
+        return 1
     end = time.monotonic() + WAIT
     while time.monotonic() < end:
         try:
@@ -108,21 +172,21 @@ def stop(name: str) -> int:
         print(f"{name} was not started here", file=sys.stderr)
         return 1
     st = json.loads(saved.read_text())
+    if not table({}):
+        print(f"{name}: no process can be listed here (no /proc, no ps), so what it started cannot be found to stop; "
+              "nothing done", file=sys.stderr)
+        return 1                                      # (not counted as stopped)
+    pid, seen = runner_pid(st["home"]), {}
+    look(pid, seen)                                 # what runs under it, found while the runner still lives
     r = ergostat(st, "run", "--stop")                 # SIGTERM, waited on for 10 s
     print((r.stdout + r.stderr).strip())
     end = time.monotonic() + STOP_WAIT
     while running(st) and time.monotonic() < end:
+        look(pid, seen)
         time.sleep(0.5)
-    if running(st):                                   # still up: its process group (its own session) killed
-        for pid in Path(st["home"]).glob("*/run.pid"):   # (the home this script made for this copy, so ours)
-            try:
-                os.killpg(int(pid.read_text().strip()), signal.SIGKILL)
-                print(f"killed {pid.read_text().strip()}")
-            except (ValueError, OSError) as e:
-                print(f"could not kill the runner in {pid}: {e}", file=sys.stderr)
-        time.sleep(1)
-    if running(st):
-        print(f"{name} is still running ({st['copy']})", file=sys.stderr)
+    left = sweep(pid, seen)                           # the runner if still up, and anything of it left behind
+    if left or running(st):
+        print(f"{name} is still running ({st['copy']}; pids {sorted(left)})", file=sys.stderr)
         return 1
     saved.unlink()
     return 0

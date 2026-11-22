@@ -4,6 +4,7 @@ list of steps (dev/records/research-design-queues-walk-and-demo-scripts.md). The
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import importlib.util
 import json
@@ -11,6 +12,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import types
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -93,6 +95,66 @@ def test_demo_up_starts_and_stops_each_named_demo(tmp_path, demo):
     assert s.returncode == 0, s.stdout + s.stderr
 
 
+RUNNER = """import fcntl, os, signal, subprocess, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)                  # a runner that will not stop when told
+home = sys.argv[1]
+f = open(os.path.join(home, "p", "run.pid"), "a+")
+fcntl.flock(f, fcntl.LOCK_EX); f.truncate(0); f.write(str(os.getpid())); f.flush()
+kid = subprocess.Popen([sys.executable, "-c", "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                        "time.sleep(600)"], start_new_session=True)  # as an agent run or a daemon: its own session
+open(os.path.join(home, "kid.tmp"), "w").write(str(kid.pid)); os.rename(os.path.join(home, "kid.tmp"),
+                                                                       os.path.join(home, "kid"))
+time.sleep(600)
+"""
+
+
+def test_demo_up_stop_ends_what_the_runner_left(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEMO_UP_STATE", str(tmp_path / "state"))
+    up = script("demo_up")
+    home = tmp_path / "home"
+    (home / "p").mkdir(parents=True)
+    runner = subprocess.Popen([sys.executable, "-c", RUNNER, str(home)], start_new_session=True)
+    threading.Thread(target=runner.wait, daemon=True).start()     # (reaped when it ends)
+    try:
+        for _ in range(200):
+            if (home / "kid").exists():
+                break
+            threading.Event().wait(0.05)
+        kid = int((home / "kid").read_text())
+        assert {runner.pid, kid} <= set(up.table({}))
+        (tmp_path / "state").mkdir()
+        st = {"demo": "the-job", "copy": str(tmp_path / "copy"), "home": str(home), "url": None, "log": None}
+        (tmp_path / "state" / "the-job.json").write_text(json.dumps(st))
+        told = []
+        monkeypatch.setattr(up, "ergostat", lambda st, *a: told.append(a) or subprocess.CompletedProcess(a, 0, "", ""))
+        monkeypatch.setattr(up, "running", lambda st: up.runner_pid(st["home"]) is not None)
+        monkeypatch.setattr(up, "STOP_WAIT", 1)
+        monkeypatch.setattr(up, "KILL_GRACE", 1)
+        assert up.main(["stop", "the-job"]) == 0
+        assert told == [("run", "--stop")]
+        alive = set(up.table({}))
+        assert runner.pid not in alive and kid not in alive          # the runner and the child in its own session
+        assert not (tmp_path / "state" / "the-job.json").exists()
+    finally:
+        runner.kill()
+        with contextlib.suppress(NameError, OSError):
+            os.kill(kid, 9)
+
+
+def test_demo_up_fails_at_once_when_run_fails(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DEMO_UP_STATE", str(tmp_path / "state"))
+    up = script("demo_up")
+    (tmp_path / "copy").mkdir()
+    monkeypatch.setattr(up, "fresh_copy", lambda d: tmp_path / "copy")
+    told = []
+    monkeypatch.setattr(up, "ergostat", lambda st, *a: told.append(a) or subprocess.CompletedProcess(
+        a, 2 if a[0] == "run" and a[1] != "--stop" else 0, "the model has errors", ""))
+    began = time.monotonic()
+    assert up.main(["start", "the-job"]) == 1
+    assert time.monotonic() - began < 10 and ("--json",) not in told          # no wait for its web
+    assert "rc 2" in capsys.readouterr().err and not (tmp_path / "state" / "the-job.json").exists()
+
+
 PAGE = """<!doctype html><html><body>
 <button id="b" onclick="document.getElementById('out').textContent = 'clicked'">go</button>
 <p id="out">not yet</p><p id="hov" onmouseover="this.textContent = 'hovered'">hover me</p>
@@ -173,6 +235,7 @@ def test_walk_refuses_bad_shot_names(tmp_path, capsys):
     assert not (tmp_path / "nope").exists()
     assert w.main([json.dumps([{"jump": 1}])]) == 2 and w.main([json.dumps([{"click": "a", "hover": "b"}])]) == 2
     assert w.main(['{"goto": "x"}']) == 2
+    assert w.main([json.dumps([{"dark": "false"}])]) == 2 and w.problems([{"dark": False}], None) == []
 
 
 class FakeChromium:
@@ -193,6 +256,7 @@ def test_walk_proxy_only_off_loopback(monkeypatch):
     assert got == {"proxy": {"server": "http://egress.internal:3128", "bypass": "127.0.0.1,localhost"}}
     got = w.launch_options({"https_proxy": "http://u:p%40@egress.internal:3128"})
     assert got["proxy"]["server"] == "http://egress.internal:3128" and got["proxy"]["username"] == "u"
+    assert got["proxy"]["password"] == "p@"                              # percent-decoded
     # and the walk launches Chromium with exactly these
     chromium = FakeChromium()
     pw = types.SimpleNamespace(chromium=chromium)

@@ -131,7 +131,13 @@ uv run python scripts/demo_up.py stop the-job
 `..`) is refused before anything is copied. It runs the copy the way `demo_check.py` does: offline against the demo's
 fakes, with an `ERGOSTAT_HOME` of its own beside the copy. It waits up to 90 s for the page to answer, and refuses a
 second start of a demo that is still running. Without `--port` it picks a free port (never 8790, the owner's page).
-`stop` gives the runner 70 s to stop. After that it kills the runner's process group.
+A start whose `ergostat run` fails (a model with errors) is reported at once.
+`stop` asks the runner to stop and gives it 70 s. Then it stops, with SIGTERM and then SIGKILL, whatever is left: the
+runner, the agent runs and daemons it was seen to have started (each one in a session of its own), and the process
+groups they lead. It finds them by reading /proc, or `ps` where there is no /proc. Where it can list neither, it does
+nothing and exits 1. If anything is still alive afterwards, it exits 1 and keeps the demo's record. It looks for them
+before it asks, then every half second while it waits, so a process that the runner starts after the last look and
+leaves behind when it ends is not seen.
 
 `walk.py` runs its steps in one page, 1440x900 unless `--size` says otherwise. The steps are `goto`, `size`
 (`[W, H]`), `dark` (true or false), `wait` (milliseconds or a selector), `click`, `hover`, `fill` (`[SEL, TEXT]`),

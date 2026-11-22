@@ -18,7 +18,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 KINDS = ("goto", "size", "dark", "wait", "click", "hover", "fill", "press", "scroll", "shot", "text")
 SHOT_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}\.png$")
@@ -34,7 +34,7 @@ def launch_options(env: dict) -> dict:
     u = urlsplit(url if "://" in url else f"http://{url}")
     proxy = {"server": f"{u.scheme}://{u.hostname}" + (f":{u.port}" if u.port else ""), "bypass": LOOPBACK}
     if u.username:
-        proxy.update(username=u.username, password=u.password or "")
+        proxy.update(username=unquote(u.username), password=unquote(u.password or ""))
     return {"proxy": proxy}
 
 
@@ -60,6 +60,8 @@ def problems(steps, shots: Path | None) -> list[str]:
             out.append(f"step {i}: refused shot name {s['shot']!r} (it must match {SHOT_NAME.pattern})")
         elif k == "shot" and shots is None:
             out.append(f"step {i}: a shot needs --shots DIR")
+        elif k == "dark" and not isinstance(s["dark"], bool):
+            out.append(f"step {i}: dark must be true or false, not {json.dumps(s['dark'])}")
     return out
 
 
