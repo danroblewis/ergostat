@@ -889,7 +889,7 @@ def test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back(br
         pg.wait_for_function(item_page, arg=ADDRESSED[1], timeout=20000)
         # a query kept on the path: the diagram's view, and reloaded as it was
         pg.goto(url + "/diagram?view=blocks")
-        pg.wait_for_function("() => document.querySelector('.toolbar .seg button.on')?.textContent === 'Blocks'", timeout=30000)
+        pg.wait_for_function("() => document.querySelector('.toolbar .seg button.on')?.textContent.startsWith('Blocks')", timeout=30000)
         # old #/ addresses (bookmarks, briefs, messages): shown at their paths
         for old, new in (("/#/item/ticket%2F7", "/item/ticket%2F7"), ("/#/items?kind=ticket", "/items?kind=ticket"),
                          ("/#/diagram?view=blocks", "/diagram?view=blocks"), ("/#/fit", "/model")):
@@ -1944,9 +1944,32 @@ def test_the_dynamics_view_draws_only_system_dynamics_symbols_each_loop_marked_e
             drawn(pg, url, v, i)
             bad = pg.evaluate(SD_CHECK)
             assert not bad, (v, bad[:10])
-        assert pg.locator(".toolbar .seg button.on").inner_text().lower() == "dynamics"
+        assert pg.locator(".toolbar .seg button.on").inner_text().lower().startswith("dynamics")
         assert not errors, errors
         pg.close()
+
+
+def test_the_view_switch_says_what_each_view_shows_on_a_wide_screen_and_a_phone(browser, tmp_path):
+    want = [("Dynamics", "what is"), ("Blocks", "what is controlled"), ("Process", "what happened")]
+    with served("software-factory", tmp_path) as url:
+        for width, height in ((1440, 900), (390, 844)):
+            pg = browser.new_page(viewport={"width": width, "height": height})
+            drawn(pg, url, "", 0)
+            buttons = pg.locator('.toolbar .seg[aria-label="View"] button')
+            assert buttons.count() == 3, width
+            for i, (name, what) in enumerate(want):
+                b = buttons.nth(i)
+                text = " ".join(b.inner_text().split())           # inner_text: only what is rendered visibly
+                assert text.startswith(name) and what in text, (width, text)
+                assert b.get_attribute("title"), (width, name)    # the hover title is kept
+                half = b.locator(".what")
+                assert half.is_visible(), (width, name)
+                box, page_w = half.bounding_box(), pg.evaluate("document.documentElement.clientWidth")
+                assert box and box["x"] >= 0 and box["x"] + box["width"] <= page_w + 1, (width, name, box)
+            if width > 700:                                     # the longer labels leave the top edge's split grip reachable
+                assert pg.evaluate("""() => { const r = document.querySelector('.split-grip[data-edge="top"]').getBoundingClientRect();
+                  return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest('.split-grip') !== null; }""")
+            pg.close()
 
 
 def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):

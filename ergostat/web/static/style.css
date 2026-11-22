@@ -248,6 +248,7 @@ body:has(#detail:not([hidden])) .diagram > .side { display: none; }
 .toolbar select:hover { background: var(--fill); }
 .toolbar .sep { width: var(--hair); align-self: stretch; background: var(--line); margin: var(--sp-0) var(--sp-1); }
 .seg { display: inline-flex; gap: var(--sp-0); }
+.seg .what { display: block; font-size: var(--text-sm); color: var(--muted); }   /* under the name: the toolbar no wider, clear of the top grip */
 .strip p.risk { margin: var(--sp-1) 0 0; }
 .block-models ul { margin: var(--sp-1) 0; padding-left: var(--sp-4); }
 .block-models summary { cursor: pointer; }
