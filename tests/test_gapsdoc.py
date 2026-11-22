@@ -302,6 +302,38 @@ def test_split_appends_each_entry_to_its_record_and_never_overwrites(tmp_path, m
     assert {p: p.read_text() for p in rec.glob("*.md")} == before
 
 
+SPLIT_COMMIT = "b8334bfc6722d3555a1807f852aba3e85fd6e713"     # `gapsdoc.py split`, run once on main's GAPS.md
+
+
+def files_at(ref: str) -> dict[str, str]:
+    """docs/GAPS.md and dev/records as commit ``ref`` holds them, by path."""
+    names = git(ROOT, "ls-tree", "-r", "--name-only", ref, "--", "docs/GAPS.md", "dev/records/").stdout.split()
+    return {n: git(ROOT, "show", f"{ref}:{n}").stdout for n in names}
+
+
+def test_the_split_commit_moves_every_entry_into_the_records_and_every_reader_sees_the_same():
+    import deps
+    import fac
+    import intake
+    assert git(ROOT, "cat-file", "-e", f"{SPLIT_COMMIT}^{{commit}}").returncode == 0
+    before, after = files_at(f"{SPLIT_COMMIT}^"), files_at(SPLIT_COMMIT)
+    gaps = before["docs/GAPS.md"]
+    assert after["docs/GAPS.md"] == gaps                           # GAPS.md itself is not changed by the split
+    s = gapsdoc.split(gaps)
+    assert after["dev/records/GAPS-head.md"] == s["head"]
+    for name, entry in s["records"].items():                       # each appended, nothing overwritten
+        was = before.get(f"dev/records/{name}.md", "")
+        assert after[f"dev/records/{name}.md"] == (was.rstrip("\n") + "\n\n" + entry if was.strip() else entry), name
+        assert was or fac.entry_only(entry)                        # a new record is no definition (intake, fac)
+    made = {f"dev/records/{n}.md" for n in s["records"]} | {"dev/records/GAPS-head.md"}
+    assert {p for p in after if p not in before} == made - set(before)          # nothing else made
+    records = {Path(p).stem: t for p, t in after.items() if p.startswith("dev/records/") and "GAPS-head" not in p}
+    text, problems = gapsdoc.render(records, s["head"])
+    assert text == gaps and problems and all(gapsdoc.BENIGN.search(p) for p in problems)   # (the two External logs)
+    assert intake.gaps_md(text) == intake.gaps_md(gaps) and intake.twice(text) == intake.twice(gaps)  # gaps, closes
+    assert deps.from_gaps(text) == deps.from_gaps(gaps)            # links and their sources
+
+
 def tree(root: Path, records: dict[str, str]) -> str:
     """dev/records under ``root`` (with HEAD) and docs/GAPS.md their render, as main holds them: that GAPS.md."""
     (root / "dev" / "records").mkdir(parents=True)
