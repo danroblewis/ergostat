@@ -365,19 +365,20 @@ re-ping's 10 s sensors and 30 s pinger) pass the gate but not those limits; coll
 
 `use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own
 upkeep as loops of the model: the item-index files (section 4b: one `<state>/items/<hash>[.n].db` per shape of the
-model's item kinds), and the watched loops below. The stock `index-files` (`ergostat.upkeep.index-files`,
-the live files) fills by `index-files-made` (`changes: rises`, a new file on each change to the kinds) and drains by
-`index-files-tidied` (`changes: falls`). The stock `retired-index-files` (`ergostat.upkeep.retired-index-files`)
-drains by `retired-index-files-removed`. A file is *retired* when its mark `<hash>[.n].retired` stands beside it
-(`itemindex.retired`, the one test the measures and the tidy both use): a process still held it when it was due to
-go, and it is never opened again. The goal `index-files-few` holds `index-files <= ${index-files}` (default 6, 1 to
-64, checked when the model loads), and `no-retired-index-files` holds the retired ones at 0. The controller
-`index-tidier` is a program on the rule rung, `${lib} upkeep tidy --keep ${index-files}` every `tidy-every` (10m).
-It works from the state directory alone (never the project, its model or an index, which it only locks), refuses
-`--keep` outside 1 to 64 (exit 2), and exits 1 with a message when `<state>/items` is missing or cannot be listed.
-It prints one line per output: `{"out": "flow.index-files-tidied", "moved": LIVE, "left": ..., "held": ...,
-"young": ...}` (the live files it removed) and `{"out": "flow.retired-index-files-removed", "moved": RETIRED}` (the
-retired ones), so the engine opens each flow's valve by its own count.
+model's item kinds), the record's roll-up and retention, and the watched loops below. The stock `index-files`
+(`ergostat.upkeep.index-files`, the live files) fills by `index-files-made` (`changes: rises`, a new file on each
+change to the kinds) and drains by `index-files-tidied` (`changes: falls`). The stock `retired-index-files`
+(`ergostat.upkeep.retired-index-files`) drains by `retired-index-files-removed`. A file is *retired* when its mark
+`<hash>[.n].retired` stands beside it (`itemindex.retired`, the one test the measures and the tidy both use): a
+process still held it when it was due to go, and it is never opened again. The goal `index-files-few` holds
+`index-files <= ${index-files}` (default 6, 1 to 64, checked when the model loads), and `no-retired-index-files`
+holds the retired ones at 0. The controller `index-tidier` is a program on the rule rung, `${lib} upkeep tidy
+--keep ${index-files}` every `tidy-every` (10m). It works from the state directory alone (never the project, its
+model or an index, which it only locks), refuses `--keep` outside 1 to 64 (exit 2), and exits 1 with a message when
+`<state>/items` is missing or cannot be listed. It prints one line per output: `{"out": "flow.index-files-tidied",
+"moved": LIVE, "left": ..., "held": ..., "young": ...}` (the live files it removed) and `{"out":
+"flow.retired-index-files-removed", "moved": RETIRED}` (the retired ones), so the engine opens each flow's valve by
+its own count.
 
 **The engine stands down.** In a model whose `uses:` holds ergostat's own `upkeep`, `index_for` no longer tidies the
 folder when it makes a new file; the `index-tidier` does. The engine reads that from the model it is given (the
@@ -393,8 +394,46 @@ checked before the lock and again once it is held.
 
 **Fail-safe.** A measure with no state directory, or a folder it cannot list, gives no reading, never 0. If the
 tidier stops, nothing else limits the number of files under `use: upkeep`: they only pile up (one per change of the
-kinds), and every index still opens and folds right. The event log's roll-up and measurement retention are still
-to come.
+kinds), and every index still opens and folds right.
+
+**The record's loops.** Three stocks, each read every `due-every` (default 10m; 1m to 1d, refused at load, as each
+reading of `rollup-due` is a dry roll-up) and drained by its falls: `rollup-due` (`ergostat.upkeep.rollup-due`,
+the items with events past their roll-up horizon outside a snapshot: the number
+`compact(p, cap=keep, dry=True)["items"]` gives, read by that dry run, rolling nothing; on a large record the dry
+run may outlast the sensor's timeout, and the stock then has no reading), drained by `rolled-up`;
+`events-past-keep` (`ergostat.upkeep.events-past-keep`, the events older than the model's `keep` that pruning would
+forget: the model's history and each loop's last crossing are never counted, as they are never forgotten), drained
+by `events-forgotten`; and `measurements-due` (`ergostat.upkeep.measurements-due`, raw readings past
+`storage: measurements: raw`, and each tier's buckets past its keep, counted at the cut the roll forgets at: whole
+buckets of the next tier, never what it has not taken; so it is 0 straight after a roll; 0 without tiers, where
+nothing is forgotten), drained by `measurements-forgotten`. The goals `record-rolled-up`, `record-within-keep` and
+`measurements-within-tiers` hold each at 0. Three controllers on the rule rung serve them, each run while its goal
+is off: `record-compactor` (for `record-rolled-up`), `${lib} upkeep rollup --every ${rollup-every}`, does the
+roll-up, the pruning past `keep` and the archive's forgetting, and prints `{"out": "flow.rolled-up", "moved":
+ITEMS, "events": ..., "pruned": ..., "archive_forgot": ...}`; `record-pruner` (for `record-within-keep`) runs the
+same roll-up with `--flow events-forgotten`, its line moving `flow.events-forgotten` by the events pruned, so
+events past `keep` that no roll-up touches (with no item, of an item of no kind, of an idle item) are forgotten
+while nothing is due to roll up. No stock counts the archive's months past `keep`: they are forgotten only when one
+of these two runs, so while `rollup-due` and `events-past-keep` both stay 0 they wait. `measurement-retainer`,
+`${lib} upkeep retain --every ${retain-every}`, rolls the measurements into their tiers and prints `{"out":
+"flow.measurements-forgotten", "moved": ROWS, "rolled": ...}`. Each runs at most once each `rollup-every` or
+`retain-every` (default 1h; 1m to 1d, refused at load and, exit 2, by the program). The two record blocks are
+stopped after `rollup-timeout` (default 1h, 1m to 1d). A stopped run has written none of its pruning and, on all
+but a very large record, none of its roll-up: `compact` writes the archive then replaces the record every million
+snapshots, so a run stopped past one such step keeps what it wrote, which the next run goes on from (the archive
+reads each event once). A backlog longer than the timeout is never rolled up whole by the loop: raise it, or run
+`ergostat compact` once by hand. The retainer has no timeout parameter, so it is stopped at the block default
+(300 s); it commits a few hours of readings at a time, so one stopped keeps the buckets it rolled, and a large
+first retention takes several runs, one each `retain-every`. Each holds the compaction lock (section 4b) for all
+its work; finding it held, it prints `busy: ...`, does nothing and exits 0. A store that cannot count what is due
+(VictoriaMetrics, which keeps its own retention; an events store without the count) gives no reading, never 0; a
+measure name outside the three is refused, not read as one of them. **The engine stands down** here too: under
+`use: upkeep` its hourly pass still rotates and trims its logs but no longer rolls up, prunes or retains, and
+`check` finds `storage: rollup: every` unused (`unused-rollup-every`, naming `rollup-every`). **Fail-safe:** if the
+three blocks stop, the record only grows; items, the flows counted from them, the item index and the archive all
+still read right (`tests/test_upkeep_record.py`). A block killed at its timeout loses its whole process group (each
+run is its own), so the lock goes with it, and the record stays whole: its one write to the record is
+`p.events.replace`, as before.
 
 **The watched loops.** The template also draws the functions that keep the engine itself going. They are drawn,
 not run: each controller is ergostat's code, a `type: external` block (observed, never started by ergostat), and no
@@ -728,6 +767,16 @@ engine reads through a cache.
 their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
 it would roll up). A roll-up reads only the items the item index says are due (their first event
 since their snapshot older than the horizon, or a transcript's lines), a batch of them at a time.
+**`use: upkeep` changes this:** the engine then only rotates and trims its logs, and the template's
+`record-compactor`, `record-pruner` and `measurement-retainer` roll up, forget and retain, each every its own `every`
+(section 2a, *Upkeep*); `rollup.every` is then unused, and `check` says so.
+
+**The compaction lock.** Whoever rolls up, prunes, forgets archive months or rolls the measurements
+(the engine's pass, `ergostat compact`, `upkeep rollup`, `upkeep retain`) holds `<state>/compact.lock`
+for all of it, from reading what is due to writing it back: an exclusive `flock`, taken without
+waiting. One that finds it held does nothing to the record and says `busy` (a line in the engine's
+log; `busy: ...` from `ergostat compact` and from the programs, which exit 0). The lock is the
+kernel's, never a pid file, so it goes when its holder's process dies.
 
 **The page's answers are bounded.** No answer grows with the record: events are at most 1,000 an
 answer (`n`, paged by `after` and `before`), items 500 (`offset`), a kind's finished items a thousand
@@ -799,8 +848,11 @@ version is written to the cache, which is one of the model's files, so the model
 A remote that fails is asked less often (twice the period after each failure, up to ten). When it does
 not answer, the model is drawn from the cache, every reading from it fails and keeps its last value with
 its age (`sensor.failed`), its box says *not answering for 2m · readings 3m old*, and the status and
-`check` carry **remote-unreachable**. A reading older than three of its sensor's periods (two minutes at
-least) is stale and is not taken.
+`check` carry **remote-unreachable**. A reading's age is the answer's `now` less the reading's `time`, both
+in the remote's clock; one older than three of its sensor's periods (two minutes at least), more than 5 s in
+the remote's future, with no `time`, in an answer with no `now`, or marked `unreachable` is not taken. A
+`now` or `time` that is not a finite number (JSON's `NaN` or `Infinity`) counts as none, and a middle keeps
+no age for it, so it serves that reading on as `time: null`.
 
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
@@ -877,13 +929,63 @@ what admits.
 
 | Address | Answers |
 |---|---|
-| `/remote/v1/status` | name, model version, now, the newest event's `seq`, whether it runs |
-| `/remote/v1/model` | its model, `format: ergostat-model/1`: the merged document after includes and templates, redacted (no commands, prompts, queries, sources, workspaces or actions), with `version` (16 hex of the SHA-256 of its canonical JSON); `ETag` is the version |
+| `/remote/v1/status` | name, its `instance` id, model version, now, the newest event's `seq`, whether it runs |
+| `/remote/v1/model` | its model, `format: ergostat-model/1`: the merged document after includes and templates, redacted (no commands, prompts, queries, sources, workspaces or actions), with its `instance` id, `via` on every part (below), and `version` (16 hex of the SHA-256 of the canonical JSON of its format, instance and sections); `ETag` is the version |
 | `/remote/v1/events?after=SEQ` | events after the cursor in `seq` order, `n` ≤ 1,000, filtered by `type`, `item`, `kind`, `since`, `until`; `next` (the cursor) and `more` |
 | `/remote/v1/items`, `/remote/v1/items/ID`, `/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by kind and state |
-| `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time; at most 200 a call |
+| `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time, its `now` and its `instance`; at most 200 a call |
 | `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
 | `/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the kind and the step each id asked was last at in the window (an id with no step there left out) |
+
+**A remote composed of remotes.** An ergostat M that composes a remote A serves A's parts on to its own
+consumer L, which composes them like any of M's (`stock.m-a-open`, in the system `m-a` within `m`).
+- *Instance id.* Each state folder holds `<state>/instance`: 16 lowercase hex and a newline, made once and
+  kept. Only a missing file is made: the id is written and synced to a temp file of its own, published with
+  `os.link` (a racer that loses keeps the winner's), and read again, so no reader sees it empty. A file that
+  is empty, is not 16 hex, or cannot be read (a directory, say) is refused, never rewritten: `/remote/v1/model`
+  and `/status` then answer 503 (`this ergostat's instance id: WHY`), and a consumer whose own id is refused
+  composes no remote (**remote-instance**; its box and source are still put, as for a remote never read).
+- *`via`.* Every served part carries `via`: the ids of the ergostats it passed through before reaching the
+  server, origin first, never the server itself: `[]` for its own parts, A's `via` for the part plus A's
+  `instance` for one imported from A. Stand-ins for missing references are not served. At L, a part's
+  **chain** is its `via` plus M's `instance`; its depth is the chain's length (1 for M's own, 2 for A's). The box
+  system M makes for remote A is served with `via: []` and the `description:` the owner gave A in `remotes:`,
+  else a generic text; the text naming A's url, which M shows locally, is never served.
+- *Checked before anything is composed*, in this order: a remote whose `instance` is missing or not 16 hex,
+  any part with no `via`, a `via` that is not a list, holds an id that is not 16 hex or more than `VIA_MOST` =
+  8 ids, or a chain that repeats an id, is refused whole (**remote-malformed**); one serving more than
+  `PARTS_MOST` = 2,000 parts in all is refused whole (**remote-too-big**); one whose `instance` is L's own is
+  refused whole (**remote-cycle**). Then a part whose chain holds L's id is cut (**remote-cycle**), one whose
+  chain is longer than `DEPTH_MOST` = 3 is cut (**remote-too-deep**), and one whose served name, composed name
+  or a sensor's name is not `^[a-z0-9][a-z0-9-]{0,63}$` (and a local name) is cut (**remote-bad-name**, naming
+  the first); one finding per remote and cause, with the count. A cut part is left out as `systems:` leaves
+  one out (a flow's end becomes a cloud, a cause or an equation naming it is dropped). These four limits are
+  fixed: no key sets them.
+- *Names taken.* A remote's parts are put after every file and include is read. A local part always wins: a
+  remote part whose name is defined here is not put (**remote-name-taken**, naming both; never
+  `defined-twice`); between two remotes whose parts get the same name (remote `m`'s `a-open`, remote `m-a`'s
+  `open`) the first declared wins. Each remote's own box system is put when `remotes:` is read, before any
+  remote's parts, so a box keeps its name against another remote's served system (remote `m-a`'s box `m-a`
+  against remote `m`'s served system `a`) whichever is declared first. The part not put is cut from the
+  rest of its remote, as above (a flow's end at it becomes a cloud, a cause or an equation naming it is
+  dropped), so a remote's flow never drains the local part, or another remote's part, that took its name.
+  A part on the remote's box (its `show:` here, or its top systems' served `show:`) that is not put is
+  drawn as not served (**remote-show-unresolved**), so the box never shows the local part that took its
+  name as the remote's measure. A local reference belongs to the remote with the longest matching prefix.
+- *Readings through a middle.* When M reads A, it keeps A's whole answer in
+  `<state>/remotes/a/readings.json`, replaced each time, never merged: A's `instance` (from A's `/readings`),
+  when M got it, and each reading's value and age at A (A's `now` less its `time`). When A does not answer the
+  file is kept with `unreachable: WHY` added. M answers a reading of an imported part from it, with `time` =
+  got − age (A's age carried into M's clock, never the time M recorded it) and `unreachable` when A is down, so
+  its age keeps growing; a missing file or entry, or an `instance` other than the one in M's cached model of
+  A (A's state remade), answers `value: null, time: null` with why, and so does a goal of A's. L refuses all of
+  these as for any reading. What the tests show: a hop adds no freshness (A's clock 1,000 s ahead, M serving
+  the origin's age; A down, M serving the old time marked unreachable). Between A stopping and M's next read
+  of A, M still serves A's last answer unmarked, and L may take it while its age is within the limit; once
+  L's reading has failed after A stopped, L records nothing newer for it (the three-instance test). When
+  M cannot write the file, the old one is kept (so it ages) and the reason is kept in the remote's status
+  as its readings' why.
+- *Size.* An answer longer than `BODY_MOST` = 16 MB fails the call (*answer too large*).
 
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
@@ -992,7 +1094,7 @@ stocks:
 |---|---|---|---|
 | `unit` | string | none | Its unit. Flows and sensors on it must use the same unit |
 | `limit` | number | none | The physical limit: a full disk, a queue's capacity. Used to estimate time to failure |
-| `initial` | number | none | A starting value, for simulation only |
+| `initial` | number | none | A starting value, for simulation only. A stock with no sensor and an `initial:` is replayed from it, at the window's start (a stock with a sensor starts at its first reading, one with neither is not replayed) |
 | `observe` | bool | false | Estimated between readings (`stock.X.estimate`), its innovations recorded, and the goals on it watched for staleness (section 9.6) |
 | `cumulative` | bool | false | A running total that by its nature never drains (spent so far, kept so far): no outflow is missing, and `check` does not ask for one (**stock-without-outflow**) |
 | `rate-unit` | `minute`, `hour`, `day` or `week` | chosen by size | How the rates of its flows are shown, for each flow that says none (section 1a); display only, kept per hour |
@@ -1766,7 +1868,8 @@ A sensor read by a daemon may print the same lines tagged with `"sensor": "STOCK
 ## 7. Flows
 
 What changes stocks: into one, out of one, or from one to another. Leaving out `from` or `to`
-means outside the system (at least one is required). A flow is passive: it says which stocks it
+means outside the system (at least one is required, except for a flow another flow's material delay takes in,
+`DELAY3(flow.f, τ)`: what it moves goes into the delay's own stages). A flow is passive: it says which stocks it
 connects, never what moves it.
 
 ```yaml
@@ -3087,8 +3190,8 @@ over the trailing 24 hours (the window of `ergostat.cost.usd`), with 0 < daily �
 0 < max-cost ≤ daily. An unknown key, a missing key, a value that is not a number, and one out of bounds are each an
 error with its own message. Without `budget:` nothing here applies and no run or lease event carries a `reserve`.
 
-`max-cost` is only what a run **reserves** before it starts. It is not a cap on what the run spends: a run that
-spends more is charged what it spent, and nothing stops it as it runs (that is T1, `docs/GAPS.md`).
+`max-cost` is what a charged run **reserves** before it starts, and its cap as it runs (T1, below). A run that
+spends more than its reserve is charged what it spent.
 
 - **Charged and free runs.** A run is free (it reserves 0) only when its block is not `ai` and its agent is declared
   with kind `person`, `decision`, `program` or `rule`. Every other run is charged and reserves `max-cost`, including
@@ -3152,6 +3255,38 @@ spends more is charged what it spent, and nothing stops it as it runs (that is T
   `budget:`; their ends count in spent as ends with no reserving run. A pid
   reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
   drops out of reserved. Each permit reads 7 days of starts and ends.
+
+**T1: a run stopped at its spend cap.** With `budget:` declared:
+
+- **The cap given.** Every block run gets `ERGOSTAT_MAX_COST`, its reserve (0 for a free run). Without `budget:` it
+  is removed from the run's environment, so none is inherited. An `ai` block with no `run:` whose command is Claude
+  Code gets `--max-budget-usd <reserve>`; one already in the command (from `$ERGOSTAT_AI`) is replaced by it.
+- **Sessions take from the run's ledger.** `ergostat session` inside a run keeps `<state dir>/budget/<run>.jsonl`.
+  Under `flock` on it, it reads the entries, works out left = `ERGOSTAT_MAX_COST` − each entry's cost (its reserve
+  while unsettled or of unknown cost), and appends an entry reserving **all** of left. So a second session running
+  at the same time in one run always refuses; sessions one after another each get what the earlier ones left. It
+  starts `claude` with `--max-budget-usd <left>` (a resume after the owner's messages gets left less what its turns
+  cost, and none when nothing is left), and at its end appends its real cost, or null when it is not known, under
+  the flock. A ledger already removed is not made again. It refuses (no `claude` started, `session.failed` with
+  the note `budget: …`, rc 1) when left ≤ 0, when the ledger cannot be read, when `ERGOSTAT_MAX_COST` is not a
+  finite number of at least 0 (NaN, ±inf and negatives refused), when it is set without `ERGOSTAT_RUN`, when
+  `ERGOSTAT_RUN` is set without it in a model that declares `budget:`, and when the run id is not 32 lowercase hex
+  digits or the path does not resolve directly under `<state dir>/budget/`. When the run ends, the engine deletes
+  that run's own ledger file, by its validated name, and nothing else.
+- **The trip.** After each line of a run's output that adds AI usage (a `session.ran` or `.failed` line, a Claude
+  Code result message), the engine adds up the run's reported parts, each of unknown cost counted as the whole
+  reserve. When that reaches the reserve, it kills the run's process group (each run is started in a session of
+  its own) through the lease-kill path (`ergostat.run.killed`, TERM, then KILL after the grace). The run ends
+  `agent.failed` with the note `stopped at its spend cap (T1)` and its full reported cost, which the fold charges.
+  So a charged run that reports AI use of unknown price is stopped, and a free run that reports any AI use is
+  stopped. No key or flag turns T1 off.
+- **What it bounds, stated narrowly.** A session started with `ergostat session` is capped by Claude Code's
+  `--max-budget-usd`, which Claude Code checks between turns: a session can pass its share by one turn's cost. A
+  program that runs `claude` itself, not through `ergostat session`, is seen only when its result line arrives: T1
+  stops it after that line, not before. An `ai` block's own `claude` is capped at the whole reserve but writes
+  nothing to the ledger, so `ergostat session`s started inside it also see the whole reserve: such a run can spend
+  up to about twice its reserve (plus a turn each) before T1 sees it. The day's budget is held by the permit above
+  charging actual costs; T1 bounds how far one run goes past its reserve, and makes no "never above" claim.
 
 ## 10. Agents
 
@@ -3765,8 +3900,41 @@ see *not exercised*, §12e; what the rules find about declared parts is listed a
 proposed, with why. A stock a goal
 holds, and what a goal or block names, is left alone. Each edit is applied in memory and the model
 compiled from it: one that would leave an error, or not answer its finding, is not proposed, and is
-listed with why. *Not yet*: a missing stock, flow or delay, or a part replaced, found from the pattern
-in the residuals (the residual-pattern structure finder, `structural.from_residuals`).
+listed with why.
+
+From the residuals (`structural.from_residuals`, `numbers/residuals.py`, `numbers/hidden.py`), one kind of
+missing structure: **a delay between an inflow and the measured stock it fills**. A measured stock X's one-step
+residual, in each bucket with a reading in it and in the one before, is e(i) = y(i) − y(i−1) − Σ± m_f(i) over its
+flows, m_f what the flow moved in the bucket (its equation's, what was counted, or its held rate times the
+bucket's width); a bucket where any flow's move is not known has none (never 0). They come from the **residual run**:
+the replay with every measured stock taken as read and every stock never read (with flows and no sensor)
+integrated from its `initial:` (§5). A stock is not examined, saying why, when it is fed from a stock never read with
+no `initial:`, read in under 80% of buckets, or left with fewer than 40 residuals. **Whiteness**: q = n·r′Σ⁻¹r over
+the sample autocorrelations r_2 … r_10 (each over the pairs both present), Σ Bartlett's covariance under an MA(1)
+whose lag-1 correlation is the sample r_1 taken in [−0.45, 0] (reading noise makes the residual of a right model
+MA(1) with ρ1 between −0.5 and 0: lag 1 is excused, a positive r_1 is not); coloured past 21.666, χ²(9) at 0.99. An
+equation fed by a noisy reading adds a little lag-1 structure of its own. **The lag**: among X's inflows (not one
+already inside a DELAY1, DELAY3, SMOOTH or SMOOTH3, not one drawn from a stock with no sensor, not one measured by X's
+own changes), the inflow and the k (1 to 12, at most a quarter of the residuals) whose regressor u(i−k) − u(i) the
+residual correlates with most, positively and past 2.576/√n. A coloured stock whose inflows are all left out says so,
+and nothing is proposed again on a delay already added. **Two forms**, τ tried at ½, 1 and 2 times k buckets:
+`residual-delay`, the inflow's equation wrapped in `DELAY3(…, τ)` (or, for one with a `from:` or no equation, its
+`to:` taken off and `<X>-arrives` added, `DELAY3(flow.f, τ)`: a flow with neither `from:` nor `to:` is allowed when
+a material delay takes it in), and `residual-hidden-stock`, a stock `<f>-in-transit` never read, with X's unit and
+`initial:` its equilibrium (f's first rate times τ), that f fills and `<X>-arrives` (`stock.<f>-in-transit / τ`)
+drains into X; each adds `<f>-delay` (`unit: h`, `estimate: true`), all marked `inferred:`. Each edit is compiled in
+memory and X's residual worked out again by the residual run of the model it leaves; before and after are compared on
+the buckets both have past a warm-up of three times the longest τ. The one with the lowest sum of squares is offered
+when that is at most 0.8 of before and q falls; the others are listed with their numbers, and one whose edit does not
+compile, whose run raises or is not valid, or whose residual cannot be worked out is not offered. One look runs at most
+30 residual runs; a stock's six are charged before it is started, and a stock left over says the budget was used.
+While one waits, the finder keeps its form and τ unless another candidate's sum of squares is under 0.9 of it, and it is
+revised under its id only when found on another inflow or with τ moved by more than a fifth: an `initial:` that moves
+as the window slides, or a τ that drifts as a young record's buckets widen, leaves it as it was. Dismissed, neither form
+is proposed for that stock again.
+*Not yet*: a missing outflow or cause, a delay on an outflow, a part replaced by another form (a lookup for a line),
+and the observer's run-time innovations (`observer/X/innovation`) as the trigger. Shown on planted records only: how
+often it finds a real missing delay (bench recall) is not measured.
 
 **The review queue** (`ergostat/numbers/review.py`; the Model page; `ergostat proposals`, `--show ID`):
 every proposal waiting, the loops' process and gain proposals (§12d) with them, each read like a pull

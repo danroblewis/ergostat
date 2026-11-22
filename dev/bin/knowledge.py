@@ -92,10 +92,18 @@ def entries() -> list[dict]:
     return out
 
 
+WITHDRAWN = {   # applied "seen as" shapes no longer carried, with why (the record keeps them, so none is proposed again)
+    "lesson/seen-lesson-8-4aac4cae": "the implementor's clone has no remote by design (agents.publish); a reviewer's "
+    "clone keeps it, so its remote refs never disprove the implementor's ref listing",
+    "lesson/seen-lesson-8-52caf205": "the implementor's clone has no remote and no other gap's branch by design "
+    "(agents.publish); a ref absent there is true of that clone, not an unchecked claim",
+}
+
+
 def applied(es: list[dict], lessons: list[dict]) -> list[dict]:
     """The entries with the record's lesson items (lesson.py): each applied new lesson its own entry (lesson-N, numbered
-    when applied), each applied "seen as" a line under its lesson, and a lesson retired by lesson.py retire (with its
-    lines) left out. An entry's `items` are the lesson items it carries."""
+    when applied), each applied "seen as" a line under its lesson but those WITHDRAWN, and a lesson retired by
+    lesson.py retire (with its lines) left out. An entry's `items` are the lesson items it carries."""
     gone = {i["fields"].get("lesson") for i in lessons if i["state"] == "retired" and i["id"].startswith(
         "lesson/retire-")}
     got = sorted((i for i in lessons if i["state"] == "applied"), key=lambda i: int(i["fields"].get("number") or 0))
@@ -111,7 +119,7 @@ def applied(es: list[dict], lessons: list[dict]) -> list[dict]:
                                      for i in got if i["fields"].get("kind") == "entry")]
     by = {e["id"]: e for e in out}
     for i in got:
-        if i["fields"].get("kind") == "seen" and i["fields"].get("lesson") in by:
+        if i["fields"].get("kind") == "seen" and i["fields"].get("lesson") in by and i["id"] not in WITHDRAWN:
             e = by[i["fields"]["lesson"]]
             head, sep, check = e["text"].partition("\n**Check:**")
             e["text"], e["items"] = f"{head}\nSeen as: {i['fields']['entry']}.{sep}{check}", [*e.get("items", []), i["id"]]

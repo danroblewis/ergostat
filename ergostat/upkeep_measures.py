@@ -2,14 +2,15 @@
 under ``<state>/items``, and ``ergostat.upkeep.retired-index-files``, the retired ones (``spec/itemindex.files``);
 ``ergostat.upkeep.heartbeat-age``, the seconds since the last pass ``<state>/heartbeat.json`` gives
 (``spec/watchdog.heartbeat``); ``ergostat.upkeep.stalls``, the ``ergostat.engine.stalled`` events over the last hour,
-and ``ergostat.upkeep.restarts``, the ``ergostat.engine.restarted`` ones over the last day.
+and ``ergostat.upkeep.restarts``, the ``ergostat.engine.restarted`` ones over the last day; ``rollup-due``
+(``rollup.compact``'s dry run), ``events-past-keep`` (what pruning would forget) and ``measurements-due``.
 
 A record kept nowhere on disk (for the files or the heartbeat), an items folder that cannot be listed, a heartbeat
-missing, unreadable or stamped in the future, or an event log that cannot be read gives no reading (None, said on
-standard error, the sensor's log), never 0: a goal held at "few files", "fresh" or "no stalls" is never met by
-something nobody could look at. The heartbeat's age is a drawing, not a protection: a frozen engine reads nothing,
-and the outer watcher acts. The two event counts read a log kept only in memory too: it holds the events it counts,
-unlike a folder or file not there."""
+missing, unreadable or stamped in the future, an event log that cannot be read, or a store that cannot count what is
+due (an events store without ``prunable``, VictoriaMetrics) gives no reading (None, said on standard error), never
+0: a goal held at "few files", "fresh" or "no stalls" is never met by something nobody could look at. The
+heartbeat's age is a drawing, not a protection: a frozen engine reads nothing, and the outer watcher acts. The two
+event counts read a log kept only in memory too: it holds the events it counts, unlike a folder or file not there."""
 
 from __future__ import annotations
 
@@ -60,11 +61,33 @@ def events(p, name: str, now: float | None = None) -> float | None:
         return None
 
 
+def _none(name: str, why: str) -> None:
+    print(f"{name}: {why}, so there is no reading", file=sys.stderr)
+
+
+def record(p, name: str) -> float | None:
+    now = time.time()
+    if not name.endswith((".rollup-due", ".events-past-keep", ".measurements-due")):    # (an allowlist: no fall-through)
+        raise ValueError(f"{name}: not one of the record's upkeep measures")
+    if name.endswith("rollup-due"):
+        from .rollup import compact
+        return float(compact(p, now, cap=p.model.keep, dry=True)["items"])
+    if name.endswith("events-past-keep"):
+        if not hasattr(p.events, "prunable"):
+            return _none(name, f"the events store ({type(p.events).__name__}) cannot count the events past keep")
+        return float(p.events.prunable(now - p.model.keep))
+    if not hasattr(p.measurements, "due"):
+        return _none(name, f"the measurements store ({type(p.measurements).__name__}) keeps its own retention")
+    return float(p.measurements.due(now))
+
+
 def measure(p, name: str) -> float | None:
     if name.endswith(".heartbeat-age"):
         return heartbeat_age(p, name)
     if name.endswith((".stalls", ".restarts")):
         return events(p, name)
+    if not name.endswith("index-files"):
+        return record(p, name)
     d = itemindex.state_dir(p.events)
     if d is None:
         print(f"{name}: the record is kept nowhere on disk, so it has no index files to count", file=sys.stderr)

@@ -307,7 +307,7 @@ def test_builtin_run_slots_take_narrow_values_only_as_arguments(tmp_path):
 
 ARGVS = [["collect"], ["each"], ["ping"], ["due"], ["report"], ["modelling", "requests"], ["modelling", "rules"],
          ["modelling", "ai"], ["modelling", "redesign"], ["modelling", "review"], ["upkeep", "tidy"],
-         ["standin", "act"], ["standin", "level"]]
+         ["upkeep", "rollup"], ["standin", "act"], ["standin", "level"]]
 
 
 def options(monkeypatch, extra: str | None = None) -> dict[str, set[str]]:
