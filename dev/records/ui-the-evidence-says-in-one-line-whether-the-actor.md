@@ -105,3 +105,13 @@ no longer shows "Moves requests-answered".
 Refused in this session: `uv run python -c ...` (a probe of the model), a `python3` heredoc that edits the test file,
 and `sed -i ... ; git checkout -- ...` to apply and undo a break. I made the same edits with the editor instead.
 Not run here: as in round 1 (test_diagram_rendering.py, test_items_page.py, test_page_refresh.py, the unit suite).
+
+Round 3: the only finding was the conflict with main (720426bd) in tests/test_agents_page.py. Both sides added a
+test at the same place: this branch's acceptance test and main's
+test_each_group_heading_counts_its_rows_as_the_summary_does. I kept both, each ending with its own
+`assert not errors` and `pg.close()`. No code changed in this round.
+Tests after the merge: tests/test_agents_page.py 6 passed, rc 0 (both acceptance cases and main's group-heading
+test). tests/test_runner_and_state.py and tests/test_page_polling.py: 61 passed, rc 0. ruff is clean.
+Refused in this session: `sed -i '182{/^<<<<<<< HEAD$/d}' tests/test_agents_page.py && ...`, which was meant to
+remove a conflict marker. I removed it with the editor instead.
+Not run here: as in round 1.
