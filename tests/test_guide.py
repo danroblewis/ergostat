@@ -149,3 +149,14 @@ def test_each_section_is_one_run_of_frames_so_its_name_links_to_one_first_frame(
     runs = [p for k, p in enumerate(order) if k == 0 or order[k - 1] != p]
     assert runs == list(got["parts"])                                   # each section once, in order, no gaps
     assert order.index("control") == 7 and got["parts"]["control"] == "Control: what we control"
+
+
+def test_the_guides_drawings_hide_the_rings_and_its_last_frame_says_it_is_drawing():
+    """Without a browser: the rule that hides the correspondence rings (clones of each box's outline, black by SVG's
+    default fill) covers the Guide's canvas too, and the last frame puts its waiting line on the stage until drawn.
+    The browser test in tests/test_diagram_rendering.py checks the drawn fills, the contrast and the page's text."""
+    css = (ROOT / "ergostat/web/static/style.css").read_text()
+    rule = next(r for r in css.split("}") if "svg.g-canvas g .corr-ring.corr-ring" in r)
+    assert "svg.g-canvas g .corr-halo.corr-halo" in rule and "display: none" in rule and "fill: none" in rule
+    js = (ROOT / "ergostat/web/static/guide.js").read_text()
+    assert "Drawing your system…" in js and "wait.remove()" in js

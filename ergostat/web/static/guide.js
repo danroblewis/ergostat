@@ -58,10 +58,12 @@ async function pageGuide(main, q) {
     deck.dataset.frame = f.id;
     deck.dataset.drawn = "";
     const views = h("div", { class: "g-views" + (f.views?.length > 1 || f.id === "yours" ? " two" : "") });
-    stage.replaceChildren(views, f.plot ? guidePlot(f.plot) : "");
+    const wait = f.id === "yours" ? h("p", { class: "muted g-wait" }, "Drawing your system…") : "";   // (its graphs are asked for first)
+    stage.replaceChildren(views, f.plot ? guidePlot(f.plot) : "", wait);
     const mine = i;
     const jobs = f.id === "yours" ? await guideYours(views) : (f.views || []).map((v) => guideView(views, v));
     await Promise.all(jobs);
+    if (wait) wait.remove();
     if (mine === i) deck.dataset.drawn = f.id;      // (the tests wait for it)
   }
   await show(i);
