@@ -152,3 +152,21 @@ lists, and the valve's equation panel (3 passed). Ruff clean. Two failed:
   compared on clean main: `git checkout main -- ergostat/web/static` (to run it there and restore) was refused in this
   session, as was a background run of the full test_diagram_rendering.py (about 50 minutes, longer than a foreground
   call may run). Left to the queue's full browser run.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 14:17).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
