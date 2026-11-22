@@ -94,3 +94,19 @@ is not installed there, so no tests were collected and none failed. I changed no
 the build's configuration is outside this gap. Run again here with Playwright under suite_watch, the gap's test
 passed (1 passed, rc 0) and ruff is clean. The build step can only check this page change if it has Playwright
 (`[suites] build_browser = true`, or `--with playwright`).
+
+### Round 2
+
+No review findings to answer. I took the step main took for the same rc 5 (ab17bb6e): I added a unit test the build
+can run without Playwright, so the build step now has a test to collect. No source changed this round.
+`tests/test_graph_cli_web.py::test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them` copies
+the-job, records 3 new / 2 explained / 1 answered tickets, and checks that `/api/graph?view=process&kinds=ticket&by=states`
+gives each state node a `now` equal to the count `/api/items` gives that state, and that `by=events` gives no node a
+`now`. It covers the server half only; the browser test still covers the page. It was seen to fail when I set the
+server's `now` to the node's visit count (`x["count"]`); with the code put back, it passes.
+
+Runs: tests/test_graph_cli_web.py 33 passed; the gap's browser test, under suite_watch with Playwright, 1 passed
+(rc 0); ruff clean. Not run: the build command itself (`suite_watch -- affected_tests -- pytest -n 8`) was refused
+in this session, so I ran the files it would pick one at a time. tests/test_graph_cli_web.py is new to that
+selection, because the branch now changes it. Also not run: the unit suite, the four browser files in full, and
+test_items_page.py again. Main has not moved since the merge at 2a565036.

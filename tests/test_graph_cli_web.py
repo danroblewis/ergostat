@@ -211,6 +211,44 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them(tmp_path):
+    """In States, each state's node of /api/graph?view=process carries ``now``: the count /api/items gives that
+    state (the browser half of this check is tests/test_diagram_rendering.py's Items-to-process-map test)."""
+    import shutil
+    import time
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import serve
+    d = tmp_path / "the-job"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "examples" / "the-job", d,
+                    ignore=shutil.ignore_patterns("run", "__pycache__"))
+    p = Project(model.load(d))
+    now = time.time()
+    for i, last in enumerate(["new"] * 3 + ["explained"] * 2 + ["answered"]):     # 3 new, 2 explained, 1 answered
+        it = f"ticket/now{i}"
+        p.events.add("ticket.filed", item=it, at=now - 2000 + i)
+        for j, st in enumerate(["explained", "answered"][:["new", "explained", "answered"].index(last)]):
+            p.events.add(f"ticket.{st}", item=it, at=now - 1500 + i * 10 + j)
+    server, url = serve(p, free_port())
+    try:
+        def get(path):
+            with urllib.request.urlopen(url + path, timeout=30) as r:
+                return json.loads(r.read())
+        counts = {k["name"]: k["counts"] for k in get("/api/items")["kinds"]}["ticket"]
+        g = get("/api/graph?view=process&kinds=ticket&by=states")
+        other = get("/api/graph?view=process&kinds=ticket&by=events")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert {k: v for k, v in counts.items() if v} == {"new": 3, "explained": 2, "answered": 1}, counts
+    assert g["by"] == "states"
+    states = {x["activity"]: x.get("now") for x in g["nodes"] if x["kind"] == "activity"}
+    assert states == {"new": 3, "explained": 2, "answered": 1}, states
+    assert not any("now" in x for x in other["nodes"]), other["nodes"]   # by events: no states, no count of now
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
