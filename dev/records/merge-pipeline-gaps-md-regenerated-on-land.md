@@ -137,3 +137,21 @@ the prose test among them. Removing the other-title guard failed the unplaced te
 and scripts. Not run here: the whole unit suite and the browser files.
 
 Overrun reason: dev/bin is 208 net lines against 130 (184 after round 1). Beyond round 1's three reasons, round 2's review asked for two more things the definition did not size: placing new entries in records made for them (with the guard against writing over another title's Entry), and carrying GAPS.md's text outside the entries into GAPS-head.md with each slot mapped to its record.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 14:16).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
