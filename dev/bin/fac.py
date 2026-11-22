@@ -415,22 +415,39 @@ SUITES: set[int] = set()                                # the process groups of 
 
 
 def stop_suites() -> None:
-    """Every running suite's process group stopped: a run stopped while suites run in threads of its own (queue.py)."""
+    """Every running suite's process group stopped, and its container by name: a run stopped while suites run in
+    threads of its own (queue.py)."""
     for pid in list(SUITES):
         try:
             os.killpg(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
+    for name in list(BOXES):
+        agents_module().killed(name)
+
+
+BOXES: set[str] = set()                                 # the queue's suite containers running now (suite(box=...))
+
+
+def agents_module():
+    import agents
+    return agents
 
 
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
-          quarantined: list[str] = (), **fmt) -> tuple[int, float]:
+          quarantined: list[str] = (), box: str = "", **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
     shell, as the coordinator does, inside [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is
     False (the queue: its lock is its slot); ``quarantined``: deselected from unit and browser. The suite's whole
-    process group is killed if this one is stopped."""
+    process group is killed if this one is stopped. ``box`` ("queue", "triage"): with [suites] queue_container (true
+    unless false), in a container of its own (agents.queued), killed by name on any way out; one that did not start
+    raises agents.NotStarted (an infrastructure failure, never read as the suite's result)."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
     cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
+    boxed = None
+    if box and cfg["suites"].get("queue_container", True) is not False:
+        boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box)
+        BOXES.add(boxed)
     if slot and cfg["suites"].get("slot") and name != "ruff":
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began = time.time()
@@ -454,6 +471,12 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                 except subprocess.TimeoutExpired:
                     os.killpg(p.pid, signal.SIGKILL)
             SUITES.discard(p.pid)
+            if boxed:
+                agents_module().killed(boxed)
+                BOXES.discard(boxed)
+    if boxed and p.returncode in agents_module().NOT_STARTED:
+        raise agents_module().NotStarted(f"the {name} suite's container did not start (exit {p.returncode}): "
+                                         f"{log.read_text()[-400:].strip()}")
     return p.returncode, time.time() - began
 
 

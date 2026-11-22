@@ -48,6 +48,7 @@ class Server:
         self.parked: list[Parked] = []
         self.plock = threading.Lock()
         self.calls = 0
+        self.keep = False                                      # closed to start again (cli/running.py): the file left
 
     # ---- listening
 
@@ -77,7 +78,8 @@ class Server:
         return str(self.path)
 
     def close(self) -> None:
-        s, self.sock = self.sock, None
+        with self.plock:                                       # (after it, nothing is queued behind the stop markers)
+            s, self.sock = self.sock, None
         if s is not None:
             try:
                 s.close()
@@ -85,23 +87,28 @@ class Server:
                 pass
         for _ in range(WORKERS):
             self.jobs.put(None)
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
-        (self.e.p.dir / POINTER).unlink(missing_ok=True)
+        if not self.keep:                                      # a restart's: left, so a run's call waits its whole bound
+            self.remove()
         with self.plock:
             for w in self.parked:
                 self._close(w.conn)
             self.parked = []
 
+    def remove(self) -> None:
+        self.path.unlink(missing_ok=True)
+        (self.e.p.dir / POINTER).unlink(missing_ok=True)
+
     def _accept(self) -> None:
-        while not self.e.stop.is_set() and self.sock is not None:
+        s = self.sock
+        while not self.e.stop.is_set() and s is not None:
             try:
-                conn, _ = self.sock.accept()
+                conn, _ = s.accept()
             except OSError:
                 return
-            self.jobs.put(conn)
+            with self.plock:                                   # accepted as it closed: closed, so asked again
+                if self.sock is None:
+                    return self._close(conn)
+                self.jobs.put(conn)
 
     def _work(self) -> None:
         while True:
@@ -161,8 +168,14 @@ class Server:
         a, done = program.settled(self.e.p, self.e.spec, cfg, a, end, ran_by)
         if done:
             return self._answer(conn, ops.act_answer(self.e, cfg, a))
-        with self.plock:                                       # it waits without a thread
-            self.parked.append(Parked(conn, cfg, a, end, ran_by))
+        self._park([Parked(conn, cfg, a, end, ran_by)])        # it waits without a thread
+
+    def _park(self, ws: list) -> None:
+        with self.plock:                                       # (closed meanwhile: closed too, so asked again)
+            if self.sock is not None:
+                return self.parked.extend(ws)
+        for w in ws:
+            self._close(w.conn)
 
     def _parker(self) -> None:
         from ..actions import program
@@ -190,8 +203,7 @@ class Server:
                         still.append(w)
                 except Exception as e:
                     self._answer(w.conn, {"error": f"{type(e).__name__}: {e}"})
-            with self.plock:
-                self.parked.extend(still)
+            self._park(still)
 
     @staticmethod
     def _answer(conn, out: dict) -> None:

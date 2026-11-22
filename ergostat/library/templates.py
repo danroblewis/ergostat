@@ -54,13 +54,18 @@ class Template:
     reading: str = ""
     example: str = ""
     once: bool = False                  # used at most once a model; its parts keep the names written in it, unprefixed
-    untrusted: bool = False             # from a folder the owner declared untrusted (SPEC §2a): its text is marked
     params: dict[str, Param] = field(default_factory=dict)
     body: dict = field(default_factory=dict)
+    trust: str = "untrusted"            # ergostat, owner or untrusted (SPEC §2a): anything not known counts as untrusted
+
+    @property
+    def untrusted(self) -> bool:
+        """Not ergostat's and not the owner's (``trust``, the one attribute): its text is marked, its parts bounded."""
+        return not trusted(self)
 
     def summary(self) -> dict:
         return {"template": self.name, "description": self.description, **({"once": True} if self.once else {}),
-                "from": "ergostat" if self.builtin else str(self.path),
+                "from": "ergostat" if self.builtin else str(self.path), "trust": self.trust,
                 "params": {n: {k: v for k, v in (("type", p.type), ("description", p.description),
                                                 ("default", p.default if p.has_default else None),
                                                 ("stand-in", p.standin), ("required", p.required or None),
@@ -79,7 +84,12 @@ _Loader.add_implicit_resolver("tag:yaml.org,2002:bool", __import__("re").compile
                               list("tTfF"))
 
 
-def read(path: Path, builtin: bool, untrusted: bool = False) -> Template:
+def trusted(t: Template) -> bool:
+    """Ergostat's own, or from a folder the owner wrote as a path or marked ``trust: owner``; nothing else is."""
+    return getattr(t, "trust", None) in ("ergostat", "owner")
+
+
+def read(path: Path, builtin: bool, trust: str = "untrusted") -> Template:
     try:
         data = yaml.load(files.read_text(path), Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
     except (OSError, yaml.YAMLError) as e:
@@ -106,8 +116,8 @@ def read(path: Path, builtin: bool, untrusted: bool = False) -> Template:
                                  spec.get("stand-in"), bool(spec.get("required")), "default" in spec,
                                  spec.get("choices"), spec.get("min"), spec.get("max"))
     t.body = {k: data[k] for k in BODY if data.get(k) is not None}
-    t.untrusted = untrusted
-    bad = [n for n in (t.name, *t.params) if not SAFE.match(n)] if untrusted else []
+    t.trust = "ergostat" if builtin else trust
+    bad = [n for n in (t.name, *t.params) if not SAFE.match(n)] if t.untrusted else []
     if bad:
         raise TemplateError(f"template {path}: name {bad[0]!r} refused: an untrusted template's name and its parameters' "
                             f"names are lowercase letters, digits and -, starting with a letter, at most 64")
@@ -158,15 +168,20 @@ def find_all(extra: list[Path] | None = None, untrusted: set[Path] | None = None
             if owner is not None and d not in bad:
                 continue
             try:
-                t = read(f, d == HERE, owner is not None)
+                t = read(f, d == HERE, "owner" if owner is None else "untrusted")
             except TemplateError as e:
                 notes.append(ut.note(owner, str(e)) if owner is not None else str(e))
                 continue
+            was = got.get(t.name)
+            if was is not None and trusted(was) != trusted(t):          # the trusted one, whichever came first
+                kept, skipped = (was, t) if trusted(was) else (t, was)
+                said = (f"template {t.name}: {skipped.path} (from a folder not marked trusted) is not used; "
+                        f"{"ergostat's own" if kept.builtin else kept.path} is")
+                notes.append(ut.note(within(skipped.path, bad) or "", said))
+                got[t.name] = kept
+                continue
             if t.name in got:
-                if t.untrusted and not got[t.name].untrusted:
-                    notes.append(ut.note(owner, f"template {t.name} in {f} is not used: a trusted one of that name comes first "
-                                            f"({'ergostat' if got[t.name].builtin else got[t.name].path})"))
-                elif t.builtin and not got[t.name].builtin:
+                if t.builtin and not got[t.name].builtin:
                     notes.append(f"template {t.name}: {got[t.name].path} is used in place of ergostat's own")
                 continue
             got[t.name] = t

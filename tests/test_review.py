@@ -5,11 +5,14 @@ each kind of structural proposal from a crafted model; the command line's same f
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import re
+import sys
 import textwrap
 import time
+from pathlib import Path
 
 import pytest
 
@@ -692,3 +695,103 @@ def test_the_page_api_lists_the_queue_simulates_and_accepts_only_what_was_shown(
     assert post(live, f"proposals/{e['id']}/accept", 3600.0, {"expect": ["nope"]})[0] == 409
     code, got = post(live, f"proposals/{e['id']}/accept", 3600.0, {"expect": [e["diff"]["hash"]]})
     assert code == 200 and got["status"] == "accepted"
+
+
+# The factory reviewer's size gate (dev/bin/review.py): an overrun's reason in the definition's 'Where it stopped'.
+
+DEF_REL = "docs/roadmap/overnight/g.md"
+FIRST = "# g\n\n## Definition of done\n\nIt works.\n\n## Size budget\n\n30 net lines\n"
+
+
+FACTORY_BIN = Path(__file__).resolve().parent.parent / "dev" / "bin"
+
+
+@contextlib.contextmanager
+def factory_review_module():
+    """dev/bin/review.py with its neighbours importable as the factory runs it: dev/bin is appended to sys.path, as
+    tests/test_agents_drop.py does (prepended, its queue.py would shadow the standard library's queue). Both are put
+    back after: sys.path as it was, and only the dev/bin modules this import added (fac, agents, brief, ...: fac fixes
+    its MODEL to the cwd at import) taken out of sys.modules, so no later test in the worker gets them in place of its
+    own; a module already there before is left as it was."""
+    import importlib.util
+    path, before = list(sys.path), set(sys.modules)
+    sys.path.append(str(FACTORY_BIN))
+    try:
+        spec = importlib.util.spec_from_file_location("factory_review_size", FACTORY_BIN / "review.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        yield m
+    finally:
+        sys.path[:] = path
+        for name in set(sys.modules) - before:                                # (dev/bin's own, never the stdlib's)
+            if Path(getattr(sys.modules[name], "__file__", None) or "/").parent == FACTORY_BIN:
+                del sys.modules[name]
+
+
+@pytest.fixture
+def factory_review():
+    with factory_review_module() as m:
+        yield m
+
+
+def test_the_size_gate_tests_leave_no_factory_module_behind():
+    before, path = set(sys.modules), list(sys.path)       # (other tests in the worker may have put dev/bin there)
+    with factory_review_module() as m:
+        assert m.size_gate and str(FACTORY_BIN) in sys.path and "fac" in sys.modules
+    left = [n for n in set(sys.modules) - before if Path(getattr(sys.modules[n], "__file__", None) or "/").parent
+            == FACTORY_BIN]
+    assert left == [] and sys.path == path
+
+
+def head_definition(tmp_path, text: str):
+    f = tmp_path / DEF_REL
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+    return tmp_path
+
+
+def test_an_overrun_reason_in_where_it_stopped_is_seen(tmp_path, factory_review):
+    first = FIRST.strip()                                                       # (as fac.git returns it)
+    for line in ("Overrun reason: 12 lines over, for the lock.", "- **Overrun reason:** 12 lines over, for the lock."):
+        wt = head_definition(tmp_path, FIRST + f"\n## Where it stopped\n\nAll built.\n{line}\n")
+        assert factory_review.size_gate(42, 30, first, wt, DEF_REL) == []
+    assert factory_review.size_gate(30, 30, first, tmp_path / "none", DEF_REL) == []  # within budget: none needed
+    parked = FIRST + "\n## Where it stopped\n\nParked by the factory (review, 2026-11-21 10:00).\n\nTwo reviews.\n"
+    wt = head_definition(tmp_path, parked + "\n## Where it stopped\n\nOverrun reason: the lock needs 12 lines.\n")
+    assert factory_review.size_gate(42, 30, first, wt, DEF_REL) == []           # the branch's own, after a park
+
+
+def test_an_overrun_with_no_reason_appended_still_blocks(tmp_path, factory_review):
+    first = FIRST.strip()
+    finding = factory_review.size_gate(42, 30, first, head_definition(tmp_path, FIRST), DEF_REL)[0]
+    wis = "\n## Where it stopped\n\n"
+    for said in ("All built.",
+                 f"The review said: {finding}",                                 # quoting the size finding
+                 f"> {finding}\n\n{finding}",
+                 "However, the lock moved; the reason is in the diff.",         # prose with 'however ... reason'
+                 "Moreover, to recover the overnight run there was a reason.\nThe overrun is 12 lines over budget.",
+                 "Overrun reason:",                                             # the label with nothing after it
+                 "The overrun reason: the lock.",                               # not a line of its own form
+                 "Parked by the factory (review, 2026-11-21 10:00).\n\nsize: over budget.\nOverrun reason: the lock "
+                 "takes 12 lines."):                                            # the factory's own park text
+        got = factory_review.size_gate(42, 30, first, head_definition(tmp_path, FIRST + wis + said + "\n"), DEF_REL)
+        assert len(got) == 1 and "no reason written" in got[0], said
+        assert DEF_REL in got[0] and "Where it stopped" in got[0]               # says where it was looked for
+    outside = FIRST + "\n## Notes\n\nOverrun reason: the lock takes 12 lines.\n"
+    assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, outside), DEF_REL)  # not in that section
+    missing = tmp_path / "elsewhere"                                            # a HEAD file that cannot be read
+    assert factory_review.size_gate(42, 30, first, missing, DEF_REL)            # counts as no reason (lesson-3)
+    (missing / DEF_REL).mkdir(parents=True)
+    assert factory_review.size_gate(42, 30, first, missing, DEF_REL)
+
+
+def test_a_reason_in_an_edited_definition_does_not_count(tmp_path, factory_review):
+    first = FIRST.strip()
+    reason = "\n## Where it stopped\n\nOverrun reason: the lock takes 12 lines.\n"
+    edited = FIRST.replace("It works.", "It works.\n\nOverrun reason: allowed, for the lock.")
+    wt = head_definition(tmp_path, edited + reason)
+    assert factory_review.appended(wt, DEF_REL, first) == ""
+    assert factory_review.size_gate(42, 30, first, wt, DEF_REL)                 # the edit gains it nothing
+    budget = FIRST.replace("30 net lines", "300 net lines") + reason
+    assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, budget), DEF_REL)
+    assert factory_review.size_gate(42, 30, first, head_definition(tmp_path, FIRST + reason), DEF_REL) == []
