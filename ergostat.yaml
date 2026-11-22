@@ -124,6 +124,7 @@ items:
       failed_gates: sum
       retries: sum
       queue_attempts: sum
+      stalls: sum                    # its suite runs stopped for a limit, it alone in the batch (queue, triage)
       sessions: sum
       ai_cost_usd: sum
       build_hours: sum

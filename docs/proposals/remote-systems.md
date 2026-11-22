@@ -25,8 +25,8 @@ brought it in), and refusing edits to a part that belongs to someone else.
   how fast we must answer). We never close a loop *through* its actuators: a local block may not output to a
   remote flow, block or goal. Where we want it to act differently, we propose that to its owner.
 - **Process mining**: its items are objects of other kinds in another log. The local process map draws the
-  remote's map beside ours, frame by frame, marked remote; lines between our items and theirs need a shared id
-  and are left to a later slice.
+  remote's map beside ours, frame by frame, marked remote; a line between one of our items and one of theirs
+  is drawn where our item names theirs through a relation to the remote's kind (the id both logs carry).
 
 ## 1. What a remote ergostat serves
 
@@ -183,8 +183,9 @@ later, the Record page); the remote's items are read in place through its own `/
 - the Items page and `ergostat item` list local items; a remote's items are to be listed through its API,
   marked remote, linking to its own page (a later slice);
 - the process map draws the remote's own map (from `/remote/v1/process`) beside ours; a line between one of
-  our items and one of theirs needs an id both logs carry (a reference in an event's data) and is not drawn
-  in the first slice;
+  our items and one of theirs needs an id both logs carry (a reference in an event's data): a relation naming
+  the remote's kind (`blocked_by: incidents-incident`), drawn to the step the remote says the item was last at
+  (`at=`; built on `remote-process-lines`);
 - coherence (§12l) holds the three views of the **local** model against the **local** record; the remote's
   parts are left out of it (the remote checks its own), as they are of "not exercised by the record".
 
@@ -236,12 +237,12 @@ model reads the cache and fetches only when the cache is older than `every`.
    remote *incidents* model; the remote's model changes while both run and the local follows; the remote
    stops and the local marks its data stale.
 
-**Left for later**: the event cache feeding the Items and Record pages; cross-log lines in the process map;
-serving the IR (`?format=ir`). (Three are built: proposals written as text for the remote's owner, SPEC §4c
-"Proposals for its owner"; a remote that is itself composed of remotes, whose imported parts are served with
-the chain of instances they came through, SPEC §4c; and mutual TLS (`remote-mtls`, SPEC §4c): `web: mtls:`
-serves the remote API alone on a listener of its own, to client certificates one CA signed, and a `remotes:`
-entry's `tls:` reads it.)
+**Left for later**: the event cache feeding the Items and Record pages; serving the IR (`?format=ir`). (Four
+are built: lines in the process map between our items and a remote's (`remote-process-lines`);
+proposals written as text for the remote's owner, SPEC §4c "Proposals for its owner"; a remote that is itself
+composed of remotes, whose imported parts are served with the chain of instances they came through, SPEC §4c;
+and mutual TLS (`remote-mtls`, SPEC §4c): `web: mtls:` serves the remote API alone on a listener of its own,
+to client certificates one CA signed, and a `remotes:` entry's `tls:` reads it.)
 
 ## 9. Decisions, in one place
 

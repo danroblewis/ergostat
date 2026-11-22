@@ -256,9 +256,9 @@ additions:
 2. **The parent is judged at the join.** When the join moves the parent to `merged`, the intent judge (SPEC §12i)
    reads the parent's definition against the merged children's diffs. If its verdict is short of done, the parent
    reopens (`ergostat.item.reopened`) with what is missing as a new child.
-3. **Split quality is measured.** `split-quality` is the share of split parents whose judge said done at the join;
+3. **Split quality is measured.** `splits-covered` is the share of split parents whose judge said done at the join;
    `split-overhead` is the children's total cost over the class's median for an unsplit gap. Until 5 split parents
-   have joined, the XL rule says *split, and tell the coordinator*. It becomes automatic only when `split-quality ≥
+   have joined, the XL rule says *split, and tell the coordinator*. It becomes automatic only when `splits-covered ≥
    0.7`. That is the owner's condition: "a good pattern if we can verify that the splitting works".
 
 **Measures, so each stage earns its place.** These are `planning-cost-share` (planning and plan-review dollars over
@@ -308,7 +308,7 @@ whether it helped.
 |---|---|---|---|
 | 1 | `gap-size` | — | Every requested gap has `size`, `size_by` and `size_confidence` from `dev/bin/size.py`, with haiku only below a confidence threshold. `size-accuracy` is an auxiliary in `dev/model/knowledge.yaml`, worked out from merged gaps' `net_lines`. Backtested on the merged gaps in the record, with the confusion table in the gap's notes. |
 | 2 | `plan-by-size` | 1 | S gaps go `open → ready` with no planner session, and their brief asks for a self-written definition. M gets a capped short plan with a program check and no plan review. L plan review is sampled. XL is refused unsplit. `planning-cost-share` and `first-pass-by-size` are in the model. |
-| 3 | `split-verified` | 2 | `plan.problems` requires children ≤ L, `covers:` for every parent criterion and no cycle. The intent judge runs on the parent at the join and reopens it with a new child when it is short. `split-quality` and `split-overhead` are measured. XL auto-split stays behind `split-quality ≥ 0.7` over 5 joins. |
+| 3 | `split-verified` | 2 | `plan.problems` requires children ≤ L, `covers:` for every parent criterion and no cycle. The intent judge runs on the parent at the join and reopens it with a new child when it is short. `splits-covered`, `split-budgets-held` and `split-overhead` are measured. XL auto-split stays behind `splits-covered ≥ 0.7` over 5 joins. |
 | 4 | `kb-kind` | — | `knowledge` has its types, states and non-precedence relations in `ergostat.yaml`. The 3 files are synced as entries with aliases for old ids. The 9 decisions are `ergostat.decision` items. The 3 research reports are findings. Briefs carry the same text as before (a test compares). |
 | 5 | `item-search` (core) | — | `search:` on a kind fills an FTS5 table in the item index (rebuilt by `--reindex`, checked in `tests/test_item_index.py`). `ergostat/graphquery.py` provides near, path, about and search. `ergostat items --near/--path/--about/--search` and `GET /api/items` take them. SPEC §5a says so. |
 | 6 | `kb-parts` | 4, 5 | `parts-sync` keeps a `part/*` and `file/*` item per model part and tracked file, with hashes. Entries record `anchors`, and a changed referent stales the entries about it. `about loop:<name>` expands through `spec/causal.py`. A part's item page lists what is known about it. |
