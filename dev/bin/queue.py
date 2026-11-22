@@ -754,7 +754,8 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
     survivors, green landing them, red starting again. So one failing merge costs one round, k independent ones k
     rounds, and the batch one full run after them. A round with a prefix that cannot tell (unknown) before its first
     failing one bisects serially, as above, from the prefixes that passed up to that failing one (in a first round,
-    the red tree); a later round with none failing, the full run. A test that fails only when two merges are both in
+    the red tree); a first round with none failing (its tree failed them alone just before), serially on the whole
+    batch; a later round with none failing, the full run. A test that fails only when two merges are both in
     blames the later one, as the serial bisect does; a later merge failing the same test as the one found is caught by
     the full run. batch_rounds and prefix_runs (the heads checked) are said on each gap's suites_queue. No suite run
     or round starts past
@@ -844,10 +845,11 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
                 got = parallel(full or red, known)
                 k = next((i for i, (r, _, _) in enumerate(got) if r != "pass"), None)
                 fail = next((i for i, (r, _, _) in enumerate(got) if r == "fail" and i >= (k or 0)), None)
-                if k is None or fail is None and rounded:
+                if rounded and fail is None:
                     continue                         # passed on the whole survivor tree, or none proven red: full run
-                lo, green = known + k, {"named": {"round": rounds[0]}}   # (a round's green never lands: base)
-                hi = known + (len(got) if fail is None else fail + 1)    # (round one: the red tree failed it)
+                if k is not None:                    # (round one all green, though its tree failed alone: serial)
+                    lo, green = known + k, {"named": {"round": rounds[0]}}   # (a round's green never lands: base)
+                    hi = known + (len(got) if fail is None else fail + 1)    # (round one: the red tree failed it)
                 if fail is not None:                 # k == fail: its last merge fails, found; else serial up to it
                     red = {"failed": red["failed"], "tests": got[fail][1], "log": got[fail][2]["log"],
                            "tail": got[fail][2]["tail"], "round": {"round": rounds[0], "prefixes": len(got)}}
