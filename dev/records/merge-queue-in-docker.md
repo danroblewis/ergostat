@@ -121,3 +121,15 @@ Not run here: the full unit suite, the four browser files, and `demo_check`. The
 Parked by the factory (review/merge-queue-in-docker-1, 2026-11-21 16:42).
 
 Done, by reading: points 1-5 and 7. [agents] cpusets and session_cpus in dev/factory.toml; agents.limits/queued/sweep_box; fac.suite(box=...) wrapping every queue and triage suite in a no-network agent-image container on queue_cpuset (unit 8 CPUs, browser 4), killed by name on every way out and swept at the next run after a SIGKILL; NotStarted (exit 125/126/127) failing the run as infrastructure with main undone and no gap blamed; the Mac's .venv shadowed by a tmpfs, bytecode and ruff's cache in /tmp, the git dir read-only, run/coverage mounted at its own path; five acceptance tests, each reported seen to fail on a break. Left: point 6, one real queue run of a real merge of main on the owner's Mac with the agent image built, once with queue_container = true and once with false, the suite times and the pass/skip counts of both written in Where it stopped, with the four demos and four browser files green in the container. It stops because only someone with Docker on the Mac can take that run.
+
+## The real run of point 6, by the coordinator (2026-11-22 00:47-01:01 UTC)
+
+No session has Docker, so the coordinator took this run. The tree was main at b4639301 merged with this branch at 353ba3b6 (b268e219), in the agent image with no network, pinned to CPUs 12-23, the checkout's git directory read-only, unit (8 CPUs) and browser (4 CPUs) at once, then the demos, while the factory ran its usual builds:
+
+- unit: rc 0, 2590 passed, 69 skipped, 1 xfailed, 496 s
+- browser (the four files): rc 0, 243 passed, none skipped, 697 s
+- demo: rc 0, ok ticket-factory, image-squeeze, the-job, roadmap, 239 s
+
+The same suites on the Mac in the queue's recent runs, under similar load and not side by side: unit 395-446 s, browser 514-771 s.
+
+What this run does not show: it used the same `docker run` arguments by hand, so `fac.suite(box=...)` and the coverage file path are exercised for the first time by the first real queue run after a switch. `[suites] queue_container = false` is the way back if that run fails.
