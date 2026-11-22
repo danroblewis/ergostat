@@ -1,0 +1,34 @@
+# Complexity (dev/records/cx-measure-frame.md): the code's complexity in many forms and slices, one reading per commit
+# of main at the commit's time, computed once by dev/bin/complexity.py (cached under run/complexity/). No sensor here
+# runs it, and no schedule: the readings are recorded from its commit files, one per commit of main.
+# The pattern for the later cx- families:
+# - a headline stock gets a grown and a distilled flow (`changes: rises` and `changes: falls`), both `over: 1d`;
+# - a sliced stock gets one two-way `-change` flow (`changes: net, over: 1d`);
+# - a ratio, share or percentile is an auxiliary with `sensor: {manual: true}` and `driven-by` naming the stocks it
+#   is computed from (else check finds auxiliary-without-causes);
+# - no `changes` flow is drawn as caused by another flow (check: measured-not-caused);
+# - each family brings its own dev/model/complexity-<family>.yaml with `defaults: {system: complexity}`;
+# - a measure becomes a part only when someone will read it weekly; otherwise it stays `part: false`, in the cache.
+defaults:
+  system: complexity
+
+systems:
+  complexity:
+    within: code-health
+    description: the code's complexity in many forms and slices, one reading per commit of main
+
+stocks:
+  complexity-tokens:
+    unit: tokens
+    description: Python tokens (comments and layout left out, an f-string one) of ergostat/, dev/bin/ and scripts/, vendored files left out - its readings recorded per commit of main, at the commit's time, by complexity.py record, never by a person or a schedule
+    sensor: {manual: true}
+
+flows:
+  complexity-tokens-grown:
+    to: complexity-tokens
+    description: Python tokens added to the code, each rise of the stock over a day
+    sensor: {changes: rises, over: 1d}
+  complexity-tokens-distilled:
+    from: complexity-tokens
+    description: Python tokens taken out of the code, each fall of the stock over a day
+    sensor: {changes: falls, over: 1d}

@@ -524,8 +524,12 @@ budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charge
   `budget:` is declared or the record cannot be read.
 - ergostat's own calls ask too: `decisions extract`, the intent judge's verdicts and `improve --architecture` each
   reserve their per-call cap (or `max-cost`) and are refused when it is not there: the extract stops (`budget: …`),
-  a verdict is left due for the next pass, a system is listed as not reviewed. Not yet covered: the modeller's
-  calls and models in `ergostat.toml` (SPEC §9.9).
+  a verdict is left due for the next pass, a system is listed as not reviewed. So do the modeller's calls (the
+  redesigner, the modelling reviewer, the `modelling ai` tier, the architecture review). Each reserves its
+  estimated cost. A refusal is said `budget: …`: the redesign's result is `no budget`, not `nothing proposed`, and
+  its request stays open. Not yet covered: models in `ergostat.toml` (SPEC §9.9).
+- A new place that starts `claude` or `$ERGOSTAT_AI` fails
+  `tests/test_modeller_budget.py::test_only_listed_ai_starts`. Route the call through `decisions/ai.call` or `numbers/modeller.asked`; don't add the place to the allowlist.
 
 ## 3c. Stale readings and estimates
 
