@@ -4,6 +4,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -267,3 +268,21 @@ def test_a_remote_part_is_never_edited_here(tmp_path):
     via = compose.RemoteVia(tmp_path / "ergostat.yaml", 3, "incidents", "http://127.0.0.1:8794")
     with pytest.raises(yamledit.EditError, match="belongs to remote incidents"):
         yamledit.own(via, "flow incidents-resolved")
+
+
+GOLDEN = Path(__file__).parent / "golden" / "explain-alert-triage.txt"
+
+
+def _every_explanation(spec):
+    from ergostat.spec.explain import explain
+    out = [explain(spec)]
+    for kind, table in (("goal", spec.goals), ("block", spec.blocks), ("stock", spec.stocks), ("flow", spec.flows),
+                        ("auxiliary", spec.auxiliaries), ("system", spec.systems)):
+        out += [explain(spec, f"{kind}.{n}") for n in sorted(table)]
+    return "\n\n".join(out) + "\n"
+
+
+def test_explain_without_remotes_unchanged():
+    spec = sp.load(Path(__file__).parent.parent / "examples/alert-triage/ergostat.yaml")
+    assert not spec.remotes
+    assert _every_explanation(spec) == GOLDEN.read_text()     # written from main's explain, before this gap
