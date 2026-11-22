@@ -33,3 +33,37 @@ depends-on: []
 ## Size budget
 90 net lines
 size: M (confidence: low)
+
+## Where it stopped
+Built, round 1. Before the change `check` gave the-job no error, no `equation-units` and no `units-mismatch`; four
+of the six coupled rates already had equations. What changed, and the choices made with nobody to ask (each the most
+reversible one):
+- `actions-filed` (incidents) now has `auxiliary.actions-per-postmortem * flow.postmortems`. The ratio stays an
+  exogenous auxiliary, valued by a new parameter `actions-each` (2.5, range [2, 3]: `randint(2, 3)` in
+  world/traffic.py). This follows software-factory's `ops-broken-per-ticket`. Making the ratio a parameter instead
+  took a part out of incidents and gave it a `system-splits` note (modularity 0.46), so the-job could not join `CLEAN`.
+- `docs-needed` (documents) is also a rate set by another rate (`instant` from `docs-approved`), so done item 1 covers
+  it, although `documents.yaml` is not in the Files list. It now has `workdays-per-hour * changes-base +
+  next-docs-per-approval * flow.docs-approved`, with `changes-base` 0.35 docs/workday (`RATES["change"]`,
+  `estimate: true`) and `next-docs-per-approval` 0.75 (three of the four stages' approvals open a next document).
+- The one problem at level `finding`, `missing-feedback` on `notes-reach-work` (messages.yaml, not in the Files
+  list), is answered with a person block, `route-notes` (agent `me`, out `flow.messages-routed-by-hand`). That is how
+  the model already says "only I can". As a result the-job's status no longer has a goal no controller holds, which
+  `tests/test_graph_cli_web.py::test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals` needed
+  (`controlled < loops`). That test now removes the block in its own copy of the model, so its strict check stays.
+- "record-dependent": `read` on the-job gives no problem that depends on a record. What is left are 98 notes,
+  allowed by code in `LEFT` in the test: `no-description` (60), `collector-undescribed` (17), `no-equation` (15: the
+  decision rules of flows a block moves, none of them a coupled rate, which the test also asserts),
+  `event-names-mixed` (3), `schedule-removed` (2) and `queue-goal-tolerance` (1: `ci-upgrade-planned` holds `<= 1` on
+  purpose). These are left: answering them means descriptions across every domain file and decision rules for the
+  block-moved flows, both outside this gap's couplings and its budget. Any `finding` or `error`, and any other note
+  code, fails the test.
+- The two coupled flows of ergostat's `modelling` template (`model-mended`, `requests-answered`) are left out of
+  `COUPLED` (`template_made`). Changing the template would change every model that uses it.
+- Seen to fail (lesson-9): with `outages-noticed`'s equation removed, both new tests fail (`units-mismatch`,
+  `parameter-unused`; no equation). With `actions-filed`'s equation removed, only the coupled-rate test fails: `check`
+  itself does not flag a coflow that has an auxiliary ratio but no equation.
+- Diagram fixtures not edited; `test_diagram_rendering.py::test_every_view_draws_cleanly_and_in_time[the-job]` passes
+  as recorded.
+- Not run: `scripts/demo_check.py` (the command `uv run python scripts/demo_check.py --help` was refused here), the
+  full unit suite and the four browser files (left to the factory).
