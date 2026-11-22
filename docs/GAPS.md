@@ -324,18 +324,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
     else limits the count if the tidier stops. Still to come: **upkeep-watched-loops** (the watchdog, the heartbeat
     goal the outer watcher reads, leases and the worktree pool) and **upkeep-record-loops** (the event log's roll-up
     and measurement retention).
-- **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):
-  - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (done, 3e106ee:
-    `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
-  - **The watchdog restarts without finding the cause, every 6.5 minutes; a hang while starting is unseen; pool
-    wedge found at 130 s** (done, 3e106ee: the index lock's holder dumped; back-off 60 s to 30 m; a startup deadline).
-  - **An `alarm` block lights nothing** (done, 3e106ee).
-  - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
-    (done, 3e106ee: `storage: logs:`; `ergostat compact --projects`).
-  - **The CLI refuses to run while the YAML is broken**, so every `$ERGOSTAT_CMD` call fails while an agent edits
-    (done on branch `cli-fallback`, `docs/roadmap/overnight/cli-fallback.md`: the engine keeps the model it takes as
-    one content-addressed snapshot of every file its loading read; commands that read load that snapshot alone,
-    never running anything; commands that act, `event --add` among them, refuse naming the YAML's error).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per
@@ -442,6 +430,21 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Done recently
 
+- **From upkeep's fault injection** (done on main; found by upkeep's fault injection,
+  `docs/roadmap/overnight-2026-11-19.md` at 01:30, whose proposal was not merged to main): the first four problems
+  from `resilience-core` (`docs/roadmap/overnight/resilience-core.md`, tests in `tests/test_resilience.py`), the fifth
+  from `cli-fallback` (`docs/roadmap/overnight/cli-fallback.md`, tests in `tests/test_cli_fallback.py`).
+  - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (3e106ee:
+    `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
+  - **The watchdog restarts without finding the cause; a hang while starting is unseen; a wedged pool is found
+    late** (3e106ee: the index lock's holder dumped; restarts that did not help back off; a startup deadline).
+  - **An `alarm` block lights nothing** (3e106ee: one line in needs attention, "alarm raised" on its block).
+  - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
+    (3e106ee: `storage: logs:`; `ergostat compact --projects`).
+  - **The CLI refuses to run while the YAML is broken** (75e7687, the merge of `cli-fallback`; 366241d and 6affe4f
+    class `block --reset` and `block --check-warm` as acting): the engine keeps the model it takes as one snapshot
+    of every file its loading read; commands that read fall back to that snapshot alone, with a warning; commands
+    that act, `event --add` among them, refuse naming the YAML's error.
 - **A lease taken while the engine closes outlives the close** (done on `factory/a-lease-taken-while-the-engine`;
   found by `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`; SPEC §9.5,
   `docs/roadmap/overnight/a-lease-taken-while-the-engine.md`): `Dispatcher.take` checks the engine's own stop and
