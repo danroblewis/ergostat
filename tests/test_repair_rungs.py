@@ -239,6 +239,20 @@ def test_rule_unreadable_record_holds(tmp_path, monkeypatch):
     assert actions.get(p, action["id"])["state"] == "requested" and not approvals(p, action["id"])
 
 
+@pytest.mark.parametrize("which", ["program", "rule"])
+def test_rung_answers_counted_apart(tmp_path, monkeypatch, which):
+    """An approval by a rung is an agent's, never a person's: never evidence for promoting apply-fix to gate: auto."""
+    from ergostat.inbox import stats
+    p, fid = opened(tmp_path, monkeypatch)
+    history(p, 10)
+    cmd = script(tmp_path, "import sys\nsys.stdin.read()\nprint('{\"approve\": true}')\n")
+    before = stats.by_class(p, p.model.spec).get("apply-fix") or {"by_agent": 0, "approved": 0}
+    assert review(p, fid, rung(which, cmd))[0]["verdict"] == "approve"
+    r = stats.by_class(p, p.model.spec)["apply-fix"]
+    assert (r["by_agent"] - before["by_agent"], r["approved"] - before["approved"]) == (1, 0), (before, r)
+    assert "apply-fix" not in stats.asked_today(p, p.model.spec)
+
+
 # ---- through fix.run
 
 

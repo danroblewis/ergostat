@@ -133,8 +133,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   program). Triage reads Python, Node, Java and Go traces and notes an error a good run swallowed (M5) without moving
   any failure. Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
   regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
-  fails). Done since (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: log
-  events; the ladder's lower rungs (program, rule) and promoting a class automatically; a program with uncommitted
+  fails). Done since (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). Done since
+  (`repair-lower-rungs`): `approver: program` (`approve-with:`) and `approver: rule`. *Left*: log
+  events; promoting a class automatically; a program with uncommitted
   changes is fixed from its committed text; a Python traceback more than 8,000 characters before the end of a failed
   run's output is now signed by how the run ended; a daemon's run hands back little or no standard error, so what a
   daemon swallows is not seen; Ruby and other languages are not read.

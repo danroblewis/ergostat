@@ -13,11 +13,11 @@ from ..spec.ir import MODELLING_REQUEST
 WEEK, DAY = 7 * 86400.0, 86400.0
 PROMOTE = 5                         # approved this many times, none denied: suggested up the ladder
 BY_AGENT = "owner via mcp"          # who an answer given through the MCP is recorded as
-AI_APPROVER = "ai approver ("       # who the repair loop's AI approver is recorded as (``ai approver (MODEL)``)
+AI_APPROVER = ("ai approver (", "program approver (", "rule approver")   # the repair loop's approvers (SPEC §12r)
 
 
 def by_agent(source) -> bool:
-    """An answer an agent gave, not the owner: through the MCP, or the AI approver (SPEC §12r)."""
+    """An answer an agent gave, not the owner: through the MCP, or one of the repair loop's approvers (SPEC §12r)."""
     return source == BY_AGENT or str(source or "").startswith(AI_APPROVER)
 
 
