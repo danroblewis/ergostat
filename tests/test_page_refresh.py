@@ -404,7 +404,8 @@ def test_the_header_menu_lists_running_projects_then_counts_the_stopped(browser,
     assert got[-1] == ["1 stopped (ergostat projects)", "", True], got
     assert len(got) == 2 and not errors, (got, errors)
     pg = browser.new_page(viewport={"width": 1280, "height": 800})
-    listed = {"running": [{"name": "elsewhere", "web": "http://elsewhere.test", "off": ["a", "b"], "unknown": []},
+    listed = {"running": [{"name": "elsewhere", "web": "http://elsewhere.test", "off": ["a", "b"], "goals_off": ["a", "b"],
+                           "unknown": []},
                           {"name": "no-page", "web": None, "off": [], "unknown": []},
                           {"name": "broken", "repo": None, "running": True, "error": "ValueError: bad"}],
               "stopped": 7, "at": 1.0, "age": 600.0}

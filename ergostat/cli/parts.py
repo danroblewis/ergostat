@@ -86,6 +86,9 @@ def cmd_part(args) -> int:
     done = record_by_a_person(args)
     if done is None:
         done = forget_readings(args)
+    if done is None:
+        from .spec_cmds import backfill
+        done = backfill(args)
     if done is not None:
         return done
     p = open_project(args)

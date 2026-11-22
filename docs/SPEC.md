@@ -774,7 +774,8 @@ each old bucket's last reading. `victoriametrics` keeps every reading as
 `-retentionPeriod` (the open-source server does not downsample): buckets are computed by the
 server (MetricsQL over `query_range`), raw readings exported when there are few (20,000 at most),
 and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
-`measurements.forgotten.json`.
+`measurements.forgotten.json`, and the ledger of backfilled readings (section 6) in
+`measurements.backfilled.db` beside it (with `sqlite`, it is in `measurements.db`).
 
 **Chosen by measurement** (`scripts/loadtest.py`, the demos' records tiled to 1, 7 and 30 days;
 the numbers in `docs/proposals/harness-parity-plan.md`, section 4). The segmented log is the
@@ -1314,6 +1315,21 @@ messages:
 | `precedence` | true or false | true for `blocked_by`, `after`, `depends_on` | Its targets come first: the item is **ready** only once each item it names is finished |
 | `inverse` | a name | `blocks`, `before`, `dependents`, `children`, `duplicated_by`, `related_from`; else `NAME_of` | The other direction's name. Never written: ergostat derives it |
 | `group` | true or false | true for `parent` | A parent: the Graph view hangs its children off it, and the critical path treats it as their summary |
+| `starts_at` | a list of states | none | Precedence only: the target's states, besides finished, in which it no longer blocks (start-to-start: `depends_on: {kind: gap, starts_at: [approved]}`) |
+
+**Starting before a target finishes.** A precedence relation's `starts_at` names states of the kinds it names: a
+target in one of them does not block, so the item's status is *unblocked* (not *blocked*), it is not waited on, and
+`takes: {unblocked: true}` (section 9.5) may take it. Only the state the target is in now counts: one that moves on
+to a state not named, and not finished, blocks again, so name each state from which on the dependent may start. A
+target held under a lease (state `leased`) counts by the state it was taken from (the lease's `back`): one taken
+from `approved` still counts as approved, one taken from its first state still blocks. It changes nothing else: the critical path, slack, the projected schedule and the completion estimates stay
+finish-to-start (conservative: the dependent is projected to start once its target ends). `check` refuses a state
+none of the kinds named has (`starts-at-unknown-state`), `starts_at` on a relation that is not precedence (a group,
+`precedence: false`, a remote's kind: `starts-at-not-precedence`), a finished or paused state (`messages: done:`,
+else the kind's last declared state, not counting the `leased` and `dead` a taken kind gains; `messages: paused:`;
+or `dead`: `starts-at-finished`, a finished target never blocks), and `leased` (`starts-at-leased`: name the state
+it is taken from). The
+Items API and the item page give each relation with its `starts_at`.
 
 A relation is a field like any other: events add and take away links as they change fields (`"data": {"blocked_by":
 "ticket/12"}`, `{"blocked_by": {"remove": "ticket/12"}}`, a JSON Patch), and every change is in its history. The
@@ -1365,7 +1381,7 @@ for:
   state a block takes from, such as review); *blocked* (a precedence relation names an item not finished, a paused
   one too: it is named as what the item waits on); *unblocked* (in its first state, nothing it waits on unfinished;
   not "ready", which is often a state's name); *paused* (in a state its kind declares paused, `messages: paused:`:
-  not finished, not active, kept out of the critical path, and held where it is by the completion estimates, "paused:
+  not finished, not active, kept out of the critical path, and not scheduled by the completion estimates, "paused:
   continued by hand", with no projected bar); *dead* (a dead letter).
 - **Durations**: each kind's time per state, the median of the stays its latest 2,000 items made in it (`leased`, a
   run's hold, counted as the work it is), weighted by how often a finished item visits the state (a rework state,
@@ -1492,8 +1508,8 @@ stand now):
   will; among equals the dispatcher takes the least slack and the longest path ahead first, the projection those
   more items wait on, which agree on a chain but may differ between items of unequal durations). An item waiting in a state
   whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
-  the engine would from the newest readings) is projected not to move: no bar, its reason "waits for B, which is
-  switched off now (by C)", at most the block's capacity at once: its pool now (its `pool:` number, or its stock's
+  the engine would from the newest readings) is projected not to move: not scheduled (below), its reason "waits for
+  B, switched off". A block takes at most its capacity at once: its pool now (its `pool:` number, or its stock's
   newest reading at or before the moment estimated, at most its `most`; a pool read as 0 or not read at all is
   estimated at 1, and each item waiting there says so: "its pool (stock.S) is 0 now: estimated at 1 run at once";
   the what-if `block.NAME.pool` overrides it), its agent's
@@ -1513,6 +1529,15 @@ stand now):
   tail; never past its TTL. A failure share tried in the what-if reaches the runs already held too.
 - **Dependencies:** an item does not leave its kind's first state, nor is it taken by an `unblocked` block, until
   every item its precedence relations name is finished (an item named but not in the record is not waited on).
+- **Items that cannot move are left out of the run** (else every run would go on to the horizon): an item paused
+  (its kind's `paused` message) or waiting at a state whose every block that takes from it is switched off, either
+  not leased (a leased one is run: its lease takes a slot and its run ends), one of a kind with no finished state,
+  and one whose precedence relations reach any of these, however far. Each is **not scheduled**: no p50 or p90, no
+  bar, and why ("paused in parked", "waits for dev, switched off", "waits on gap/x, which is parked"); the Items
+  list and an item's page say that first, then the item's reason as above. Each kind counts them (`unscheduled`),
+  and its last finish is of the items that can move only. An item that reaches a paused or switched-off state
+  partway through a run, and one parked waiting on it, is counted out of that run there: left out of its p50, p90
+  and its kind's last finish in that run, and its share of runs counted out kept (`out`) and said in its why.
 - **Arrivals:** new items at the record's rate per kind (a batch brought in at one moment is not a rate), into the
   states they arrive in, competing for the same capacity.
 
@@ -1528,7 +1553,9 @@ page is given the latest, and the next is worked out by one worker (the latest a
 kept) when the record changed (at most every thirty seconds, and every
 two minutes regardless); of now only (a moment travelled to has none), and not in a snapshot. The owner's what-if
 (`block.NAME.pool`, `block.NAME.failure`: a share of its runs given back, `0.2` or `20%`; typed beside each block's
-identified model) is worked out the same way, apart, and drawn on the same pages. The pages say what is left out
+identified model) is worked out the same way, apart, and drawn on the same pages. A simulation that fails is kept
+as its error (`eta_error` on the Timeline's answer, tried again as an answer would be) and the Timeline says so
+("the simulation failed: KeyError: ..."); with none yet it says the simulation is being worked out. The pages say what is left out
 (below), how many runs, and which blocks' runs are assumed.
 
 **What it leaves out**, and so what makes it wrong: a capacity no block declares (a reviewer who is one person across
@@ -1879,6 +1906,7 @@ sensors:
     every: 30s
   eyes:
     manual: true                 # a person records readings: ergostat sensor inbox.eyes --read 12
+                                 # a past history: ergostat sensor inbox.eyes --backfill history.jsonl
 ```
 
 Counting items (section 5a), on a stock and on a flow:
@@ -1927,6 +1955,36 @@ flows:
 
 On a flow, a sensor's reading is a rate per hour; on a `two-way` flow it may be negative (it ran
 back).
+
+**Backfilled readings.** A history kept outside ergostat (a measure computed at each commit of a
+repository's past, say) is written into a sensor's series at its own times, where the charts, the
+fit and `changes` flows read it as any reading:
+
+| Command | What it does |
+|---|---|
+| `ergostat sensor PART.SENSOR --backfill FILE [--from TEXT] [--json]` | FILE (`-`: standard input) is JSON lines `{"at": <epoch seconds>, "value": <number>}`, written to the series in one transaction. For a sensor that records a value (`run`, `query`, `manual`, `daemon`); refused for `items`, `changes` and `builtin`, which ergostat derives. Refused whole, nothing written, for a line that is not such an object, an `at` or `value` that is not a finite number, an `at` in the future, or more than 200,000 readings. Two lines with one `at`: the last is kept, and the count says so. Prints how many were written and how many skipped |
+| `ergostat sensor PART.SENSOR --backfilled [--json]` | The series' backfills, in the order they were made: when, `from`, the first and last `at` written, how many |
+
+The measurements store keeps a **ledger** of them: each backfill (its id, series, `from`, when it
+was written, first, last, count) and each reading it wrote (series, `at`, the backfill's id). It is
+outside every tier's roll, every `keep` and `prune`, and `forget`, so a backfilled span stays
+distinguishable from live readings for as long as the store is kept. A reading whose series and
+`at` are in the ledger is skipped, whatever has rolled or been pruned since: the same file sent
+twice writes nothing the second time, a day or a year later. Written and skipped are counted from
+the ledger, never by comparing with the buckets; a live reading at the same `at` is not in the
+ledger, so it does not stop a backfilled one. The ledger is read and written in the transaction
+that writes the readings (on `victoriametrics`, held while they are sent; a refused import rolls it
+back). Each backfill records the event `sensor.backfilled` (`sensor`, `written`, `skipped`,
+`repeated`, `first`, `last`, `from`, `backfill`: the ledger's id), which is pruned as any event
+without an item is; the ledger is what lasts.
+
+Readings older than the raw window are written raw and taken into the tiers at the next roll: into
+buckets already made where their span was rolled up (section 4b), and forgotten raw with the rest.
+A tier keeps a reading only as long as its `keep`, so a reading older than every tier's keep is gone
+after that roll (the ledger still names it, and it is still skipped). A bucket keeps the count,
+sum, minimum, maximum, and first and last reading of what fell in it, and a read of readings one by
+one gets each old bucket's last: two readings closer together than an old tier's bucket (two
+commits within the hour, in a tier of one-hour buckets) are one point there, the later one.
 
 `changes` measures a flow by what it did to its stock: a benchmark's score rising with a release
 is its inflow, a sudden fall its outflow. It is how a stock read by a script gets measured flows
@@ -2808,7 +2866,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -2831,8 +2889,10 @@ now are held; nothing running is stopped). The lock is this engine's: a lease an
 counted at the next look; on the same item the fold refuses the second lease, on another item both stand, as for a
 `pool:` number. The pool's stock is not one of the block's reads, so its `on-stale` (section 9.6) does not watch it.
 `ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says
-waits on an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
-slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
+waits on an unfinished item is not taken (one in a cycle never is; a target in a state the relation's `starts_at`
+names is not waited on), and the rest are taken the critical first: the least
+slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The slack is read from the
+finish-to-start projection even for a `starts_at` link: it says nothing about starting early. The kind must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
 it), then the states of `at` in order, then the order above (the critical first, or the oldest): `takes: {kind: gap,
@@ -2870,7 +2930,9 @@ item's transcript (`claude.*`), renews the lease, in the fold itself. A run may 
 outright (`$ERGOSTAT_CMD lease --renew`). And before a lease expires, ergostat looks once more at what
 its holder did elsewhere since its last renewal: an event it caused about anything, or an event about
 an item it started (its session, `session/developer-1a2b`). If there is one within the TTL, it records
-`renewed`, at that time; if not, `expired`.
+`renewed`, at that time; if not, `expired`. A lease whose run's end this engine has already tried (the end given up,
+or failed) is never renewed so: on the watchdog's first look past its expiry the end is tried once more, and when that
+cannot complete either, the lease expires then, without the grace of a second look.
 
 **How a run's lease ends.** When the run ends, ergostat folds its item: moved on (to a state in
 `to`, or, without `to`, any state but `leased` and those it was taken from) is an ack; otherwise a
@@ -2896,6 +2958,19 @@ that could not be given back (the write failed, or ergostat was killed, or resta
 next engine's watchdog on its TTL, so after a restart no item stays leased by a run that never ran; that expiry counts
 no attempt (`count: false`), since its holder was not a run this engine process took (the dispatcher keeps, in
 memory, the runs it took whose leases have not ended). A lease that expired is not ended again when its run ends.
+
+**Ends wait their turn.** Every end of a lease this engine writes (a run's own, or close's give-back) is checked and
+written under one lock, so two ends of one lease never both write. Its item is read before, outside the lock, and read
+again under it when any event about the item was recorded since that read (a lease's end, or the run's last line moving
+it on, so a moved-on item is acked where it stands, never nacked back), so one end holds the lock for
+milliseconds even while the record is slow to fold. An end that finds the lock held waits its turn, holding none of
+the dispatcher's other locks (takes and the watchdog go on), and tries again with a growing pause (up to 5 s), until
+one `lock_wait` before its lease expires; ergostat stopping meanwhile does not cut that short. Only then is it given
+up, said with the item and the run, and the watchdog ends the lease, or expires it, on its first look past the expiry
+(above). While that lease is held, and for 6 minutes after a watchdog pass finds it let go (one pass of the 5-minute
+pipeline watch, so it is seen once), the engine's heartbeat carries the given-up end as the dispatcher's error
+(`dispatch_error`, since the end was first tried), which health and the pipeline watch report once it is two minutes
+old. A look's own standing error is said before it, with its own since: a given-up end never hides one.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left

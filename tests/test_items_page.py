@@ -10,6 +10,7 @@ It needs Playwright and a Chromium, so the usual run skips it:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -132,6 +133,66 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     for c in lab:
         if c["chart"] is not None:                                                 # the charts followed their cards
             assert abs(c["chart"] - c["width"]) < 4, lab
+    assert not errors, errors
+    pg.close()
+
+
+NAV = ["/diagram", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
+
+
+@pytest.fixture(scope="module")
+def nav_site(tmp_path_factory):
+    """A site of its own: opening every page records ergostat's first offered changes, which `site`'s tests count."""
+    d = tmp_path_factory.mktemp("nav") / EXAMPLE
+    shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("size", [(390, 844), (720, 450)], ids=["phone", "zoom-200"])
+def test_the_navigation_shows_every_page_at_phone_width_and_at_200_percent_zoom(browser, nav_site, size):
+    """Below 760 px the tabs wrap onto rows of their own: all eight inside the viewport on every page, nothing
+    scrolled sideways, and the current page still underlined."""
+    site = nav_site
+    w, h = size
+    pg = browser.new_page(viewport={"width": w, "height": h})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    for route in NAV:
+        pg.goto(f"{site}{route}")
+        pg.wait_for_selector(f'#nav a.on[href="{route}"]')
+        pg.wait_for_timeout(300)
+        seen = pg.evaluate("""() => ({
+            links: [...document.querySelectorAll("#nav a")].map((a) => {
+                const r = a.getBoundingClientRect();
+                return { href: a.getAttribute("href"), left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+            }),
+            scroll: document.scrollingElement.scrollWidth, client: document.scrollingElement.clientWidth,
+            rows: new Set([...document.querySelectorAll("#nav a")].map((a) => Math.round(a.getBoundingClientRect().top))).size,
+            under: getComputedStyle(document.querySelector("#nav a.on")).borderBottomColor,
+            plain: getComputedStyle(document.querySelector("#nav a:not(.on)")).borderBottomColor,
+        })""")
+        assert [a["href"] for a in seen["links"]] == NAV, (route, seen)
+        out = [a for a in seen["links"] if a["left"] < 0 or a["top"] < 0 or a["right"] > w or a["bottom"] > h]
+        assert not out, (route, size, out)
+        assert seen["scroll"] == seen["client"], (route, size, seen)
+        assert seen["rows"] <= 2, (route, size, seen)                          # two rows at most
+        assert seen["under"] != seen["plain"], (route, seen)                    # the current page underlined
     assert not errors, errors
     pg.close()
 
@@ -352,6 +413,51 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     assert leased() == ["hypothesis/1"] and pg.evaluate("() => window.__same")
     assert not errors, errors
     pg.close()
+
+
+STRIP = """() => {
+  const t = document.querySelector('.track');
+  if (!t) return null;
+  const c = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const rgb = (css) => { c.clearRect(0, 0, 1, 1); c.fillStyle = css; c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data]; };
+  const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+    .reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const bg = (el) => { for (; el; el = el.parentElement) { const x = rgb(getComputedStyle(el).backgroundColor);
+    if (x[3] === 255) return x; } return [255, 255, 255, 255]; };
+  const ratio = (el) => { const a = lum(rgb(getComputedStyle(el).color)), b = lum(bg(el));
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
+  const top = [...t.children];
+  return { path: top.filter((e) => !e.classList.contains('alt')).map((e) => e.classList.contains('arrow') ? '→' : e.textContent),
+           alt: [...t.querySelectorAll('.alt .stbox')].map((e) => e.textContent),
+           final: [...t.querySelectorAll('.stbox.final')].map((e) => e.textContent.trim()).sort(),
+           double: [...t.querySelectorAll('.stbox.final')].every((e) => getComputedStyle(e).borderTopStyle === 'double'),
+           worst: Math.min(...[...t.querySelectorAll('.stbox'), t.querySelector('.alt')].filter(Boolean).map(ratio)) };
+}"""
+
+
+def test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apart(browser, site):
+    """A done session's strip is 'open → done', ending at its present state; its other endings (failed, lost) sit apart
+    with no arrow element between 'done' and them, each ending double-bordered, and every state label is at least
+    4.5:1 against its background in light and dark. An open session draws only 'open', its other states apart."""
+    add_events(("session.started", "session/strip", {"role": "researcher"}), ("session.ran", "session/strip", {}))
+    errors: list[str] = []
+    for theme in ("light", "dark"):
+        pg = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme=theme)
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{site}/item/session/strip")
+        pg.wait_for_function("() => document.querySelector('.track .stbox.on')?.textContent === 'done'", timeout=20000)
+        got = pg.evaluate(STRIP)
+        assert got["path"] == ["open", "→", "done"], got
+        assert got["alt"] == ["failed", "lost"], got
+        assert not pg.locator(".track .alt .arrow").count()                  # nothing points from 'done' to another ending
+        assert got["final"] == ["done", "failed", "lost"] and got["double"], got
+        assert got["worst"] >= 4.5, (theme, got)
+        pg.goto(f"{site}/item/session/s1")
+        pg.wait_for_function("() => document.querySelector('.track .stbox.on')?.textContent === 'open'", timeout=20000)
+        got = pg.evaluate(STRIP)
+        assert got["path"] == ["open"] and got["alt"] == ["done", "failed", "lost"] and got["worst"] >= 4.5, (theme, got)
+        assert not errors, errors
+        pg.close()
 
 
 # ---- the Graph and the Timeline (relations: SPEC §5a; relations.js), on the roadmap example's record
@@ -1005,3 +1111,72 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+UPKEEP_SEED = """
+import sys, time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(sys.argv[1])))
+for stock, value in (("inbox", 10), ("model-error", 0.5), ("unanswered-requests", 3)):   # inbox-short holds; the two
+    s = next(iter(p.model.spec.stocks[stock].sensors.values()))                         # modelling goals are off
+    p.measurements.add(s.series, value, at=time.time())
+"""
+
+
+def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser, tmp_path):
+    """Q14: with only requests-handled and model-fits off (the modelling use's own goals), the header's first figure is
+    0 and not red, 'model upkeep 2' is said apart, and the switcher's entry for a project, read from another one, has
+    the same first figure as that project's own header."""
+    home, urls, procs = tmp_path / "home", {}, []
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    try:
+        for name in ("first-loop", "second-loop"):
+            d = tmp_path / name
+            shutil.copytree(ROOT / "examples" / "first-loop", d)
+            y = d / "ergostat.yaml"
+            y.write_text(y.read_text().replace("name: first-loop", f"name: {name}"))
+            env = {**os.environ, "ERGOSTAT_HOME": str(home)}
+            subprocess.run([sys.executable, "-c", UPKEEP_SEED, str(d)], env=env, check=True, capture_output=True)
+            port = free_port()
+            procs.append(subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                                          env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            urls[name] = f"http://127.0.0.1:{port}"
+        for url in urls.values():
+            for _ in range(150):
+                try:
+                    urllib.request.urlopen(url + "/api/status", timeout=1)
+                    break
+                except Exception:
+                    time.sleep(0.2)
+            else:
+                pytest.fail("a page never came up")
+        heads, entries = {}, {}
+        for name, url in urls.items():
+            pg.goto(f"{url}/items")
+            st = pg.evaluate("() => fetch('/api/status').then((r) => r.json())")
+            assert sorted(n for n, lp in st["loops"].items() if lp["status"] == "off") == ["model-fits", "requests-handled"]
+            pg.wait_for_function("() => / off/.test(document.querySelector('#running').textContent)")
+            run = pg.locator("#running")
+            heads[name] = run.inner_text()
+            assert re.match(r"^0 goals off\b", heads[name]), heads[name]
+            red = pg.evaluate("""() => { const p = document.createElement('span'); p.className = 'runstate bad';
+                document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; }""")
+            assert run.evaluate("(e) => getComputedStyle(e).color") != red, "the first figure is red"
+            assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
+            assert pg.locator("#upkeep").evaluate("(e) => getComputedStyle(e).color") != red
+            assert "model upkeep 2" in pg.locator("header").inner_text()
+            other = next(n for n in urls if n != name)
+            find = f"[...document.querySelectorAll('#project option')].find((o) => o.text.startsWith('{other} ('))"
+            pg.wait_for_function(f"() => !!{find}")
+            entries[other] = pg.evaluate(f"() => {find}.text")
+        for name, head in heads.items():
+            entry = entries[name]
+            assert re.search(r"\((\d+) off", entry).group(1) == re.match(r"^(\d+)", head).group(1), (entry, head)
+            assert "model upkeep 2" in entry, entry
+    finally:
+        pg.close()
+        for proc in procs:
+            proc.terminate()
+            proc.wait(timeout=10)

@@ -144,6 +144,31 @@ def test_the_cli_topics_answer(repo, project, capsys):
         assert rc == 0 and expect in out, (args, out)
 
 
+def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals(tmp_path):
+    """The diagram's caption reads these from /api/status: the model's purpose, its top-level systems, and the goals a
+    controller holds (Blocks' control loops), each of them one of the status's loops."""
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import serve
+    d = tmp_path / "the-job"
+    shutil.copytree(Path(__file__).resolve().parent.parent / "examples" / "the-job", d,
+                    ignore=shutil.ignore_patterns("run", "__pycache__"))
+    f = d / "ergostat.yaml"
+    f.write_text(f.read_text().replace("name: the-job\n", "name: the-job\npurpose: keep my work moving\n", 1))
+    server, url = serve(Project(model.load(d)), free_port())
+    try:
+        with urllib.request.urlopen(url + "/api/status", timeout=30) as r:
+            st = json.loads(r.read())
+    finally:
+        server.shutdown()
+    assert st["purpose"] == "keep my work moving" and st["top"] == 2, (st.get("purpose"), st.get("top"))
+    assert st["controlled"] and set(st["controlled"]) < set(st["loops"]), st["controlled"]
+    assert st["controlled"] == sorted(st["controlled"])
+
+
 def test_the_cli_json_and_unknown_names(repo, project, capsys):
     rc, out = run_cli(repo, "loop", "--json", capsys=capsys)
     assert rc == 0 and json.loads(out)["disk-under-80"]["status"] == "unknown"
@@ -227,6 +252,21 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():
+    """While a side-panel chart's numbers are asked for it says so in words: no element is made with the text '…' (or
+    '\\u2026'), which reads as a stuck load, and the four charts of the panels start from the one placeholder (the
+    browser half of this check is tests/test_diagram_rendering.py::test_no_panel_shows_a_leftover_ellipsis)."""
+    import re
+    from pathlib import Path
+
+    charts = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "charts.js").read_text()
+    assert not re.findall(r'''["'`](?:…|\\u2026|[^"'`\n]* (?:…|\\u2026))["'`]''', charts)
+    assert 'const working = () => h("div", { class: "muted small" }, "being worked out");' in charts
+    for chart in ("causesStrip", "loopDominance", "moduleCharts", "loopScope"):
+        body = re.search(rf"\nfunction {chart}\(.*?\n}}\n", charts, re.S).group(0)
+        assert "working()" in body, chart
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
@@ -266,6 +306,25 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(project):
+    """What the side list's goal button reads (diagram.js goalButton/showGoal): an off goal's attention entry is
+    `loop NAME` and that loop names its stock. This is a stand-in without a browser, so the build collects a test.
+    The button's behaviour is checked in tests/test_diagram_rendering.py
+    (test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction)."""
+    import json as _json
+    import re as _re
+
+    from ergostat.web.snapshot import build
+    project.measurements.add("sensor/disk-usage", 95.0)
+    html = build(project)
+    data = _json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1).replace("<\\/", "</"))["data"]
+    st = data["status"]
+    assert st["loops"]["disk-under-80"]["status"] == "off" and st["loops"]["disk-under-80"]["stock"]
+    off = [a for a in st["attention"] if a["what"] == "loop disk-under-80" and a["level"] == "bad"]
+    assert off, st["attention"]
+    assert "function showGoal(" in html and "goalButton(goal, what)" in html
 
 
 def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_path, monkeypatch):

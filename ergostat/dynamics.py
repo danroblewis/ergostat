@@ -298,16 +298,14 @@ def dynamics(g: dict, model) -> dict:
     acting = {e["source"] for e in edges if e["source"].startswith("gap:")}
     idle = {n["id"] for n in nodes if n.get("role") in ("gap", "desired") and f"gap:{n['goal']}" not in acting}
     for n in nodes:
-        if n["id"] in idle and n["role"] == "gap":
+        if n.get("role") == "gap":
             of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
+            # what serves the goal anywhere in the model (its controllers, each with its top system), drawn here or not
+            by = [{"block": b, "system": (spec.chain(spec.blocks[b].system) or [None])[-1]}
+                  for b in spec.loop(n["goal"]).controllers] if spec is not None and n["goal"] in spec.goals else []
             if of is not None:
                 of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
-                                                   "acted": False})
-        elif n.get("role") == "gap":
-            of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
-            if of is not None:
-                of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
-                                                   "acted": True})
+                                                   "by": by, "acted": n["id"] not in idle or bool(by)})
     nodes = [n for n in nodes if n["id"] not in idle]
     edges = [e for e in edges if e["source"] not in idle and e["target"] not in idle]
     causal = [{**c, "nodes": _loop_nodes(c, decide)} for c in g.get("causalLoops") or []]
