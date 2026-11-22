@@ -33,3 +33,15 @@ case and a map case. Without the fix the test failed with that TypeError; with i
 can take were read for the same crash and none was found: a duration given as a list or map is turned into a string
 and refused as not a duration, a side given as a list or map is compared by equality, and a NaN or infinite number is
 refused by the bounds check. The fix changes one line; the total is still within 160.
+
+Round 3: the review's one finding is fixed. Round 2's claim was too wide. A YAML integer longer than about 309 digits
+(PyYAML reads it as an unbounded int) crashed compile with OverflowError in `math.isfinite`/`float()` for `target`,
+`min`, `max`, `tolerance` and `threshold`. It crashed the same way through `parse_duration`'s `float(value)` for
+`every`, `for` and the `stabilize-*` windows. Now an int is compared to its bounds as it is (Python compares an int to
+a float exactly, with no conversion), and only a float is tested for NaN or infinity. So such an int is out of bounds
+and is bad-law at its key. A duration whose conversion overflows is read as infinite and refused by the same bounds
+check. durations.py (on main) is not changed. test_each_refusal_is_bad_law_at_its_key gains seven 400-digit cases
+(target, min, max, tolerance, every, threshold, for). Before the fix it failed with OverflowError at laws.py:54; after
+it, it passes. A duration written as a long digit string (`999…9s`) does not crash, because `float()` of a string
+gives inf, which the bounds refuse. Not checked here: an integer over Python's 4,300-digit string-conversion limit
+fails in PyYAML's own loader, before any law is read. Net lines outside tests and docs: 153 (within 160).

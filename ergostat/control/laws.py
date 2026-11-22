@@ -49,9 +49,12 @@ def _value(typ: str, v, lo, hi):
                 (isinstance(v, str) and ZERO.match(v)) else parse_duration(v)
         except DurationError:
             return None, "a duration (like 30s, 5m, 2h)"
+        except OverflowError:                   # an int too long for a float: past any bound
+            s = math.inf
         ok = lo <= s <= hi
         return (s, "") if ok else (None, f"a duration from {lo:g}s to {hi:g}s")
-    if isinstance(v, bool) or not isinstance(v, int | float) or not math.isfinite(v):
+    # an int is compared to the bounds as it is (exactly, no float()), so one too long for a float is out of bounds
+    if isinstance(v, bool) or not isinstance(v, int | float) or (isinstance(v, float) and not math.isfinite(v)):
         return None, "a number"
     if typ == "whole" and v != int(v):
         return None, f"a whole number from {lo:g} to {hi:g}"
