@@ -104,3 +104,17 @@ tests/test_queue.py (5 passed), tests/test_factory.py (142 passed, 2 skipped); r
 failure was found. Refused here: the whole unit suite run serially under scripts/suite_watch.py (`timeout 1800 uv run
 python scripts/suite_watch.py -- uv run python -m pytest -q -x --durations=15 -p no:randomly`). Left: a unit run that
 gets to its end, with its summary and suite_watch's JSON line, to show whether any test fails on this branch.
+
+Round 4 (the queue's "conflicts with main: dev/bin/queue.py"). This clone has no origin and its local main is
+b4639301, already in the branch (merge 29e38dfc; no conflict markers in dev/bin). So the conflict is with a main newer
+than any this clone holds, and it could not be merged or resolved here. Left: merge origin/main into the branch where
+it can be fetched, resolve dev/bin/queue.py, and run the suites again.
+Answered in this round, review 2's non-blocking finding (dev/bin/queue.py, the cap read): run/queue.json is now read
+for the cap inside the `try` that turns Unreadable into an uncounted nack, before `gap.queued` is said, so an
+unreadable file takes no gap. Previously the gap could be taken and then the run would crash. Test:
+test_a_queue_state_unreadable_at_the_cap_read_takes_no_gap (the file turned unreadable right after the checks). With
+the read moved back after gap.queued, the test failed (the run exited 1). Now 56 net lines of code against main.
+Review 2's other findings stay as written in round 2: the cap alternating (about two runs per finding), and waits
+alone using up the allowance. Neither breaks point 2, and neither puts an unproven prefix on main.
+Run: tests/test_factory.py whole (143 passed, 2 skipped), tests/test_queue.py (5 passed), ruff clean. Not run: the
+unit suite and the four browser files (the factory runs them).

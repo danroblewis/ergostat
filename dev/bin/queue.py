@@ -738,6 +738,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
     with fac.queue_lock(cfg):
         try:
             why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
+            capped = state(cfg)                            # (read before the gap is taken: unreadable, none taken)
         except Unreadable as e:                        # (it cannot tell whether a push waits: no gap is taken)
             why = str(e)
         if why:
@@ -746,7 +747,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
         fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
         pre = fac.git(repo, "rev-parse", "HEAD")
         n = min(pools.state(cfg)["batch"], pools.most(cfg, "batch"))  # (the ceiling again, at run time)
-        cap = state(cfg).get("cap", n)                     # (a cap that is not a count: 1, the smallest batch)
+        cap = capped.get("cap", n)                         # (a cap that is not a count: 1, the smallest batch)
         n = min(n, cap if type(cap) is int and cap >= 1 else 1)
         batch, dried, empty = picks(cfg, repo, gap, n, pre)
         if not batch:

@@ -2597,6 +2597,30 @@ def test_a_run_out_of_time_before_its_first_finding_halves_the_next_batch(tmp_pa
     assert said.count("gap.merged") == 1 and merges(f) == ["b"] and counts(f, "gap/b") == (1, 1, 0)
 
 
+UNREADABLE_AFTER_CHECKS = """\
+import sys
+sys.path[:0] = [sys.argv[1]]
+import queue
+first = queue.up_to_date
+def then_unreadable(cfg, repo):                     # the checks pass, then run/queue.json turns unreadable
+    why = first(cfg, repo)
+    (queue.fac.run_dir(cfg) / "queue.json").write_text("[]")
+    return why
+queue.up_to_date = then_unreadable
+sys.exit(queue.main())
+"""
+
+
+def test_a_queue_state_unreadable_at_the_cap_read_takes_no_gap(tmp_path):
+    f = eight(tmp_path)
+    driver = f.tmp / "unreadable.py"
+    driver.write_text(UNREADABLE_AFTER_CHECKS)
+    said, lines = f.run(str(driver), "gap/a", argv=(str(BIN),))
+    assert said == [] and suite_runs(f) == 0                                    # gap.queued never said
+    why = next(x["nack"] for x in lines if "nack" in x)
+    assert "queue.json" in why["why"] and why["count"] is False
+
+
 def test_a_time_allowance_out_of_range_is_refused(tmp_path):
     for bad in ("0", "151", "nan", "-5"):
         (tmp_path / bad).mkdir()
