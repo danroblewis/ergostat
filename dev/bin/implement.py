@@ -74,25 +74,34 @@ def merge_main(work: Path, main: str) -> list[str]:
     return conflicts
 
 
-SCRATCH = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej"]  # [gates] scratch_patterns
+SCRATCH = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej", "test_zz*", "*_tmp.py",
+           "*.tail", ".bench*", ".mut*"]                                           # [gates] scratch_patterns
+
+
+def unlisted(repo: Path, base: str, head: str, definition: str) -> list[str]:
+    """The files the branch adds or changes against main (`base`) that main does not have and the definition's "Files
+    to touch" does not name (the file, or a folder above it). With no such section, every one: none is named."""
+    on_main = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", base).splitlines())
+    named = [p for p, _ in brief.files_of(definition)]
+    changed = fac.git(repo, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "--diff-filter=d",
+                      f"{base}...{head}").splitlines()
+    return [p for p in changed if p not in on_main and not any(p == n or p.startswith(n + "/") for n in named)]
 
 
 def strays(cfg: dict, repo: Path, base: str, head: str, definition: str) -> list[str]:
-    """The files the branch adds or changes against main (`base`) that look like a session's scratch: one with a path
-    part matching a [gates] scratch_patterns glob, or under a new top-level file or folder the definition's "Files to
-    touch" does not name (when it has that section). A file already on main is never one."""
+    """The `unlisted` files that look like a session's scratch: one with a path part matching a [gates]
+    scratch_patterns glob, or under a new top-level file or folder the definition's "Files to touch" does not name
+    (when it has that section). A file on main, or one the definition names, is never one."""
     pats = cfg.get("gates", {}).get("scratch_patterns", SCRATCH)
     if not isinstance(pats, list) or not all(isinstance(p, str) for p in pats):
         raise ValueError(f"[gates] scratch_patterns must be a list of globs, not {pats!r}")
-    on_main = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "-r", "--name-only", base).splitlines())
-    tops = {p.split("/", 1)[0] for p in on_main} | {p.split("/", 1)[0] for p, _ in brief.files_of(definition)} | {
+    tops = set(fac.git(repo, "-c", "core.quotePath=false", "ls-tree", "--name-only", base).splitlines())
+    tops |= {p.split("/", 1)[0] for p, _ in brief.files_of(definition)} | {
         fac.DEFS.split("/", 1)[0]}                                         # (the definition's own folder: dev/records)
     listed = brief.section(definition, "Files to touch") is not None
-    changed = fac.git(repo, "-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "--diff-filter=d",
-                      f"{base}...{head}").splitlines()
-    return [p for p in changed if p not in on_main and (
-        any(fnmatch.fnmatchcase(part, pat) for part in p.split("/") for pat in pats)
-        or listed and p.split("/", 1)[0] not in tops)]
+    return [p for p in unlisted(repo, base, head, definition) if
+            any(fnmatch.fnmatchcase(part, pat) for part in p.split("/") for pat in pats)
+            or listed and p.split("/", 1)[0] not in tops]
 
 
 def stray_brief(text: str, stray: list[str]) -> str:

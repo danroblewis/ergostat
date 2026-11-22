@@ -34,7 +34,9 @@ answer questions: take the most reversible option and say so in the definition f
    stopped" rather than building it here. Build exactly what it asks, nothing more: the owner's
    rule is to build only what was asked.
 2. Keep within the size budget: {budget} net lines of code outside `tests/`, `docs/` and `dev/`. An overrun needs a
-   written reason in the definition file.
+   written reason in the definition file, appended under "Where it stopped" as a line of its own that starts
+   `Overrun reason:` (the size gate reads only that line in what is appended; an edit to the definition's text, or a
+   reason written any other way, counts as no reason).
 3. Write the acceptance tests it names. Run the tests you touch one file at a time
    (`uv run python -m pytest -q tests/test_x.py`); a browser file with Playwright, under the watchdog
    (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs tests/test_x.py`:

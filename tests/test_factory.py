@@ -802,6 +802,61 @@ def test_a_new_top_level_file_not_in_the_definition_is_refused(tmp_path):
     assert r.returncode and "scratch_patterns must be a list" in r.stderr     # a bad setting stops, never passes
 
 
+# The strays committed on 2026-11-21's branches (review findings and their removal commits). Seven are on the record;
+# the eighth is tests/_probe_test.py, the earlier finding the stray-files gate was built from (the audit's list itself
+# is not in the repository). operating-states.md.tail is taken to sit beside its definition, under docs/.
+REAL_STRAYS = ["tests/test_zz_scratch.py", "tests/test_zz_profile_tmp.py",
+               "docs/roadmap/overnight/operating-states.md.tail", "scratch_probe.py", ".bench/test_bench_detach.py",
+               ".mut/mut.py", "tests/test_probe_tmp.py", "tests/_probe_test.py"]
+
+
+def strays_of(f: Factory, cfg: dict, definition: str, fn: str = "strays") -> list[str]:
+    """implement.strays (or unlisted) on the drop's factory/alpha-thing against main, in a process of its own."""
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import implement; from pathlib import Path; "
+            "a = (json.loads(sys.argv[3]),) if sys.argv[5] == 'strays' else (); "
+            "print(json.dumps(getattr(implement, sys.argv[5])(*a, Path(sys.argv[2]), 'main', 'factory/alpha-thing', "
+            "sys.argv[4])))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), str(f.tmp / "live" / "drop.git"), json.dumps(cfg),
+                        definition, fn], capture_output=True, text=True, env=f.env)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_the_gate_catches_the_eight_real_strays(tmp_path):
+    import tomllib
+    f = Factory(tmp_path)
+    gid = ready(f)
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=",".join(REAL_STRAYS))
+    assert said == ["gap.started", "gap.measured"]                              # refused before the suites
+    assert f.item(gid)["fields"]["suites_fast"]["stray"] == sorted(REAL_STRAYS)
+    real = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())           # the factory's own setting, and the default
+    listed = "# x\n\n## Definition of done\n\nIt works.\n\n## Files to touch\n\n`standin/work.txt`, `tests/test_x.py`.\n"
+    for cfg in (real, {}):
+        for definition in ("# x\n\n## Definition of done\n\nIt works.\n", listed):
+            assert sorted(strays_of(f, cfg, definition)) == sorted(REAL_STRAYS)
+
+
+def test_a_file_the_definition_names_is_not_refused(tmp_path):
+    f = Factory(tmp_path)
+    d = tmp_path / "instance" / "run" / "defs"
+    d.mkdir(parents=True)
+    (d / "alpha-thing.md").write_text("# alpha thing\n\n## Definition of done\n\nIt works.\n\n## Files to touch\n\n"
+                                      "- `standin/work.txt` (new)\n- `scripts/load_probe.py` (new)\n- `tests/test_zz_last.py`"
+                                      "\n- `scripts/bench/` (new)\n\n## Size budget\n\n600 net lines.\n")
+    f.run("intake.py")
+    gid = "gap/alpha-thing"
+    named = "scripts/load_probe.py,tests/test_zz_last.py,scripts/bench/run_tmp.py"   # each matches a scratch pattern
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES=named + ",docs/loose.md")
+    assert said == ["gap.started", "gap.built"] and not f.item(gid)["fields"]["suites_fast"].get("stray")
+    definition = (d / "alpha-thing.md").read_text()
+    loose = ["dev/records/alpha-thing.md", "docs/loose.md"]                  # (its own definition is shown too)
+    assert strays_of(f, {}, definition) == [] and sorted(strays_of(f, {}, definition, "unlisted")) == loose
+    said, _ = f.run("review.py", gid)                     # a new file matching no pattern, named by no Files to touch:
+    text = (tmp_path / "instance" / "run" / "briefs" / "alpha-thing-reviewer-1.md").read_text()   # shown to the reviewer
+    shown = text.split('## New files the definition\'s "Files to touch" does not name\n\n', 1)[1].split("\n\n", 1)[0]
+    assert sorted(shown.splitlines()) == [f"- `{p}`" for p in loose]
+
+
 def on_main(f: Factory, *paths: str) -> None:
     """Files committed on main and pushed (the main the drop's branches are made from)."""
     for p in paths:
@@ -1079,6 +1134,9 @@ def test_a_branch_cannot_quarantine_its_own_failing_test(tmp_path):
     f.fold([{"event": "gap.measured", "item": gid, "data": {"head": git(work, "rev-parse", "HEAD")}}], None)
     f.run("review.py", gid)
     assert f.item(gid)["fields"]["reviewed_head"] == git(work, "rev-parse", "HEAD")
+    (tmp_path / "rerun.sh").write_text(f'echo "rerun $*" >> {tmp_path}/runs.log\necho "FAILED {T} - boom"; exit 1\n')
+    f.config.write_text(f.config.read_text().replace(f'rerun = "{tmp_path / "alone.sh"} {{tests}}"',  # (T fails alone
+                                                     f'rerun = "sh {tmp_path / "rerun.sh"} {{tests}}"'))  # too: no flake)
     said, _ = f.run("queue.py", gid)
     assert said[:2] == ["gap.queued", "gap.queue-failed"] and f.item(gid)["fields"]["failed_tests"] == [T]  # red
     unit = [r for r in runs(tmp_path) if r.startswith("unit ")]
@@ -2253,18 +2311,99 @@ def test_bisect_reruns_only_the_failing_tests(tmp_path):
     assert git(f.checkout, "rev-parse", f"{r['pre']}^{{tree}}") == git(f.checkout, "rev-parse", "main~3^{tree}")
 
 
-def test_a_named_rerun_green_on_the_red_tree_bisects_in_full(tmp_path):
-    # test_b fails only in the full run (order, pollution, load): alone it passes even on the red tree, so the bisect
-    # runs every suite, and r (not the last merge, s) is blamed
-    (tmp_path / "pass.sh").write_text(f'echo "$*" >> {tmp_path}/reruns\nfor t in "$@"; do echo "PASSED $t"; done\n')
-    f = bisect_stand_ins(tmp_path, rerun=f"sh {tmp_path / 'pass.sh'}")
+def flaky_stand_ins(tmp: Path, tests: list[str], rerun: str = "") -> Factory:
+    """A unit suite that names ``tests`` as failed while bad.txt is there (each run logged in ``runs``), and a rerun
+    (by default: PASSED for every test it is given, its arguments logged in ``reruns``)."""
+    tmp.mkdir(exist_ok=True)
+    said = "; ".join(f"echo 'FAILED {t} - boom'" for t in tests)
+    (tmp / "unit.sh").write_text(f"echo run >> {tmp}/runs\nif [ -e bad.txt ]; then {said}; exit 1; fi\n")
+    (tmp / "pass.sh").write_text(f'echo "$*" >> {tmp}/reruns\nfor t in "$@"; do echo "PASSED $t"; done\n')
+    f = Factory(tmp, unit=f"sh {tmp / 'unit.sh'}")
+    f.config.write_text(f.config.read_text().replace('rerun = "echo again {tests}"',
+                                                     f'rerun = "{rerun or "sh " + str(tmp / "pass.sh")} {{tests}}"'))
+    return f
+
+
+def test_a_batch_whose_one_failed_test_passes_alone_twice_lands_as_a_flake(tmp_path):
+    # test_b fails only in the full run (order, pollution, load): alone on the red tree it passes, twice
+    t = "tests/test_b.py::test_b"
+    f = flaky_stand_ins(tmp_path, [t])
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    assert "gap.queue-failed" not in said and said.count("gap.merged") == 4 and merges(f) == ["p", "q", "r", "s"]
+    assert reruns(f) == [f"{t} -rA"] * 2 and suite_runs(f) == 1                # no bisect: the red run, twice alone
+    flake = f.item("flake/tests-test-b-py-test-b")["fields"]
+    assert flake["test"] == t and flake["times"] == 1 and flake["suite"] == "unit" and flake["passed_alone"] == 2
+    assert flake["run"] == f.item("gap/p")["fields"]["batch_id"] and flake["log"].endswith("-unit.txt")
+    assert sorted(flake["gaps"]) == ["gap/p", "gap/q", "gap/r", "gap/s"]
+    got = f.item("gap/r")["fields"]["suites_queue"]
+    assert got["excused"]["tests"] == [t] and "failed" not in got and got["demo"]["rc"] == 0   # the rest ran: green
+    # a batch of one, too
+    g = flaky_stand_ins(tmp_path / "one", [t])
+    approved_gaps(g, {"a": 1}, bad="a")
+    said, _ = g.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "flake.seen", "gap.merged", "gap.push-asked"] and len(reruns(g)) == 2
+    # the suites the red run did not finish run before it lands: red there, it bisects (in full) and nothing lands
+    h = flaky_stand_ins(tmp_path / "rest", [t])
+    h.config.write_text(h.config.read_text().replace('demo = "true"', 'demo = "false"'))
+    approved_gaps(h, {"p": 1, "q": 2}, bad="q", batch=2)
+    said, _ = h.run("queue.py", "gap/p")
+    assert "gap.merged" not in said and said.count("gap.queue-failed") == 2
+    assert "flake/tests-test-b-py-test-b" not in h.db()["items"]
+
+
+def test_a_test_that_fails_alone_on_either_rerun_still_bisects(tmp_path):
+    # the first rerun failing is test_bisect_reruns_only_the_failing_tests; here the second fails, then a rerun that
+    # says no PASSED line (rc 0, lesson-3), each bisecting on the named tests as before
+    t = "tests/test_b.py::test_b"
+    (tmp_path / "second.sh").write_text(
+        f'echo "$*" >> {tmp_path}/reruns\nn=$(wc -l < {tmp_path}/reruns)\n'
+        'for t in "$@"; do case "$t" in -*) continue;; esac\n'
+        ' if [ -e bad.txt ] && [ "$n" -ne 1 ]; then echo "FAILED $t - boom"; rc=1; else echo "PASSED $t"; fi\n'
+        'done\nexit ${rc:-0}\n')
+    f = flaky_stand_ins(tmp_path, [t], rerun=f"sh {tmp_path / 'second.sh'}")
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
     assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+    assert len(reruns(f)) == 4 and suite_runs(f) == 2               # twice on p..s, then on p, q and on p, q, r
+    r = f.item("gap/r")["fields"]
+    assert r["failed_tests"] == [t] and r["suites_queue"]["named"]["tests"] == 1
+    assert "flake/tests-test-b-py-test-b" not in f.db()["items"]
+    (tmp_path / "g").mkdir()
+    (tmp_path / "mute.sh").write_text(f'echo "$*" >> {tmp_path / "g"}/reruns\n')      # rc 0, says nothing
+    g = flaky_stand_ins(tmp_path / "g", [t], rerun=f"sh {tmp_path / 'mute.sh'}")
+    approved_gaps(g, {"a": 1}, bad="a")
+    said, _ = g.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.queue-failed", "gap.measured"] and len(reruns(g)) == 1
+
+
+def test_four_failed_tests_that_each_pass_alone_still_bisect(tmp_path):
+    four = [f"tests/test_{x}.py::test_{x}" for x in "bcde"]
+    f = flaky_stand_ins(tmp_path, four)
+    approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+    said, _ = f.run("queue.py", "gap/p")
+    # green alone on the red tree, so the bisect runs every suite, and r (not the last merge, s) is blamed
+    assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
     assert len(reruns(f)) == 1 and suite_runs(f) == 4                          # the check on p..s, then in full
     r = f.item("gap/r")["fields"]
-    assert r["failed_tests"] == ["tests/test_b.py::test_b"] and "named" not in r["suites_queue"]
-    assert f.item("gap/s")["state"] == "merged"
+    assert r["failed_tests"] == four and "named" not in r["suites_queue"]
+    assert not [i for i in f.db()["items"] if i.startswith("flake/")]
+    g = flaky_stand_ins(tmp_path / "three", four[:3])                          # three: the most excused
+    approved_gaps(g, {"p": 1, "q": 2}, bad="q", batch=2)
+    said, _ = g.run("queue.py", "gap/p")
+    assert said.count("gap.merged") == 2 and len([i for i in g.db()["items"] if i.startswith("flake/")]) == 3
+
+
+def test_a_page_polling_failure_is_never_excused(tmp_path):
+    for n, tests in enumerate((["tests/test_page_polling.py::test_a_page_left_open_does_not_grow"],
+                               ["tests/test_b.py::test_b", "tests/test_page_polling.py::test_x[dynamics]"])):
+        f = flaky_stand_ins(tmp_path / str(n), tests)
+        approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
+        said, _ = f.run("queue.py", "gap/p")
+        assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
+        assert len(reruns(f)) == 1 and suite_runs(f) == 4                      # handled as a real failure: bisected
+        assert f.item("gap/r")["fields"]["failed_tests"] == sorted(tests)
+        assert not [i for i in f.db()["items"] if i.startswith("flake/")]
 
 
 def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
@@ -2274,6 +2413,7 @@ def test_a_failure_naming_no_test_bisects_in_full(tmp_path):
     assert said.count("gap.queue-failed") == 1 and merges(f) == ["p", "q", "s"]
     assert reruns(f) == [] and suite_runs(f) == 4                               # today's bisect: every run in full
     assert f.item("gap/r")["fields"]["failed_tests"] == []
+    assert not [i for i in f.db()["items"] if i.startswith("flake/")]          # nothing excused
     # a named run that cannot tell (its test not found: rc 4, no result for it) runs that step in full, never green
     (tmp_path / "g").mkdir()
     (tmp_path / "notfound.sh").write_text(f'echo "$*" >> {tmp_path / "g" / "reruns"}\necho "ERROR: not found: $1"\n'
