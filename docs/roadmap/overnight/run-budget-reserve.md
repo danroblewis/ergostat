@@ -221,3 +221,13 @@ Tests run, one file or batch at a time: `tests/test_run_budget.py` (30 passed),
 I did not run the whole unit suite or the four browser files here. The factory runs them under the watchdog after this
 round. A shell loop that ran several test files in turn was refused (Bash, "don't ask" mode). I ran those files as
 separate commands instead.
+
+Round 3: main (e5d8c220) is merged in. The one conflict was in `Engine.start_all`. Main now writes
+`ergostat.started` only from the lead shard. The branch's `budget.recover` runs after it and still runs on every
+engine. That is the more reversible choice: recovery is idempotent under the flock, and it closes only runs whose
+pid is gone, or runs of this pid that `OPEN` does not list. `OPEN` is shared by all the engines in a process.
+No other code changed. Net lines outside `tests/`, `docs/` and `dev/`: 347 of the 380.
+
+Tests run, one batch at a time: `tests/test_run_budget.py` (30 passed), `test_engine_shard_asks.py` with
+`test_calls.py` (25 passed), and `test_daemons.py` with `test_leases.py` and `test_resilience.py` (111 passed).
+ruff is clean. I did not run the whole unit suite or the four browser files here. The factory runs them.
