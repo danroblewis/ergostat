@@ -15,3 +15,43 @@ On 2026-11-22 Docker Desktop's virtual machine (com.apple.Virtualization.Virtual
 
 ## Size budget
 80 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built (round 1) in a Linux container with no Docker, so nothing here was measured on Docker Desktop.
+
+- **1, done.** `agents.queued()` (the queue's and flake triage's suite containers) no longer bind-mounts the checkout.
+  On the Mac, `tar -C <checkout> --exclude ./.venv --no-xattrs --no-acls -cf - .` (with `COPYFILE_DISABLE=1`, so
+  macOS's tar adds no `._` files) is piped into `docker run -i`, which unpacks it at /work before the suite's command.
+  A copy that does not unpack exits 125, which `fac.suite` already reads as NotStarted (an infrastructure failure, no
+  gap blamed). `run/coverage/` is still mounted at its own path, and logs are the container's output, so both still
+  reach `run/`. The empty tmpfs over `.venv` is gone, since the copy has none. These choices were taken as the most
+  reversible:
+  - tar of the folder rather than `git archive` of the commit: triage's worktree holds an uncommitted merge
+    (`--no-commit`), suites call git, and today's suites see untracked files. Tar keeps all three as they were.
+  - the queue's checkout has its git directory inside it, so the git directory is in the copy and nothing of the
+    checkout is mounted. Triage's worktree (`<worktrees>/.triage`) shares the checkout's git directory, which is
+    outside it. That directory is still mounted read-only at its own path, as before (triage runs only after a failed
+    queue run). If the sensor shows that it matters, copying it too is the next step.
+  - each run now copies the whole checkout, its `.git` included, through a pipe. How long that takes on the Mac was
+    not measured.
+- **2, not shown.** No VM count was taken before and after 10 queue runs (there is no Docker Desktop here). The tests
+  show only that the cause is gone: `test_a_queue_suite_reads_a_copy_of_the_checkout_never_the_macs_folder` checks
+  that no `docker run` of a queue run mounts any folder of the checkout; that the suite sees the files, `.git` and
+  untracked files but not `.venv`; that what it writes in /work stays out of the checkout; and that what it writes in
+  `run/coverage/` reaches it. Left: on the Mac, read `python3 dev/bin/resources.py vm-open-files`, let 10 queue runs
+  go, read it again, and add both numbers here.
+- **3, not measured.** Session containers (`run_args`, `-v {work}:/work`) are unchanged and were not measured. They
+  read through a bind mount the same way, so they very likely leak too, at a rate set by how much each session reads.
+  Follow-up gap named: `sessions-copy-their-clone-into-the-container`. It would measure the sessions' share with the
+  new sensor, and if that grows, give a session its clone as a copy and copy its commits back.
+- **4, done.** `resources.py vm-open-files`: on macOS, the most open files held by any
+  `com.apple.Virtualization.VirtualMachine` process (`pgrep -f`, then `lsof -n -P -F f -p <pids>`; the limit is per
+  process). Off macOS, with no VM running, or when lsof fails, it gives no reading (the sensor fails and goes stale),
+  never 0. It is a slow reading (taken with Docker's disk, at most every 10 minutes, with lsof limited to 90 s).
+  `dev/model/resources.yaml` has the auxiliary `vm-open-files` and the goal `vm-open-files-within` (`<= 150000`). The
+  goal shows on the model and feeds no gate (`machine-full` does not read it), so a leak is seen and nothing is
+  stopped. Tests: `test_the_docker_vms_open_files_are_read_on_macos_only`, and `test_gates_respect_headroom` checks
+  the goal and the sensor in the compiled model.
+- Files outside the list: `dev/bin/resources.py` (the sensor's program is there) and one sentence in
+  `dev/README.md`. `dev/bin/fac.py` needed no change. Net lines in `dev/bin` and `dev/model`: +38.
