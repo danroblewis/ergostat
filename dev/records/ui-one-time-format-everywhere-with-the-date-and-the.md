@@ -25,3 +25,46 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Round 1: built. +11 net lines of code under `ergostat/web/static/` (util.js +12, details.js 0, pages.js −1), within the 60.
+
+- `stamp(t)` in util.js gives `2026-11-22 04:03:55 PST`: the browser's zone, by the short name `Intl` gives it
+  (`PST`, or `GMT+1` where a zone has none). It is used on the Record (the "when" column and the event's panel), a goal's
+  Crossings, an item's page (moves, field history, lease history, refused), and the Items page ("moved", "done by" and its
+  p90). Request pages are item pages, so they get it too.
+- `timeField(name, v)`: a field named `*_at`, `at`, `raised`, `since` or `started` that holds epoch seconds or ISO text
+  (`2026-…T…`) is shown as a stamp. This covers the item page, the Items list, a remote item's fields, sub-records and
+  each field's history. Values outside 1973–5138 are left as they are, so a small count named `since` still reads as a
+  number.
+- Event data on the Record and in Events is printed unrounded. `tidy`, its only user gone, is removed. DESIGN.md
+  "Numbers" says so, and a new "Times" line names the formatter.
+- Choice made alone (the most reversible one): the full stamp is used everywhere and no table drops the date under a
+  caption. The definition allows that but does not require it, and the full stamp meets the acceptance check with no
+  caption code.
+- Left as they were, since they are not on the gap's pages: the times in the side panel's sensor readings, valve openings
+  and item sets; the charts' axes; the timeline; the snapshot banner; and the relative times ("3m ago", "for 2h").
+
+Tests: `tests/test_items_page.py::test_every_time_is_one_stamp_with_its_date_and_zone` (the acceptance check, with the
+browser in America/Los_Angeles, so the stamps must end in PST/PDT). I broke each guarded piece once, and the test failed
+each time: Crossings back on toLocaleTimeString (`['04:51:03', '04:49:43']`); the Record's "when" column the same; the
+data cell rounded to 6 digits (`[1795350000] == [1795351894.4567]`); the fields without `timeField`
+(`['1,795,351,904', '2026-11-22T12:45:03Z', …]`). With Playwright under the watchdog, `tests/test_items_page.py` passed
+(22 passed, rc 0, none skipped). `tests/test_page_refresh.py` failed 2 of 4 whole-file runs on
+`test_other_pages_left_open_change_nothing`: unexpected SVG `g` and `hidden`-attribute mutations on /loops, /agents or the
+process map. None of those pages calls stamp, timeField or dataCell. The test passed in the other 2 whole-file runs and in
+2 runs of its own (3 passed each), so it is intermittent. The command I gave to check it on clean main,
+`git worktree add --detach /tmp/main-wt main`, was refused, so this has not been shown on main.
+
+`tests/test_diagram_rendering.py`, whole file, serially under the watchdog: 196 passed and 4 failed (rc 1) in 47 min.
+Three of the failing tests also failed on a rerun alone, each on a fixed time bound:
+`test_every_view_draws_cleanly_and_in_time[coordinator]` (routing open=* took 40218 ms, bound 20000),
+`[image-squeeze]` (38406 ms, bound 20000), and `test_a_big_tangled_model_lays_out_in_time_and_cleanly` (a draw took
+3568 ms, bound 2500). The fourth failure's name was cut from the filtered output and has not been found. These tests time
+diagram layout and line routing (layouts.js, avoid.js, the libavoid worker), which this change does not touch: util.js
+only gains stamp and timeField and loses tidy. I read them as this container being too slow for those bounds, not as this
+change. That is not proven: the command I gave to run them on main's page code,
+`git checkout main -- ergostat/web/static/util.js ergostat/web/static/details.js ergostat/web/static/pages.js`, was refused.
+The merge queue's run on its own machine will settle it. ruff is clean. main has nothing the branch lacks
+(`git rev-list --count HEAD..main` is 0).
