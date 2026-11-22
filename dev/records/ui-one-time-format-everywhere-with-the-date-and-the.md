@@ -68,3 +68,13 @@ change. That is not proven: the command I gave to run them on main's page code,
 `git checkout main -- ergostat/web/static/util.js ergostat/web/static/details.js ergostat/web/static/pages.js`, was refused.
 The merge queue's run on its own machine will settle it. ruff is clean. main has nothing the branch lacks
 (`git rev-list --count HEAD..main` is 0).
+
+Round 1, after the build step: the build step (`affected_tests.py`) ran only `tests/test_items_page.py`, which skipped
+because it has no Playwright, so pytest exited with rc 5 (nothing ran). No page code changed. A new unit test file,
+`tests/test_time_stamp.py`, reads util.js, details.js and pages.js with no browser and checks three things. There is
+one `stamp` that gives date, time and short zone. Its `TIME_FIELD` rule matches `*_at`, `at`, `raised`, `since` and
+`started`, and not `started_by` or `status`. The Events table and the event panel use `stamp`, `dataCell` no longer
+rounds, and these pages call no `toLocaleString`. It passes (3 passed) and ruff is clean. Not seen: a script that
+copied the static files to /tmp, broke each guarded piece and ran these tests against the copy
+(`uv run python /tmp/mut/run.py`) was refused. So these new tests have not been seen to fail. The browser test was
+seen to fail on each break earlier in round 1.
