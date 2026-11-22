@@ -36,3 +36,16 @@ depends-on: [library-provenance-join-1]
 ## Size budget
 120 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+
+Built, round 1. Choices made alone (the most reversible reading, each said here):
+
+- **MCP `spec`.** The `spec` tool answers the format's own document (docs/SPEC.md), which holds no model text, so there is nothing in it to mark. The MCP `check` answer, which does show the model's text, is marked in its place. `test_mcp_model_views_mark` covers `check`, `explain`, `status` and `context`, and asserts only that `spec` holds none of the library's text. That assertion cannot fail by a mark being removed, because there is no mark to remove. SPEC §2a lists `spec` under *Not marked*. If the owner meant another view by `spec`, it is one more call to `Shown`.
+- **How the views mark.** Each view's output goes through one helper, `untrusted.Shown(spec)`. It collects the text of every untrusted part (`bounds.untrusted_part`, with a part that has no `where` counted untrusted) and marks each whole occurrence of that text in the view, so `spec/explain.py` and `recipes/parts.py` (not in the files to touch) are unchanged. A text that a view cuts short or rewords is not caught, and SPEC says so under *Not marked*. A problem at an untrusted instance's `use:` line has its whole message marked, which also covers compile errors about parts that are not in the compiled model.
+- **check output.** `check` never prints a part's description or run by itself. The test shows them marked when a line names them (through `Shown`, the same call check makes), and shows the names and an equation's words marked in real `check` output, human and `--json`.
+- **`about` and `id`** in JSON answers stay raw: they are the references a finding is named back by, and they are NAME-checked identifiers. SPEC says so.
+- **Escaping outside marks.** In a string that gets a mark, any `⟦`/`⟧` outside the marks becomes `[`/`]`. An owner's text holding those characters changes only in an answer that also carries an untrusted part's text. With no untrusted part it is byte-for-byte as on main (`test_owner_text_unchanged`).
+- **Docs outside the files list.** AGENT-GUIDE, SECURITY and the ergostat-author skill said the parts' text was not marked. Each now says where it is (house rule: keep the agent guide current).
+
+Left: the diagrams (library-diagram-text-marked). Size: about 87 net lines of code, inside the 120 budget.

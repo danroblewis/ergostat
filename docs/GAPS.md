@@ -72,10 +72,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   accepted in trusted text". **Built** (`library-provenance-join-1`, R3): a held chain's `ask`, `prompt`, sensor
   `query` and `sources` entries stand only when no piece of them is the library's (a piece whose writer can't be told
   counts as the library's, the instance's name and a part's renamed name included), else the use is refused as `untrusted-text`; `ai` and `person` blocks may say only that
-  text, `goal`, `until`, `every` and `cron`, every other key refused by name (SPEC §2a, R3).
-  *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
-  descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
-  them, and the `library-untrusted` refusal's folder path); `fetch` by git URL or package, refusing a lock entry
+  text, `goal`, `until`, `every` and `cron`, every other key refused by name (SPEC §2a, R3). **Built**
+  (`library-model-text-marked`): the names, descriptions, prompts, asks, runs and equations an untrusted instance
+  makes in the model are marked in `ergostat check` (its lines and `--json` messages) and in the MCP `check`,
+  `explain`, `status` and `context` answers, with the markers' meaning once, through one helper
+  (`untrusted.Shown`); the `library-untrusted` and `untrusted-text` refusals mark the template and its folder path.
+  *Still needed:* the same text marked in the diagrams; `fetch` by git URL or package, refusing a lock entry
   without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
   the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident

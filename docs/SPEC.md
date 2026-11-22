@@ -168,7 +168,7 @@ recorded in its `uses` entry (`untrusted`, a bool).
 
 *Marked.* Library text is shown between ergostat's markers, `⟦untrusted: LABEL⟧` and `⟦end of untrusted⟧`, every
 `⟦` and `⟧` inside it written `[` and `]`, so no marker character inside a marked span is the library's. `LABEL` is
-never library text: `template NAME` (the name checked above) or the words `library file`. Three places are marked,
+never library text: `template NAME` (the name checked above) or the words `library file`. These places are marked,
 for an untrusted template only; a trusted template's output is unchanged:
 
 - the `templates` tool (MCP, `author.library`), listed and in full: `description`, `reading`, `example`, `from`, and
@@ -179,12 +179,25 @@ for an untrusted template only; a trusted template's output is unchanged:
   refused): `untrusted library folder FOLDER:` (the owner's path), then the rest, file name included, marked as
   `library file`;
 - the problems a use of an untrusted template gives: **bad-param** and **bad-template** messages after
-  `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**.
+  `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**;
+- the **library-untrusted** and **untrusted-text** refusals: `under ⟦untrusted: library file⟧template NAME from
+  FOLDER⟦end of untrusted⟧`, the folder's path with any character that does not print (a newline) written as its
+  escape (`\n`), so a folder's name can neither close a mark nor start a line of its own;
+- the text an untrusted instance makes in the model (`untrusted.Shown`, the one place that decides; a part is
+  untrusted as under *Bounded* below, and a part with no `where` counts as untrusted too): each part's and its
+  sensors' name, `description`, `run`, `prompt`, `ask` and equation, and the system's name and description, labelled
+  `template NAME` (`library file` when its instance is gone from `uses`). Every whole occurrence of them is marked in `ergostat check`'s lines and its `--json` messages, and
+  in the MCP `check`, `explain`, `status` (keys and values) and `context` (a recipe rendered) answers. A problem at an
+  untrusted instance's `use:` line has its whole message marked. Where a string gets a mark, `⟦` and `⟧` outside the
+  marks in it are written `[` and `]`. An answer that carries a mark ends with what the markers mean once (`check`'s
+  last line; `"untrusted"` in a JSON answer). The owner's parts and those of trusted and built-in templates are not
+  marked, and an answer with no untrusted part in it is unchanged.
 
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
-known types), and everything an untrusted template makes in the model: its system's description, its parts'
-descriptions, prompts, commands, equations and names, however `check`, the diagrams and the MCP model views show
-them. A held chain's `ask`, `prompt`, `query` and `sources` are gated by who wrote them instead (R3, below).
+known types); a finding's `about` and `id` in JSON (references, kept as they are so the finding can be named back);
+the text above when a view shows it other than whole (cut short, or worked into a sentence of its own); the
+diagrams; and the MCP `spec` answer, which is the format's document and holds none of the model's text. A held
+chain's `ask`, `prompt`, `query` and `sources` are gated by who wrote them instead (R3, below).
 
 *Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
 (an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
