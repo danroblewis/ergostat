@@ -62,3 +62,12 @@ in full (194 passed, 6 failed; the two failures caused by the renamed controls f
 Found, not fixed (outside the gap): opening /model writes a new ergostat.model-change item to the record (seen as
 ergostat.model-change/8da394d2 on the image-squeeze site), so a test after it on the same site sees four model
 changes, not three; the acceptance test is placed last in its file for that reason.
+
+Build step after round 1 (rc 5, "2 skipped"): not a fault in the branch's code. The branch changes only
+`ergostat/web/static/` (JS and CSS) and two browser test files, so `scripts/affected_tests.py` selects only
+tests/test_diagram_rendering.py and tests/test_items_page.py; `[suites] build` runs them without Playwright, both
+skip at import, and pytest returns 5 (no tests ran). No change to this gap's code can make that command pass: it
+would take changing the build step or affected_tests.py (outside this gap, lesson 13) or adding an unrelated unit
+test only to be selected (a test that guards nothing). Left as is; the fix belongs to the factory (run the build
+step's browser files with Playwright, or treat a selection of only browser files as collection-only). The browser
+files were run with Playwright in round 1 (results above).
