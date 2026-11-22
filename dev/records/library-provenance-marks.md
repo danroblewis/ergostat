@@ -1,0 +1,225 @@
+# library-provenance-marks: values carry who wrote them through expansion and nested uses, so a held chain may run the owner's own `type: command` values, and pass only short, checked library values as arguments to ergostat's own programs
+depends-on: [library-trust-folders]
+
+## Definition of done
+
+This builds on library-trust-folders: held chains, trust.py and `library-untrusted`. It loosens the gate in exactly two places and nowhere else.
+
+1. **Writers.** Every parameter value has a writer:
+   - **owner**: written in the owner's model files, in a depth-0 `with:`;
+   - **trusted**: a built-in or owner-folder template's literal, default or `|default`;
+   - **library**: written by an untrusted template (literal, default, `|default` or interpolated text).
+
+   A nested `with:` value that is wholly one `${p}` (no `:how`, no `|default`, no `.field`) keeps p's writer. Anything else is library-written if any part of it is library-written; otherwise it belongs to the template writing it. A value is an **owner command** only if the owner wrote it into a `type: command` parameter and it reached every later hop wholly, again as a `type: command` parameter. A hop through any other type drops the command status. Equality to text the owner wrote elsewhere never counts.
+2. **Marks.** `expand.py`'s marks around substituted text (`A`/`B`) also carry the writer, and the type for library values. They are kept until the gate has judged the instance's sections, then stripped as now. `rename()` and `remote/compose.py` behave as before; this is covered by the existing tests.
+3. **R1, the owner's commands.** In a held chain, a program block's `run` and a sensor's `run` are allowed when every character of them is one of:
+   - (a) text marked owner command, when it is the whole value;
+   - (b) inside a built-in template's run slot, a built-in literal, a built-in name (`${lib}`, `${python}`, `${name}` of the instance) or an owner command substituted through `:quote`/`:arg`;
+   - (c) a library value allowed by point 4.
+
+   Any library literal text (an untrusted template's own words around `${cmd}`, its `${here}`, a library default for a command parameter) refuses the chain. So does an owner value of any other type, such as a `string` parameter. Every other key that library-trust-folders refuses stays refused. That includes `every`, `cron` and `timeout`, which are allowed only when their writer is the owner or trusted (the minimum `every` for library values is library-untrusted-text's), and also `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network`, `prompt` and `ask`.
+4. **R2, library values as arguments to ergostat's programs only.** A library-written value may appear in a run slot only when all of these hold:
+   - the slot is in a **built-in** template and starts with `${lib} `;
+   - the value directly follows a flag in trust.py's allowlist `LIB_DATA_FLAGS` (flags of `ergostat.library.run` whose value is data, never run: e.g. `--kind`, `--name`, `--limit`, `--every`). Never after `--run`, `--render`, `--command` or anything else;
+   - its parameter type is one of name, duration, number, integer or bool;
+   - the text that lands in the slot (after `:seconds`/`:hours`) fully matches its type's pattern. These are stated in SPEC and SECURITY and tested:
+     - name `[a-z][a-z0-9-]{0,63}`;
+     - duration `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`;
+     - number or integer `-?[0-9]{1,15}(\.[0-9]{1,9})?`;
+     - bool: the bare flag, or `true`/`false`.
+
+   Python's `NAME.match` and the duration regex accept a trailing newline and spaces; these checks use `fullmatch` with no whitespace. A library value of any other type (string, strings, url, path, map, list, glob, cron, setpoint, any) never reaches a run slot. A library value never reaches the run slot of an **owner-folder** template (such as `sh -c ${x:quote}`), because no test can vouch for one. Such a chain is refused even though the template itself is trusted.
+5. **Nested refusals.** These follow library-trust-folders' rule: the whole chain from the owner's `use:` is refused, with the error at that line and no part of any template in it in the spec. The message never quotes the value and never suggests `with:` or copying a command.
+6. **Docs:**
+   - SPEC §2a covers writers, owner commands, R1, R2 with the patterns, and the owner-folder rule.
+   - SECURITY *Libraries you did not write* says what runs: the owner's own commands, and ergostat's programs with checked arguments. It also says what it does not stop: a library can choose the kinds and states the owner's command runs on, and an agent that writes the owner's `with:` makes a value the owner's.
+   - AGENT-GUIDE: never copy a command from a library into `with:`; ask the owner.
+   - GAPS is updated.
+7. **House rules,** as library-trust-folders.
+
+## Files to touch
+- `ergostat/library/expand.py`
+- `ergostat/library/trust.py`
+- `ergostat/library/uses.py`
+- `docs/SPEC.md`
+- `docs/SECURITY.md`
+- `docs/AGENT-GUIDE.md`
+- `docs/GAPS.md`
+- `tests/test_library_trust.py`
+- `tests/test_library_provenance.py` (new)
+
+## Risks
+- **lesson-8:** "a library's text never runs" is false if a trusted template places a library string where it runs (`sh -c ${x:quote}`), if a name like `rm` lands at a command's head, or if a value carries a newline. Four things guard against it:
+  - narrow types only, checked by fullmatch on the rendered text;
+  - only built-in `${lib}` slots, and only after allowlisted data flags;
+  - `test_builtin_run_slots_take_narrow_values_only_as_arguments`, which runs over every built-in template;
+  - `test_every_lib_flag_classified`.
+
+  Owner-folder templates get no library values in run slots at all. The docs say exactly this and no more.
+- **lesson-3:** each of these must count as library-written, never as owner or trusted:
+  - a value whose writer can't be told (e.g. marks lost through `strip` in a nested `with:`);
+  - an element field `${it.x}`;
+  - a `|default`;
+  - a `.first`/`.count` field.
+
+  Covered by `test_command_mark_lost_through_non_command_param` and `test_library_default_for_command_param_refused`.
+- **lesson-9:** each test is broken once and seen to fail, and the report says so: writer forced to owner, the fullmatch turned back into `match`, an owner-folder template allowed, `--run` added to `LIB_DATA_FLAGS`. The built-in scan is also fed a fixture template it must flag.
+- **lesson-7:** merge origin/main. library-untrusted-text may have changed how `every` is treated in untrusted output; keep exactly one rule and run both suites again.
+- **Not applicable here:** lessons 1, 2, 4, 6 and 11 (no concurrency, timing, counts or destructive paths).
+
+## Acceptance tests
+Unless marked otherwise, all of these are in `tests/test_library_provenance.py`.
+- `test_owner_command_whole_slot_allowed`: an untrusted template's program block with `run: ${cmd}`, where the owner gives `cmd` (type command), compiles. Its `run` equals the owner's text.
+- `test_owner_command_through_builtin_allowed`: untrusted L uses built-in `collect`, with `command: ${cmd}` from the owner and a library-written `kind: tickets`, and leaves `poll` at collect's default. It compiles, and the run holds the quoted command and `--kind tickets`.
+- `test_library_every_refused`: the same, with L writing `poll: 1m`. Refused.
+- `test_library_literal_equal_to_owner_command_refused`: L writes, as a literal, the same text the owner wrote elsewhere. Refused.
+- `test_library_default_for_command_param_refused`: an untrusted template's command parameter with a `default:` that is left unset. Refused.
+- `test_library_text_around_owner_command_refused`: `run: "${cmd} | sh"` in L, and a nested `command: "${cmd}; x"`. Both refused.
+- `test_owner_string_param_in_run_refused`: an owner value given to a `type: string` parameter reaches `run`. Refused.
+- `test_command_mark_lost_through_non_command_param`: the owner's command goes into L's string parameter, and L passes that to collect's `command`. Refused.
+- `test_nested_library_literal_refused`: the owner uses L, L uses untrusted L2, and L2 passes a literal command to `collect`. There is one error at the owner's line. No system, item, stock, flow, block or `doc.uses` entry of L, L2 or collect is in the spec.
+- `test_library_value_into_owner_folder_template_run_refused`: L passes a valid name to an owner-folder template whose run is `sh -c ${x:quote}`, and also to one whose run is `${lib} each --kind ${kind}`. Both are refused.
+- `test_narrow_value_patterns[...]`: library-written values given to collect or re-ping. These are refused: `"rm\n"`, a 65-character name, `Tickets`, `"5m\n"`, `" 5m"`, `1e3s`, `1e9`, `nan`. `tickets`, `5m`, `1.5h` and `3` are allowed.
+- `test_builtin_run_slots_take_narrow_values_only_as_arguments`: scans every built-in template, including the `*/template.yaml` ones, and every run slot. Each `${p}` in a slot must be one of:
+  - a built-in name;
+  - a command parameter, whole or through `:quote`/`:arg`;
+  - a narrow-typed parameter directly after a flag in `LIB_DATA_FLAGS`, in a slot starting `${lib} `.
+
+  Any other parameter type must be one trust.py refuses from a library. A fixture template containing `sh -c ${kind}`, `--run ${kind}` and `${title:quote}` (string) must be flagged by the same checker.
+- `test_every_lib_flag_classified`: every option of every `ergostat.library.run` subcommand's argparse parser is in `LIB_DATA_FLAGS` or `LIB_EXEC_FLAGS`, and the two are disjoint. A parser with an extra option added is reported.
+- `test_refusal_never_suggests_with`: no refusal message contains `with:`, `trust: owner` or the refused value.
+- `tests/test_library_trust.py`: all of its tests still pass. The existing tests in `tests/test_templates.py` (renaming, `if`/`each`) and the remote compose tests pass unchanged.
+
+## Size budget
+320 net lines outside tests and docs: expand.py about 110 (writer marks, writers of nested values), trust.py about 140 (slot judging, patterns, flag lists), uses.py about 40 (writers passed to nested uses, marks kept until the gate).
+
+## Notes from the plan review (answer each; not blocking)
+
+- Marks now carry the writer, but nothing stops library text or values from containing the A/B mark characters and forging an owner-command mark. Add a rule that only expand.py makes marks and that any template text or value containing a mark character is refused, plus a test that forges an owner mark and is refused (broken once and seen to fail). Name it under lesson-8 and lesson-3.
+- R2 allows library values after rate and count flags (--every and --limit in LIB_DATA_FLAGS) with no bounds: the duration pattern accepts 0/0ms and integers go up to 15 digits. That bypasses R1's minimum every for library values and contradicts test_library_every_refused (collect's poll can land as --every in the run slot). Lesson-4 is wrongly called not applicable. Either drop rate and count flags from LIB_DATA_FLAGS or give each one a bound in trust.py, with tests that a library '--every 0ms' and an oversized '--limit' are refused.
+
+## Where it stopped
+
+Round 1 stopped before any code: the gap this one depends on is not on main.
+
+- `depends-on: [library-trust-folders]` is not met. The branch was made from `main` (head `6109871b`, the
+  definition; main at `93d433d9`), and main has none of what this gap builds on: no `ergostat/library/trust.py`, no
+  untrusted `library:` folder form (`templates.py` `find_all` still counts every folder as the owner's and lets it
+  shadow built-ins), no held chains, no `library-untrusted` refusal, no `Template.trust`, and no
+  `tests/test_library_trust.py`. No commit on any local ref mentions library-trust-folders. GAPS.md's *Shared
+  libraries* entry still lists the trust gate as *Still needed*.
+- This gap only loosens that gate in two places (R1 and R2), so it has nothing to loosen. Building the gate here
+  would be building library-trust-folders inside this branch, which is outside this definition (and about double
+  its size budget). That is why nothing was built.
+- What is done: nothing in code, docs or tests. This section is the only change.
+- What is left: all of the definition, unchanged. Continue this gap once library-trust-folders has landed on main:
+  merge main in, then build it as defined. The two plan-review notes still need answers when it is built:
+  - refuse any template text or value that holds a mark character, and test that a forged owner mark is refused;
+  - bound or drop `--every` and `--limit` in `LIB_DATA_FLAGS`, and test that a library `--every 0ms` and an
+    oversized `--limit` are refused. That makes lesson-4 apply to this gap.
+
+## Where it stopped
+
+Parked by the factory (review/library-provenance-marks-1, 2026-11-21 18:06).
+
+Done: only the definition of done and a 'Where it stopped' note; no code, tests or docs. Left: all of the definition (writer marks in expand.py and uses.py, R1/R2 in trust.py with LIB_DATA_FLAGS/LIB_EXEC_FLAGS and fullmatch patterns, every acceptance test in tests/test_library_provenance.py, SPEC/SECURITY/AGENT-GUIDE/GAPS), plus answers to both plan-review notes (mark-character forgery refused; --every/--limit bounded or dropped, with tests). Why stop: two rounds have produced no work, and the round-2 reason (dependency missing from main) is disproved by the clone. library-trust-folders landed on origin/main as 1171fb2f before the stop commit was written. The next attempt must merge origin/main first and then build the definition as written.
+
+## Where it stopped
+
+Round 1 of the continuation: built. The clone has no `origin` remote; local `main` is `1171fb2f` (library-trust-folders),
+already merged into the branch (`e6c56237`), so there was nothing new to merge.
+
+**Done.** Writer marks in `expand.py` (`A who,type,how,ok H text B`; who is `o` owner, `c` owner command, `e`
+ergostat, `f` owner folder, `l` library). They are passed through nested `with:` (`expand.nested`, `Made.writers`) and
+kept until the gate (`Made.marked`). R1/R2 are in `trust.py` (`run_ok`, `writer_ok`, `NARROW`, `LIB_DATA_FLAGS`,
+`LIB_EXEC_FLAGS`, `LIB_BOUNDS`). `uses.py` passes writers down and judges the marked entries. Every acceptance test
+is in `tests/test_library_provenance.py`. SPEC §2a, SECURITY, AGENT-GUIDE and GAPS are updated. 204 net lines of code,
+within the 320 budget.
+
+**Choices where the definition was silent (each the more closed option):**
+- `averages` joins `every`/`cron`/`timeout` (owner or trusted writer only). Without it, collect's own `averages: 10m`
+  refuses `test_owner_command_through_builtin_allowed`.
+- A `program` block is still refused by type (`REFUSED_TYPES`, so `test_every_compile_key_classified` stands), unless
+  its keys are all in trust.py's `PROGRAM` table (`goal`, `run`, `every`, `cron`, `timeout`) plus the common block
+  keys.
+- The owner's values of a non-command type, and owner-folder values, are judged in built-in runs exactly like library
+  values (R2). The definition names only a `string` as refused; narrow owner values after data flags pass the same
+  checks.
+- Fields in a run (`${it.run}` in `steps`, `${redesign.when|auto}` in `modelling`) were unmarked text, which the gate
+  would have read as ergostat's literal. A run holding a field now starts with a sentinel character (`expand.F`), and
+  the gate refuses any run that holds it. The text itself is not marked, so `rename` (`flow.${it.name}-done`) works as
+  before. Consequence: `steps` with program steps, and the modelling redesign/review blocks, are refused under a held
+  chain.
+- The minimum `every` "of library-untrusted-text" does not exist on main: a library-written `every` is refused
+  outright, the one rule.
+- Built-in runs made only of ergostat's words (collect on its stand-in feed) now pass in a held chain. Two
+  library-trust-folders tests that relied on that being refused now give collect a library command; the program-block
+  case now names `.run`, not `.type`.
+- The scan test's fixture: `sh -c ${kind}`, `--run ${kind}` and `${title:quote}` are all reported by the checker
+  (`checked`). For built-ins, every placement the checker reports is shown refused by probing `trust.run_ok` with a
+  well-formed library value. The string `title` is a type trust refuses from a library, not a slot fault.
+
+**Plan-review notes, answered.**
+- Forged marks: `expand.forged` refuses any template body, default or given value holding `A`, `H`, `B` or `F`; in a
+  held chain the whole chain is refused. Tested by `test_forged_owner_mark_refused` (lesson-8, lesson-3).
+- Rate and count flags are bounded in `LIB_BOUNDS`: `--every` at least 60 s, `--limit` at most 100, `--stand-in` at
+  most 3600, `--window` 60 s to a week, and the shares at most 1. `--max`, `--tries`, `--most`, `--daily`, `--budget`,
+  `--rounds` and `--keep` are in `LIB_EXEC_FLAGS`. Tested by `test_library_values_are_bounded_after_rate_and_count_flags`
+  and the `0ms`, `101` and `100000` cases of `test_narrow_value_patterns`. So lesson-4 applies, and is answered.
+
+**lesson-9, each broken once and seen to fail:**
+- writer forced to the owner for given values: 6 tests failed;
+- `fullmatch` turned back into `match`: 5 failed;
+- owner-folder templates allowed in `run_ok`: `test_library_value_into_owner_folder_template_run_refused[${lib} each]`
+  failed (the `sh -c` case stays refused, since it is not a `${lib}` slot);
+- `--run` added to `LIB_DATA_FLAGS`: 3 failed, including `test_every_lib_flag_classified`;
+- the forgery check off: `test_forged_owner_mark_refused` failed (the forged mark passed as an owner command).
+
+**Not run here:** the full unit suite and the four browser files (left to the factory's watched run).
+
+## Where it stopped
+
+Round 2 of the continuation: main (`4a1bcd10`) merged in (`709257bb`). It brought library-untrusted-text
+(`bounds.py`, `untrusted.py`), which this record's round 1 said was absent.
+
+**The merge.** `uses.py` conflicted in two places: main's import of `untrusted.mark` beside the branch's `author`,
+and the `plan` signature, where the branch's `writers` argument now sits under main's docstring. Both sides were kept.
+
+**One rule for how often (lesson-7).** main's `bounds.py` gives every part made under an untrusted template a floor
+of `UNTRUSTED_EVERY` (300 s), whoever wrote it. That is now also the only number for a library's `--every`
+argument: `LIB_BOUNDS["--every"]` reads `bounds.UNTRUSTED_EVERY` instead of its own 60 s. R1's rule (a library may
+not write `every` at all) is kept beside it, because the two answer different questions: who may write the timer,
+and how fast any timer under an untrusted chain may be.
+
+**What that changes in the acceptance tests.** Built-in collect hard-codes a 30 s count of what it collected, and
+its `poll` defaults to 1m. re-ping has 10 s sensors and a 30 s pinger. So neither compiles under a held chain on
+main, whatever this gate allows. The tests now say this instead of claiming a compile:
+- `test_owner_command_through_builtin_allowed` checks two cases. With collect's default `poll`, the gate lets the
+  chain through, and the only errors are bounds.py's `untrusted-limit` (`gate_allows`). With the owner's `poll: 10m`
+  passed wholly through L, and `into:` a stock L made, it compiles whole. In both, the run holds the quoted command
+  and `--kind tickets`.
+- `test_owner_command_whole_slot_allowed` gives the block the owner's `every: 10m` passed wholly, since bounds.py
+  refuses an untrusted program block with no timer.
+- The allowed cases of `test_narrow_value_patterns` use `gate_allows`. Its refused cases now also require an error
+  that is not `untrusted-limit`, so bounds.py's floor alone cannot make them pass.
+- The bound test checks 300 allowed and 299 refused.
+
+SPEC §2a and SECURITY say what these tests show, and nothing wider.
+
+**New run flags from main.** `test_every_lib_flag_classified` reported three: collect's `--mirror` and `--position`
+(data) and modelling's `--review` (an AI model that spends money, so `LIB_EXEC_FLAGS`, beside `--model`).
+
+**GAPS.** The merge left the *Shared libraries* entry spliced: two *Still needed* clauses, a dangling "no copy
+into `with:`" line, and an orphan fragment of the old entry inside *External event logs*. That orphan is on main too.
+The entry is now one text, the orphan removed. The duplicated *External event logs (open)* heading is main's and
+another gap's, so it was left alone.
+
+**lesson-9, after the merge:**
+- `--every`'s floor put back to 60: `test_library_values_are_bounded_after_rate_and_count_flags` failed;
+- `fullmatch` turned into `match`: 5 failed.
+- The name pattern widened to `[A-Za-z]...` did not fail `Tickets`. The `name` parameter's own type check refuses it
+  first, so it never reaches R2. This was noted; no change.
+
+**Run here:** tests/test_library_provenance.py (33 passed); test_library_trust, test_library_untrusted and
+test_library_untrusted_runs (78 passed); test_templates and test_remote (47 passed); test_gaps_doc (4 passed); ruff
+clean. 206 net lines of code against main. **Not run here:** the full unit suite and the four browser files.

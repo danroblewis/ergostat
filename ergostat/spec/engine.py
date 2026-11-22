@@ -19,6 +19,7 @@ The record uses the same stores and event types as before (``valve.opened``, ``l
 
 from __future__ import annotations
 
+import contextlib
 import heapq
 import json
 import os
@@ -37,6 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .. import mirror
 from .. import runner as old
 from ..costs import ai as costs_ai
+from ..costs import budget
 from ..costs import record as costs_record
 from ..costs.sampler import SAMPLER, Measured
 from ..library import bounds, reap
@@ -940,18 +942,44 @@ class Engine:
         ``run_id``, the run's id, named by the lease before it starts; ``cause``, what started it; ``outcome`` is filled
         with how it ended (exit, note, nack)."""
         if b.takes and item is None:                             # a block that takes items runs on one, leased (SPEC §9.5)
-            return self.dispatch.once(b, why)
+            return self.dispatch.once(b, why, outcome)
         spec, version = spec or self.spec, version or self.version
         ctx = {**self.context(b, why), **(extra or {})}
         ev = self.p.events
         commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
         cause = cause or (self.cause.get(commander) if commander else None)
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, id=run_id, causedby=cause,
-                       data={"trigger": why, "command": ctx.get("command"), "model": version,
-                             **({"event_seq": ctx["event"].get("seq")} if isinstance(ctx.get("event"), dict) else {}),
-                             **self.triggers.of_run(b, ctx, cause),          # what led to it, carried (SPEC §9.3)
-                             **({"timeout": b.timeout} if b.timeout else {}),
-                             **({"item": item, "lease": fence} if item else {})})
+        data = {"trigger": why, "command": ctx.get("command"), "model": version,
+                **({"event_seq": ctx["event"].get("seq")} if isinstance(ctx.get("event"), dict) else {}),
+                **self.triggers.of_run(b, ctx, cause),          # what led to it, carried (SPEC §9.3)
+                **({"timeout": b.timeout} if b.timeout else {}),
+                **({"item": item, "lease": fence} if item else {})}
+
+        def write(more: dict | None = None) -> dict:
+            return ev.add("agent.started", item=b.name, source=SOURCE, id=run_id, causedby=cause, data={**data, **(more or {})})
+        if spec.budget is None or item is not None:          # (a leased run reserved at its take: not again)
+            begun = write()
+        else:                                                # the permissive (SPEC §9.9)
+            run_id = run_id or uuid.uuid4().hex
+            begun, no = budget.permit(self.p, spec, b, write, run_id)
+            if begun is None:
+                if outcome is not None:
+                    outcome["refused"] = no
+                self.say(f"{b.name}: refused: budget: {no}")
+                return []
+        try:
+            return self._ran(b, why, spec, version, item, fence, ctx, begun, outcome)
+        except BaseException:
+            if begun["id"] in budget.OPEN:                   # raised out of before its end: its reserve stays charged
+                with contextlib.suppress(Exception):
+                    budget.close(self.p, b.name, begun["id"], None, "the run raised before its end")
+            raise
+        finally:
+            budget.OPEN.discard(begun["id"])
+
+    def _ran(self, b: Block, why: str, spec: Spec, version: str | None, item: str | None, fence: int | None, ctx: dict,
+             begun: dict, outcome: dict | None) -> list[str]:
+        """The run, once started (its ``agent.started`` written): to its end."""
+        ev = self.p.events
         if outcome is not None:
             outcome["run"] = begun["id"]
         self.last_run[b.name] = begun["id"]
@@ -1126,6 +1154,7 @@ class Engine:
             if ready.full:                                       # no workspace free: given back, put off, not counted
                 outcome["nack"] = {"why": note, "after": POOL_FULL_AFTER, "count": False}
         ended = ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
+        budget.OPEN.discard(begun["id"])                          # (ended: nothing after this closes it again)
         try:                                                     # its numbers as series of its block (SPEC §9.1)
             costs_record.write_series(self.p, b.name, data, ended["time"])
         except Exception as e:
@@ -1743,6 +1772,10 @@ class Engine:
         if lead:
             self.p.events.add("ergostat.started", source=SOURCE, data={"blocks": sorted(self.spec.blocks),
                               "pid": os.getpid(), "format": "yaml", "shard": self.shard})
+        try:                                                    # runs whose process is gone hold no reserve open
+            budget.recover(self.p, self.spec, every=0)
+        except Exception as e:
+            self.say(f"budget: recovery: {type(e).__name__}: {e}")
         from ..control import steptest
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
         self._listen()

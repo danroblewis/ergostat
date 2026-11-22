@@ -82,18 +82,24 @@ by the slow (hierarchical control).`
 Skogestad and Postlethwaite ch. 3.4 and 10.6: Λ = G ⊙ (G⁻¹)ᵀ of the steady-state gains from each valve to each
 held quantity; pair loops on λ near 1, never on a negative λ; large λ means the loops fight.
 
-**Computed today.** Nothing numeric. Structurally, `competing-commands` (two controllers on one block) and
-`own-disturbance` are the extreme cases; `interface` says when a block outside moves or commands what a system's
-own loops use (a reach-in: two controllers on one path).
+**Computed today.** Per system, from the step tests the owner approved (`control/rga.py`, SPEC §12d): each test
+made of the system as it is now (its stamp of the system's process matches) gives every loop's Δu and Δy over the
+last quarter of its hold; the latest 12 are fitted together by least squares (ΔY = ΔU Gᵀ, the other controllers
+acting), and Λ = G ⊙ (G⁻¹)ᵀ is said as one line of `explain system.NAME`, on the pairing as built, with a negative
+λ, a λ past 10 and, with two loops, a better pairing swapped. Not computed, and why: integrating loops (declared by
+`process:`, or a u that fills its stock directly), more than 8 loops, too few tests or a loop with none, collinear moves
+(ΔU's 1-norm condition past 100), singular gains. An integrator the model does not declare ramps, so its tests are left
+out as not settled (unless the step is within about 18 times the noise), and so are those of a lag over a third of the
+hold.
+Structurally, `competing-commands` (two controllers on one block) and `own-disturbance` are the extreme cases;
+`interface` says when a block outside moves or commands what a system's own loops use (a reach-in: two
+controllers on one path).
 
-**Not computed.** The relative gain array needs a square, non-singular steady-state gain matrix: as many valves
-as held quantities, each loop's gain from every valve, not only its own. The identification (`control/ident.py`)
-fits one input per loop. Step tests that move one valve at a time and record every goal, each approved by the
-owner (SPEC §12d), give the cross gains as a least-squares fit; with the matrix square and well conditioned, Λ
-follows. Next, after identifying existing controllers.
+**Not computed.** A model with no systems has no relative gain array. The other pairings beyond a two-loop swap,
+the array's frequency dependence, and a finding or request from it (it is said by `explain` only).
 
-**Would read.** `goals queue-short and latency-low: their loops interact (relative gain 2.4 on the pairing as built,
-0.6 if swapped): pair queue-short with flow.scale-up instead, or decouple.`
+**Reads.** `Relative gain array: λ g1 1.25, g2 1.25 (each loop on its own u, from 2 step tests, the gains as held
+over the last quarter of each hold).`
 
 ## 4. Loop dominance and eigenvalue elasticity: which parts matter, and aggregation
 
