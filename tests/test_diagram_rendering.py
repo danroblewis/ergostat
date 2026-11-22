@@ -732,10 +732,17 @@ SCREEN_AT = """(name) => {
   const r = el.getBoundingClientRect();
   return [r.left, r.top];
 }"""
+OUTSIDE_HULL = """(name) => {
+  // whether a system's open outline lies partly beyond the canvas
+  const h = document.querySelector(`g.hull[data-hull="${name}"] rect:not(.hull-grip)`).getBoundingClientRect();
+  const c = document.querySelector('svg.canvas').getBoundingClientRect();
+  return h.left < c.left - 1 || h.top < c.top - 1 || h.right > c.right + 1 || h.bottom > c.bottom + 1;
+}"""
 
 
 def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(browser, tmp_path):
-    """A system opened stays where its box was on the screen, and closed again where its outline was; another
+    """A system opened stays where its box was on the screen (or moves the least that shows all of it), and closed
+    again where its outline was; another
     system's box, put by hand, keeps its pin and its place through both."""
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
@@ -754,6 +761,8 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
         pg.mouse.up()
         pg.wait_for_function("() => S.pins['hull:product'] && !S.layout.routing", timeout=20000)
         pinned = pg.evaluate(SCREEN_AT, "product")
+        view = "() => [S.view.x, S.view.y, S.view.k]"
+        v0 = pg.evaluate(view)
         for name, opened in (("factory", True), ("factory", False)):
             at = pg.evaluate(SCREEN_AT, name)
             pg.evaluate("(n) => S.toggleSystem(n)", name)
@@ -761,15 +770,104 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
                                  "!S.layout.routing && document.querySelectorAll('svg.canvas g.node').length", timeout=30000)
             pg.wait_for_timeout(300)
             now = pg.evaluate(SCREEN_AT, name)
-            assert abs(now[0] - at[0]) < 4 and abs(now[1] - at[1]) < 4, (name, opened, at, now)
+            if opened and (abs(now[0] - at[0]) >= 4 or abs(now[1] - at[1]) >= 4):   # moved only to bring all of it in view
+                assert not pg.evaluate(OUTSIDE_HULL, name), (name, at, now)
+            else:
+                assert abs(now[0] - at[0]) < 4 and abs(now[1] - at[1]) < 4, (name, opened, at, now)
             assert pg.evaluate("() => !!S.pins['hull:product']"), "the pin was lost"
-            if not opened:                              # back as it was: product's box where it was put
-                d = pg.evaluate(SCREEN_AT, "product")
+            if not opened:                              # back as it was: product's box where it was put (less any pan)
+                d, v = pg.evaluate(SCREEN_AT, "product"), pg.evaluate(view)
+                assert v[2] == v0[2], (v0, v)
+                d = [d[0] - (v[0] - v0[0]), d[1] - (v[1] - v0[1])]
                 assert abs(d[0] - pinned[0]) < 4 and abs(d[1] - pinned[1]) < 4, (pinned, d)
             r = pg.evaluate(AUDIT)
             assert not r["through"] and not r["partOverlap"], (name, opened, r["through"], r["partOverlap"])
         assert not errors, errors
         pg.close()
+
+
+OUTSIDE = """() => {
+  // every path and text drawn that is not wholly inside the canvas, and the edge hint's words when it is shown
+  const c = document.querySelector('svg.canvas').getBoundingClientRect(), out = [];
+  for (const el of document.querySelectorAll('svg.canvas #viewport path, svg.canvas #viewport text')) {
+    const r = el.getBoundingClientRect();
+    if (!r.width && !r.height) continue;                      // not drawn (hidden)
+    if (r.left < c.left - 1 || r.top < c.top - 1 || r.right > c.right + 1 || r.bottom > c.bottom + 1)
+      out.push(`${el.tagName} ${(el.textContent || el.getAttribute('class') || '').slice(0, 30)} at ` +
+               [r.left, r.top, r.right, r.bottom].map(Math.round).join(','));
+  }
+  const hint = document.getElementById('panhint');
+  return { out, hint: hint.hidden ? '' : hint.textContent, canvas: [Math.round(c.width), Math.round(c.height)] };
+}"""
+
+
+@pytest.mark.parametrize("view", ["blocks", "dynamics"])
+def test_fit_shows_every_line_and_label_and_no_edge_hint(browser, tmp_path, view):
+    """Fit frames what is drawn (every part, line and label), not only the layout's box, clear of the toolbars."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1800, "height": 560})     # wide and low: the toolbars' room counts
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, f"view={view}&system=modelling", 0)
+        fit(pg)
+        seen = pg.evaluate(OUTSIDE)
+        assert not seen["out"], seen
+        assert not seen["hint"], seen
+        bar = pg.locator(".zoom").bounding_box()          # the zoom bar lies on none of it
+        top = pg.locator(".toolbar").bounding_box()
+        box = pg.evaluate("() => { const r = document.querySelector('svg.canvas #viewport').getBoundingClientRect(); "
+                          "return [r.left, r.top, r.right, r.bottom]; }")
+        assert box[3] <= bar["y"] + 1 and box[1] >= top["y"] + top["height"] - 1, (box, bar, top)
+        pg.close()
+        assert not errors, errors
+
+
+def test_open_frames_the_system_opened_or_says_which_way_the_rest_lies(browser, tmp_path):
+    """Each system opened from its box (Open) is then wholly in view; one too big at the least legible zoom has
+    its top left in view, the zoom at that least, and the hint names the way to the rest, and clicked pans there."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1280, "height": 800})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=-", 0)
+        names = pg.evaluate("() => Object.keys(S.graph.tree || {}).filter((n) => !S.graph.tree[n].within)")
+        assert names
+        for i, name in enumerate(names):
+            drawn(pg, url, "open=-", i + 1)
+            pg.locator(f'g.node.k-system:has(text:text-is("{name}")) g.sys-btn:has(text:text-is("Open"))').first.click()
+            pg.wait_for_function(f"() => (S.graph.open || []).includes('{name}') && S.layout && !S.layout.routing && "
+                                 f"document.querySelector('g.hull[data-hull=\"{name}\"]')", timeout=60000)
+            pg.wait_for_timeout(300)
+            at = pg.evaluate("""(name) => {
+              const h = document.querySelector(`g.hull[data-hull="${name}"] rect:not(.hull-grip)`).getBoundingClientRect();
+              const c = document.querySelector('svg.canvas').getBoundingClientRect(), hint = document.getElementById('panhint');
+              return { l: h.left - c.left, t: h.top - c.top, r: h.right - c.left, b: h.bottom - c.top, w: c.width, h: c.height,
+                       k: S.view.k, hint: hint.hidden ? '' : hint.textContent }; }""", name)
+            inside = at["l"] >= -1 and at["t"] >= -1 and at["r"] <= at["w"] + 1 and at["b"] <= at["h"] + 1
+            if not inside:
+                too_big = at["r"] - at["l"] > at["w"] - 39 or at["b"] - at["t"] > at["h"] - 119
+                assert too_big and at["k"] <= 0.8 + 1e-6 and 0 <= at["l"] < 40 and 0 <= at["t"] < 80, (name, at)
+                way = "(to the right|to the left|above|below)"
+                assert re.fullmatch(f"More {way}( and {way})*", at["hint"]), at
+                before = pg.evaluate("() => [S.view.x, S.view.y]")
+                pg.locator("#panhint").click()
+                after = pg.evaluate("() => [S.view.x, S.view.y]")
+                if "right" in at["hint"]:
+                    assert after[0] < before[0], (before, after)
+                if "below" in at["hint"]:
+                    assert after[1] < before[1], (before, after)
+        # drawn alone (Into) in a small window: too big to show legibly, so the hint names the way, and pans there
+        pg.set_viewport_size({"width": 1000, "height": 400})
+        drawn(pg, url, "system=factory", 99)
+        seen = pg.evaluate(OUTSIDE)
+        assert seen["out"] and re.fullmatch(r"More to the right( and below)?|More below", seen["hint"]), seen
+        before = pg.evaluate("() => [S.view.x, S.view.y]")
+        pg.locator("#panhint").click()
+        after = pg.evaluate("() => [S.view.x, S.view.y]")
+        assert ("right" not in seen["hint"] or after[0] < before[0]) and ("below" not in seen["hint"] or after[1] < before[1])
+        assert after != before, (before, after)
+        pg.close()
+        assert not errors, errors
 
 
 TRANSCRIPT = [
