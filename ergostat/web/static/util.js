@@ -513,6 +513,7 @@ async function route() {
   closeDetail();
   if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
+  S.was = path === "/diagram" ? main.querySelector(":scope > .diagram") : null;   // the diagram left: shown, dimmed, until the next is drawn
   main.replaceChildren();
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };

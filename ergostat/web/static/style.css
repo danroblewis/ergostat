@@ -171,6 +171,9 @@ main { grid-column: 1; min-height: 0; min-width: 0; display: flex; flex-directio
 .page > p, .page .note { max-width: 72ch; }
 .note { color: var(--muted); font-size: var(--text-sm); margin: var(--sp-2) 0; }
 .empty { color: var(--muted); padding: var(--sp-7); text-align: center; }
+/* a diagram being opened: the one left, dimmed and still, under what is being opened; the side list dimmed with it */
+svg.canvas g.was, .diagram.opening > .side { opacity: 0.4; pointer-events: none; }
+svg.canvas .opening-note { fill: var(--ink); font-size: var(--text-lg); font-weight: 600; }
 
 /* tables: hairlines between rows, nothing else; numbers to the right */
 .table-wrap { overflow-x: auto; max-width: 100%; }

@@ -772,6 +772,75 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
         pg.close()
 
 
+# the page's answers from the paths matching window.__slow (a pattern) held back 2.5s: a slow server, made on purpose
+SLOW_FETCH = """(() => { const f = window.fetch;
+  window.fetch = async (u, o) => {
+    if (window.__slow && new RegExp(window.__slow).test(String(u.url || u))) await new Promise((r) => setTimeout(r, 2500));
+    return f(u, o);
+  }; })();"""
+# some text in the canvas drawn where it can be seen: non-empty, inside the canvas's box, not hidden
+CANVAS_TEXT = """() => { const svg = document.querySelector('svg.canvas'), r = svg.getBoundingClientRect();
+  return [...svg.querySelectorAll('text')].filter((t) => { const b = t.getBoundingClientRect(), st = getComputedStyle(t);
+    return t.textContent.trim() && b.width > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom
+      && st.visibility !== 'hidden' && st.display !== 'none'; }).map((t) => t.textContent.trim()); }"""
+
+
+def test_into_open_and_a_panel_link_show_at_once_that_something_is_happening(browser, tmp_path):
+    """With the server slow: 300 ms after Into on api the canvas has text to read (the old diagram dimmed under
+    'Opening api…') and the side list is not empty; 300 ms after an agent's link in a goal's panel, the panel is that
+    agent's, with its name and 'Loading…'. Then each is drawn as it is when the answer comes."""
+    with served("big", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.add_init_script(SLOW_FETCH)
+        drawn(pg, url, "open=-", 0)
+        pg.wait_for_function("() => document.querySelector('.diagram .side').innerText.trim()", timeout=30000)
+        pg.evaluate("() => { window.__slow = '/api/graph'; }")
+        pg.locator('svg.canvas g.node:has(text.sys-title:text-is("api")) g.sys-btn:has(text:text-is("Into"))').first.click()
+        pg.wait_for_timeout(300)
+        assert "system=api" in pg.url
+        seen = pg.evaluate(CANVAS_TEXT)
+        assert seen, "300 ms after Into the canvas has no text to read"
+        assert "Opening api…" in seen, seen
+        assert pg.evaluate("() => document.querySelector('.diagram .side').innerText.trim()"), "the side list went blank"
+        pg.evaluate("() => { window.__slow = null; }")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        assert pg.evaluate("() => !document.querySelector('svg.canvas g.was, svg.canvas .opening-note, .diagram.opening')"), \
+            "the old diagram or the note stayed once the new one was drawn"
+        # a goal's panel, and in it the link to the agent that fills its valve
+        pg.evaluate("() => openLoop('api-q0-low')")
+        link = pg.locator('#detail table.parts a:text-is("api-q0-drain")').first
+        link.wait_for(timeout=30000)
+        pg.evaluate("() => { window.__slow = '/api/agents'; }")
+        link.click()
+        pg.wait_for_timeout(300)
+        assert pg.locator("#detail h2").first.inner_text().strip() == "api-q0-drain"
+        assert "Loading…" in pg.locator("#detail").inner_text()
+        pg.wait_for_function("() => /Recent runs/.test(document.querySelector('#detail').innerText)", timeout=30000)
+        assert "Loading…" not in pg.locator("#detail").inner_text()
+        assert not errors, errors
+        pg.close()
+
+
+@pytest.mark.parametrize("path", ["loops", "items"])
+def test_loops_and_items_say_loading_under_their_heading_until_their_answer(browser, tmp_path, path):
+    """With the server slow, Loops and Items say 'Loading…' under their heading at once, and not once drawn."""
+    with served("big", tmp_path) as url:
+        pg = browser.new_page()
+        pg.add_init_script(f"window.__slow = '/api/{path}\\\\b';")
+        pg.add_init_script(SLOW_FETCH)
+        pg.goto(f"{url}/{path}")
+        pg.wait_for_selector(".page h1", timeout=30000)
+        pg.wait_for_timeout(300)
+        assert "Loading…" in pg.locator(".page").inner_text(), pg.locator(".page").inner_text()
+        pg.evaluate("() => { window.__slow = null; }")
+        # its answer drawn (a table of loops; the items' kinds, or that there are none yet): no longer loading
+        pg.wait_for_function("() => !document.querySelector('.page').innerText.includes('Loading…')", timeout=30000)
+        assert pg.locator(".page table, .page .kind-flow, .page p.muted").count(), "nothing drawn in its place"
+        pg.close()
+
+
 TRANSCRIPT = [
     {"type": "user", "timestamp": "2026-11-15T10:00:00Z",
      "message": {"role": "user", "content": "Do the thing. <script>window.pwned=1</script>"}},

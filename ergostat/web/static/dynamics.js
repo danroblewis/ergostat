@@ -669,6 +669,7 @@ async function openNodeSD(n) {
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
     let d = null;
+    panelLoading("Valve", n.flow || n.label);
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
     rows.push(["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, n.flow || n.label) : n.rateText],
@@ -684,6 +685,7 @@ async function openNodeSD(n) {
     return;
   } else {
     let d = null;
+    panelLoading((SD_WHAT[kind] || [kind])[0], n.label);
     try { d = await api(`part/stock/${encodeURIComponent(n.label)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
     rows.push(["description", m.description || n.description], ...(d?.inferred ? [inferredRow(d.inferred)] : []),
@@ -753,6 +755,7 @@ async function openEdgeSD(e) {
   const inLoops = loopsPara(loopsOf((c) => (e.causal || []).includes(c.name)));
   if (e.kind === "pipe") {
     let d = null;
+    panelLoading("Flow", e.flow);
     try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};
     const valve = Object.values(byId).find((n) => (n.kind === "valve" || n.kind === "disturbance") && (n.flow === e.flow));
