@@ -1715,6 +1715,29 @@ latest move), at most 500 a page (`n`, `offset`), with `total` (and `moves`); `a
 kinds and counts. A filter that is not one (an unknown state, `where` without a `:`) is a 400 that says why.
 Sets are read from the item index: a state's items counted and paged there, a span's moves read there alone.
 
+**What a kind touches, and an item's path.** `GET /api/kinds/K` (`spec/footprint.py`, 404 for a kind the model does
+not have) says what a kind touches in the model:
+
+| Field | What it holds |
+|---|---|
+| `definition` | its title, description, id pattern, states (each `first`, `finished`, `final`, and `ergostat` for `leased` and `dead`), `finished_by` (`messages: done:` when it says, else its last state), `on`, `show`, `fold`, its relations and `named_by` (other kinds' relations naming it), `join`, its `lease` terms, `about`, its system and why |
+| `counted_in` | each stock, auxiliary and flow whose sensor counts the kind: its states (none: every state) or the state it counts entering or leaving, `where`, `measure`, its system; several sensors on one state are each listed |
+| `taken_by` | each block that takes it: `at`, `to`, `where`, `unblocked`, `order`, `pool`, `attempts` and `ttl` (its lease terms as they resolve), `out` (its flows), agent and rung, `only_some` and `says` (a `where` or `unblocked` takes only some items), and `taken`: how many it holds now, a lease holder in whatever state its run moved the item to |
+| `goals` | those blocks' goals and the goals on the parts counting it, with `hold`, why each is here, and `status` (holding or off) |
+| `loops` | the feedback loops (§12a) through any of those parts: name, R or B, its parts and `through` (those of them) |
+| `uncounted` | the states no sensor counts |
+| `now` | its items' count per state |
+| `why` | only when nothing counts it and nothing takes it: it touches nothing |
+
+What it touches is read from the model alone, worked out once per model version; `now`, `taken` and `status` are as
+of the request (the item index's counts, and the goals' status). `GET /api/items/ID` gains `path`: its moves as
+ordered steps `{state, stock, flow, block, run, attempts, how, ended, goal, entered, left}`. `leased` is not a step:
+the block that took the item from a state (`how: took it`, `ended`: ack, nack or expired) or held it while there
+(`held it`), its run and that run's attempt (counted ends add one, an ack starts again) are the step's. A nack or
+rework is a repeated step; a state nothing counts has `says`. The k-th move into `leased` is matched to the k-th
+lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
+answer.
+
 ## 5b. The Process view: how the items really moved
 
 The Diagram page's third view, beside Dynamics and Blocks, draws the work as the record says it went:
