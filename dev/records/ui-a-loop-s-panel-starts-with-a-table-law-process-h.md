@@ -75,3 +75,15 @@ Round 2:
 - I first had the clamp check cover all of control.js from `identRows` on. That failed on a `Math.max(0, …)` held-out figure further down (the other form's fit, a line this gap did not write), so the check now covers only `identRows`. That other clamp is left as it is, outside the gap.
 - No code outside tests changed this round. The net lines outside tests and docs are still about 40.
 - Run: `tests/test_graph_cli_web.py`, whole file, 33 passed. The browser acceptance test, with Playwright under the watchdog, 1 passed (rc 0). Ruff is clean. Not run: the unit suite and the four browser files (left to the merge queue, as the brief says). The earlier `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` failure, reported in round 1, was not run again.
+
+Round 3 (answering the round-2 review's two blocking findings and its two non-blocking ones):
+- Blocking, `control.js` "From X instead" clamp: the line now reads "NRMSE fit N% held out (NRMSE fit, 100% is perfect, below 0 is worse than the mean)", using `pcFit` and `FIT`, with no clamp. A −128% fit now reads −128%. The unit test now also checks all of `processSection` for a clamped fit and for this wording.
+- Blocking, a controller's tables took every loop in `n.loops`: `blocks.js` now filters the tables (not the scope) with `own`, the same test `controlBox` uses (`d.controller?.block === block || d.controllers?.includes(block)`). The unit test pins the filter's text. The browser acceptance test now checks that the tuner's panel has exactly one table per loop the tuner holds. Caveat: I have not checked whether any loop in image-squeeze only passes through the tuner's path. If none does, that browser check cannot fail under the break, and only the unit test's source check guards it (lesson 9).
+- Non-blocking, "follows −128% held out": unchanged. It is written in `ergostat/control/ident.py`, outside the gap's files. It is a follow-up gap of its own.
+- Non-blocking, the unit test pins source text, not behaviour: unchanged in kind. The browser test is the behavioural check. The unit test is there so the build step without Playwright has something to collect.
+- About 1 net line more outside tests and docs. The total is still about 41, within the 60 budget.
+- Every Bash command was refused this round, so none of this round's work was run or committed:
+  - `python3 - <<'EOF' …` (the edit script)
+  - `git -C /work diff --stat`
+  - Not run: ruff, `tests/test_graph_cli_web.py`, and the browser acceptance test. No break was seen to fail the new checks.
+  - The edits are in the working tree, uncommitted.

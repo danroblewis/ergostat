@@ -223,7 +223,7 @@ function processSection(d, done) {
     if (!r.proposable) kids.push(h("p", { class: "muted small" }, `Not proposed: ${(r.why || []).join("; ")}.`));
     const o = r.instead_of;
     if (o) kids.push(h("p", { class: "muted small" }, `From ${o.from} instead: K ${fmt(o.K)}${o.tau != null ? `, τ ${fmt(o.tau)} s` : ""}, θ ${fmt(o.theta)} s` +
-      (o.fit_val != null ? `, ${Math.max(0, Math.round(o.fit_val))}% of its record held out` : "") + "."));
+      (o.fit_val != null ? `, NRMSE fit ${pcFit(o.fit_val)} held out (${FIT})` : "") + "."));
     const v = validationChart(d);
     if (v) kids.push(v);
   } else if (!d.known) {

@@ -230,6 +230,13 @@ def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
     assert 'const FIT = "NRMSE fit, 100% is perfect, below 0 is worse than the mean"' in js and "(${FIT})" in table
     rows = js[js.index("function identRows"):]
     assert "not identified: needs a step of u" in table and "Math.max(0" not in rows[:rows.index("\n}\n")]
+    proc = js[js.index("function processSection"):]
+    proc = proc[:proc.index("\n}\n")]
+    assert not re.search(r"Math\.max\(0, Math\.round\([^)]*fit", proc) and "NRMSE fit ${pcFit(o.fit_val)} held out (${FIT})" in proc
+    # a controller's tables are its own loops' only (as controlBox's), not a loop whose path merely runs through it
+    blocks = (root / "ergostat" / "web" / "static" / "blocks.js").read_text()
+    assert "d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4))" in blocks
+    assert "held.filter(own).map(loopTable)" in blocks
     shutil.copytree(root / "examples" / "image-squeeze", tmp_path / "x", ignore=shutil.ignore_patterns("run", "__pycache__"))
     d = loop.analyse(Project(model.load(tmp_path / "x")), "quality-held")
     assert d and not d.get("why"), d

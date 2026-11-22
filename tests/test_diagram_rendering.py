@@ -1706,6 +1706,13 @@ def test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_insid
         assert dict(got["rows"])["process"].startswith("not identified: needs a step of u"), got["rows"]
         assert "small-images" not in got["text"], got["text"]
         assert got["maths"] and all(m["alt"] and m["over"] <= 0.5 and m["scrolls"] for m in got["maths"]), got["maths"]
+        own = pg.evaluate("""async () => {   // a table for each loop the tuner holds, none for a loop it is only on the path of
+          const n = S.graph.nodes.find((x) => x.id === 'blk:tuner'), ds = [];
+          for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x])) ds.push(await loopControl(l));
+          const mine = ds.filter((d) => d && !d.why && (d.controller?.block === 'tuner' || (d.controllers || []).includes('tuner')));
+          return [mine.length, document.querySelectorAll('#detail table.loop-table').length];
+        }""")
+        assert own[0] >= 1 and own[0] == own[1], own
         pg.evaluate("() => { const d = document.querySelector('#detail'); d.hidden = true; d.replaceChildren(); }")
         pg.evaluate("() => openBlock(S.graph.nodes.find((n) => n.id === 'proc:service'))")
         pg.wait_for_function("""() => document.querySelector('#detail table.loop-table') && document.querySelector('#detail .bd-math math')

@@ -1028,7 +1028,8 @@ function openBlock(n) {
   const mine = n.role === "process" ? n.y_of || [] : ctl ? (n.loops || []).filter((x) => S.status?.loops?.[x]) : [];
   if (mine.length) Promise.all(mine.map((l) => loopControl(l))).then((ds) => {
     const all = ds.filter(Boolean), held = all.filter((d) => !d.why);
-    top.replaceChildren(...held.map(loopTable), ...(!ctl ? [] : all.flatMap((d) => [all.length > 1 ? h("div", { class: "strip-title" }, h("b", {}, d.goal)) : null,
+    const own = (d) => !ctl || d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4));
+    top.replaceChildren(...held.filter(own).map(loopTable), ...(!ctl ? [] : all.flatMap((d) => [all.length > 1 ? h("div", { class: "strip-title" }, h("b", {}, d.goal)) : null,
       loopScope(d.goal), controlBox(d.goal, "controller", { block: n.id.slice(4) })].filter(Boolean))));
     if (!ctl) procs.replaceChildren(...(held.length ? held : all).map((d) => controlBox(d.goal, "process")));
   }).catch((e) => top.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
