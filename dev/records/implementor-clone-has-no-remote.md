@@ -24,3 +24,32 @@ depends-on: []
 
 ## Size budget
 15 net lines of code outside `tests/` and `docs/`; prompts are not counted.
+
+## Where it stopped
+
+Built, round 1. Every point is done; 8 net lines of code (`dev/bin/knowledge.py`, +11 -3), within the 15.
+
+1. `dev/prompts/implementor.md`, under *The gap*: the clone has no remote by design, `origin/*` does not exist,
+   local `{base}` is the base as of the clone (and is what to merge and compare with where a rule says
+   `origin/{base}`), other gaps' branches are absent, neither is a fault, and another gap's landed work is on
+   `{base}` or the gap waits for it.
+2. `dev/prompts/reviewer.md`, under *The branch*: the reviewer's clone is not the implementor's; a ref visible to the
+   reviewer does not disprove the implementor's statement about its own clone, and such a statement is not a finding.
+3. The two shapes are in no tracked file: they are applied `lesson` items in the instance's record, which this
+   clone cannot reach, and `lesson.py retire` removes a whole lesson, not one shape. So `dev/bin/knowledge.py`
+   gains `WITHDRAWN`, an allowlist of the two item ids, each with its reason, and `applied()` skips them. Briefs
+   (`knowledge.block`) and the collector (`knowledge.py sync`) both read through `applied()`, so neither carries them.
+   lesson-8 and its other shapes stay. This is the most reversible option: the record is left as it is (a line taken
+   out of `WITHDRAWN` brings a shape back), and because the items stay `applied` there, the librarian, which skips
+   an id it already holds, does not propose the same shape again.
+   Not checked: which of the record's lesson-8 shapes each id is. The shape texts are not in this clone, and the
+   command that would have hashed the candidate texts as the librarian does was refused. Both reasons are worded to
+   hold for any of the no-remote shapes.
+4. `tests/test_agents.py::test_the_implementor_is_told_its_clone_has_no_remote` (a real git clone: `publish` pushes,
+   then leaves no remote and no remote refs; both prompts say what points 1 and 2 ask) and
+   `tests/test_factory_knowledge.py::test_the_no_remote_shapes_of_lesson_8_are_not_carried`. I broke each guard and
+   watched its test fail: with the `git remote remove origin` line taken out of `publish`, the first test fails; with
+   the `WITHDRAWN` check taken out of `applied()`, the second fails.
+
+Run: both test files in full (17 and 77 passed) and ruff (clean). Not run: the unit suite and the four browser files
+(the factory and the queue run them). Main was not merged in: this clone has no remote, and local `main` is the base.
