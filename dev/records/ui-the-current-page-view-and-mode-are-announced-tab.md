@@ -98,3 +98,10 @@ tests/test_agents_page.py (39 passed). tests/test_diagram_rendering.py in full: 
   off', main's needs-attention heading (`diagram.js:1378`, not in this branch's diff). The test reads the same panel
   whether it is a div or an aside. This fails from main's change, not this branch's.
 Not compared on clean main: `git worktree add --detach /tmp/mainwt 720426bd...` was refused in this session.
+
+Build step after round 2 (rc 5, "2 skipped", both at the `playwright.sync_api` import): the third time, same cause.
+The merge of main 720426bd was already committed (31e9fb2e; `git status` clean, main an ancestor of HEAD). No code
+was changed for it: the branch changes only `ergostat/web/static/` and two browser test files, so
+`scripts/affected_tests.py` selects only those two files, and the build step runs them without Playwright. Ruff is
+clean. The gap waits on the factory (Playwright in the build step, or `build_browser = true`); the browser results
+after the merge are the ones in round 2 above.
