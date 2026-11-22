@@ -642,11 +642,13 @@ once each stopped sub-gap is resumed or closed (the split gap back to split, the
 is a gap that `continues` the branch, as by hand, and a `gap.resumed` on the parked gap saying what cleared (a
 continue by hand records one too, so a park is resumed once). `defect` and `kill-rule` are the manager's. Each pass
 first classifies, once, the parks from before kinds (`classified_by: park-classify`): `kill-rule` by who parked it,
-`waits_on` the one other gap whose merge its branch carries (main lacking that merge), else `unknown` (the manager's);
+`waits_on` the one other gap whose merge its branch carries (one merge in `base..branch`; whether main already has that
+gap's work is not checked, and if it has, the wait clears on the next pass), else `unknown` (the manager's);
 a `deferred` or `cancelled` one, one the plan review or the manager parked, or one continued already (`resumed_as`:
 its work goes on in the continuation) is left alone, and an `unknown` one continued is not raised past its age. Expect the first
 session after this lands to carry many `parked` triggers, one for each old park classified `unknown` (a reviewer's
-included), once; after that, only new ones. Measures:
+included), once; after that, only new ones. An old park classified `waits_on` keeps its first `parked_at`, so one whose
+gap is not on pushed main raises `waiting` at once too (past `park_wait_hours`). Measures:
 `measure.py parks|resumes|parked-hours KIND`; the Items page shows `parked_for`.
 
 ## Upgrade and revert

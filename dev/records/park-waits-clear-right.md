@@ -153,3 +153,30 @@ takes continue.lock once, without calling anything that takes it again. Refused 
 shell command was refused after that, so no test, ruff or commit was run, and this section is left uncommitted in the
 working tree. It needs a commit and a whole unit run under suite_watch.py. A test that run names would be this branch's
 to fix.
+
+### Round 4
+
+Main (1171fb2f) was merged in. It conflicted only in tests/test_factory.py, where both sides had added a section at
+the same place: this branch's four acceptance tests and main's "implementor's small test set" tests
+(scripts/affected_tests.py, `[suites] build`). Both were kept whole. The findings of review park-waits-clear-right-3,
+each answered:
+
+- *Not run by the reviewer (Bash refused).* Run here after the merge: the subset of tests/test_factory.py selected
+  with `-k "continue or park or wait or unfetch or affected or build or non_ascii or docs_only or unreadable_diff"`
+  (39 passed, 119 deselected). That covers this branch's four acceptance tests and main's new tests next to them.
+  `ruff check ergostat tests scripts` is clean. The whole file under `-n 8 --dist worksteal` was started in the
+  background and stopped at the tool's 600 s background limit before it finished, so it has no result. The rerun with a
+  longer limit (`uv run python -m pytest -q tests/test_factory.py -n 8 --dist worksteal > /tmp/tf.out 2>&1`) was refused.
+  No guarded line was broken again this round. The breaks recorded in rounds 1 to 3 still apply, and the code they
+  guard did not change.
+- *lesson-12 / lesson-8, carried() claims "main lacking that merge".* The wording is narrowed, and the code is
+  unchanged. The docstring in dev/bin/parks.py and dev/README.md now say what the check does: one merge in
+  `base..branch`, read from its subject. They also say that whether main already has that gap's work is not checked,
+  and that if it has, the wait clears on the next pass.
+- *lesson-7, the whole unit suite and the four browser files.* Still not seen to finish on this branch. They are the
+  merge queue's to run under scripts/suite_watch.py. A test that run names would be this branch's to fix.
+- *An old park classified `waits_on` raises `waiting` at once.* dev/README.md now says so. Such a park keeps its first
+  `parked_at`, and parks.waiting() reads that, so it raises once it is past `park_wait_hours` if its gap is not on
+  pushed main.
+
+Size: 83 net lines in dev/bin (82 + 1 docstring line in parks.py), within the 90.

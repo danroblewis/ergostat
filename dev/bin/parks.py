@@ -123,8 +123,9 @@ def classify(cfg: dict) -> list[str]:
 
 
 def carried(cfg: dict, g: dict, gaps: dict) -> tuple[str, dict | None]:
-    """waits_on the one other gap whose branch g's branch merged in and main lacks (read from the merge's subject, in
-    the drop); unknown for none, several, or a branch that cannot be read."""
+    """waits_on the one other gap whose branch g's branch merged in (one merge in base..branch, read from its subject,
+    in the drop; whether main has that gap's work is not checked here: if it does, the wait clears on the next pass);
+    unknown for none, several, or a branch that cannot be read."""
     try:
         own = fac.branch_of(g)
         log = fac.git(agents.drop(cfg), "log", "--merges", "--format=%s",
