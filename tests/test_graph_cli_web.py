@@ -188,6 +188,29 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_it_under(project):
+    """The Agents page's group headings ('program · 1') and its summary line both count agents by their rung, named by
+    RUNG_NAMES in util.js: the answer's rung must be the index of the agent's kind there (the browser half of this
+    check is tests/test_agents_page.py)."""
+    import re
+    from pathlib import Path
+
+    from ergostat.model import KINDS
+    from ergostat.web import serve
+    util = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "util.js").read_text()
+    names = json.loads(re.search(r"const RUNG_NAMES = (\[[^\]]*\]);", util).group(1))
+    assert names == list(KINDS)                                  # the page's columns are the model's rungs, in order
+    server, url = serve(project, free_port())
+    try:
+        with urllib.request.urlopen(url + "/api/agents", timeout=10) as r:
+            agents = json.loads(r.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert agents and all(names[a["rung"]] == a["kind"] for a in agents.values()), agents
+    assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
