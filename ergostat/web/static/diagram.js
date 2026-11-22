@@ -1345,7 +1345,9 @@ function renderSide(side, g, view) {
   const charts = view === "dynamics" ? sideCharts(out) : null;      // charts.js: the parts chosen, at the top
   if (charts && S.sel?.size) side.append(live(charts));
   side.append(h("h3", {}, "Needs attention", problems.length ? h("span", { class: "muted" }, ` ${problems.length}`) : null));
-  const att = h("div", { class: "att" });
+  // the one thing a person does here, said once with the group (its description, not announced on each poll)
+  const att = h("div", { class: "att", role: "group", "aria-label": "Needs attention", "aria-describedby": "may-do" },
+    h("p", { id: "may-do", class: "may-do" }, problems.some((a) => a.answer) ? MAY_DO : "Nothing waits for you. Looking never changes the system."));
   if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
   const MAX = 6;
   // a command the CLI would suggest becomes a link to the same view here

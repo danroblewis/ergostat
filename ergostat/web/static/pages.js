@@ -462,6 +462,7 @@ function messageView(d, refresh) {
    work item's page the actions asked for about it, with Approve and Deny on each one held; on an action's own page,
    its command, where it runs, its answer and its output */
 const ACTION_KIND = "ergostat.action";
+const MAY_DO = "You can look at everything. Approving or denying these is the only thing that changes the system.";
 function actionAnswer(a, done) {
   if (a.state !== "requested" || SNAP) return null;
   const note = h("input", { type: "text", placeholder: "why (optional)", "aria-label": "Why" });
@@ -579,7 +580,8 @@ async function pageItems(main, q) {
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
-  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), compose, box, rbox, more);
+  const mayDo = h("p", { class: "may-do", hidden: true }, MAY_DO);   // on the gated actions: what a person may do
+  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), mayDo, compose, box, rbox, more);
   let rbusy = false;
   const remoteTick = async (rs) => {
     if (rbusy || SNAP || !rs.length) return;
@@ -632,6 +634,7 @@ async function pageItems(main, q) {
   };
   async function tick(force = true) {
     if (compose.hidden !== (kind !== MESSAGE_KIND || !!SNAP)) compose.hidden = !compose.hidden;
+    if (mayDo.hidden !== (kind !== ACTION_KIND)) mayDo.hidden = !mayDo.hidden;
     ans.begin();
     // the list as the page shows it: the newest of each kind (all a chosen kind's, up to 300), matched to the
     // search where it is kept, each with its kind's columns only, and nothing of a folded system

@@ -14,3 +14,20 @@ Acceptance tests: a browser test for 1-3.
 Budget: 20 net lines.
 
 Milestone: r3-needs-attention-is-the-inbox. Owner items: R3 piece 9 (pieces 1-8 are filed Q42-Q51, Q77; piece 10 is in demos-upkeep-holds-and-actions-wait). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. Two choices made with no one to ask, each the more reversible one:
+- There is no 'Waiting for you' requests group on main yet (Q42 has not landed). So the sentence opens the whole
+  *Needs attention* list (`.att`, now `role="group"` with `aria-describedby="may-do"`). The long form shows when any
+  entry there has an answer (a request), and the empty form when none does. Once Q42 lands, the same `p#may-do` moves
+  to the head of its group.
+- There is no Actions page: gated actions are the Items page with `kind=ergostat.action`, and the house rules forbid
+  new pages. So the sentence heads the Items page when that kind is chosen, and nowhere else on it.
+Acceptance test: `tests/test_diagram_rendering.py::test_the_requests_group_opens_by_saying_what_a_person_may_do`
+(waiting and none). It covers 1-4: first text of the group, the empty form, the Items-page sentence, aria-describedby
+with no live region, a redraw that neither replaces nor changes the node, and no overflow at 390 px. "A screen reader
+reads it once" is checked through those DOM facts, not with a real screen reader. Five breaks were each seen to fail
+it: no aria-describedby, always the empty form, an attribute changed on each render, `white-space: nowrap` (fails
+only the long form, since the short one fits at 390 px), and the Items-page sentence never shown.
+Net lines outside tests and docs: 8, within the 20 budget.

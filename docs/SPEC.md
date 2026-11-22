@@ -6199,7 +6199,12 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
 - The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
   each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own.
+  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own. The list opens
+  with one muted sentence saying what a person may do: "You can look at everything. Approving or denying these is the
+  only thing that changes the system." (with nothing waiting: "Nothing waits for you. Looking never changes the
+  system."). The list is a group described by that sentence (`aria-describedby`), so a screen reader reads it once on
+  entering the list, not on each poll. The gated actions on the Items page (`/items?kind=ergostat.action`) open with
+  the same sentence.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 
