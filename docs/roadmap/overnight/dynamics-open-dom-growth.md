@@ -115,3 +115,33 @@ container still has no Playwright, so nothing here has run in a browser.
 Parked by the factory (review/dynamics-open-dom-growth-1, 2026-11-21 15:46).
 
 Done: the test-side changes (idle_metrics and quiet_metrics reads, settle and the old test's end read using them, and the two acceptance tests on scale_model.py 20, one with 4x CDP throttling and three overlapping relayouts). The bound is unchanged and no page code changed. By reading, every page name used exists, and the browser suite runs these tests (slow is not deselected). Left: the measurement of definition item 1, the lesson-9 run with a planted leak, and, depending on what the measurement shows, keeping item 3 or fixing the page under item 2. In every round so far the implementor's shell has been refused or has had no Playwright, so another fix round cannot make progress.
+
+Continued, round 1, 2026-11-22. The shell refused the first command again (`git log --oneline -8 && git status
+--short && uv run python -c "import playwright; print('pw ok')"; ls ~/.cache/ms-playwright`). No other route was
+tried. So nothing was run, measured or committed in this round, and this note is in the working tree only. No code
+changed.
+
+What reading found this round, on the park review's first finding (forced collection undercuts item 3's reading):
+the finding holds. `metrics()` calls `HeapProfiler.collectGarbage` before every read, and `drawGraph`
+(`diagram.js:644-839`) builds and swaps its drawing in one synchronous task. So a CDP read cannot land in the middle
+of a draw, and an old drawing that nothing references cannot be counted after the collection. "An old drawing not yet
+collected" therefore does not explain the merge-queue growths. They are either a real reference that keeps old
+elements alive (item 2), or nodes outside the drawing that the earlier reading did not check. Where to look first,
+from reading only:
+- The Dynamics side panel (`charts.js:502-517` `sideCharts`). It is rebuilt every 15 s, or whenever its `sig`
+  changes, with new `causesStrip` strips. These strips and their async loads were not traced. If any global, timer or
+  late callback holds an old strip, that strip's whole detached subtree stays alive.
+- Any closure kept past a draw that holds one element of an old `vp`. Holding one element keeps the whole tree.
+  `S.hullDrag`, `S.edgeById` and `S.sdSigns` hold data only, by reading.
+
+So the item-3 test changes are not yet justified as the fix: they make reads wait for idle, and if the leak is real
+they may only hide it. They should stay as the reads, though, because the bound is unchanged and growth that never
+stops still fails them. Left, unchanged, in this order: (1) run both acceptance tests and the old parametrized test in
+a browser (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+tests/test_page_polling.py`) and write the printed series here; (2) if the nodes grow, take a heap snapshot's detached
+nodes (CDP `HeapProfiler.takeHeapSnapshot`) to find what holds them, and fix that in the page (item 2); (3) the
+lesson-9 run with a planted leak (each old `vp` kept in a global array in `drawGraph`); (4) answer the review's other
+findings: source the listener bound from the measurement. (The `idle_metrics` docstring is narrowed in this round
+to what is checked: no poll running and no routing, with a draw from `S.relayout()` caught only through `S.drawN`.
+That is wording only, in the working tree, not committed and not run.) None of this can be done without a working
+shell and Playwright with Chromium.
