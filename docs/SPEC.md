@@ -237,18 +237,23 @@ and the worktree pool) are still to come.
 
 **The record's loops.** Three stocks, each read every `due-every` (10m) and drained by its falls: `rollup-due`
 (`ergostat.upkeep.rollup-due`, the items with events past their roll-up horizon outside a snapshot: the number
-`compact(p, cap=keep, dry=True)["items"]` gives, read by that dry run, rolling nothing), drained by `rolled-up`;
+`compact(p, cap=keep, dry=True)["items"]` gives, read by that dry run, rolling nothing; on a large record the
+dry run may outlast the sensor's timeout, and the stock then has no reading), drained by `rolled-up`;
 `events-past-keep` (`ergostat.upkeep.events-past-keep`, the events older than the model's `keep` that pruning
 would forget: the model's history and each loop's last crossing are never counted, as they are never forgotten),
 drained by `events-forgotten`; and `measurements-due` (`ergostat.upkeep.measurements-due`, raw readings past
-`storage: measurements: raw`, in whole buckets of the finest tier, and each tier's buckets past its keep; 0 without
-tiers, where nothing is forgotten), drained by `measurements-forgotten`. The goals `record-rolled-up`,
+`storage: measurements: raw`, and each tier's buckets past its keep, counted at the cut the roll forgets at: whole
+buckets of the next tier, never what it has not taken; so it is 0 straight after a roll; 0 without tiers, where
+nothing is forgotten), drained by `measurements-forgotten`. The goals `record-rolled-up`,
 `record-within-keep` and `measurements-within-tiers` hold each at 0. Two controllers on the rule rung serve them:
 `record-compactor`, `${lib} upkeep rollup --every ${rollup-every}`, does the roll-up, the pruning past `keep` and the
 archive's forgetting, and prints `{"out": "flow.rolled-up", "moved": ITEMS, "events": ..., "pruned": ...,
 "archive_forgot": ...}`; `measurement-retainer`, `${lib} upkeep retain --every ${retain-every}`, rolls the
 measurements into their tiers and prints `{"out": "flow.measurements-forgotten", "moved": ROWS, "rolled": ...}`.
-Each runs every its `every` (default 1h; 1m to 1d, refused at load and, exit 2, by the program). Each holds the
+Each runs every its `every` (default 1h; 1m to 1d, refused at load and, exit 2, by the program). The
+`record-compactor` is stopped after `rollup-timeout` (default 1h, 1m to 1d); stopped, it has written nothing, so a
+backlog longer than that is never rolled up by the loop: raise it, or run `ergostat compact` once by hand. The
+retainer commits a few hours of readings at a time, so one stopped at its timeout keeps the buckets it rolled. Each holds the
 compaction lock (section 4b) for all its work; finding it held, it prints `busy: ...`, does nothing and exits 0. A
 store that cannot count what is due (VictoriaMetrics, which keeps its own retention; an events store without the
 count) gives no reading, never 0. **The engine stands down** here too: under `use: upkeep` its hourly pass still

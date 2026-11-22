@@ -58,6 +58,12 @@ params:
     min: 1m
     max: 1d
     description: the least time between the record-compactor's runs while anything is due, from 1m to 1d
+  rollup-timeout:
+    type: duration
+    default: 1h
+    min: 1m
+    max: 1d
+    description: how long one record-compactor run may take before it is stopped (writing nothing), from 1m to 1d
   retain-every:
     type: duration
     default: 1h
@@ -186,6 +192,7 @@ blocks:
     in: [+stock.rollup-due, +stock.events-past-keep]
     run: ${lib} upkeep rollup --every ${rollup-every}
     every: ${rollup-every}
+    timeout: ${rollup-timeout}
     out: [flow.rolled-up, flow.events-forgotten]
   measurement-retainer:
     type: program

@@ -938,18 +938,15 @@ class Measurements:
             prev = e
         with self._c() as c:
             c.execute("begin immediate")
-            if self.raw is not None:
-                cut = min(now - self.raw, marks[self.tiers[0][0]]) // self.tiers[0][0] * self.tiers[0][0]
+            raw_cut, cuts = self._cuts(now, marks)
+            if raw_cut is not None:
+                cut = raw_cut
                 top = c.execute("select max(rowid) from samples").fetchone()[0]
                 done["forgot"] += c.execute("delete from samples where time < ?", (cut,)).rowcount
                 if c.execute("select max(rowid) from samples").fetchone()[0] != top:
                     self._deleted(c)                        # the last row went: its number may be given again
                 c.execute("delete from forgotten where time < ?", (cut,))
-            for i, (e, keep) in enumerate(self.tiers):
-                cut = now - keep
-                if i + 1 < len(self.tiers):                 # whole buckets of the next tier only
-                    nxt = self.tiers[i + 1][0]
-                    cut = min(cut, marks[nxt]) // nxt * nxt
+            for (e, _), cut in zip(self.tiers, cuts, strict=True):
                 done["forgot"] += c.execute("delete from tiers where every = ? and t + ? <= ?", (e, e, cut)).rowcount
             c.execute("commit")
         self._marks = (0.0, {})
@@ -959,19 +956,38 @@ class Measurements:
                 c.execute("pragma wal_checkpoint(truncate)")   # and the write-ahead log, which grew with it
         return done
 
+    def _cuts(self, now: float, marks: dict) -> tuple[float | None, list[float]]:
+        """Where ``roll`` and ``due`` cut, given each tier's rolled-up-to: raw readings and each tier's buckets past
+        their keep, in whole buckets of the next tier, never what it has not taken."""
+        e0 = self.tiers[0][0]
+        raw = min(now - self.raw, marks[e0]) // e0 * e0 if self.raw is not None else None
+        cuts = []
+        for i, (_, keep) in enumerate(self.tiers):
+            cut = now - keep
+            if i + 1 < len(self.tiers):                     # whole buckets of the next tier only
+                nxt = self.tiers[i + 1][0]
+                cut = min(cut, marks[nxt]) // nxt * nxt
+            cuts.append(cut)
+        return raw, cuts
+
     def due(self, now: float | None = None) -> int:
-        """The rows ``roll`` would forget, counted without rolling: raw readings past ``raw`` (in whole buckets of
-        the finest tier) and each tier's buckets past its keep. 0 without tiers: ``roll`` then forgets nothing."""
+        """The rows ``roll`` would forget, counted without rolling, at ``roll``'s cuts and the marks its rolling
+        would reach. 0 without tiers: ``roll`` then forgets nothing."""
         now = now if now is not None else time.time()
         if not self.tiers:
             return 0
         n = 0
         with self._c() as c:
-            if self.raw is not None:
-                e0 = self.tiers[0][0]
-                n += c.execute("select count(*) from samples where time < ?", ((now - self.raw) // e0 * e0,)).fetchone()[0]
-            for e, keep in self.tiers:
-                n += c.execute("select count(*) from tiers where every = ? and t + ? <= ?", (e, e, now - keep)).fetchone()[0]
+            have = {float(k.split(".", 1)[1]): v for k, v in c.execute("select key, value from meta where key like 'rolled.%'")}
+            marks, prev = {}, 0.0
+            for e, _ in self.tiers:                         # as roll's rolling leaves them
+                to = (now - max(prev, 60.0)) // e * e
+                marks[e], prev = max(have.get(e, to), to), e
+            raw, cuts = self._cuts(now, marks)
+            if raw is not None:
+                n += c.execute("select count(*) from samples where time < ?", (raw,)).fetchone()[0]
+            for (e, _), cut in zip(self.tiers, cuts, strict=True):
+                n += c.execute("select count(*) from tiers where every = ? and t + ? <= ?", (e, e, cut)).fetchone()[0]
         return n
 
     def prune(self, before: float) -> int:

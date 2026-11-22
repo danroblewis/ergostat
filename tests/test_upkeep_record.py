@@ -217,6 +217,26 @@ def test_rollup_due_is_what_compact_would_roll(tmp_path, monkeypatch, capsys, ba
     assert len(lines) == 2 and '"flow.measurements-forgotten"' in lines[1] and '"moved": 10' in lines[1], lines
 
 
+def test_measurements_due_is_0_straight_after_roll_with_tier_rows_at_the_edge(tmp_path):
+    """A source read each minute, its record older than the 1m and the 10m tiers' keeps: ``roll`` keeps the 1m rows
+    up to the 10m bucket edge, and the 10m rows up to the 1h edge. ``due`` counts by ``roll``'s own cut, so it is 0
+    straight after, though rows ending before each tier's keep remain (review round 1)."""
+    p = _project(tmp_path / "e")
+    m = p.measurements
+    assert [e for e, _ in m.tiers] == [60.0, 600.0, 3600.0]
+    now = 1_800_000_000.0 // 3600 * 3600 + 25 * 60 + 17          # neither keep falls on a 10m or 1h edge
+    m.add_many([("sensor/x", now - since + k * 60, 1.0)                 # each minute, two days around each keep
+                for since in (91 * DAY, 15 * DAY) for k in range(2 * 24 * 60)])
+    assert m.due(now) > 0
+    m.roll(now)
+    with m._c() as c:
+        strip = {e: c.execute("select count(*) from tiers where every = ? and t + ? <= ?", (e, e, now - k)).fetchone()[0]
+                 for e, k in m.tiers}
+    assert strip[60.0] > 0 and strip[600.0] > 0, f"rows past their keep that roll keeps: {strip}"
+    assert m.due(now) == 0, "what roll leaves is not due"
+    assert m.roll(now)["forgot"] == 0
+
+
 def test_a_store_that_cannot_count_gives_no_reading(tmp_path, capsys):
     p = _project(tmp_path / "v", extra="  measurements: {backend: victoriametrics, url: 'http://127.0.0.1:9'}\n")
     assert type(p.measurements).__name__ == "Victoria"
@@ -273,7 +293,7 @@ def test_compaction_stopped_grows_the_record_and_nothing_breaks(tmp_path):
 
 @pytest.mark.parametrize("every", ["30s", "2d"])
 def test_every_out_of_range_is_refused(tmp_path, monkeypatch, capsys, every):
-    for k in ("rollup-every", "retain-every"):
+    for k in ("rollup-every", "retain-every", "rollup-timeout"):
         root = tmp_path / k
         root.mkdir()
         (root / "ergostat.yaml").write_text("name: x\nuses:\n  upkeep:\n    use: upkeep\n"
@@ -281,6 +301,7 @@ def test_every_out_of_range_is_refused(tmp_path, monkeypatch, capsys, every):
         errs = [str(x) for x in read(root / "ergostat.yaml")[1] if x.level == "error"]
         assert errs and all(k in e for e in errs), errs
     p = _project(tmp_path / "p")
+    assert p.model.spec.blocks["record-compactor"].timeout == 3600.0, "a first roll-up of a backlog gets an hour, not 300s"
     for what in ("rollup", "retain"):
         assert _program(p, tmp_path / "p", monkeypatch, what, "--every", every) == 2
         assert "1m to 1d" in capsys.readouterr().err
