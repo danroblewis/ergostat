@@ -151,3 +151,66 @@ The existing `tests/test_repair2.py` must still pass. `test_use_repair_is_a_syst
 - Verification can stall for good: a run with no end event, or a first 10×verify window of only NOT_THE_CODE endings, keeps the failure `applied`. That fails closed, which is right, but settle must print why it can't decide and SPEC must say this can happen.
 - Any non-infra agent.failed of the block counts as a regression, even one from a different failure. Record the regressing run's failure id in `verdict` and whether it matches this failure, and keep the SPEC wording to what is actually judged.
 - test_l1_an_approved_revert_run_twice passes with the lock removed (the second run re-reads `reverted`), so only the threaded test guards the lock. Say which test failed for each guarded line in the lesson-9 report. Also add a case to test_l1_settle_rereads_inside_the_lock where the competing write moves the failure out of `applied`, and assert that settle writes nothing.
+
+## Where it stopped
+
+Built, round 1: everything in the definition above, with the acceptance tests in `tests/test_repair_verify.py` (24
+with the parametrised cases). The size is 250 net lines outside `tests/`, `docs/` and `dev/` (budget 280).
+
+**The plan review's points, answered.**
+- A revert whose git commit was made but whose `reverted` event was never written: before running git, `revert` looks
+  for a commit in `commit..HEAD` whose message says `This reverts commit <commit>.`, and if it finds one it records
+  `reverted` with it (`found: true`) and makes no commit. Test: `test_a_revert_whose_event_was_lost_is_found_not_made_again`.
+- `aborted: true` means the post-checks passed (no `REVERT_HEAD` or other pending state, `HEAD == head0`, a clean
+  tree), whatever the abort's exit code. Both l6 tests assert it. In the timeout test the abort itself fails, since no
+  revert was started.
+- A denied `revert-fix` leaves the failure `regressed` for good. SPEC §12r says so, and says a person reverts or
+  fixes it by hand.
+- A stall (a run that never ends, or more than 10 × verify runs since the fix with none deciding it) keeps the failure
+  `applied`. `settle` prints why on each pass, and SPEC says this can happen.
+- The `regressed` verdict records `run`, `note`, `failure` (this failure's id when triage recorded that run on it,
+  else null) and `same`. SPEC only says that a failed run of the block regresses the fix.
+- The lesson-9 report is below. `test_l1_settle_rereads_inside_the_lock` has the `moved-out` case.
+
+**Lesson-9: each guarded line broken, and the test that failed.**
+- Lock removed (`locked` takes no flock): `test_l1_two_reverts_at_once_make_one_commit` failed. As the review said,
+  `..._run_twice_...` and `test_l1_settle_rereads_inside_the_lock` still passed.
+- Re-read removed in `settle` (the `state != "applied"` check gone): `test_l1_settle_rereads_inside_the_lock[moved-out]`
+  failed. `[applied-again]` still passed, because the newest-`applied` query is also inside the lock.
+- `seq` filter turned into `since=applied.time`: `test_l2_runs_are_counted_after_the_applied_event_by_seq_not_time`
+  failed.
+- Clamp removed: `test_l4_settle_clamps_verify_from_a_compiled_model_that_bypassed_check` failed.
+- Clearing removed (capture's `opened` without the nulls):
+  `test_l5_a_reopened_failure_clears_its_verdict_and_counts_from_the_newest_apply` failed.
+- `--abort` removed: both `test_l6_a_conflicting_revert_...` and `test_l6_a_revert_whose_git_times_out_...` failed.
+- `killpg` turned back into `r.kill()`: `test_l6_an_action_past_its_timeout_...` failed. It first passed under the
+  break, because the middle process held the output pipes until its sleeping child ended. The test's middle process now
+  points its output at /dev/null, and the test asserts that `run_once` returns within 30 s.
+
+**Choices made with nobody to ask (the most reversible taken).**
+- The run query takes the newest `10 × verify` `agent.started` after the seq (`query(n=...)`). This is all of them
+  when there are fewer. When it is full and an older one exists (one more event read), the fix is not verified and
+  settle says why. The store has no oldest-first limit, and adding one was outside the gap.
+- `revert` steps 1 and 2 (wrong state, or a key that is not the failure's `revert_key`) print and write nothing. This
+  way an old cycle's approval leaves no `revert-failed` on the new cycle. Steps 3 and 4 record `revert-failed`.
+- `REVERTS` is written with `{commit}`, filled with the commit's first 12 characters. `entries.warning()` picks
+  `REVERTS` for `revert-fix` and `MERGES` for any other action about a failure. A `revert-fix` entry's `why` is the
+  same sentence, never the `MERGES` text.
+- `repair-settle` lists `actions: [revert-fix]`, since it is the block that asks for it.
+- Capture keeps `began` for a new failure and for one reopened from `verified`. Otherwise it drops it, as before.
+- The tests run without the OS sandbox: the collector is `read-only: false` and there is no `test:`, so the fix goes
+  untested to its approval. The l2 test sets times with `events.add(at=...)` rather than a monkeypatched clock.
+- `tests/test_inbox.py::test_a_delivery_passes_through_its_gate_...` patched `gate.subprocess.run`, which `run_once`
+  no longer calls. Its patch now targets `gate.subprocess.Popen`. The change is one line, and it is caused by this
+  gap's `gate.py`.
+
+**Not run here.**
+- `tests/test_repair2.py` is skipped whole in this container: "bwrap cannot make its namespaces here". That includes
+  the edited `test_use_repair_is_a_system_in_all_three_views`. It needs a host or `scripts/in_container.sh --sandbox`.
+- The full unit suite and the four browser files were not run (they are left for the factory's runs, as instructed).
+- The clone has no `origin` remote. Local `main` (e1e778c1) is this branch's base, so there was nothing to merge.
+
+Run, one file at a time: `tests/test_repair_verify.py` (24 passed), `tests/test_inbox.py` (30 passed). Also, together:
+`test_act_risk`, `test_gated_actions`, `test_modelreview`, `test_program_actions`, `test_recipes`, `test_resilience`,
+`test_runlog`, `test_triggers2`, `test_sandbox_attacks`, `test_repair2_live`, `test_redesign_bench`, `test_impact` and
+`test_calls`, all passing (the sandbox ones skipped). `ruff check ergostat tests scripts` is clean.
