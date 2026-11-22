@@ -2377,6 +2377,77 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     assert not errors and not asked, (errors, asked)
 
 
+RINGED = "() => [...document.querySelectorAll('svg.canvas .node.selected')].map((n) => n.dataset.id)"
+TITLED = "(name) => (document.querySelector('#detail:not([hidden]) h2')?.firstChild?.textContent || '') === name"
+
+
+def goal_named(tmp_path: Path, monkeypatch, boxed: bool) -> Path:
+    """charted, its goal off now; boxed: every part inside a system 'desk' (drawn closed beside an empty 'other')."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = charted(tmp_path, monkeypatch)
+    if boxed:
+        y = re.sub(r"^(  [a-z-]+:)$", r"\1\n    system: desk", CHARTED, flags=re.M).replace("    system: desk\n    id:", "    id:")
+        (d / "ergostat.yaml").write_text(y.replace("name: charted\n", "name: charted\nsystems:\n  desk:\n    description: the desk\n"
+                                                   "  other:\n    description: nothing yet\n"))
+    p = Project(mdl.load(d))
+    p.measurements.add("sensor/backlog.main", 9, at=time.time())
+    p.events.add("loop.off", item="short-backlog", data={"value": 9}, at=time.time() - 1400)   # off most of the window: a hint
+    return d
+
+
+@pytest.mark.parametrize("boxed", [False, True])
+def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction(browser, tmp_path, monkeypatch, boxed):
+    """The off goal's name in Needs attention is a button: it opens the panel 'Evidence' opens, titled with the goal,
+    and rings one shape, its stock in Dynamics and its summing junction in Blocks, opening the closed system that holds
+    it. On /loops each row's first cell is a focusable button, and Enter on it opens the same panel."""
+    d = goal_named(tmp_path, monkeypatch, boxed)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(300):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for view, ring in (("", "stock:backlog"), ("view=blocks", "sum:short-backlog")):
+            drawn(pg, url, view, 1)
+            if boxed:
+                assert not pg.evaluate(f"() => !!document.querySelector('svg.canvas [data-id=\"{ring}\"]')"), "drawn closed first"
+            pg.locator(".side .att button.name", has_text="loop short-backlog").click()
+            pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
+            # (the closed box holding it is ringed until it is drawn open)
+            pg.wait_for_function(f"(r) => JSON.stringify(({RINGED})()) === JSON.stringify([r])", arg=ring, timeout=60000)
+            if boxed:
+                assert pg.evaluate("() => S.graph.open") == ["desk"]
+            pg.evaluate("() => { closeDetail(); choose([]); }")
+            if not boxed and not view:                   # the name under Suggestions: the same
+                pg.locator(".side details.suggest").evaluate("(d) => { d.open = true; }")
+                pg.locator(".side .suggest .hint button.name").first.click()
+                pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
+                assert pg.evaluate(RINGED) == [ring], pg.evaluate(RINGED)
+                pg.evaluate("() => { closeDetail(); choose([]); }")
+        pg.goto(url + "/loops")
+        pg.wait_for_selector("tr.click")
+        rows, names = pg.locator("tr.click"), pg.locator("tr.click > td:first-child > button.name")
+        assert rows.count() == names.count() >= 1
+        names.first.focus()
+        assert pg.evaluate("() => document.activeElement.matches('td:first-child > button')")
+        pg.keyboard.press("Enter")
+        pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
     """They help and they clutter: the ⋯ menu hides them; a reload keeps them hidden; it shows them again."""
     with served("software-factory", tmp_path) as url:
