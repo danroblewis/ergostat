@@ -26,4 +26,11 @@ address; label, repo and secret values must be non-empty text; a NaN `wall` is r
 capped at 2^22. Not built (other gaps): `runs-on:`, any connection, reading a secret's file, the run-time recount of
 the 256 ceiling.
 
-Overrun reason: 188 net lines against 170: the 18 over are the cross-pool ceilings (64 nodes and 256 runs summed over pools), the NaN-safe number checks, and the ssh allowlist with separate user and address codes, each covered by a test.
+Round 2, answering every finding of review 1: a size whose number overflows to infinity (`memory: '9…9'`, or fewer
+digits with `t`) is refused as bad-size instead of raising OverflowError; the ssh, secret, label and repo names are
+checked with fullmatch, so a trailing newline no longer slips past `$`; only an absent `backend:` means process
+(`false`, `''` are bad-backend); refusal rows added for bad-image, bad-repos, bad-labels, not-a-map (limits), bad-size
+on log, the two overflows and the three trailing newlines, and one pool of exactly 64 nodes is accepted on its own (65
+refused). Each new row was seen to fail with its fix undone.
+
+Overrun reason: 189 net lines against 170: the 19 over are the cross-pool ceilings (64 nodes and 256 runs summed over pools), the NaN- and overflow-safe number checks, and the ssh allowlist with separate user and address codes, each covered by a test.

@@ -34,7 +34,8 @@ def size(v) -> int | None:
     m = SIZE.match(v) if isinstance(v, str) else None
     if m is None:
         return None
-    return int(float(m.group(1)) * 1024 ** " kmgt".index((m.group(2) or " ").lower())) or None
+    n = float(m.group(1)) * 1024 ** " kmgt".index((m.group(2) or " ").lower())
+    return (int(n) or None) if math.isfinite(n) else None       # 9…9 overflows to inf: not a size, not a crash
 
 
 def whole(c, m, key: str, what: str, default: int, most: int, over: str) -> int:
@@ -69,7 +70,7 @@ def nodes(c, m, what: str) -> list[dict]:
             c.err(f"{one}.ssh: a Host name of your ~/.ssh/config, not an address (its HostName line says that)", at,
                   "node-names-address")
         elif "ssh" in x:
-            if isinstance(h, str) and HOST.match(h):
+            if isinstance(h, str) and HOST.fullmatch(h):     # fullmatch: `$` alone lets "node-1\n" by
                 out.append({"ssh": h})
             else:
                 c.err(f"{one}.ssh: a Host name of your ~/.ssh/config (letters, digits, . _ -)", at, "bad-node")
@@ -125,7 +126,7 @@ def table(c, m, key: str, what: str, names: re.Pattern, say: str) -> dict[str, s
     v = m.get(key)
     if v is None:
         return {}
-    if not isinstance(v, dict) or not all(isinstance(k, str) and names.match(k) and isinstance(x, str) and x
+    if not isinstance(v, dict) or not all(isinstance(k, str) and names.fullmatch(k) and isinstance(x, str) and x
                                           for k, x in v.items()):
         c.err(f"{what}.{key}: {say}", m.at(key), f"bad-{key}")
         return {}
@@ -135,7 +136,7 @@ def table(c, m, key: str, what: str, names: re.Pattern, say: str) -> dict[str, s
 def compute(c, spec) -> None:
     for name, m, what in c.named("compute"):
         c.keys(m, POOL_KEYS, what)
-        backend = str(m.get("backend") or "process")
+        backend = "process" if m.get("backend") is None else m.get("backend")     # only an absent backend defaults
         if backend not in BACKENDS:
             c.err(f"{what}.backend: {' or '.join(BACKENDS)}", m.at("backend"), "bad-backend")
         image = m.get("image")

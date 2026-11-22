@@ -95,6 +95,18 @@ REFUSALS = [
     ("bad-number", "farm:\n  nodes: [{ssh: n}]\n  limits:\n    cpus: .inf", "cpus"),
     ("bad-network", "farm:\n  nodes: [{ssh: n}]\n  backend: docker\n  image: i\n  limits:\n    network: lan", "network"),
     ("bad-secrets", "farm:\n  nodes: [{ssh: n}]\n  secrets:\n    api-token: f", "secrets"),
+    ("bad-size", "farm:\n  nodes: [{ssh: n}]\n  limits:\n    log: lots", "log"),
+    ("bad-size", "farm:\n  nodes: [{ssh: n}]\n  limits:\n    memory: '" + "9" * 400 + "'", "memory"),   # inf
+    ("bad-size", "farm:\n  nodes: [{ssh: n}]\n  limits:\n    disk: " + "9" * 300 + "t", "disk"),     # inf by its unit
+    ("not-a-map", "farm:\n  nodes: [{ssh: n}]\n  limits: 3", "limits"),
+    ("bad-image", "farm:\n  nodes: [{ssh: n}]\n  backend: docker\n  image: ''", "image"),
+    ("bad-repos", "farm:\n  nodes: [{ssh: n}]\n  repos:\n    Main: .", "repos"),
+    ("bad-labels", "farm:\n  nodes: [{ssh: n}]\n  labels:\n    arch: ''", "labels"),
+    ("bad-node", "farm:\n  nodes:\n    - ssh: \"node-1\\n\"", "node-1"),                       # `$` before a newline
+    ("bad-secrets", "farm:\n  nodes: [{ssh: n}]\n  secrets:\n    \"API_TOKEN\\n\": f", "secrets"),
+    ("bad-labels", "farm:\n  nodes: [{ssh: n}]\n  labels:\n    \"arch\\n\": x", "labels"),
+    ("bad-backend", "farm:\n  nodes: [{ssh: n}]\n  backend: false", "backend"),             # not read as process
+    ("bad-backend", "farm:\n  nodes: [{ssh: n}]\n  backend: ''", "backend"),
 ]
 
 
@@ -118,6 +130,10 @@ def test_a_template_cannot_declare_a_pool(tmp_path):
 
 
 def test_the_ceilings_hold_at_their_edge(tmp_path):
+    s, errors, _ = read(tmp_path, f"a:\n  {nodes(64)}")
+    assert errors == [] and len(s.compute["a"].nodes) == 64        # one pool at the 64-node edge, alone
+    _, errors, _ = read(tmp_path, f"a:\n  {nodes(65)}")
+    assert [e.code for e in errors] == ["too-many-nodes"]
     _, errors, _ = read(tmp_path, f"a:\n  {nodes(33)}\nb:\n  {nodes(32)}")
     assert [e.code for e in errors] == ["too-many-nodes"]          # 65 nodes over all pools, though each is under
     _, errors, _ = read(tmp_path, f"a:\n  {nodes(32)}\n  slots: 4\nb:\n  {nodes(32)}\n  slots: 5")
