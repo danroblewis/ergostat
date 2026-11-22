@@ -350,6 +350,48 @@ def _redesign(p, args) -> int:
     return 0
 
 
+def _max_cost(text: str) -> float:
+    """``--max-cost USD``: refused above the ceiling when the arguments are parsed (and again in ``review_all``)."""
+    import argparse
+    import math
+
+    from ..numbers.vsm_review import CEILING
+    try:
+        v = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of dollars: {text!r}") from None
+    if not math.isfinite(v) or v <= 0 or v > CEILING:
+        raise argparse.ArgumentTypeError(f"--max-cost is at most ${CEILING:.2f} a run (and more than 0)")
+    return v
+
+
+def _architecture(p, args) -> int:
+    """``ergostat improve --architecture [SYSTEM]``: each system reviewed by one AI call against the Viable System
+    Model and its purpose; what it finds held for the owner as modelling requests."""
+    from ..numbers import vsm_review as vr
+    try:
+        got = vr.review_all(p, p.model.spec, args.architecture or None, args.model or "haiku", args.max_cost)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    if args.json:
+        return out_json(got)
+    for r in got["reviews"]:
+        money = f"${r['cost_usd']:.4f} ({r['cost']})"
+        if not r["reviewed"]:
+            print(f"{c(r['system'], 'accent')}: {c('unreviewed', 'warn')} (nothing raised or answered): {r['why']}; {money}")
+            continue
+        said = lambda xs: ", ".join(xs) or "none"   # noqa: E731
+        print(f"{c(r['system'], 'accent')}: present {said(r['present'])}; missing {said(r['missing'])}; unsupported "
+              f"{said(r['unsupported'])}; raised {r['raised']}, answered {r['answered']}"
+              + ("" if r["applied"] else " (another review landed first: not applied)") + f"; {money}")
+    for x in got["not_reviewed"]:
+        print(f"{c(x['system'], 'accent')}: not reviewed: {x['why']}")
+    print(f"total: ${got['spent']:.4f} of ${got['max_cost']:.2f}; {len(got['reviews'])} reviewed, "
+          f"{len(got['not_reviewed'])} not")
+    return 0
+
+
 def cmd_improve(args) -> int:
     """``ergostat improve``: what blocks proposed for the model and ergostat did not take, with why; ``--try
     FILE`` (or - for standard input) checks a proposal, as a propose line would be checked, and lands nowhere."""
@@ -374,6 +416,8 @@ def cmd_improve(args) -> int:
             return 2
     if getattr(args, "redesign", None):
         return _redesign(p, args)
+    if getattr(args, "architecture", None) is not None:
+        return _architecture(p, args)
     if args.try_:
         raw = sys.stdin.read() if args.try_ == "-" else open(args.try_, encoding="utf-8").read()
         try:

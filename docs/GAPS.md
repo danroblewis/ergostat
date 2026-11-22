@@ -36,12 +36,18 @@ review into *Done recently*). Newest decisions from the owner first within each 
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
   untrusted library's scripts can now run in the allowlist sandbox, with no reads of the owner's files and network
-  only to hosts the owner lists. *Still needed:* the trust gate rebuilt on **provenance** (a value counts as the
-  owner's only if it arrived by substitution of a `type: command` parameter, the marks kept through nested uses;
-  equality to an owner's literal is not enough); the refusal not telling agents to copy commands into `with:`; a
-  library's `example:` and `reading:` marked untrusted wherever an agent reads them; `ask:`, `query`/`source` gated and
-  a minimum `every` for untrusted libraries; `fetch` refusing a lock entry without a tree, symlinks hashed explicitly;
-  then running untrusted library scripts through `ergostat.sandbox` and the rebase onto main.
+  only to hosts the owner lists. **Built** (`library-trust-folders`): a `library:` entry `{folder: PATH}` is untrusted
+  unless it says `trust: owner`; its templates never shadow a trusted one; a use whose chain holds one may make only
+  structure on an allowlist (`ergostat/library/trust.py`: no command, query, daemon, timer, machine block, agent,
+  workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
+  blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
+  refused at the owner's `use:` line, with a refusal that suggests
+  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). *Still needed:* a gate on **provenance**,
+  so an untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
+  substitution of a `type: command` parameter, the marks kept through nested uses); a library's `example:` and
+  `reading:` marked untrusted wherever an agent reads them (library-untrusted-text); `fetch` by git URL or package,
+  refusing a lock entry without a tree, symlinks hashed explicitly; then running untrusted library scripts through
+  `ergostat.sandbox` and the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
@@ -100,11 +106,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `docs/proposals/architecture.md`): `check` notes `system-splits`, `systems-merge`, `interface`, `time-scales` and
   `purpose`, and each system's size (and whether it is nearly decomposable) in `explain`, its size on its panel; a
   model-level `purpose:`; candidates to aggregate from loop dominance over the window, an `aggregate` row on a
-  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`). *Left*: the relative gain
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); the AI rung's Viable System
+  Model checklist and purpose coverage, on the owner's word (`ergostat improve --architecture`, `spec/vsm.py`,
+  `numbers/vsm_review.py`, on `architecture-vsm-and-purpose`), its findings held for the owner. *Left*: the relative gain
   array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
   proposal to aggregate, interface
-  stability over the model's history, the Viable System Model checklist and purpose coverage (the AI rung), and the
-  per-system redesign and daily larger-model review (after `redesign`).
+  stability over the model's history, and the per-system redesign and daily larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
   STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
   move recorded as `ergostat.item.joined` caused by the child's, folded only forward and counted like any other;

@@ -403,7 +403,30 @@ class Explainer:
         if self.p is not None and goals:
             st = [self.status.get(g.name, "unknown") for g in goals]
             lines.append("  Now: " + ", ".join(f"{st.count(k)} {k}" for k in ("holding", "off", "unknown") if st.count(k)) + ".")
+        if self.p is not None:
+            lines += self.vsm(name)
         return "\n".join(lines)
+
+    def vsm(self, name: str) -> list[str]:
+        """The latest applied architecture review of the system (``numbers/vsm_review.py``), read from the record."""
+        from ..numbers import vsm_review as vr
+        r = vr.latest(self.p, name)
+        if r is None:
+            return []
+        out = [f"  Viable System Model: (the latest review, seq {r['seq']}, by {r.get('model')}, "
+               f"${float(r.get('cost_usd') or 0):.4f} {r.get('cost')})"]
+        fns = r.get("functions") or {}
+        for s in vr.CODES:
+            f = fns.get(s)
+            said = ("not said (unsupported)" if s in (r.get("unsupported") or []) else "not said") if f is None else \
+                f"present ({', '.join(f['parts'])})" if f["present"] else "missing"
+            out.append(f"    {s} {vr.NAMES[s]}: {said}")
+        left = ((r.get("purpose") or {}).get("uncovered")) or []
+        if left:
+            out.append("    Purpose left uncovered: " + "; ".join(f"\"{u['quote']}\"" for u in left))
+        if r.get("signature") != vr.signature(self.s, name) or r.get("words") != vr.words(self.s, name):
+            out.append("    (reviewed on an earlier version of this system)")
+        return out
 
     def ref(self, text: str) -> str:
         if text.startswith("system.") or (text in self.s.systems and Ref.parse(text) is None and not any(
