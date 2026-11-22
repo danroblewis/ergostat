@@ -39,3 +39,21 @@ Runs: tests/test_items_page.py whole, after the last change: 25 passed, with the
 - test_every_view_draws_cleanly_and_in_time: coordinator routing took 21.1 s against a 20 s bound, a diagram timing under load. It was not rerun.
 - test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page fails alone too: after an accept, /model still lists a change to review instead of "Nothing waiting." That page (pageModel, /api/fit, the proposals) reads nothing this branch changed. I could not run it on main because `git archive main | tar -x -C /tmp/mainsrc` was refused.
 Not done: Q53, Q54 and Q82 are not in this clone, so nothing was rebased onto them.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 14:22).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
