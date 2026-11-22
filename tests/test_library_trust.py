@@ -185,7 +185,7 @@ def test_untrusted_subfolder_of_a_trusted_folder_stays_untrusted(tmp_path, order
           u:
             use: bad
         """, {"lib": {"mine": OWN}, "lib/shared": {"template": BASE + CASES["program-run"][0], "copy": COPY}})
-    assert "blocks.u-x.type" in refused_once(path)
+    assert "blocks.u-x.run" in refused_once(path)
     doc = load(path)
     notes = [p.message for p in doc.problems if p.code == "template-library"]
     assert any(str(tmp_path / "lib" / "shared" / "copy.yaml") in n and "is not used" in n for n in notes), notes
@@ -207,7 +207,7 @@ def test_untrusted_structure_only_template_expands(tmp_path):
 
 BASE = "template: bad\ndescription: d\nparams:\n  how: {type: map, default: {run: echo 1}}\nstocks:\n  s: {unit: u}\n"
 CASES = {
-    "program-run": ("blocks:\n  x: {type: program, run: echo hi}\n", "blocks.u-x.type"),
+    "program-run": ("blocks:\n  x: {type: program, run: echo hi}\n", "blocks.u-x.run"),
     "ai": ("blocks:\n  x: {type: ai, prompt: hi}\n", "blocks.u-x.type"),
     "person-ask": ("blocks:\n  x: {type: person, ask: hi}\n", "blocks.u-x.type"),
     "external": ("blocks:\n  x: {type: external, agent: a}\n", "blocks.u-x.type"),
@@ -280,7 +280,8 @@ def test_untrusted_unknown_key_refused(tmp_path):
 
 
 def test_untrusted_wrapping_builtin_with_run_refused(tmp_path):
-    path = write(tmp_path, MAIN, {"lib": {"bad": "template: bad\nuses:\n  c:\n    use: collect\n"}})
+    path = write(tmp_path, MAIN, {"lib": {"bad": "template: bad\nuses:\n  c:\n    use: collect\n"
+                                                 "    with: {command: ./fetch.sh}\n"}})    # a library's command
     msg = refused_once(path)
     assert re.search(r"makes \w+\.u-c-[\w-]+\.sensor\.(every|run),", msg) and "template bad" in msg, msg
 
@@ -294,7 +295,7 @@ def test_nested_chain_refused_whole(tmp_path):
             use: t1
         """, {"own": {"t1": "template: t1\nstocks:\n  s: {unit: u}\nflows:\n  f: {to: s}\nuses:\n  mid:\n    use: l\n"},
               "lib": {"l": "template: l\nitems:\n  k: {id: k/*}\nblocks:\n  b: {type: compare, above: 1, in: stock.x}\n"
-                           "uses:\n  c:\n    use: collect\n"}})
+                           "uses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"}})
     refused_once(path)
     doc = load(path)
     assert doc.uses == {} and not doc.sections["items"] and not doc.sections["systems"]

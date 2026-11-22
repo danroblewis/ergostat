@@ -18,9 +18,39 @@ checked themselves). A map is a table of its own keys; ``each(T)`` a map of name
 
 from __future__ import annotations
 
+import re
+
 from ..spec.ir import Ref
+from .expand import COMMAND, ERGOSTAT, LIB, LIBRARY, MARK, F, Given, H, hours, strip
+from .expand import A as MA
+from .expand import B as MB
 
 S, L, M, D, A, NO = "one value", "values", "map of values", "data", "anything", "refused"
+RUN = "a run: the owner's own command, or ergostat's program with checked arguments (R1, R2)"
+W = "written by the owner or a trusted template, never a library"
+
+# R2: the only text not ergostat's own that may land in a built-in ``${lib} `` run slot, by its parameter's type.
+# fullmatch, so no trailing newline or space is let through (``NAME.match`` and ``hours`` would let them).
+NARROW = {"name": re.compile(r"[a-z][a-z0-9-]{0,63}"),
+          "duration": re.compile(r"[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?"),
+          "number": re.compile(r"-?[0-9]{1,15}(\.[0-9]{1,9})?"),
+          "integer": re.compile(r"-?[0-9]{1,15}(\.[0-9]{1,9})?"),
+          "bool": re.compile(r"true|false")}
+# Every option of ``ergostat.library.run``'s programs, in exactly one of these (tests/test_library_provenance.py).
+# Data: a name, a count or a time the program reads as data, never runs; a value not ergostat's own may follow one.
+LIB_DATA_FLAGS = frozenset({
+    "--name", "--kind", "--state", "--done", "--failed", "--stuck", "--flow", "--pinged-flow", "--gave-up-flow",
+    "--every", "--limit", "--stand-in", "--answer-after", "--window", "--id-field", "--event", "--event-field",
+    "--cursor-field", "--path", "--field", "--changes", "--title", "--cron", "--fail", "--say", "--rise", "--cut",
+    "--no-coherence", "--no-extremes"})
+# Never: what is run (a command, a renderer), read from outside (a URL, headers naming the environment), where files
+# are written or removed, and the limits on processes, calls, money and time.
+LIB_EXEC_FLAGS = frozenset({
+    "--run", "--render", "--command", "--url", "--header", "--folder", "--keep", "--timeout", "--max", "--tries",
+    "--most", "--daily", "--budget", "--rounds", "--model", "--when"})
+# A rate or a count a library may set is bounded (lesson-4): seconds for times, else the number.
+LIB_BOUNDS = {"--every": (60, 31_536_000), "--limit": (0, 100), "--stand-in": (0, 3600), "--window": (60, 604_800),
+              "--answer-after": (0, 31_536_000), "--fail": (0, 1), "--rise": (0, 1), "--cut": (0, 1)}
 CLAIMS = ("inferred", "formerly")       # invariant 11: a library never claims ergostat inferred a part
 
 
@@ -52,17 +82,17 @@ SENSOR = {     # where sensors live: stocks.X.sensor(s), flows.X.sensor(s), auxi
     "changes": (S, "a flow read from its stock's own readings"),
     "unit": (S, "the unit it is shown in"),
     "description": (S, "words shown with it"),
-    "run": (NO, "runs a command"),
+    "run": (RUN, "runs only the owner's own command, or ergostat's program with checked arguments"),
     "query": (NO, "reads an outside source over the network"),
     "daemon": (NO, "starts and keeps a process"),
     "push": (NO, "takes readings pushed from outside"),
     "parse": (NO, "only means something on a command's or query's output"),
-    "every": (NO, "starts readings on a timer"),
-    "cron": (NO, "starts readings on a schedule"),
-    "timeout": (NO, "only means something for a command"),
+    "every": (W, "starts readings on a timer: only as the owner or a trusted template wrote it"),
+    "cron": (W, "starts readings on a schedule: only as the owner or a trusted template wrote it"),
+    "timeout": (W, "how long a command runs: only as the owner or a trusted template wrote it"),
     "builtin": (NO, "runs ergostat's own measure as a process of its own, on a timer"),
     "manual": (NO, "asks a person for readings"),
-    "averages": (NO, "only means something on a command's, query's or person's reading"),
+    "averages": (W, "the window a command's readings are averaged over: only as the owner or a trusted template wrote it"),
 }
 SENSORS = {"sensors": (each(SENSOR), "its sensors, by name"), "sensor": (SENSOR, "its one sensor")}
 LINK = {"cause": (S, "what it follows"), "instant": (S, "the dependence is immediate"),
@@ -126,7 +156,11 @@ BLOCK_TYPES = {      # computed by ergostat itself from its inputs: none runs, c
     "alarm": {"above": (S, "a threshold"), "below": (S, "a threshold"),
               "for": (S, "how long past it before raised; raised, it outputs 1, shown on the page; it sends nothing")},
 }
-REFUSED_TYPES = {"program": "runs a command", "ai": "starts an AI session", "person": "asks a person to act",
+# A program block: refused by type, but for one whose keys are all here and whose run is allowed (R1).
+PROGRAM = {"goal": (S, "the setpoint it holds"), "run": (RUN, "the owner's own command, or ergostat's program"),
+           "every": (W, "its timer"), "cron": (W, "its schedule"), "timeout": (W, "how long it runs")}
+REFUSED_TYPES = {"program": "runs a command, other than the owner's own or ergostat's program with checked arguments",
+                 "ai":"starts an AI session", "person": "asks a person to act",
                  "external": "stands for something acting outside", "judge": "judges and applies changes to the model"}
 
 ALLOWED = {"systems": SYSTEM, "items": ITEM, "parameters": PARAMETER, "auxiliaries": AUXILIARY, "stocks": STOCK,
@@ -138,10 +172,88 @@ REFUSED = {"agents": "who acts, and on which rung", "workspaces": "folders and r
            "variables": "the old name of auxiliaries, kept for the owner's own files"}
 
 
-def _match(spec, v, path: str) -> str | None:
-    """The first refused path in ``v`` under ``spec``, or None when all of it is allowed."""
+def narrow_ok(ty: str, raw) -> str:
+    """"1" when a value's own text (before ``:seconds``, ``:hours``) fully matches its narrow type's pattern."""
+    text = ("true" if raw else "false") if isinstance(raw, bool) else raw if isinstance(raw, str) else \
+        str(raw) if isinstance(raw, int | float) else None
+    return "1" if ty in NARROW and text is not None and NARROW[ty].fullmatch(text) else "0"
+
+
+def _segments(s: str) -> list | None:
+    """The text as (None, text written in the template) and (meta, text brought in), alternating, the first and the
+    last the template's (perhaps empty); None when it holds a mark character outside a mark (fail closed)."""
+    out, at = [], 0
+    for m in MARK.finditer(s):
+        meta = m.group(1).split(",")
+        if len(meta) != 4:
+            return None
+        out += [(None, s[at:m.start()]), (meta, m.group(2))]
+        at = m.end()
+    out.append((None, s[at:]))
+    return None if any(c in t for meta, t in out if meta is None for c in (MA, H, MB, F)) else out
+
+
+def _value_ok(meta: list, before: str, text: str, after: str) -> bool:
+    """R2: a value not ergostat's own, in a built-in ``${lib} `` slot: of a narrow type, its own text and the text
+    that lands fully matching its pattern, directly after a flag of LIB_DATA_FLAGS, within that flag's bounds."""
+    _, ty, how, ok = meta
+    if ty not in NARROW or ok != "1" or after[:1] not in ("", " ") or before[-1:] not in ("", " "):
+        return False
+    if how == "arg":                              # --flag VALUE, or a bool's bare --flag
+        flag, _, val = text.partition(" ")
+        if ty == "bool":
+            return flag in LIB_DATA_FLAGS and val == ""
+    else:
+        m = re.search(r"(?:^| )(--[a-z][a-z0-9-]*) $", before)
+        flag, val = (m.group(1) if m else None), text
+        if how not in ("", "seconds", "hours"):
+            return False
+    if flag not in LIB_DATA_FLAGS or not NARROW[ty].fullmatch(val):
+        return False
+    if flag in LIB_BOUNDS:
+        lo, hi = LIB_BOUNDS[flag]
+        n = hours(val) * 3600 if ty == "duration" and how in ("", "arg") else float(val) * (3600 if how == "hours" else 1)
+        return lo <= n <= hi
+    return True
+
+
+def run_ok(v, tw: str) -> bool:
+    """R1 and R2 (SPEC §2a): a ``run`` a held chain may make. ``tw``: who wrote the template it is in."""
+    segs = _segments(v) if isinstance(v, str) else None
+    if segs is None:
+        return False
+    marks = [(i, m, t) for i, (m, t) in enumerate(segs) if m is not None]
+    if len(marks) == 1 and segs[0][1] == segs[2][1] == "" and marks[0][1][0] == COMMAND and marks[0][1][2] == "":
+        return True                                   # (a) the owner's own command, whole
+    if tw != ERGOSTAT:
+        return False                                  # a library's or an owner folder's own words around it
+    lib = segs[0][1].startswith(LIB + " ")
+    for i, meta, text in marks:
+        if text == "" or meta[0] == ERGOSTAT or (meta[0] == COMMAND and meta[2] in ("quote", "arg")):
+            continue                                  # (b) ergostat's own, or the owner's command quoted
+        if not (lib and _value_ok(meta, segs[i - 1][1], text, segs[i + 1][1])):
+            return False                              # (c) else only a narrow value, as an argument
+    return True
+
+
+def writer_ok(v, tw: str) -> bool:
+    """``every``, ``cron``, ``timeout``, ``averages``: written by the owner or a trusted template, never a library."""
+    if isinstance(v, Given):
+        return bool(v.meta) and v.meta[0] != LIBRARY
+    if not isinstance(v, str):
+        return tw != LIBRARY
+    segs = _segments(v)
+    return segs is not None and all(m[0] != LIBRARY if m else (t == "" or tw != LIBRARY) for m, t in segs)
+
+
+def _match(spec, v, path: str, tw: str = LIBRARY) -> str | None:
+    """The first refused path in ``v`` under ``spec``, or None when all of it is allowed. ``tw``: who wrote the
+    template that made it (expand.author)."""
     if spec == A:
         return None
+    if spec in (RUN, W):
+        return None if (run_ok if spec == RUN else writer_ok)(v, tw) else path
+    v = v.value if isinstance(v, Given) else v
     if spec == S:
         return None if v is None or isinstance(v, str | int | float | bool) else path
     if spec == L:
@@ -167,19 +279,19 @@ def _match(spec, v, path: str) -> str | None:
             got = spec.get(k)
             if got is None or got[0] == NO:
                 return f"{path}.{k}"
-            if p := _match(got[0], x, f"{path}.{k}"):
+            if p := _match(got[0], x, f"{path}.{k}", tw):
                 return p
         return None
     if spec[0] == "each":
         if not isinstance(v, dict):
             return path
-        return next((p for k, x in v.items() if (p := _match(spec[1], x, f"{path}.{k}"))), None)
+        return next((p for k, x in v.items() if (p := _match(spec[1], x, f"{path}.{k}", tw))), None)
     if spec[0] == "list":
         if not isinstance(v, list):
             return path
-        return next((p for i, x in enumerate(v) if (p := _match(spec[1], x, f"{path}.{i}"))), None)
+        return next((p for i, x in enumerate(v) if (p := _match(spec[1], x, f"{path}.{i}", tw))), None)
     if spec[0] == "or":
-        got = [_match(s, v, path) for s in spec[1:]]
+        got = [_match(s, v, path, tw) for s in spec[1:]]
         return None if None in got else max(got, key=len)
     return path                                     # a shape not known here: refused
 
@@ -191,6 +303,7 @@ def _out(entry: dict, path: str, made: set) -> str | None:
     """A block's ``out:`` that names a part the held chain did not make (the owner's program block, which it would
     command; the owner's setpoint), or that is not a reference: refused."""
     v = entry.get("out")
+    v = strip(v)
     for i, x in enumerate(v if isinstance(v, list) else [] if v is None else [v]):
         r = Ref.parse(x)
         if r is None or (OUT_TO.get(r.kind), r.name) not in made:
@@ -198,17 +311,18 @@ def _out(entry: dict, path: str, made: set) -> str | None:
     return None
 
 
-def refused(section: str, name: str, entry, made: set = frozenset()) -> str | None:
+def refused(section: str, name: str, entry, made: set = frozenset(), tw: str = LIBRARY) -> str | None:
     """The first path in this part a held chain may not make (``blocks.x-fetch.run``), or None. ``made``: the
-    (section, name) of every part the held chain makes, the only parts its blocks' ``out:`` may name."""
+    (section, name) of every part the held chain makes, the only parts its blocks' ``out:`` may name. ``entry`` as
+    expanded with its marks (expand.Made.marked), ``tw`` who wrote the template that made it (expand.author)."""
     path = f"{section}.{name}"
     table = ALLOWED.get(section)
     if table is None:
         return section
     if section == "blocks":
-        t = entry.get("type") if isinstance(entry, dict) else None
-        if not isinstance(t, str) or t not in BLOCK_TYPES:
+        t = strip(entry.get("type")) if isinstance(entry, dict) else None
+        if not isinstance(t, str) or t not in (*BLOCK_TYPES, "program"):
             return f"{path}.type"
-        table = {**table, **BLOCK_TYPES[t]}
-        return _match(table, entry, path) or _out(entry, path, made)
-    return _match(table, entry, path)
+        table = {**table, **(PROGRAM if t == "program" else BLOCK_TYPES[t])}
+        return _match(table, entry, path, tw) or _out(entry, path, made)
+    return _match(table, entry, path, tw)
