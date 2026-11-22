@@ -546,7 +546,22 @@ def _answer(live: Live, path: str, q: dict, project=None):
             for v in lp["valves"]:
                 parts.append({"kind": "valve", "name": v, "agent": agent(m.valves[v].agent), "mode": m.valves[v].mode,
                               "max": m.valves[v].max, "last": p.events.last_opening(v, snap["at"])})
-            return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
+            # who acts for it, counted as Agents and the Record count them: commanded, ran, and what its valves moved
+            from ..runner import log_path
+            blocks = getattr(getattr(m, "spec", None), "blocks", {})
+            actors = []
+            for a in dict.fromkeys([m.valves[v].agent for v in c.drives if v in m.valves] + [
+                    b.name for b in blocks.values() if b.goal == name and b.machine and not b.implied]):
+                if a not in snap["agents"]:
+                    continue
+                moved = sum(e["data"].get("amount") or 0 for v, x in m.valves.items() if x.agent == a
+                            for e in p.events.query(n=None, type="valve.opened", item=v, since=since, until=snap["at"]))
+                tail = _tail(log_path(p, a), 20)             # its last run's entry in its log: its last line
+                said = [x for x in tail[max((i for i, x in enumerate(tail) if x.startswith("--- ")), default=-1) + 1:] if x.strip()]
+                actors.append({"name": a, "ran": snap["agents"][a]["runs"], "moved": moved, "log": said[-1] if said else None,
+                               "commanded": len(p.events.query(n=None, type="block.commanded", item=a, since=since,
+                                                               until=snap["at"]))})
+            return {**lp, "actors": actors, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
                     "crossings": in_window[-20:], "crossings_total": len(in_window),
                     "description": c.description, "parts": parts,

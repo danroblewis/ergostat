@@ -325,6 +325,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         begun = project.events.query(n=1, item=a.name, type="agent.started", until=now)
         running_since = begun[-1]["time"] if begun and (last_any is None or begun[-1]["seq"] > last_any["seq"]) else None
         roles = m.roles_of(a.name)
+        b_ = getattr(getattr(m, "spec", None), "blocks", {}).get(a.name)
+        keeps = b_.goal if b_ is not None and b_.implied and b_.goal in m.controllers else None   # keep-GOAL: it decides for GOAL
         stale = []
         if a.every or a.cron:                             # a reading older than a few of its runs is stale
             for r in roles:
@@ -332,7 +334,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                     got = project.measurements.latest(f"sensor/{r.name}", now)
                     if got is None or _missed(a, got[0], now):
                         stale.append(r.name)
-        agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
+        agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles] + (
+                              [{"kind": "controller", "name": keeps}] if keeps and all(r.name != keeps for r in roles) else []),
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
@@ -527,8 +530,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         c = m.controllers[name]
         a = m.agents.get(c.agent or "")
         stock = c.holds
-        mine = set(lp["flows"])
-        drains = any(m.flows[f].source == stock for f in mine)
+        mine = set(lp["flows"]) if lp["valves"] else set()   # what its own valve moves (none when it closes the long way)
+        drains = any(m.flows[f].source == stock for f in lp["flows"])
         ours = sum(snap["flows"][f]["rate"] or 0 for f in mine)
         load = sum((snap["flows"][f.name]["rate"] or 0) for f in m.flows_of(stock)
                    if f.name not in mine and (f.target == stock if drains else f.source == stock))
@@ -551,7 +554,10 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             limits = [m.valves[v].max for v in lp["valves"] if m.valves[v].max]
             at_limit = (bool(limits) and len(amounts) >= 3 and sum(a >= limits[0] * 0.999 for a in amounts) >= len(amounts) / 2) or (
                 not limits and len(amounts) >= 3 and len(set(amounts)) == 1 and (amounts[0] or 0) > 0)
-            says = (f"loop {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "
+            says = (f"loop {name} was off {off}% of the time, falling behind: it acts but moves nothing {way[0]} of {stock} "
+                    f"while {fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "")
+                    if not ours else
+                    f"loop {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "
                     f"{fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "") + ". "
                     + ((f"Its openings ran at its max of {fmt(limits[0])}" if limits else f"Every opening moved {fmt(amounts[0])}")
                    + ": the valve is at its limit (saturated); it needs more per run, or less load" if at_limit else

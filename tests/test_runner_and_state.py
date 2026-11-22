@@ -229,6 +229,17 @@ def test_a_loop_whose_valve_cannot_keep_up_is_called_saturated(project):
     assert "falling behind" in hint["says"] and "at its limit (saturated)" in hint["says"]   # every opening moved 2
 
 
+def test_a_loop_whose_valve_moves_nothing_acts_but_moves_nothing_not_more_per_run(project):
+    t = time.time() - 1200
+    project.events.add("ergostat.started", source="ergostat", at=t)
+    for i, v in enumerate([60, 70, 80, 90, 100]):               # the stock climbs; its controller decides, its valve never opens
+        project.measurements.add("sensor/disk-usage", v, at=t + 10 + i * 290)
+        project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 20 + i * 290, data={"decision": "free 2"})
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 30, data={})
+    (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
+    assert "acts but moves nothing" in hint["says"] and "per run" not in hint["says"].lower()
+
+
 def test_a_disturbance_that_would_run_backwards_is_not_hidden(project):
     t = time.time() - 600
     project.measurements.add("sensor/disk-usage", 80, at=t)

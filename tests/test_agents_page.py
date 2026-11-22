@@ -11,6 +11,7 @@ With ``RUNCOST_SHOTS=DIR`` it leaves screenshots of the page and the panel there
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -174,6 +175,77 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     shot(pg, f"agent-panel-{theme}.png")
     pg.eval_on_selector("#detail table:has(th:text-is('tokens'))", "el => el.scrollIntoView({ block: 'end' })")
     shot(pg, f"agent-panel-runs-{theme}.png")
+    assert not errors, errors
+    pg.close()
+
+
+REQUESTS = """
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.runner import log_path
+from ergostat.store import Project
+p = Project(mdl.load(Path(DIR)))
+now = time.time()
+for i in range(34):                                   # the rule tier commanded every minute, each run moving nothing
+    t = now - 2100 + i * 60
+    begun = p.events.add("agent.started", item="fixer", source="ergostat", at=t, data={})
+    p.events.add("block.commanded", item="fixer", source="ergostat", causedby=begun["id"], at=t,
+                 data={"amount": 1, "from": "keep-requests-handled"})
+    p.events.add("agent.ran", item="fixer", source="ergostat", causedby=begun["id"], at=t + 1,
+                 data={"exit": 0, "seconds": 1, "why": "commanded", "commanded": 1})
+p.measurements.add("sensor/unanswered-requests.main", 36, at=now - 2)   # its sensor read, by no agent of the model's
+log_path(p, "fixer").write_text("--- 2026-11-22 10:00:00 run 0a1b2c3d (commanded)\\nno open request the rule tier answers\\n")
+"""
+
+
+@pytest.fixture(scope="module")
+def requests_site(tmp_path_factory):
+    """The modelling template's requests loop (as image-squeeze's): its goal closes the long way, through the judge."""
+    d = tmp_path_factory.mktemp("requests") / "requests"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text("name: requests\nuses:\n  modelling:\n    use: modelling\n")
+    env = {**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")}
+    subprocess.run([sys.executable, "-c", REQUESTS.replace("DIR", repr(str(d)))], env=env, check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never answered")
+    yield url
+    proc.terminate()
+    proc.wait(10)
+
+
+def test_the_evidence_says_in_one_line_whether_the_actor_was_commanded_ran_and_moved_anything(requests_site, browser):
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{requests_site}/agents")
+    pg.wait_for_selector("tr.click:has(b:text-is('fixer'))")
+    runs = pg.inner_text("tr.click:has(b:text-is('fixer')) td.num")
+    assert runs == "34"
+    keep = pg.inner_text("tr.click:has(b:text-is('keep-requests-handled'))")
+    assert "controller requests-handled" in keep and "no roles" not in keep    # the implied rule fills its controller
+    pg.goto(f"{requests_site}/loops")
+    pg.click("tr.click:has-text('requests-handled')")
+    pg.wait_for_selector("#detail .actor-line")
+    line = pg.inner_text("#detail .actor-line")
+    assert line == f"fixer: commanded {runs} times, ran {runs}, moved nothing (its log: no open request the rule tier answers)"
+    pg.wait_for_selector("#detail .chart-val")                  # its scope drawn: the u chart's word is there too
+    evidence = pg.inner_text("#detail")
+    assert not ("never opened" in evidence and re.search(r"moves\s+requests-answered", evidence, re.I))
+    assert "requests-answered" not in pg.inner_text("#detail dl")   # its own valve moves none of what answers it
+    sensor = pg.inner_text("#detail table.parts tr:has(td:text-is('sensor'))")
+    assert ": 36" in sensor and "unfilled" not in sensor            # a sensor that reads is not unfilled
     assert not errors, errors
     pg.close()
 

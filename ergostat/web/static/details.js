@@ -101,7 +101,7 @@ async function openNode(n) {
   if (kind === "valve") rows.push(["acts on", m.flow], ["mode", m.mode], ["most a run", m.max != null ? fmt(m.max) : null],
                                   ["filled by", agentLink(d.agent)], ["rate", rateText(now.flow?.rate, "", m.flow)]);
   const rd = now.readings || [], last = rd[rd.length - 1];
-  if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", agentLink(d.agent)],
+  if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", d.agent || !last ? agentLink(d.agent) : null],
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
   const shown = n.kind === "auxiliary" ? "auxiliary" : kind;
   if (n.kind === "auxiliary") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
@@ -150,13 +150,16 @@ async function openLoop(name, asController = false) {
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
       lp.back_in != null ? `it holds again ${dur(lp.back_in)} after (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times)` : null,
     ].filter(Boolean).join("; ") : null],
-    ["moves", lp.flows.map((f) => `${f} ${rateText(lp.rates?.[f], "", f)}`).join(", ") || "nothing"],
+    ["moves", lp.valves?.length ? lp.flows.map((f) => `${f} ${rateText(lp.rates?.[f], "", f)}`).join(", ") || "nothing" : null],  // its own valve's only
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
+  // each that acts for it in one line, from the counts Agents and the Record use
+  for (const a of lp.actors || []) kids.push(h("p", { class: "actor-line" }, h("b", {}, a.name), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
+    + (a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
   kids.push(h("table", { class: "parts" }, h("tr", {}, ["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
     (lp.parts || []).map((pt) => h("tr", {}, h("td", {}, pt.kind), h("td", {}, h("b", {}, pt.name),
         pt.kind === "valve" ? h("span", { class: "muted" }, ` ${pt.mode}${pt.max ? `, \u2264 ${fmt(pt.max)} a run` : ""}`) : null),
-      h("td", {}, agentLink(pt.agent)),
+      h("td", {}, pt.agent || !pt.last ? agentLink(pt.agent) : ""),   // a sensor that reads is not unfilled
       h("td", {}, pt.kind === "sensor" ? (pt.last ? `read ${ago(pt.last.time)}: ${fmt(pt.last.value)}` : h("span", { class: "muted" }, "no reading yet"))
         : pt.kind === "controller" ? (pt.last ? `decided ${ago(pt.last.time)}: ${pt.last.data.decision}`
           : h("span", { class: "muted" }, pt.open_loop ? "acts on its schedule, reads nothing" : "no decision yet"))
