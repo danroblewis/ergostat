@@ -24,3 +24,13 @@ The owner, 2026-11-22: remote systems scale ergostat upward (another ergostat's 
 
 ## Size budget
 0 lines of code; the proposal under 600 lines.
+
+## Where it stopped
+
+Written in full: `docs/proposals/compute-systems.md` (about 407 lines), no code changed. Nobody could be asked, so on
+each open question the proposal takes the choice that is easiest to undo and lists them for the owner in its section 6
+(*Decisions for the owner*): a lost node's runs cost the item an attempt, as any expired lease does today; the worker,
+not the engine, counts a node's slots; secrets come from named files; a node's run environment is an allowlist;
+sensors, daemons and AI blocks stay on the engine's machine in this milestone. "Worker" names the node's program
+only, never an agent or a role (CLAUDE.md, *Words*, keeps "worker" away from the NOTES.md terms; the proposal says so
+in its opening).
