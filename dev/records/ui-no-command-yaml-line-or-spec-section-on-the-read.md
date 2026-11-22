@@ -88,3 +88,15 @@ Round 1, built. About +1 net line of code outside `tests/` (10 lines changed in 
 
 **Not run here:** the unit suite, the four browser files as a whole, `demo_check`, and an origin/main merge (local
 `main` is the branch's base, so there is nothing to merge). The merge queue runs these.
+
+## Where it stopped (round 1, after the fast suites)
+
+The build step failed with rc 5. It was not a failing test. The branch changed only `.yaml` and `.js` files outside
+`tests/`, so `scripts/affected_tests.py` picked only the two browser files. Both skip as a whole where Playwright is
+not installed, so nothing ran. The code was not at fault.
+
+The fix: the template descriptions this branch cleaned had no unit test. I added one to `tests/test_templates.py`
+(`test_no_built_in_templates_description_names_a_spec_section`). It passes. It was not seen to fail by putting main's
+file back, because that command was refused here. On main's text it must fail: `git grep` finds "SPEC §" in the
+description line of collect, interventions, modelling, repair and upkeep. Since this change touches
+`tests/test_templates.py`, the build step now picks a unit file that runs without Playwright. Ruff is clean.
