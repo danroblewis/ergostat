@@ -38,15 +38,16 @@ def _doc(root: Path):
 def library(root: Path | None, name: str | None = None) -> dict:
     """Every template (name, what it is, its parameters), or one in full (its reading in control theory and
     system dynamics, its example, its parameters)."""
-    extra = _doc(root).library if root is not None and (root / FILE).is_file() else []
-    got, notes = tp.find_all(extra)
+    doc = _doc(root) if root is not None and (root / FILE).is_file() else None
+    extra = doc.library if doc else []
+    got, notes = tp.find_all(extra, doc.untrusted if doc else ())
     if name:
         t = got.get(name)
         if t is None:
             raise AuthorError(f"no template {name!r} (there are: {', '.join(sorted(got))})")
         return {**t.summary(), "reading": t.reading, "example": t.example}
     return {"templates": [{"template": t.name, "description": t.description, "from": t.summary()["from"],
-                           "params": list(t.params)} for t in got.values()],
+                           "trust": t.trust, "params": list(t.params)} for t in got.values()],
             "folders": [str(f) for f in tp.folders(extra)], **({"notes": notes} if notes else {}),
             "next": "templates with name: NAME for its parameters and its reading; add_use to try one"}
 

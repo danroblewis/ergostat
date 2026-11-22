@@ -170,6 +170,7 @@ class Factory:
             demo = "true"
             rerun = "echo again {{tests}}"
             alone = "{alone} {{tests}}"
+            queue_container = false            # (tests/test_agents.py runs the queue's in a fake Docker)
             check = "{sys.executable} {tmp / 'fake_check.py'}"
             """))
         (tmp / "fake_check.py").write_text(CHECK)
@@ -267,6 +268,113 @@ def test_the_factory_model_loads():
     assert [str(p) for p in problems if "pools.yaml" in str(p.where)] == []
     assert spec.blocks["merge-queue"].pool == 1
     assert set(spec.items["upgrade"].states) >= {"installed", "switched", "healthy", "reverted"}
+
+
+def without_landed(text: str) -> str:
+    """A model file as main had it before gaps-landed-stock: no stock gaps-landed (its block, whatever it holds),
+    gaps-merged and joins-covered to clouds, gaps-merged counting every gap entering merged."""
+    import re
+    return re.sub(r"(?m)^  gaps-landed:\n(?:    .*\n)*", "", text).replace("    to: gaps-landed\n", "").replace(
+        "entering: merged, where: {merged_by: null}, over: 1d", "entering: merged, over: 1d")
+
+
+def factory_copy(where: Path, edit=lambda text: text) -> Path:
+    """The factory's model in a folder of its own, each model file passed through ``edit``."""
+    (where / "dev" / "model").mkdir(parents=True)
+    for x in (ROOT / "dev").iterdir():
+        if x.name != "model":
+            (where / "dev" / x.name).symlink_to(x)
+    for x in (ROOT / "dev" / "model").iterdir():
+        (where / "dev" / "model" / x.name).write_text(edit(x.read_text()))
+    (where / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
+    return where
+
+
+def test_the_factory_model_loads_with_gaps_landed_and_the_flows_into_it():
+    """gaps-landed-stock: a stock of the gaps merged on main, filled by every flow that ends a gap in merged (the
+    queue's, and the join judge's), drained by none, and read by no goal, pool or gate."""
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    st = spec.stocks["gaps-landed"]
+    assert st.unit == "gaps" and st.system == "landing" and "merged on main" in st.description
+    (sensor,) = st.sensors.values()
+    assert sensor.items["kind"] == "gap" and sensor.items["state"] == ["merged"] and sensor.every == 60
+    into = {f.name for f in spec.flows.values() if f.target == "gaps-landed"}
+    assert into == {"gaps-merged", "joins-covered"}
+    assert not [f.name for f in spec.flows.values() if f.source == "gaps-landed"]           # it only rises
+    ends_merged = {f.name for f in spec.flows.values() for s in f.sensors.values()
+                   if s.items and s.items.get("kind") == "gap" and s.items.get("entering") == "merged"}
+    assert ends_merged == into                                   # every flow ending a gap in merged goes to it
+    gm = spec.flows["gaps-merged"]
+    assert gm.source == "gaps-queued" and gm.equation.text == \
+        "(1 - queue-fail-share - conflict-share) * stock.gaps-queued / queue-time"
+    assert not [g.name for g in spec.goals.values() if g.of.name == "gaps-landed"]          # no goal on it
+    texts = "".join(x.read_text() for x in (ROOT / "dev" / "model").iterdir()) + (ROOT / "ergostat.yaml").read_text()
+    assert texts.count("stock.gaps-landed") == 0                 # nothing reads it: no pool, gate or equation
+    assert spec.flows["upgrades-opened"].equation.text == "upgrades-per-merge * flow.gaps-merged"
+
+
+def test_a_joined_gap_that_lands_enters_the_landed_stock_once(tmp_path):
+    """gaps-landed-stock: a gap the queue merged is counted by gaps-merged alone, a joined gap the join judge found
+    covered (merged_by join-judge, plan.py) by joins-covered alone, so the inflows' count is the stock's rise."""
+    from ergostat import model as mdl
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    m = mdl.load(factory_copy(tmp_path / "m"))
+    (tmp_path / "state").mkdir()
+    p = Project(m, directory=tmp_path / "state")
+    ev, spec = p.events, m.spec
+    t = time.time() - 3600
+    for g in ("sub-a", "sub-b"):                                 # the queue's merges: the joined gap's sub-gaps
+        for k, e in enumerate(("gap.found", "gap.defined", "gap.started", "gap.built", "gap.review-started",
+                               "gap.approved", "gap.queued", "gap.merged")):
+            ev.add(e, item=f"gap/{g}", data={"parent": ["gap/whole"]} if k == 0 else {}, at=t + k)
+    ev.add("gap.found", item="gap/whole", at=t)
+    ev.add("gap.split", item="gap/whole", data={"children": ["gap/sub-a", "gap/sub-b"]}, at=t + 1)
+    ev.add("gap.merged", item="gap/whole", data={"merged_by": "join-judge", "join_verdict": "covered"}, at=t + 20)
+    now = t + 30
+
+    def reading(part) -> float:
+        (s,) = part.sensors.values()
+        v, _ = its.measure(ev, spec, s, now=now)
+        return v
+    day = 86400 / 3600                                           # (a flow's reading is per hour, over a day)
+    merged, covered = reading(spec.flows["gaps-merged"]) * day, reading(spec.flows["joins-covered"]) * day
+    assert (round(merged), round(covered)) == (2, 1)            # the joined gap in joins-covered alone
+    assert reading(spec.stocks["gaps-landed"]) == 3 == round(merged + covered)
+
+
+@pytest.mark.slow
+def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, capsys, monkeypatch):
+    """gaps-landed-stock: `ergostat check` on the model with gaps-landed says nothing it did not say without it, and
+    the Dynamics diagram draws the stock with the pipes into it."""
+    from ergostat import model as mdl
+    from ergostat.cli import main, spec_cmds
+    from ergostat.numbers import extremes_cache
+    from ergostat.store import Project
+    from ergostat.web.server import Live, api
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # (no extremes kept from another test's run)
+    monkeypatch.setattr(spec_cmds, "CHECK_WAIT", None)                # both sides' extreme-conditions tests run whole
+    monkeypatch.setattr(extremes_cache, "BOUND", 900.0)
+
+    def found(where: Path) -> set[str]:
+        main(["-C", str(where), "check", "--json"])
+        got = json.loads(capsys.readouterr().out)
+        assert got["ok"], [x for x in got["found"] if x["level"] == "error"]
+        return {x["id"] for x in got["found"] if x["level"] != "error"}
+    before = factory_copy(tmp_path / "before", without_landed)
+    old = "".join(x.read_text() for x in (before / "dev" / "model").iterdir())
+    assert "\n  gaps-landed:" not in old and "to: gaps-landed" not in old and "merged_by: null" not in old
+    now = found(factory_copy(tmp_path / "now"))
+    assert not [x for x in now if x.startswith(("extremes-running", "extremes-skipped"))]
+    assert sorted(now - found(before)) == []
+    (tmp_path / "state").mkdir()
+    live = Live(Project(mdl.load(tmp_path / "now"), directory=tmp_path / "state"))
+    g = api(live, "graph", {"view": ["dynamics"], "open": ["*"]})
+    ids = {n["id"] for n in g["nodes"]}
+    assert "stock:gaps-landed" in ids
+    into = {e.get("from", e["source"]) for e in g["edges"] if e["kind"] == "pipe" and e["target"] == "stock:gaps-landed"}
+    assert {"flow:gaps-merged", "flow:joins-covered"} <= into, into
 
 
 def test_the_factory_blocks_take_their_pools_from_the_pool_stocks():
@@ -3790,6 +3898,116 @@ def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):
     assert resumed(f) == ["gap.measured", "gap.measured", "gap.split", "gap.resumed"]
     assert f.item("gap/whole")["state"] == "split" and f.item("gap/part")["fields"]["parent"] == []
     assert f.item("gap/part-continued")["fields"]["parent"] == ["gap/whole"]
+
+
+# ---- the implementor's small test set ([suites] build, scripts/affected_tests.py)
+
+def affected(tmp: Path, change: dict[str, str | None], base: str = "main") -> subprocess.CompletedProcess:
+    """scripts/affected_tests.py on a branch of a fixture repository that makes ``change`` (a path's new text, or None
+    to delete it), the command it runs being `echo given`: what it would hand pytest, printed."""
+    repo = tmp / "repo"
+    start = {"ergostat/foo.py": "x = 1\n", "ergostat/sub/baz.py": "y = 1\n", "ergostat/lone.py": "z = 1\n",
+             "tests/test_foo.py": "", "tests/test_bar.py": "", "tests/test_baz.py": "", "tests/test_gone.py": "",
+             "docs/a.md": "a\n"}
+    for rel, text in start.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "start")
+    git(repo, "checkout", "-qb", "factory/x")
+    for rel, text in change.items():
+        if text is None:
+            (repo / rel).unlink()
+        else:
+            (repo / rel).write_text(text)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "change")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}   # (git sees only the fixture, never /work)
+    return subprocess.run([sys.executable, str(ROOT / "scripts" / "affected_tests.py"), "--base", base, "--", "echo",
+                           "given", "--deselect", "tests/test_q.py::t"], cwd=repo, capture_output=True, text=True,
+                          timeout=60, env=env)
+
+
+def test_a_branch_changing_a_module_and_its_test_runs_only_those(tmp_path):
+    r = affected(tmp_path, {"ergostat/foo.py": "x = 2\n", "tests/test_bar.py": "# more\n", "ergostat/lone.py": "z = 2\n",
+                            "ergostat/sub/baz.py": "y = 2\n", "tests/test_gone.py": None})
+    assert r.returncode == 0, r.stderr                         # (lone.py has no test; test_gone.py is deleted: neither
+    given = r.stdout.splitlines()[-1]                          # is named, and the rest are still selected)
+    assert given == "given --deselect tests/test_q.py::t tests/test_bar.py tests/test_baz.py tests/test_foo.py"
+
+
+def test_a_non_ascii_test_file_is_selected(tmp_path):
+    r = affected(tmp_path, {"tests/test_é.py": "# new\n"})    # (git's quoted "tests/test_\303\251.py" is no file)
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t tests/test_é.py"
+
+
+def test_a_docs_only_branch_runs_collection_only(tmp_path):
+    r = affected(tmp_path, {"docs/a.md": "b\n"})
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t --collect-only"
+
+
+def test_an_unreadable_diff_runs_the_full_suite(tmp_path):
+    r = affected(tmp_path, {"ergostat/foo.py": "x = 2\n"}, base="no-such-ref")
+    assert r.returncode == 0 and r.stdout.splitlines()[-1] == "given --deselect tests/test_q.py::t"   # as given: all
+    assert "cannot read the diff" in r.stderr
+
+
+def with_build(f: Factory, build: str) -> None:
+    f.config.write_text(f.config.read_text().replace("[suites]\n", f'[suites]\nbuild = "{build}"\n'))
+
+
+def test_build_unset_runs_the_full_unit_suite_in_the_implementors_step(tmp_path):
+    for case, build in (("unset", None), ("empty", "")):
+        (tmp_path / case).mkdir()
+        f = Factory(tmp_path / case, unit=str(suite_sh(tmp_path / case, "false")))
+        if build is not None:
+            with_build(f, build)
+        gid = ready(f)
+        assert f.run("implement.py", gid)[0] == ["gap.started", "gap.built"]
+        fast = f.item(gid)["fields"]["suites_fast"]
+        assert fast["unit"]["rc"] == 0 and "build" not in fast and len(runs(tmp_path / case)) == 1, case
+
+
+def test_build_set_is_the_implementors_step_with_its_quarantine_and_triage(tmp_path):
+    (tmp_path / "q").mkdir()
+    (tmp_path / "f").mkdir()
+    f = quarantined(tmp_path / "q", "PASSED x\n")             # unit.sh fails T unless T is deselected (main's list)
+    with_build(f, str(tmp_path / "q" / "unit.sh"))
+    f.config.write_text(f.config.read_text().replace(f'unit = "{tmp_path / "q" / "unit.sh"}"', 'unit = "false"'))
+    gid = ready(f)
+    assert f.run("implement.py", gid)[0][-1] == "gap.built"   # the full unit (`false`) never ran
+    assert f.item(gid)["fields"]["suites_fast"]["build"]["rc"] == 0
+    assert f"--deselect {T}" in (tmp_path / "q" / "runs.log").read_text()       # quarantined: deselected here too
+
+    sh = suite_sh(tmp_path, f"[ ! -e {tmp_path}/once ] && touch {tmp_path}/once")    # a flake: fails its first run
+    f = Factory(tmp_path / "f", unit="false", alone=str(sh))
+    with_build(f, str(sh))
+    gid = ready(f)
+    assert f.run("implement.py", gid)[0] == ["gap.started", "flake.seen", "gap.built"]   # run alone, then retried
+    assert f.item(gid)["fields"]["flakes"] == [T] and len(runs(tmp_path)) == 3
+
+
+def test_the_merge_queue_runs_the_full_suites_with_build_set(tmp_path):
+    unit = tmp_path / "unit.sh"
+    unit.write_text(f'#!/bin/sh\necho "unit $PWD" >> {tmp_path}/runs.log\necho "1 passed"\n')
+    unit.chmod(0o755)
+    f = Factory(tmp_path, unit=str(unit))
+    with_build(f, "true")                                     # (the implementor's step: never the unit suite)
+    gid = ready(f)
+    f.run("implement.py", gid)
+    assert f.item(gid)["fields"]["suites_fast"]["build"]["rc"] == 0 and not runs(tmp_path)
+    f.run("review.py", gid)
+    assert f.run("queue.py", gid)[0][:2] == ["gap.queued", "gap.merged"]
+    assert [r for r in runs(tmp_path) if r.startswith("unit ")]                 # the full unit suite, in the queue
+    queue = f.item(gid)["fields"]["suites_queue"]
+    assert {"unit", "browser", "demo"} <= set(queue) and "build" not in queue
+
+
+def test_the_shipped_build_setting_runs_the_small_set():
+    import tomllib
+    s = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
+    assert "scripts/affected_tests.py -- " in s["build"] and s["build"].endswith(s["unit"].split(" -- ", 1)[1])
 
 
 # ---- pool-full-keeps-its-rank (docs/roadmap/overnight/pool-full-keeps-its-rank.md): given back for a full pool, a gap

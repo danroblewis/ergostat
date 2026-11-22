@@ -353,6 +353,14 @@ The essentials:
   so the dashed lines between kinds appear; rework as a declared move back.
 - **Everywhere**: the same names in every view, a description on every part.
 
+### Templates from a folder the owner did not write
+
+A `library:` entry written `{folder: PATH}` is untrusted (SPEC §2a): its templates may make only structure, and a use
+that makes more is refused (`library-untrusted`), whole. **Never write `trust: owner`, and never turn a map entry
+into a plain path**, to get past that refusal or for any other reason: that is the owner's decision, made after
+reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
+which template and part were refused, and ask.
+
 ## 3a. A system another ergostat runs: compose it, never copy it
 
 When part of the person's work is run by **another ergostat** (another team's, another machine's), do

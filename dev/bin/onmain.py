@@ -1,9 +1,10 @@
 """main-broken: the implementor's own triage of its fast suites (implement.py), before a failure counts against the gap.
 
-The fast suites are ruff and [suites] build (the unit suite where no build is set), and the four browser files only
-with [suites] build_browser = true (a browser test skipped fails them, as in the queue); the merge queue runs unit,
-browser and demo in full either way (queue.py). The tests that failed (build, unit or browser) are run again alone
-on the branch (`alone`; `rerun`, with Playwright, for the browser's): passing, they are flakes (`flake.seen`), and the fast suites
+The fast suites are ruff, [suites] build when set (the small set, scripts/affected_tests.py; else the full unit suite),
+and the four browser files only with [suites] build_browser = true (a browser test skipped fails them, as in the
+queue); the merge queue runs unit, browser and demo in full either way (queue.py). The tests that failed (unit, build
+or browser) are run again alone on the branch (`alone`; `rerun`, with Playwright, for the browser's): passing, they
+are flakes (`flake.seen`), and the fast suites
 are run once more, uncounted, once per run. Those still failing are run once on clean main (the commit the branch
 merged), in a clone of the drop at it. Each run is in the same kind of suite container as the fast suites, in the
 suite slot. A test that fails on main too is main's, not the gap's (lesson 13: reported, not fixed): an item
@@ -23,20 +24,23 @@ import agents
 import fac
 
 LEAST = 60.0          # seconds a rerun is assumed to take at the least (a container started, the tests collected)
-AGAIN = {"build": "alone", "unit": "alone", "browser": "rerun"}   # each one's tests again alone ("rerun": Playwright)
-
-
-def fast(cfg: dict) -> tuple[str, ...]:
-    """The round's fast suites: ruff and build (unit where no build is set), then the browser files if turned on."""
-    s = cfg["suites"]
-    return ("ruff", "build" if str(s.get("build") or "").strip() else "unit") + (
-        ("browser",) if s.get("build_browser") is True else ())
+AGAIN = {"unit": "alone", "build": "alone", "browser": "rerun"}  # each one's tests run again alone ("rerun": Playwright)
 
 
 def room(suites: dict, deadline: float) -> bool:
     """Whether a rerun fits before the kill rule's building hours run out (the failed suite's time)."""
-    took = suites.get(str(suites.get("failed"))) or suites.get("build") or suites.get("unit") or {}
+    took = suites.get(str(suites.get("failed"))) or suites.get("unit") or suites.get("build") or {}
     return time.time() + max(LEAST, float(took.get("seconds") or 0)) < deadline
+
+
+def step(cfg: dict) -> str:
+    """The implementor's test step: [suites] build (the small set) when set, else the full `unit` suite."""
+    return "build" if str(cfg["suites"].get("build") or "").strip() else "unit"
+
+
+def fast(cfg: dict) -> tuple[str, ...]:
+    """The implementor's fast suites: ruff, its test step (see step), then the four browser files if turned on."""
+    return ("ruff", step(cfg)) + (("browser",) if cfg["suites"].get("build_browser") is True else ())
 
 
 def failing(cfg: dict, branch: str, main: str, tests: list[str], logs: Path, tag: str, suite: str = "alone") -> dict:
