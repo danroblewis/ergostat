@@ -2038,6 +2038,24 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         pg.close()
 
 
+def test_a_stocks_panel_names_its_goal_and_what_serves_it_and_never_says_nothing_acts_on_it(browser, tmp_path):
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=*", 0)
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:users'))")
+        pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
+        pg.wait_for_function("() => document.querySelector('#detail').innerText.includes('desired users')", timeout=10000)
+        text = pg.locator("#detail").inner_text()
+        assert "users-growing" in text and "product-manager" in text, text[:1500]
+        assert "nothing in the model acts" not in text, text[:1500]
+        row = next(ln for ln in text.splitlines() if ln.startswith("desired users"))
+        assert "product-manager in factory" in row and not re.search(SD_WORDS, row, re.I), row   # in the discipline's words
+        assert not errors, errors
+        pg.close()
+
+
 def test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_and_draws_no_port_squares(browser, tmp_path):
     with served("image-squeeze", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
@@ -2648,6 +2666,91 @@ def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
             if row.startswith("connector"):
                 assert row[-1] in signs, (row, signs)
         assert not {"auxiliary", "exogenous", "reinforcing", "balancing"} & set(on), on
+        pg.close()
+
+
+# Export PNG's picture: the standalone SVG rasterised as exportPng does (at 1x), and for each of its texts, how many
+# dark pixels the image has where the text is (found by laying the same SVG in the page) that the same picture with no
+# text at all lacks (the text's own ink: not a line under it, and nothing over it); and the image's corner colour
+EXPORTED_PNG = """async () => {
+  const out = standaloneSvg(document.querySelector('svg.canvas'), exportTitle());
+  const raster = async (text) => {
+    const img = new Image();
+    await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad;
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(text); });
+    const c = document.createElement('canvas'); c.width = out.w; c.height = out.hgt;
+    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+    return ctx;
+  };
+  const bare = new DOMParser().parseFromString(out.text, 'image/svg+xml');
+  bare.querySelectorAll('text').forEach((t) => t.remove());
+  const ctx = await raster(out.text), ctx0 = await raster(new XMLSerializer().serializeToString(bare));
+  const dark = (d, i) => d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] < 420;
+  const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;z-index:99';
+  host.innerHTML = out.text; document.body.append(host);
+  const at = host.firstElementChild.getBoundingClientRect();
+  const texts = [...host.querySelectorAll('text')].filter((t) => t.textContent.trim()).map((t) => {
+    const r = t.getBoundingClientRect(), x = Math.max(0, Math.floor(r.left - at.left)), y = Math.max(0, Math.floor(r.top - at.top));
+    const box = [x, y, Math.max(1, Math.ceil(r.width)), Math.max(1, Math.ceil(r.height))];
+    const px = ctx.getImageData(...box).data, px0 = ctx0.getImageData(...box).data;
+    let ink = 0;
+    for (let i = 0; i < px.length; i += 4) if (dark(px, i) && !dark(px0, i)) ink++;
+    const inside = r.left >= at.left - 0.5 && r.top >= at.top - 0.5 && r.right <= at.right + 0.5 && r.bottom <= at.bottom + 0.5;
+    return [t.textContent, ink, inside];
+  });
+  host.remove();
+  // what is seen through on the page (a loop marker's ground over the lines under it) is seen through in the picture
+  const thin = (el) => +getComputedStyle(el).fillOpacity < 1;
+  const shown = [...document.querySelectorAll('svg.canvas *')].filter((el) => el.checkVisibility() && thin(el)).length;
+  const kept = (out.text.match(/fill-opacity:0\\.\\d+/g) || []).length;
+  return { texts, corner: [...ctx.getImageData(1, 1, 1, 1).data], shown, kept };
+}"""
+
+
+def test_the_exported_png_shows_every_loop_name_the_values_and_its_legend_on_white_in_dark_mode(browser, tmp_path, monkeypatch):
+    """Export PNG of the product system, with the page in dark mode: the picture is light (a white ground, dark ink);
+    every loop name on screen and '225 users' are drawn legibly in it (not hidden under their own halos); the Blocks
+    picture carries the Blocks legend's words, and both carry the title, date and window."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+
+    def users(d: Path) -> None:
+        monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))         # where served() points the server too
+        Project(mdl.load(d)).measurements.add("sensor/users.main", 225.0, at=time.time() - 5)
+
+    with served("software-factory", tmp_path, users) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="dark")
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        assert pg.evaluate("() => getComputedStyle(document.body).backgroundColor") != "rgb(255, 255, 255)"   # dark, on screen
+        pg.wait_for_function("() => [...document.querySelectorAll('svg.canvas text')].some((t) => t.textContent === '225 users')",
+                             timeout=30000)
+        loops = pg.evaluate("""() => [...document.querySelectorAll('svg.canvas .loop-marker .marker-name')]
+                                 .filter((t) => t.getBBox().width > 0).map((t) => t.textContent)""")
+        assert loops, "no loop names on screen"
+        got = pg.evaluate(EXPORTED_PNG)
+        assert got["corner"] == [255, 255, 255, 255], got["corner"]
+        assert got["shown"] and got["kept"] >= got["shown"], (got["shown"], got["kept"])   # the lines under loop names unbroken
+        assert all(t[2] for t in got["texts"]), [t for t in got["texts"] if not t[2]]   # nothing cut at the edge
+        ink = {}
+        for text, n, _ in got["texts"]:
+            ink[text] = max(ink.get(text, 0), n)
+        for want in [*loops, "225 users"]:
+            assert ink.get(want, 0) >= 5, (want, ink.get(want))
+        title = pg.evaluate("() => exportTitle()")
+        assert "product" in title[0] and "window" in title[1] and all(ink.get(t, 0) >= 5 for t in title), (title, ink)
+
+        drawn(pg, url, "system=product&view=blocks", 1)
+        rows = pg.evaluate("() => [...blocksLegend().children].filter((_, i) => i % 2).map((e) => e.textContent)")
+        got = pg.evaluate(EXPORTED_PNG)
+        assert got["corner"] == [255, 255, 255, 255], got["corner"]
+        said = " ".join(t for t, _, _ in got["texts"])
+        assert len(rows) > 10 and all(r in said for r in rows), [r for r in rows if r not in said]
+        assert all(t in said for t in pg.evaluate("() => exportTitle()"))
+        assert all(n >= 5 for t, n, _ in got["texts"] if "summing junction" in t), got["texts"]
+        assert all(t[2] for t in got["texts"]), [t for t in got["texts"] if not t[2]]   # no subscript cut at the edge
+        assert not errors, errors
         pg.close()
 
 
@@ -3858,6 +3961,51 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     pg.evaluate("() => openProcessEdge(S.graph.edges.find((e) => e.remote && e.kind === 'related'))")
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
+    assert not errors, errors
+
+
+def test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_verdict(browser, tmp_path):
+    """/diagram has exactly one h1, one line under the view switch: the view's diagram type, the model's purpose, its
+    systems and its verdict (Dynamics: goals; Blocks: control loops, the goals a controller holds); the svg is named
+    by it (aria-labelledby), and switching to Blocks changes the type words."""
+    purpose = "keep my work moving and nothing on fire"
+
+    def with_purpose(d):
+        f = d / "ergostat.yaml"
+        f.write_text(f.read_text().replace("name: the-job\n", f"name: the-job\npurpose: {purpose}\n", 1))
+
+    with served("the-job", tmp_path, with_purpose) as url:
+        st = json.loads(urllib.request.urlopen(url + "/api/status", timeout=10).read())
+        assert st["purpose"] == purpose and st["top"] >= 1, st.get("purpose")
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        seen = {}
+        for view, words in [("dynamics", "Stock-and-flow diagram (system dynamics)"), ("blocks", "Block diagram (control)")]:
+            if view == "dynamics":
+                drawn(pg, url, "view=dynamics", 0)
+            else:
+                pg.click(".toolbar .seg[aria-label='View'] button:text-is('Blocks')")
+                pg.wait_for_function("() => /view=blocks/.test(location.href) && S.graph?.kind === 'blocks'",
+                                     timeout=DRAWN_S * 1000)
+            got = pg.evaluate("""() => { const hs = [...document.querySelectorAll('h1')], c = hs[0];
+              const sw = document.querySelector(".toolbar .seg[aria-label='View']").getBoundingClientRect();
+              const r = c && c.getBoundingClientRect(), lh = c ? parseFloat(getComputedStyle(c).lineHeight) || 20 : 20;
+              return { n: hs.length, text: c?.textContent || '', id: c?.id || '', visible: !!(r && r.width && r.height),
+                       under: !!(r && r.top >= sw.bottom - 1), line: !!(r && r.height < 2 * lh),
+                       label: document.querySelector('svg.canvas')?.getAttribute('aria-labelledby') }; }""")
+            assert got["n"] == 1, got
+            assert got["text"].startswith(words + " · the-job: " + purpose), got["text"]
+            assert got["id"] and got["label"] == got["id"], got
+            assert got["visible"] and got["under"] and got["line"], got
+            seen[view] = got["text"]
+        def off(names):
+            return sum(st["loops"][x].get("status") == "off" for x in names)
+        assert seen["dynamics"].endswith(f"{len(st['loops'])} goals, {off(st['loops'])} off"), seen["dynamics"]
+        assert seen["blocks"].endswith(f"{len(st['controlled'])} control loops, {off(st['controlled'])} off"), seen
+        assert f" · {st['top']} system" in seen["blocks"], seen["blocks"]
+        assert "system dynamics" not in seen["blocks"] and "(control)" not in seen["dynamics"], seen
+        pg.close()
     assert not errors, errors
 
 
