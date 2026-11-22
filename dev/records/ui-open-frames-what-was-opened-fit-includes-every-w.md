@@ -50,3 +50,8 @@ Tests:
   - `test_every_view_draws_cleanly_and_in_time[image-squeeze]` failed in the whole-file run and passed when run alone just after. I did not see its failure message: the summary line is all the run printed. It is not yet shown to be unrelated.
   - `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` fails again when run alone, at tests/test_diagram_rendering.py:3403. The /model page does not say "Nothing waiting." after a calibration is accepted. That is the Model page's list of proposals, which this change does not touch. I could not confirm it fails on main: putting main's diagram.js back to rerun the test was refused.
 - Not run here: the other three browser files and the unit suite.
+
+Round 1, after the factory's build step:
+- The build step failed with rc 5. It chose `tests/test_diagram_rendering.py` (affected_tests) and ran it with no Playwright installed. That file skips as a whole at line 38 ("No module named 'playwright'"), so the run was "1 skipped", no test collected. No test ran and none failed, so there is no fault in the branch's code to fix. I left the code as it is.
+- What is needed: run the build step for a browser-only selection with Playwright (`uv run --with playwright==1.63.0 ...`, as the browser suites run), or let it count a file skipped only for want of Playwright as not run instead of as rc 5. That change is in the factory's suite runner, outside this gap (lesson-13).
+- Refused in this session: `uv run python -c "import playwright" ...; grep ...; uv run ruff check ergostat tests scripts` (Bash denied). So I did not run ruff or any test this time.
