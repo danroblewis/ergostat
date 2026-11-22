@@ -62,3 +62,26 @@ size: M (confidence: medium)
 - 140 net lines is tight: the state dir, spec and enclosing run must be passed through extract.py, decisions/ai.extract, intent/ai.judge, judge.run/judge_one and vsm_review.review, plus fold, recover and the Engine.judge start event.
 - ai.extract caps each call at max(0.05, min(2.0, cap - spent)) (decisions/ai.py:221). The reservation must be that same number, and the call must pass --max-budget-usd even when $ERGOSTAT_AI is not claude (the capped=True path), or the stand-in's cost can pass its reserve.
 - modeller-calls-ask-the-budget and toml-models-budget will need the same per-call permit. Put it in costs/budget.py as a function they can reuse, and check whether either should depend on this gap.
+
+## Where it stopped
+
+Round 1 stopped before any code: the gap this one depends on is not in the clone.
+
+- `depends-on: [run-budget-reserve]` is not met. On `main` (c1d10970) and on this branch there is no
+  `ergostat/costs/budget.py`, and `ergostat/costs/` holds only `__init__.py`, `ai.py`, `prices.py`, `record.py` and
+  `sampler.py`. Nothing in `ergostat/` reads a `budget:` key or has `permit`, `held`, `refused` or `recover`. SPEC has no
+  §9.9 P3 section and no "not covered" list to narrow. Checked with `git for-each-ref`: the only refs are
+  `refs/heads/main` and `refs/heads/factory/ai-calls-ask-the-budget`, so there is no `origin/factory/run-budget-reserve`
+  here either. `git diff --stat main HEAD` shows only this file.
+- The plan review says to build against P3's merged form, not its branch, and the house rule says a missing dependency is
+  reported, not built here. Writing P3's flock, fold, refusal and recovery in this branch would build
+  `run-budget-reserve` inside this gap and blow the 140-line budget. That is the least reversible choice, so I did not
+  take it.
+- What is left: all of it (points 1–5 and the eight acceptance tests). Resume once `run-budget-reserve` is on main. The
+  plan review's notes still stand for that round: take the permit before `record.asked` in `intent/judge.py` and add
+  `ergostat/intent/ai.py` to the files; write the counted-once fold rule (each call reservation records its enclosing run
+  and whether that run's end includes it; the run is charged max(its end, the sum of its included calls) plus its
+  calls that are not included); make the reserve equal to `ai.extract`'s per-call cap and always pass `--max-budget-usd`;
+  put the per-call permit in `costs/budget.py` where `modeller-calls-ask-the-budget` and `toml-models-budget` (which
+  already depends on this gap) can reuse it.
+- No code was changed, so no tests were run.
