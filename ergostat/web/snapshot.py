@@ -39,7 +39,7 @@ def _requests(project) -> list[tuple[str, dict]]:
             if view in ("dynamics", "control", "blocks") and getattr(m, "spec", None) is not None:   # every system opened
                 reqs.append(("graph", {"view": view, "open": "*", **({"system": system} if system else {})}))
     reqs += [(f"loops/{_q(n)}", {}) for n in m.controllers]
-    reqs += [(f"agents/{_q(n)}", {}) for n in m.agents]
+    reqs += [(f"agents/{_q(n)}{f}", {}) for n in m.agents for f in ("", "/files")]
     # the charts' series: each part's strip, each loop's scope, each item kind's flow (charts.js asks the same)
     pts = {"points": series.POINTS}
     reqs += [("series", {"refs": f"{series.kind_of(m, n)}.{n}", "strip": 1, "replay": 1, **pts}) for n in [*m.stocks, *m.flows]]

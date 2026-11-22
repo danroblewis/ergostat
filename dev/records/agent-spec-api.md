@@ -16,3 +16,27 @@ Acceptance tests: unit tests on a tiny model with one block of each type (ai wit
 Budget: 260 net lines (tests not counted). If the builder finds it over 300, the file route is split off as its own gap and said to the Coordinator.
 
 Milestone: agent-show-page. Owner items: 19. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built: all six points, with tests in tests/test_agent_spec.py (8 tests, all pass). Points 1, 2, 3 and 5 are tested on
+copies of examples/ticket-factory and examples/docs-fresh (fixer there is the first agent whose name ends in `fixer`).
+Point 6 was not measured on :8796/:8797, which this container cannot reach. `test_an_agents_answer_is_quick` checks
+the same bound in-process on a copy of ticket-factory instead (median of 10, marked serial).
+
+Decisions taken without the owner, each easy to undo:
+- The state directory is refused under every name, not only public ones: the files route cannot tell who is asking,
+  and being stricter is the safer way to be wrong.
+- For a run, a run file of an ai block has role `wrapper` (it wraps the session) and one of any other block has role
+  `program`. A path in a run that lies outside the roots is listed as written (an absolute one by its base name only),
+  is never stat'ed and is never read. The files route checks each path again at the moment it reads it.
+- A block a template made has its `where` and `source` at its `use:` entry (what the owner wrote). Its `params` are
+  the compiled keys (takes, on and pool added), because the template text has unexpanded `${...}` values. `implied_by`
+  is the first block the implied onoff commands.
+- Every string in `spec` has these absolute paths taken out: the interpreter becomes `python`, ergostat's package
+  folder becomes `ergostat`, and the model folder becomes a relative path. The old fields of the answer (`agent.command`,
+  `log_path`) are left as they were.
+- `decisions` sums the controllers the agent fills and adds `controllers` and the ladder `hint`. It is null when the
+  agent fills no controller.
+
+Overrun reason: 273 net lines against 260 (under the 300 split line), because the source extraction (its YAML as written, parsed with the spec's YAML 1.2 loader so `on:` stays a key) and the second check made at read time take about 20 lines more than planned.
