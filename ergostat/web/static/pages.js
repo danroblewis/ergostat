@@ -565,11 +565,11 @@ async function pageItems(main, q) {
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
   let sort = q.get("sort") || "";
-  // both show the frontier (the unfinished, and what they wait on); the graph collapses the finished, the timeline
-  // keeps them as what happened; unless asked otherwise
+  // both show the frontier (the unfinished, and what they wait on) with the finished collapsed, so the timeline opens
+  // at now; unless asked otherwise
   const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
   const ask = { frontier: said("frontier"), collapse: said("collapse") };
-  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? view === "graph"; },
+  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? true; },
                group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
   const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip

@@ -121,3 +121,13 @@ def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
             if ratio < 3:
                 low.append(f"--g{i} {step}: {ratio:.2f}")
     assert not low, low
+
+
+def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():
+    """A saved picture is drawn light whatever the theme: each dark-theme rule excludes the class export.js sets on
+    <html> while it reads the drawing's styles, and export.js sets and then clears that very class."""
+    head, _ = split()
+    selectors = [s.strip() for s in re.findall(r"([^{}]+)\{[^{}]*\}", head.split("prefers-color-scheme: dark", 1)[1])]
+    assert selectors and all(s.endswith(":not(.export-light)") for s in selectors), selectors
+    js = (CSS.parent / "export.js").read_text()
+    assert 'classList.add("export-light")' in js and 'classList.remove("export-light")' in js

@@ -449,9 +449,12 @@ def _answer(live: Live, path: str, q: dict, project=None):
         from ..runner import running_pid
         running = bool(running_pid(p))
         edited = _edited(live, p, running)
-        return {"name": m.name, "running": running, "live": snap["live"], "first": p.events.first_time(),
+        spec = getattr(m, "spec", None)              # the diagram's caption: what the model is for, its loops
+        said = {"purpose": spec.purpose, "top": len(spec.subsystems(None)),
+                "controlled": sorted(g for g in spec.goals if spec.loop(g).controllers)} if spec else {}
+        return {"name": m.name, **said, "running": running, "live": snap["live"], "first": p.events.first_time(),
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
-                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"],
+                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 **({"edited": edited} if edited else {}),
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
@@ -705,7 +708,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "items-graph":                     # the Items page's Graph and Timeline: relations (SPEC §5a)
         from .eta_api import merge
         from .relations_api import graph as items_graph
-        return merge(items_graph(p, m, snap, q), _estimates(p, m, snap, one("whatif")))
+        est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
+        return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":

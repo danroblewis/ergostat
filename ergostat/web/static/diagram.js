@@ -1014,6 +1014,25 @@ function legend(view) {
     h("span", { class: "sym" }, "H A P"), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, `${RUNG_LETTER[i]} ${k}`))));
 }
 
+/* the diagram's caption, the page's h1: which discipline's diagram, the model and what it is for, and its verdict
+   (Dynamics: every goal; Blocks: the goals a controller holds, its control loops; off as the loops say) */
+const DIAGRAM_TYPE = { dynamics: "Stock-and-flow diagram (system dynamics)", blocks: "Block diagram (control)",
+                       process: "Process map (process mining)" };
+function captionText(st, view) {
+  const parts = [DIAGRAM_TYPE[view] || view];
+  if (!st) return parts[0];
+  const n = (k, word) => `${k} ${word}${k === 1 ? "" : "s"}`;
+  parts.push(st.purpose ? `${st.name}: ${st.purpose}` : st.name);
+  if (st.top) parts.push(n(st.top, "system"));
+  // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
+  if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
+    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
+    const off = names.filter((x) => st.loops[x]?.status === "off").length;
+    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
+  }
+  return parts.join(" · ");
+}
+
 async function pageDiagram(main, q) {
   // the system dynamics view is the first; "control", its old name, still reaches it
   if (q.get("view") === "wiring") {                             // the wiring the process map replaced: its address reaches it
@@ -1034,7 +1053,8 @@ async function pageDiagram(main, q) {
   S.pins = loadPins();
   S.showHulls = !around;
   const wrap = h("div", { class: "canvas-wrap" });
-  const svg = s("svg", { class: "canvas" });
+  const svg = s("svg", { class: "canvas", "aria-labelledby": "diagram-caption" });
+  const caption = h("h1", { id: "diagram-caption", class: "caption" }, captionText(S.status, view));   // the page's name
   const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "Everything"));
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
@@ -1110,14 +1130,15 @@ async function pageDiagram(main, q) {
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "seg", role: "group", "aria-label": "View" },
       h("button", { class: view === "dynamics" ? "on" : "", title: "The stock-and-flow diagram, as system dynamics draws it",
-                    onclick: () => go({ view: "dynamics" }) }, "Dynamics"),
-      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => go({ view: "blocks" }) }, "Blocks"),
+                    onclick: () => go({ view: "dynamics" }) }, "Dynamics", h("span", { class: "what" }, " · what is")),
+      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => go({ view: "blocks" }) },
+        "Blocks", h("span", { class: "what" }, " · what is controlled")),
       h("button", { class: view === "process" ? "on" : "", title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
-                    onclick: () => go({ view: "process" }) }, "Process")),
+                    onclick: () => go({ view: "process" }) }, "Process", h("span", { class: "what" }, " · what happened"))),
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
     around ? h("span", { class: "around" }, "around ", h("b", {}, around), " ", h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ around: "" }) }, "\u00d7")) : null,
-    more);
+    more, caption);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
     h("button", { class: "z", title: "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
@@ -1170,6 +1191,8 @@ async function pageDiagram(main, q) {
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
     S.graph = g;
+    setText(caption, captionText(S.status, view));
+    caption.title = caption.textContent;
     proposedBanner(wrap, g, proposal, go);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within
       sysSel.dataset.tree = "1";
@@ -1345,23 +1368,40 @@ function renderSide(side, g, view) {
   }
   const charts = view === "dynamics" ? sideCharts(out) : null;      // charts.js: the parts chosen, at the top
   if (charts && S.sel?.size) side.append(live(charts));
-  side.append(h("h3", {}, "Needs attention", problems.length ? h("span", { class: "muted" }, ` ${problems.length}`) : null));
-  const att = h("div", { class: "att" });
-  if (!problems.length) att.append(h("div", { class: "none" }, "Nothing needs attention."));
-  const MAX = 6;
+  // three groups, always in this order, each with its count: what waits on a person; the goals off (the system's,
+  // then modelling's after a rule: as many as the header's "loops off"); the rest, the model's housekeeping (folded,
+  // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
+  // colour is not the only cue.
+  const ask = (a) => (Array.isArray(a.answer) && a.kind !== "request") || a.waiting;
+  const waiting = problems.filter(ask);
+  const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
+  const rest = problems.filter((a) => !waiting.includes(a) && !off.includes(a));
+  const count = (xs) => h("span", { class: "muted" }, ` ${xs.length}`);
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
-  for (const a of problems.slice(0, MAX)) {
-    const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
-    att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
-      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
-  }
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
-  side.append(att);
+  const list = (xs, none) => {
+    const att = h("div", { class: "att" });
+    if (!xs.length) att.append(h("div", { class: "none" }, none));
+    xs.forEach((a, i) => {
+      if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
+      const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
+      const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
+      const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
+      att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, h("span", { class: "att-word" }, `${word} · `),
+        href ? h("a", { href, class: "plain" }, what) : what, " ",
+        linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
+    });
+    return att;
+  };
+  side.append(h("h3", { class: "att-head" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you."));
+  side.append(h("h3", { class: "att-head" }, "Goals off", count(off)), list(off, "No goal is off."));
+  const house = h("details", { class: "housekeeping", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
+    h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
+      h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy."));
+  side.append(house);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside
     // (the moment drawn, not now; and once the reader opens or closes them, as they left them)
