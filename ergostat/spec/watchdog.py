@@ -289,7 +289,8 @@ def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None =
     ``stale``: the limit of ``use: upkeep``'s ``heartbeat-fresh`` (``ir.heartbeat_stale``), for the outer watcher; the
     file is written whole each time, so a model without the template leaves no ``stale`` in it. With ``failing``, the
     dispatcher's error while every look meets one, and since when (``dispatch_error``). With ``start`` (the write as
-    the run starts, before the model is read): the previous file's ``stale`` when it passes ``stale_ok``, else none."""
+    the run starts, before the model is read): the previous file's ``stale`` when it passes ``stale_ok`` and is at
+    least the watcher's 180 s (which comes after ``STARTUP``: a start only ever gets a longer limit), else none."""
     path = state / ("heartbeat.json" if shard is None else f"heartbeat.{shard}.json")
     stale = _last_stale(path) if start and stale is None else stale
     tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
@@ -304,9 +305,11 @@ def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None =
 
 def _last_stale(path: Path) -> float | None:
     """The ``stale`` of the heartbeat file at ``path`` when it passes ``stale_ok``; None for anything else (no file,
-    one unreadable, not JSON or not an object, a ``stale`` missing, a bool, NaN, out of range or not a number)."""
+    one unreadable, not JSON or not an object, a ``stale`` missing, a bool, NaN, out of range, not a number, or under
+    the watcher's ``STALE``, so a carried limit never stops a start still inside its own start-up deadline)."""
+    from ..watcher import STALE
     try:
         got = json.loads(path.read_text()).get("stale")
     except (OSError, ValueError, AttributeError, RecursionError):
         return None
-    return got if stale_ok(got) else None
+    return got if stale_ok(got) and got >= STALE else None

@@ -290,14 +290,25 @@ def test_start_heartbeat_keeps_previous_stale(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("previous", [None, "{not json", "[900]", '{"pid": 1}', '{"stale": true}', '{"stale": NaN}',
-                                      '{"stale": 30}', '{"stale": 99999}', '{"stale": "600"}', '{"stale": 1e999}',
-                                      "[" * 100_000])
+                                      '{"stale": 30}', '{"stale": 60}', '{"stale": 179.9}', '{"stale": 99999}', '{"stale": "600"}',
+                                      '{"stale": 1e999}', "[" * 100_000])
 def test_start_heartbeat_drops_bad_stale(tmp_path, monkeypatch, previous):
     d = _start(tmp_path, monkeypatch, previous)
     got = json.loads((d / "heartbeat.json").read_text())
     assert "stale" not in got and got["pid"] == os.getpid()
     monkeypatch.setattr(watcher, "_SAID", set())
     assert watcher.limit(d, watcher.beat(d)) == watcher.STALE == 180
+
+
+def test_start_heartbeat_never_shortens_the_limit_inside_startup(tmp_path, monkeypatch):
+    """A previous ``stale`` of 60 to 179 s would let the watcher stop a start still inside its own ``STARTUP`` (120 s)
+    deadline; the start takes the watcher's 180 instead, and 180 itself is carried."""
+    assert wd.STARTUP < watcher.STALE
+    d = _start(tmp_path, monkeypatch, json.dumps({"pass": 1.0, "pid": 1, "stale": 60}))
+    assert "stale" not in json.loads((d / "heartbeat.json").read_text())
+    assert watcher.limit(d, watcher.beat(d)) == 180
+    d = _start(tmp_path / "b", monkeypatch, json.dumps({"pass": 1.0, "pid": 1, "stale": 180}))
+    assert json.loads((d / "heartbeat.json").read_text())["stale"] == 180
 
 
 def test_shard_start_heartbeat_reads_its_own_file(tmp_path):

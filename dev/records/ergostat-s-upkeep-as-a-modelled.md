@@ -60,3 +60,17 @@ Built, round 1: 29 net lines outside tests and docs (watchdog.py +12, template.y
 - "`check` clean, no warning beyond main": checked by `test_few_restarts_goal_compiles`. It allows no finding except
   `no-modelling-loop` and no check message about restarts. A side-by-side run of `ergostat check` against main's
   template was not run, because the sandbox refused the ad-hoc command.
+
+Round 2 (answering the one review finding): 32 net lines outside tests and docs (watchdog.py +15, template.yaml +17).
+- Change from the definition, done item 1: the start heartbeat carries the previous `stale` only when it passes
+  `stale_ok` **and is at least the watcher's `STALE` (180 s)**. A carried 60 to 179 s would let the watcher stop a
+  start still inside its own 120 s `STARTUP` deadline, losing the start-up watchdog's record of why it was slow, and
+  every restart would carry the same short limit again. So a start only ever gets a longer limit than main gives. Of
+  the two fixes the review offered, dropping such a `stale` was chosen over writing `max(previous, 180)`: the watcher
+  reads both the same (180), and dropping writes nothing the model did not set. Once the watchdog's first beat writes
+  the current model's `stale` (any 60 to 3600), the short limit holds as before; only the start write is affected.
+  The 180 is read from `watcher.STALE`, not copied.
+- Tests: `test_start_heartbeat_never_shortens_the_limit_inside_startup` (previous 60: no `stale`, watcher at 180;
+  previous 180: carried), and `test_start_heartbeat_drops_bad_stale` gains 60 and 179.9. With the `>= STALE` check
+  removed, both were seen to fail (the new test, and the 60 and 179.9 cases).
+- SPEC §2a's start-heartbeat paragraph and the template's `reading:` now say 180 to 3600 and why.

@@ -490,9 +490,11 @@ time, so a model without the template, or one the template was taken out of, wri
 `run.log`, once for each value in a watcher process. So `stale` lets the watched engine relax the outer watcher's
 limit to at most 3600 s, or tighten it to 60 s; it never turns the watcher off, and it never changes whether the
 engine's own watchdog runs. The heartbeat the run writes as it starts, before the model is read, carries the previous
-file's `stale` when that passes the same test, so the last model's limit holds until the watchdog's first beat writes
-the current one's; a previous file missing, unreadable or not JSON, or a `stale` missing, a bool, NaN, out of range or
-not a number, leaves it out (180) and does not stop the start. A shard engine's `heartbeat.SHARD.json` takes it from
+file's `stale` when that passes the same test and is at least 180 s, so the last model's limit holds until the
+watchdog's first beat writes the current one's; a previous file missing, unreadable or not JSON, or a `stale` missing,
+a bool, NaN, out of range, not a number or under 180, leaves it out (180) and does not stop the start. So a start only
+ever gets a longer limit than 180, which comes after the 120 s startup deadline: a short limit carried from the last
+model would let the watcher stop a slow start before the engine's own watchdog has recorded why it was slow. A shard engine's `heartbeat.SHARD.json` takes it from
 its own file only.
 
 **No controller reads what it manages.** The watcher still reads only `run.pid`, `heartbeat.json` and `stopped`
