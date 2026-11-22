@@ -29,16 +29,14 @@ function standaloneSvgLight(svg, title) {
   });
   for (const f of drop) f.remove();
   clone.querySelector("#viewport").setAttribute("transform", "");
-  // all that is drawn: labels and subscripts past the parts' edges too (outlines may reach left of or above the nodes)
-  const L = S.layout, bb = svg.querySelector("#viewport").getBBox(), ox = Math.min(L.ox || 0, bb.x), oy = Math.min(L.oy || 0, bb.y);
-  const lw = Math.max((L.ox || 0) + L.width, bb.x + bb.width) - ox, lh = Math.max((L.oy || 0) + L.height, bb.y + bb.height) - oy;
+  const lw = S.layout.width;
   // a legend under the diagram, each view's own, wrapped to its width
   const legend = !title ? null : svg.classList.contains("bd") ? bdExportLegend(Math.max(360, lw)) : !svg.querySelector(".k-stock") ? null
     : S.graph?.kind === "dynamics" ? sdExportLegend(Math.max(360, lw)) : exportLegend(0, 0, getComputedStyle(document.body).color, getComputedStyle(document.body).getPropertyValue("--muted") || "#666",
                    svg.classList.contains("design"), Math.max(360, lw));
   const foot = legend ? legend.h + 24 : 0;
-  const pad = 20, head = title ? 34 : 0, w = lw + pad * 2, hgt = lh + pad * 2 + head + foot;
-  const x0 = ox - pad, y0 = oy - pad - head;
+  const pad = 20, head = title ? 34 : 0, w = lw + pad * 2, hgt = S.layout.height + pad * 2 + head + foot;
+  const x0 = (S.layout.ox || 0) - pad, y0 = (S.layout.oy || 0) - pad - head;     // outlines may reach left of or above the nodes
   clone.setAttribute("viewBox", `${x0} ${y0} ${w} ${hgt}`);
   clone.setAttribute("width", w);
   clone.setAttribute("height", hgt);

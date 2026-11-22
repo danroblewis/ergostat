@@ -2601,26 +2601,40 @@ def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
 
 
 # Export PNG's picture: the standalone SVG rasterised as exportPng does (at 1x), and for each of its texts, how many
-# dark pixels the image has where the text is (found by laying the same SVG in the page); and the image's corner colour
+# dark pixels the image has where the text is (found by laying the same SVG in the page) that the same picture with no
+# text at all lacks (the text's own ink: not a line under it, and nothing over it); and the image's corner colour
 EXPORTED_PNG = """async () => {
   const out = standaloneSvg(document.querySelector('svg.canvas'), exportTitle());
-  const img = new Image();
-  await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad;
-    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(out.text); });
-  const c = document.createElement('canvas'); c.width = out.w; c.height = out.hgt;
-  const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+  const raster = async (text) => {
+    const img = new Image();
+    await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad;
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(text); });
+    const c = document.createElement('canvas'); c.width = out.w; c.height = out.hgt;
+    const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0);
+    return ctx;
+  };
+  const bare = new DOMParser().parseFromString(out.text, 'image/svg+xml');
+  bare.querySelectorAll('text').forEach((t) => t.remove());
+  const ctx = await raster(out.text), ctx0 = await raster(new XMLSerializer().serializeToString(bare));
+  const dark = (d, i) => d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] < 420;
   const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;z-index:99';
   host.innerHTML = out.text; document.body.append(host);
   const at = host.firstElementChild.getBoundingClientRect();
   const texts = [...host.querySelectorAll('text')].filter((t) => t.textContent.trim()).map((t) => {
     const r = t.getBoundingClientRect(), x = Math.max(0, Math.floor(r.left - at.left)), y = Math.max(0, Math.floor(r.top - at.top));
-    const px = ctx.getImageData(x, y, Math.max(1, Math.ceil(r.width)), Math.max(1, Math.ceil(r.height))).data;
+    const box = [x, y, Math.max(1, Math.ceil(r.width)), Math.max(1, Math.ceil(r.height))];
+    const px = ctx.getImageData(...box).data, px0 = ctx0.getImageData(...box).data;
     let ink = 0;
-    for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 200 && px[i] + px[i + 1] + px[i + 2] < 420) ink++;
-    return [t.textContent, ink];
+    for (let i = 0; i < px.length; i += 4) if (dark(px, i) && !dark(px0, i)) ink++;
+    const inside = r.left >= at.left - 0.5 && r.top >= at.top - 0.5 && r.right <= at.right + 0.5 && r.bottom <= at.bottom + 0.5;
+    return [t.textContent, ink, inside];
   });
   host.remove();
-  return { texts, corner: [...ctx.getImageData(1, 1, 1, 1).data] };
+  // what is seen through on the page (a loop marker's ground over the lines under it) is seen through in the picture
+  const thin = (el) => +getComputedStyle(el).fillOpacity < 1;
+  const shown = [...document.querySelectorAll('svg.canvas *')].filter((el) => el.checkVisibility() && thin(el)).length;
+  const kept = (out.text.match(/fill-opacity:0\\.\\d+/g) || []).length;
+  return { texts, corner: [...ctx.getImageData(1, 1, 1, 1).data], shown, kept };
 }"""
 
 
@@ -2648,8 +2662,10 @@ def test_the_exported_png_shows_every_loop_name_the_values_and_its_legend_on_whi
         assert loops, "no loop names on screen"
         got = pg.evaluate(EXPORTED_PNG)
         assert got["corner"] == [255, 255, 255, 255], got["corner"]
+        assert got["shown"] and got["kept"] >= got["shown"], (got["shown"], got["kept"])   # the lines under loop names unbroken
+        assert all(t[2] for t in got["texts"]), [t for t in got["texts"] if not t[2]]   # nothing cut at the edge
         ink = {}
-        for text, n in got["texts"]:
+        for text, n, _ in got["texts"]:
             ink[text] = max(ink.get(text, 0), n)
         for want in [*loops, "225 users"]:
             assert ink.get(want, 0) >= 5, (want, ink.get(want))
@@ -2660,10 +2676,11 @@ def test_the_exported_png_shows_every_loop_name_the_values_and_its_legend_on_whi
         rows = pg.evaluate("() => [...blocksLegend().children].filter((_, i) => i % 2).map((e) => e.textContent)")
         got = pg.evaluate(EXPORTED_PNG)
         assert got["corner"] == [255, 255, 255, 255], got["corner"]
-        said = " ".join(t for t, _ in got["texts"])
+        said = " ".join(t for t, _, _ in got["texts"])
         assert len(rows) > 10 and all(r in said for r in rows), [r for r in rows if r not in said]
         assert all(t in said for t in pg.evaluate("() => exportTitle()"))
-        assert all(n >= 5 for t, n in got["texts"] if "summing junction" in t), got["texts"]
+        assert all(n >= 5 for t, n, _ in got["texts"] if "summing junction" in t), got["texts"]
+        assert all(t[2] for t in got["texts"]), [t for t in got["texts"] if not t[2]]   # no subscript cut at the edge
         assert not errors, errors
         pg.close()
 
