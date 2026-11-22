@@ -173,3 +173,12 @@ review says is no fail-open. The reason for the scope (planreview.py, ergostat.y
 `tests/test_factory_knowledge.py` (91 passed), `tests/test_factory.py` (126 passed, 2 skipped) and
 `ruff check ergostat tests scripts` pass. Local `main` is an ancestor of the branch. Size: +7 net lines in
 plan.py, about 164 of 220 in all. The unit suite and the browser files were not run here.
+
+**The fast suites' failure after round 3.** The `unit` run's tail ends at `bringing up nodes...` and eleven dots.
+It names no failing test and shows no `F`, `E` or summary line, so the run seems to have been cut off (a timeout or
+a kill) rather than failed on a test. No code was changed: without a name, a fix would be a guess (lesson-10,
+lesson-13). On the branch at 87418f1c these pass, each group run alone: `tests/test_factory_knowledge.py` (91),
+`test_factory.py`, `test_backlog.py`, `test_code_health_coverage.py` and `test_daemon_docs.py` (185 passed,
+2 skipped), and `test_factory_resources.py`, `test_factory_manager.py`, `test_factory_sessions.py` and
+`test_factory_times.py` (55). `ruff check ergostat tests scripts` is clean. Left: the factory's rerun of `unit`. If
+it names a test, that name is needed for a fix round.
