@@ -270,6 +270,51 @@ def test_a_remote_part_is_never_edited_here(tmp_path):
         yamledit.own(via, "flow incidents-resolved")
 
 
+def test_explain_marks_remote_part(tmp_path):
+    from ergostat.spec.explain import explain
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    body = served_into(local, tmp_path)
+    st = cache.folder("support", local, "incidents") / cache.STATUS
+    st.write_text(json.dumps({**json.loads(st.read_text()), "answered": time.time() - 120}))
+    spec, _ = sp.read(local / "ergostat.yaml", extremes=False)
+    v = body["version"][:7]
+    said = f"remote incidents's (runs at http://127.0.0.1:1, model v{v}, read 2m ago)"
+    assert explain(spec, "stock.incidents-open").startswith(f"{said} stock incidents-open (incidents).")
+    block = explain(spec, "block.incidents-pager")
+    assert block.startswith(f"{said} block incidents-pager:") and "It is never run here: remote incidents runs it." in block
+    system = explain(spec, "system.incidents")
+    assert system.count("remote incidents's") == 1 and f"It is {said}: its parts are read here" in system
+    assert system.startswith("System incidents") and "  Holds " in system and "stock.incidents-open → flow.filed" in system
+    goal = explain(spec, "goal.calm")                       # a local goal on a remote's measure
+    assert "Its loop reads a remote's parts (crosses remote incidents: stock.incidents-open, flow.incidents-" in goal
+    assert "never an actuator" in goal and not goal.startswith("remote")
+    assert "remote" not in explain(spec, "stock.tickets")
+    served_into(local, tmp_path, ok=False)
+    spec, _ = sp.read(local / "ergostat.yaml", extremes=False)
+    assert explain(spec, "stock.incidents-open").startswith(
+        f"remote incidents's (runs at http://127.0.0.1:1, model v{v}, not answering for 30s · never read)")
+
+
+def test_explain_loop_crossing_remote(tmp_path):
+    from ergostat.spec.explain import explain
+    local = tmp_path / "support"
+    write(local, LOCAL.replace("goals:\n  calm:\n    stock: incidents-open\n    hold: \"<= 8\"\n", """
+  escalated: {from: tickets, to: incidents-open}
+goals:
+  few-tickets: {stock: tickets, hold: "<= 4"}
+blocks:
+  escalator: {type: program, goal: few-tickets, run: echo 1, out: flow.escalated}
+"""))
+    served_into(local, tmp_path)
+    spec, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert not [p for p in problems if p.level == "error"], problems
+    lines = [x for x in explain(spec).splitlines() if "flow.escalated → stock.incidents-open → flow.filed" in x]
+    assert lines and lines[0].endswith(" (crosses remote incidents: stock.incidents-open)"), lines
+    goal = explain(spec, "goal.few-tickets")
+    assert "crosses remote incidents: stock.incidents-open" in goal and "never an actuator" in goal
+
+
 GOLDEN = Path(__file__).parent / "golden" / "explain-alert-triage.txt"
 
 
