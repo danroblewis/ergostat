@@ -3347,7 +3347,11 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         avail = pg.locator(".available")
         pg.wait_for_function("() => !/analysing/.test(document.querySelector('.available').textContent)", timeout=120000)
         row = avail.locator("tr", has_text="quality-held").first.inner_text()
-        assert "quality-setting → quality" in row and "not identified" in row, row
+        said = row if "not identified" in row else pg.evaluate("""() => {
+          let r = [...document.querySelectorAll('.available tr')].find((x) => x.textContent.includes('quality-held'));
+          while (r && !r.classList.contains('group')) r = r.previousElementSibling;   // grouped with loops identified alike
+          return r ? r.textContent : ''; }""")
+        assert "quality-setting → quality" in row and "not identified" in said, (row, said)
         assert "small-images" in avail.locator("p", has_text="no one process").inner_text()
         assert "window-time" in avail.inner_text() and "quality-turnover" in avail.inner_text()
         avail.locator("tr", has_text="quality-held").first.get_by_role("link", name="process", exact=True).click()
@@ -3363,7 +3367,7 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         pg.close()
 
 
-SENTENCES = """() => document.querySelector('main').innerText.split(/\\n|(?<=[.;!?])\\s+/).map((x) => x.trim())
+SENTENCES = """() => document.querySelector('main').innerText.split(/\\n|(?<=[.;:!?])\\s+/).map((x) => x.trim())
   .filter((x) => x.length > 80)"""
 
 
@@ -3404,6 +3408,8 @@ def test_check_and_the_model_page_say_each_thing_once_in_a_table(browser, tmp_pa
         quiet = pg.locator("table.not-exercised tr td:first-child").all_inner_texts()
         assert quiet == ["flow f3", "flow f1", "flow f4", "flow f2", "flow f0"], quiet  # never moved first, longest first
         assert pg.locator("table.not-exercised a").first.get_attribute("href").startswith("/diagram?view=dynamics")
+        alike = pg.locator("table.alike tr td:first-child").all_inner_texts()               # the static check's, alike
+        assert len(alike) > 1 and len(alike) == len(set(alike)), alike
         pg.goto(url + "/model")
         pg.wait_for_function("() => document.querySelector('.available table.avail') && "
                              "!/analysing/.test(document.querySelector('.available').textContent)", timeout=120000)
@@ -3415,7 +3421,8 @@ def test_check_and_the_model_page_say_each_thing_once_in_a_table(browser, tmp_pa
         link = pg.locator(".available tr", has_text="located-worked").first.get_by_role("link", name="process", exact=True)
         assert link.get_attribute("href") != "#"
         link.click()
-        pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden && S.bdSel?.node", timeout=60000)
+        pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden && S.bdSel?.node",
+                             timeout=60000)
         opened = pg.evaluate("() => new URLSearchParams(location.search).get('open')").split(",")
         assert "making" in opened and "*" not in opened and "review" not in opened, opened   # its systems, not every one
         n = pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel.node)")

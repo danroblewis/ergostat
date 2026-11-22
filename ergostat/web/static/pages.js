@@ -1136,6 +1136,7 @@ const FINDING_KINDS = {
     worst: (a, b) => b.nmse - a.nmse,
     cells: (c) => [h("td", { class: "num" }, two(c.r2 ?? 0)), h("td", { class: "num" }, fmt(c.nmse)), h("td", { class: "num" }, c.n)] },
 };
+const SAID = /^(?:(\S+:\d+): )?(stock|flow|auxiliary|parameter|goal|block|items|agent) ([^\s:]+): (.+)$/s;   // file:line: kind name: what
 async function pageCheck(main) {
   const st = await api("status");
   let quiet = [];                                          // the parts the record has not exercised (a finding each)
@@ -1146,16 +1147,25 @@ async function pageCheck(main) {
   const errors = st.check.filter((c) => c.level === "error").length, warnings = st.check.length - errors;
   const words = [errors ? `${errors} error${errors > 1 ? "s" : ""}` : "", warnings ? `${warnings} warning${warnings > 1 ? "s" : ""}` : ""].filter(Boolean);
   const p = page(main, words.length ? `Check: ${words.join(", ")}` : "The model is whole");
-  const one = st.check.filter((c) => !FINDING_KINDS[c.code]);
+  const alike = {};                                        // the static check's same warning (or note) about several parts: a kind too
+  for (const c of [...st.check, ...info]) {
+    const m = !c.code && c.level !== "error" && SAID.exec(c.message);
+    if (m) (alike[`${c.level}\n${m[4]}`] ||= []).push(Object.assign(c, { where: m[1] || "", about: `${m[2]}.${m[3]}` }));
+  }
+  const cap = (x) => x[0].toUpperCase() + x.slice(1);
+  const kinds = [...Object.entries(FINDING_KINDS).map(([code, k]) => ({ ...k, code, rows: st.check.filter((c) => c.code === code).sort(k.worst) })),
+    ...Object.entries(alike).filter(([, cs]) => cs.length > 1).map(([key, cs]) => ({ title: cap(key.split("\n")[1].split(/[,:(]/)[0]),
+      advice: `${cap(key.split("\n")[1])}.`, code: "alike", head: ["part", "where"], rows: cs, cells: (c) => [h("td", { class: "mono small" }, c.where)] }))];
+  const grouped = (c) => kinds.some((k) => k.rows.includes(c)), one = st.check.filter((c) => !grouped(c)), notes = info.filter((c) => !grouped(c));
   if (one.length) p.append(h("div", { class: "att" }, one.map((c) => h("div", {},
     h("b", { class: c.level === "error" ? "lvl-error" : "lvl-warning" }, c.level === "error" ? "Error" : "Warning"), " ", op(c.message)))));
-  for (const [code, k] of Object.entries(FINDING_KINDS)) {     // a kind said once, above a row per part, worst first
-    const rows = st.check.filter((c) => c.code === code).sort(k.worst);
-    if (rows.length) p.append(h("h3", {}, k.title, h("span", { class: "lvl-warning" }, ` · ${rows.length} warning${rows.length > 1 ? "s" : ""}`)), h("p", {}, k.advice),
-      table(k.head, rows.map((c) => h("tr", {}, h("td", {}, toolLink(c.about.replace(".", " "), { view: "dynamics", part: c.about }, "on the diagram")),
-        ...k.cells(c))), `fit findings ${code}`));
+  for (const k of kinds.filter((x) => x.rows.length)) {     // a kind said once, above a row per part, worst first
+    const word = k.rows[0].level === "info" ? "note" : "warning";
+    p.append(h("h3", {}, k.title, h("span", { class: word === "note" ? "muted" : "lvl-warning" }, ` · ${k.rows.length} ${word}s`)), h("p", {}, k.advice),
+      table(k.head, k.rows.map((c) => h("tr", {}, h("td", {}, toolLink(c.about.replace(".", " "), { view: "dynamics", part: c.about }, "on the diagram")),
+        ...k.cells(c))), `fit findings ${k.code}`));
   }
-  if (info.length) p.append(h("ul", { class: "extremes-status" }, info.map((c) => h("li", {}, c.message))));
+  if (notes.length) p.append(h("h3", {}, "Notes"), h("ul", { class: "extremes-status" }, notes.map((c) => h("li", {}, op(c.message)))));
   if (info.some((c) => c.message.startsWith("extremes: running")))   // drawn again once they are done
     S.timer = poll(async () => { const s2 = await api("status"); if (!s2.check.some((c) => c.level === "info" && c.message.startsWith("extremes: running"))) { S.timer.stop(); pageCheck(main); } }, 2000, p);
   const slot = h("div");                                   // the three views held against each other (SPEC §12l), when read
