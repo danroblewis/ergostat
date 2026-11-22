@@ -118,3 +118,21 @@ matches are code comments and the snapshot-only or item-page text named in round
 
 **Not run here:** main's new needs-attention test, the unit suite, the four browser files as a whole and `demo_check`.
 The merge queue runs these.
+
+## Where it stopped (round 3)
+
+The merge of main (bea24a23) conflicted only in `tests/test_diagram_rendering.py`, again where both sides added tests
+before `GROUPED`. Both are kept: the branch's two tests, then main's
+`test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_verdict`. No page code changed in this
+round. A search of `ergostat/web/static` after the merge for the acceptance patterns finds only code comments, the
+snapshot-only, item-page and `openSystem` text named in round 1, and the ergostat.toml-only fit note (no demo is TOML).
+
+**Tests after the merge**
+- `tests/test_diagram_rendering.py::test_the_readers_pages_name_no_command_yaml_line_or_spec_section` (6 demos) and
+  `::test_the_harris_row_says_what_is_missing_not_where_to_write_it`: 7 passed (536 s, rc 0, under `suite_watch.py`
+  with Playwright 1.63.0, 133 threads at peak).
+- `tests/test_templates.py`: 36 passed.
+- `ruff check ergostat tests scripts`: clean.
+
+**Not run here:** main's new caption test, the unit suite, the four browser files as a whole and `demo_check`. The
+merge queue runs these.
