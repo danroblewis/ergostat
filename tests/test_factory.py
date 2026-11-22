@@ -1502,22 +1502,31 @@ def test_a_git_error_stops_only_the_escapes_step(tmp_path):
 
 
 def test_check_reports_no_flow_without_a_sensor_in_pools_yaml(tmp_path, capsys, monkeypatch):
-    """escapes-found is measured (pools.py read escapes-day): `ergostat check` says nothing of it on the model, and
-    the flow's sensor reads."""
+    """escapes-found is measured (pools.py read escapes-day): of pools.yaml's flows, only factory-harm is still neither
+    measured nor moved by a block (outside this gap); `ergostat check` says nothing of escapes-found (it says nothing
+    of a flow without a sensor either: the first assertion is the one that fails without it); its sensor reads."""
     from ergostat.cli import main, spec_cmds
     from ergostat.numbers import extremes_cache
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(spec_cmds, "CHECK_WAIT", None)
     monkeypatch.setattr(extremes_cache, "BOUND", 900.0)
     spec, _ = read(ROOT / "ergostat.yaml")
-    assert spec.flows["escapes-found"].sensors, "escapes-found has no sensor"
+    moved = {r.name for b in spec.blocks.values() for refs in b.outputs.values() for r in refs if r.kind == "flow"}
+    mine = [x for x in spec.flows.values() if x.where and x.where.file.name == "pools.yaml"]
+    assert "escapes-found" in {x.name for x in mine}
+    assert {x.name for x in mine if not x.sensors and not x.equation and x.name not in moved} == {"factory-harm"}
+    assert [s.run for s in spec.flows["escapes-found"].sensors.values()] == ["python3 dev/bin/pools.py read escapes-day"]
     main(["-C", str(factory_copy(tmp_path / "now")), "check", "--json"])
     got = json.loads(capsys.readouterr().out)
     assert [x for x in got["found"] if "escapes-found" in json.dumps(x)] == []
     f = Factory(tmp_path)
+    db = f.db()
+    db["items"]["gap/alpha"] = {"id": "gap/alpha", "kind": "gap", "state": "merged",
+                                "fields": {"merged_at": 100.0, "reverted": True, "reverted_at": time.time()}}
+    f.record.write_text(json.dumps(db))
     r = subprocess.run([sys.executable, str(BIN / "pools.py"), "read", "escapes-day"], cwd=f.model, env=f.env,
                        capture_output=True, text=True, timeout=120)
-    assert r.returncode == 0 and float(r.stdout.strip()) == 0, r.stderr
+    assert r.returncode == 0 and float(r.stdout.strip()) == round(1 / 24, 4), r.stderr     # one a day, per hour
 
 
 def fake_version(live: Path, sha: str, starts: bool) -> None:
