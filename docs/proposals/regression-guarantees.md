@@ -92,7 +92,7 @@ table above shows are needed (the quarantine, and the gates' catches). The names
 | `flakes-open` | stock, tests: `flake` items `seen` | `items: flake, state: seen` | `flakes-few`: `<= 3`, with `per: item` on their age (docs/SPEC.md:2066-2070) so the oldest is named | the coordinator asks for a gap that fixes the oldest flake (a race in ergostat or a fixed sleep in the test, lesson 10) |
 | `flake-rate` | the existing auxiliary, corrected to count the queue's excused flakes as well as triage retries | dev/bin/measure.py | `flakes-rare`, unchanged (dev/model/measures.yaml:115-119) | unchanged: `factory-off` |
 | `quarantined` | stock, tests | `tests/quarantine.txt` on main, cross-checked with the `flake` items marked `quarantined` | `quarantine-small`: `<= 3`; and `quarantine-fresh`: the oldest held `<= 7d`, `per: item` | the coordinator, asked to release a test that passes again (fac.beside already records every run: dev/bin/fac.py:607-609) or to fix it |
-| `main-repair-hours` | auxiliary, hours: median, over 14 days, from a test's `flake.main-broken` to its `flake.main-fixed` (gap 2). Not from the intervention's `remedied`: that means the missing loop was built (dev/model/interventions.yaml:26-28), and it is marked by hand (dev/bin/manage.py:264) | flake items, by the `seq` of the two events | `main-repaired-fast`: `<= 24` | `remedy` (dev/model/interventions.yaml:52-66) |
+| `main-repair-hours` | auxiliary, hours: median, over 14 days, from the first `flake.main-broken` on a test's item, by `seq`, since the item was made or last left `fixed`, to its `flake.main-fixed` (gap 2). A later `flake.main-broken` on the same item does not restart the clock. Each later gap that hits the same failure on a newer main writes the event again, stamped with a new `main_broken_at` (dev/bin/onmain.py:92-94). Measured from the last of these, repair time would be undercounted (lessons 2 and 5), so gap 2 keeps the first stamp. Not from the intervention's `remedied`: that means the missing loop was built (dev/model/interventions.yaml:26-28), and it is marked by hand (dev/bin/manage.py:264) | flake items, by the `seq` of the two events | `main-repaired-fast`: `<= 24` | `remedy` (dev/model/interventions.yaml:52-66) |
 | `flake-fix-hours` | auxiliary, hours: median from `flake.seen` to `flake.fixed` | flake items | none until `flake.fixed` is emitted (milestone gap 2) | |
 | `gate-catches` | auxiliary per gate (queue red, triage red, size, definition, strays, review fix), a 14-day count | gap fields that already exist (`failed_gates`, `sent_back_by`, `reviews`) | none: a gate that is never off is not a regression. This one is **evidence** for removing or strengthening a gate (the refactor path, CLAUDE.md:35-37) | read by the simplifier and the coordinator |
 | `lessons-recurring` | auxiliary, findings: review findings in the last 14 days of a class the brief carried | lesson items' `findings` (ergostat.yaml:277) | `lessons-hold`: `<= 2` | the librarian: rewrite the lesson's **Check**, or turn it into a test or a lint, which moves it down the ladder |
@@ -210,6 +210,12 @@ the goals, then the loops, then the users.
      scoring already counts it (dev/bin/fac.py:580-586; lesson 3). The event is written only if, re-read under the
      item's lock, the sha it passed on is the item's `main` or a descendant of it, so a newer break written in
      between is not cleared (lessons 1 and 2).
+   - **The repair clock starts once.** Today every `flake.main-broken` writes a fresh `main_broken_at`
+     (dev/bin/onmain.py:92-94), so a second gap that hits the same failure on a newer main would restart the clock.
+     The writer re-reads the item under its lock. For an item already in `main-broken`, it updates `main` to the
+     newer sha, since `main-fixed` must then pass on that sha or a descendant. It leaves `main_broken_at` alone and
+     records the event's `seq` as `main_broken_seq` only when the item enters the state. `main-repair-hours`
+     measures from that first event, chosen by `seq` and never by comparing stamps (lesson 2), to `flake.main-fixed`.
    - **`seen` no longer clears `main-broken`.** Each writer of `flake.seen` (dev/bin/onmain.py:74, dev/bin/queue.py:207,
      dev/bin/triage.py:71, dev/bin/manage.py:231) checks the item's state first, and for an item in `main-broken`
      writes `flake.measured` instead, which counts `times` and moves no state. A test still failing on main therefore
@@ -219,11 +225,13 @@ the goals, then the loops, then the users.
      clear, so the goal stays off until someone has looked: it fails closed.
    - **Release and remake.** The quarantine's release (fac.beside's `quarantined: false`, dev/bin/fac.py:594-596)
      becomes one event, `flake.released`. The same-id remake is tested: a flake seen or broken again after `fixed`
-     starts a new count and a new `main_broken_at`, with its old `times` and `main_fixed_at` cleared (lesson 5).
+     starts a new count and a new `main_broken_at` and `main_broken_seq`, with its old `times` and `main_fixed_at` cleared (lesson 5).
 
    Acceptance: tests for fixed after N, and not fixed after N−1 with one failure between; `main-fixed` after main
    is fixed; still `main-broken` when the alone run is skipped or unreadable; a `main-broken` written between the
-   check and the write is kept; a `flake.seen` on a `main-broken` item leaves it `main-broken`; and the remake.
+   check and the write is kept; a `flake.seen` on a `main-broken` item leaves it `main-broken`; a second
+   `flake.main-broken` on a later main keeps the item's first `main_broken_at` and `main_broken_seq` and moves its
+   `main`, so `main-repair-hours` runs from the first break; and the remake.
 
 3. **flake-rate-counts-excused.** `flake-rate` counts the queue's excused flakes (dev/bin/queue.py:206-208) as well as
    triage's retries (dev/bin/measure.py:167-169), over all queue runs. A window with no runs gives no value, not 0.0.

@@ -40,3 +40,16 @@ tests/test_factory_knowledge.py:1373 and :1402. U2 cites tests/test_claims.py:23
 tests/test_repair_verify.py:101, :117 and :227. U5 cites tests/test_runner_and_state.py:78 and :114 for residuals, and
 says that no test checks that an empty install runs nothing. (2) Section 6a item 3 and gap 1 now say the queue keeps
 `rc`, `seconds` and, for the browser suite only, a `skipped` count (dev/bin/queue.py:104-105).
+
+Round 4 (fix): round 3 found two things, answered here, still with no code. (1) Blocking: the repair clock.
+Section 4's `main-repair-hours` now runs from the first `flake.main-broken` on the item, by `seq`, since it was made or
+last left `fixed`. It says why: dev/bin/onmain.py:92-94 writes a fresh `main_broken_at` each time a later gap hits the
+same failure. Gap 2 has a new bullet. The writer re-reads the item under its lock. For an item already in
+`main-broken`, it moves only `main`, and it sets `main_broken_at` and a new `main_broken_seq` only when the item
+enters the state. Gap 2's acceptance adds a test: a second `main-broken` on a later main keeps the first start and
+moves `main`. The remake clears `main_broken_seq` too. Round 3's record said "both findings of round 2", but the
+review counts three, and this clock finding was the one left unanswered (lesson 12). (2) Not blocking: the reviewer could not run
+anything and did not confirm tests/test_factory.py:947, tests/test_factory_knowledge.py:1402, tests/test_claims.py:217
+or tests/test_runner_and_state.py:114. Each was re-read in this round, and each is the `def` of the test the
+proposal names there. Nothing was run: the proposal is docs only, and the Bash command used to batch-check those
+citations was refused, so they were read one by one instead.
