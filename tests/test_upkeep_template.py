@@ -87,10 +87,16 @@ def test_upkeep_expands_to_the_index_files_loop(tmp_path):
                                                                          "restarts-aged-out",
                                                                      "stalls-mended"},
                "goals": {"heartbeat-fresh", "no-stalls"}, "blocks": {"watchdog", "outer-watcher"}}   # (test_upkeep_watched)
-    assert mine(spec.stocks) == {"index-files", "retired-index-files"} | watched["stocks"]
-    assert mine(spec.flows) == {"index-files-made", "index-files-tidied", "retired-index-files-removed"} | watched["flows"]
-    assert mine(spec.goals) == {"index-files-few", "no-retired-index-files"} | watched["goals"]
-    assert mine({n: b for n, b in spec.blocks.items() if not b.implied}) == {"index-tidier"} | watched["blocks"]
+    record = {"stocks": {"rollup-due", "events-past-keep", "measurements-due"},   # (test_upkeep_record.py)
+              "flows": {"rolled-up", "events-forgotten", "measurements-forgotten"},
+              "goals": {"record-rolled-up", "record-within-keep", "measurements-within-tiers"},
+              "blocks": {"record-compactor", "record-pruner", "measurement-retainer"}}
+    assert mine(spec.stocks) == {"index-files", "retired-index-files"} | watched["stocks"] | record["stocks"]
+    assert mine(spec.flows) == ({"index-files-made", "index-files-tidied", "retired-index-files-removed"} | watched["flows"]
+                                | record["flows"])
+    assert mine(spec.goals) == {"index-files-few", "no-retired-index-files"} | watched["goals"] | record["goals"]
+    assert mine({n: b for n, b in spec.blocks.items() if not b.implied}) == ({"index-tidier"} | watched["blocks"]
+                                                                              | record["blocks"])
     assert [s.builtin for s in spec.stocks["index-files"].sensors.values()] == ["ergostat.upkeep.index-files"]
     assert [s.builtin for s in spec.stocks["retired-index-files"].sensors.values()] == ["ergostat.upkeep.retired-index-files"]
     assert spec.stocks["index-files"].unit == "files"

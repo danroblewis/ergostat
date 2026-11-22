@@ -640,8 +640,16 @@ def test_an_inferred_equation_only_flow_that_explains_nothing_is_removed_and_a_d
 
 
 def test_what_ergostat_can_and_cannot_propose_is_said_and_the_residual_finder_has_its_place():
-    assert any("missing stock" in x for x in stc.CANNOT)
-    assert stc.from_residuals(None) is None and "next piece of work" in stc.from_residuals.__doc__
+    can = " ".join(what for what, _ in stc.CAN)
+    assert "missing delay on a stock's inflow" in can and "DELAY3" in can and "stock in transit" in can
+    assert any("delay on an outflow" in x for x in stc.CANNOT)
+    assert any("part replaced by another form" in x for x in stc.CANNOT)
+    assert any("missing stock or flow that is not a delay" in x for x in stc.CANNOT)
+    assert stc.from_residuals(None) is None and "delay on a measured stock's inflow" in stc.from_residuals.__doc__
+    js = (Path(stc.__file__).parents[1] / "web" / "static" / "review.js").read_text()
+    for text in (Path(stc.__file__).read_text(), js):
+        assert "next piece of work" not in text
+    assert "a delay on a measured stock's inflow" in js
 
 
 # ---- the command line lists the same fields

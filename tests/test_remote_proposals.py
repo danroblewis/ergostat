@@ -590,8 +590,8 @@ def test_ergostat_sends_nothing_for_a_for_remote_proposal(tmp_path, monkeypatch,
         def __init__(self, b):
             self.b = b
 
-        def read(self):
-            return self.b
+        def read(self, n=-1):                      # client.get reads at most BODY_MOST + 1
+            return self.b if n < 0 else self.b[:n]
 
         def __enter__(self):
             return self

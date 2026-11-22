@@ -35,17 +35,19 @@ def allowed(who: str) -> float | None:
 
 
 def served_model(live) -> dict | None:
+    """The model this ergostat serves; raises ``InstanceError`` when its instance id cannot be read."""
+    from ..remote.instance import own
     p = live.get()
     path = getattr(p.model, "path", None)
     if path is None or path.suffix not in (".yaml", ".yml"):
         return None
-    key = (str(path), live.mtime)
+    key = (str(path), live.mtime, own(p.dir))
     got = _served.get(key)
     if got is None:
         from ..remote import compose
         from ..remote.serve import model
         with compose.offline():
-            got = model(path)
+            got = model(path, p.dir)
         if len(_served) > 8:
             _served.clear()
         _served[key] = got
@@ -99,13 +101,17 @@ def answer(live, path: str, q: dict):
     p = live.get()
     m = p.model
     spec = getattr(m, "spec", None)
+    if head in ("status", "model", "readings"):
+        from ..remote.instance import InstanceError, own
+        try:
+            inst, served = own(p.dir), served_model(live)
+        except InstanceError as e:                          # no model served without its instance id
+            return 503, {"error": f"this ergostat's instance id: {e}"}
     if head == "status":
         from ..runner import running_pid
-        served = served_model(live)
-        return 200, {"name": m.name, "version": served and served["version"], "now": time.time(),
+        return 200, {"name": m.name, "instance": inst, "version": served and served["version"], "now": time.time(),
                      "running": bool(running_pid(p)), "last_seq": p.events.last_seq()}
     if head == "model":
-        served = served_model(live)
         if served is None:
             return 404, {"error": "this model is not YAML (ergostat.toml): convert it to serve it"}
         return 200, served
@@ -142,14 +148,16 @@ def answer(live, path: str, q: dict):
         series, refs = _list(q, "series"), _list(q, "ref")
         if len(series) + len(refs) > READINGS_MOST:
             return 400, {"error": f"at most {READINGS_MOST} series and parts a call"}
-        out: dict = {"now": time.time(), "series": {}, "refs": {}}
-        served = served_model(live)
+        from ..remote.readings import relayed
+        out: dict = {"now": time.time(), "instance": inst, "series": {}, "refs": {}}
         out["version"] = served and served["version"]
-        for s in series:
-            got = p.measurements.latest(s)
-            out["series"][s] = {"value": got[1], "time": got[0]} if got else {"value": None, "time": None}
+        for s in series:                                    # an imported part's: as its origin last read it
+            on = relayed(spec, series=s) if spec is not None else None
+            got = None if on is not None else p.measurements.latest(s)
+            out["series"][s] = on or ({"value": got[1], "time": got[0]} if got else {"value": None, "time": None})
         for r in refs:
-            out["refs"][r] = reading_of(live, p, r)
+            on = relayed(spec, ref=r) if spec is not None else None
+            out["refs"][r] = on or reading_of(live, p, r)
         return 200, out
     if head == "series":
         name = (q.get("name") or [None])[0]

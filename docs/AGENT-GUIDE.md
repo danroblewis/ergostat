@@ -147,10 +147,13 @@ Work through these steps in order. Ask the person only what you cannot infer.
    default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
    for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
-   its item-index files held at `index-files` (6) by a rule-tier tidier that takes over from the engine's own, and
-   the engine's watchdog and the outer watcher drawn as external blocks under `no-stalls` and `heartbeat-fresh`
-   (`stale`, 180 s; `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it when the files a
-   model's changing kinds leave behind, or the engine's own health, should show on the diagram.
+   its item-index files held at `index-files` (6) by a rule-tier tidier, and the record's roll-up, forgetting past
+   `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and
+   `measurement-retainer` (`with: {rollup-every: 1h, retain-every: 1h}`, 1m to 1d), each taking over from the
+   engine's own, and the engine's watchdog and the outer watcher drawn as external blocks under `no-stalls` and
+   `heartbeat-fresh` (`stale`, 180 s; `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
+   when the files a model's changing kinds leave behind, the record's growth, or the engine's own health, should show
+   on the diagram; with it, leave `storage: rollup: every` out (`check` says it is unused).
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
@@ -371,6 +374,14 @@ A held chain may run the owner's own commands: a value in the owner's `with:` fo
 library (its `example:`, a default, a description) into `with:`**: ask the owner for the command, and let them write
 it.
 
+A held chain may also ask a person or an AI session, or read a query, in the owner's own words: a person block's
+`ask`, an ai block's `prompt`, a sensor's `query` and a `sources` entry stand only when no piece of them is the
+library's (SPEC §2a, R3); otherwise the use is refused as `untrusted-text`. The instance's name and a part's renamed
+name count as the library's there (they hold its `uses:` keys), so a trusted template's `${name}` in a prompt is
+refused too. Read that refusal as you read
+`library-untrusted`. **Never copy the library's question, prompt or query (or its default) into `with:` to get past
+it**: ask the owner what they want asked or read, and let them write it.
+
 ## 3a. A system another ergostat runs: compose it, never copy it
 
 When part of the person's work is run by **another ergostat** (another team's, another machine's), do
@@ -407,15 +418,21 @@ keeps running it; this model reads it.
    `remote-reference-unresolved` finding means the remote renamed or dropped a part you reference: fix the
    reference here (a stand-in is drawn meanwhile). `remote-unreachable` means it did not answer: the model
    runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
-5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
-   the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
-   incidents, ref: stock.open}`. To link one of your items to one of its items, name its kind by its local
-   name in `relations:` (`blocked_by: incidents-incident`): the process map draws the line, and it never gates.
+5. **Use its measures, not its items.** Its items can be seen in the Items page (a section marked remote)
+   and its events in the Record page (`/record?remote=incidents`), but they are still never folded or counted
+   locally: count them through the remote stock that counts them (its sensor is mirrored), or a sensor of your
+   own, `query: {source: incidents, ref: stock.open}`. To link one of your items to one of its items, name its
+   kind by its local name in `relations:` (`blocked_by: incidents-incident`): the process map draws the line,
+   and it never gates.
 6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
    equations for the remote's parts, written as text in its names for its owner, each marked current or not.
    They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
+A remote's own remotes come through too, up to three ergostats away (`stock.m-a-open`: remote `m`'s part
+from its remote `a`); `remote-cycle`, `remote-too-deep`, `remote-malformed`, `remote-too-big`,
+`remote-bad-name`, `remote-name-taken` and `remote-instance` say what was refused or cut and why, and a
+local part named like an imported one always wins.
 
 **A system with an event log of its own that is not an ergostat** (Kafka, a ticket's history, an incident log):
 choose one of three ways.
@@ -473,8 +490,9 @@ blocks:
   feedback": a number watched, not held.
 
 The goal above is a loop the model holds. When the person also wants the model's runs held to a day's budget before
-they start, whatever the wiring, add `budget:` to `ergostat.yaml` (SPEC §9.9). It is a check at each start, not a
-cap on spending: a run can spend more than it reserved, and the judge and ergostat's own AI calls are outside it:
+they start, whatever the wiring, add `budget:` to `ergostat.yaml` (SPEC §9.9). It is a check at each start, and a
+run is stopped (T1) once its reported cost reaches its reserve, but a run can still end somewhat past it, and the
+judge and ergostat's own AI calls are outside it:
 
 ```yaml
 budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charged run reserves $0.50 to start
@@ -482,8 +500,13 @@ budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charge
 
 - Before each charged run starts, ergostat checks that what is left of `daily` (less what ended runs cost and what
   runs in flight reserved) covers `max-cost`, and refuses the run otherwise (`budget.refused`; `ergostat block NAME
-  --now` says `refused: budget: …`). `max-cost` is what a run reserves to start, not a cap on what it spends: set
-  it near what one run usually costs. A run that ends with an unknown cost is charged its reserve.
+  --now` says `refused: budget: …`). `max-cost` is what a run reserves to start, and also its cap: set it above
+  what one run usually costs. A run that ends with an unknown cost is charged its reserve.
+- **T1.** Each run gets `ERGOSTAT_MAX_COST` (its reserve; 0 for a free run). An `ai` block's own `claude` gets
+  `--max-budget-usd`. Start sessions from a `run:` program with `$ERGOSTAT_CMD session`, which takes all that is
+  left of the run's cap: run them one after another, since a second session running at the same time is refused.
+  When the reported cost reaches the reserve, or any AI use of unknown price is reported, the run's process group
+  is killed and it ends `agent.failed`, `stopped at its spend cap (T1)`. A free run that uses AI is always stopped.
 - Free runs reserve nothing: a block that is not `ai` and whose agent is declared `kind: person`, `decision`,
   `program` or `rule`. Give program blocks an agent of kind `program`, or each of their runs is charged.
 - `ergostat.budget.left` reads what is left (a sensor's `builtin:`, or `ergostat measure`); it is an error, not a number, when no

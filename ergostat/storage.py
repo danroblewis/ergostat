@@ -58,6 +58,7 @@ class Storage:
     rollup_after: float | None = ROLLUP_AFTER      # None: never rolled up
     rollup_kinds: dict[str, float] = field(default_factory=dict)
     every: float = EVERY
+    every_set: bool = False                        # the YAML said rollup: every: (unused under use: upkeep, a finding)
     item_idle: float = ITEM_IDLE                   # an open item untouched this long is not kept folded in memory
     logs: dict[str, float] = field(default_factory=lambda: dict(LOGS))   # the caps on the logs (bytes; transcripts: s)
 
@@ -142,6 +143,7 @@ def parse(raw, problems: list[str]) -> Storage:
             s.rollup_kinds[str(kind)] = got          # type: ignore[assignment]
         if "every" in ro:
             s.every = _dur(ro["every"], "storage.rollup.every", problems) or EVERY
+            s.every_set = True
     it = raw.get("items")
     if it is not None:
         if not isinstance(it, dict):

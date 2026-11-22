@@ -257,8 +257,9 @@ the parent's entry, its coverage, and each sub-gap's definition and last review 
 verdict `short` at once, a point naming each, with no clone, no session and cost 0. `covered` moves the parent to
 `merged` with its verdict, reasons and `judged_at`, but no `merged_at`: no work merged, so it stays out of
 cycle-hours, cost-per-merged and fix-rounds. "Covered" is the planner's coverage mapping plus an AI judgment at the
-join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (the next unused name when that one is
-taken; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
+join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (when that one is taken or not safe, the
+next unused safe one of `-join-<n+1>`, …, then `<parent-branch>-rest`, `-rest-2`, …, at most 50 of each before it
+stops with an error; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
 name)`, and only then splits the parent again, so the join waits for the new sub-gap. At most `plan.MOST_SHORT` = 1
 short round splits again: the second `short` parks the parent, its "Where it stopped" listing the points not built. A
 verdict that cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget
@@ -470,17 +471,35 @@ pending push carries as stuck at once.
 its pages drew nothing). The first of them to fail is the one reported, and it stops the rest: a unit failure kills
 the browser run still going (and the other way round), which is recorded `stopped_by` it, its own result not judged.
 
+**Which tests run where.** With `[suites] queue_container`, ruff, unit, browser and demo run in containers, where
+bwrap cannot make its namespaces and there is no kqueue: `tests/test_repair2.py` and `tests/test_sandbox_attacks.py`
+(the AI repair sandbox's tests) and `tests/test_notify.py`'s kqueue test skip there. `[suites] host` runs those three
+files on the Mac, outside any container, after unit and browser and before demo, under the queue's lock: a required
+step like the others (its log `run/queue/<run>-host.txt`, its result `host` in the gap's `suites_queue`; red fails the
+batch and bisects, and flake triage reruns its tests on the Mac too). It is held to the same `stall_minutes` and
+`wall_minutes` as the boxed suites, in the queue and in triage's rerun: a host run that stops writing is a stall (the
+run undone, no gap blamed until `STALLS_MOST`). `host = ""` turns the step off. Exit 126 or 127 from the outer shell
+(the step's first command not found or not runnable) is a step that did not start, in the queue and in triage's
+rerun: the run fails and is undone, no gap blamed, never read as a pass. A pytest missing behind `suite_watch.py` or
+`uv` exits 1 with no test named, so it counts as a real host failure: red, the batch bisected. A test the host step
+skips that the same run's unit suite skipped too (by `path:line` in their `-rfEs` summary) ran nowhere, and fails the
+step, unless its reason is one of the stated needs outside the machine in use (an `ERGOSTAT_…_URL`, "spends money",
+"no Chromium to drive", playwright not importable, "needs Docker and the agent image", "no N free ports in"), matched
+as those exact phrases: a new external skip reason must be added to `queue.EXTERNAL`, or it counts. When the unit log
+is missing, or counts skips without naming them, every host skip counts as one that ran nowhere.
+
 **The quarantine.** `tests/quarantine.txt` (`test id | who | when | why` a line) names tests the queue's, flake
-triage's and the implementor's suites deselect (`--deselect`, unit and browser). The list is read from main (the
-queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a branch that adds
-its own failing test to the list is still red in the queue, and its line takes effect only once it is on main. (The
-implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch that adds the list,
-or a line to it, is not held up on its own machine by a test it quarantines; the queue still runs it.) After each unit run
-(and each triage rerun) the quarantined tests run once more, with `-rA` (the queue and implementor: `[suites] alone`;
-triage: `rerun`), never blocking. Each result is said on `flake/<test>` (`flake.measured`: `quarantined`, `last_run`,
-`last_run_log`), read from that run's whole log: `pass` only on the test's own PASSED line with no FAILED or ERROR
-line, `fail` on either, `unknown` otherwise (skipped, not collected, a run that never started or left no log). A
-skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
+triage's and the implementor's suites deselect (`--deselect`, unit and browser only: a quarantined test in the host
+step's files still runs there and blocks, since run beside in the container it would only skip). The list is read
+from main (the queue's and triage's `pre`, the drop's main for the implementor), never from the branch under test: a
+branch that adds its own failing test to the list is still red in the queue, and its line takes effect only once it
+is on main. (The implementor's fast suites, which land nothing, also deselect the work's own lines, unrun: a branch
+that adds the list, or a line to it, is not held up on its own machine by a test it quarantines; the queue still runs
+it.) After each unit run (and each triage rerun) the quarantined tests run once more, with `-rA` (the queue and
+implementor: `[suites] alone`; triage: `rerun`), never blocking. Each result is said on `flake/<test>`
+(`flake.measured`: `quarantined`, `last_run`, `last_run_log`), read from that run's whole log: `pass` only on the
+test's own PASSED line with no FAILED or ERROR line, `fail` on either, `unknown` otherwise (skipped, not collected, a
+run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
 released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
 sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
 a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.
@@ -603,15 +622,22 @@ last `gap.timed` and the roll-up (only if the timer was stopped that long) are n
 The measures (`dev/model/times.yaml`, the system `times`) are `in-STATE-hours`, `loop-hours`, `loop-rounds` and
 `gate-GATE-minutes`, each the median and with `-p90` the 90th percentile (nearest rank) over the last 14 days, of the
 gaps that left the state, ended the loop or passed the gate in the window, not only the merged ones; 0 with none.
-Each has a goal (`hold:`) to set; the shipped ones are first guesses, and `python3 dev/bin/times.py setpoints` in the
-instance's folder sets each to today's reading (one with nothing in the window keeps its own). `status.py` prints them
-as a table, the waiting states first (time spent waiting on someone else, the cheapest to remove: open and replan for
-the planner, planned for the plan review, split for its sub-gaps, ready and fix for the implementor, built for the
-reviewer, approved for the queue, queue-failed for triage, dead for a park), then the working ones, where a run holds
-the gap (leased: the planner's, the plan review's and triage's whole run and the others' start, the queue's wait for
-its lock with it; building; in-review; queued: the queue's run from its `gap.queued`, said once it holds its lock, the
-merge and the suites), the loop and the gates, with how
-many gaps are in each state now and the oldest of them.
+A median the pipeline manager can act on has a goal (`hold:`), read by the pipeline watch: off past its tolerance, it is
+a trigger of the manager's next session, and each goal's reading is on the situation (`times`). With no gap in its
+window the reading is None there and raises nothing (an empty window is no fault; the measure's own sensor still reads
+0 then). One that cannot be read (a malformed or non-finite value, a measure times.py does not know) is None and a
+trigger naming the goal and the error. Answered, a goal's trigger is raised again when it is a whole tolerance further
+off, when its error changes, or when it goes off (or unreadable) again after a reading on target, unknown or unreadable
+in between: when each such episode began is kept in `run/manager.json` (`episodes`), and is part of the fingerprint.
+The p90s and the rest are plain measures, the file's header says which and why. The shipped holds are first guesses,
+and `python3 dev/bin/times.py setpoints` in the instance's folder sets each to today's reading (one with nothing in the
+window keeps its own). `status.py` prints them as a table, the waiting states first (time spent waiting on someone
+else, the cheapest to remove: open and replan for the planner, planned for the plan review, split for its sub-gaps,
+ready and fix for the implementor, built for the reviewer, approved for the queue, queue-failed for triage, dead for a
+park), then the working ones, where a run holds the gap (leased: the planner's, the plan review's and triage's whole
+run and the others' start, the queue's wait for its lock with it; building; in-review; queued: the queue's run from its
+`gap.queued`, said once it holds its lock, the merge and the suites), the loop and the gates, with how many gaps are in
+each state now and the oldest of them.
 
 ## Record an intervention
 
