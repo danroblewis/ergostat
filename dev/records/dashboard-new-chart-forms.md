@@ -40,3 +40,19 @@ Not covered by any test: the heatmap's value under the cursor, the phase plot's 
 Screenshots were not taken (file tools and scratch scripts are confined to /work here), so how it looks was checked only by the
 pixel samples in both themes. tests/test_plots.py is not one of the four browser files, so the merge queue runs it only if named.
 Left for dashboard-xy-and-heatmap-panels: registering the three forms as panels.
+
+Round 2, answering both findings of the round-1 review (no plots.js, CSS or HTML change):
+- The browser checks for done items 1-4 now run in a gate. They moved into tests/test_diagram_rendering.py, one of the four
+  browser files, as test_the_three_chart_forms_draw_in_each_theme. That file runs both themes against one served copy of
+  disk-space and uses the file's own browser fixture and served(). dev/factory.toml was left unchanged.
+  tests/test_plots.py keeps only the bucket-alignment unit test and the token check, so nothing in it is skipped for want
+  of Playwright. The sentence above saying the merge queue runs it only if named no longer holds.
+- The phase plot's "joined" check now samples (1.25, 1.75), a quarter of the way along (1,1)-(2,4) and away from the
+  segment's direction tick. A new "apart" check also has to come out false at (1.75, 1.25), a point off the path.
+- The multiChart check no longer counts pixels over the whole canvas. For each line it samples nine points along that
+  line's first measured step in the left half, away from the end labels, and needs at least 5 of them, within a pixel,
+  in the line's own hue (--g0, --g1).
+- Each check was seen to fail: with the phase path's ctx.stroke() commented out, "joined" was false. With
+  paths: () => null on multiChart's series (end labels still drawn), "lines" was [0, 0]. With the code restored, both
+  themes pass ([9, 9]).
+Overrun reason: the tests are 100 lines (74 in tests/test_diagram_rendering.py, 26 in tests/test_plots.py), not 60. The reason is the same as round 1's: the checks read the drawn canvas so that each one can fail, and the page script, the seed and the served fixture take about 50 of those lines.
