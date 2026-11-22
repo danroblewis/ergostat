@@ -86,3 +86,21 @@ Built, round 1: 22 net lines in ergostat/ (budget 80).
   waiting.' missing on the Model page, pages.js; failed again alone). Also passing: the four acceptance tests, main's
   test_needs_attention_is_three_headed_groups_in_a_fixed_order, tests/test_inbox_page.py, tests/test_legend_memory.py.
   ruff is clean. Not run: the unit suite and the other browser files.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 13:29).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 668, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
