@@ -662,10 +662,13 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .side { border-left: 0; border-top: var(--hair) solid var(--line); }
   .detail { position: fixed; inset: 0; width: auto; z-index: 20; border-left: 0; }
 }
+/* a phone, or 200% zoom: the tabs on a row of their own, wrapped onto two rows, never scrolled sideways */
+@media (max-width: 759px) {
+  .bar nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow-x: visible; }
+  .bar nav a { min-height: var(--sp-6); }
+}
 @media (max-width: 700px) {
   .bar { gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3) 0; }
-  .bar nav { order: 3; flex: 1 0 100%; min-height: var(--sp-6);
-    -webkit-mask-image: linear-gradient(to right, var(--ink) 85%, transparent); mask-image: linear-gradient(to right, var(--ink) 85%, transparent); }
   #when { margin-left: auto; }
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
