@@ -732,7 +732,7 @@ function drawGraph(svg, g, lay) {
         }
         taken.push({ x: lx, y: y0, w: lw });
         ext.x0 = Math.min(ext.x0, x0); ext.y0 = Math.min(ext.y0, y0); ext.x1 = Math.max(ext.x1, x1); ext.y1 = Math.max(ext.y1, y1);
-        hulls.append(...frameMarks(x0, y0, x1 - x0, y1 - y0, false),
+        hulls.append(s("g", { class: "hull" }, ...frameMarks(x0, y0, x1 - x0, y1 - y0, false)),    // (a g.hull: the frame rules)
                      s("text", { x: lx, y: y0 + 4, class: "sys-hull-label", style: inkOf(hue),
                                  onclick: (ev) => { ev.stopPropagation(); S.toggleSystem?.(name); } },
                        name + (S.graph?.tree ? " ▾" : "")));

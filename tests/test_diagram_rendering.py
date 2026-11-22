@@ -2004,6 +2004,28 @@ def test_an_open_system_is_framed_by_its_corners_in_every_view_and_both_themes_a
             pg.close()
 
 
+def test_a_graph_with_no_tree_frames_its_systems_by_their_corners_and_fills_nothing(browser, tmp_path):
+    """The second drawing path (a graph with no tree, e.g. a TOML model: its systems outlined around their parts)
+    draws the same frame: no fill on the rect or the corners, the hairline in --frame."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "open=*", 0)
+        r = pg.evaluate("""() => { const svg = document.querySelector('svg.canvas'), g = { ...S.graph };
+          delete g.tree; const lay = { ...S.layout, containers: [] };
+          const names = [...new Set(g.nodes.flatMap((n) => n.systems || []))];
+          S.status = { ...S.status, systems: names }; S.showHulls = true; drawGraph(svg, g, lay);
+          return { names, frame: (PROBE)('--frame'),
+            frames: [...svg.querySelectorAll('.sys-hull rect.frame, .sys-hull path.frame-corners')].map((e) => {
+              const cs = getComputedStyle(e);
+              return { tag: e.tagName, hull: !!e.closest('g.hull'), fill: cs.fill, stroke: cs.stroke }; }) }; }"""
+                        .replace("PROBE", PROBE))
+        pg.close()
+    assert r["names"] and len(r["frames"]) >= 2 * len(r["names"]), r
+    for f in r["frames"]:
+        assert f["hull"] and f["fill"] in ("none", "rgba(0, 0, 0, 0)"), f
+        assert f["tag"] != "rect" or f["stroke"] == r["frame"], (f, r["frame"])
+
+
 def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, tmp_path):
     """A closed system (a module in Dynamics, a subsystem block in Blocks) is outlined in --frame-mark at 1.2 px; with
     a goal in it off, in full ink at 2 px: darker on the paper and thicker."""
@@ -2018,6 +2040,8 @@ def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, t
           return { calm: draw({ holding: 2 }), off: draw({ holding: 1, off: 1 }), mark: (PROBE)('--frame-mark'),
             drawn: [...document.querySelectorAll('svg.canvas rect.sd-module')].map((r) => [r.classList.contains('sys-off'),
                                                                                          getComputedStyle(r).stroke]),
+            legend: (() => { const was = S.graph; S.graph = { ...was, nodes: [...was.nodes, { ...n, loops: { off: 1 } }] };
+                             try { return sdLegend().textContent; } finally { S.graph = was; } })(),   // (with a module off)
             paper: getComputedStyle(document.body).backgroundColor }; }""".replace("PROBE", PROBE).replace("PUT", put))
         drawn(pg, url, "view=blocks", 1)
         bd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem'); PUT
@@ -2030,6 +2054,7 @@ def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, t
         assert v["calm"][1] == 1.2 and v["off"][1] == 2, v
         assert contrast(v["off"][0], sd["paper"]) > contrast(v["calm"][0], sd["paper"]) + 2, v
     assert sd["calm"][0] == sd["mark"], sd
+    assert "drawn heavy" in sd["legend"] and not re.search(SD_WORDS, sd["legend"], re.I), sd["legend"]
     assert sd["drawn"] and all(st == (sd["off"][0] if off else sd["calm"][0]) for off, st in sd["drawn"]), sd
 
 

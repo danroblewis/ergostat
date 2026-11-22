@@ -499,7 +499,7 @@ function sdLegend() {
     pols.has("R") && row("loopR", "reinforcing loop: a change comes back amplified"),
     pols.has("B") && row("loopB", "balancing loop: a change comes back opposed (it seeks a desired level)"),
     has((n) => n.kind === "system") && row("module", "module: a system closed; its connection points are what crosses its edge (Open draws its parts in place; Into draws it alone)"),
-    has((n) => n.kind === "system" && systemOff(n)) && row("moduleOff", "module drawn heavy: a goal in it is off"),
+    has((n) => n.kind === "system" && systemOff(n)) && row("moduleOff", "module drawn heavy: a level in it is away from its desired level"),
     (g.open || []).length > 0 && g.nodes.some((n) => (n.systems || []).length) && row("sector", "sector: a system open, framed by its corners, its name on the top edge (drag it by its name); modelling's dashed"),
     has((n) => n.kind === "terminal" && n.role !== "stub") && row("shadow", "shadow variable: a part drawn elsewhere, an input here (click to go there)"),
     has((n) => n.role === "stub") && row("stub", "a connector out of this system: it ends at the name of what it drives"),

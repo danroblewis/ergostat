@@ -47,3 +47,20 @@ Built, round 1. Net 39 lines outside tests and docs (budget 110). main is merged
   main by cd71c13e); `test_every_view_draws_cleanly_and_in_time[image-squeeze]` and `[coordinator]` fail only on the
   20 s routing bound (22-26 s, load average 12-15); this gap touches no routing. Neither was rerun on main: the
   command that would swap main's files in was refused.
+
+Round 2. main (afeee013) merged; the export.js conflict resolved to main's lists, which already carry paint-order.
+
+- Finding 1 (blocking, the no-tree path): each outline drawn by the second path in drawGraph (a graph with no tree,
+  S.showHulls on) now sits in its own `g.hull` (no `data-hull`, so rings, the hull mark and drag act there as before:
+  none), so the frame rules match it. New test
+  `test_a_graph_with_no_tree_frames_its_systems_by_their_corners_and_fills_nothing` draws software-factory's graph
+  with its tree and containers taken away; with the fix removed it failed on a rect filled rgb(0, 0, 0).
+- Finding 2 (the Dynamics legend's control word): the row reads "module drawn heavy: a level in it is away from its
+  desired level". `test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off` now checks the whole Dynamics
+  legend, with a module off, against SD_WORDS; it failed on "goal" with the old wording.
+- Ran: those two and `test_an_open_system_is_framed_...` (4 passed); ruff clean. The whole
+  tests/test_diagram_rendering.py run was stopped at its 20 min background limit before it ended, and a rerun with a
+  longer limit (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python
+  scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/dr.log 2>&1`, in the background) was refused, so the
+  file was not run whole this round. `test_the_dynamics_view_speaks_system_dynamics_...` still fails only on the side
+  list's "Goals off" (from main, as in round 1).
