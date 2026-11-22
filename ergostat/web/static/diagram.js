@@ -1373,9 +1373,11 @@ function foldRow(ms, row) {
     const bad = [];                                   // one at a time: each answer is the owner's event, in turn
     for (const m of ms) await apiPost(`inbox/${encodeURIComponent(m.what)}/deny`, note ? { note } : {}).catch((e) => bad.push(e.message));
     out.textContent = bad.length ? ` ${bad.length} not denied: ${bad[0]}` : ` ${ms.length} denied`;
+    if (!bad.length) act.querySelector("input").value = "";   // the reason was this fold's; it goes with it
     b.disabled = false; refreshHeader();
   } }, "Deny all");
-  return h("div", { "data-fold": ms[0].fold }, h("details", { class: "fold" },
+  // keyed by its fold: a refresh matches it to its own nodes, never another fold's by place (and its typed reason)
+  return h("div", { "data-fold": ms[0].fold, key: `fold:${ms[0].fold}` }, h("details", { class: "fold" },
     h("summary", {}, h("span", { class: "att-word" }, "request · "), h("b", { class: "lvl-warn" },`${ms.length} ${kinds.size === 1 ? PLURAL[[...kinds][0]] || "parts" : "parts"}: ${ms[0].fold.split("|")[0].replace(/-/g, " ")}`),
       systems.length ? ` (${systems.join(", ")})` : ""), ...ms.map(row)),
     SNAP || S.at ? null : h("div", { class: "row inbox-act" }, why, all, said));
