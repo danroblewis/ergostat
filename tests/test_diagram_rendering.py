@@ -3808,3 +3808,28 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+SAYS = """(id) => { const g = document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(id)}"]`);
+  return g && { text: [...g.querySelectorAll("text")].map((t) => t.childNodes[0]?.textContent || "").join("|"),
+                title: g.querySelector(":scope > title")?.textContent || null,
+                label: S.graph.nodes.find((n) => n.id === id)?.label }; }"""
+
+
+def test_inside_its_own_systems_box_a_part_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
+    """Drilled into the use help-queue, its stock reads ``waiting``, its full name on hover and in the graph (links,
+    lookups); drawn where no system is around it, it reads ``help-queue-waiting`` (SPEC §2a, *A part's system*)."""
+    with served("small-requests", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for n, view in enumerate(("system=help-queue&open=", "view=dynamics&system=help-queue&open=")):
+            drawn(pg, url, view, n)
+            got = pg.evaluate(SAYS, "stock:help-queue-waiting")
+            assert got and "waiting" in got["text"].split("|") and "help-queue-waiting" not in got["text"], (view, got)
+            assert got["title"] == "help-queue-waiting" and got["label"] == "help-queue-waiting", (view, got)
+        drawn(pg, url, "around=stock/help-queue-waiting", 3)        # no system drawn around it: its full name
+        got = pg.evaluate(SAYS, "stock:help-queue-waiting")
+        assert got and "help-queue-waiting" in got["text"].split("|") and got["title"] is None, got
+        pg.close()
+        assert not errors, errors

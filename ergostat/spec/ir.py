@@ -960,6 +960,7 @@ class Spec:
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
+    belongs: dict = field(default_factory=dict)                        # stock.NAME → its system and short name (belongs.py)
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
 
     def lookups(self):

@@ -3,6 +3,7 @@ model as if they had been written, each pointing at the entry's ``use:`` line.""
 
 from __future__ import annotations
 
+from ..spec.belongs import own
 from ..spec.ir import NAME
 from ..spec.load import SECTIONS, Map, Problem, Where
 from . import templates as tp
@@ -85,9 +86,10 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
 
 
 def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, depth: int, within: str | None,
-         under: tp.Template | None, writers: dict | None = None) -> None:
+         under: tp.Template | None, writers: dict | None = None, mine: tuple | None = None) -> None:
     """One instance of the chain; ``under``: the first untrusted template above it (or it), from which all is untrusted.
-    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a)."""
+    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a). ``mine``: a
+    nested use's (outer instance, its name there), the system its own system belongs to."""
     def err(msg, where=None, code="bad-use"):
         chain.steps.append(("problem", Problem("error", f"use {inst}: {msg}", where or w, code, f"system.{inst}")))
 
@@ -145,7 +147,8 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
                          *((under, tw, s, n, x) for s, entries in made.marked.items() for n, x in entries.items()),
                          *((under, tw, "uses", n, x) for n, x in made.sections.get("uses", {}).items())]
     if not (t.once and ("systems", inst) in doc.defined):     # a once template's system, when the model declares it, is the model's
-        chain.steps.append(("put", "systems", inst, as_map(system, via), via))
+        sw = own(via, *mine) if mine else via                  # a nested use's system: the outer instance's
+        chain.steps.append(("put", "systems", inst, as_map(system, sw), sw))
         if t.once:
             chain.steps.append(("soft", ("systems", inst)))
     for section, entries in made.sections.items():
@@ -155,7 +158,9 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
             err(said(f"template {t.name} writes {section}:, which is not a section"), at, "bad-template")
             continue
         for name, got in entries.items():
-            chain.steps.append(("put", section, name, as_map(got, via), via))
+            short = (made.shorts or {}).get(section, {}).get(name)
+            pw = own(via, inst, short) if short else via        # the instance's own name: it belongs to the instance
+            chain.steps.append(("put", section, name, as_map(got, pw), pw))
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
                                       "depth": depth, "trust": t.trust, "untrusted": untrusted}))
@@ -164,4 +169,6 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "
                                                f"real", via, "template-stand-in", f"system.{inst}")))
     for sub, e in (made.sections.get("uses") or {}).items():
-        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, made.writers.get(sub, {}))
+        short = (made.shorts or {}).get("uses", {}).get(sub)
+        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, made.writers.get(sub, {}),
+             (inst, short) if short else None)

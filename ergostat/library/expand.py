@@ -417,6 +417,7 @@ class Made:
     values: dict            # every parameter's value
     marked: dict = None     # section → {name: entry with its marks}, for the gate (trust.py) to judge
     writers: dict = None    # each nested use → {its with: key: who wrote the value}
+    shorts: dict = None     # section → {name made: its name in the template}, for each name the instance's (belongs.py)
 
 
 def params(t: Template, given: dict, scope: Scope, writers: dict | None = None):
@@ -553,17 +554,20 @@ def expand(t: Template, inst: str, given: dict, writers: dict | None = None) -> 
                 got["within"] = inst
             out[name] = got
     subs: dict = {}
+    shorts = {s: {name: bare for bare, name in r.items()} for s, r in renames.items() if not t.once}
     for sub, entry in (body.get("uses") or {}).items():          # templates made of templates
         got = walk(entry, scope)
         if got is DROP:
             continue
-        name = f"{inst}-{strip(scope.sub(str(sub), marks=False))}"
+        bare = str(strip(scope.sub(str(sub), marks=False)))
+        name = f"{inst}-{bare}"
+        shorts.setdefault("uses", {})[name] = bare
         raw, given_on = (entry.get("with") if isinstance(entry, dict) else None), got.get("with")
         subs[name] = {k: nested(k, v, raw, metas, author(t)) for k, v in given_on.items()} if isinstance(given_on, dict) else {}
         got = strip(rename(got, "uses", None, renames))
         got.setdefault("within", inst)
         sections.setdefault("uses", {})[name] = got
-    return Made(sections, {"description": t.description.split("\n")[0]}, standins, values, marked, subs)
+    return Made(sections, {"description": t.description.split("\n")[0]}, standins, values, marked, subs, shorts)
 
 
 def nested(k, walked, raw, metas: dict, tw: str) -> str:

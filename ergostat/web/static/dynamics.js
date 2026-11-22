@@ -31,14 +31,14 @@ function sdSize(n) {
 }
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
-  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "–" : n.rateText];
+  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [nameOf(n)] : [nameOf(n), n.rate == null ? "–" : n.rateText];
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   if (n.kind === "cloud" && n.from) return [`from ${n.from}`];        // an inflow from outside: where it comes from, where the model knows it
   return [];
 }
 function sdAuxLines(n) {
-  if (n.role === "decision") return [n.label];
-  return [n.label, sdValue(n), n.exogenous ? "(exogenous)" : null].filter(Boolean);
+  if (n.role === "decision") return [nameOf(n)];
+  return [nameOf(n), sdValue(n), n.exogenous ? "(exogenous)" : null].filter(Boolean);
 }
 function sdLabel(ng, n, t, i, cx, y) {
   if (n.kind === "cloud") return ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-sub sd-shadow" }, t));
@@ -52,7 +52,7 @@ function sdStock(n, w, hgt) {
   // its name and its value now, small and muted; its history is in its panel (no gauge, no sparkline)
   g.append(s("rect", { class: "hit sd-stock", width: w, height: hgt, "stroke-dasharray": n.outside ? "5 4" : null }));
   const v = sdValue(n);
-  g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
+  g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, nameOf(n)));
   if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v));
   return g;
 }
@@ -84,7 +84,7 @@ function sdCloud(n, w, hgt) {                           // (a cloud a flow leave
 function sdSystem(n, w, hgt) {
   const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
   g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote ? { "stroke-dasharray": "9 5" } : {}) }));
-  g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
+  g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, nameOf(n)));
   const inside = sdInside(S.graph, n.id).length;
   g.append(s("text", { x: 16, y: 42, class: "t-sub" + (n.remote ? " live" : "") }, n.remote ? n.remote.says   // run by another ergostat, read here
     : inside ? `${inside} feedback loop${inside > 1 ? "s" : ""} inside` : "a module: open it to see its structure"));
@@ -106,7 +106,7 @@ function sdSystem(n, w, hgt) {
     // a named connection point (as Stella's module connectors): no square, the line meets the edge at its name
     const cls = "t-sub sd-port-name" + (flowing.has(p.id) || (twin && flowing.has(twin.id)) ? " flow-port" : "");
     g.append(s("text", { x: left ? 8 : w - 8, y: y + 4, class: cls, "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
-      p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
+      p.both ? "⇄ " : "", nameOf(p), p.shown ? s("title", {}, p.label) : null, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
 }

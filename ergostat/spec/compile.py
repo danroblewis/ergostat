@@ -873,6 +873,8 @@ class Compiler:
         spec.template_files = sorted({Path(u["path"]) for u in d.uses.values() if u.get("owners")})
         spec.remotes = dict(d.remotes)                 # each remote system (SPEC §4c): its model's file reloads this one
         spec.remote_files = [Path(r["dir"]) / "model.json" for r in d.remotes.values()]
+        from .belongs import recorded
+        spec.belongs = recorded(d.defined)            # what a template or a remote made: its system and short name
         if d.keep is not None:
             try:
                 spec.keep = parse_duration(d.keep, "keep")

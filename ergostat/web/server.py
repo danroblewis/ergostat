@@ -487,9 +487,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
             if getattr(m.spec, "remotes", None):     # when what remotes' boxes show last read (SPEC §4c)
                 from ..remote.measures import read_times
                 reads = read_times(p, m.spec, snap["at"])
+            from ..shown import shorten  # a part inside its own system's box: its short name (SPEC §2a)
             if sd:
-                return {**finish(fold(dynamics(g, m), m, want, system, reads)), "attention": att}
-            return {**fold(g, m, want, system, reads), "attention": att}
+                return {**shorten(finish(fold(dynamics(g, m), m, want, system, reads)), m.spec), "attention": att}
+            return {**shorten(fold(g, m, want, system, reads), m.spec), "attention": att}
         sel = graph.select(m, system, around, int(one("depth") or 1))
         g = graph.control(m, snap, sel, graph.readings(p, at))
         return {**(dynamics(g, m) if sd else g), "attention": att}

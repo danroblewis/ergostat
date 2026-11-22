@@ -18,6 +18,7 @@ import time
 from ..durations import DurationError, parse_duration
 from ..library.expand import BARE, REF, SECTION_OF, rename
 from ..spec import files
+from ..spec.belongs import own
 from ..spec.ir import NAME
 from ..spec.load import Map, Problem, Where
 
@@ -180,10 +181,11 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
     info["served_parameters"] = sorted(secs.get("parameters") or {})   # every one, systems: or not (taken names)
     made = parts(name, secs, only, every)
     for section, entries in made.items():
-        for pname, got in entries.items():
-            put(section, pname, as_map(got, via), via, {})
+        for pname, (got, there) in entries.items():
+            pw = own(via, name, there)                # the remote's part: its system the remote, as the remote names it
+            put(section, pname, as_map(got, pw), pw, {})
             info["parts"][f"{SINGULAR[section]}.{pname}"] = True
-            info["names"][f"{SINGULAR[section]}.{pname}"] = f"{SINGULAR[section]}.{pname[len(name) + 1:]}"   # served only
+            info["names"][f"{SINGULAR[section]}.{pname}"] = f"{SINGULAR[section]}.{there}"   # served only
     info["show"] = _shown(doc, name, info, secs, made, only, shown, entry.at("show") if shown else via)
 
 
@@ -255,7 +257,8 @@ def kept_systems(secs: dict, only: list[str] | None) -> set[str] | None:
 
 
 def parts(remote: str, secs: dict, only: list[str] | None, every: float) -> dict[str, dict]:
-    """The served sections as this model's: renamed, narrowed to ``only``, blocks external, sensors queries."""
+    """The served sections as this model's: renamed, narrowed to ``only``, blocks external, sensors queries. Each
+    entry is (the part as put here, its name there)."""
     keep_sys = kept_systems(secs, only)
 
     def kept(section: str, v) -> bool:
@@ -293,7 +296,7 @@ def parts(remote: str, secs: dict, only: list[str] | None, every: float) -> dict
                     got["within"] = remote
             elif section != "agents" and (not got.get("system") or got.get("system") in gone):
                 got["system"] = remote
-            out.setdefault(section, {})[f"{remote}-{n}"] = got
+            out.setdefault(section, {})[f"{remote}-{n}"] = (got, n)
     return out
 
 
@@ -446,7 +449,7 @@ def finish(doc, put) -> None:
 
 
 def _stand_in(doc, put, remote: str, plural: str, name: str, info: dict) -> bool:
-    via = info["where"]
+    via = info["where"]                     # (not served, so no name there is recorded: a stand-in shows its full name)
     gone = f"{remote}-gone"
     desc = f"missing from {remote}'s model: a stand-in for a part this model names"
 

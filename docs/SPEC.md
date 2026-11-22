@@ -146,6 +146,20 @@ the instance's name (to give it `show:` or `within:`) is the model's, in place o
 place or drawn alone, in both views, like any system. Templates may use templates; an inner instance is named
 `INSTANCE-INNER` and is within the outer one.
 
+**A part's system.** A part a use names `INSTANCE-NAME` belongs to the system `INSTANCE`, and `NAME` is its
+**short name** there; so does a part a remote serves (§4c): `incidents-open` is remote `incidents`'s `open`. The
+compiled model records both for each such part when it is made (`spec.belongs`, keyed `stock.incidents-open`); it
+never reads them back out of the full name, so a hand-written `incidents-extra` beside remote `incidents` belongs
+to no system's names, nor does a name a parameter gives whole, a `once: true` template's part, the instance's own
+system, or a remote's stand-in for a part it does not serve. An inner instance's system belongs to the outer one
+(`INSTANCE-INNER` is `INSTANCE`'s `INNER`), and the inner instance's parts to it. Full names do not
+change: every reference, event and record keeps them. Only the drawing uses the short name: in the Control and
+Dynamics views, a part drawn inside its own system (the system drilled into, an open system's outline, or the
+closed box whose measure row or port it is) reads by its short name, its full name on hover, in its panel and in
+every link; anywhere else (a terminal at the edge, a view of what is around a part, the Blocks and Process views)
+it reads by its full name, as does a part whose system is not recorded. A short name that would read the same as
+another part drawn beside it is not used: both read by their full names.
+
 **Where it points.** Every part a use makes is written at its `use:` line: an error in one, and every finding
 about one, points there (`job/pings.yaml:3 (use review-reminders: re-ping)`). It is changed only through its
 `with:` (or the template): a proposal that would edit such a part in place (an estimate written, an equation
@@ -774,7 +788,8 @@ remotes:
 
 **What it becomes here.** Each part it serves is put in under the remote's name (`stock.incidents-open`),
 as a template's instance names its parts (§2a), in the system `incidents` (its own systems inside it,
-`incidents-triage`), and points at the `remotes:` line (`ergostat.yaml:3 (remote incidents)`):
+`incidents-triage`), and points at the `remotes:` line (`ergostat.yaml:3 (remote incidents)`); each records its
+system and its short name, the name the remote serves it by (§2a, *A part's system*):
 
 - its **blocks** are `type: external` whatever they are there (never started, leased or evaluated here),
   keeping their inputs and outputs, and a block that named a goal reads that goal's error;
