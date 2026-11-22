@@ -142,7 +142,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
    redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
    change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
-   they say rather than proposing the same idea again. Do not hand-write these parts. The other built-in templates
+   they say rather than proposing the same idea again. Do not hand-write these parts. When the person asks for an
+   architecture review, `ergostat improve --architecture [SYSTEM]` (one haiku call a system, `--max-cost` $1 by
+   default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
+   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    so far its item-index files held at `index-files` (6) by a rule-tier tidier that takes over from the engine's own
    (SPEC §2a, *Upkeep*). Add it when the files a model's changing kinds leave behind should show on the diagram.

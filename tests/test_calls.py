@@ -6,6 +6,7 @@ and answered as soon as the owner answers; a command for another project is neve
 import json
 import os
 import shlex
+import socket
 import subprocess
 import sys
 import textwrap
@@ -207,3 +208,332 @@ def test_the_socket_pages_through_more_items_than_one_listing_holds(tmp_path):
         e.close()
     assert first["total"] == 600 and len(first["items"]) == its.LISTED == 500
     assert len({i["id"] for i in first["items"] + rest["items"]}) == 600, "every one, once, over two pages"
+
+
+def asking(fn) -> tuple[threading.Thread, dict]:
+    """``fn`` called in a thread: what it answered (``out``) or raised (``err``)."""
+    got = {}
+
+    def go():
+        try:
+            got["out"] = fn()
+        except Exception as e:
+            got["err"] = e
+    t = threading.Thread(target=go, daemon=True)
+    t.start()
+    return t, got
+
+
+def started(p) -> Engine:
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    return e
+
+
+NOTED = [{"event": "job.noted", "item": "job/1", "data": {"n": 1}}]
+
+
+def test_a_call_reconnects_across_a_restart(tmp_path):
+    p = project(tmp_path, f"{PY} -c pass")
+    e = started(p)
+    path = e.socket
+    e.close()                                                     # the engine stops: its socket is gone
+    assert not os.path.exists(path)
+    t, got = asking(lambda: client.call("event", path=path, retry=30, root=str(tmp_path), events=NOTED))
+    time.sleep(0.5)                                               # (it is trying again meanwhile)
+    assert t.is_alive() and not got
+    e = started(p)                                                # and starts again, at the same socket
+    try:
+        assert e.socket == path
+        t.join(15)
+        assert got.get("out", got)["recorded"] == 1
+    finally:
+        e.close()
+    assert len(p.events.query(n=None, type="job.noted")) == 1
+
+
+def test_a_call_waits_its_whole_bound_across_a_restart_slower_than_gone(tmp_path, monkeypatch):
+    """``ergostat run`` restarting in place (its storage changed: the same name, so the same state folder and socket)
+    leaves its socket's file, so a run's call waits its whole bound, not ``GONE`` (cut to 0.2 s here, where the
+    restart takes seconds). Fails if the restart's close removes the socket (``Server.keep``): it gives up after GONE."""
+    p = project(tmp_path, f"{PY} -c pass")
+    path = str(path_for(p.dir))
+    monkeypatch.setattr(client, "GONE", 0.2)
+    down, once = [], client.once
+
+    def timed(*a):
+        try:
+            return once(*a)
+        except client.Unavailable:
+            down.append((time.monotonic(), os.path.exists(path)))
+            raise
+    monkeypatch.setattr(client, "once", timed)
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "run", "--foreground", "--no-web"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert wait_for(lambda: client.call("ping", path=path, retry=0) if os.path.exists(path) else None, 60)
+        down.clear()
+        main =tmp_path / "ergostat.yaml"
+        main.write_text(main.read_text() + "storage:\n  logs: {runs: 49}\n")      # taken once it settles: a restart
+
+        def stopped():
+            try:
+                return not once("ping", path, 5.0, {})
+            except client.Unavailable:
+                return True
+        assert wait_for(stopped, 60), "it never restarted"
+        t, got = asking(lambda: client.call("event", path=path, retry=60, root=str(tmp_path), events=NOTED))
+        t.join(60)
+        assert got.get("out", got)["recorded"] == 1
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    assert down and down[-1][0] - down[0][0] > client.GONE, f"the restart was not slower than GONE: {down}"
+    assert all(kept for _, kept in down), "the socket's file was removed during the restart"
+    assert len(p.events.query(n=None, type="job.noted")) == 1
+    assert len(p.events.query(n=None, type="ergostat.started")) == 2, "one restart"
+
+
+def test_long_keys_that_share_a_prefix_name_two_calls():
+    """Fails if an over-long key is cut short (two calls merged as one, lesson-5) rather than hashed."""
+    from ergostat.calls.ops import call_of
+    a, b = "k" * 80 + "a", "k" * 80 + "b"
+    assert call_of({"call": a}) != call_of({"call": b})
+    assert call_of({"call": a}) == call_of({"call": a}) and len(call_of({"call": a})) <= 72
+    assert call_of({"call": "abc"}) == "call-abc"
+
+
+def test_a_call_in_flight_at_the_stop_is_recorded_once(tmp_path):
+    from ergostat.calls.server import Server
+    p = project(tmp_path, f"{PY} -c pass")
+    e = started(p)
+    dropped = threading.Event()
+
+    def stopped_before_answering(conn, out):                      # recorded, then the engine stopped before it answered
+        Server._close(conn)
+        dropped.set()
+    e.calls._answer = stopped_before_answering
+    t, got = asking(lambda: client.call("event", path=e.socket, retry=30, root=str(tmp_path), events=NOTED))
+    assert dropped.wait(10)
+    assert len(p.events.query(n=None, type="job.noted")) == 1     # (it was recorded, unanswered)
+    e.close()
+    e = started(p)
+    try:
+        t.join(15)
+        assert got.get("out", got)["recorded"] == 0, "asked again: already recorded"
+    finally:
+        e.close()
+    assert len(p.events.query(n=None, type="job.noted")) == 1
+
+
+def test_a_gated_action_in_flight_at_the_stop_is_asked_once(tmp_path):
+    p = project(tmp_path, f"{PY} -c pass")
+    cfg = tmp_path / "actions.json"                               # a run with no item: no request of its own is the same
+    cfg.write_text(json.dumps({"block": "probe", "run": "r1", "actions": ["noop", "ask"], "runner": "ergostat"}))
+    e = started(p)
+    t, got = asking(lambda: client.call("act", path=e.socket, retry=30, name="ask", args={}, wait=20.0,
+                                        env={"ERGOSTAT_ACTIONS": str(cfg)}))
+    assert wait_for(lambda: e.calls.parked)                       # held for the owner, the call parked
+    e.close()                                                     # the engine stops with it parked
+    e = started(p)
+    try:
+        assert wait_for(lambda: e.calls.parked), "asked again of the new engine, and parked there"
+        held = list(rec.stored(p).values())
+        assert len(held) == 1 and held[0]["state"] == "requested", "one action, asked once"
+        gate.approve(p, p.model.spec, held[0]["id"], by="owner")
+        t.join(15)
+        assert got.get("out", got)["full"]["state"] == "ran"
+    finally:
+        e.close()
+    assert len(rec.stored(p)) == 1
+
+
+def test_a_gated_action_parked_while_the_engine_stops_is_asked_again(tmp_path, monkeypatch):
+    """The stop lands while the parked-call thread is partway through a pass (the call taken out of ``parked``): the
+    call is not put back on the closed engine, its connection is closed, so its caller asks the new engine."""
+    from ergostat.actions import program
+    p = project(tmp_path, f"{PY} -c pass")
+    cfg = tmp_path / "actions.json"
+    cfg.write_text(json.dumps({"block": "probe", "run": "r1", "actions": ["noop", "ask"], "runner": "ergostat"}))
+    e = started(p)
+    settled, stopped = program.settled, threading.Event()
+
+    def settling(*a, **k):
+        out = settled(*a, **k)
+        if threading.current_thread().name == "ergostat-socket-parked" and not stopped.is_set():
+            stopped.set()
+            e.close()                                             # the stop, in the middle of the pass
+        return out
+    monkeypatch.setattr(program, "settled", settling)
+    t, got = asking(lambda: client.call("act", path=e.socket, retry=30, name="ask", args={}, wait=20.0,
+                                        env={"ERGOSTAT_ACTIONS": str(cfg)}))
+    assert wait_for(stopped.is_set)
+    assert not e.calls.parked, "not put back on the stopped engine"
+    monkeypatch.setattr(program, "settled", settled)
+    e = started(p)
+    try:
+        assert wait_for(lambda: e.calls.parked), "its caller saw the stop and asked the new engine"
+        held = list(rec.stored(p).values())
+        assert len(held) == 1 and held[0]["state"] == "requested"
+        gate.approve(p, p.model.spec, held[0]["id"], by="owner")
+        t.join(15)
+        assert got.get("out", got)["full"]["state"] == "ran"
+    finally:
+        e.close()
+
+
+TWICE = """
+import json, os
+from ergostat.calls.client import call
+env = {k: os.environ[k] for k in ("ERGOSTAT_ITEM", "ERGOSTAT_LEASE", "ERGOSTAT_RUN")}
+run = os.environ["ERGOSTAT_RUN"]
+out = [call("lease", how="renew", env=env, call=run + "r") for _ in range(2)]
+out += [call("lease", how="nack", why="later", after=3600, count=False, env=env, call=run + "n") for _ in range(2)]
+json.dump(out, open("twice.json", "w"))
+"""
+
+
+def test_a_lease_call_asked_again_is_recorded_once(tmp_path):
+    (tmp_path / "twice.py").write_text(TWICE)
+    p = project(tmp_path, f"{PY} twice.py")
+    e = started(p)
+    try:
+        p.events.add("job.arrived", item="job/1", source="test")
+        got = wait_for(lambda: written(tmp_path / "twice.json"))
+    finally:
+        e.close()
+    assert got and got[0]["event"]["id"] == got[1]["event"]["id"] and got[2]["event"]["id"] == got[3]["event"]["id"]
+    assert got[1]["event"] == got[0]["event"] and got[3]["event"] == got[2]["event"], "asked again: the one recorded"
+    assert len([x for x in p.events.query(n=None, type="ergostat.lease.renewed") if x["data"].get("seen") == "asked"]) == 1
+    assert len([x for x in p.events.query(n=None, type="ergostat.lease.ended") if x["data"].get("how") == "nack"]) == 1
+
+
+HOLDS = ("import json, os, time; json.dump({k: os.environ[k] for k in ('ERGOSTAT_ITEM', 'ERGOSTAT_LEASE', "
+         "'ERGOSTAT_RUN')}, open('held.json', 'w')); time.sleep(20)")
+
+
+def test_a_call_the_stopped_engine_recorded_is_recorded_once_by_the_commands_fallback(tmp_path, monkeypatch):
+    """Recorded, its answer lost, the engine stopped and not started again: the command records it itself (as with no
+    engine), under the same key, so once (an event, a renewal, a no-item run's act)."""
+    from ergostat.calls.server import Server
+    from ergostat.cli import main
+    p = project(tmp_path, f"{PY} -c {shlex.quote(HOLDS)}")
+    cfg = tmp_path / "actions.json"
+    cfg.write_text(json.dumps({"block": "probe", "run": "r1", "actions": ["noop", "ask"], "runner": "ergostat"}))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(client, "GONE", 0.3)
+    monkeypatch.setenv("ERGOSTAT_CALL_RETRY", "30")
+
+    def lost(argv, seen, env=None):
+        e = started(p)
+        if env is not None:
+            p.events.add("job.arrived", item="job/1", source="test")
+            got = wait_for(lambda: written(tmp_path / "held.json"))
+            for k, v in got.items():
+                monkeypatch.setenv(k, v)
+        monkeypatch.setenv("ERGOSTAT_SOCKET", e.socket)
+        dropped = threading.Event()
+
+        def stopped_before_answering(conn, out):                  # recorded, then the engine stopped before it answered
+            Server._close(conn)
+            dropped.set()
+        e.calls._answer = stopped_before_answering
+        t, out = asking(lambda: main(argv))
+        assert dropped.wait(10)
+        assert len(seen()) == 1, "recorded by the engine, unanswered"
+        e.close()
+        t.join(15)
+        assert not t.is_alive()
+        assert len(seen()) == 1, "and not again by the command's own fallback"
+        return out.get("out", out)
+
+    assert lost(["event", "--add", "job.noted", "--item", "job/9"], lambda: p.events.query(n=None, type="job.noted")) == 0
+    monkeypatch.setenv("ERGOSTAT_ACTIONS", str(cfg))
+    lost(["act", "ask"], lambda: list(rec.stored(p).values()))
+    monkeypatch.delenv("ERGOSTAT_ACTIONS")
+    assert lost(["lease", "--renew"], lambda: [x for x in p.events.query(n=None, type="ergostat.lease.renewed")
+                                               if x["data"].get("seen") == "asked"], env=True) == 0
+
+
+def test_a_call_past_the_bound_fails(tmp_path, monkeypatch, request):
+    import shutil
+    import tempfile
+
+    from ergostat.cli import main
+    short = tempfile.mkdtemp(prefix="rs-calls-", dir="/tmp")     # (a socket bound below: macOS's tmp_path is past its
+    request.addfinalizer(lambda: shutil.rmtree(short, ignore_errors=True))         # 104-byte limit for a socket's path)
+    nobody = os.path.join(short, "nobody.sock")
+    began = time.monotonic()
+    with pytest.raises(client.Unavailable):
+        client.call("ping", path=nobody, retry=0.5)
+    assert 0.5 <= time.monotonic() - began < 5
+    began = time.monotonic()                                      # a socket whose folder is gone (another machine's,
+    with pytest.raises(client.Unavailable):                       # inherited by a container): no engine comes back
+        client.call("ping", path=str(tmp_path / "gone" / "e.sock"), retry=30)
+    assert time.monotonic() - began < 1
+    gone = tmp_path / "other-machine" / ("x" * LIMIT)            # an inherited run's: its socket in the shared short
+    path_for(gone).parent.mkdir(parents=True, exist_ok=True)     # folder (which exists), its state folder not here
+    monkeypatch.setenv("ERGOSTAT_STATE_DIR", str(gone))
+    began = time.monotonic()
+    with pytest.raises(client.Unavailable):
+        client.call("ping", path=str(path_for(gone)), retry=30)
+    assert time.monotonic() - began < 1
+    monkeypatch.delenv("ERGOSTAT_STATE_DIR")
+    monkeypatch.setattr(client, "GONE", 0.5)
+    began = time.monotonic()                                      # removed (a clean stop) and not made again: GONE
+    with pytest.raises(client.Unavailable):
+        client.call("ping", path=nobody, retry=30)
+    assert 0.5 <= time.monotonic() - began < 3
+    stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)     # left behind (a killed engine): the whole bound
+    stale.bind(nobody)
+    stale.close()
+    began = time.monotonic()
+    with pytest.raises(client.Unavailable):
+        client.call("ping", path=nobody, retry=1.5)
+    assert time.monotonic() - began >= 1.5
+    os.unlink(nobody)
+    monkeypatch.delenv("ERGOSTAT_SOCKET", raising=False)
+    assert client.bound() == 0                                    # a command from a shell: no waiting
+    monkeypatch.setenv("ERGOSTAT_SOCKET", nobody)                 # a run's: the setting, default 2 minutes, at most an hour
+    monkeypatch.delenv("ERGOSTAT_CALL_RETRY", raising=False)
+    assert client.bound() == 120
+    for said, bound in (("x", 120), ("1e9", 3600), ("nan", 120), ("-5", 0), ("0.4", 0.4)):
+        monkeypatch.setenv("ERGOSTAT_CALL_RETRY", said)
+        assert client.bound() == bound
+    from ergostat.daemons.proc import SHARED
+    assert "ERGOSTAT_CALL_RETRY" in SHARED, "a daemon's calls keep the setting (its other ERGOSTAT_ are dropped)"
+    p = project(tmp_path, f"{PY} -c pass")
+    monkeypatch.chdir(tmp_path)
+    began = time.monotonic()
+    assert main(["event", "--add", "job.noted", "--item", "job/1"]) == 0     # then it does what it does today
+    assert time.monotonic() - began >= 0.4
+    assert len(p.events.query(n=None, type="job.noted")) == 1
+
+
+def test_a_call_accepted_as_the_engine_stops_is_closed_so_its_caller_asks_again(tmp_path):
+    """The stop lands between the accept and the hand-over to a worker (queued behind the workers' stop markers, it
+    would never be answered): its connection is closed, so its caller sees the stop at once, not after its timeout."""
+    import ergostat.calls.server as srv
+    p = project(tmp_path, f"{PY} -c pass")
+    box, real = {}, srv.socket.socket
+
+    class Stopping(real):
+        def accept(self):
+            got = super().accept()
+            box["e"].calls.close()                                # the stop, in the gap
+            return got
+    srv.socket.socket = Stopping
+    try:
+        box["e"] = e = started(p)
+    finally:
+        srv.socket.socket = real
+    try:
+        began = time.monotonic()
+        with pytest.raises(client.Unavailable):
+            client.call("ping", path=e.socket, timeout=20, retry=0, root=str(tmp_path))
+        assert time.monotonic() - began < 5, "closed, not left to its read timeout"
+    finally:
+        e.close()

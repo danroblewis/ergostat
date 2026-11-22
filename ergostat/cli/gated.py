@@ -130,10 +130,12 @@ def cmd_act(args) -> int:
         vals[k] = v
     wait = parse_duration(args.wait, "--wait") if args.wait else 0.0
     from ..calls.client import Refused
+    from ..calls.ops import act_key
     from . import fast
+    once = fast.key()                                    # the same in the fallback below: asked once
     try:                                                 # the running engine asks it, when one listens (calls/)
         sent = fast.call(args, "act", timeout=wait + 3600.0, name=args.name, args=vals, key=args.key, wait=wait,
-                         env=fast.env())
+                         env=fast.env(), call=once)
     except Refused as e:
         print(str(e), file=sys.stderr)
         return e.code
@@ -148,7 +150,8 @@ def cmd_act(args) -> int:
     if spec is None:
         return 2
     try:
-        a = program.ask(p, spec, program.given(), args.name, vals, key=args.key, wait=wait)
+        cfg = program.given()
+        a = program.ask(p, spec, cfg, args.name, vals, key=act_key(cfg, {"key": args.key, "call": once}), wait=wait)
     except program.AskError as e:
         print(f"refused: {e}", file=sys.stderr)
         return 2
