@@ -276,3 +276,11 @@ out, which fails closed. Nothing else changed. A `python3` heredoc to edit the f
 resolved with the editor. Run in round 6, one group at a time: `test_rga` + `test_control` (90 passed),
 `test_redesign` + `test_spec_mcp_explain` + `test_architecture` (32). Ruff is clean. I did not run the whole unit
 suite or the browser files.
+
+Round 7: the factory merged main (48b1481a) into the branch, and it conflicted in `ergostat/numbers/redesign_due.py`.
+Main added `review_of(reqs, unit)` just above `signature`, and its `signature` body was otherwise unchanged. Both were
+kept (d36e1258): main's `review_of`, then the branch's `ALL` and `signature(..., kinds=ALL)`. `ALL` is still exactly
+`architecture.PARTS`'s five kinds, so the redesign signature's default is byte-for-byte main's. No review findings
+were given this round beyond the conflict, and nothing else changed. Run in round 7, one group at a time: `test_rga` +
+`test_control` + `test_redesign` (112 passed), `test_redesign_memory` + `test_architecture_review` +
+`test_spec_mcp_explain` (27). Ruff is clean. I did not run the whole unit suite or the browser files.
