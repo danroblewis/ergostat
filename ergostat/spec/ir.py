@@ -233,14 +233,35 @@ LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or 
 }
 
 
-UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|rollup-due|events-past-keep|measurements-due)$")
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|heartbeat-age|stalls|restarts|rollup-due"
+                    r"|events-past-keep|measurements-due)$")
 UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
     "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
     "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
+    "ergostat.upkeep.heartbeat-age": "seconds since the last pass heartbeat.json gives; no reading without one",
+    "ergostat.upkeep.stalls": "ergostat.engine.stalled events over the last hour (the engine's watchdog)",
+    "ergostat.upkeep.restarts": "ergostat.engine.restarted events over the last day (the outer watcher)",
     "ergostat.upkeep.rollup-due": "items with events past their roll-up horizon outside a snapshot: what compact would roll",
     "ergostat.upkeep.events-past-keep": "events older than the model's keep that pruning would forget, now",
     "ergostat.upkeep.measurements-due": "measurement rows past storage: measurements: raw, or past their tier's keep, now",
 }
+STALE_RANGE = (60, 3600)           # the seconds use: upkeep's heartbeat-fresh may give the outer watcher (SPEC §2a)
+
+
+def stale_ok(x) -> bool:
+    """A real number of seconds within ``STALE_RANGE``: never a bool, NaN or infinity (each fails the comparison)."""
+    return isinstance(x, int | float) and not isinstance(x, bool) and STALE_RANGE[0] <= x <= STALE_RANGE[1]
+
+
+def heartbeat_stale(spec) -> float | None:
+    """The limit of ``use: upkeep``'s goal ``heartbeat-fresh`` (ergostat's own template), for ``heartbeat.json``; None
+    in a model without it, or with one outside ``STALE_RANGE``."""
+    for inst, u in (getattr(spec, "uses", None) or {}).items():
+        if isinstance(u, dict) and u.get("template") == "upkeep" and not u.get("owners"):
+            g = (getattr(spec, "goals", None) or {}).get("heartbeat-fresh")
+            if g is not None and g.system == inst and g.hold.op == "<=" and stale_ok(g.hold.value):
+                return float(g.hold.value)
+    return None
 
 
 def is_measure(name: str) -> bool:
@@ -480,6 +501,7 @@ class Sensor:
     builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
+    untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
 
     @property
     def window(self) -> float:
@@ -663,6 +685,7 @@ class Block:
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
+    untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
 
     @property
     def builtin(self) -> bool:
