@@ -306,6 +306,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "flows": lp.flows, "controller": c.name, "last_read": last_read,
                           "last_decision": decisions[-1] if decisions else None, "last_opening": last_open,
                           "observed": cycled, "off_share": round(off_share, 3), "open_loop": lp.open_loop,
+                          "off_since": off_from, "off_before_window": off_from is not None and off_from <= start,
                           "answers_in": answers[len(answers) // 2] if answers else None,
                           "back_in": recoveries[len(recoveries) // 2] if recoveries else None,
                           "back_in_slowest": recoveries[-1] if recoveries else None, "times_off": len(recoveries),

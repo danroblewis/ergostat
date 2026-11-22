@@ -2377,6 +2377,101 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     assert not errors and not asked, (errors, asked)
 
 
+PHONE_GOALS = """
+name: phone
+stocks:
+  queue:
+    sensor:
+      manual: true
+  requests-handled:
+    sensor:
+      manual: true
+goals:
+  short-queue:
+    stock: queue
+    hold: "<= 5"
+  requests-handled:
+    stock: requests-handled
+    hold: "<= 0"
+flows:
+  draining:
+    from: queue
+  handling:
+    from: requests-handled
+blocks:
+  drainer:
+    type: program
+    run: echo 1
+    goal: short-queue
+    out: flow.draining
+  handler:
+    type: program
+    run: echo 1
+    goal: requests-handled
+    out: flow.handling
+"""
+
+
+def test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long_off(browser, tmp_path, monkeypatch):
+    """At 390x844, in light and dark, the Loops page is one card per goal, off goals first: its name and status, then
+    its value against its bound, how long it has been off and how soon it is usually back; nothing scrolls sideways."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "phone"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(PHONE_GOALS)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    for t in (now - 3600, now - 30):                       # an hour of record
+        p.measurements.add("sensor/queue.main", 3, at=t)
+        p.measurements.add("sensor/requests-handled.main", 36, at=t)
+    p.events.add("loop.off", item="requests-handled", data={"value": 4}, at=now - 3000)     # an earlier spell, 30s long
+    p.events.add("loop.holding", item="requests-handled", data={"value": 0}, at=now - 2970)
+    p.events.add("loop.off", item="requests-handled", data={"value": 36}, at=now - 2160)    # off these 36 minutes
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        for scheme in ("light", "dark"):
+            pg = browser.new_page(viewport={"width": 390, "height": 844}, color_scheme=scheme)
+            errors: list[str] = []
+            pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
+            pg.goto(url + "/loops")
+            pg.wait_for_function("() => document.querySelectorAll('table.loops td.card').length === 2", timeout=20000)
+            got = pg.evaluate("""() => [...document.querySelectorAll('table.loops td.card')].map((c) => {
+                const r = c.getBoundingClientRect();
+                return {text: c.innerText, left: r.left, right: r.right, shown: r.width > 0 && r.height > 0};
+            })""")
+            assert [c["text"].split("\n")[0] for c in got] == ["requests-handled · off", "short-queue · holding"], (scheme, got)
+            assert got[0]["text"].split("\n")[1] == "36 against ≤ 0 · off 36m · usually back in 30s", (scheme, got)
+            assert all(c["shown"] and c["left"] >= 0 and c["right"] <= 390 for c in got), (scheme, got)
+            hidden = pg.evaluate("() => [...document.querySelectorAll('table.loops th, table.loops td:not(.card)')]"
+                                 ".filter((x) => x.getBoundingClientRect().width > 0).length")
+            assert hidden == 0, (scheme, hidden)
+            widths = pg.evaluate("() => [document.documentElement, document.querySelector('main'), "
+                                 "document.querySelector('.table-wrap')].map((x) => [x.scrollWidth, x.clientWidth])")
+            assert all(sw == cw for sw, cw in widths), (scheme, widths)
+            pg.close()
+            assert not errors, errors
+        pg = browser.new_page(viewport={"width": 1200, "height": 844})       # wider: the table as it was, no cards
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelectorAll('table.loops tr.click').length === 2", timeout=20000)
+        assert pg.evaluate("() => [...document.querySelectorAll('table.loops td.card')].every((c) => !c.offsetWidth)")
+        assert pg.locator("table.loops th").first.is_visible()
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
     """They help and they clutter: the ⋯ menu hides them; a reload keeps them hidden; it shows them again."""
     with served("software-factory", tmp_path) as url:

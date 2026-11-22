@@ -49,6 +49,12 @@ async function pageLoops(main) {
         if (cell) setText(cell, perf[n]);
       }).catch(() => {});
     }
+    // on a phone each goal is a card (style.css): its name and status, then its value against its bound, how long off
+    const offFor = (lp) => lp.status !== "off" ? null : lp.off_since == null ? "off since ?"
+      : `off ${lp.off_before_window ? "over " : ""}${dur(nowS() - lp.off_since)}`;
+    const card = (n, lp) => h("td", { class: "card" }, h("div", {}, h("b", {}, n), " · ", statusEl(lp.status)),
+      h("div", { class: "muted" }, [`${fmt(lp.value)} against ${op(lp.setpoint)}`, offFor(lp),
+        lp.back_in != null ? `usually back in ${dur(lp.back_in)}` : null].filter(Boolean).join(" · ")));
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
         h("td", { class: "nowrap" }, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
@@ -61,7 +67,8 @@ async function pageLoops(main) {
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
           (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
         h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, perf[n] || ""),
-        h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
+        h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no")),
+        card(n, lp))), "loops"));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
