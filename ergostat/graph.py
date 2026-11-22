@@ -244,6 +244,22 @@ def causal_loops(model) -> list[dict]:
              "links": [dict(x) for x in c["links"]], "_pairs": set(c["_pairs"])} for c in kept["graph.causal_loops"]]
 
 
+def goal_loops(model, goal: str) -> dict:
+    """A goal's loops, from the spec only: the feedback loops that close it (each with its Dynamics label, R1, B2),
+    and its control loop's parts (sensor, controller, actuator), as Blocks draws them."""
+    from .dynamics import labels
+    spec = getattr(model, "spec", None)
+    if spec is None or goal not in spec.goals:
+        return {"feedback_loops": [], "control_loop": None}
+    every = causal_loops(model)
+    tags = labels(every)
+    lp = spec.loop(goal)
+    return {"feedback_loops": [{"name": c["name"], "label": tags[c["name"]], "polarity": c["polarity"]}
+                               for c in every if c["goal"] == goal],
+            "control_loop": {"name": goal, "sensors": list(lp.sensors), "controllers": list(lp.controllers),
+                             "actuators": list(lp.actuators)}}
+
+
 def _causal_loops(spec) -> list[dict]:
     from .spec.causal import loops
     from .spec.ir import sign_text
@@ -260,7 +276,7 @@ def _causal_loops(spec) -> list[dict]:
         if len(nodes) > 1 and nodes[0] == nodes[-1]:
             nodes.pop()
         pairs = {(a, b) for a, b in zip(nodes, nodes[1:] + nodes[:1], strict=False) if a != b}
-        out.append({"name": lp.name, "polarity": lp.polarity, "goals": lp.goals, "parts": lp.parts, "nodes": nodes,
+        out.append({"name": lp.name, "polarity": lp.polarity, "goal": lp.goal, "goals": lp.goals, "parts": lp.parts, "nodes": nodes,
                     "links": [{"source": x.source, "target": x.target, "polarity": sign_text(x.sign), "kind": x.kind}
                               for x in lp.links], "_pairs": pairs})
     return out

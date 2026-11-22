@@ -425,8 +425,10 @@ function sdLoopList(side, g) {
   const known = sort(sdLoopGroups(g).flatMap((x) => x.loops));
   const unknown = sort(sdLoopGroups(g, null, true).flatMap((x) => x.loops).filter((c) => !c.polarity));
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
-  const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
-  side.append(h("h3", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
+  const every = new Map([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => [c.name, c]));   // (one loop may run through two modules)
+  const closing = [...every.values()].filter((c) => c.goal).length;      // the reconciliation with the goals: those it closes
+  side.append(h("h3", { class: "sd-loops-head" }, `${every.size} feedback loop${every.size === 1 ? "" : "s"}`,
+    h("span", { class: "muted" }, `, ${closing} close${closing === 1 ? "s" : ""} a goal`)));
   const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
     h("div", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), h("span", {}, c.name)),
@@ -735,6 +737,7 @@ function openCausal(name) {
   const minus = signs.filter((x) => x === MINUS).length, unknown = signs.filter((x) => x === "?").length;
   showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
     h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label)), h("div", { class: "subtitle" }, c.name),
+    c.goal ? h("p", { class: "serves" }, "Serves goal ", h("a", { href: "#", class: "goal-link", onclick: (ev) => { ev.preventDefault(); openLoop(c.goal); } }, c.goal)) : null,
     h("p", {}, c.polarity && (!rows.length || signs.some((x) => x === "")) ? `${word[0].toUpperCase()}${word.slice(1)} by the signs of its links in the model; not all of them are drawn in this view (open its system to see them).`
       : c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
                           : `${unknown || "a"} link${unknown === 1 ? "" : "s"} along it ${unknown === 1 ? "has" : "have"} no known sign, so whether it reinforces or balances is not known.`),

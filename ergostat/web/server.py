@@ -552,7 +552,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     "description": c.description, "parts": parts,
                     "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
                     "decisions": st.decisions(p, name, since, snap["at"]),
-                    "hints": [h for h in snap["hints"] if h["controller"] == name]}
+                    "hints": [h for h in snap["hints"] if h["controller"] == name], **graph.goal_loops(m, name)}
         return snap["loops"]
     if head == "agents":
         if name:
