@@ -136,6 +136,66 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
+NAV = ["/diagram", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
+
+
+@pytest.fixture(scope="module")
+def nav_site(tmp_path_factory):
+    """A site of its own: opening every page records ergostat's first offered changes, which `site`'s tests count."""
+    d = tmp_path_factory.mktemp("nav") / EXAMPLE
+    shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("size", [(390, 844), (720, 450)], ids=["phone", "zoom-200"])
+def test_the_navigation_shows_every_page_at_phone_width_and_at_200_percent_zoom(browser, nav_site, size):
+    """Below 760 px the tabs wrap onto rows of their own: all eight inside the viewport on every page, nothing
+    scrolled sideways, and the current page still underlined."""
+    site = nav_site
+    w, h = size
+    pg = browser.new_page(viewport={"width": w, "height": h})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    for route in NAV:
+        pg.goto(f"{site}{route}")
+        pg.wait_for_selector(f'#nav a.on[href="{route}"]')
+        pg.wait_for_timeout(300)
+        seen = pg.evaluate("""() => ({
+            links: [...document.querySelectorAll("#nav a")].map((a) => {
+                const r = a.getBoundingClientRect();
+                return { href: a.getAttribute("href"), left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+            }),
+            scroll: document.scrollingElement.scrollWidth, client: document.scrollingElement.clientWidth,
+            rows: new Set([...document.querySelectorAll("#nav a")].map((a) => Math.round(a.getBoundingClientRect().top))).size,
+            under: getComputedStyle(document.querySelector("#nav a.on")).borderBottomColor,
+            plain: getComputedStyle(document.querySelector("#nav a:not(.on)")).borderBottomColor,
+        })""")
+        assert [a["href"] for a in seen["links"]] == NAV, (route, seen)
+        out = [a for a in seen["links"] if a["left"] < 0 or a["top"] < 0 or a["right"] > w or a["bottom"] > h]
+        assert not out, (route, size, out)
+        assert seen["scroll"] == seen["client"], (route, size, seen)
+        assert seen["rows"] <= 2, (route, size, seen)                          # two rows at most
+        assert seen["under"] != seen["plain"], (route, seen)                    # the current page underlined
+    assert not errors, errors
+    pg.close()
+
+
 def test_items_list_sorts_by_a_column(browser, site):
     """A column's header sorts the list by its field (up, down, off), kept in the address (sort=FIELD, -FIELD)."""
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})

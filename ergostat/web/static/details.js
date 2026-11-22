@@ -215,14 +215,19 @@ function goalAhead(name, lp) {
   return box;
 }
 
+/* an agent's roles, each valve with the goal it serves: "valve work → goal located-worked" */
+const rolesText = (roles) => (roles || []).map((r) => `${r.kind} ${r.name}` + (r.goal ? ` → goal ${r.goal}` : "")).join(", ");
+
 async function openAgent(name) {
   const a = await api(`agents/${encodeURIComponent(name)}`);
   const kids = [h("div", { class: "kind" }, `Agent, ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
-        ["runs", a.schedule || "not run by ergostat"],
-        ["fills", (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || "nothing"],
+        ["runs", a.schedule || (a.leased ? "started per item by its lease, not on a schedule"
+          : a.runs_itself ? "on demand, not on a schedule" : "not run by ergostat")],
+        ["fills", rolesText(a.roles) || "nothing"],
         ["the load", (a.loads || []).map((x) => `disturbance ${x}`).join(", ") || null],
-        ["in window", `${a.runs} runs, ${a.failed} failed` + (a.refused ? `, ${a.refused} lines refused` : "") + (a.unread ? `, ${a.unread} unreadable` : "")],
+        ["in window", `${a.runs} runs: ${a.runs - a.failed - (a.pool_full || 0)} done, ` +
+          (a.pool_full ? `${a.pool_full} refused (workspace pool full), ` : "") + `${a.failed} failed` + (a.refused ? `, ${a.refused} lines refused` : "") + (a.unread ? `, ${a.unread} unreadable` : "")],
         ["durations", (() => { const ss = (a.recent || []).slice(-40).map((e) => e.data.seconds).filter((x) => x != null);
                                return ss.length ? `${Math.min(...ss)}s to ${Math.max(...ss)}s over its last ${ss.length} runs` : null; })()],
         ["stale", (a.stale || []).length ? `no recent reading from ${a.stale.join(", ")}` : null],
