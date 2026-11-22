@@ -111,3 +111,17 @@ Round 4: main (720426bd) merged in. Its conflicts in diagram.js and style.css ar
 - Run: `tests/test_inbox_page.py` and the grouping test (5 passed), `tests/test_items_page.py` (23 passed), both under
   the watchdog with Playwright; `tests/test_inbox.py` (32 passed); ruff clean. Not run here: the unit suite and the
   rest of the four browser files, which the merge queue runs.
+
+Round 5: main (d1bfd1a0) merged in. Its conflicts in diagram.js and pages.js are resolved, keeping both sides. No net
+lines of code were added in this round.
+
+- diagram.js: main added `goalButton`/`showGoal` (a goal's name in the side list opens its evidence). They sit beside
+  this gap's `inboxBody`. In the side list's row, an entry waiting on the owner still draws its sentence
+  (`inboxBody`). Any other entry draws main's goal button when its `what` is `loop {name}`.
+- pages.js (the list of actions about an item): main's muted line is kept (`gate`, `asked by`, who approved it), and
+  this gap's folded `commandBox` replaces main's open `<pre>`.
+- Run: `tests/test_inbox_page.py` (4 passed), `tests/test_items_page.py` (25 passed), and from
+  `tests/test_diagram_rendering.py` the grouping test (1 passed) and main's goal-name test (2 passed). All four were
+  run under the watchdog with Playwright. Also run: `tests/test_inbox.py` (32 passed); ruff clean. The whole of
+  `tests/test_diagram_rendering.py` ran past this session's 10-minute limit for one command and was stopped. It was not
+  seen to pass here. That file, the unit suite and the rest of the four browser files are left to the merge queue.
