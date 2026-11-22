@@ -176,3 +176,54 @@ Review 3 had one blocking finding and three non-blocking ones. All four are answ
 - Overrun reason: the code in dev/ is about 279 net lines, 99 over 180. Round 4 adds about 18 (the measure-load role,
   the wall bound, the needs check) on top of round 2's two review fixes. The factory's own count, which leaves out
   dev/, is 4.
+
+### Round 5
+
+Review 4 had one blocking finding and three non-blocking ones. Each is answered below (lesson-12).
+
+- **Blocking: the manager's measurement ran inside its 1 h block.** It no longer does. When the pipeline manager calls
+  `measure-runs` (manage.BY is `pipeline-manager`), manage.py runs no runs. It checks the call as it would be checked
+  when run: the parser's caps, then `measurable` on the gap. Then it asks for the new gated action `manager-measure`
+  (dev/model/manager.yaml, `gate: approve`, `timeout: 13h`, listed in the block's `actions`), and records the ask as an
+  intervention, `held`, like `close` and `park`. The manager's session ends at once. Once the coordinator approves,
+  ergostat runs the action's command outside the block. That command is the same `manage.py measure-runs` with the
+  same arguments, now as the coordinator, with a 13 h timeout, which is past `runs.WALL` (12 h). The coordinator's own
+  call by hand runs at once, as before. The prompt, dev/README.md and CLAUDE.md say which path is which. The prompt no
+  longer says "it runs for as long as the runs take" of the session. `--load 0` now parses as no load, because an
+  action's arguments cannot be empty. Decision taken alone (reversible): the measurement waits for the coordinator's
+  approval. I did not give it a block of its own, because an approval is the smallest change, and the ladder can move
+  the `measure` class to AI or to a program later. The approved command runs in the process that carries out the
+  approval (the engine's thread, or the process the approval was given in). That process waits for it, and
+  dev/README.md says so.
+  New test: `test_the_manager_s_measurement_is_asked_not_run_inside_its_block`. It runs manager.py with a stand-in
+  answer that calls `measure-runs`. The action is held, no run is made, no load is started and the gap stays built.
+  The test then fills the model's own `manager-measure` template with the asked arguments, using `gate.render` and
+  its shell quoting. It runs that command and sees 2 of 2 runs pass at the head, with `-n 8 tests/test_leases.py`
+  reaching the suite whole. It also checks that the action's timeout is greater than WALL, which is greater than the
+  block's timeout. Last, it checks that a kill-rule park is refused at ask time, with no action asked.
+- **Non-blocking: a single run had no wall time of its own.** It has one now. Each run is bounded by the time left of
+  `runs.WALL`. `runs.deadline` sets a SIGALRM that raises `Late` inside `fac.suite`, whose finally kills the run's
+  process group, and runs.py's finally kills its container. The run counts as failed ("stopped: past the ... wall
+  bound"), and no other run starts. So a hung run no longer holds the slot and the load until some other process's
+  sweep. The whole measurement ends within WALL, inside the action's 13 h. One limit: the signal reaches only the main
+  thread, and off it the run has no bound. manage.py's runs are on its main thread. New test:
+  `test_a_run_that_hangs_is_stopped_at_the_wall_bound`. With WALL at 2 s, a stand-in that sleeps 60 s is stopped and
+  its process is gone, and the second run is not started.
+- **Non-blocking: start_new_session, so an engine killpg of the caller does not reach a run in progress.** This stays.
+  On SIGTERM the finallies stop the run and the load (tested in round 4). On SIGKILL the load ends by its heartbeat.
+  A run in progress then carries on to its own end, or to the 70 min sweep of its `suite` container, so it is
+  bounded. Its own new session is what lets `fac.suite` kill its whole group. The manager path no longer runs
+  measurements, so the engine's block timeout can no longer cause this.
+- **Non-blocking: not run by the reviewer.** Noted. The runs made here are listed below.
+- **Breaks (lesson-9).** I broke each guard and watched its test fail:
+  - measure-runs run in-process from the manager again: the manager test failed (the gap went to fix in the block);
+  - the ask-time `measurable` check removed: the manager test failed (a kill-rule park was asked for);
+  - `deadline` made a no-op: the hang test failed (the run was read as exit 0 after its 60 s sleep, not stopped).
+- **Run here.** `tests/test_factory_measure_runs.py`: 13 passed. `tests/test_factory_manager.py`: 33 passed. That was
+  before the runs.py change, which that file does not use. `uv run ruff check ergostat tests scripts` is clean, and so
+  are dev/bin/runs.py and dev/bin/manage.py. `ruff check dev/bin` finds 2 errors, in plan.py (B023) and review.py
+  (E501). This branch touches neither file. **Not run here:** the unit suite, the four browser files and any real
+  30-run load. The factory runs those. No main merge: local `main` has nothing the branch lacks.
+- Overrun reason: the code in dev/ is about 319 net lines, 139 over 180. Round 5 adds about 40: the gated
+  manager-measure action (manage.py +5, manager.yaml +8) and the per-run wall bound (runs.py +27). Both answer review
+  4's findings, on top of rounds 2 and 4's review fixes. The factory's own count, which leaves out dev/, is 5.

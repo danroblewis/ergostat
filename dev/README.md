@@ -664,8 +664,9 @@ or has not changed for `[suites] load_stale_s` (30 s, at most 300). So if manage
 within about that time. A run during which the load had ended counts as a failure. The load's container has the role
 `measure-load`, which other processes' container sweeps (`agents.sweep`) leave for 12 h (`runs.WALL`) plus 10 min, not
 a suite's 70 min. A measurement starts no run that would end past those 12 h, judged by its longest run so far; each
-run not started counts as a failure. Each run's own container is a suite's, so a single run past 70 min may be swept
-and then counts as a failure. Each cap is checked when the call
+run not started counts as a failure. A run still going at those 12 h (one that hangs) is stopped there, its process
+group and container with it, and counts as a failure. Each run's own container is a suite's, so a single run past
+70 min may be swept by another process and then counts as a failure. Each cap is checked when the call
 is parsed and again when it runs. A run passes only on exit 0 with the watchdog's last line saying pytest's rc 0 and
 nothing killed. A killed run counts as a failure, and so does one whose log or watchdog line cannot be read. A parked
 gap is measured only if it was parked for `defect`, or for `needs` with a `parked_until` action that names a
@@ -679,6 +680,12 @@ Before the gap is moved, its state, its branch and the park checks are read agai
 longer one a measurement may move (resumed meanwhile, say), it keeps its state, the counts are recorded alone
 (`gap.measured`) and the call is refused. The engine's takes share no lock, so a reviewer that takes a built gap
 between the second read and the write is not seen: that window is one record read wide.
+Who runs it: the coordinator by hand runs it at once, in their own process. The pipeline manager's call is never run
+inside its block (which ends within 1 h, before a 30-run loaded measurement could): it is checked (the caps, the park
+checks) and asked in the inbox as the action `manager-measure`. Once approved, ergostat runs that action's command,
+the same `manage.py measure-runs` as the coordinator's, outside the block and with a timeout of 13 h, past `runs.WALL`.
+It runs in whichever process carries out the approval (the engine's, or the one the approval was given in), which
+waits for it.
 
 **Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
 records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in

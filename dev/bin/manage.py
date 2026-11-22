@@ -6,7 +6,8 @@ intervention by whoever asked (the coordinator by hand, `pipeline-manager` from 
                                         failed (the checkout, or a container) must fail there too
   measure-runs GAP --runs N --tests T [--load K]   a parked or built gap's named measurement (runs.py): N watched
                                         runs (1-50) of the pytest selection T on its branch head, the CPU loaded by K
-                                        busy processes (1-8); all passed: back to review, else to fix with the tail
+                                        busy processes (1-8); all passed: back to review, else to fix with the tail;
+                                        from the block's run, asked in the inbox (manager-measure, run outside it)
   flake TEST --why W                    the test recorded as a flake
   file-gap --title T --definition-text D [--depends-on a,b] [--branch B]
   remedy INTERVENTION --why W           an open intervention remedied (a queue one: main clean and pushed)
@@ -37,7 +38,8 @@ CLASSES = {"continue": "parked-continued", "reapprove": "environment-defect", "f
            "remedy": "remedied", "measure-runs": "operator-decision", "close": "groom", "park": "stuck", "pool": "operator-decision",
            "change": "factory-change", "propose": "velocity", "ask": "velocity-research"}
 MEASURED_PARKS = ("needs", "defect")      # the park kinds a measurement may clear (manage.measurable)
-GATED = {"close": "manager-close", "park": "manager-park", "pool": "manager-pool", "change": "manager-change"}
+GATED = {"close": "manager-close", "park": "manager-park", "pool": "manager-pool", "change": "manager-change",
+         "measure-runs": "manager-measure"}       # (measure-runs gated only from the block's run: hours, past its 1 h)
 
 
 class Refused(Exception):
@@ -301,10 +303,13 @@ def ask(a) -> str:
 
 def gated(cfg: dict, a) -> str:
     args = {"close": lambda: {"gap": a.gap}, "park": lambda: {"gap": a.gap}, "pool": lambda: {"role": a.role, "to": str(int(a.n))},
-            "change": lambda: {"what": a.what}}[a.cmd]()
-    if a.cmd in ("close", "park"):
-        item(a.gap)
-    rc, said = fac.act(GATED[a.cmd], key=fac.slug(f"{a.cmd}-{json.dumps(args)}", 60), why=a.why, **args)
+            "change": lambda: {"what": a.what},
+            "measure-runs": lambda: {"gap": a.gap, "runs": str(a.runs), "tests": a.tests, "load": str(a.load)}}[a.cmd]()
+    if a.cmd in ("close", "park", "measure-runs"):
+        g = item(a.gap)
+        if a.cmd == "measure-runs":                              # (refused now if it would be refused when run)
+            measurable(g)
+    rc, said = fac.act(GATED[a.cmd], key=fac.slug(f"{a.cmd}-{json.dumps(args)}", 60), why=a.why or a.cmd, **args)
     how = {0: "ran", 1: "failed", 3: "held for the coordinator", 4: "denied"}.get(rc)
     if how is None:                                              # (asked outside the block's run, or not its action)
         raise Refused(f"{GATED[a.cmd]} was not asked: {said[-300:]}")
@@ -345,7 +350,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("gap")
     p.add_argument("--runs", type=runs.count, required=True)
     p.add_argument("--tests", type=lambda t: shlex.join(runs.selection(t)), required=True)
-    p.add_argument("--load", type=runs.procs, default=0)
+    p.add_argument("--load", type=lambda t: 0 if t == "0" else runs.procs(t), default=0)   # (0: no load)
     p.add_argument("--why", default="")
     p.add_argument("--class", dest="cls", default="")
     return ap
@@ -357,7 +362,7 @@ def run(cfg: dict, argv: list[str]) -> dict:
         a = parser().parse_args(argv)
         if a.cls and not fac.SAFE.match(a.cls):
             raise Refused(f"--class {a.cls!r}: lowercase words and dashes")
-        if a.cmd in GATED:
+        if a.cmd in GATED and (a.cmd != "measure-runs" or BY[0] != "coordinator"):
             return {"call": argv, "ok": True, "said": gated(cfg, a)}
         do = {"continue": do_continue, "reapprove": do_reapprove, "flake": do_flake, "remedy": do_remedy,
               "measure-runs": do_measure_runs, "propose": do_propose, "ask": do_ask,

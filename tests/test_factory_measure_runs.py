@@ -239,6 +239,42 @@ def test_a_park_a_measurement_cannot_clear_is_refused(tmp_path):
     assert "back to built" in f.measure("pass", "--runs", "1", "--tests", "tests/test_x.py")
 
 
+def test_the_manager_s_measurement_is_asked_not_run_inside_its_block(tmp_path):
+    from ergostat.actions import gate
+    from ergostat.spec import read
+    spec, _ = read(ROOT / "ergostat.yaml")
+    act, block = spec.actions["manager-measure"], spec.blocks["pipeline-manager"]
+    assert act.gate == "approve" and act.timeout > runs_module().WALL > block.timeout    # (hours: past the block's 1 h)
+    assert "manager-measure" in block.params["actions"]
+    f = Measured(tmp_path)
+    head = f.tip()
+    sit = f.watch()
+    answer = {"calls": [["measure-runs", f.gid, "--runs", "2", "--tests", "-n 8 tests/test_leases.py", "--load", "2",
+                         "--why", "its 30 loaded runs"]], "answers": {}, "summary": "asked for the measurement"}
+    said, _ = f.run("manager.py", sit["id"], FACTORY_STANDIN_PIPELINE_MANAGER="```json\n" + json.dumps(answer) + "\n```")
+    f.drain()
+    (done,) = f.item(sit["id"])["fields"]["actions"]
+    assert done["ok"] and "manager-measure: held for the coordinator" in done["said"], done
+    assert f.ran() == [] and not f.pid.exists() and f.item(f.gid)["state"] == "built"      # nothing ran in the block
+    (asked,) = [a for a in f.db()["acts"] if a[1] == "manager-measure"]
+    args = dict(x.split("=", 1) for x in asked[asked.index("--arg"):][1::2])
+    assert args == {"gap": f.gid, "runs": "2", "tests": "-n 8 tests/test_leases.py", "load": "2",
+                    "why": "its 30 loaded runs"}
+    f.plan.write_text("pass pass")                                 # approved: its command, run outside the block
+    cmd = gate.render(act, args, {}).replace("python3 dev/bin/manage.py", f"{sys.executable} {BIN / 'manage.py'}")
+    r = subprocess.run(cmd, shell=True, cwd=f.model, env=f.env, capture_output=True, text=True, timeout=120)
+    f.drain()
+    assert r.returncode == 0 and "2 of 2 runs passed" in r.stdout, r.stderr
+    assert [x["argv"][-3:] for x in f.ran()] == [["-n", "8", "tests/test_leases.py"]] * 2
+    (m,) = f.item(f.gid)["fields"]["measured_runs"]
+    assert (m["head"], m["passed"], m["load"]) == (head, 2, 2)
+    f.set_state("parked", parked_for="kill-rule")                  # refused when asked, as it would be when run
+    done = f.py("import fac, manage\nmanage.BY[0] = 'pipeline-manager'\nprint(json.dumps(manage.run(fac.config(), "
+                "['measure-runs', sys.argv[1], '--runs', '1', '--tests', 'tests/test_x.py'])))", f.gid)
+    assert not done["ok"] and "kill-rule" in done["said"]
+    assert len([a for a in f.db()["acts"] if a[1] == "manager-measure"]) == 1
+
+
 def test_the_load_ends_on_its_own_when_its_caller_is_killed(tmp_path):
     f = Measured(tmp_path)
     f.plan.write_text("hang")
@@ -324,6 +360,17 @@ def test_no_run_starts_past_the_wall_bound(tmp_path):
                "print(json.dumps([[r['passed'], r.get('why')] for r in m['runs']] + [m['passed'], m['failed']]))", f.gid)
     late = "not started: past the 1.5 s wall bound"
     assert got == [[True, None], [False, late], [False, late], 1, 2] and len(f.ran()) == 1
+
+
+def test_a_run_that_hangs_is_stopped_at_the_wall_bound(tmp_path):
+    f = Measured(tmp_path)
+    f.plan.write_text("hang pass")                  # (the stand-in sleeps 60 s: only the wall can end it sooner)
+    began = time.monotonic()
+    got = f.py("import fac, manage, runs\ncfg = fac.config()\nruns.WALL = 2\n"
+               "m = runs.measure(cfg, manage.item(sys.argv[1]), 2, ['tests/test_x.py'])\n"
+               "print(json.dumps([[r['passed'], r.get('rc'), r.get('why')] for r in m['runs']] + [m['failed']]))", f.gid)
+    assert got == [[False, None, "stopped: past the 2 s wall bound"], [False, None, "not started: past the 2 s wall bound"], 2]
+    assert time.monotonic() - began < 40 and len(f.ran()) == 1 and gone(f.ran()[0]["pid"])   # its group stopped
 
 
 def test_the_load_survives_another_process_s_sweep(tmp_path, monkeypatch):

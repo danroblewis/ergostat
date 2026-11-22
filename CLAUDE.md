@@ -80,7 +80,8 @@ valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "ta
   A definition whose acceptance is a repeated or loaded measurement (say "30 loaded runs of `-n 8 tests/x.py`") names
   it plainly. A factory session neither runs it nor works around that: it says "not run here". The factory runs it on
   the branch head with `python3 dev/bin/manage.py measure-runs gap/NAME --runs 30 --load 4 --tests "-n 8 tests/x.py"`
-  (dev/README.md, *The pipeline manager*).
+  (dev/README.md, *The pipeline manager*). The coordinator runs that by hand. When the pipeline manager calls it, it is
+  asked in the inbox (`manager-measure`) and runs once approved, outside the manager's 1 h block.
 - **The container.** When Docker is up, heavy work runs inside it, under hard limits the kernel enforces (4096
   processes and threads, 12 GB, half the CPUs, no network but localhost): `scripts/in_container.sh CMD ...`, e.g.
   `scripts/in_container.sh uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal`

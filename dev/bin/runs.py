@@ -5,7 +5,8 @@ under a watchdog of their own (killed past 1,500 threads or 6 GB), stopped, thei
 (normally, on an error or a SIGTERM), and ending on their own within [suites] load_stale_s of this program's death
 (a heartbeat it stops touching). A run during which the load had ended is a failure. Each in a suite container like
 the fast suites' (the load in one of its own, role measure-load, which other processes' sweeps leave for WALL), but
-with the stand-in AI. No run starts that would end past WALL by the longest run so far; those not started fail.
+with the stand-in AI. No run starts that would end past WALL by the longest run so far; those not started fail. A
+run still going at WALL is stopped (its process group) and fails.
 
 Hard maximums, at parse time (manage.py) and again here: N 1-50, K 1-8, the selection's `-n` 1-8. A run passes only on
 exit 0 with the watchdog's own last line saying pytest's rc 0 and nothing killed: a run killed, or one whose log or
@@ -93,6 +94,29 @@ def outcome(rc: int, log: Path) -> dict:
     return {"rc": rc, "passed": False, "why": why, "tail": text[-TAIL:]}
 
 
+class Late(Exception):
+    pass
+
+
+@contextmanager
+def deadline(seconds: float):
+    """Late raised in the body past ``seconds`` (SIGALRM: fac.suite's finally then kills the run's process group).
+    Only the main thread can take a signal: off it, the body has no bound (manage.py's runs are on the main thread)."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def late(*_):
+        raise Late()
+    old = signal.signal(signal.SIGALRM, late)
+    signal.setitimer(signal.ITIMER_REAL, max(seconds, 0.01))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+
+
 @contextmanager
 def loaded(cfg: dict, work: Path, k: int, log: Path):
     """``k`` busy processes (`[suites] load`) while the body runs, yielding its process (None for no load); their
@@ -162,12 +186,15 @@ def measure(cfg: dict, gap: dict, n: int, tests: list[str], load: int = 0) -> di
                 if cfg["ai"]["mode"] != "standin":
                     name, c = agents.contained(cfg, cmd, work)
                 try:
-                    rc, _ = fac.suite(cfg, "measure", work, log, command=c)
+                    with deadline(WALL - (at - began)):             # (a hung run stopped at the wall, not after it)
+                        rc, late = fac.suite(cfg, "measure", work, log, command=c)[0], None
+                except Late:
+                    rc, late = None, f"stopped: past the {WALL} s wall bound"
                 finally:
                     if name:
                         agents.killed(name)
                 longest = max(longest, time.monotonic() - at)
-                got = outcome(rc, log)
+                got = outcome(rc, log) if late is None else {**outcome(rc, log), "passed": False, "why": late}
                 if busy is not None and busy.poll() is not None:     # the load ended: this run was not loaded
                     got = {**got, "passed": False, "why": f"the load had ended (exit {busy.returncode})"}
                 runs.append({"run": i, **got, "log": fac.rel(log)})
