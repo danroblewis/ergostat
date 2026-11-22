@@ -46,3 +46,16 @@ Built in full; nothing is left. Choices made alone, each the more reversible one
 - `starts_at` also takes one state as a string (the schema agrees). Any other shape is `bad-relation`.
 - Codes: `starts-at-unknown-state`, `starts-at-not-precedence` (a group, `precedence: false`, or a remote's kind),
   `starts-at-finished`.
+
+### Round 2 (answers both findings of round 1; the first and second bullets above are replaced by these)
+
+- A leased target counts by the state it was taken from (its lease's `back`, `precedence.starts`), in the status,
+  `takes: {unblocked: true}` (both in the graph and past its caps) and the Items API's `waiting`. One taken from
+  `approved` still lets its dependent start; one taken from its first state still blocks it. `leased` in `starts_at`
+  is refused (`starts-at-leased`): it would say nothing about where the target was taken from. Test:
+  tests/test_precedence.py::test_a_leased_target_counts_by_the_state_it_was_taken_from (seen to fail with the
+  lease's `back` not read). SPEC §5a and the agent guide now say so.
+- The finished fallback is the kind's last state not counting the `leased` and `dead` that leases.check appends to a
+  taken kind; `dead` in `starts_at` is refused as `starts-at-finished`. Test:
+  tests/test_relations.py::test_starts_at_on_a_taken_kind_with_no_done_reads_its_own_last_state (a block takes the
+  kind, no `messages: done:`; seen to fail with the old `t.states[-1:]`). SPEC §5a says so.

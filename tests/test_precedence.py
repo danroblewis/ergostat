@@ -32,6 +32,10 @@ blocks:
     type: program
     run: "true"
     takes: {kind: gap, at: [ready], to: [merged], unblocked: true}
+  queue:
+    type: program
+    run: "true"
+    takes: {kind: gap, at: [approved], to: [merged]}
 """
 
 
@@ -87,6 +91,24 @@ def test_starts_at_leaves_the_critical_path_finish_to_start(tmp_path):
     q = record(tmp_path / "fix", "fix")
     by = {x["id"]: x for x in pr.build(q.events, q.model.spec, ["gap"], now, now)["items"]}
     assert by["gap/b"]["status"] == "blocked" and by["gap/b"]["waiting"] == ["gap/a"]
+
+
+def test_a_leased_target_counts_by_the_state_it_was_taken_from(tmp_path):
+    p = record(tmp_path, "approved")
+    ev, spec = p.events, p.model.spec
+    ev.add("gap.opened", item="gap/c", at=T0 + 1010)
+    ev.add("gap.opened", item="gap/d", data={"depends_on": "gap/c"}, at=T0 + 1011)
+    for it, block, back in (("gap/a", "queue", "approved"), ("gap/c", "dev", "ready")):
+        ev.add("ergostat.lease.taken", item=it, source="ergostat", data={"item": it, "run": f"r-{it}", "block": block,
+               "fence": 1, "ttl": 300, "max": 1, "back": back, "tier": "program", "attempt": 1})
+    got = {i.id: i for i in its.project(ev, spec, "gap")}
+    assert got["gap/a"].state == got["gap/c"].state == "leased"
+    assert taken(p) == ["gap/b"]                       # held from approved: still approved; held from ready: blocks
+    now = T0 + 1020
+    by = {x["id"]: x for x in pr.build(ev, spec, ["gap"], now, now)["items"]}
+    assert (by["gap/b"]["status"], by["gap/d"]["status"], by["gap/d"]["waiting"]) == ("unblocked", "blocked", ["gap/c"])
+    assert its.related(ev, spec, got["gap/b"], spec.items["gap"])["waiting"] == []
+    assert its.related(ev, spec, got["gap/d"], spec.items["gap"])["waiting"] == ["gap/c"]
 
 
 @pytest.mark.parametrize("dep_at, waits", [("approved", []), ("fix", ["gap/a"])])

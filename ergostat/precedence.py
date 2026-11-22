@@ -321,7 +321,7 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     # known to be finished)
     def finished(d: str, rel) -> bool:          # (or in a state its relation's ``starts_at`` names: start-to-start)
         i = got.get(d) or beyond.get(d)
-        return i is not None and (status(i, info[i.kind], []) == "done" or i.state in rel.starts_at)
+        return i is not None and (status(i, info[i.kind], []) == "done" or starts(i, rel))
     durs = {kk: info.expected(kk) for kk in {i.kind for i in got.values()}}
     known = [d for d in durs.values() if d]
     fallback = median(known) if known else ASSUMED
@@ -437,7 +437,7 @@ def order_ready(events, spec, kind: str, items: list, now: float) -> list:
                 links = [(r, d) for _, r, d in ix.links_from([it.id]) if r in prec]
                 by_id = {i.id: i for i in ix.items(None, ids=[d for _, d in links])} if links else {}
             if any(d not in by_id or (status(by_id[d], Kinds(spec, ix)[by_id[d].kind], []) != "done"
-                                      and by_id[d].state not in prec[r].starts_at) for r, d in links):
+                                      and not starts(by_id[d], prec[r])) for r, d in links):
                 continue
             out.append((float("inf"), 0.0, n, it))
             continue
@@ -445,6 +445,16 @@ def order_ready(events, spec, kind: str, items: list, now: float) -> list:
             continue
         out.append((x.get("slack", float("inf")), -(x.get("lf", now) - x.get("es", now)), n, it))
     return [it for *_, it in sorted(out, key=lambda t: t[:3])]
+
+
+def starts(i, rel) -> bool:
+    """Whether item ``i`` is in a state ``rel.starts_at`` names; a leased one by the state it was taken from (its
+    lease's ``back``), so a target taken from ``approved`` still counts as approved while it is held."""
+    s = i.state
+    if s == LEASED:
+        lease = i.fields.get("lease") if isinstance(i.fields.get("lease"), dict) else {}
+        s = lease.get("back")
+    return bool(rel.starts_at) and s in rel.starts_at
 
 
 def _prec(spec, kind) -> dict:

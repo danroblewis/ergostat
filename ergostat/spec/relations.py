@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import re
 
-from .ir import Relation
+from .ir import DEAD, LEASED, Relation
 
 PRECEDENCE = ("blocked_by", "after", "depends_on")          # precedence unless declared otherwise
 INVERSES = {"blocked_by": "blocks", "after": "before", "depends_on": "dependents", "parent": "children",
@@ -143,17 +143,25 @@ def check_relations(c, spec) -> None:
 
 def check_starts_at(c, spec, k, r) -> None:
     """Each ``starts_at`` state is a state of a kind the relation names, and not one it counts as finished or paused
-    (``messages: done:``, else its last state; ``messages: paused:``): a finished target blocks nothing already."""
+    (``messages: done:``, else its last state other than ``leased`` and ``dead``; ``messages: paused:``; ``dead``): a
+    finished target blocks nothing already. ``leased`` is refused: a held target counts by the state it was taken
+    from (``precedence.starts``), so name that one."""
     targets = [spec.items[t] for t in r.kinds if t in spec.items]
     msgs = getattr(spec, "messages", None)
     done, paused = (getattr(msgs, "done", None) or {}), (getattr(msgs, "paused", None) or {})
+    last = lambda t: [x for x in t.states or [] if x not in (LEASED, DEAD)][-1:]      # noqa: E731
     for s in r.starts_at:
         has = [t for t in targets if s in (t.states or [])]
         where = f"item kind {k.name}.relations.{r.name}.starts_at: {s!r}"
-        if not has:
+        if s == LEASED:
+            c.err(f"{where}: a leased target counts by the state it was taken from, so name that state", k.where,
+                  "starts-at-leased")
+        elif s == DEAD:
+            c.err(f"{where}: a dead letter is not under way", k.where, "starts-at-finished")
+        elif not has:
             c.err(f"{where} is not a state of {', '.join(r.kinds)}" + c.suggest(s, [x for t in targets for x in t.states or []]),
                   k.where, "starts-at-unknown-state")
-        elif any(s in (done.get(t.name) or t.states[-1:]) or s in (paused.get(t.name) or ()) for t in has):
+        elif any(s in (done.get(t.name) or last(t)) or s in (paused.get(t.name) or ()) for t in has):
             c.err(f"{where} is a finished or paused state: a finished target never blocks, and a paused one is not "
                   f"under way", k.where, "starts-at-finished")
 

@@ -1319,12 +1319,15 @@ messages:
 **Starting before a target finishes.** A precedence relation's `starts_at` names states of the kinds it names: a
 target in one of them does not block, so the item's status is *unblocked* (not *blocked*), it is not waited on, and
 `takes: {unblocked: true}` (section 9.5) may take it. Only the state the target is in now counts: one that moves on
-to a state not named, and not finished, blocks again, so name each state from which on the dependent may start. It
-changes nothing else: the critical path, slack, the projected schedule and the completion estimates stay
+to a state not named, and not finished, blocks again, so name each state from which on the dependent may start. A
+target held under a lease (state `leased`) counts by the state it was taken from (the lease's `back`): one taken
+from `approved` still counts as approved, one taken from its first state still blocks. It changes nothing else: the critical path, slack, the projected schedule and the completion estimates stay
 finish-to-start (conservative: the dependent is projected to start once its target ends). `check` refuses a state
 none of the kinds named has (`starts-at-unknown-state`), `starts_at` on a relation that is not precedence (a group,
-`precedence: false`, a remote's kind: `starts-at-not-precedence`), and a finished or paused state (`messages: done:`,
-else the kind's last state, or `messages: paused:`: `starts-at-finished`, a finished target never blocks). The
+`precedence: false`, a remote's kind: `starts-at-not-precedence`), a finished or paused state (`messages: done:`,
+else the kind's last declared state, not counting the `leased` and `dead` a taken kind gains; `messages: paused:`;
+or `dead`: `starts-at-finished`, a finished target never blocks), and `leased` (`starts-at-leased`: name the state
+it is taken from). The
 Items API and the item page give each relation with its `starts_at`.
 
 A relation is a field like any other: events add and take away links as they change fields (`"data": {"blocked_by":
