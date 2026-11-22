@@ -72,3 +72,16 @@ Checked here: `tests/test_style_tokens.py` (the unit file that checks style.css,
 ruff clean. Refused here: a command that ran the style-tokens tests, then
 `uv run python -c "import playwright"`, then a grep of pyproject.toml and dev/factory.toml. So whether Playwright is
 installed in this container was not seen.
+
+Round 1, the build's second try: the fast suites now run something that can fail. The branch now changes
+`tests/test_style_tokens.py` (a unit file, no Playwright), so `affected_tests.py` picks it along with the browser file.
+Its new test, `test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked`, pins this branch's
+style.css rule: the diagram left and its side list are dimmed (opacity < 1) and take no clicks
+(`pointer-events: none`). It was seen to fail (1 failed, 5 passed) with `pointer-events` taken off the side list's
+rule, and to pass again once the rule was restored. `tests/test_style_tokens.py tests/test_diagram_rendering.py`
+without Playwright: 6 passed, 1 skipped, rc 0. ruff clean. The page's browser tests still need Playwright, which is
+only in the four browser files' run.
+Refused here: a command that wrote this test with a shell heredoc, ran it, broke and restored style.css with sed and
+`git checkout`, then ran affected_tests.py and ruff (each step was then done on its own, with the edit tool). Also
+refused: `git diff --stat; uv run python scripts/affected_tests.py -- uv run python -m pytest -q`. So the selection
+was run by hand with the two files it picks, not through affected_tests.py.
