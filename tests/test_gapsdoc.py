@@ -104,7 +104,7 @@ def test_split_dry_run_lists_every_duplicate_it_drops(tmp_path):
     assert dups == [f"duplicate {d}" for d in gapsdoc.split(text)["dropped"]]
     assert f"{LEASE}: line {lease_at} repeats" in dups[0] and f"{JOB}: line {job_at} repeats" in dups[1]
     assert "problem External event logs: line 84 slugs to external-event-logs" in r.stdout
-    assert run("split", str(tmp_path / "GAPS.md")).returncode == 2       # writing records is not built
+    assert run("split", str(tmp_path / "GAPS.md")).returncode == 2       # (split itself takes no FILE: docs/GAPS.md)
 
 
 HEAD = "# Known gaps\n\nIntro.\n\n## Remote\n\n@entry remote-systems\n\n## Done recently\n"
@@ -275,3 +275,90 @@ def test_the_definition_prompt_shows_the_entry_shape():
     e = gapsdoc.parse(text)
     assert e is not None and e["section"] and e["bullet"] and e["done"]
     assert "entry-of:" in text
+
+
+# ---- merge-pipeline-gaps-md-regenerated-on-land: split written once; a landing carries its GAPS.md edits, renders
+
+MTLS = "# remote-mtls: mutual TLS\n\n## Definition of done\n\nIt works.\n"
+
+
+def test_split_appends_each_entry_to_its_record_and_never_overwrites(tmp_path, monkeypatch):
+    own = "# external-event-logs: a definition\n\n## Definition of done\n\nIt works.\n"
+    cli_tree(tmp_path, monkeypatch, {"external-event-logs": own}, head=None)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "GAPS.md").write_text(fixture())
+    s = gapsdoc.split(fixture())
+    assert gapsdoc.main(["split"]) == 0
+    rec = tmp_path / "dev" / "records"
+    kept = (rec / "external-event-logs.md").read_text()
+    assert kept.startswith(own + "\n## Entry\n")                       # appended at the end of the definition
+    assert gapsdoc.parse(kept) == gapsdoc.parse(s["records"]["external-event-logs"])
+    assert (rec / "GAPS-head.md").read_text() == s["head"]
+    records = {p.stem: p.read_text() for p in rec.glob("*.md") if p.name != "GAPS-head.md"}
+    assert set(records) == set(s["records"]) and max(map(len, records)) <= 32     # each named as intake's branch
+    assert gapsdoc.render(records, s["head"])[0] == fixture()
+    before = {p: p.read_text() for p in rec.glob("*.md")}
+    assert gapsdoc.main(["split"]) == 1                                # once: a second run never overwrites
+    assert {p: p.read_text() for p in rec.glob("*.md")} == before
+
+
+def tree(root: Path, records: dict[str, str]) -> str:
+    """dev/records under ``root`` (with HEAD) and docs/GAPS.md their render, as main holds them: that GAPS.md."""
+    (root / "dev" / "records").mkdir(parents=True)
+    (root / "docs").mkdir()
+    for name, text in {**records, "GAPS-head": HEAD}.items():
+        (root / "dev" / "records" / f"{name}.md").write_text(text)
+    text, problems = gapsdoc.render(records, HEAD)
+    assert problems == []
+    (root / "docs" / "GAPS.md").write_text(text)
+    return text
+
+
+NOBODY = "- **Nobody's gap** (open): no record has it.\n"
+
+
+def edited(pre: str) -> str:
+    """GAPS.md as a branch approved before the records took the entries edits it: a bullet line changed, a done line
+    of a sub-gap under its umbrella, and an entry no record has."""
+    return pre.replace("  - *Left*: the IR.\n", "  - *Left*: the IR, and the API.\n").replace(
+        "The read-only remote API.\n", "The read-only remote API.\n  - *Done 2026-11-23* (`remote-mtls`): Mutual "
+        "TLS, every link.\n" + NOBODY)
+
+
+def test_carry_puts_a_batchs_own_gaps_md_edits_in_the_named_records():
+    records = {"remote-systems": UMBRELLA, "remote-mtls": MTLS}
+    pre = gapsdoc.render(records, HEAD)[0]
+    changed, carried, lost = gapsdoc.carry(pre, edited(pre), records, HEAD)
+    assert sorted(changed) == ["remote-mtls", "remote-systems"] and carried == [
+        "remote-systems: - **Remote systems** (open; `remote-systems`): a system run by another instance."]
+    assert lost == [NOBODY.strip()]                                    # placed nowhere: said, never dropped
+    assert changed["remote-mtls"].startswith(MTLS)                     # its definition kept, its Entry after it
+    assert gapsdoc.parse(changed["remote-mtls"])["entry_of"] == "remote-systems"
+    assert gapsdoc.parse(changed["remote-systems"])["bullet"][1] == "  - *Left*: the IR, and the API."
+    text, problems = gapsdoc.render({**records, **changed}, HEAD)
+    assert problems == [] and text == edited(pre).replace(NOBODY, "")
+    assert gapsdoc.carry(text, text, {**records, **changed}, HEAD) == ({}, [], [])   # nothing new: nothing carried
+
+
+def test_regenerate_writes_the_records_and_gaps_md_and_keeps_what_it_cannot_place(tmp_path):
+    pre = tree(tmp_path, {"remote-systems": UMBRELLA, "remote-mtls": MTLS})
+    (tmp_path / "docs" / "GAPS.md").write_text(edited(pre))           # the batch's merge, as main holds it
+    got = gapsdoc.regenerate(tmp_path, pre)
+    assert got["unplaced"] == [NOBODY.strip()] and len(got["carried"]) == 1 and got["problems"] == []
+    assert sorted(got["files"]) == ["dev/records/GAPS-unplaced.md", "dev/records/remote-mtls.md",
+                                    "dev/records/remote-systems.md", "docs/GAPS.md"]
+    assert (tmp_path / "docs" / "GAPS.md").read_text() == edited(pre).replace(NOBODY, "")
+    assert NOBODY.strip() in (tmp_path / "dev" / "records" / "GAPS-unplaced.md").read_text()
+    again = gapsdoc.regenerate(tmp_path, (tmp_path / "docs" / "GAPS.md").read_text())    # the next landing: no change
+    assert again["carried"] == [] and again["files"] == ["docs/GAPS.md"]
+
+
+def test_regenerate_on_a_malformed_record_writes_nothing(tmp_path):
+    pre = tree(tmp_path, {"remote-systems": UMBRELLA})
+    (tmp_path / "dev" / "records" / "no-date.md").write_text(MALFORMED["no-date"])
+    (tmp_path / "docs" / "GAPS.md").write_text(edited(pre))
+    with pytest.raises(ValueError, match="no-date: malformed Entry"):
+        gapsdoc.regenerate(tmp_path, pre)
+    assert (tmp_path / "docs" / "GAPS.md").read_text() == edited(pre)                 # as the merge left it
+    assert (tmp_path / "dev" / "records" / "remote-systems.md").read_text() == UMBRELLA
+    assert not (tmp_path / "dev" / "records" / "GAPS-unplaced.md").exists()

@@ -7,12 +7,13 @@ rendered under the umbrella's bullet in date order (then by name): two sub-gaps 
 dev/records/GAPS-head.md is the rest of GAPS.md, each entry a line `@entry NAME`; an entry it does not list goes after
 its section's last, by name. render() reports by name every malformed Entry, two titles slugging to one branch
 (gap ids cut to 32, as intake does), a listed entry or an umbrella with none: rendered, never silently dropped.
-split() is the inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line.
+split() is the inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line. Each landing
+of the merge queue carries the batch's own GAPS.md edits into the records (carry()) and writes GAPS.md from them
+(regenerate()); every reader still reads GAPS.md.
 
     gapsdoc.py render [--check]       GAPS.md from dev/records to stdout (--check: only the problems); exits 1 on any
     gapsdoc.py split --dry-run [FILE] what split would make of FILE (docs/GAPS.md): records, duplicates, problems
-
-Nothing reads or writes with this yet: `split` without `--dry-run` is refused."""
+    gapsdoc.py split                  docs/GAPS.md split into dev/records (once: it never overwrites; write())"""
 
 from __future__ import annotations
 
@@ -29,9 +30,14 @@ import fac  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 RECORDS = ROOT / "dev" / "records"
 HEAD = RECORDS / "GAPS-head.md"
+UNPLACED = RECORDS / "GAPS-unplaced.md"                # GAPS.md text a landing could not put in any record (carry())
 ENTRY = re.compile(r"^- \*\*(.+?)\*\*(.*)$")          # intake.ENTRY: a top-level GAPS.md entry
 SLOT = re.compile(r"^@entry ([a-z0-9][a-z0-9-]{0,63})$")
 DONE = re.compile(r"^(\d{4}-\d{2}-\d{2}) (\S.*)$")
+DONE_AT = re.compile(r"^  - \*Done (\d{4}-\d{2}-\d{2})\* \(`([a-z0-9][a-z0-9-]*)`\): (.*)$")   # done_lines()' first line
+# render() problems that lose no text (both entries drawn, or drawn elsewhere): the only ones a landing writes past
+BENIGN = re.compile(r"(slug to one branch, [a-z0-9-]+|lists it twice; rendered once|; rendered where listed"
+                    r"|is not in GAPS-head\.md; added at the end)$")
 KEYS = ("section", "entry-of")
 
 
@@ -180,7 +186,7 @@ def split(gaps_md: str) -> dict:
             dropped.append(f"{title}: line {n + 1} repeats line {seen[key]} exactly; dropped")
         else:
             seen[key] = n + 1
-            name = base = gap_id(title) or "entry"
+            name = base = fac.slug(gap_id(title), 32) or "entry"           # its branch, as intake names it
             k = 1
             while name in records:
                 k += 1
@@ -193,9 +199,116 @@ def split(gaps_md: str) -> dict:
     return {"head": "\n".join(head), "records": records, "dropped": dropped, "problems": problems}
 
 
+def write(s: dict, where: Path) -> list[Path]:
+    """split()'s head and records written under ``where`` (dev/records): each entry appended as `## Entry` at the end
+    of its record, never overwriting. A record holding an Entry already, or a head already there, raises ValueError
+    before anything is written."""
+    files = {where / HEAD.name: ("", s["head"])}
+    for name, rec in s["records"].items():
+        p = where / f"{name}.md"
+        files[p] = (p.read_text() if p.is_file() else "", rec)
+    if bad := [p.name for p, (was, _) in files.items() if p.exists() and (p.name == HEAD.name or parse(was))]:
+        raise ValueError(f"already there, never overwritten: {', '.join(bad)}")
+    for p, (was, rec) in files.items():
+        p.write_text(was.rstrip("\n") + "\n\n" + rec if was.strip() else rec)
+    return list(files)
+
+
+def with_entry(record: str, e: dict) -> str:
+    """The record with its `## Entry` section (wherever it was) made ``e``'s, at its end."""
+    lines = record.split("\n")
+    if at := [n for n, ln in enumerate(lines) if ln.rstrip() == "## Entry"][:1]:
+        lines = lines[:at[0]] + list(itertools.dropwhile(lambda ln: not ln.startswith("## "), lines[at[0] + 1:]))
+    keys = [f"{k}: {e[k.replace('-', '_')]}" for k in KEYS if e[k.replace("-", "_")]]
+    body = ["## Entry", "", *keys, *[f"done: {d} {s}" for d, s in e["done"]], *[""] * bool(e["bullet"]), *e["bullet"]]
+    return ("\n".join(lines).rstrip("\n") + "\n\n" if "".join(lines).strip() else "") + "\n".join(body) + "\n"
+
+
+def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple[dict[str, str], list[str], list[str]]:
+    """The entry text and done lines a batch added to GAPS.md (``head``) that neither the records before it rendered
+    (``pre``) nor the records (at head) render, put in them: ({record: its new text}, what was carried, by record, the entries it could not
+    place, whole). An entry goes to the record whose Entry has its title, else to the record its branch names (the gap
+    id cut to 32), its section and bullet replacing that Entry's; each done line (as done_lines() draws it) is added to
+    the record it names in backticks. An entry with any part that cannot be placed is placed in no part."""
+    have = set(split(pre)["records"].values()) | set(split(render(records, gaps_head)[0])["records"].values())
+    tops, out, said, lost = {}, {}, [], []
+    for name, text in records.items():
+        try:
+            e = parse(text)
+        except ValueError:
+            continue
+        if e and not e["entry_of"]:
+            tops[gap_id(ENTRY.match(e["bullet"][0]).group(1))] = name
+    for rec in split(head)["records"].values():
+        if rec in have:
+            continue
+        lines = rec.split("\n")
+        section, block, bullet, done = lines[2].removeprefix("section: "), lines[4:-1], [], []
+        for ln in block:
+            if m := DONE_AT.match(ln):
+                done.append(list(m.groups()))
+            elif done and ln.startswith("    "):
+                done[-1][2] += " " + ln.strip()
+            else:
+                bullet.append(ln)
+        gid = gap_id(ENTRY.match(block[0]).group(1))
+        name, trial = tops.get(gid) or fac.slug(gid, 32), dict(out)
+        try:
+            for who, d, s in [(name, None, None)] + [(w, d, s) for d, w, s in done]:
+                e = parse(trial.get(who, records[who]))
+                if (e or {}).get("entry_of") not in (None, name) or e and d and who != name and not e["entry_of"]:
+                    raise ValueError(f"{who}'s Entry is not {name}'s nor under it")
+                if d is None:
+                    e = {"section": section, "entry_of": None, "done": (e or {}).get("done", []), "bullet": bullet}
+                elif not e:                                   # (a sub-gap's record with no Entry yet: one, under it)
+                    e = {"section": None, "entry_of": name, "done": [(d, s)], "bullet": []}
+                elif (d, s) not in e["done"]:
+                    e["done"].append((d, s))
+                trial[who] = with_entry(trial.get(who, records[who]), e)
+        except (KeyError, ValueError):
+            lost.append("\n".join(block))
+            continue
+        out = trial
+        said += [f"{name}: {block[0][:80]}"]
+    return {n: t for n, t in out.items() if t != records[n]}, said, lost
+
+
+def rendered_at(repo: Path, ref: str) -> str:
+    """GAPS.md as the records at commit ``ref`` render it; "" before the split (no GAPS-head.md there), so a landing
+    then carries every entry the records do not render (main's GAPS.md edits since the split commit included)."""
+    names = fac.git(repo, "ls-tree", "--name-only", ref, f"{fac.DEFS}/").splitlines()
+    files = {Path(n).stem: fac.git(repo, "show", f"{ref}:{n}") for n in names if n.endswith(".md")}
+    files.pop(UNPLACED.stem, None)
+    return render(files, files.pop(HEAD.stem))[0] if HEAD.stem in files else ""
+
+
+def regenerate(root: Path, pre: str) -> dict:
+    """Inside a landing (queue.py): the batch's own GAPS.md edits (from ``pre``: GAPS.md as the records rendered it
+    before the batch, rendered_at()) carried into the records under ``root`` (carry()), then docs/GAPS.md rendered
+    from them; written only when render() loses nothing
+    (no problem but a BENIGN one), else ValueError and nothing written. {files: written, relative to root, carried,
+    unplaced: kept in GAPS-unplaced.md, problems}."""
+    where, gaps = root / fac.DEFS, root / "docs" / "GAPS.md"
+    head = (where / HEAD.name).read_text()
+    records = {p.stem: p.read_text() for p in sorted(where.glob("*.md")) if p.name not in (HEAD.name, UNPLACED.name)}
+    changed, carried, unplaced = carry(pre, gaps.read_text(), records, head)
+    text, problems = render({**records, **changed}, head)
+    if bad := [p for p in problems if not BENIGN.search(p)]:
+        raise ValueError("; ".join(bad))
+    files = {where / f"{n}.md": t for n, t in changed.items()} | {gaps: text}
+    if unplaced:
+        p = where / UNPLACED.name
+        files[p] = (p.read_text() if p.is_file() else "# GAPS.md text no record took (gapsdoc.carry)\n") + "".join(
+            f"\n{b}\n" for b in unplaced)
+    for p, t in files.items():
+        p.write_text(t)
+    return {"files": [str(p.relative_to(root)) for p in files], "carried": carried, "unplaced": unplaced,
+            "problems": problems}
+
+
 def main(argv: list[str]) -> int:
     if argv[:1] == ["render"] and set(argv[1:]) <= {"--check"}:
-        records = {p.stem: p.read_text() for p in sorted(RECORDS.glob("*.md")) if p != HEAD}
+        records = {p.stem: p.read_text() for p in sorted(RECORDS.glob("*.md")) if p not in (HEAD, UNPLACED)}
         if not HEAD.is_file():
             print(f"gapsdoc: {HEAD.relative_to(ROOT)} is missing: nothing to render into", file=sys.stderr)
             return 1
@@ -212,7 +325,16 @@ def main(argv: list[str]) -> int:
                         + [f"duplicate {d}" for d in s["dropped"]] + [f"problem {p}" for p in s["problems"]]))
         print(f"{len(s['records'])} entries, {len(s['dropped'])} duplicates dropped, {len(s['problems'])} problems")
         return 0
-    print("usage: gapsdoc.py render [--check] | split --dry-run [FILE]  (split writes nothing yet)", file=sys.stderr)
+    if argv == ["split"]:
+        s = split((ROOT / "docs" / "GAPS.md").read_text())
+        try:
+            print("\n".join(str(p.relative_to(ROOT)) for p in write(s, RECORDS)))
+        except ValueError as e:
+            print(f"gapsdoc: {e}", file=sys.stderr)
+            return 1
+        print("\n".join([f"duplicate {d}" for d in s["dropped"]] + [f"problem {p}" for p in s["problems"]]))
+        return 0
+    print("usage: gapsdoc.py render [--check] | split [--dry-run [FILE]]", file=sys.stderr)
     return 2
 
 

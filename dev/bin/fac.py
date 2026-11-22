@@ -223,14 +223,24 @@ def branch_of(gap: dict) -> str:
 
 def definition_file(gap: dict, work: Path | None = None) -> str:
     """The definition's path in the repository: `dev/records/<branch>.md`, or the old
-    `docs/roadmap/overnight/<branch>.md` when the clone ``work`` has only that (a branch begun before the move); or,
-    for a gap that `continues` a branch and names its `definition` as `REF:dev/records/X.md` (or the old folder), that
-    file (the continued branch's own, so no copy is made under the new gap's name)."""
+    `docs/roadmap/overnight/<branch>.md` when the clone ``work`` has that and the new one is not a definition (missing,
+    or only the `## Entry` gapsdoc split appended: defines()), a branch begun before the move; or, for a gap that
+    `continues` a branch and names its `definition` as `REF:dev/records/X.md` (or the old folder), that file by the
+    same rule (the continued branch's own, so no copy is made under the new gap's name)."""
     m = REF.fullmatch(str(gap["fields"].get("definition") or ""))
-    if m and gap["fields"].get("continues"):
-        return m.group(2)
-    new, old = (f"{d}/{branch_of(gap)}.md" for d in (DEFS, OLD_DEFS))
-    return old if work and not (work / new).is_file() and (work / old).is_file() else new
+    new = m.group(2) if m and gap["fields"].get("continues") else f"{DEFS}/{branch_of(gap)}.md"
+    old = f"{OLD_DEFS}/{new.rsplit('/', 1)[1]}"
+    return old if work and (work / old).is_file() and not defines(work / new) else new
+
+
+def defines(p: Path) -> bool:
+    """Whether a record holds a definition (a `## Definition of done` section), not only its GAPS.md `## Entry`."""
+    return p.is_file() and any(ln.rstrip() == "## Definition of done" for ln in p.read_text().split("\n"))
+
+
+def entry_only(text: str) -> bool:
+    """A record that is only its GAPS.md `## Entry` (as gapsdoc split writes one): no definition of done."""
+    return text.lstrip().startswith("## Entry") and not any(ln.startswith("## ") for ln in text.lstrip().split("\n")[1:])
 
 
 def git_branch(branch: str) -> str:
