@@ -23,7 +23,8 @@ from . import lines, observe, usage
 QUEUE = 1000                 # lines waiting for its standard input, at most
 CHUNK = 65536                # bytes read from its standard output at once
 LINE_MAX = 1 << 20           # a line longer than this (1 MiB) is dropped, never held
-SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SOCKET", "ERGOSTAT_HOME"}
+SHARED = {"ERGOSTAT_CMD", "ERGOSTAT_PROJECT", "ERGOSTAT_STATE_DIR", "ERGOSTAT_SOCKET", "ERGOSTAT_HOME",
+          "ERGOSTAT_CALL_RETRY"}     # (its calls' bound, ``calls/client.py``)
 GROUPS: set[int] = set()         # every daemon's process group not yet seen gone (``supervise.killpg``, ``end_all``)
 GROUPS_LOCK = threading.Lock()   # held for the set's own operations only: never across a wait, a signal or I/O
 CLOSING = False                  # set by ``supervise.end_all`` (ergostat starting itself again): a new group kills itself
