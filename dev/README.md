@@ -683,9 +683,16 @@ between the second read and the write is not seen: that window is one record rea
 Who runs it: the coordinator by hand runs it at once, in their own process. The pipeline manager's call is never run
 inside its block (which ends within 1 h, before a 30-run loaded measurement could): it is checked (the caps, the park
 checks) and asked in the inbox as the action `manager-measure`. Once approved, ergostat runs that action's command,
-the same `manage.py measure-runs` as the coordinator's, outside the block and with a timeout of 13 h, past `runs.WALL`.
-It runs in whichever process carries out the approval (the engine's, or the one the approval was given in), which
-waits for it.
+`manage.py measure-runs --detach`, in whichever process carries out the approval (an `actions --approve` terminal,
+a web request, the engine). That command checks the call again and starts the measurement in a session of its own
+(no terminal, not in the approver's process group, its output in `run/measure/*-detached.txt`), then returns at once.
+The action is recorded `ran` with the measurement's pid and log. Its timeout is 2 min. So the approver does not wait,
+and a Ctrl-C to the approver, or the web server exiting, does not reach the measurement. The measurement then runs
+as a plain `measure-runs` with `--asked-as` set to the action's id. It is recorded as by `pipeline-manager`, its asker,
+with `asked_as` naming the action. It records its own end: the counts and the move as above, or, when it is refused or
+fails, an intervention saying why (`ended`), so an approved measurement never ends unrecorded. It is bounded by
+`runs.WALL`. `runs.measure` refuses to run off the main thread, because only there can SIGALRM bound a run. A
+refusal at the start (the gap no longer measurable) fails the action, and no run is made.
 
 **Whoever parks a gap says what it waits for, and it is resumed when that clears** (`dev/bin/parks.py`). Every park
 records `parked_for`, a kind: `defect` (its own work is wrong), `waits_on` (a gap, or commits, named in

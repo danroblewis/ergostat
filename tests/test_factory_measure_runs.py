@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -239,13 +240,38 @@ def test_a_park_a_measurement_cannot_clear_is_refused(tmp_path):
     assert "back to built" in f.measure("pass", "--runs", "1", "--tests", "tests/test_x.py")
 
 
-def test_the_manager_s_measurement_is_asked_not_run_inside_its_block(tmp_path):
+def approved_through_the_gate(f: Measured, act, args: dict, monkeypatch) -> tuple[dict, float, int]:
+    """The model's manager-measure, asked and approved in a real ergostat project by gate.approve (as the inbox or
+    `actions --approve` does): (the action after, the seconds approve took, the detached measurement's pid or 0)."""
+    from ergostat import model as mdl
     from ergostat.actions import gate
+    from ergostat.store import Project
+    home = f.tmp / f"approver-{time.monotonic_ns()}"
+    home.mkdir()
+    run = act.run.replace("python3 dev/bin/manage.py", f"{sys.executable} {BIN / 'manage.py'}")
+    (home / "ergostat.yaml").write_text(json.dumps({
+        "name": "t", "items": {"ticket": {"id": "ticket/*", "states": ["open"]}},
+        "actions": {"measure": {"run": f"cd {f.model} && {run}", "gate": "approve", "args": dict.fromkeys(args, "x")}},
+        "blocks": {"dev": {"type": "ai", "prompt": "Work.", "tools": ["Read"], "actions": ["measure"], "every": "1h"}}}))
+    p = Project(mdl.load(home))
+    for k, v in f.env.items():
+        monkeypatch.setenv(k, v)
+    a = gate.request(p, p.model.spec, "measure", args, {"block": "dev", "run": "r", "session": "session/dev-1",
+                                                         "item": "ticket/1", "workdir": str(home)})
+    assert a["state"] == "requested"
+    began = time.monotonic()
+    a = gate.approve(p, p.model.spec, a["id"])
+    took = time.monotonic() - began
+    pid = int(m.group(1)) if (m := re.search(r"pid (\d+)", a.get("output") or "")) else 0
+    return a, took, pid
+
+
+def test_the_manager_s_measurement_is_asked_not_run_inside_its_block(tmp_path, monkeypatch):
     from ergostat.spec import read
     spec, _ = read(ROOT / "ergostat.yaml")
     act, block = spec.actions["manager-measure"], spec.blocks["pipeline-manager"]
-    assert act.gate == "approve" and act.timeout > runs_module().WALL > block.timeout    # (hours: past the block's 1 h)
-    assert "manager-measure" in block.params["actions"]
+    assert act.gate == "approve" and act.timeout < block.timeout < runs_module().WALL    # (it only starts it, detached)
+    assert "manager-measure" in block.params["actions"] and "--detach" in act.run
     f = Measured(tmp_path)
     head = f.tip()
     sit = f.watch()
@@ -260,15 +286,29 @@ def test_the_manager_s_measurement_is_asked_not_run_inside_its_block(tmp_path):
     args = dict(x.split("=", 1) for x in asked[asked.index("--arg"):][1::2])
     assert args == {"gap": f.gid, "runs": "2", "tests": "-n 8 tests/test_leases.py", "load": "2",
                     "why": "its 30 loaded runs"}
-    f.plan.write_text("pass pass")                                 # approved: its command, run outside the block
-    cmd = gate.render(act, args, {}).replace("python3 dev/bin/manage.py", f"{sys.executable} {BIN / 'manage.py'}")
-    r = subprocess.run(cmd, shell=True, cwd=f.model, env=f.env, capture_output=True, text=True, timeout=120)
+    f.plan.write_text("wait wait")                                 # approved through the gate: started, not waited for
+    a, took, pid = approved_through_the_gate(f, act, args, monkeypatch)
+    assert a["state"] == "ran" and "measure-runs started" in a["output"] and took < 30, a
+    assert not gone(pid, 0.1) and os.getsid(pid) == pid != os.getsid(0)   # still running, in a session of its own
+    assert gone(pid, 120)                                          # it ends on its own and records its counts
     f.drain()
-    assert r.returncode == 0 and "2 of 2 runs passed" in r.stdout, r.stderr
     assert [x["argv"][-3:] for x in f.ran()] == [["-n", "8", "tests/test_leases.py"]] * 2
     (m,) = f.item(f.gid)["fields"]["measured_runs"]
-    assert (m["head"], m["passed"], m["load"]) == (head, 2, 2)
-    f.set_state("parked", parked_for="kill-rule")                  # refused when asked, as it would be when run
+    assert (m["head"], m["passed"], m["load"]) == (head, 2, 2) and f.item(f.gid)["state"] == "built"
+    (i,) = [x for x in f.interventions("pipeline-manager") if x["fields"].get("asked_as")]
+    assert i["fields"]["asked_as"] == a["id"] and i["fields"]["passed"] == 2          # by its asker, the action named
+    f.set_state("parked", parked_for="defect", resumed_as="gap/alpha-thing-continued")   # refused at its start:
+    a, _, _ = approved_through_the_gate(f, act, args, monkeypatch)                    # the action said so, nothing run
+    assert a["state"] == "failed" and "resumed already" in a["output"] and len(f.ran()) == 2, a
+    f.set_state("parked", parked_for="defect", resumed_as=None)    # refused when its runs end: its end recorded too
+    f.plan.write_text("resume")
+    a, _, pid = approved_through_the_gate(f, act, {**args, "runs": "1"}, monkeypatch)
+    assert a["state"] == "ran" and gone(pid, 120)
+    f.drain()
+    (i,) = [x for x in f.interventions("pipeline-manager") if x["fields"].get("ended")]
+    assert "recorded alone" in i["fields"]["reason"] and i["fields"]["asked_as"] == a["id"]
+    assert f.item(f.gid)["state"] == "parked"
+    f.set_state("parked", parked_for="kill-rule", resumed_as=None)  # refused when asked, as it would be when run
     done = f.py("import fac, manage\nmanage.BY[0] = 'pipeline-manager'\nprint(json.dumps(manage.run(fac.config(), "
                 "['measure-runs', sys.argv[1], '--runs', '1', '--tests', 'tests/test_x.py'])))", f.gid)
     assert not done["ok"] and "kill-rule" in done["said"]
@@ -371,6 +411,12 @@ def test_a_run_that_hangs_is_stopped_at_the_wall_bound(tmp_path):
                "print(json.dumps([[r['passed'], r.get('rc'), r.get('why')] for r in m['runs']] + [m['failed']]))", f.gid)
     assert got == [[False, None, "stopped: past the 2 s wall bound"], [False, None, "not started: past the 2 s wall bound"], 2]
     assert time.monotonic() - began < 40 and len(f.ran()) == 1 and gone(f.ran()[0]["pid"])   # its group stopped
+    f.plan.write_text("pass")                       # off the main thread no SIGALRM bounds a run: refused, none made
+    got = f.py("import fac, manage, runs, threading\ncfg, said = fac.config(), []\n"
+               "def go():\n    try:\n        runs.measure(cfg, manage.item(sys.argv[1]), 1, ['tests/test_x.py'])\n"
+               "    except ValueError as e:\n        said.append(str(e))\n"
+               "t = threading.Thread(target=go)\nt.start()\nt.join()\nprint(json.dumps(said))", f.gid)
+    assert got and "no wall bound" in got[0] and len(f.ran()) == 1
 
 
 def test_the_load_survives_another_process_s_sweep(tmp_path, monkeypatch):

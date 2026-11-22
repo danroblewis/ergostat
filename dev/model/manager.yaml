@@ -98,13 +98,13 @@ goals:
 
 actions:
   manager-measure:
-    run: python3 dev/bin/manage.py measure-runs {gap} --runs {runs} --tests={tests} --load {load} --why {why}
+    run: python3 dev/bin/manage.py measure-runs {gap} --detach --runs {runs} --tests={tests} --load {load} --why {why}
     in: .
     gate: approve
     class: measure
     args: {gap: the parked or built gap, runs: "N, 1-50", tests: the pytest selection, load: "K busy processes, 0-8", why: what the definition names}
-    timeout: 13h                     # past runs.WALL (12 h): run by ergostat, outside the pipeline manager's 1 h block
-    description: A definition's named measurement (asked by the pipeline manager) - the coordinator approves; it runs for hours, outside the block
+    timeout: 2m                      # it only starts the measurement, detached (its own session, up to runs.WALL, 12 h)
+    description: A definition's named measurement (asked by the pipeline manager) - the coordinator approves; the approval starts it detached, outside the block and the approver, and it records its own counts
   manager-close:
     run: python3 dev/bin/manage.py closed {gap} {why}
     in: .

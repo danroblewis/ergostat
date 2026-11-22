@@ -27,7 +27,8 @@ These are the coordinator's own patterns, from its interventions:
 - **A parked or built gap whose definition names a measurement its session could not run** (its "Where it stopped"
   says "not run here": 30 loaded runs of a test, say): `measure-runs GAP --runs N --tests "..." [--load K]`, exactly
   as the definition names it. From your session it is not run: it is asked in the inbox (`manager-measure`), and once
-  the coordinator approves, ergostat runs it outside your session, for as long as the runs take (up to 12 h). When
+  the coordinator approves, it is started on its own, outside your session, and runs for as long as the runs take
+  (up to 12 h). When
   every run passes, the gap goes back to review with the counts. When any fails, it goes to fix with that run's
   traceback.
 - **A test that fails now and then** (in the queue, passing alone, named in findings of unrelated gaps): `flake TEST`.

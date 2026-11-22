@@ -101,10 +101,9 @@ class Late(Exception):
 @contextmanager
 def deadline(seconds: float):
     """Late raised in the body past ``seconds`` (SIGALRM: fac.suite's finally then kills the run's process group).
-    Only the main thread can take a signal: off it, the body has no bound (manage.py's runs are on the main thread)."""
+    Only the main thread can take a signal: off it, refused, not run with no bound (measure checks it first too)."""
     if threading.current_thread() is not threading.main_thread():
-        yield
-        return
+        raise RuntimeError("runs.deadline off the main thread: a run there would have no wall bound")
 
     def late(*_):
         raise Late()
@@ -164,6 +163,8 @@ def measure(cfg: dict, gap: dict, n: int, tests: list[str], load: int = 0) -> di
     load, at, runs: each run's rc, whether it passed, and for a failure why, its log and its tail}."""
     n, load = bounded(n, MOST_RUNS, "--runs"), load and bounded(load, MOST_LOAD, "--load")
     tests = selection(shlex.join(tests))
+    if threading.current_thread() is not threading.main_thread():     # (deadline's SIGALRM: the main thread only)
+        raise ValueError("runs.measure off the main thread: its runs would have no wall bound; none made")
     if gap["state"] not in ("parked", "built"):
         raise ValueError(f"{gap['id']} is {gap['state']}: only a parked or built gap is measured")
     branch = fac.branch_of(gap)

@@ -227,3 +227,52 @@ Review 4 had one blocking finding and three non-blocking ones. Each is answered 
 - Overrun reason: the code in dev/ is about 319 net lines, 139 over 180. Round 5 adds about 40: the gated
   manager-measure action (manage.py +5, manager.yaml +8) and the per-run wall bound (runs.py +27). Both answer review
   4's findings, on top of rounds 2 and 4's review fixes. The factory's own count, which leaves out dev/, is 5.
+
+### Round 6
+
+Review 5 had one blocking finding and three non-blocking ones. Each is answered below (lesson-12).
+
+- **Blocking: the approved 12 h measurement ran inline in gate.approve, so the approver waited.** It no longer does.
+  The `manager-measure` command is now `manage.py measure-runs GAP --detach ...`, and its timeout is 2 min. With
+  `--detach`, manage.py checks the call again (the parser's caps, then `measurable`). It then starts the same
+  `measure-runs` as a new process in a session of its own: stdin is /dev/null and output goes to
+  `run/measure/*-detached.txt`, so it has no terminal and is outside the approver's process group. Then it returns at
+  once. The action is recorded `ran`, with the measurement's pid and log. So an `actions --approve` terminal, a web
+  worker thread or the engine is held for about a second, not 12 h. A Ctrl-C to the approver, or the web server
+  exiting, cannot reach the measurement, and the action does not stay `approved, running`. The measurement records its
+  own end. On success, those are the counts and the move, as before. On a refusal or failure, it is an intervention
+  with `ended` and the reason, for example when the park was continued while the runs ran. So an approved measurement
+  never ends unrecorded. If the gap is no longer measurable when it is approved, the action is recorded `failed` and no
+  run is made. The measurement is still bounded by `runs.WALL`, with its load ended by its heartbeat as before.
+  Decision taken alone (reversible): detach in manage.py rather than change ergostat's `gate.approve`, which is outside
+  this gap. One limit is left: a SIGKILL to the detached measurement itself, by someone, leaves no end recorded. The
+  launch is in the action's output (pid and log), and the load still ends by its heartbeat.
+  The test `test_the_manager_s_measurement_is_asked_not_run_inside_its_block` now approves through the real
+  `gate.approve`, in an ergostat project whose action is the model's own `manager-measure` template. It shows:
+  - approve returns with the action `ran` while the measurement is still running, in a session of its own;
+  - the measurement then records 2 of 2 passed at the head, the gap built;
+  - its intervention is by `pipeline-manager` with `asked_as` the action's id;
+  - an approval of a resumed park fails the action, with no run made;
+  - a park resumed mid-run leaves the gap parked, and an `ended` intervention says "recorded alone".
+- **Non-blocking: the approved run was attributed to the coordinator.** The detached run is given `--asked-as` set to
+  `$ERGOSTAT_ACTION`. With it, BY is `pipeline-manager`, its asker, and the intervention carries `asked_as`, the
+  action's id. Only the coordinator's own process can pass `--asked-as`: a call from the block's run is gated before
+  that flag is read.
+- **Non-blocking: runs.deadline had no bound off the main thread.** It now fails closed. `runs.measure` refuses (a
+  ValueError) before making any run when it is not on the main thread, and `deadline` raises if it is ever entered
+  there. The hang test now also calls `runs.measure` from a thread and sees it refused, with no run made.
+- **Non-blocking: the "Run here" list ran test_factory_manager.py before the runs.py change.** Rerun at this round's
+  head: 33 passed. The unit suite and the four browser files are still not run here. The merge queue runs them
+  (lesson-7).
+- **Breaks (lesson-9).** I broke each guard and watched its test fail:
+  - the detached start made to wait for its measurement: the manager test failed (the measurement was over when
+    approve returned);
+  - the `ended` intervention on a refusal removed: the manager test failed;
+  - the detached run attributed to the coordinator again: the manager test failed;
+  - the off-main-thread check in `runs.measure` removed: the hang test failed.
+- **Run here.** `tests/test_factory_measure_runs.py`: 13 passed. `tests/test_factory_manager.py`: 33 passed.
+  `uv run ruff check ergostat tests scripts dev/bin/manage.py dev/bin/runs.py` is clean. Local `main` is already in
+  the branch. **Not run here:** the unit suite, the four browser files and any real 30-run load.
+- Overrun reason: the code in dev/ is about 356 net lines, 176 over 180. Round 6 adds about 37 (manage.py's detached
+  start and its recorded end, 36; runs.py's thread check, 1), answering review 5. That comes on top of the review
+  fixes of rounds 2, 4 and 5. The factory's own count, which leaves out dev/, is 6.

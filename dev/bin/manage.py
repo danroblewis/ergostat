@@ -20,8 +20,10 @@ from __future__ import annotations
 import argparse
 import fcntl
 import json
+import os
 import re
 import shlex
+import subprocess
 import sys
 import time
 import uuid
@@ -165,7 +167,7 @@ def do_reapprove(cfg: dict, a) -> str:
     return f"{a.gap} back to {to}: {', '.join(tests)} fail on main too ({log})"
 
 
-def do_measure_runs(cfg: dict, a) -> str:
+def do_measure_runs(cfg: dict, a, asked_as: str = "") -> str:
     """The runs (runs.measure), their counts appended to the gap's `measured_runs` and said in its `findings`, which
     the reviewer's and implementor's briefs carry. All passed: gap.built at the head measured (review, unchanged); any
     failed: gap.sent-back, the first failing run's tail its input. A parked gap only as `measurable` allows, checked
@@ -179,7 +181,8 @@ def do_measure_runs(cfg: dict, a) -> str:
             f"`{' '.join(got['tests'])}`" + (f", the CPU loaded by {got['load']} busy processes" if got["load"] else ""))
     with continue_lock(cfg):
         moved(cfg, a, got, said, bad)
-    intervene("measure-runs", a.gap, a.why or said, a.cls, head=head, passed=got["passed"], failed=got["failed"])
+    intervene("measure-runs", a.gap, a.why or said, a.cls, head=head, passed=got["passed"], failed=got["failed"],
+              **({"asked_as": asked_as} if asked_as else {}))
     return f"{a.gap} back to {'fix' if bad else 'built'}: {said}"
 
 
@@ -317,6 +320,32 @@ def gated(cfg: dict, a) -> str:
     return f"{GATED[a.cmd]}: {how}"
 
 
+def detach(cfg: dict, a, argv: list[str]) -> str:
+    """The approved manager-measure's command: checked as when run, then the measurement started in a session of its
+    own (no terminal, no caller's group), stdout to a log; returns at once, so the approver (a terminal, a web
+    request, the engine) never waits hours, and an approver interrupted or gone leaves it running. It records its own
+    end (`asked`)."""
+    measurable(item(a.gap))
+    aid = os.environ.get("ERGOSTAT_ACTION") or "by-hand"
+    log = fac.run_dir(cfg, "measure") / f"{fac.slug(a.gap.split('/')[-1], 40)}-{time.strftime('%Y%m%d-%H%M%S')}-detached.txt"
+    with log.open("w") as out:
+        p = subprocess.Popen([sys.executable, __file__, *[x for x in argv if x != "--detach"], "--asked-as", aid],
+                             cwd=fac.MODEL, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                             start_new_session=True)
+    return f"{a.gap}: measure-runs started for {aid}, pid {p.pid}, its log {fac.rel(log)}; its counts go on the gap"
+
+
+def asked(cfg: dict, a, argv: list[str]) -> dict:
+    """The detached measurement: run, and its end recorded whatever it was. A refusal or failure is an intervention
+    too (the gap untouched), so a measurement asked and approved never ends unsaid."""
+    try:
+        said, ok = do_measure_runs(cfg, a, asked_as=a.asked_as), True
+    except Exception as e:  # noqa: BLE001 - its end recorded, then said
+        said, ok = f"{'refused' if isinstance(e, Refused | ValueError) else 'failed'}: {e}"[:1000], False
+        intervene("measure-runs", a.gap, said, a.cls, asked_as=a.asked_as, ended="refused or failed")
+    return {"call": argv, "ok": ok, "said": said}
+
+
 def approved(cfg: dict, argv: list[str]) -> str:
     """The approved actions' commands (run by the engine, outside the run): `closed GAP WHY`, `parked GAP WHY` (asked
     by the pipeline manager), `approved WHAT` (a change the coordinator makes)."""
@@ -351,6 +380,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--runs", type=runs.count, required=True)
     p.add_argument("--tests", type=lambda t: shlex.join(runs.selection(t)), required=True)
     p.add_argument("--load", type=lambda t: 0 if t == "0" else runs.procs(t), default=0)   # (0: no load)
+    p.add_argument("--detach", action="store_true")              # (the approved action's: started, not waited for)
+    p.add_argument("--asked-as", default="")                     # (the detached run's: the action that asked it)
     p.add_argument("--why", default="")
     p.add_argument("--class", dest="cls", default="")
     return ap
@@ -364,6 +395,11 @@ def run(cfg: dict, argv: list[str]) -> dict:
             raise Refused(f"--class {a.cls!r}: lowercase words and dashes")
         if a.cmd in GATED and (a.cmd != "measure-runs" or BY[0] != "coordinator"):
             return {"call": argv, "ok": True, "said": gated(cfg, a)}
+        if a.cmd == "measure-runs" and a.detach:
+            return {"call": argv, "ok": True, "said": detach(cfg, a, argv)}
+        if a.cmd == "measure-runs" and a.asked_as:
+            BY[0] = "pipeline-manager"                           # (its asker; the coordinator approved it)
+            return asked(cfg, a, argv)
         do = {"continue": do_continue, "reapprove": do_reapprove, "flake": do_flake, "remedy": do_remedy,
               "measure-runs": do_measure_runs, "propose": do_propose, "ask": do_ask,
               "file-gap": lambda c, a: file_gap(c, a.title, a.definition_text, a.depends_on, a.branch, a.why, a.cls)}
