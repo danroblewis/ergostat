@@ -69,3 +69,6 @@ test_a_prefix_run_waits_for_its_checks_whatever_a_join_says, fakes the broken st
 at once) and fails on the old wait (run_all returned before any check ended), so it does not depend on timing.
 To keep within 140 lines: [agents] prefix_cpus is now checked at every run_all start, also when queue_container is
 false (stricter, and easy to undo). dev/bin: 140 net lines.
+Run here after the fix (serially): tests/test_factory.py 171 passed, 2 skipped (the same two, for want of Docker and
+the agent image) in 18m44s; ruff clean. tests/test_agents.py was not run again (agents.py is unchanged in this pass).
+Not run here, as before: the unit suite, the browser files, demo_check, a prefix run against real Docker.
