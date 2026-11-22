@@ -89,6 +89,8 @@ def _work(p, spec, kinds, w) -> dict | None:
         for i, x in ans["items"].items():
             x.update(why.get(i) or {})
         ans["assumed"] = {b.name: b.assumed for b in inp.blocks if b.assumed}
+        ans["sources"] = {b.name: _source(b, w.pools, getattr(spec.blocks.get(b.name), "pool_now", None))
+                          for b in inp.blocks}
         ans["whatif"] = w.said()
         return ans
     except Exception as e:                       # the page goes on without estimates; said in the server's log
@@ -97,9 +99,20 @@ def _work(p, spec, kinds, w) -> dict | None:
         return None
 
 
+def _source(b, pools: dict, now) -> str:
+    """Where a block's simulated capacity comes from, in words: what binds (seats, a daemon), the what-if, its pool."""
+    bind = next((n for n, c in b.shared if c < pools.get(b.name, b.pool)), None)
+    if bind:
+        return f"{bind.split(':', 1)[1]}'s {'seats' if bind.startswith('agent') else 'runs at once'}"
+    if b.name in pools:
+        return "what if"
+    return f"pool {now} now" if now else "pool"
+
+
 def merge(ans: dict, est: dict | None) -> dict:
     """The Graph's and Timeline's answer (``precedence.build``) with the estimates: each open item's p50, p90 and why,
-    its projected bars from the levelled run (a block's lane on each), and each kind's last finish."""
+    its projected bars from the levelled run (a block's lane on each; none for an item not scheduled), each kind's last
+    finish, and each block's capacity and where it comes from."""
     if not est or not est.get("items"):
         return {**ans, "eta": None}
     items = []
@@ -108,9 +121,12 @@ def merge(ans: dict, est: dict | None) -> dict:
         if e is not None:
             x = {**x, "eta": e}
             segs = est["schedule"].get(x["id"])
-            if segs:
+            if e.get("unscheduled"):                 # (no bar ahead: the forward pass's dropped too)
+                x["projected"] = []
+            elif segs:
                 x["projected"] = [s for s in segs if s[2] > est["at"]]
         items.append(x)
     return {**ans, "items": items, "eta": {"at": est["at"], "runs": est["runs"], "kinds": est["kinds"],
-                                           "capacity": est["capacity"], "limit": est.get("limit") or {},
-                                           "assumed": est.get("assumed") or {}, "whatif": est.get("whatif") or []}}
+                                           "capacity": est["capacity"], "sources": est.get("sources") or {},
+                                           "limit": est.get("limit") or {}, "assumed": est.get("assumed") or {},
+                                           "whatif": est.get("whatif") or []}}

@@ -94,6 +94,28 @@ def test_capacity_is_never_exceeded():
     assert g["kinds"]["t"]["p50"] - T0 == pytest.approx(30 / 2 * 600, rel=0.05)
 
 
+def test_the_take_order_holds_from_the_start_and_the_parked_are_not_scheduled():
+    """At the start every item is queued before any is taken, so the block's order holds over the oldest first (the
+    Timeline's waterfall); a parked item and what waits on it in its first state are not scheduled, said why, and
+    left out of their kind's last finish."""
+    inp = inputs(n=9, pool=3)
+    inp.blocks[0].order = ["rank"]
+    for i in range(9):
+        inp.items[f"t/{i}"].fields = {"rank": 9 - i}              # the newest ranked first
+    run = eta._Run(inp, eta.Flags(arrivals=False), random.Random(1), {}, {}, False)
+    run.go(eta.HORIZON)
+    assert {i for i, t in run.start.items() if t == T0} == {"t/8", "t/7", "t/6"}, run.start
+    inp.kinds["t"].states.append("parked")
+    inp.kinds["t"].paused = {"parked"}
+    inp.items["t/0"].state = "parked"
+    inp.items["t/1"].preds, inp.items["t/2"].preds = ["t/0"], ["t/1"]
+    assert eta.unscheduled(inp) == {"t/0": "parked", "t/1": "waits on t/0, which is parked",
+                                    "t/2": "waits on t/1, which is not scheduled"}
+    g = eta.simulate(inp, runs=20)
+    assert g["items"]["t/2"]["unscheduled"] and "unscheduled" not in g["items"]["t/3"]
+    assert g["kinds"]["t"]["unscheduled"] == 3 and g["kinds"]["t"]["p50"] == pytest.approx(T0 + 2 * 600)
+
+
 def test_dependencies_are_respected():
     inp = inputs(n=6, pool=6)
     inp.items["t/0"].preds = ["t/1"]

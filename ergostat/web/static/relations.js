@@ -298,13 +298,16 @@ function relTimeline(open) {
         parts.push(row);
         return;
       }
+      if (x.heading) { parts.push(s("g", { class: "rg-heading" }, s("text", { class: "rg-id", x: 10, y: y + 4 }, x.heading))); return; }
+      const why = x.status !== "done" && d.eta && x.eta?.unscheduled;
       const row = s("g", { class: `rg-row rg-${x.status}${x.critical && x.status !== "done" ? " rg-critical" : ""}`, "data-id": x.id });
       if (i % 2) row.append(s("rect", { class: "rg-band", x: 0, y: y - RG.ROW / 2, width, height: RG.ROW }));
       const lab = s("g", { class: "rg-label", role: "link", tabindex: 0, onclick: () => open(x.id), onkeydown: (ev) => { if (ev.key === "Enter") open(x.id); } },
-        s("title", {}, `${x.id}${x.title ? ": " + x.title : ""}\n${x.state || ""}: ${RG_WORD[x.status] || x.status}`),
+        s("title", {}, `${x.id}${x.title ? ": " + x.title : ""}\n${x.state || ""}: ${RG_WORD[x.status] || x.status}${why ? `\nnot scheduled: ${why}` : ""}`),
         s("circle", { class: "rg-dot", cx: 10 + (x.depth || 0) * 12, cy: y, r: 3.5 }),
         s("text", { class: "rg-id", x: 19 + (x.depth || 0) * 12, y: y + 4 }, rgClip(x.id, 18)),
-        s("text", { class: "rg-sub", x: 19 + (x.depth || 0) * 12 + Math.min(18, x.id.length) * 6.6 + 6, y: y + 4 }, rgClip(x.title || "", Math.max(0, 22 - (x.depth || 0) * 2 - Math.min(18, x.id.length) / 2))));
+        s("text", { class: `rg-sub${why ? " rg-why" : ""}`, x: 19 + (x.depth || 0) * 12 + Math.min(18, x.id.length) * 6.6 + 6, y: y + 4 },
+          why || rgClip(x.title || "", Math.max(0, 22 - (x.depth || 0) * 2 - Math.min(18, x.id.length) / 2))));
       row.append(lab);
       let lo = Infinity, hi = -Infinity;
       const seg = (st, t0, t1, proj) => {
@@ -312,7 +315,7 @@ function relTimeline(open) {
         lo = Math.min(lo, X(t0)); hi = Math.max(hi, X(t1));
         if (xb - xa < 0.5) return;
         row.append(s("rect", { class: proj ? "rg-proj" : "rg-seg", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, fill: proj && x.summary ? "none" : rgShade(kinds, x.kind, st) },
-          s("title", {}, `${x.id}: ${st}${proj ? " (projected)" : ""}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
+          s("title", {}, `${x.id}: ${st}${proj ? (d.eta ? " (projected)" : " (the forward pass: its kind's median times, no capacity)") : ""}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
       };
       for (const [st, t0, t1] of x.segments || []) seg(st, t0, t1, false);
       for (const [st, t0, t1, , lane] of x.projected || []) {
@@ -352,16 +355,23 @@ function relTimeline(open) {
   }
   el.draw = (m, d, lanes = false) => {
     if (lanes && d.eta) return drawLanes(m, d);
-    // the rows: a parent, then its children under it; the rest in the order they start (projected or actual)
+    // the rows: a parent, then its children under it; the finished first, in the order they started; with estimates
+    // the unfinished in the order the simulation starts them (its bar's left edge, then the start's p50, then the
+    // finish's), and those it never moves last, apart, with why
     const ids = m.nodes.map((n) => n.id).filter((id) => m.byId[id]);
-    const key = (x) => (x.segments?.[0]?.[1] ?? x.es ?? x.first);
-    const order = ids.map((id) => m.byId[id]).sort((p, q) => key(p) - key(q) || (p.id < q.id ? -1 : 1));
+    const un = (x) => d.eta && x.status !== "done" && x.eta?.unscheduled;
+    const key = (x) => (!d.eta || x.status === "done" || !x.eta ? [0, x.segments?.[0]?.[1] ?? x.es ?? x.first, 0]
+      : [1, (x.projected || []).find((g) => g[4] !== "wait")?.[1] ?? x.eta.start ?? x.eta.p50 ?? Infinity, x.eta.p50 ?? Infinity]);
+    const cmp = (a, b) => a.map((v, i) => (v === b[i] ? 0 : v < b[i] ? -1 : 1)).find((c) => c) || 0;
+    const order = ids.map((id) => m.byId[id]).filter((x) => !un(x)).sort((p, q) => cmp(key(p), key(q)) || (p.id < q.id ? -1 : 1));
+    const apart = ids.map((id) => m.byId[id]).filter(un).sort((p, q) => (p.id < q.id ? -1 : 1));
     const placed = new Set(), rows = [];
     const kidsOf = {};
     for (const x of order) if (x.group && ids.includes(x.group)) (kidsOf[x.group] ||= []).push(x);
     const put = (x, depth) => { if (placed.has(x.id)) return; placed.add(x.id); rows.push({ ...x, depth }); for (const c of kidsOf[x.id] || []) put(c, Math.min(3, depth + 1)); };
     for (const x of order) if (!(x.group && ids.includes(x.group))) put(x, 0);
     for (const x of order) put(x, 0);
+    if (apart.length) rows.push({ heading: `Not scheduled (${apart.length})`, id: "" }, ...apart.map((x) => ({ ...x, depth: 0 })));
     const shown = rows.slice(0, RG.BARS);
     const ts = shown.flatMap((x) => [...(x.segments || []).flatMap((g) => [g[1], g[2]]), ...(x.projected || []).flatMap((g) => [g[1], g[2]])]);
     const lo = Math.max(d.since, Math.min(d.now, ...ts)), hi = Math.max(d.now, ...ts);
@@ -371,9 +381,12 @@ function relTimeline(open) {
     const top = Math.max(hi, ...p90s);
     cur = { rows: shown, kinds: m.kinds, d, edges, fit: [lo - pad, top + pad] };
     setText(note, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
-      + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. Not modelled: a goal that switches a block off, a capacity no block declares.`
+      + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. `
+        + `Capacity: ${Object.entries(d.eta.capacity || {}).map(([b, c]) => `${b} ${c} at once (${(d.eta.sources || {})[b] || "pool"})`).join(", ") || "no block takes these items"}. `
+        + `Not modelled: a goal that switches a block off, a capacity no block declares.`
         + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
-        : d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : ""));
+        : (d.eta_pending && !SNAP ? `Working out the schedule: a simulation of ${rgOpen(d.items || [])} at each block's capacity; meanwhile the bars ahead are the forward pass (its kind's median times, no capacity). ` : "")
+          + (d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : "")));
     draw(); toNow();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   };
@@ -392,28 +405,36 @@ function relTimeline(open) {
     const ts = rows.flatMap((r) => r.bars.flatMap((b) => [b[3], b[4]]));
     const lo = d.now, hi = Math.max(d.now + 60, ...ts);
     cur = { rows, kinds: m.kinds, d, edges: [], fit: [lo - (hi - lo) * 0.02, hi + (hi - lo) * 0.03] };
-    setText(note, rows.length ? `Each block's lanes, at most its capacity at once (leases held over a lowered pool keep theirs until they end): one of ${d.eta.runs} runs of the simulation, levelled. A bar is an item's run; a click opens it. Not modelled: a goal that switches a block off, a capacity no block declares.` : "No block takes these items.");
+    setText(note, rows.length ? `Each block's lanes, at most its capacity at once (a lease taken before a pool was lowered keeps its lane until it ends): one of ${d.eta.runs} runs of the simulation, levelled. A bar is an item's run; a click opens it. Not modelled: a goal that switches a block off, a capacity no block declares.` : "No block takes these items.");
     draw();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   }
   return el;
 }
 
-/* a moment as a clock time, rounded up to the minute (never earlier than it); its date too when not today */
-const rgClock = (t, now) => {
+/* a moment as a clock time, rounded up to the minute (never earlier than it); its date too when not today, or `day` */
+const rgClock = (t, now, day = false) => {
   const c = new Date(Math.ceil(t / 60) * 60 * 1000), hm = c.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
-  return c.toDateString() === new Date(now * 1000).toDateString() ? hm : `${c.toLocaleDateString([], { month: "short", day: "numeric" })} ${hm}`;
+  return !day && c.toDateString() === new Date(now * 1000).toDateString() ? hm : `${c.toLocaleDateString([], { month: "short", day: "numeric" })} ${hm}`;
+};
+/* how many unfinished of each kind, in words ("12 unfinished tickets") */
+const rgOpen = (xs) => {
+  const n = {};
+  for (const x of xs) if (x.kind && x.status !== "done") n[x.kind] = (n[x.kind] || 0) + 1;
+  return Object.entries(n).map(([k, c]) => `${c} unfinished ${k}${c === 1 ? "" : "s"}`).join(" and ") || "the unfinished items";
 };
 /* when the last open item drawn is done, in one sentence: its kind's last finish (p50, p90), never before the
    critical path's end; while the first estimate is worked out, said so */
 function rgFinish(d) {
   const key = (txt, title = "") => h("span", { class: "rg-key rg-eta", key: "eta", title }, txt);
   if (!d.eta) return d.eta_pending && !SNAP ? key("the last item's finish: being worked out") : null;
-  const last = d.items.filter((x) => x.eta && x.status !== "done").reduce((a, x) => (a && (a.eta.p50 ?? Infinity) >= (x.eta.p50 ?? Infinity) ? a : x), null);
-  if (!last) return null;
+  const open = d.items.filter((x) => x.eta && x.status !== "done"), apart = open.filter((x) => x.eta.unscheduled).length;
+  const last = open.filter((x) => !x.eta.unscheduled).reduce((a, x) => (a && (a.eta.p50 ?? Infinity) >= (x.eta.p50 ?? Infinity) ? a : x), null);
+  const not = apart ? `; ${apart} not scheduled` : "";
+  if (!last) return apart ? key(`${apart} not scheduled`, "Parked, or waiting on what is: the simulation moves none of them") : null;
   const e = d.eta.kinds[last.kind] || last.eta, lo = Math.max(e.p50 ?? Infinity, d.end), who = `last ${last.kind} (${last.id.split("/").pop()})`;
-  return key(e.p50 == null ? `${who} beyond the horizon` : `${who} expected ${rgClock(lo, d.now)}, `
-      + (e.p90 != null ? `by ${rgClock(Math.max(e.p90, lo), d.now)} at worst (9 in 10)` : `no worst case under 20 runs (${d.eta.runs})`),
+  return key(e.p50 == null ? `${who} beyond the horizon${not}` : `${who} expected ${rgClock(lo, d.now, true)}, `
+      + (e.p90 != null ? `by ${rgClock(Math.max(e.p90, lo), d.now)} at worst (9 in 10)` : `no worst case under 20 runs (${d.eta.runs})`) + not,
     `When the last open ${last.kind} is done: the p50 (expected) and the p90 (at worst) of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework; never before the critical path's end (${rgClock(d.end, d.now)}). Not modelled: a goal that switches a block off, a capacity no block declares`
       + (e.visits && Object.keys(e.visits).length ? `\nExpected visits per state, from the first: ${Object.entries(e.visits).map(([st, v]) => `${st} ${v.toFixed(2)}`).join(", ")}` : ""));
 }

@@ -15,3 +15,30 @@ Acceptance tests: browser on a fixture of 30 items with a 3-wide pool and ranks 
 Budget: 90 net lines.
 
 Milestone: timeline-real-schedule. Owner items: 17. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1: all five done items, with the acceptance test
+`tests/test_items_page.py::test_the_timeline_shows_the_simulated_schedule_in_order` (30 gaps, a pool of 3, ranks
+opposite to filing order) and a unit test, `tests/test_eta.py::test_the_take_order_holds_from_the_start_and_the_parked_are_not_scheduled`.
+62 net lines outside tests and docs (budget 90).
+
+Decisions taken alone (each the most reversible):
+- The dependency eta-works-out-on-the-factory-record is not on main: no `unscheduled` flag exists. It is worked out
+  here, in `ergostat/numbers/eta.py` (`unscheduled()`, outside the Files list): parked (a paused state), or kept in its
+  kind's first state, or out of an `unblocked` block's queue, by a predecessor that is not scheduled. Those items are
+  left out of their kind's last finish (else one parked gap makes every kind's finish "beyond the horizon"). If that
+  gap lands with its own flag, this function should give way to it.
+- Also in eta.py: at the start of a run every item was taken as it was queued, so the oldest were taken before the
+  better-ranked were queued and the projected schedule followed filing order, not `order:`. Items are now all queued
+  before the first take. Without this, done item 1 fails on the fixture.
+- Rows are ordered by the left edge of the row's first bar ahead (the levelled run's), then eta.start, eta.p50, id:
+  eta.start is a median over runs and need not agree with the one run drawn, and done item 1 is about the bars.
+- The legend keeps Q60's landed form ("last gap (x) expected ..."), with "; N not scheduled" appended and the expected
+  time always with its date; Q34's formatter is not on main, so the existing rgClock is used.
+- The lanes note said "leases held over a lowered pool"; reworded, so no Timeline text says "held".
+
+Not done: the live check (GET on :8798/items?kind=gap&view=timeline) - the command `curl -s -o /dev/null -w
+"%{http_code}\n" --max-time 3 "http://127.0.0.1:8798/items?kind=gap&view=timeline"` was refused in this session.
+Noted, not fixed (outside the gap): on a record where items have moved from the block's state to a paused one, the
+simulation sends that share of items to it after their runs, so they become never-finishing in some runs.

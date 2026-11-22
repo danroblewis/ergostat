@@ -92,6 +92,7 @@ class _Run:
         self.no_ws = [[] for _ in self.blocks]          # queued, waiting for a workspace: back in the queue when one frees
         self.open = len(inp.items)
         self.n_new = 0
+        self.loading = False
 
     def push(self, t, *ev):
         self.seq += 1
@@ -124,7 +125,8 @@ class _Run:
                 key = (*take_key(bl.order, bl.at, state, x.fields if x else {}, -(x.level if x and bl.unblocked else 0)),
                        t if queued is None else queued, self.seq)
                 heapq.heappush(self.queue[b], (key, i, it[4]))
-            self.wake(t)
+            if not self.loading:                       # (at the start, taken once every item is queued: in order)
+                self.wake(t)
             return
         stay = self.stay(k, state, age)
         if self.record:
@@ -255,6 +257,7 @@ class _Run:
         """The run, to every tracked item's finish or the horizon; False when it ran past ``deadline`` (cut short)."""
         inp, t0 = self.inp, self.inp.at
         names = {b.name: j for j, b in enumerate(self.blocks)}
+        self.loading = True
         for x in sorted(inp.items.values(), key=lambda x: (x.queued, x.id)):
             self.items[x.id] = [x.kind, x.state, x.entered, x.attempts, 0]
             if x.lease and x.lease[0] in names and self.f.queue:
@@ -267,6 +270,7 @@ class _Run:
                 if x.state != inp.kinds[x.kind].states[0] or x.lease:
                     self.start[x.id] = t0
                 self.enter(x.id, x.state, t0, max(0.0, t0 - x.entered), x.queued)
+        self.loading = False
         if self.f.arrivals:
             for k in inp.kinds.values():
                 if k.arrivals > 0 and k.arrive_at:
@@ -305,6 +309,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     """Each open item's p50 and p90 finish and its expected start, per kind when its last open item finishes, and a
     levelled schedule (the run whose last finish is the median's) for the Timeline."""
     t_end = time.monotonic() + budget                   # (the runs within ``budget``, the levelled one within as much again)
+    un = unscheduled(inp)                               # (never moved by a run: not in its kind's last finish)
     fins, starts, deads, lasts = {i: [] for i in inp.items}, {i: [] for i in inp.items}, {i: 0 for i in inp.items}, []
     n = 0
     for r in range(runs):
@@ -320,18 +325,21 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
             fins[i].append(f)
             starts[i].append(run.start.get(i, f))
             deads[i] += i in run.dead
-            last[x.kind] = max(last.get(x.kind, 0.0), f)
+            if i not in un:
+                last[x.kind] = max(last.get(x.kind, 0.0), f)
         lasts.append(last)
     few = n < FEW                                       # (too few runs for a p90: none said)
     mean = lambda xs: sum(xs) / len(xs) if xs and max(xs) < float("inf") else None   # noqa: E731
     items = {i: {"p50": _q(fins[i], 0.5), "p90": None if few else _q(fins[i], 0.9), "mean": mean(fins[i]),
                  "start": _q(starts[i], 0.5),
-                 "dead": round(deads[i] / n, 3), "runs": n} for i in inp.items} if n else {}
+                 "dead": round(deads[i] / n, 3), "runs": n, **({"unscheduled": un[i]} if i in un else {})}
+             for i in inp.items} if n else {}
     kinds = {}
     for k in {x.kind for x in inp.items.values()} if n else ():
         xs = [la.get(k, 0.0) for la in lasts]
         kinds[k] = {"p50": _q(xs, 0.5), "p90": None if few else _q(xs, 0.9), "visits": inp.kinds[k].visits,
-                    "open": sum(1 for x in inp.items.values() if x.kind == k)}
+                    "open": sum(1 for x in inp.items.values() if x.kind == k),
+                    "unscheduled": sum(1 for i, x in inp.items.items() if x.kind == k and i in un)}
     # the levelled schedule: the run whose last finish is nearest the median's, drawn again with its segments kept
     rep = None
     if n and time.monotonic() < t_end + budget:
@@ -348,6 +356,22 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     return {"at": inp.at, "runs": n, "flags": flags.__dict__, "items": items, "kinds": kinds, "schedule": rep or {},
             "capacity": {b.name: max(1, b.capacity(pools), held.get(b.name, 0)) for b in inp.blocks},
             "limit": {b.name: max(1, b.capacity(pools)) for b in inp.blocks}}
+
+
+def unscheduled(inp: Inputs) -> dict[str, str]:
+    """The open items no run moves, and why: parked (in a state its kind declares paused), or kept in its kind's first
+    state (or out of an ``unblocked`` block's queue) by what it waits on, which is not scheduled either."""
+    out = {i: "parked" for i, x in inp.items.items() if x.state in inp.kinds[x.kind].paused}
+    more = True
+    while more:
+        more = False
+        for i, x in sorted(inp.items.items()):
+            pr = next((p for p in x.preds if p in out), None)
+            if i in out or pr is None or not (x.state == inp.kinds[x.kind].states[0] or any(
+                    b.unblocked for b in inp.blocks if b.kind == x.kind and x.state in b.at)):
+                continue
+            out[i], more = f"waits on {pr}, which is {'parked' if out[pr] == 'parked' else 'not scheduled'}", True
+    return out
 
 
 def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
@@ -385,7 +409,7 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
             put = f"; put off until it is due in {human(x.not_before - inp.at)}" if x.not_before > inp.at else ""
             w = b.workspace
             if w and w not in x.holds and sum(1 for y in inp.items.values() if w in y.holds) >= inp.workspaces[w]:
-                put += f"; every workspace of {w} is held ({inp.workspaces[w]}): it waits for one, holding nothing"
+                put += f"; every workspace of {w} is in use ({inp.workspaces[w]}): it waits for one, holding nothing"
             med = b.run.quantile(0.5) if b.run else None
             if all(o.off for o in inp.blocks if o.kind == x.kind and x.state in o.at):
                 out[x.id] = {"waits_in": b.name, "position": None, "capacity": cap, "off": True,
