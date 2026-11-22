@@ -32,8 +32,9 @@ def test_implementor_environment_has_a_browser():
     assert "PLAYWRIGHT_BROWSERS_PATH" not in agent_image                       # (and finds its browsers where it put them)
     assert f"--with {PIN} " in cfg["browser_ready"] and f"--with {PIN} " in cfg["browser"]
     assert f"--with {PIN} " in cfg["rerun"]
-    # each browser run prints its skips (-rs: one SKIPPED line per reason), as well as pytest's summary count
-    assert all(" -rs " in cfg[n] for n in ("browser", "rerun"))
+    # each browser run prints its skips (-rfEs: one SKIPPED line per reason, and the FAILED and ERROR lines
+    # fac.failed_tests reads), as well as pytest's summary count
+    assert all(" -rfEs " in cfg[n] for n in ("browser", "rerun"))
     # the session may run a named browser file under the watchdog, with the suite's own Playwright, and never the suite
     sys.modules.setdefault("fac", module("fac"))
     assert may(f"{PAGE} tests/test_items_page.py") and not may(cfg["browser"])
