@@ -536,6 +536,25 @@ def test_reapprove_takes_a_fast_suite_failure_to_built_and_refuses_a_moved_branc
     assert "no failure of named tests" in f.manage("reapprove", "gap/plain", "--why", "x", ok=False)
 
 
+def test_reapprove_runs_a_browser_failure_on_main_with_playwright(tmp_path):
+    """A browser test failed in the fast suites is run on main by `rerun` (with Playwright), not `alone` (where it
+    would skip, rc 0, and read as passing there); a skip under `rerun` is not a pass either."""
+    f = Pipe(tmp_path)
+    gid = failed_in_the_queue(f)
+    db = f.db()
+    db["items"][gid]["state"] = "fix"
+    db["items"][gid]["fields"].update(failed_tests=[], suites_fast={"failed": "browser", "tests": [
+        "tests/test_items_page.py::test_b"]})
+    f.record.write_text(json.dumps(db))
+    cfg = f.config.read_text()
+    f.config.write_text(cfg.replace('rerun = "echo again {tests}"', 'rerun = "echo 1 skipped in 0.01s"')
+                        .replace('alone = "true {tests}"', "alone = 'printf \"FAILED %s\\n\" {tests}; false'"))
+    assert "not environmental" in f.manage("reapprove", gid, "--why", "skips on main", ok=False)
+    f.config.write_text(cfg.replace('rerun = "echo again {tests}"', "rerun = 'printf \"FAILED %s\\n\" {tests}; false'"))
+    assert "back to built" in f.manage("reapprove", gid, "--why", "the page test fails on main too")
+    assert list((tmp_path / "instance").rglob("manager-*-rerun.txt"))
+
+
 def test_flake_and_file_gap(tmp_path):
     f = Pipe(tmp_path)
     assert "recorded as a flake" in f.manage("flake", "tests/test_x.py::test_a", "--why", "passes alone, thrice")

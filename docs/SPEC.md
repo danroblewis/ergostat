@@ -2645,7 +2645,10 @@ It serves blocks only (a sensor naming one is an error). The protocol is the one
 run, the run is charged its CPU (`resources: {cpu, method: warm}`): what its process group used between hand-over
 and `done`, each member's own CPU and that of every descendant it reaped (read from outside: `proc_pid_rusage` on
 macOS, `/proc` on Linux; elsewhere none): the group's total at `done` less its total at hand-over, so a member that
-ended during the run and was reaped inside the group is charged only its part since. Everything outside a run is
+ended during the run and was reaped inside the group is charged only its part since. A run that never says `done`
+(its process crashed, or hung past its timeout and was restarted) is charged the same way when it is failed, its
+leader's part read from its exit (`wait4`) once it has ended; when its leader can be read neither way, the run's CPU
+is `unmeasured`, never zero. Everything outside a run is
 the process's own, left over with its start-up: CPU used after `done` and before the next hand-over is no run's;
 only what is used after the next hand-over's total was taken is that run's. Not charged: a child
 that left the group (`setsid`) or was orphaned and reaped outside it, and a member whose usage cannot be read. At
