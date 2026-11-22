@@ -71,3 +71,14 @@ is to treat a selection that is entirely skipped browser files as collection onl
 Run again with Playwright under the watchdog: `test_each_closed_system_box_says_what_the_system_is` (both cases) and
 `test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_and_draws_no_port_squares`, 3 passed, rc 0. Ruff is
 clean. No code changed in this step.
+
+## Where it stopped (round 1, after the second build)
+
+The `build` step failed again in the same way: `affected_tests: 4 changed, running tests/test_diagram_rendering.py`,
+`SKIPPED [1] tests/test_diagram_rendering.py:38: could not import 'playwright.sync_api'`, `1 skipped`, rc 5. No test
+ran and none failed, so there is no code to fix. The only test file the branch changes is a browser file, which is
+where the definition puts the acceptance test, and the build runs without Playwright. The fix belongs in its own gap,
+not in this branch (lesson 13). Either `scripts/affected_tests.py` could treat a selection made only of browser files
+as collection only, or the build could set `build_browser = true` for such a branch. I did not add a non-browser test
+just to give the build something to run. It would be work outside the definition, and it would guard nothing the
+browser test does not already guard. No code changed in this step.
