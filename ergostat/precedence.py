@@ -6,7 +6,8 @@ index (its links, both ways, and its moves); nothing is declared for it but the 
   dependents blocked by it. *done*: in a state its kind counts as finished (``messages: done:``, else as the item index says;
   never a state a block takes from, its first, ``leased`` or ``dead``). *active*: leased, or in a working state (one
   that is neither its kind's first state, nor a state a block takes from, nor finished). *blocked*: a precedence
-  relation names an item not finished. *queued*: started, and waiting in a later state a block takes from (review).
+  relation names an item not finished (nor in a state the relation's ``starts_at`` names: a start-to-start link, for
+  status and for ``takes: {unblocked: true}`` only). *queued*: started, and waiting in a later state a block takes from (review).
   *unblocked*: in its first state, nothing it waits on unfinished. *dead*: a dead letter.
 - **Durations.** Each kind's time per state, the median of every stay its latest items made in it (``leased``, a
   run's hold, counted as the work it is), weighted by how often its items visit the state. An item's expected
@@ -15,7 +16,8 @@ index (its links, both ways, and its moves); nothing is declared for it but the 
   kind with no stays yet takes the median of the kinds that have them, else ``ASSUMED``, said as assumed.
 - **The critical path** (CPM: Kelley and Walker's critical path method): a forward pass over the unfinished items
   in precedence order (each starts once its unfinished predecessors are expected to end; an active one now), a
-  backward pass from the last end, and each item's slack, how long it may slip without moving the end. The
+  backward pass from the last end, and each item's slack, how long it may slip without moving the end. Every link
+  is finish-to-start here, ``starts_at`` or not (conservative: a dependent is projected after its target ends). The
   critical items have none. Not levelled: a pool's limit is in the completion estimates (``numbers/eta.py``), whose
   levelled run the Timeline draws in place of this projection once it is worked out.
 - **Cycles.** Items whose precedence relations go round, or round through a parent (a summary ends after its
@@ -78,8 +80,8 @@ class Kinds:
         return {"name": name, "finished": finished, "queue": list(dict.fromkeys(queue)), "working": working,
                 "paused": paused, "medians": medians, "weights": weights,
                 "duration": sum(medians[s] * weights[s] for s in known) if known else None,
-                "relations": {r.name: {"kinds": r.kinds, "precedence": r.precedence, "inverse": r.inverse, "group": r.group}
-                              for r in k.relations.values()}}
+                "relations": {r.name: {"kinds": r.kinds, "precedence": r.precedence, "inverse": r.inverse, "group": r.group,
+                                       "starts_at": r.starts_at} for r in k.relations.values()}}
 
     def expected(self, name: str | None) -> float | None:
         return self[name]["duration"]
@@ -317,9 +319,9 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             out["edges"].append({"from": a, "to": d, "rel": r, "kind": "other"})
     # statuses: blocked by a predecessor not finished (one past the cap by its own status; one not found at all is not
     # known to be finished)
-    def finished(d: str) -> bool:
+    def finished(d: str, rel) -> bool:          # (or in a state its relation's ``starts_at`` names: start-to-start)
         i = got.get(d) or beyond.get(d)
-        return i is not None and status(i, info[i.kind], []) == "done"
+        return i is not None and (status(i, info[i.kind], []) == "done" or i.state in rel.starts_at)
     durs = {kk: info.expected(kk) for kk in {i.kind for i in got.values()}}
     known = [d for d in durs.values() if d]
     fallback = median(known) if known else ASSUMED
@@ -328,8 +330,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     waiting: dict[str, list[str]] = {}
     for a, it in got.items():
         mine = rels.get(it.kind or "") or {}
-        preds = [d for r, ds in (out_of.get(a) or {}).items() if mine.get(r) is not None and mine[r].precedence for d in ds]
-        waiting[a] = [d for d in preds if not finished(d)]
+        waiting[a] = [d for r, ds in (out_of.get(a) or {}).items() if mine.get(r) is not None and mine[r].precedence
+                      for d in ds if not finished(d, mine[r])]
     for a, it in got.items():
         st[a] = status(it, info[it.kind], waiting[a])
     found = cycles(list(got), before)
@@ -417,7 +419,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
 
 def order_ready(events, spec, kind: str, items: list, now: float) -> list:
     """For a block that takes only unblocked items (``takes: {unblocked: true}``): of ``items`` (those it may take,
-    in its order), those whose precedence relations name only finished items, the critical first (the least slack,
+    in its order), those whose precedence relations name only finished items (or ones in a ``starts_at`` state),
+    the critical first (the least slack,
     then the longest path ahead: the bottom level), the block's own order kept among equals."""
     from .spec.itemindex import index_for
     ix = index_for(events, spec, False)
@@ -430,10 +433,11 @@ def order_ready(events, spec, kind: str, items: list, now: float) -> list:
         x = by.get(it.id)
         if x is None:                                         # not in the graph (past its caps): its links read alone
             with ix.lock:
-                preds = [d for _, r, d in ix.links_from([it.id]) if r in _prec(spec, it.kind)]
-                done = {i.id for i in ix.items(None, ids=preds)
-                        if status(i, Kinds(spec, ix)[i.kind], []) == "done"} if preds else set()
-            if any(p not in done for p in preds):
+                prec = _prec(spec, it.kind)
+                links = [(r, d) for _, r, d in ix.links_from([it.id]) if r in prec]
+                by_id = {i.id: i for i in ix.items(None, ids=[d for _, d in links])} if links else {}
+            if any(d not in by_id or (status(by_id[d], Kinds(spec, ix)[by_id[d].kind], []) != "done"
+                                      and by_id[d].state not in prec[r].starts_at) for r, d in links):
                 continue
             out.append((float("inf"), 0.0, n, it))
             continue
@@ -443,9 +447,9 @@ def order_ready(events, spec, kind: str, items: list, now: float) -> list:
     return [it for *_, it in sorted(out, key=lambda t: t[:3])]
 
 
-def _prec(spec, kind) -> set[str]:
+def _prec(spec, kind) -> dict:
     k = spec.items.get(kind or "")
-    return {r.name for r in k.relations.values() if r.precedence} if k else set()
+    return {r.name: r for r in k.relations.values() if r.precedence} if k else {}
 
 
 _CACHE: dict = {}

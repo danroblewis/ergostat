@@ -70,7 +70,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    {"set": ["epic/PROJ-1"]}}}`. One that sees changes says them: `{"blocked_by": {"add": "ticket/PROJ-9"}}`,
    `{"remove": ...}`. Use the same ids the items have (`ticket/PROJ-9`, not `PROJ-9`), and record the related item
    too, or it shows as "not recorded" and counts as unfinished. Then the step that starts the work can take only
-   what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. Look at the Items
+   what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. When a ticket may
+   start once the one it waits on is in review, not done, say so on the relation: `blocked_by: {kind: ticket,
+   starts_at: [review]}` (name every state from which on; the projected schedule still waits for it to finish). Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
    to check the links came through, or ask from the command line: `ergostat item ID --near [N]` (the items within N
    hops, 1 to 4), `ergostat item A --path B` (a shortest chain of relations, a backward step named by its inverse),

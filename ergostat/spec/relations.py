@@ -31,7 +31,7 @@ INVERSES = {"blocked_by": "blocks", "after": "before", "depends_on": "dependents
             "duplicates": "duplicated_by", "relates_to": "related_from"}
 GROUPS = ("parent",)
 REL_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
-REL_KEYS = {"kind", "precedence", "inverse", "group", "description"}
+REL_KEYS = {"kind", "precedence", "inverse", "group", "starts_at", "description"}
 REL_FOLDS = ("relation", "union", "replace")                # how a relation's field may fold: a set of ids
 
 
@@ -88,13 +88,23 @@ def compile_relations(c, m, what: str, rules: dict) -> dict[str, Relation]:
             c.err(f"{what}.relations.{name}.inverse: the other direction's name, a field name unlike its own (blocks)",
                   at, "bad-relation")
             continue
+        starts = opts.get("starts_at", [])
+        starts = [starts] if isinstance(starts, str) else starts
+        if not isinstance(starts, list) or not all(isinstance(s, str) and s for s in starts):
+            c.err(f"{what}.relations.{name}.starts_at: a list of the target kind's states ([approved])", at,
+                  "bad-relation")
+            continue
+        if starts and not prec:
+            c.err(f"{what}.relations.{name}.starts_at: only a precedence relation's targets block, so only it may say "
+                  f"where they stop blocking", at, "starts-at-not-precedence")
+            continue
         rule = rules.get(name)
         if rule is None:
             rules[name] = "relation"
         elif rule not in REL_FOLDS:
             c.err(f"{what}.fold.{name}: a relation folds as a set of ids ({', '.join(REL_FOLDS)}), not {rule}", at,
                   "bad-fold")
-        out[name] = Relation(name, [str(k) for k in kinds], prec, inv, group, remote, there)
+        out[name] = Relation(name, [str(k) for k in kinds], prec, inv, group, remote, there, list(starts))
     return out
 
 
@@ -128,6 +138,24 @@ def check_relations(c, spec) -> None:
                 if t not in spec.items:
                     c.err(f"item kind {k.name}.relations.{r.name}: {t!r} is not a kind of item" + c.suggest(t, spec.items),
                           k.where, "unknown-ref")
+            check_starts_at(c, spec, k, r)
+
+
+def check_starts_at(c, spec, k, r) -> None:
+    """Each ``starts_at`` state is a state of a kind the relation names, and not one it counts as finished or paused
+    (``messages: done:``, else its last state; ``messages: paused:``): a finished target blocks nothing already."""
+    targets = [spec.items[t] for t in r.kinds if t in spec.items]
+    msgs = getattr(spec, "messages", None)
+    done, paused = (getattr(msgs, "done", None) or {}), (getattr(msgs, "paused", None) or {})
+    for s in r.starts_at:
+        has = [t for t in targets if s in (t.states or [])]
+        where = f"item kind {k.name}.relations.{r.name}.starts_at: {s!r}"
+        if not has:
+            c.err(f"{where} is not a state of {', '.join(r.kinds)}" + c.suggest(s, [x for t in targets for x in t.states or []]),
+                  k.where, "starts-at-unknown-state")
+        elif any(s in (done.get(t.name) or t.states[-1:]) or s in (paused.get(t.name) or ()) for t in has):
+            c.err(f"{where} is a finished or paused state: a finished target never blocks, and a paused one is not "
+                  f"under way", k.where, "starts-at-finished")
 
 
 def ids_in(v) -> list[str]:

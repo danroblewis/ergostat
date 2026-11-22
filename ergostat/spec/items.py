@@ -661,8 +661,9 @@ def related(events, spec, it: Item, k) -> dict | None:
     title = lambda x: x.fields.get("title") if isinstance(x.fields.get("title"), str) else ""      # noqa: E731
     out["items"] = {i: {"kind": x.kind, "state": x.state, "title": title(x), "done": status(x, info[x.kind], []) == "done"}
                     for i, x in seen.items()}
-    prec = {r for r, rel in (k.relations.items() if k else []) if rel.precedence}
-    out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")]
-    out["relations"] = {r: {"kinds": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group}
-                        for r, rel in (k.relations.items() if k else [])}
+    prec = {r: rel for r, rel in (k.relations.items() if k else []) if rel.precedence}
+    out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")
+                      and (out["items"].get(i) or {}).get("state") not in prec[r].starts_at]
+    out["relations"] = {r: {"kinds": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group,
+                            "starts_at": rel.starts_at} for r, rel in (k.relations.items() if k else [])}
     return out
