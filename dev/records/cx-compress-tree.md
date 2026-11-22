@@ -103,3 +103,11 @@ on the root model, no new finding). Ruff is clean. I broke the code and watched 
 path, no window check, a blob cached with no measures taken as having none, docstrings kept in logic, the repeat share
 computed per file, ENV without the liblzma version, and the repeat share without its two merge causes. Not run here:
 the unit suite and the browser files (left to the factory; this gap changes no page).
+
+Round 2 (the review's one finding, which was blocking): `test_cost_at_todays_size` measured the live HEAD and HEAD~1,
+so as the code scope grew on main, an unrelated merge would turn it red. It now measures the pinned 34ece0da (this
+gap's definition commit, where the docstring's numbers were taken) and its parent, so "today's size" stays fixed. It
+relies on the factory merging branches (not squashing), so that 34ece0da stays in main's history. If it is ever missing,
+`git rev-parse` fails and the test fails; it is not skipped. `tests/test_factory_cx_compress.py`: 13 passed. Ruff is
+clean. Not done: lowering the bound to watch the pinned test fail (the command that edits the bound in place was refused
+in this session). The assertion itself has not changed.

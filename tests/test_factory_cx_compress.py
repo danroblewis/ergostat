@@ -187,9 +187,11 @@ print(json.dumps({"runs": out, "mb": rss / (1 << 20 if sys.platform == "darwin" 
 def test_cost_at_todays_size(tmp_path):
     """Definition point 6: one commit of this repository with a cold cache, then its parent with the cache warm (as a
     backfill measures each commit after the one before it). The 12 s bound is the warm one, in CPU seconds (the
-    measure's and its git children's: one core); the cold one, paid once per VERSION or ENV, is held under 60 s."""
-    shas = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD", "HEAD~1"], capture_output=True, text=True,
-                          check=True).stdout.split()
+    measure's and its git children's: one core); the cold one, paid once per VERSION or ENV, is held under 60 s.
+    "Today's size" is pinned: 34ece0da (this gap's definition commit) and its parent, not the live HEAD, so the code
+    scope's growth on main never turns this test red on an unrelated merge."""
+    shas = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "34ece0da^{commit}", "34ece0da~1"],
+                          capture_output=True, text=True, check=True).stdout.split()
     got = json.loads(subprocess.run([sys.executable, "-c", COST, str(BIN), str(ROOT), str(tmp_path), *shas],
                                     capture_output=True, text=True, check=True, timeout=300).stdout)
     (cold, warm) = got["runs"].values()                # (state, CPU seconds with git's, wall seconds)
