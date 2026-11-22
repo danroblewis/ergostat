@@ -262,7 +262,7 @@ function lineChart({ group, name, role, unit, per, times, values, since, until, 
 
 /* ---------------------------------------------------------------- the causes strip */
 
-/* what a chart says while its numbers are asked for: in words, never a bare "…" that reads as a stuck load */
+/* what a chart says while its numbers are asked for: in words, never a bare ellipsis that reads as a stuck load */
 const working = () => h("div", { class: "muted small" }, "being worked out");
 
 /* a part's series and what drives it (api series?strip=1): the part first, taller, then each cause,
