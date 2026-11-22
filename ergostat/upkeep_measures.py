@@ -4,10 +4,12 @@ under ``<state>/items``, and ``ergostat.upkeep.retired-index-files``, the retire
 (``spec/watchdog.heartbeat``); ``ergostat.upkeep.stalls``, the ``ergostat.engine.stalled`` events over the last hour,
 and ``ergostat.upkeep.restarts``, the ``ergostat.engine.restarted`` ones over the last day.
 
-A record kept nowhere on disk, an items folder that cannot be listed, a heartbeat missing, unreadable or stamped in
-the future, or an event log that cannot be read gives no reading (None, said on standard error, the sensor's log),
-never 0: a goal held at "few files", "fresh" or "no stalls" is never met by something nobody could look at. The
-heartbeat's age is a drawing, not a protection: a frozen engine reads nothing, and the outer watcher acts."""
+A record kept nowhere on disk (for the files or the heartbeat), an items folder that cannot be listed, a heartbeat
+missing, unreadable or stamped in the future, or an event log that cannot be read gives no reading (None, said on
+standard error, the sensor's log), never 0: a goal held at "few files", "fresh" or "no stalls" is never met by
+something nobody could look at. The heartbeat's age is a drawing, not a protection: a frozen engine reads nothing,
+and the outer watcher acts. The two event counts read a log kept only in memory too: it holds the events it counts,
+unlike a folder or file not there."""
 
 from __future__ import annotations
 

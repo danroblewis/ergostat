@@ -244,7 +244,7 @@ goal, parameter or block turns one off or goes round it (`coordinator/08-modes-a
 - The stock `heartbeat-age` (`ergostat.upkeep.heartbeat-age`: the seconds since the last pass `heartbeat.json`
   gives) is held at `<= ${stale}` by `heartbeat-fresh` (`stale` 180 by default, 60 to 3600, checked when the model
   loads), served by `outer-watcher` (`watcher.py`, kept running by `ergostat run --service`: launchd or systemd). It
-  drains by `heartbeat-renewed`. The stock `restarts` (`ergostat.upkeep.restarts`: `ergostat.engine.restarted`
+  fills by `heartbeat-aged` (time passing, its rises) and drains by `heartbeat-renewed`. The stock `restarts` (`ergostat.upkeep.restarts`: `ergostat.engine.restarted`
   events over the last day) fills by `restarts-made`, which the outer watcher moves, and has no goal.
 - With `leases: true` (default false): the stocks `overdue-leases` and `expired-leases` (`ergostat.leases.overdue`,
   `.expired`), the goal `no-overdue-leases` (`<= 0`), and the external block `lease-expiry` (`leases/dispatch.py`).

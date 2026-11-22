@@ -83,7 +83,8 @@ def test_upkeep_expands_to_the_index_files_loop(tmp_path):
     spec, ps = read(root / "ergostat.yaml")
     assert not [p for p in ps if p.level == "error"], [str(p) for p in ps]
     mine = lambda xs: {n for n, x in xs.items() if x.system == "upkeep"}   # noqa: E731
-    watched = {"stocks": {"heartbeat-age", "stalls", "restarts"}, "flows": {"heartbeat-renewed", "restarts-made", "restarts-aged-out",
+    watched = {"stocks": {"heartbeat-age", "stalls", "restarts"}, "flows": {"heartbeat-aged", "heartbeat-renewed", "restarts-made",
+                                                                         "restarts-aged-out",
                                                                      "stalls-mended"},
                "goals": {"heartbeat-fresh", "no-stalls"}, "blocks": {"watchdog", "outer-watcher"}}   # (test_upkeep_watched)
     assert mine(spec.stocks) == {"index-files", "retired-index-files"} | watched["stocks"]

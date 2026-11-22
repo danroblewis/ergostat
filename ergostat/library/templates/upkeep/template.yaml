@@ -71,52 +71,13 @@ params:
     type: name
     description: a workspace pool whose free and quarantined slots are drawn, with the owner freeing a quarantined one
 stocks:
-  heartbeat-age:
-    unit: s
-    description: the seconds since the engine's last pass, as heartbeat.json gives it (no reading without one)
-    sensor:
-      builtin: ergostat.upkeep.heartbeat-age
-      every: ${watch-every}
-  stalls:
-    unit: stalls
-    description: the engine's watchdog's stalls (ergostat.engine.stalled) over the last hour
-    sensor:
-      builtin: ergostat.upkeep.stalls
-      every: ${watch-every}
-  restarts:
-    unit: restarts
-    description: the outer watcher's restarts of the engine (ergostat.engine.restarted) over the last day
-    sensor:
-      builtin: ergostat.upkeep.restarts
-      every: ${watch-every}
-  overdue-leases:
-    if: ${leases}
-    unit: leases
-    description: leases held past their expiry and not yet expired
-    sensor:
-      builtin: ergostat.leases.overdue
-      every: ${watch-every}
-  expired-leases:
-    if: ${leases}
-    unit: leases
-    description: leases that expired over the last day
-    sensor:
-      builtin: ergostat.leases.expired
-      every: ${watch-every}
-  free-workspaces:
-    if: ${pool}
-    unit: workspaces
-    description: the workspaces of pool ${pool} free to be given to an item
-    sensor:
-      builtin: ergostat.workspaces.free@${pool}
-      every: ${watch-every}
-  quarantined-workspaces:
-    if: ${pool}
-    unit: workspaces
-    description: the workspaces of pool ${pool} found dirty or broken and kept aside for the owner
-    sensor:
-      builtin: ergostat.workspaces.quarantined@${pool}
-      every: ${watch-every}
+  heartbeat-age: {unit: s, description: "the seconds since the engine's last pass, as heartbeat.json gives it (no reading without one)", sensor: {builtin: ergostat.upkeep.heartbeat-age, every: "${watch-every}"}}
+  stalls: {unit: stalls, description: "the engine's watchdog's stalls (ergostat.engine.stalled) over the last hour", sensor: {builtin: ergostat.upkeep.stalls, every: "${watch-every}"}}
+  restarts: {unit: restarts, description: "the outer watcher's restarts of the engine (ergostat.engine.restarted) over the last day", sensor: {builtin: ergostat.upkeep.restarts, every: "${watch-every}"}}
+  overdue-leases: {if: "${leases}", unit: leases, description: leases held past their expiry and not yet expired, sensor: {builtin: ergostat.leases.overdue, every: "${watch-every}"}}
+  expired-leases: {if: "${leases}", unit: leases, description: leases that expired over the last day, sensor: {builtin: ergostat.leases.expired, every: "${watch-every}"}}
+  free-workspaces: {if: "${pool}", unit: workspaces, description: "the workspaces of pool ${pool} free to be given to an item", sensor: {builtin: "ergostat.workspaces.free@${pool}", every: "${watch-every}"}}
+  quarantined-workspaces: {if: "${pool}", unit: workspaces, description: "the workspaces of pool ${pool} found dirty or broken and kept aside for the owner", sensor: {builtin: "ergostat.workspaces.quarantined@${pool}", every: "${watch-every}"}}
   index-files:
     unit: files
     description: the live item-index files under the state directory's items folder, now
@@ -153,81 +114,16 @@ flows:
       changes: falls
       over: ${over}
       every: ${count-every}
-  heartbeat-renewed:
-    from: heartbeat-age
-    driven-by: +stock.heartbeat-age
-    description: the heartbeat's age set back by a pass, or by the outer watcher's restart of an engine frozen whole
-    sensor:
-      changes: falls
-      over: ${over}
-      every: ${watch-every}
-  restarts-made:
-    to: restarts
-    description: a restart of the engine by the outer watcher, dead or frozen whole
-    sensor:
-      changes: rises
-      over: ${over}
-      every: ${watch-every}
-  restarts-aged-out:
-    from: restarts
-    driven-by: +stock.restarts
-    description: restarts leaving the day's window
-    sensor:
-      changes: falls
-      over: ${over}
-      every: ${watch-every}
-  stalls-mended:
-    from: stalls
-    driven-by: +stock.stalls
-    description: stalls leaving the hour's window once the watchdog mended them (one it cannot mend adds more)
-    sensor:
-      changes: falls
-      over: ${over}
-      every: ${watch-every}
-  overdue-leases-expired:
-    if: ${leases}
-    from: overdue-leases
-    driven-by: +stock.overdue-leases
-    description: leases past their expiry ended by lease expiry, their items taken again
-    sensor:
-      changes: falls
-      over: ${over}
-      every: ${watch-every}
-  leases-expired:
-    if: ${leases}
-    to: expired-leases
-    description: leases lease expiry ended, counted for a day as expired
-    sensor:
-      changes: rises
-      over: ${over}
-      every: ${watch-every}
-  expired-leases-aged-out:
-    if: ${leases}
-    from: expired-leases
-    driven-by: +stock.expired-leases
-    description: expired leases leaving the day's window
-    sensor:
-      changes: falls
-      over: ${over}
-      every: ${watch-every}
-  free-workspaces-moved:
-    if: ${pool}
-    to: free-workspaces
-    two-way: true
-    description: workspaces of pool ${pool} given to items and given back (net, either way)
-    sensor:
-      changes: net
-      over: ${over}
-      every: ${watch-every}
-  quarantined-workspaces-freed:
-    if: ${pool}
-    from: quarantined-workspaces
-    driven-by: +stock.quarantined-workspaces
-    description: quarantined workspaces of pool ${pool} freed by the owner
-    sensor:
-      changes: falls
-      over: ${over}
-      every: ${watch-every}
+  heartbeat-aged: {to: heartbeat-age, description: "time passing between passes, the age's rises (an age that resets each pass reads mostly as this sawtooth)", sensor: {changes: rises, over: "${over}", every: "${watch-every}"}}
+  heartbeat-renewed: {from: heartbeat-age, driven-by: +stock.heartbeat-age, description: "the heartbeat's age set back by a pass, or by the outer watcher's restart of an engine frozen whole", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  restarts-made: {to: restarts, description: "a restart of the engine by the outer watcher, dead or frozen whole", sensor: {changes: rises, over: "${over}", every: "${watch-every}"}}
+  restarts-aged-out: {from: restarts, driven-by: +stock.restarts, description: "restarts leaving the day's window", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  stalls-mended: {from: stalls, driven-by: +stock.stalls, description: "stalls leaving the hour's window once the watchdog mended them (one it cannot mend adds more)", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  overdue-leases-expired: {if: "${leases}", from: overdue-leases, driven-by: +stock.overdue-leases, description: "leases past their expiry ended by lease expiry, their items taken again", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  leases-expired: {if: "${leases}", to: expired-leases, description: "leases lease expiry ended, counted for a day as expired", sensor: {changes: rises, over: "${over}", every: "${watch-every}"}}
+  expired-leases-aged-out: {if: "${leases}", from: expired-leases, driven-by: +stock.expired-leases, description: "expired leases leaving the day's window", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
+  free-workspaces-moved: {if: "${pool}", to: free-workspaces, two-way: true, description: "workspaces of pool ${pool} given to items and given back (net, either way)", sensor: {changes: net, over: "${over}", every: "${watch-every}"}}
+  quarantined-workspaces-freed: {if: "${pool}", from: quarantined-workspaces, driven-by: +stock.quarantined-workspaces, description: "quarantined workspaces of pool ${pool} freed by the owner", sensor: {changes: falls, over: "${over}", every: "${watch-every}"}}
 goals:
   index-files-few:
     stock: index-files
@@ -238,27 +134,10 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: no retired index file left waiting
-  heartbeat-fresh:
-    stock: heartbeat-age
-    hold: "<= ${stale}"
-    description: the engine's last pass at most ${stale}s ago (the outer watcher's limit, written into heartbeat.json)
-  no-stalls:
-    stock: stalls
-    hold: "<= 0"
-    tolerance: 0
-    description: no stall of the engine over the last hour
-  no-overdue-leases:
-    if: ${leases}
-    stock: overdue-leases
-    hold: "<= 0"
-    tolerance: 0
-    description: no lease held past its expiry
-  no-quarantined-workspaces:
-    if: ${pool}
-    stock: quarantined-workspaces
-    hold: "<= 0"
-    tolerance: 0
-    description: no workspace of pool ${pool} kept aside
+  heartbeat-fresh: {stock: heartbeat-age, hold: "<= ${stale}", description: "the engine's last pass at most ${stale}s ago (the outer watcher's limit, written into heartbeat.json)"}
+  no-stalls: {stock: stalls, hold: "<= 0", tolerance: 0, description: no stall of the engine over the last hour}
+  no-overdue-leases: {if: "${leases}", stock: overdue-leases, hold: "<= 0", tolerance: 0, description: no lease held past its expiry}
+  no-quarantined-workspaces: {if: "${pool}", stock: quarantined-workspaces, hold: "<= 0", tolerance: 0, description: "no workspace of pool ${pool} kept aside"}
 blocks:
   watchdog:
     type: external

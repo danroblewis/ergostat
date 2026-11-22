@@ -143,3 +143,30 @@ template's exact set of parts; it now adds the default watched parts to each set
 **Not run here**: the full unit suite under the watchdog, the four browser files and `demo_check` (no example is
 touched). Those are the factory's to run. origin/main is not merged in: this clone has no `origin/main` ref, and
 local `main` has no commit past this branch's base (`git log HEAD..main` is empty).
+
+### Round 2
+
+The queue's blocking finding was the size, 295 against 250. It is now **175 net lines** outside `tests/`, `docs/` and
+`dev/` (`git diff main --numstat -- ergostat/`): template 74, `upkeep_measures.py` 52, `watcher.py` 21, `ir.py` 20,
+`watchdog.py` 6, `measures.py` 1, `compile.py` 1. No behaviour was cut to get there. The watched parts the template
+adds (7 stocks, 10 flows, 4 goals) are now each one flow-style map on one line, the form `repair/template.yaml`
+already uses for its stocks, flows and goals. The index-files parts from sub-gap 1 are left as they were, in block
+style. The parsed template is the same as before apart from the new flow below: the `${...}` values that were plain
+scalars are now quoted, and YAML parses both to the same string.
+
+The round-1 review's two non-blocking findings (lesson-12):
+
+- *heartbeat-age had only an outflow; its inflow, time passing, was not drawn.* It is drawn now: the inflow
+  `heartbeat-aged` (`changes: rises`), whose description says a reading of an age that resets on every pass is
+  mostly this sawtooth. SPEC says the stock fills by it. `test_upkeep_template.py`'s exact set of parts includes it.
+  The template check still finds nothing in the default expansion or with `leases: true, pool: p`.
+- *events() counts an in-memory log, unlike the other measures, and does not say so.* Kept as it is: a log held only
+  in memory still holds the events being counted, while a folder or file that is not there gives nothing to count.
+  The module docstring now says this, and says that "kept nowhere on disk gives no reading" covers only the index files
+  and the heartbeat.
+
+Run in round 2, one file at a time: `tests/test_upkeep_watched.py`, `tests/test_upkeep_template.py`,
+`tests/test_templates.py`, `tests/test_watchdog.py`, `tests/test_resilience.py` and the watcher test in
+`tests/test_graph_cli_web.py` (`-k watch`). All pass, and ruff is clean. No new test was added this round, so the round-1 breaks still
+stand. The same items as round 1 were not run. origin/main is still not merged, for the same reason (this clone has no
+`origin/main`, and `git log HEAD..main` is empty).
