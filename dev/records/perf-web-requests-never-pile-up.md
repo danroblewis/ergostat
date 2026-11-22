@@ -1,0 +1,17 @@
+# perf-web-requests-never-pile-up: The page server drops requests whose client left, bounds its queue, keeps a fast lane for cheap answers and logs each slow answer
+
+depends-on: []
+
+Problem: on 2026-11-22 the live factory's page server (pid 9278, 165% CPU, 2.4 GB) stopped answering: /api/status gave nothing in 580 s and /static/style.css waited 228 s. It held 66-84 CLOSED and 5-10 CLOSE_WAIT sockets: requests whose clients had sent their GET and gone, still queued. PooledServer (ergostat/web/__init__.py:28-50) has 24 workers fed from one unbounded queue and runs every job however long it waited; static files wait in the same queue. run.log has about 195 'the client went away' lines (48 in an hour from /api/loop-control), each an answer built for nobody, and nothing records queue wait or work time. No page script aborts its fetches when the page is left.
+Change: (1) detecting a client that left: a worker takes the job before the request is read, and a client that sent its GET and then closed still has its request bytes waiting, so a peek before reading returns those bytes, not b''. So the handler first reads and parses the request line and headers (as it does now), and only then, before calling _answer for a GET, checks the socket: select() says readable and recv(1, MSG_PEEK | MSG_DONTWAIT) returns b'' means the client sent FIN: drop the job and count it. (A pipelined second request gives bytes, not b'', and is served.) A GET that waited in the queue more than 60 s is dropped too. A POST that has been read is never dropped. macOS has no POLLRDHUP, so nothing relies on it. (2) the queue is bounded (256); past it new connections get 503 with Retry-After: 2. (3) static files, / and answers that need no snapshot go to a fast lane of 4 workers the API queue never fills. (4) every answer over 2 s writes one run.log line: 'web: slow GET /api/x: waited 4.1s in the queue, 3.0s working, 77 KB'; counts by path are kept in memory and carried by /api/status as `web` when any was slow in the last 10 minutes. (5) util.js apiText aborts a page's in-flight fetches (AbortController) when its page element leaves the document.
+Definition of done:
+1. A client that sends a complete GET and then closes before a worker is free (the measured CLOSE_WAIT case) is never handed to _answer.
+2. With all API workers blocked, /static/style.css answers in under 200 ms and the 257th queued connection gets 503 at once.
+3. A slow answer writes one line with queue wait and work time.
+4. No read POST is ever dropped.
+5. Leaving a page cancels its in-flight fetches.
+Files: ergostat/web/__init__.py, ergostat/web/server.py (the check before _answer, timing in do_GET), ergostat/web/static/util.js, tests for the web server, one browser test.
+Acceptance tests: a unit test that opens a socket, sends a full GET, shuts down its write side and closes while every worker is busy: _answer is not called for it (on macOS and Linux); 24 slow requests (5 s each) plus 30 whose clients send and hang up after 1 s: the server does the work of the 24 only and the log names them; unit tests for 2-4; a browser test for 5.
+Budget: 140 net lines outside tests.
+
+Milestone: pages-answer-fast. Owner items: 2. From the owner's list and the design review of 2026-11-22.
