@@ -23,6 +23,10 @@ from ergostat.spec import read
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "dev" / "bin"
+# What the queue sets in its suite containers (fac.suite, agents.queued): never inherited by the factory's processes the
+# Factory fixture starts (dropped, or set by it), so a test of the queue reads the same settings inside the queue's own
+# container as outside it
+QUEUE_ENV = ("PYTEST_ADDOPTS", "UV_PROJECT_ENVIRONMENT", "PYTHONPYCACHEPREFIX", "RUFF_CACHE_DIR", "SPLIT_SHOTS")
 
 FAKE = r'''
 import json, sys
@@ -181,7 +185,10 @@ class Factory:
         spec, problems = read(ROOT / "ergostat.yaml")
         assert not [p for p in problems if p.level == "error"]
         self.kinds = spec.items
-        self.env = {**os.environ, "FACTORY_CONFIG": str(self.config), "ERGOSTAT_CMD": f"{sys.executable} {self.fake}",
+        mine = {k: v for k, v in os.environ.items() if k not in QUEUE_ENV}       # (never the queue container's)
+        caches = {"UV_PROJECT_ENVIRONMENT": sys.prefix, "PYTHONPYCACHEPREFIX": str(tmp / "pycache"),
+                  "RUFF_CACHE_DIR": str(tmp / "ruff")}               # set here: the running venv, caches out of checkouts
+        self.env = {**mine, **caches, "FACTORY_CONFIG": str(self.config), "ERGOSTAT_CMD": f"{sys.executable} {self.fake}",
                     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
                     "GIT_COMMITTER_EMAIL": "t@example.com"}
 
