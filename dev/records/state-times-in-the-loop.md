@@ -77,3 +77,27 @@ definition (it has no `allows-findings` line, and it was not edited). This super
 - Not run: `uv run ergostat check` itself (refused by the shell, as before); the test calls the same
   `architecture.findings` check runs. The other architecture notes it prints (intake, landing, building, oversight,
   knowledge) do not touch times.yaml's links and were not among the ones sent back.
+
+### Round 2: the review's findings, each answered
+
+- Blocking (watch.py time_goals, lesson-3): a reading that fails is now a trigger (`time`, subject `goal.NAME`, why
+  "goal NAME cannot be read: AUX: ERROR", fingerprint the error) with None on the situation. "Fails" means
+  times.values raising (a malformed time_in such as a string `hours` or a missing `left`; a name it refuses, which
+  is SystemExit), any one value not finite, or an auxiliary that is not one of `times.measures()`. That last case
+  was found while writing the test: `in-nowhere-hours` fits values()' pattern and reads as an empty window, so it
+  would have stayed silent. An empty window is still a silent unknown (None, no trigger). Tested in
+  `test_a_time_goal_off_reaches_the_managers_session`: a string `hours`, a missing `left`, one NaN beside a good
+  goal, `in-nowhere-hours`, and `nowhere`. With the old reading put back, the test failed at the malformed time_in
+  (KeyError: no `goal.ready-short` trigger). With only the measures() check removed, it failed at `in-nowhere-hours`.
+- Minor (NaN in the median): each value is checked before the median (the NaN case above), not only the result.
+- Wording (lesson-8): the watch's docstring, time_goals' docstring and dev/README.md (*Time in each state*) now say
+  that an empty window's None is on the situation and raises nothing, and that a reading that fails is a trigger.
+- Outside the listed files (tests/test_factory_times.py, dev/README.md): kept. Both follow from the change, as the
+  review said. This round touches dev/README.md again, for the wording above.
+- Refused by the shell this round: `cp dev/bin/watch.py /tmp/watch.fixed.py && git show HEAD:dev/bin/watch.py >
+  dev/bin/watch.py && ...` and `git checkout -- dev/bin/watch.py`. The revert and restore for the fail check were
+  done with the editor instead, and the tree matched the commit afterwards (`git status` clean).
+- Run: both acceptance tests, tests/test_factory_manager.py (33) and tests/test_factory_times.py (7) all pass.
+  `uv run ruff check ergostat tests scripts` is clean. Not run: the unit suite and the browser files (the merge
+  queue's job), and `ergostat check` itself. `ruff check dev/bin` reports B023 in plan.py and E501 in review.py,
+  files this branch does not touch. The clone has no `origin/main`; local `main` has no commit the branch lacks.
