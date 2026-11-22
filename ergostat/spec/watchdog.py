@@ -81,7 +81,7 @@ class Watchdog:
             self.beat_at = now
             heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls,
                       heartbeat_stale(getattr(self.e, "spec", None)),   # (the model as it is now: a reload moves it)
-                      shard=self.e.shard)
+                      shard=getattr(self.e, "shard", None))
 
     # ---- looking
 

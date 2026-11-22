@@ -57,7 +57,12 @@ def beat(d: Path, name: str = "heartbeat.json") -> dict | None:
 
 def beats(d: Path) -> list[dict]:
     """``heartbeat.json`` and each shard engine's ``heartbeat.SHARD.json`` (SPEC §9.8), those that can be read."""
-    names = ["heartbeat.json", *sorted(f.name for f in d.glob("heartbeat.*.json"))]
+    try:
+        listed = os.listdir(d)
+    except OSError:                                    # (then heartbeat.json is unreadable too: no beat, as today)
+        listed = []
+    names = ["heartbeat.json", *sorted(n for n in listed if n.startswith("heartbeat.") and n.endswith(".json")
+                                       and n != "heartbeat.json")]
     return [hb for hb in map(lambda n: beat(d, n), names) if hb]
 
 

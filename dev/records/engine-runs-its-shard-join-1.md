@@ -68,3 +68,11 @@ These are the choices made with no one to ask. Each is the most reversible one:
 - Race closed: a run now checks `self.stop` under `self.lock` after it registers in `self.live`, so a run started while
   a shard engine closes either is in close's list or kills itself.
 - Still shared and named in SPEC §9.8: `daemons.json` is one file per state directory.
+
+Round 2: main (4a1bcd10) is merged in. The conflicts in `spec/watchdog.py` and `watcher.py` keep both sides.
+`heartbeat(state, passed, stalls, stale, shard=)` writes main's `stale` into `heartbeat.json` or `heartbeat.SHARD.json`,
+and `watcher.look` checks each beat that has this pid against main's `limit(d, hb)`. Two changes make it fit main's
+tests, and no test outside `tests/test_engine_shard*.py` is edited. The watchdog reads the shard as
+`getattr(e, "shard", None)`, because main's stand-in engines have no `shard`. `watcher.beats` lists the state directory
+with `os.listdir` instead of `glob`, so the watcher still opens or stats only `run.pid`, the heartbeats and `stopped`
+(`test_the_watcher_reads_only_its_three_files`).
