@@ -3956,3 +3956,89 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+# the header's link: its text, its box, and whether it is the header's first element
+WAITS = """() => { const a = [...document.querySelectorAll('header a')].find((x) => /wait/.test(x.textContent));
+  if (!a || a.hidden) return null;
+  const r = a.getBoundingClientRect(), box = (x) => x.getBoundingClientRect();
+  const first = [...document.querySelectorAll('header *')].filter((x) => !x.children.length && box(x).width > 0)
+    .sort((p, q) => box(p).top - box(q).top || box(p).left - box(q).left)[0];
+  return { text: a.textContent.trim(), bottom: r.bottom + scrollY, first: first === a }; }"""
+WHERE = """() => { const hd = document.getElementById('waiting'); if (!hd) return null;
+  const r = hd.getBoundingClientRect();
+  return { text: hd.textContent, top: r.top, bottom: r.bottom, height: r.height, inner: innerHeight,
+           focused: document.activeElement === hd, active: document.activeElement?.outerHTML.slice(0, 80) }; }"""
+SEEN = f"""() => {{ const w = ({WHERE})();
+  return !!w && /^Waiting for you/.test(w.text) && w.top >= 0 && w.bottom <= w.inner && w.height > 0 && w.focused; }}"""
+
+
+def seen(pg, what) -> None:
+    try:
+        pg.wait_for_function(SEEN, timeout=60000)
+    except Exception:
+        raise AssertionError((what, pg.url, pg.evaluate(WHERE))) from None
+
+
+def test_what_waits_for_you_is_one_step_from_every_page(browser, tmp_path, monkeypatch):
+    """Design review Q43: beside the loops count the header says 'N wait for you', in the first 200 px of /items,
+    /agents, /loops and /record at 1440 and 390 px (at 390 the header's first thing); following it shows the Diagram's
+    'Waiting for you' heading, focused, inside the viewport. N is the side list's own count of that group."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "waits"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(GROUPED.replace("goals:\n", "  archiving:\n    from: backlog\ngoals:\n").replace(
+        "uses:\n", "  approver:\n    type: person\n    ask: approve the plan\n    goal: short-backlog\n"
+                   "    out: flow.archiving\nuses:\n"))                     # a second person block
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    p.measurements.add("sensor/backlog.main", 9, at=now - 30)                    # a goal off: not waiting on a person
+    for who, ask in (("reviewer", "review the backlog"), ("approver", "approve the plan")):   # two asks: "2 wait for you"
+        p.events.add("person.asked", item=who, source="ergostat", data={"command": 2, "ask": ask})
+    from ergostat.numbers import requests as rq
+    rq.event(p, rq.rid("check", "flow-unmeasured", "flow.x"), "held", {"code": "flow-unmeasured", "about": "flow.x",
+                                                                       "source": "check", "tier": "ai", "why": "used"})
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        for width, height in ((1440, 900), (390, 844)):
+            pg = browser.new_page(viewport={"width": width, "height": height})
+            errors: list[str] = []
+            pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
+            for path in ("items", "agents", "loops", "record"):
+                pg.goto(f"{url}/{path}")
+                pg.wait_for_function(WAITS, timeout=30000)
+                got = pg.evaluate(WAITS)
+                assert got["text"] == "2 wait for you", (width, path, got)
+                assert got["bottom"] <= 200, (width, path, got)
+                if width < 700:
+                    assert got["first"], (width, path, got)            # on a phone, the header's first thing
+                pg.locator("header a", has_text="wait for you").click()
+                seen(pg, (width, path))
+                assert pg.evaluate("location.pathname") == "/diagram", path
+                head = pg.locator("#waiting").inner_text()
+                assert re.sub(r"\s+", " ", head).strip() == "Waiting for you 2", head   # the side list's own count
+            pg.goto("about:blank")
+            pg.goto(f"{url}/diagram#waiting")                          # the address itself, loaded afresh
+            seen(pg, (width, "loaded"))
+            pg.evaluate("() => { document.activeElement.blur(); document.querySelector('main').scrollTop = 0; scrollTo(0, 0); "
+                        "history.replaceState(null, '', '/diagram'); }")
+            pg.evaluate("() => { location.hash = 'waiting'; }")         # and asked for on the Diagram itself
+            seen(pg, (width, "hash"))
+            pg.close()
+            assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)

@@ -1349,7 +1349,7 @@ function renderSide(side, g, view) {
   // then modelling's after a rule: as many as the header's "loops off"); the rest, the model's housekeeping (folded,
   // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
   // colour is not the only cue.
-  const ask = (a) => (Array.isArray(a.answer) && a.kind !== "request") || a.waiting;
+  const ask = waitsOnYou;                                     // (util.js: the header's "N wait for you" counts the same)
   const waiting = problems.filter(ask);
   const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
   const rest = problems.filter((a) => !waiting.includes(a) && !off.includes(a));
@@ -1373,7 +1373,7 @@ function renderSide(side, g, view) {
     });
     return att;
   };
-  side.append(h("h3", { class: "att-head" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you."));
+  side.append(h("h3", { class: "att-head", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you."));
   side.append(h("h3", { class: "att-head" }, "Goals off", count(off)), list(off, "No goal is off."));
   const house = h("details", { class: "housekeeping", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
@@ -1421,6 +1421,7 @@ function renderSide(side, g, view) {
   }
   side.append(legendBox(view));
   patch(out, [...panel.childNodes]);
+  if (S.toWaiting) toWaiting();                            // the header's "N wait for you", followed
 }
 
 try { if (localStorage.getItem("ergostat.loops") === "0") document.body.classList.add("no-loops"); } catch (e) { /* shown */ }
