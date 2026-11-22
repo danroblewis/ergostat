@@ -28,7 +28,7 @@ def test_listing_projects_writes_nothing_into_their_state_folders(tmp_path, monk
 
 def test_the_switcher_counts_the_systems_goals_and_the_models_upkeep_apart(tmp_path, monkeypatch):
     """Q14, the switcher's row as the header counts it: with only the modelling use's own two goals off, no goal of the
-    system is off, and those two are the model's upkeep (state.upkeep, the one definition both read)."""
+    system is off, and those two are the model's upkeep (state.goals_off, the one count both read)."""
     import shutil
     import time
     from pathlib import Path
@@ -39,10 +39,11 @@ def test_the_switcher_counts_the_systems_goals_and_the_models_upkeep_apart(tmp_p
     d = tmp_path / "first-loop"
     shutil.copytree(Path(__file__).resolve().parent.parent / "examples" / "first-loop", d)
     p = Project(mdl.load(d / "ergostat.yaml"))
-    assert st.upkeep(p.model) == {"model-fits", "requests-handled"}
     for stock, value in (("inbox", 10), ("model-error", 0.5), ("unanswered-requests", 3)):    # inbox-short holds
         s = next(iter(p.model.spec.stocks[stock].sensors.values()))
         p.measurements.add(s.series, value, at=time.time())
     (row,) = projects.known(fresh=True)
     assert row["goals_off"] == [] and row["upkeep_off"] == ["model-fits", "requests-handled"], row
-    assert row["goals_unknown"] == [], row
+    assert row["unknown"] == [], row
+    g = st.goals_off(st.snapshot(p))                     # what /api/status gives the header
+    assert g["system"] == len(row["goals_off"]) == 0 and sum(g["own"].values()) == 2, g

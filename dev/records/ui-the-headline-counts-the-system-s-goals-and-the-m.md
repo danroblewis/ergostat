@@ -51,3 +51,20 @@ which skips without Playwright, so it ran nothing (rc 5). Added a unit test the 
 tests/test_projects_listing.py::test_the_switcher_counts_the_systems_goals_and_the_models_upkeep_apart (the switcher
 row's goals_off / upkeep_off and state.upkeep on examples/first-loop with the two modelling goals off). It was seen
 to fail with state.upkeep returning an empty set. That file passes (2 passed), and ruff is clean. No code changed.
+
+Round 2: merged main (720426bd), which conflicted in projects.py, state.py and server.py. Main had landed
+goal-state-says-its-system-and-upkeep: one server count, `state.goals_off`, and an `upkeep` field on each goal. That
+replaces this branch's `state.upkeep`, so I resolved toward main's version and dropped the branch's own definition
+(the more reversible choice, since it leaves only one count):
+- `/api/status` carries main's `goals_off` (no `upkeep` list now). The header's first figure is `goals_off.system`, and
+  "model upkeep N" is the sum of `goals_off.own`. Main counts upkeep goals that are off *or open*, so the `#upkeep` title
+  now says "off or open". A status without `goals_off` falls back to counting every goal off, which was the old header.
+- The switcher row keeps main's `off`, `unknown` and `upkeep_off` and adds just `goals_off` (= `goals_off.system`
+  names). It shows "N off, K unknown, model upkeep M", where K is the row's existing `unknown`. Main counts that over
+  every goal, upkeep goals included (its own choice), so the `goals_unknown` field is gone.
+- The code outside tests is now 10 insertions and 4 deletions against main.
+Re-checked: the acceptance test failed with the header's figure raised by 2 ("2 goals off"), and the unit test failed
+with the row's `goals_off` including modelling's goals. Both pass again after the revert.
+Run: tests/test_items_page.py whole (24 passed, rc 0, under the watchdog, with Playwright), tests/test_projects_listing.py,
+tests/test_goal_upkeep.py and tests/test_graph_cli_web.py (37 passed), ruff clean. I did not run the unit suite or
+the other three browser files (left to the factory and the merge queue).
