@@ -68,3 +68,40 @@ panel tests passed with it (test_charts_draw_beside_the_model_with_one_cursor_an
 test_a_loop_marker_lights_its_loop_and_opens_its_panel). The factory should run it on clean main.
 Not run here: the rest of test_diagram_rendering.py, test_items_page.py and test_page_refresh.py, the unit suite,
 and demo_check (no example touched).
+
+Round 2: built. About 34 net lines of code outside tests (state.py 9, web/server.py 20, web/static/details.js 3).
+Each of round 1's findings, and what changed:
+
+- **An actor's "moved" counted zero when its work is measured, not opened** (server.py). The fixer, modeller and
+  redesigner write no `valve.opened`. Now "moved" is the sum of the actor's `valve.opened` amounts when there are
+  any. When there are none, it is what its valves' flows moved in the window, from `state.moved`: items counted from
+  the record (the changes made by the fixer), else from the flow's readings. If any of those flows is unmeasured,
+  "moved" is unknown (None), not zero, and the line says "what it moved is not measured".
+- **A long-way loop's own flow was always 0** (state.py, server.py, details.js). In `ladder_hints`, the loop's own
+  flows are now the flows of the valves it acts on: `lp.valves`, or for a long-way loop its controller's driven
+  valves, the same rule as state.py:259 and series.py:291. So `ours` for requests-handled is the
+  changes-made-by-fixer rate, and the "keeps up on average: answers too late" branch can be reached again. The panel's
+  "moves" row now comes from a new `moves` field in the loop's answer: those same valves' flows and rates. So
+  requests-handled shows changes-made-by-fixer, not requests-answered. "Acts but moves nothing" is said only when
+  one of those valves' agents ran in the window. When none ran, the hint says "nothing ran to move any". I added
+  that so the hint does not claim the loop acted when nothing ran (the finding's "or nothing ran").
+- **Tests that could not fail.** The browser fixture is now parametrized: one site where the fixer moved nothing,
+  one where 3 of its runs each made a change (expect "moved 3"). Both sites have requests-handled off all the window
+  with requests raised at 2/h. Where the fixer made changes at 3/h, the suggestion must say "keeps up on average" and
+  not "moves nothing". Where it made none, it must say "acts but moves nothing" and not "per run". The test also
+  checks that the loop's moves row names changes-made-by-fixer. The unit hint test now checks both cases: no runs
+  ("nothing ran to move any"), then 4 runs of the cleaner ("acts but moves nothing").
+
+Breaks seen to fail, one at a time, each restored: "moved" from valve amounts only (made-changes: "moved nothing"
+instead of "moved 3"); the hint's old `mine` (made-changes: "acts but moves nothing" instead of "keeps up"); the
+moves row from `lp.rates` (fails on 'never opened' plus 'Moves\nrequests-answered'); `acted` forced true (unit test).
+
+Tests: tests/test_agents_page.py 5 passed, rc 0 (both acceptance cases); tests/test_runner_and_state.py 44 passed;
+tests/test_page_polling.py 17 passed, rc 0; ruff clean. Main has no commits beyond the branch base, so there was
+nothing to merge.
+Left as it is (not asked by the definition): the u chart in the panel still says the fixer's valve "never opened",
+because it reads `valve.opened` (series.py), which the fixer never writes. The acceptance check holds: the panel
+no longer shows "Moves requests-answered".
+Refused in this session: `uv run python -c ...` (a probe of the model), a `python3` heredoc that edits the test file,
+and `sed -i ... ; git checkout -- ...` to apply and undo a break. I made the same edits with the editor instead.
+Not run here: as in round 1 (test_diagram_rendering.py, test_items_page.py, test_page_refresh.py, the unit suite).

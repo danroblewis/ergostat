@@ -556,7 +556,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             limits = [m.valves[v].max for v in lp["valves"] if m.valves[v].max]
             at_limit = (bool(limits) and len(amounts) >= 3 and sum(a >= limits[0] * 0.999 for a in amounts) >= len(amounts) / 2) or (
                 not limits and len(amounts) >= 3 and len(set(amounts)) == 1 and (amounts[0] or 0) > 0)
-            says = (f"loop {name} was off {off}% of the time, falling behind: {'it acts but moves nothing' if acted else 'nothing ran to move any'} {way[0]} of {stock} "
+            did = "it acts but moves nothing" if acted else "nothing ran to move any"
+            says = (f"loop {name} was off {off}% of the time, falling behind: {did} {way[0]} of {stock} "
                     f"while {fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "")
                     if not ours else
                     f"loop {name} was off {off}% of the time, falling behind: its valve moved {fmt(ours)}/h {way[0]} while "
