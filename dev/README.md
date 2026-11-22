@@ -495,7 +495,17 @@ When the red run named its failing tests (`FAILED`/`ERROR` lines), those are fir
 `tests/test_page_polling.py`, and its failed suite skipped none, they are run alone there twice; each passing both
 times (a PASSED line, rc 0), the suites the red run did not finish (stopped by its failure, or never reached) run, and
 green there the batch lands with no bisect, each test a flake seen (`flake.seen` on `flake/<test>`: the run, the suite,
-`passed_alone`, the log; `excused` in each gap's `suites_queue`). Only if one fails alone does each bisecting step run only those:
+`passed_alone`, the log; `excused` in each gap's `suites_queue`). **A failure that is main's blames no gap:** before
+any gap is blamed or sent back, the named tests (only those: seconds, not a suite) run alone on main as the batch
+found it (`pre`), in the same container and settings. Failing there and again on a re-run (or a re-run that cannot
+tell), the failure is main's: the batch is undone, no gap is sent back (they all stay `approved`; the run's own gap's
+lease is given back uncounted), each test is `flake.main-broken`, run/queue.json holds `main_red` (main, the suite, the
+tests), and an intervention of class `queue` naming main and the tests is recorded, which pipeline-watch raises as a
+situation. Each later run first runs those tests alone on main's head (less any quarantined there) and takes no batch
+until they pass or are all quarantined; it then records the intervention remedied. A test that fails on main and
+passes on its re-run is a flake seen (`failed_on_main`), not main's, and the batch bisects. The check is made once per
+run, before its first finding; a failure the red run did not name (a sibling suite stopped by the first failure) is
+not checked on main. Only if one fails alone does each bisecting step run only those:
 red when one of them fails, green only when the run passes and each says PASSED; a step that cannot tell (a test not
 found on that prefix, a run that never started) runs every suite instead. A failure that shows only in the full run
 (order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a
