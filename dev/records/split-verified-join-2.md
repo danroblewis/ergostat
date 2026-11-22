@@ -1,0 +1,50 @@
+# split-verified-join-2: `splits-covered` (renaming `split-quality`) and `split-budgets-held` measured; a covered parent merged without `merged_at`; a missing sub-gap judged short with no session; the second short parks; a taken join name never fatal
+depends-on: []
+
+## Definition of done
+- **`splits-covered`.** `split-quality` is renamed `splits-covered` everywhere: `measure.py`, `dev/model/knowledge.yaml`, `dev/README.md`, `docs/roadmap/overnight/knowledge.md`, `docs/proposals/knowledge-graph.md` and `tests/test_factory_join.py`. After the change `git grep split-quality` finds nothing. It counts the parents whose first verdict (the first entry of `join_verdicts`, in list order and never chosen by `at`) falls in the 14-day window. It gives the share of them whose first verdict was `covered`. With none it gives no value (exit 1), never 0.
+- **`split-budgets-held`.** Of the sub-gaps (gaps with a `parent`) merged in the window (`merged_at`), this is the share whose `net_lines` are at or under the net lines in the `## Size budget` of their own definition. The definition is read from where intake/brief find it. Each of these counts as not held: a missing or unreadable definition, no `## Size budget` section, a budget with no number, or a missing or non-integer `net_lines`. The `budget_of` default (600) is never used as a budget. With nothing to count there is no value (exit 1).
+- Both are auxiliaries in `dev/model/knowledge.yaml` (system intake), each with a `measure.py` sensor like the other split measures.
+- **Covered, not a merge of work.** When `plan.py join` judges a parent covered, the parent becomes `merged` with its verdict, `join_verdicts` and `judged_at`, but no `merged_at`. So cycle-hours, cost-per-merged and fix-rounds read the same before and after the judgment. `split-overhead` finds parents in the window by `judged_at` instead of `merged_at`. The existing split-overhead tests pass once their fixtures use `judged_at`.
+- **Missing sub-gap, no session.** `join_brief` may show a sub-gap's definition or last review as `(missing: …)`, and this includes a child that is not in the record. In that case `plan.py join` makes no clone and no `fac.attempt` call. It records a `short` verdict at `ai_cost_usd` 0, with one point for each missing sub-gap that names it and what could not be read. It then takes the normal short path: a new sub-gap is requested, or the parent is parked.
+- **The second short parks.** The first short verdict requests a new sub-gap and splits again. The second parks the parent. Its "Where it stopped" lists the points not built, one `- ` line each. The constant, the docstrings and `dev/prompts/join_judge.md`'s `most_short` text say so.
+- **A taken name is not fatal.** The new sub-gap's name is `<parent-branch>-join-<n>`. If that is taken or not safe, the join uses the next unused safe name (`-join-<n+1>`, …, then `<parent-branch>-rest`, `-rest-2`, …) instead of raising. It stops with an error only after a bounded number of tries.
+- `dev/README.md` and `docs/roadmap/overnight/knowledge.md` say that "covered" means the planner's coverage mapping plus an AI judgment at the join, not a proof. Both name `splits-covered` and `split-budgets-held`.
+
+## Relation to other work
+- gap/one-bad-link-never-stops-dispatch: avoids its files (`dev/bin/deps.py`, the dispatch code). This plan touches only `plan.py join`, `measure.py`, the model and the docs.
+- gap/dod-measured-runs: may touch `measure.py`. This plan's changes are local to the split measures, so on a conflict, merge main and run the suites again.
+
+## Files to touch
+- `dev/bin/measure.py`
+- `dev/bin/plan.py`
+- `dev/prompts/join_judge.md`
+- `dev/model/knowledge.yaml`
+- `dev/README.md`
+- `docs/roadmap/overnight/knowledge.md`
+- `docs/proposals/knowledge-graph.md`
+- `docs/GAPS.md`
+- `tests/test_factory_join.py`
+- `tests/test_factory_knowledge.py`
+
+## Risks
+- lesson-3: a missing definition, budget or `net_lines` could be read as held (for example through `budget_of`'s 600 default). A missing sub-gap could also still reach the AI judge, which might call it covered.
+- lesson-2: the "first" verdict could be picked by the smallest `at` instead of by list order.
+- lesson-8: the docs could call "covered" verified or proven. It is only an AI judgment against the coverage mapping.
+
+## Acceptance tests
+- `tests/test_factory_knowledge.py::test_split_measures`:
+  - `splits-covered` does not count a parent covered only on its second judgment, even when its first `join_verdicts` entry has the later `at`.
+  - With nothing in the window, `splits-covered` and `split-budgets-held` both exit 1 with no value.
+  - `split-budgets-held` counts a sub-gap at exactly its budget as held. It counts each of these as not held: over budget, no definition, no budget section, a budget with no number, no `net_lines`.
+  - Both measures are sensed in `dev/model/knowledge.yaml`.
+- `tests/test_factory_join.py::test_join_moves_parent_to_joined_then_judge_merges`: the parent waits in `joined`, then the covered verdict makes it `merged` with `judged_at` and `join_verdicts` but no `merged_at`. Cycle-hours, cost-per-merged and fix-rounds read the same before and after the judgment, and `split-overhead` finds the parent by `judged_at`.
+- `tests/test_factory_join.py::test_join_with_missing_sub_gap_definition_is_not_covered`: `fac.attempt` and `agents.clone` are patched to fail if called. One child has no definition and another is not in the record. The result is a `short` verdict at cost 0 with one point naming each, and a new sub-gap is requested.
+- `tests/test_factory_join.py::test_join_not_covered_requests_new_gap_then_second_parks`:
+  - The first short requests `<branch>-join-1`, even though a gap already holds that name, so the next unused safe name is taken.
+  - The second short parks the parent in `joined`, with one `- ` line per point not built in "Where it stopped".
+  - No third sub-gap is requested.
+
+## Size budget
+120 net lines
+size: M (confidence: medium)
