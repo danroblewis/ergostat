@@ -297,6 +297,14 @@ p.events.add("agent.ran", item="developer", source="ergostat", causedby="run21aa
     pg.wait_for_function("() => /stand-in/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
     cost = pg.inner_text(".meta [data-cost]")
     assert cost.startswith("free stand-in, $0") and "1 of the 2 runs that took it ended" in cost, cost
+    # a run killed with no session recorded (a timeout, the cap) may have spent: not known, never $0 (lesson 3)
+    subprocess.run([sys.executable, "-c", code.replace('"agent.ran"', '"agent.failed"').replace("run21", "run22")
+                    .replace('"exit": 0', '"exit": -9, "note": "killed (a timeout?)"')],
+                   env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True, capture_output=True)
+    pg.goto(f"{site}/item/hypothesis%2F2")
+    pg.wait_for_function("() => /not known/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
+    cost = pg.inner_text(".meta [data-cost]")
+    assert cost.startswith("not known: 1 failed or stopped") and "$0" not in cost and "over 2 runs" in cost, cost
     assert not errors, errors
     pg.close()
 

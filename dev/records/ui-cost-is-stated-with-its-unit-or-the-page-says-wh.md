@@ -75,3 +75,30 @@ since the clone (merge-base is main), so there was nothing to merge. The unit ru
 refused (`uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py tests/test_graph_cli_web.py
 tests/test_snapshot_sets.py tests/test_web_access.py`), so those files ran without it, one at a time, and
 tests/test_web_access.py was not run.
+
+Round 2: built. 40 net lines outside `tests/`, `docs/` and `dev/` (budget 60).
+
+Merge of main (277a9c6c): conflicts in `pages.js` and `tests/test_agents_page.py`. Kept main's group heading (kind ·
+count, rung as small text). Its colspan is the branch's `6 + nums.length`, since a hidden column must not widen it.
+Both tests are kept. Main's test said the "ai" group has 2 rows, but the branch's fixture adds the stand-in `drafter`,
+so it now expects 3.
+
+The review's finding (lesson 3 / 8): an AI run with no `ai` data that failed or was killed showed a definite $0.
+- `costs/record.py` `totals()` now also gives `unknown`: the runs with no cost that failed, were stopped (an
+  `agent.ran` with a note: a stopped run is not written as `agent.failed`) or exited other than 0.
+- `costText` (util.js): for an AI-rung agent with any such run, a cost of none reads "not known: N failed or stopped",
+  and dollars known read "$X + not known: N failed or stopped". The per-run cell in the panel (details.js) uses the
+  run's own `failed`, `note` and `exit`. The /agents total row says the same over the AI agents. The item header goes
+  through the same `totals()` and `costText`, so it says "not known" too.
+- A program or rule block's failed run still reads "no AI, $0". That kind has no session to spend.
+- SPEC §9.1 and the agent guide say this.
+
+Tests: `tests/test_run_costs.py::test_a_run_with_no_cost_that_failed_or_was_stopped_is_counted_as_not_known` (unit:
+failed, stopped, exit None, a failed run with a known cost). The items acceptance test now also ends hypothesis/2's
+second run as `agent.failed` ("killed (a timeout?)", no `ai`) and checks that the header reads "not known: 1 failed or
+stopped" and has no "$0". Broken and seen to fail: the "not known" branch in costText never taken (the items test
+timed out waiting for "not known"), and `unknown` counting only `agent.failed` (the unit test failed).
+
+Run: tests/test_items_page.py (22 passed) and tests/test_agents_page.py (5 passed), with Playwright under the
+watchdog, rc 0. tests/test_run_costs.py (16 passed). Ruff is clean. Not run here: test_diagram_rendering.py,
+test_page_polling.py, test_page_refresh.py and the whole unit suite (the factory and the merge queue run them).

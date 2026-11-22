@@ -374,3 +374,17 @@ def test_an_items_cost_is_the_sum_of_the_runs_that_took_it_and_none_when_none_di
     assert got["cost_usd"] == 0.75 and got["runs"] == 2 and got["failed"] == 1
     assert got["taken"] == 3 and got["rung"] == "stand-in"          # r3 has not ended: counted as taken, not as $0
     assert _item_cost(p, m, [{"type": "item.opened", "time": 1.0, "data": {}}], 10.0) is None
+
+
+def test_a_run_with_no_cost_that_failed_or_was_stopped_is_counted_as_not_known():
+    """A session killed by a timeout or the cap may have spent with nothing recorded: its cost is not known, not $0."""
+    from ergostat.costs.record import numbers, totals
+
+    def end(kind, **data):
+        return numbers({"type": kind, "time": 1.0, "data": {"exit": 0, **data}})
+    rows = [end("agent.ran"), end("agent.failed", exit=1, note="killed (a timeout?)"),
+            end("agent.ran", note="stopped with us"), end("agent.ran", exit=None),
+            end("agent.failed", exit=1, ai={"cost_usd": 0.5})]                    # a failed run whose cost is known
+    t = totals(rows)
+    assert t["unknown"] == 3 and t["failed"] == 2 and t["cost_usd"] == 0.5
+    assert totals(rows[:1])["unknown"] == 0                                  # a run that ended well: none

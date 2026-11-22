@@ -95,7 +95,8 @@ async function pageAgents(main) {
       ["cpu", "CPU", "CPU time of its runs' processes in the window, user and system", (u) => u.cpu, cpuText, () => sum((u) => u.cpu)],
       ["memory", "peak memory", "The most memory one of its runs held (its processes together)", (u) => u.memory_peak, bytesText,
         () => Math.max(...all.map((a) => use(a).memory_peak || 0))]].filter(([, , , v]) => all.some((a) => v(use(a)) != null));
-    const spent = sum((u) => u.cost_usd);
+    const spent = sum((u) => u.cost_usd), unk = all.reduce((s, a) => s + ([1, 2, 3].includes(a.rung) && use(a).unknown || 0), 0);
+    const gap = unk ? `not known: ${unk} failed or stopped` : "";
     patch(box, h("div", { class: "table-wrap" }, h("table", {},
       h("tr", {}, h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
         h("th", { class: "num", title: "What its AI sessions cost in the window, in USD; a stand-in or a program runs free" }, "cost"),
@@ -117,7 +118,7 @@ async function pageAgents(main) {
           nums.map(([key, , , v, text]) => h("td", { class: "num", key, "data-use": key }, text(v(use(a))))))))),
       h("tbody", { class: "total", key: "total" }, h("tr", { "data-total": "" }, h("td", {}, h("b", {}, "total")), h("td", { class: "muted" }, "over the window"),
         h("td", { class: "num" }, String(all.reduce((s, a) => s + (a.runs_itself ? a.runs || 0 : 0), 0))), h("td", {}), h("td", {}),
-        h("td", { class: "num nowrap", "data-use": "cost" }, spent ? usd(spent) : "$0: no AI cost recorded"),
+        h("td", { class: "num nowrap", "data-use": "cost" }, spent ? usd(spent) + (gap && ` + ${gap}`) : gap || "$0: no AI cost recorded"),
         nums.map(([key, , , , text, total]) => h("td", { class: "num", key, "data-use": key }, text(total()))))))));
     const ds = Object.entries(daemons || {});
     patch(dbox, ...(ds.length ? [h("h3", {}, "Daemons"), h("p", { class: "note" }, "Long-lived processes the blocks' runs and the " +
