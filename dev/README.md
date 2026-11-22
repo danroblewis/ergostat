@@ -253,17 +253,23 @@ made a definition by the lint sweep; each sub-gap's plan review is given it (`(n
 file). Once every sub-gap is merged the join moves the parent to `joined`, never to `merged`, and the **join judge**
 (`plan.py join`, the plan reviewer's model and session cap, `[ai] join_judge_*`) reads, in a read-only clone of main,
 the parent's entry, its coverage, and each sub-gap's definition and last review (anything unreadable shown as
-`(missing: why)`). `covered` merges the parent, its verdict, reasons and `judged_at` recorded. `short` requests a new
-sub-gap `<parent-branch>-join-<n>` (its entry the parent's title and the points not built), adds those points to the
-coverage file as `(by: that name)`, and only then splits the parent again, so the join waits for the new sub-gap. At
-most `plan.MOST_SHORT` = 2 short rounds: the third `short` parks the parent with what is still missing. A verdict that
-cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget refusal waits.
-The judge's verdicts are measured by `split-quality` (of parents first judged in 14 days, the share whose first
-verdict, in record order, was `covered`), `split-joins` (parents judged at least once, whole record) and
-`split-overhead` (the median, over parents merged in 14 days, of the parent's and its children's AI cost, a parked
+`(missing: why)`). A sub-gap whose definition or last review cannot be read (or a child not in the record) makes the
+verdict `short` at once, a point naming each, with no clone, no session and cost 0. `covered` moves the parent to
+`merged` with its verdict, reasons and `judged_at`, but no `merged_at`: no work merged, so it stays out of
+cycle-hours, cost-per-merged and fix-rounds. "Covered" is the planner's coverage mapping plus an AI judgment at the
+join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (the next unused name when that one is
+taken; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
+name)`, and only then splits the parent again, so the join waits for the new sub-gap. At most `plan.MOST_SHORT` = 1
+short round splits again: the second `short` parks the parent, its "Where it stopped" listing the points not built. A
+verdict that cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget
+refusal waits. The judge's verdicts are measured by `splits-covered` (of parents first judged in 14 days, the share
+whose first verdict, in record order, was `covered`), `split-budgets-held` (of sub-gaps merged in 14 days, the share
+whose `net_lines` are at or under their own definition's `## Size budget`; a definition, budget or `net_lines` that
+cannot be read is not held), `split-joins` (parents judged at least once, whole record) and `split-overhead` (the
+median, over parents judged covered in 14 days by `judged_at`, of the parent's and its children's AI cost, a parked
 sub-gap's and its continuation's both, over the median cost of merged unsplit gaps of the children's size class; a
 parent unpriced, with a child unmerged, unsized or unpriced, or with no unsplit gap of its class is left out and
-named), and `split-quality ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
+named), and `splits-covered ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
 The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
