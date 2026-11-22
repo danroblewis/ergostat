@@ -111,6 +111,37 @@ that asserted macOS behaviour (each has a Linux form now). A failure in the cont
 When Docker is down, run the same commands on your computer, without `scripts/in_container.sh`, under
 `scripts/suite_watch.py` as always.
 
+## Looking at a running demo
+
+Two scripts let you (or a session) start one demo, leave it running and walk its pages in Chromium, the way a
+person would look at them:
+
+```sh
+# start one demo from a fresh copy under /tmp; prints {"demo", "url", "copy", "log"} as one JSON line
+uv run python scripts/demo_up.py start the-job [--port 8801]
+# walk it: a JSON list of steps (a file, - for stdin, or the list itself); screenshots into a folder that exists
+mkdir -p /tmp/shots
+uv run --with playwright==1.63.0 python scripts/walk.py --shots /tmp/shots \
+    '[{"goto": "http://127.0.0.1:8801/diagram"}, {"wait": 1500}, {"shot": "diagram.png"}, {"text": "body"}]'
+# stop it
+uv run python scripts/demo_up.py stop the-job
+```
+
+`demo_up.py` takes a demo's name: a folder of `examples/` that holds an `ergostat.yaml`. Anything else (a path,
+`..`) is refused before anything is copied. It runs the copy the way `demo_check.py` does: offline against the demo's
+fakes, with an `ERGOSTAT_HOME` of its own beside the copy. It waits up to 90 s for the page to answer, and refuses a
+second start of a demo that is still running. Without `--port` it picks a free port (never 8790, the owner's page).
+`stop` gives the runner 70 s to stop. After that it kills the runner's process group.
+
+`walk.py` runs its steps in one page, 1440x900 unless `--size` says otherwise. The steps are `goto`, `size`
+(`[W, H]`), `dark` (true or false), `wait` (milliseconds or a selector), `click`, `hover`, `fill` (`[SEL, TEXT]`),
+`press` (a key, or `[SEL, KEY]`), `scroll` (`[DX, DY]` or a selector), `shot` (a name such as `diagram.png`,
+matching `^[a-z0-9][a-z0-9._-]{0,63}\.png$`, written into `--shots`; `"full": true` for the whole page) and `text`
+(a selector; printed cut at 6,000 characters). A step that fails is printed and the walk goes on. Console errors and
+failed requests are printed at the end. The exit code is 0 when every step ran and 2 otherwise. Malformed steps or a
+bad shot name are refused with 2 before Chromium starts. Chromium gets no proxy for 127.0.0.1 and localhost; when
+`HTTPS_PROXY` is set, it is the proxy for every other host.
+
 ## What stays on your computer
 
 - The macOS sandbox tests: `tests/test_sandbox_attacks.py` tests `sandbox-exec` only on macOS; in the container it

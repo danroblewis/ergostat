@@ -27,3 +27,37 @@ The browser tests run under `uv run --with playwright==1.63.0`, like the four br
 Size budget: 200 net lines (scripts only; tests and docs excluded).
 
 Area: research-design-queues. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built: scripts/demo_up.py, scripts/walk.py, tests/test_walk_scripts.py (the six named tests, plus
+test_walk_text_is_cut and test_demo_up_starts_and_stops_each_named_demo over the other five demos item 1 names), and a
+"Looking at a running demo" section in docs/DEVELOPMENT.md. scripts/demo_check.py is unchanged: fresh_copy and OFFLINE
+import without side effects as they are. All 12 tests pass (92.8 s, under the watchdog with playwright==1.63.0); ruff is clean;
+main merged in (already up to date).
+
+Decisions taken alone (the most reversible option each time):
+- The page that ergostat run serves has no /api/model (only /remote/model, behind a remote token: ergostat/web/server.py
+  `_answer` has no "model" head). The start test reads /api/status instead, the API demo_check reads first.
+- `stop` runs `ergostat run --stop` (SIGTERM, 10 s). In the first test run the-job's runner had not stopped within those 10 s,
+  so stop now waits up to 60 s more and then kills the runner's process group (it starts in its own session). The pid
+  comes only from the ERGOSTAT_HOME that demo_up made for that copy.
+- A start or stop holds an flock on /tmp/ergostat-demo-up/DEMO.lock from the "already running?" check until the state is
+  written (lesson-1). A copy's --json that cannot be read counts as running (lesson-3). A copy that is gone counts as stopped.
+- The copies under /tmp are not deleted by stop, as with demo_check: their logs stay readable.
+- walk.py refuses malformed steps and bad shot names (rc 2) before Chromium starts, rather than as a failed step.
+  Names are checked with fullmatch, so "x.png\n" is refused.
+- Without HTTPS_PROXY Chromium is launched with --no-proxy-server. With it, the proxy has the bypass "127.0.0.1,localhost",
+  and any user:password in the proxy URL is passed as Playwright's username and password.
+
+Breaks seen to fail their tests (lesson-9): walk's exit code always 0 (test_walk_exit_code_on_failed_step), shot
+names checked with match instead of fullmatch (test_walk_refuses_bad_shot_names), an empty proxy bypass
+(test_walk_proxy_only_off_loopback), and demo_up's ergostat.yaml check removed (test_demo_up_refuses_unknown_and_paths).
+The second-start refusal was not broken on purpose. Broken, it would start a second runner that the test's stop could not reach.
+
+Left, outside this gap: sessions still cannot run the two scripts. They are not in the implementor's allowlist
+(dev/bin/agents.py TOOLS), and this definition's files do not include it, so allowlisting them needs a gap of its own.
+Not checked: the first test run's the-job runner (pid 740, its stop timed out at 10 s) was not seen to end. This session
+cannot run ps; it had already been sent SIGTERM.
+
+Overrun reason: the scripts are 290 lines against 200. About 30 are module docstrings that give the usage, the stop's wait-then-kill of the process group (lesson-6), the start lock (lesson-1), and walk's up-front refusal of malformed steps account for the rest.
