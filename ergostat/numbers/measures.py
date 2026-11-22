@@ -17,7 +17,8 @@ for every block or, with ``@WHO``, one block, rung or model; how the owner's mes
 each projection recipe started turned out (SPEC §12j, ``recipes/uses.py``): ``ergostat.context.RECIPE.outcome``,
 ``.cost`` and counts; and what the runs cost (SPEC §9.1, ``costs/record.py``): ``ergostat.cost.usd``, ``.tokens``,
 ``.cpu``, ``.memory``, ``.runs``, over the last day or hour, for every block or one; and ergostat's own upkeep (SPEC
-§2a, *Upkeep*, ``upkeep_measures.py``): ``ergostat.upkeep.index-files`` and ``.retired-index-files``.
+§2a, *Upkeep*, ``upkeep_measures.py``): ``ergostat.upkeep.index-files``, ``.retired-index-files``, ``.heartbeat-age``, ``.stalls``
+and ``.restarts``.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import time
 from ..spec.ir import (
     ACTIONS,
     ACTIONS_MEASURES,
+    BUDGET_MEASURES,
     CONTEXT_MEASURE,
     CONTEXT_MEASURES,
     COST,
@@ -127,8 +129,11 @@ READERS = {"ergostat.model.fit": fit, "ergostat.model.unexplained": unexplained,
 
 def measure(p, name: str) -> float | None:
     if name.startswith(("trust.", "messages.", "intent.", "leases.", "actions.", "workspaces.", "inbox.", "interventions.",
-                        "cost.", "upkeep.")):      # by hand: trust.contradicted@developer
+                        "cost.", "budget.", "upkeep.")):      # by hand: trust.contradicted@developer
         name = "ergostat." + name
+    if name in BUDGET_MEASURES:                    # what is left of the day's AI budget (SPEC §9.9)
+        from ..costs import budget
+        return budget.left(p, getattr(p.model, "spec", None))
     if not name.startswith("ergostat."):           # by hand, the short name will do: fit, open-findings
         name = "ergostat.model." + name.removeprefix("model.")
     if TRUST.match(name):                          # how far blocks' claims hold (SPEC §12g)
@@ -182,7 +187,7 @@ def measure(p, name: str) -> float | None:
     if name not in MODEL_MEASURES:
         known = [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *CONTEXT_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES,
                  *ACTIONS_MEASURES, *WORKSPACES_MEASURES, *COST_MEASURES,
-                 *INBOX_MEASURES, *UPKEEP_MEASURES]
+                 *INBOX_MEASURES, *BUDGET_MEASURES, *UPKEEP_MEASURES]
         raise MeasureError(f"no measure {name!r}: {', '.join(known)}")
     if getattr(p.model, "spec", None) is None:
         raise MeasureError("the model is an ergostat.toml: its measures are read from ergostat.yaml")
@@ -192,7 +197,7 @@ def measure(p, name: str) -> float | None:
 def all_of(p) -> dict[str, float | None]:
     out = {}
     for n in [*MODEL_MEASURES, *TRUST_MEASURES, *MESSAGE_MEASURES, *INTENT_MEASURES, *LEASE_MEASURES, *ACTIONS_MEASURES,
-              *WORKSPACES_MEASURES, *COST_MEASURES, *INBOX_MEASURES, *UPKEEP_MEASURES]:
+              *WORKSPACES_MEASURES, *COST_MEASURES, *INBOX_MEASURES, *BUDGET_MEASURES, *UPKEEP_MEASURES]:
         try:
             out[n] = measure(p, n)
         except Exception as e:                        # one measure that cannot be read leaves the others

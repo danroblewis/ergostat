@@ -13,7 +13,8 @@ Read, conservatively, from:
 - `gap.requested`: its `depends_on` (gap ids), already on the item.
 
 A NAME is a gap's branch, its id's name, or a branch its GAPS entry names in backticks. Each link keeps where it came
-from. A name that is no gap, or a link that would close a cycle, is never recorded: it is a dependency problem on the
+from. A name that is no gap, a link that would close a cycle, or one on the gap's own ancestor (its `parent`, at any
+depth: a split parent waits on its children) is never recorded: it is a dependency problem on the
 gap (`dependency_problem`, the goal dependencies-sound), said, never dropped silently. A gap waiting on any unfinished
 one says which and its state (`blocked_reason`; only a parked or dead one sets `waits_on_parked`); one whose branch is
 already merged into main is said 'landed, not closed', for the coordinator to close."""
@@ -99,6 +100,21 @@ def reaches(graph: dict[str, set[str]], start: str, goal: str) -> list[str] | No
     return None
 
 
+ANCESTOR = "refused: depending on {} ({}), its own ancestor: a split parent waits on its children, so it would close a cycle"
+
+
+def ancestors(gaps: dict[str, dict], gid: str) -> set[str]:
+    """A gap's parent (``parent``, plan.py's split), its parent's, and so on, at any depth (a loop of parents ends)."""
+    out: set[str] = set()
+    todo = fac.ids(gaps[gid]["fields"].get("parent"))
+    while todo:
+        p = todo.pop()
+        if p not in out and p != gid:
+            out.add(p)
+            todo += fac.ids((gaps.get(p) or {}).get("fields", {}).get("parent"))
+    return out
+
+
 def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: dict[str, set[str]],
          merged: set[str] = frozenset(), landed: set[str] = frozenset()) -> dict[str, dict]:
     """Each gap's dependencies as they should be: {gap id: {depends_on, sources, problems, blocked_reason}}. Links are
@@ -110,10 +126,11 @@ def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: d
     find = resolver(gaps, own)
     graph = {gid: set(g["fields"].get("depends_on") or []) for gid, g in gaps.items()}
     out = {gid: {"sources": [], "problems": []} for gid in gaps}
+    up = {gid: ancestors(gaps, gid) for gid in gaps}
     for gid in gaps:                                               # what the item already names (gap.requested)
         for d in list(graph[gid]):
-            if d not in gaps:
-                out[gid]["problems"].append(f"depends on {d}, which is no gap")
+            if d not in gaps or d in up[gid]:
+                out[gid]["problems"].append(f"depends on {d}, which is no gap" if d not in gaps else ANCESTOR.format(d, "it"))
                 graph[gid].discard(d)
     for key, links in parsed.items():
         gid = find(key[1:]) if key.startswith("@") else key
@@ -127,6 +144,8 @@ def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: d
                 out[gid]["problems"].append(f"depends on {name!r} ({where}), which is no gap")
             elif dep == gid:
                 continue
+            elif dep in up[gid]:
+                out[gid]["problems"].append(ANCESTOR.format(dep, where))
             elif dep in (gaps[gid]["fields"].get("depends_on_removed") or []):    # taken away by the backlog
                 out[gid]["sources"].append({"on": dep, "from": where, "removed": "by the backlog (backlog.py)"})
             elif dep in graph[gid]:

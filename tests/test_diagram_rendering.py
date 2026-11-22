@@ -27,6 +27,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 import urllib.request
@@ -2717,7 +2718,9 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
 
 # ---- two views at once: one selection of model parts, lit in both (correspond.py, interact.js, split.js)
 
-SHOTS = Path(os.environ.get("SPLIT_SHOTS", str(ROOT.parent / "split-shots")))
+# (beside the checkout; where that cannot be written, as for a clone at /work in a container, the temporary folder)
+SHOTS = Path(os.environ.get("SPLIT_SHOTS") or (ROOT.parent if os.access(ROOT.parent, os.W_OK) else Path(
+    tempfile.gettempdir())) / "split-shots")
 LIT = "() => [...document.querySelectorAll('svg.canvas g.node.selected')].map((e) => e.dataset.id).sort()"
 PANE_READY = "() => typeof S !== 'undefined' && S.layout && S.graphSig && document.querySelectorAll('svg.canvas g.node').length > 0"
 
@@ -3762,3 +3765,46 @@ def test_a_snapshot_page_still_routes_its_lines(browser, tmp_path, monkeypatch):
     pg.goto(f"file://{out}")
     assert pg.evaluate("() => typeof partGroups") == "function"
     pg.close()
+
+
+def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path, monkeypatch):
+    """A relation naming a remote's kind (SPEC §4c, §5a): the line from our ticket's step to the step the remote says
+    its incident was last at is drawn dashed (pm-remote) from the ticket frame to the remote's frame; its panel says
+    the items named are the remote's; the side list says how many links to it are not drawn, and why."""
+    from ergostat.web.snapshot import build
+    from tests.test_remote_lines import World, a_ticket_at_doing_naming, an_incident_fixing
+    w = World(tmp_path, monkeypatch)
+    now = time.time()
+    a_ticket_at_doing_naming(w, now)
+    a_ticket_at_doing_naming(w, now, item="ticket/2", target="incident/99")     # the remote has no such item
+    an_incident_fixing(w, now - 400)
+    out = tmp_path / "snapshot.html"
+    out.write_text(build(w.lp))
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:")) else rt.abort())
+    pg.goto(f"file://{out}#/diagram?view=process")
+    pg.wait_for_function(READY, timeout=60000)
+    got = pg.evaluate("""() => {
+      const frame = (k) => { const r = document.querySelector(`.pm-frame[data-kind="${k}"] rect`); return r && r.getBBox(); };
+      const inside = (p, b) => b && p.x >= b.x - 4 && p.x <= b.x + b.width + 4 && p.y >= b.y - 4 && p.y <= b.y + b.height + 4;
+      const lines = [...document.querySelectorAll("svg.canvas g.edge.pm-related.pm-remote")];
+      const path = lines[0]?.querySelector("path.pm-line");
+      const a = path?.getPointAtLength(0), b = path?.getPointAtLength(path.getTotalLength());
+      const mine = frame("ticket"), theirs = frame("incidents-incident");
+      return { n: lines.length, nodes: lines[0]?.dataset.nodes, dash: path && getComputedStyle(path).strokeDasharray,
+               ends: !!(a && b && inside(a, mine) && inside(b, theirs)),
+               title: document.querySelector('.pm-frame[data-kind="incidents-incident"] .pm-title')?.textContent || "",
+               side: document.body.innerText };
+    }""")
+    assert got["n"] == 1, got["n"]
+    assert got["nodes"] == "p:ticket:doing p:incidents-incident:fixing", got["nodes"]
+    assert got["ends"], got
+    assert got["title"].startswith("remote incidents: incidents-incident"), got["title"]
+    assert got["dash"] and got["dash"].replace("px", "").replace(" ", "") == "9,5", got["dash"]
+    assert "1 link to it not drawn (not-answered 1)" in got["side"], got["side"]
+    pg.evaluate("() => openProcessEdge(S.graph.edges.find((e) => e.remote && e.kind === 'related'))")
+    assert "remote incidents's" in pg.locator("#detail").inner_text()
+    pg.close()
+    assert not errors, errors

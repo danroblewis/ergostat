@@ -11,8 +11,10 @@ let through.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shlex
+import signal
 import string
 import subprocess
 import time
@@ -154,13 +156,19 @@ def run_once(p, spec, aid: str) -> dict | None:
            "ERGOSTAT_BRANCH": a.get("branch") or ""}
     started = time.time()
     try:
-        r = subprocess.run(a["command"], shell=True, cwd=a.get("in") or str(spec.root), capture_output=True, text=True,
-                           timeout=timeout, env=env, start_new_session=True)
-        code, out = r.returncode, (r.stdout + (("\n" if r.stdout and r.stderr else "") + r.stderr if r.stderr else ""))
-    except subprocess.TimeoutExpired as e:
-        code, out = None, f"stopped after its timeout of {timeout:g}s\n{e.stdout or ''}"
+        r = subprocess.Popen(a["command"], shell=True, cwd=a.get("in") or str(spec.root), stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
     except OSError as e:
         code, out = None, f"could not start: {e}"
+    else:
+        try:
+            so, se = r.communicate(timeout=timeout)
+            code, out = r.returncode, (so + (("\n" if so and se else "") + se if se else ""))
+        except subprocess.TimeoutExpired:                 # its whole session stopped: the shell, its command and theirs
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(r.pid, signal.SIGKILL)
+            so, _ = r.communicate()
+            code, out = None, f"stopped after its timeout of {timeout:g}s\n{so or ''}"
     out = out.strip()
     if len(out) > OUTPUT_MAX:
         out = "...\n" + out[-OUTPUT_MAX:]

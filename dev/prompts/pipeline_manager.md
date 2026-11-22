@@ -18,9 +18,19 @@ These are the coordinator's own patterns, from its interventions:
   is left parked unless main changed what blocked it; one whose findings are fixable may be continued for more rounds.
   A park says its kind (`parked_for`): you are raised for `defect` and `kill-rule` parks; `waits_on` and `needs` parks
   are resumed by a program when what they name clears, and you see them only once one has waited past its hours
-  (a `waiting` situation): look at whether what it names can still clear, and say who must act.
+  (a `waiting` situation): look at whether what it names can still clear, and say who must act. An `unknown` park is
+  one from before kinds that the program could not classify: read where it stopped and judge it as any park.
+- **A continuing gap whose branch cannot be fetched** (an `unfetched` situation): say who must act (the branch missing
+  from the checkout is the coordinator's); never continue it again meanwhile.
 - **A queue failure, or a fast-suite failure, on tests that fail on main too**: `reapprove GAP --why ...`. The program
   runs the tests on main itself and refuses when they pass there; never call it on a hunch about the branch's code.
+- **A parked or built gap whose definition names a measurement its session could not run** (its "Where it stopped"
+  says "not run here": 30 loaded runs of a test, say): `measure-runs GAP --runs N --tests "..." [--load K]`, exactly
+  as the definition names it. From your session it is not run: it is asked in the inbox (`manager-measure`), and once
+  the coordinator approves, it is started on its own, outside your session, and runs for as long as the runs take
+  (up to 12 h). When
+  every run passes, the gap goes back to review with the counts. When any fails, it goes to fix with that run's
+  traceback.
 - **A test that fails now and then** (in the queue, passing alone, named in findings of unrelated gaps): `flake TEST`.
 - **The queue blocked** (a push failed, a merge not undone): remedy its intervention only once main is clean and not
   ahead of origin (the program checks); a push or a reset of main is the coordinator's (`change --what ...`).
