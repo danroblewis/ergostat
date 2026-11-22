@@ -142,7 +142,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    (`--note`): it is what the next one reads. With `ai: true` a reviewer also reads every structural change and
    redesign the judge passes, as a disagreeable senior modeller, before it is written or offered to the owner: a
    change you see failed "the reviewer rejected it", or sent back, says why in its findings; fix the model the way
-   they say rather than proposing the same idea again. Do not hand-write these parts. The other built-in templates
+   they say rather than proposing the same idea again. Do not hand-write these parts. When the person asks for an
+   architecture review, `ergostat improve --architecture [SYSTEM]` (one haiku call a system, `--max-cost` $1 by
+   default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
+   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    so far its item-index files held at `index-files` (6) by a rule-tier tidier, and the record's roll-up, forgetting
    past `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and `measurement-retainer`
@@ -353,6 +356,14 @@ The essentials:
   so the dashed lines between kinds appear; rework as a declared move back.
 - **Everywhere**: the same names in every view, a description on every part.
 
+### Templates from a folder the owner did not write
+
+A `library:` entry written `{folder: PATH}` is untrusted (SPEC §2a): its templates may make only structure, and a use
+that makes more is refused (`library-untrusted`), whole. **Never write `trust: owner`, and never turn a map entry
+into a plain path**, to get past that refusal or for any other reason: that is the owner's decision, made after
+reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
+which template and part were refused, and ask.
+
 ## 3a. A system another ergostat runs: compose it, never copy it
 
 When part of the person's work is run by **another ergostat** (another team's, another machine's), do
@@ -371,6 +382,11 @@ keeps running it; this model reads it.
        every: 1m
    ```
 
+   Across machines, when the remote serves `web: mtls:` (its remote API alone, on its own port, to client
+   certificates its owner's CA signed), read it over https with `tls: {cert: me.pem, key: me.key, ca:
+   servers.pem}` on the entry (`ca` optional); the token is still needed. `mtls-unreadable` means one of
+   those files is missing, a directory or not PEM: the remote is not read until it is fixed.
+
    `ergostat remote` says whether it answers and which version of its model was read; `ergostat explain
    system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
    box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in
@@ -387,8 +403,25 @@ keeps running it; this model reads it.
 5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
    the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
    incidents, ref: stock.open}`.
+6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
+   equations for the remote's parts, written as text in its names for its owner, each marked current or not.
+   They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.
 
 A worked pair is `examples/remote-pair/` (a local *support* model reading a remote *incidents* model).
+
+**A system with an event log of its own that is not an ergostat** (Kafka, a ticket's history, an incident log):
+choose one of three ways.
+- **Copy in** (`collect`, the default): you want items and their current state, and an entry seen twice or missed
+  across a lost memory does no harm. The collector's cursor lives only in its memory file.
+- **Read in place**: only for another ergostat (`remotes:`, above). For anything else it is not built (GAPS).
+- **Mirror** (`collect` with `mirror: true`, `cursor-field:` the entry's position, and `position: text` when the
+  position is a time): each entry must be recorded exactly once, as the log's own history, for example an audit trail
+  or a process map read from it. Each event's id cites the entry (`cite:<flow>.<sensor>:i:<position>`), the cursor
+  is confirmed against the record and recovered from it, and a poll that can't be sure exits 1 and says why. Text
+  positions must sort as text in log order: zero-padded numbers, fixed-width ISO times. Never push a `cite:` id
+  yourself: `/api/events`, hooks and the engine's socket refuse it, and `event --add` takes no id. If the source reads only after the cursor (a Kafka
+  offset in `{cursor}`), a log that restarts is not seen: rename the use when the log resets. Renaming is also the way out of a "went
+  back" stop; clearing the collector's memory is not, since the cursor comes back from the record.
 
 ## 3b. A budget on what the agents cost
 
@@ -622,6 +655,12 @@ Add `use: repair` (once a model, like `modelling`; SPEC §12r) when the owner wa
 failed run becomes an `ergostat.failure` item, one per signature, counted; one whose block runs a program of the
 project's is fixed by an AI (haiku by default, with no tools: ergostat gives it the program and the files beside it) in
 a clone of the repository, tested in the sandbox, and proposed as the gated action `apply-fix` with its impact report.
+Once applied, the fix is verified by the runs of its block begun after it (`verify` of them finished well: not a claim
+the failure is fixed); one that fails again regresses it, and the gated action `revert-fix` offers one `git revert` of
+the fix. A regressed fix whose revert is denied stays regressed, for the owner.
+Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
+is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is
@@ -631,6 +670,8 @@ What you set:
   untested, and only a person may approve it.
 - **`approver:`** `person`, the only one for now: the owner reads each fix in the inbox. `ai` is refused by `check`
   until a sound guard exists (GAPS).
+- **`verify:`** how many good runs after a fix verify it (default 3; 1 to 50, `check` refuses others). A block that
+  runs rarely takes that long to verify.
 - **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs
   committed.
 

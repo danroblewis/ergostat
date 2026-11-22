@@ -21,7 +21,7 @@ from ..spec import files
 from ..spec.ir import NAME
 from ..spec.load import Map, Problem, Where
 
-KEYS = {"url", "token-file", "systems", "within", "every", "description", "show"}
+KEYS = {"url", "token-file", "systems", "within", "every", "description", "show", "tls"}
 SHOW = re.compile(r"^(stock|flow|auxiliary)\.([a-z][a-z0-9-]*)$")
 EVERY, EVERY_LEAST = 60.0, 10.0
 IMPORTED = ("systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents")
@@ -45,6 +45,11 @@ def fresh():
         yield
     finally:
         _FRESH.reset(tok)
+
+
+def checking() -> bool:
+    """Within ``fresh()``: ``ergostat check`` is reading the model."""
+    return _FRESH.get()
 
 
 @contextlib.contextmanager
@@ -127,6 +132,14 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         err("show: a list of the remote's own parts, as it names them: stock.NAME, flow.NAME or auxiliary.NAME",
             entry.at("show"))
         shown = None
+    tls = None
+    if entry.get("tls") is not None:                   # mutual TLS: a bad tls: is never read without it
+        from . import mtls
+        tls = mtls.parse_tls(entry["tls"], url, doc.root, lambda msg: err(msg, entry.at("tls")))
+        if tls is None:
+            return None
+        for msg in mtls.unreadable_tls(tls):
+            err(msg, entry.at("tls"), "mtls-unreadable")
     token_file = entry.get("token-file")
     via = RemoteVia(w.file if w else doc.root, w.line if w else 1, name, url)
     from . import cache
@@ -135,18 +148,19 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         st = cache.status(d)
         if _FRESH.get() or not cache.model(d) or time.time() >= float(st.get("next") or 0):
             cache.refresh(d, url, str(token_file) if token_file else None, doc.root, every,
-                          force=_FRESH.get() or not cache.model(d))
+                          force=_FRESH.get() or not cache.model(d), tls=tls)
     served = cache.model(d)
     st = cache.status(d)
     parent = entry.get("within") or defaults.get("system")
-    put("sources", name, as_map({"type": "ergostat", "url": url, **({"token-file": str(token_file)} if token_file else {})},
-                                via), via, {})
+    put("sources", name, as_map({"type": "ergostat", "url": url, **({"token-file": str(token_file)} if token_file else {}),
+                                 **({"tls": tls} if tls else {})}, via), via, {})
     where_text = f"remote: run by the ergostat at {url}"
     put("systems", name, as_map({"description": str(entry.get("description") or where_text),
                                  **({"within": str(parent)} if parent else {})}, via), via, {})
     info = {"url": url, "token_file": str(token_file) if token_file else None, "every": every, "dir": str(d),
             "where": via, "within": parent, "systems": list(only) if only else None, "version": None, "fetched": None,
-            "name": None, "parts": {}, "kinds": {}, "missing": [], "status": st, "show": None}
+            "name": None, "parts": {}, "names": {}, "kinds": {}, "missing": [], "status": st, "show": None,
+            "tls": tls}
     doc.remotes[name] = info
     if not st.get("ok", True) or st.get("ok") is None and served is None:
         why = st.get("why") or "not asked yet"
@@ -163,11 +177,13 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
     info.update(version=served.get("version"), fetched=served.get("fetched"), name=served.get("name"))
     secs = served.get("sections") or {}
     info["kinds"] = {k: v for k, v in (secs.get("items") or {}).items() if isinstance(v, dict)}
+    info["served_parameters"] = sorted(secs.get("parameters") or {})   # every one, systems: or not (taken names)
     made = parts(name, secs, only, every)
     for section, entries in made.items():
         for pname, got in entries.items():
             put(section, pname, as_map(got, via), via, {})
             info["parts"][f"{SINGULAR[section]}.{pname}"] = True
+            info["names"][f"{SINGULAR[section]}.{pname}"] = f"{SINGULAR[section]}.{pname[len(name) + 1:]}"   # served only
     info["show"] = _shown(doc, name, info, secs, made, only, shown, entry.at("show") if shown else via)
 
 

@@ -518,6 +518,8 @@ class Segments:
                     if limit and len(out) >= limit:
                         return out[:limit]
                     for r in self._rows(s, item, types, since, until, after_seq, before_seq, item_test):
+                        if limit and len(out) >= limit:
+                            break
                         e = self._event(s, r)
                         if test is None or test(e):
                             out.append(_row(e))
@@ -641,7 +643,7 @@ class Segments:
     def query(self, *, n: int | None = 100, type: str | None = None, item: str | None = None, source: str | None = None,
               since: float | None = None, after_seq: int | None = None, until: float | None = None,
               skip: tuple[str, ...] = (), unvoided: bool = False, machine: str | None = None,
-              before_seq: int | None = None) -> list[dict]:
+              before_seq: int | None = None, first: int | None = None) -> list[dict]:
         tests = []
         if source is not None:
             tests.append(lambda e: e.get("source") == source)
@@ -652,8 +654,11 @@ class Segments:
             if void:
                 tests.append(lambda e: e["id"] not in void)
         test = (lambda e: all(t(e) for t in tests)) if tests else None
-        return self._scan(n=n, item=item if item is not None else ..., type=type, skip=tuple(skip), since=since, until=until,
-                          after_seq=after_seq, before_seq=before_seq, test=test)
+        if first is not None and first <= 0:
+            return []
+        return self._scan(n=None if first is not None else n, item=item if item is not None else ..., type=type,
+                          skip=tuple(skip), since=since, until=until, after_seq=after_seq, before_seq=before_seq,
+                          test=test, limit=first)
 
     def get(self, id: str) -> dict | None:
         segs, head = self._state()

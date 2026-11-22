@@ -196,9 +196,10 @@ later, the Record page); the remote's items are read in place through its own `/
   state to integrate: a remote stock in a replay is an input series, like a measured disturbance.
 - **The modelling loop never changes a remote part.** A proposal that would add, remove or change a remote part
   (an estimate, an equation, a rewiring) is refused like an edit to a template's part, and says why. It may
-  instead write the change **as text for the remote's owner**: what to change, the evidence, the fit it would
-  give. Those are kept as proposals marked `for-remote: NAME` and shown, never applied; sending them is the
-  owner's act (an outbound message, by a valve the owner grants).
+  instead write the change **as text for the remote's owner**, in the remote's names: what to change, and the
+  evidence (the points, the window and the series read). Those are kept as proposals marked `for_remote` (the
+  remote and the version of its model read) and shown by `ergostat remote proposals`, never applied; sending
+  them is the owner's act, never ergostat's (built: SPEC §4c, "Proposals for its owner").
 - **Structure on our side is ours to change**: a local flow driven by a remote stock, a goal on a remote measure,
   a new local stock fed from a remote flow, all as any proposal.
 
@@ -237,8 +238,9 @@ model reads the cache and fetches only when the cache is older than `every`.
 
 **Left for later**: the event cache feeding the Items and Record pages; cross-log lines in the process map;
 proposals written for the remote's owner (the refusal is built, the text is not); serving the IR
-(`?format=ir`); a remote that is itself composed of remotes (a remote's own imported parts are not served);
-mutual TLS.
+(`?format=ir`); a remote that is itself composed of remotes (a remote's own imported parts are not served).
+Mutual TLS is built (`remote-mtls`, SPEC §4c): `web: mtls:` serves the remote API alone on a listener of its
+own, to client certificates one CA signed, and a `remotes:` entry's `tls:` reads it.
 
 ## 9. Decisions, in one place
 

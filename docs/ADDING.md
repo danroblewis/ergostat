@@ -213,7 +213,7 @@ uses:
       rules: true                         # the rule tier (default on, free): mechanical fixes for what check finds
       ai: true                            # the AI tier (default off): what the rules cannot answer, on ai-model
       ai-model: haiku                     # (default haiku); ai-every 10m, ai-most 8 requests a call (at most 16), ai-daily $1 (at most 20)
-      redesign: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2}   # with ai: true, the redesigner (auto|ask|off)
+      redesign: {when: auto, model: haiku, budget: 0.5, rounds: 3, daily: 2, review: sonnet}   # with ai: true, the redesigner (auto|ask|off); review: the daily architecture review's model, or off
       review: {when: auto, model: haiku, kinds: structure redesign, most: 3}  # with ai: true, the reviewer (auto|off)
       accept:
         parameter: auto                   # a value the judge passes is written at once (else the owner accepts each)
@@ -233,7 +233,10 @@ uses:
   button). It proposes one change set (renames, rewiring, removals, equations, descriptions), worked a few `rounds` on
   a scratch copy within `budget` dollars a run and `daily` dollars a day, judged as a whole by a scorecard. **It is
   never written without the owner's approval** (the review queue and the inbox) unless `accept: {redesign: auto}`, and
-  even then not one that takes a part away, rewires a chain or changes control.
+  even then not one that takes a part away, rewires a chain or changes control. Once a day (with `when: auto`), one
+  call on `redesign.review` (sonnet by default; `off` turns it off) reads the model's architecture as a whole and
+  says which system to redesign next, or to split or merge (held for you, never acted on); its cost counts against
+  `daily`.
 - **Review:** with `ai: true`, the `model-reviewer` block reads each change of `review.kinds` (structure and redesign; add
   `equation` if you like) after the judge passes it, as a deliberately disagreeable senior modeller, through the review
   checklists of `docs/MODELLING-WELL.md` (the causal story, units and boundary, fitting noise, one coherent change, the

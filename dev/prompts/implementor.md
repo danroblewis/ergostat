@@ -38,10 +38,14 @@ answer questions: take the most reversible option and say so in the definition f
    `Overrun reason:` (the size gate reads only that line in what is appended; an edit to the definition's text, or a
    reason written any other way, counts as no reason).
 3. Write the acceptance tests it names. Run the tests you touch one file at a time
-   (`uv run python -m pytest -q tests/test_x.py`); a browser file with Playwright, under the watchdog
-   (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs tests/test_x.py`:
-   a page test skipped is a failure); never the whole suite in parallel yourself: the factory runs the
-   fast suites (the unit suite and the four browser files) after you, under the watchdog. A failure on main is reported, not fixed (lesson 13): a test that
+   (`uv run python scripts/named_tests.py tests/test_x.py`, or `tests/test_x.py::test_name`: at most three, no
+   options; it runs pytest serially); when your gap changes a page, the browser file that covers it, named, with
+   Playwright, under the watchdog
+   (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_x.py`:
+   a page test skipped is a failure). Never the whole unit suite or the four browser files yourself: after
+   you, the factory runs only ruff and its build step (`[suites] build`; the unit suite while none is set), plus the
+   four browser files only if `[suites] build_browser = true`, and the full suites (unit,
+   the four browser files, demo) run in the merge queue. A failure on main is reported, not fixed (lesson 13): a test that
    fails on main too, or on something your change did not touch, is named in your report with why it is unrelated,
    and left alone; the factory runs failing tests again on clean main and holds the gap until main is fixed.
 4. `uv run ruff check ergostat tests scripts` must be clean.
