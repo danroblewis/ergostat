@@ -123,12 +123,18 @@ def wanted(cfg: dict, needed: bool) -> bool:
     return needed and (cfg.get("plan") or {}).get("review", "sample") != "off"
 
 
-def small(cfg: dict, gap: dict, branch: str) -> int:
+def entry_of(cfg: dict, gap: dict) -> str:
+    """A gap's own text: its GAPS.md entry on main, else a join sub-gap's `entry`; empty when it has neither."""
+    f = gap["fields"]
+    return (brief.gaps_entry(cfg, str(f.get("title") or "")) or str(f.get("entry") or "")).strip()
+
+
+def small(cfg: dict, gap: dict, branch: str, text: str) -> int:
     """An S gap: its definition from its own title and text, no session, no review, a planning cost of 0."""
     f = gap["fields"]
     body = SMALL.format(branch=branch, title=" ".join(str(f.get("title") or branch).split()),
                         deps=", ".join(d.removeprefix("gap/") for d in fac.ids(f.get("depends_on"))),
-                        text=str(f.get("text") or f.get("description") or "").strip(), confidence=f["size_confidence"])
+                        text=text, confidence=f["size_confidence"])
     define(cfg, gap["id"], branch, body, "size-s", review=False, planned_at=time.time(), planning_cost_usd=0)
     return 0
 
@@ -284,8 +290,9 @@ def planner(cfg: dict, gap: dict) -> int:
     if where := intake.definition(cfg, gap):
         fac.say("gap.defined", definition=where, ready_at=now, branch=branch, defined_by="coordinator")
         return 0
-    if (path := size_path(gap, bar)) == "S":
-        return small(cfg, gap, branch)
+    if (path := size_path(gap, bar)) == "S" and (own := entry_of(cfg, gap)):
+        return small(cfg, gap, branch, own)
+    path = None if path == "S" else path                # an S gap with no text of its own: the full path, reviewed
     research = {r["id"]: r for r in fac.items("research")}
     asked = list(f.get("research") or [])
     waiting = [r for r in asked if research.get(r, {}).get("state") not in ("answered", "dead", None)]

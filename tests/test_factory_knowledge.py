@@ -1572,14 +1572,23 @@ def test_a_small_gap_is_ready_without_a_planner_session(tmp_path):
     text = (f.model / "run" / "defs" / "alpha-thing.md").read_text()
     assert text.startswith("# alpha-thing: Alpha thing") and "size: S (confidence: high)" in text
     assert "no planner session, no review" in text
+    assert "what it lacks." in text and "More of it." in text                # its GAPS.md entry's body, not only the title
     # a definition appearing between the check and the write is left byte-for-byte
     g2 = "gap/delta"
-    f.fold([{"event": "gap.requested", "item": g2, "data": {"branch": "delta"}}], None)
+    f.fold([{"event": "gap.requested", "item": g2, "data": {"branch": "delta", "entry": "Delta's own text."}}], None)
     size_as(f, g2, "S")
     mine = "# mine\n\nthe coordinator's, written meanwhile\n"
     assert inproc(f, "race", g2, mine) == ["gap.defined"]
     assert (f.model / "run" / "defs" / "delta.md").read_bytes() == mine.encode()
     assert f.item(g2)["fields"]["defined_by"] == "coordinator" and reserved(f) == []
+    # an S gap with no text of its own (not in GAPS.md, no entry): never a title-only definition, the full path
+    g3 = "gap/epsilon"
+    f.fold([{"event": "gap.requested", "item": g3, "data": {"branch": "epsilon", "title": "Not listed"}}], None)
+    size_as(f, g3, "S")
+    said, _ = f.run("plan.py", g3, FACTORY_STANDIN_PLANNER=PLAN.format(b="epsilon"))
+    s = f.item(g3)["fields"]
+    assert said == ["gap.defined"] and reserved(f) == [1.0]                   # a planner session, at the planner's cap
+    assert (s["defined_by"], s["plan_review"]) == ("plan", "wanted")
 
 
 def test_a_medium_plan_skips_review_under_its_own_cap(tmp_path):

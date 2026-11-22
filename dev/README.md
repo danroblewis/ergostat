@@ -310,7 +310,8 @@ its confidence (low 0.25, medium 0.5, high 0.75) is at least `[planning] min_siz
 class, `"s "`, a missing or unknown confidence, one below the bar) takes the full planner, marked for the plan review.
 So does every replan (the gap's state `replan`, which the fold sets from the send-back by seq) but XL, and every
 sub-gap of a split (they carry no class).
-- **S**: no session. The definition is written from the gap's own title and text with the house rules' done
+- **S**: no session. The definition is written from the gap's own title and text (its `docs/GAPS.md` entry on main,
+  else a join sub-gap's `entry`; with neither, the gap takes the full path) with the house rules' done
   criteria and a 50-line budget, created exclusively in `run/defs/` (one already there, or one that lands first, is
   kept byte for byte and the gap is the coordinator's). `defined_by: size-s`, `planning_cost_usd: 0`. **No AI and no
   reviewer has looked at this definition**; the implementor names the tests.

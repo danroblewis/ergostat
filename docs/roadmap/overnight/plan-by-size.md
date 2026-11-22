@@ -157,3 +157,19 @@ keeps the branch's *Planning by size* pointer and adds main's `all` mode. After 
 `ruff check ergostat tests scripts`. `ruff check dev/bin` reports two findings (B023 at the join judge's `listed` in
 plan.py, E501 at review.py:41). Both come from main unchanged. The unit suite and the browser files were not run here.
 The factory runs them.
+
+**Round 3: the S definition's text (review/plan-by-size-1, dev/bin/plan.py:126-133).** The S path read
+`f['text']` / `f['description']`, which no gap source writes, so every S definition held only the gap's title. It now
+reads the gap's own text through `entry_of`: the gap's `docs/GAPS.md` entry on main (`brief.gaps_entry`, as the
+planner's brief does), or else a join sub-gap's `entry`. A gap that `manage.py file_gap` filed has a definition file
+already, so `intake.definition` takes it first and the size path is never reached. An S gap with neither text takes
+the full path, marked for the plan review, never a title-only definition (lesson-3). The test now asserts that the
+entry's body ("what it lacks.", "More of it.") is in `run/defs/alpha-thing.md`. It also checks that an S gap not in
+GAPS.md and with no entry gets a planner session at the planner's cap with `defined_by: plan` and
+`plan_review: wanted`. The race gap now carries an `entry`, so it still reaches the exclusive create. Mutation checks
+(lesson-9), both seen to fail the test: an empty text in the S definition, and the S path taken without text. The
+other two round-1 findings stand as answered before. The failure charge leans towards charging too much, which the
+review says is no fail-open. The reason for the scope (planreview.py, ergostat.yaml) is given above. After this round,
+`tests/test_factory_knowledge.py` (91 passed), `tests/test_factory.py` (126 passed, 2 skipped) and
+`ruff check ergostat tests scripts` pass. Local `main` is an ancestor of the branch. Size: +7 net lines in
+plan.py, about 164 of 220 in all. The unit suite and the browser files were not run here.
