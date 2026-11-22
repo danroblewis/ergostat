@@ -25,3 +25,40 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1: 47 net lines outside tests and docs (pages.js, review.js, web/numbers_api.py, control/loop.py).
+
+- **Check.** `/api/exercised` now gives each finding's numbers as well as its sentence (not-exercised: why, says,
+  span, readings; calibration-worse-than-mean: r2, nmse, n). The page draws one table per kind. Each table sits under
+  its advice, said once. Rows are sorted worst first: never-moved before no-variation, then the longest record; for
+  the calibration kind, the largest scaled error. Each part links to the Dynamics diagram. The static check's
+  warnings and notes that say the same thing about several parts (`file:line: kind name: what`, e.g. eleven 'no
+  description' notes) are also a table each, under their shared text. The remaining notes are a list at body size.
+  Decision taken alone (reversible): grouping the static check's repeats is a generic rule on the message's shape,
+  not a code. Without it the "no description" clause repeated about 20 times and the acceptance did not hold.
+- **Model.** Loops whose identification reads the same are one group under a heading ('12 loops: an integrator,
+  from the model; its dead time: a step of u, or a step test'). Each link has a real href. Decision taken alone
+  (reversible): "that loop's system" is the set of systems its goal and stock are in, with their parents
+  (`/api/loop-control` returns `systems`). The link opens `/diagram?view=blocks&open=<those>`, not `open=*` and
+  not `system=`. located-worked's goal is in `making` but its stock `located` is in `intake`. Drilling into
+  `making` alone would hide the process block in a closed box. So the URL reads `open=factory,intake,making`.
+- **Tests.** `test_check_and_the_model_page_say_each_thing_once_in_a_table` (tests/test_diagram_rendering.py) runs
+  on ticket-factory with `/api/exercised` answered by the server's own wording (`ex.said`, `ft.worse_than_mean`).
+  It was seen to fail against three breaks: findings listed as sentences again, links opening `open=*`, and no
+  grouping. `test_the_model_page_says_what_is_available...` now reads quality-held's 'not identified' from its
+  group heading. The new fields are checked in tests/test_exercised.py and tests/test_extremes_closed.py.
+- **Not shown.** The acceptance names :8791 (the owner's running demo). It was checked here on a served copy of
+  ticket-factory, without its record.
+- **Runs.** The full tests/test_diagram_rendering.py, serially in the container: 197 passed, 4 failed.
+  `test_every_view_draws_cleanly_and_in_time[coordinator]` and `[image-squeeze]` failed on a routing time bound
+  (33 s and 39 s against 20 s). `test_a_big_tangled_model_lays_out_in_time_and_cleanly` failed on a 2.5 s draw
+  bound (3.3 to 4.1 s). These are diagram layout timings; this branch does not touch layout. The fourth was
+  `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`: after an accept, the review
+  queue does not say "Nothing waiting.". Earlier reviews record this test failing on another branch, and this branch
+  does not change the queue box. The equation test and the big-model test also fail when run alone. None was
+  compared with main: `git checkout main -- <file>` and `git worktree add --detach /tmp/main-check main` were both
+  refused in this session, so the factory's rerun on clean main must settle them. Also run: tests/test_control.py
+  (52 passed), tests/test_exercised.py (7 passed), the touched extremes test, and ruff (clean). Main has not moved
+  since the clone (277a9c6c), so there was nothing to merge.
