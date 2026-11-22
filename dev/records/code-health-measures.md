@@ -76,3 +76,57 @@ reversible option and built nothing.
 
 Left: all five points and all four acceptance tests. Once `code-health-simplifier` has really merged into main,
 continue this branch with main merged in. The definition above stays as it is.
+
+### Round 2: built
+
+**Round 1's reason was wrong.** The review was right: it said "every ref and the whole history" more broadly than the
+clone supported. The simplifier had merged. This clone's `main` is b4639301 (this clone has no `origin` remote), and
+2c28fe98 merged it into the branch. That main has `scripts/code_evidence.py`, `dev/model/code-health.yaml`,
+`simplify-when` and `dev/bin/simplify.py`. `docs/roadmap/overnight/code-health.md` (the parent) is still not in it.
+That file is only background, so nothing waits on it.
+
+**What was built, point by point:**
+
+1. `dev/bin/measure.py` adds `code-net-lines`, `code-long-functions`, `code-duplicates` and `code-dead-candidates`. Each
+   is a sum over the rows `scripts/code_evidence.py` prints (run as a subprocess at main's sha, resolved first). It adds
+   `code-coverage` too: covered over statements, from the report `coverage_report` already chooses.
+   `coverage_report` was split so it also returns that report's seq, sha and modules (`latest_coverage`). Each is an
+   auxiliary in `dev/model/code-health.yaml` with a sensor, `every: 1h`.
+2. Each reading is appended to `run/code-measures.jsonl` with the seq and sha it measured. For `code-coverage` that is
+   the report's own seq and sha. `measure.py NAME-change` gives the change over main's last 10 merges, by seq. A sha
+   counts once (its last reading), and a sha no longer on main is skipped. The five `-change` auxiliaries carry the
+   goals `code-*-not-rising` (`<= 0`) and `code-coverage-not-falling` (`>= 0`). A goal can only hold an auxiliary or a
+   stock, so the change needs an auxiliary of its own. That makes five more auxiliaries than point 1 names. This is the
+   reversible reading: deleting them and the goals undoes it. `code-health-off` (an expr) feeds
+   `block.improve-factory`, which is the coordinator `factory-off` asks. That keeps `measures.yaml` untouched.
+3. `code-drift` is the max of the four size goals' `.off`. It is `simplify-when`'s `drift` input, and the expression is
+   now `max(days >= 3, drift) * (inflight < 1) * (1 - over)`. Pool 1 is unchanged, both in the expression and in
+   `simplify.py`.
+4. The five measures are in the `code-health` system's `show:`. There is no new page.
+5. `dev/README.md` has a "code measures" paragraph in the simplifier section. It does not call the code "simpler".
+
+**Outside the listed files:** `tests/test_code_health_simplifier.py`'s `simplify-when` test fed the expression only
+`days`, `inflight` and `over`. Its model comment said the drift input would come from this gap. The test now passes
+`drift=0` by default (2 lines).
+
+**Lesson-3:** no checkout, a module that does not parse (`code_evidence.py` exits 2), no coverage report, a report
+with 0 statements, an unreadable history line, or fewer than two seqs in the window. Each gives no value (exit 1),
+and nothing is stamped.
+
+**Size:** 0 lines outside `tests/`, `docs/` and `dev/`. In `dev/`: `measure.py` +97 −5 (about 70 of it code, the rest
+docstring), `code-health.yaml` +101 −3, README +12.
+
+**Lesson-9 (each break seen to fail a test, then put back):**
+
+- a failing evidence run read as rows: `test_missing_inputs_have_no_value` failed;
+- the on-main check dropped: `test_trend_by_seq_counts_one_sha_once` failed (it read the undone sha's 500);
+- each sha's first reading kept instead of its last: the same test failed (1 ≠ −1);
+- `drift` left out of `simplify-when`'s expression: `test_drift_turns_simplify_when_on` failed.
+
+**Not run:**
+
+- `ergostat check` as a command. `uv run ergostat check` and `uv run python -m ergostat check` were both refused in
+  this session. In their place, `tests/test_factory.py::test_the_factory_model_loads` passed. It does the full read of
+  the root model, extremes included, and asserts no errors.
+- The measures against this repository. A scratch config under `/tmp` was refused too.
+- The full unit suite and the four browser files. They are left to the factory's watchdogged run.

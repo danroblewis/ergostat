@@ -53,14 +53,27 @@ size measures have no value with nothing to measure.
                       coverage_floor, from the latest coverage report (scripts/coverage_report.py, under run/coverage/)
   coverage NAME       one module's share (NAME: its path, e.g. ergostat/model.py)
 These two read no window: they have no value (exit 1) with no report, an unreadable one, or the latest more than
-STALE of main's first-parent commits (its merges) old; never 0 or 1 for a report that cannot be read."""
+STALE of main's first-parent commits (its merges) old; never 0 or 1 for a report that cannot be read.
+
+  code-net-lines, code-long-functions, code-duplicates, code-dead-candidates   sums over scripts/code_evidence.py's
+                      rows on the checkout's main: net lines of ergostat/, dev/bin/ and scripts/, functions over 60
+                      lines, duplicate function bodies, dead candidates
+  code-coverage       the statement-weighted share (covered over statements) of the latest coverage report, as above
+  NAME-change         one of these five's change over the last TREND of main's merges: the reading at the latest seq
+                      less the earliest within TREND seqs of it, from run/code-measures.jsonl
+Each code reading is stamped there with the seq and sha it measured (main's; the report's for code-coverage). A sha
+counts once (its last reading), readings are ordered by seq, never by time, and only shas on main are read. No
+checkout, a failing evidence run, no coverage report, an unreadable history line, or fewer than two seqs in the
+window: no value (exit 1), never 0."""
 
 from __future__ import annotations
 
 import json
 import math
 import statistics
+import subprocess
 import sys
+import tempfile
 import time
 
 sys.dont_write_bytecode = True
@@ -258,22 +271,28 @@ def coverage_report(cfg: dict) -> dict:
     """The latest coverage report of main, by its ``seq`` (never by a file's time), among those whose commit is on
     main (a run whose merge was undone measured a commit main never had); SystemExit (no value) when there is none,
     any is unreadable (it may be the latest), or main has moved more than STALE first-parent commits past it."""
+    return latest_coverage(cfg)[2]
+
+
+def latest_coverage(cfg: dict) -> tuple[int, str, dict, dict]:
+    """coverage_report's choice: (its seq, its sha, the shares, its modules as written)."""
     repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
     found = []
     for p in sorted(fac.path(cfg, "run").joinpath("coverage").glob("*/coverage.json")):
         try:
             r = json.loads(p.read_text())
-            found.append((int(r["seq"]), str(r["main"]), {m: float(v["share"]) for m, v in r["modules"].items()}))
+            found.append((int(r["seq"]), str(r["main"]), {m: float(v["share"]) for m, v in r["modules"].items()},
+                          r["modules"]))
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             raise SystemExit(f"coverage: no value (an unreadable report: {p})") from None
     on_main = [f for f in found if fac.git_ok(repo, "merge-base", "--is-ancestor", f[1], base)]
     if not on_main:
         raise SystemExit("coverage: no value (no coverage report of a commit on main)")
-    seq, sha, shares = max(on_main, key=lambda f: f[0])
+    seq, sha, shares, mods = max(on_main, key=lambda f: f[0])
     since = int(fac.git(repo, "rev-list", "--count", "--first-parent", f"{sha}..{base}"))
     if since > STALE:
         raise SystemExit(f"coverage: no value (the latest report, {sha[:12]}, is {since} merges behind {base})")
-    return shares
+    return seq, sha, shares, mods
 
 
 def coverage_reading(name: str, args: list[str]) -> float:
@@ -289,9 +308,82 @@ def coverage_reading(name: str, args: list[str]) -> float:
     return float(sum(s < floor for s in shares.values()))
 
 
+EVIDENCE = fac.HERE.parent / "scripts" / "code_evidence.py"
+CODE = {"code-net-lines": lambda r: r["lines"], "code-long-functions": lambda r: len(r["long_functions"]),
+        "code-duplicates": lambda r: len(r["duplicates"]), "code-dead-candidates": lambda r: len(r["dead_candidates"])}
+TREND = 10                                              # main's merges a code measure's change is taken over
+
+
+def evidence(cfg: dict) -> tuple[int, str, list[dict]]:
+    """code_evidence.py's rows on main as the checkout has it now, with main's seq and sha (resolved first, so the
+    rows and the stamp are of one commit). No checkout or a failing run: SystemExit, no value."""
+    repo = fac.path(cfg, "checkout")
+    try:
+        sha = fac.git(repo, "rev-parse", "--verify", f"{cfg['git']['base']}^{{commit}}")
+        seq = int(fac.git(repo, "rev-list", "--count", "--first-parent", sha))
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as none:   # (these four read no coverage)
+            none.write("{}")
+            none.flush()
+            r = subprocess.run([sys.executable, str(EVIDENCE), "--root", str(repo), "--ref", sha, "--coverage",
+                                none.name], capture_output=True, text=True, timeout=600)
+        rows = [json.loads(line) for line in r.stdout.splitlines() if line.strip()] if not r.returncode else []
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as e:
+        raise SystemExit(f"code: no value (no checkout of main to measure: {e})") from None
+    if not rows:
+        raise SystemExit(f"code: no value (code_evidence.py: exit {r.returncode} {r.stderr.strip()[-300:]})")
+    return seq, sha, rows
+
+
+def code_reading(name: str) -> float:
+    """One code measure, appended to run/code-measures.jsonl with the seq and sha it measured."""
+    cfg = fac.config()
+    if name == "code-coverage":
+        seq, sha, _, mods = latest_coverage(cfg)
+        try:
+            statements, covered = (sum(int(v[k]) for v in mods.values()) for k in ("statements", "covered"))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise SystemExit("code-coverage: no value (a report with no statement counts)") from None
+        if statements <= 0:
+            raise SystemExit("code-coverage: no value (a report with no statements)")
+        value = round(covered / statements, 4)
+    else:
+        seq, sha, rows = evidence(cfg)
+        value = float(sum(CODE[name](r) for r in rows))
+    with open(fac.run_dir(cfg) / "code-measures.jsonl", "a") as f:
+        f.write(json.dumps({"measure": name, "seq": seq, "sha": sha, "value": value, "at": time.time()}) + "\n")
+    return value
+
+
+def code_change(name: str) -> float:
+    """A code measure's change over the last TREND of main's merges, by seq: each sha once (its last reading)."""
+    cfg, measure = fac.config(), name.removesuffix("-change")
+    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
+    by_sha: dict[str, tuple[int, float]] = {}
+    try:
+        for line in (fac.path(cfg, "run") / "code-measures.jsonl").read_text().splitlines():
+            r = json.loads(line)
+            if r["measure"] == measure:
+                by_sha[str(r["sha"])] = (int(r["seq"]), float(r["value"]))
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise SystemExit(f"{name}: no value (the code measures' history cannot be read: {e!r})") from None
+    window: list[tuple[int, float]] = []
+    for sha, (seq, value) in sorted(by_sha.items(), key=lambda kv: -kv[1][0]):    # the latest seq first
+        if window and seq < window[0][0] - TREND:
+            break
+        if fac.git_ok(repo, "merge-base", "--is-ancestor", sha, base):           # (a merge undone measured nothing)
+            window.append((seq, value))
+    if len({seq for seq, _ in window}) < 2:
+        raise SystemExit(f"{name}: no value (fewer than two of main's commits measured within {TREND} merges)")
+    return round(window[0][1] - window[-1][1], 4)
+
+
 if __name__ == "__main__":
     name = sys.argv[1]
-    if name in ("coverage", "coverage-below-floor"):
+    if name in CODE or name == "code-coverage":
+        print(code_reading(name))
+    elif name.removesuffix("-change") in (*CODE, "code-coverage"):
+        print(code_change(name))
+    elif name in ("coverage", "coverage-below-floor"):
         print(coverage_reading(name, sys.argv[2:]))
     else:
         print(reading(name, kind=sys.argv[2] if len(sys.argv) > 2 else ""))
