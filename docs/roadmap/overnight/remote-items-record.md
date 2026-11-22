@@ -372,3 +372,28 @@ the tree was checked clean against the commit. Finally the whole file was run ag
 
 **Not run here:** the other three browser files, the whole unit suite and `demo_check` (`examples/remote-pair` is not
 touched). The factory and the merge queue run those.
+
+## Where it stopped (round 8)
+
+**The finding: the merge of main (48b1481a) conflicted in docs/SPEC.md and ergostat/remote/events.py.** I finished
+the merge in 1ae71b4c.
+- *SPEC §4c.* Both texts are kept: this branch's *Its items and events in the pages* comes first, then main's
+  *Over mutual TLS* (from `remote-mtls`).
+- *events.py.* Main's own `follow` was the old unlocked one with one change: it passed `tls=r.get("tls")` to both
+  `client.get` calls. I kept this branch's locked `follow` and `_read`, and carried main's change into `_read`'s
+  status and events calls.
+- *items.py (no textual conflict, a merge interaction, lesson-7).* `items.ask` now passes `tls=r.get("tls")`
+  too. Without it, a remote declared with `tls:` would have its items asked without its client certificate. The
+  test fake's `get` in `tests/test_remote_items.py` gains a `tls=None` parameter to match. +0 net lines (two calls
+  widened).
+- *A limit.* No test reads a remote's items or events over mutual TLS. The `tls=` argument is reasoned, not seen
+  on the wire. `tests/test_remote_mtls.py` passes, but it covers the model and readings, not `items` or `events`.
+
+**Run after the merge, one file at a time:** `tests/test_remote_items.py` (22 passed); `tests/test_remote.py`,
+`tests/test_remote_pair.py` and `tests/test_spec_items.py` (19); `tests/test_remote_mtls.py`,
+`tests/test_graph_cli_web.py` and `tests/test_web_access.py` (80). Also `tests/test_items_page.py` with
+Playwright under `scripts/suite_watch.py`: 21 passed, none skipped, rc 0, thread peak 205. `ruff check ergostat tests
+scripts` is clean.
+
+**Not run here:** the other three browser files, the whole unit suite and `demo_check` (`examples/remote-pair` is not
+touched).
