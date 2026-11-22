@@ -565,7 +565,7 @@ details.sd-unknown > summary { color: var(--muted); margin: var(--sp-2) 0; }
 /* Agents: one list, by rung; the ladder as a line of counts */
 .ladder-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); margin: 0 0 var(--sp-5); color: var(--muted); }
 .ladder-line .step b { color: var(--ink); }
-.ladder-line .arrow { color: var(--line-strong); }
+tbody.group th small { font-weight: normal; font-size: var(--text-sm); }
 .hints { margin: var(--sp-1) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .hints li { color: var(--ink-2); margin-top: var(--sp-0); }
 .hints li.bad { color: var(--bad); }
