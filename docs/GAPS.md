@@ -361,23 +361,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
     goal the outer watcher reads, leases and the worktree pool).
   - **The record's loops** (done on `factory/upkeep-record-loops`, `dev/records/upkeep-record-loops.md`): the stocks
     `rollup-due`, `events-past-keep` and `measurements-due`, held at 0 by `record-compactor` and `record-pruner` (both
-    `upkeep rollup`) and `measurement-retainer` (`upkeep retain`), each every 1m to 1d; the engine stops rolling up under `use: upkeep`.
-    Every compactor (the engine, `ergostat compact`, the programs) holds `<state>/compact.lock`, an `flock` taken
+    `upkeep rollup`) and `measurement-retainer` (`upkeep retain`), each every 1m to 1d; the engine stops rolling up
+    under `use: upkeep`. Every compactor (the engine, `ergostat compact`, the programs) holds `<state>/compact.lock`, an `flock` taken
     without waiting, and says `busy` when it is held. A store that cannot count gives no reading.
-- **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):
-  - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (done, 3e106ee:
-    `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
-  - **The watchdog restarts without finding the cause, every 6.5 minutes; a hang while starting is unseen; pool
-    wedge found at 130 s** (done, 3e106ee: the index lock's holder dumped; back-off 60 s to 30 m; a startup deadline).
-  - **An `alarm` block lights nothing** (done, 3e106ee).
-  - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
-    (done, 3e106ee: `storage: logs:`; `ergostat compact --projects`).
-  - **The CLI refuses to run while the YAML is broken**, so every `$ERGOSTAT_CMD` call fails while an agent edits
-    (done on branch `cli-fallback`, `docs/roadmap/overnight/cli-fallback.md`: the engine keeps the model it takes as
-    one content-addressed snapshot of every file its loading read; commands that read load that snapshot alone,
-    never running anything; commands that act, `event --add` among them, refuse naming the YAML's error).
-    goal the outer watcher reads, leases and the worktree pool) and **upkeep-record-loops** (the event log's roll-up
-    and measurement retention).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per
