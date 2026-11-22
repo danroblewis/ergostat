@@ -95,3 +95,43 @@ Round 1, after the fast suites: `unit` failed with no test named, and no code wa
   `tests/test_factory.py`, `_times.py`, `_manager.py` and `test_in_container.py` together, serially: 173 passed,
   2 skipped (Docker-only, as on main). Ruff is clean. **Not run:** the whole unit suite and the four browser files.
   The brief forbids that, and running several files at once in a loop was refused.
+
+Round 2, answering the review's two findings (both blocking; there were no others).
+
+- **Finding 1: a prefix plus a denylist let the glob, a directory and `-qn4` through.** Replaced with an allowlist.
+  The new `scripts/named_tests.py` takes 1 to 3 arguments. Each must fully match `tests/test_<word>.py` with optional
+  `::name` parts, and the file must exist. Anything else is refused with exit 2 before pytest starts: options of any
+  form (`-n`, `-qn4`, `--numprocesses=…`, `-k`, `-p`), directories, `..`, and a glob that expanded to more than 3
+  files. It then execs `python -m pytest -q -rs -p no:xdist -o addopts= <ids>`, so it runs serially. Clearing the
+  ini's addopts means an edited `pyproject.toml` cannot add `-n` either. The implementor's browser permission is now
+  `Bash(uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py:*)`.
+  The two `-n`/`--numprocesses` DENY rules are removed because the script makes them redundant, so `DENY` is back to
+  main's list.
+- **Finding 2: `Bash(uv run python -m pytest:*)` was kept.** It is removed. The implementor's only way to run
+  pytest is now `Bash(uv run python scripts/named_tests.py:*)` (unit files, without the watchdog, as before) or the
+  watched browser form above. The prompt's two commands now name the script and say "at most three, no options; it
+  runs pytest serially". `test_the_whole_suite_watch_command_is_not_the_implementors` now also refuses
+  `uv run python -m pytest -q -n 8`, `… -q tests/test_agents.py`, a bare `uv run python -m pytest`, and pytest run
+  directly under `suite_watch`. The new `test_named_tests_runs_named_files_only` refuses every test file (what
+  `tests/test_*.py` expands to), the first 4 files, `tests`, `tests/`, `[file, tests]`, `-qn4`, `-n 4`, `-n4`,
+  `--numprocesses=auto`, a literal glob, a missing file, `..`, a fixtures directory, `-p`, `-k`, an empty `::` and
+  an argument with spaces. It also runs the script for real in a tmp project whose ini has `addopts = "-n 8 -x"`:
+  the run passes serially, and `-n 8` gives exit 2 with no pytest output.
+- **Break checks (lesson-9):** each of these was seen to fail its test. Putting `Bash(uv run python -m pytest:*)`
+  back failed the permission test. Dropping the 3-file cap, and separately letting options through (the `ID` check
+  replaced by "not starting with -"; `-qn4`, `-n4`, `--numprocesses=auto`, `..` and `::` were then accepted), failed
+  the allowlist test. Dropping `-o addopts=` made the tmp run fail on `-n` from the ini.
+- **What the code does not cover (the most reversible choice):** permission matching is modelled by `permits` in
+  `tests/test_agents.py`, not checked against the real `claude` binary. The guard does not depend on that model any
+  more, because the script refuses whatever a prefix lets through. The reviewer's prompt still names
+  `uv run python -m pytest`, but its tools never allowed that. This gap does not change it.
+- Overrun reason: the allowlist the review asked for is a new 30-line script, `scripts/named_tests.py` (16 code lines
+  plus its docstring). With the round-1 changes in `dev/` (31 net lines, 7 of them prompt and config comments), the
+  net count outside `tests/` and `docs/` is about 61, against 40. Counted outside `tests/`, `docs/` and `dev/`, as the
+  brief counts, it is 30.
+- **Run:** `tests/test_agents.py` (11 passed, including the Chromium launch), `tests/test_factory.py` (141 passed,
+  2 skipped, both Docker-only), and `uv run ruff check ergostat tests scripts` (clean). `ruff check dev/bin` reports
+  B023 in `plan.py` and E501 in `review.py`. Both files come from main and this branch does not touch them (lesson 13).
+  **Not run:** the whole unit suite and the four browser files (the queue runs them). Refused:
+  `timeout 300 uv run python scripts/named_tests.py tests/test_parallel_runs.py 2>&1 | tail -3`, and a `python3 -`
+  heredoc that would have edited files (I made those edits with the edit tool).

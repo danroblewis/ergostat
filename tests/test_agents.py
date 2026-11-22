@@ -35,8 +35,8 @@ def test_implementor_environment_has_a_browser():
     assert all(" -rs " in cfg[n] for n in ("browser", "rerun"))
     # the session may run a named browser file under the watchdog, with the suite's own Playwright, and never the suite
     sys.modules.setdefault("fac", module("fac"))
-    one = f"uv run python scripts/suite_watch.py -- uv run --with {PIN} python -m pytest -q -rs tests/test_items_page.py"
-    assert may(one) and not may(cfg["browser"]) and cfg["browser"].startswith(one.rsplit(" ", 1)[0] + " -n 4 ")
+    assert may(f"{PAGE} tests/test_items_page.py") and not may(cfg["browser"])
+    assert PAGE.rsplit(" python ", 1)[0] == cfg["browser"].split(" python -m")[0]     # (the suite's own Playwright)
     # the clone is at /work there, so the browser files' pictures (beside the checkout by default) need a writable
     # folder: the round's suite containers and the session's own both name one under /tmp
     agents, factory = module("agents"), tomllib.loads((ROOT / "dev" / "factory.toml").read_text())
@@ -68,18 +68,49 @@ def may(cmd: str, role: str = "implementor") -> bool:
     return permits(agents.TOOLS[role], cmd) and not permits(agents.DENY, cmd)
 
 
+NAMED = "uv run python scripts/named_tests.py"
+PAGE = f"uv run python scripts/suite_watch.py -- uv run --with {PIN} python scripts/named_tests.py"
+
+
 def test_the_whole_suite_watch_command_is_not_the_implementors():
+    """The permission lets pytest run only through scripts/named_tests.py; that script is the allowlist."""
     watched = "uv run python scripts/suite_watch.py -- "
-    page = f"{watched}uv run --with {PIN} python -m pytest -q -rs tests/test_items_page.py"
     cfg = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
-    assert may(page) and may(f"{page} tests/test_page_refresh.py") and may(f"{page}::test_a -p no:randomly")
+    assert may(f"{NAMED} tests/test_agents.py") and may(f"{PAGE} tests/test_items_page.py::test_a")
     refused = [cfg["unit"], cfg["browser"], f"{watched}uv run python -m pytest -q", f"{watched}uv run python -m pytest",
-               f"{page.rsplit(' ', 1)[0]}", f"{page.rsplit(' ', 1)[0]} -n 4 tests/test_items_page.py", f"{page} -n 4",
-               f"{page} -n4", f"{page} --numprocesses 4", f"{page} --numprocesses=auto", f"{watched}sh -c true"]
+               f"{watched}uv run --with {PIN} python -m pytest -q -rs tests/test_items_page.py",
+               "uv run python -m pytest -q -n 8", "uv run python -m pytest -q tests/test_agents.py",
+               "uv run python -m pytest", f"{watched}sh -c true", f"{watched}uv run python -m pytest -q tests/test_x.py"]
     assert not [c for c in refused if may(c)]
-    assert not any(t.startswith("Bash(uv run python scripts/suite_watch.py:") for t in module("agents").TOOLS[
-        "implementor"])                                                     # (the broad prefix of before is gone)
-    assert not [r for r in ("reviewer", "planner", "librarian") if may(page, r)]   # (only the implementor runs tests)
+    assert not any(t.startswith(("Bash(uv run python scripts/suite_watch.py:", "Bash(uv run python -m pytest"))
+                   for t in module("agents").TOOLS["implementor"])        # (the broad prefixes of before are gone)
+    assert not [r for r in ("reviewer", "planner", "librarian") if may(f"{NAMED} tests/test_agents.py", r)]
+
+
+def test_named_tests_runs_named_files_only(tmp_path, monkeypatch):
+    """The allowlist: 1 to 3 existing tests/test_*.py files or test ids; no glob's many files, directory or option."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("named_tests", ROOT / "scripts" / "named_tests.py")
+    named = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(named)
+    monkeypatch.chdir(ROOT)
+    every = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "tests").glob("test_*.py"))     # (what test_*.py expands to)
+    page = "tests/test_items_page.py"
+    assert not [a for a in ([page], [f"{page}::test_a"], [page, "tests/test_agents.py::x[1-2]"]) if named.refused(a)]
+    refused = [[], every, every[:4], ["tests"], ["tests/"], [page, "tests"], [page, "-qn4"], [page, "-n", "4"],
+               [page, "-n4"], ["-n", "4", page], [page, "--numprocesses=auto"], ["tests/test_*.py"],
+               ["tests/test_nothing_here.py"], ["tests/../tests/test_agents.py"], ["tests/fixtures"], [page, "-p", "x"],
+               ["tests/test_items_page.py::"], [f"{page} -n 4"], ["-k", "page"]]
+    assert not [a for a in refused if not named.refused(a)]
+    (tmp_path / "tests").mkdir()                     # and it runs pytest serially, the ini's addopts (-n 8) cleared
+    (tmp_path / "tests" / "test_one.py").write_text("import os\n\ndef test_one():\n"
+                                                     "    assert 'PYTEST_XDIST_WORKER' not in os.environ\n")
+    (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\naddopts = "-n 8 -x"\n')
+    run = lambda *a: subprocess.run([sys.executable, str(ROOT / "scripts" / "named_tests.py"), *a], cwd=tmp_path,  # noqa: E731
+                                    capture_output=True, text=True, timeout=120)
+    ok, no = run("tests/test_one.py"), run("tests/test_one.py", "-n", "8")
+    assert ok.returncode == 0 and "1 passed" in ok.stdout, ok.stdout + ok.stderr
+    assert no.returncode == 2 and "named_tests:" in no.stderr and not no.stdout
 
 
 def round_suites(tmp_path: Path, extra: str = "") -> tuple[Factory, str, Path]:

@@ -33,18 +33,16 @@ import fac
 
 NET, PROXY, PORT = "ergostat-agents", "ergostat-egress", 3128
 DENY = ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)", "Bash(curl:*)",
-        "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch",
-        "Bash(uv run python scripts/suite_watch.py * -n*)",              # (no parallel run of the browser files: the
-        "Bash(uv run python scripts/suite_watch.py * --numprocesses*)"]  # merge queue runs the suites)
-BROWSER_FILE = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs tests/test_"
+        "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
+NAMED = "uv run python scripts/named_tests.py"   # (an allowlist: 1 to 3 named test files, no options; never a suite)
+BROWSER_FILE = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py"
 TOOLS = {
     "implementor": ["Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)",
                     "Bash(git log:*)", "Bash(git show:*)", "Bash(git add:*)", "Bash(git commit:*)",
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
-                    "Bash(uv run python -m pytest:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
+                    f"Bash({NAMED}:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
                     "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
-                    f"Bash({BROWSER_FILE}*)"],   # (named browser files only, under the watchdog with Playwright:
-                                                 # never a whole suite, which the merge queue runs)
+                    f"Bash({BROWSER_FILE}:*)"],  # (a browser file: under the watchdog, with Playwright)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)

@@ -3340,8 +3340,8 @@ def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeyp
 
 
 ALLOWED = ["Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
-           "Bash(uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs "
-           "tests/test_*)"]
+           "Bash(uv run python scripts/named_tests.py:*)",
+           "Bash(uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py:*)"]
 IMPLEMENTOR = {"ai": {"implementor_model": "opus", "implementor_session_usd": 1.0}}
 
 
@@ -3364,9 +3364,7 @@ def test_the_implementor_may_remove_files_and_run_the_watched_suite():
 def test_the_deny_list_still_holds():
     agents = agents_module()
     assert agents.DENY == ["Bash(git push:*)", "Bash(git remote:*)", "Bash(git config:*)", "Bash(git stash:*)",
-                           "Bash(curl:*)", "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch",
-                           "Bash(uv run python scripts/suite_watch.py * -n*)",          # (no parallel browser run:
-                           "Bash(uv run python scripts/suite_watch.py * --numprocesses*)"]   # tests/test_agents.py)
+                           "Bash(curl:*)", "Bash(wget:*)", "Bash(ssh:*)", "Bash(gh:*)", "WebFetch", "WebSearch"]
     args = agents.claude_args(IMPLEMENTOR, "implementor")
     assert args[args.index("--disallowedTools") + 1].split(",") == agents.DENY   # every one still refused to it
     words = lambda t: t.removeprefix("Bash(").removesuffix(":*)")  # noqa: E731   (a tool, or a command's words)
