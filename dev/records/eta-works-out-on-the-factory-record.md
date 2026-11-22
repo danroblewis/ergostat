@@ -79,3 +79,28 @@ queue's), the after-deploy GET.
 Overrun reason: 183 net lines against 110 (54 in code, 129 in tests): round 1's 139 plus the mid-run count-out
 (`_Run.out`, 20 code lines), the Items list wording (4), and the tests the review asked for (a run routed into
 parked, and the Items list's words through `estimates`).
+
+### Round 3 (answering review/eta-works-out-on-the-factory-record-2)
+
+- Blocking (eta.py simulate: an item counted out partway through a run was recorded as finishing at inf, so its
+  kind's last finish was infinite in that run and kinds[k].p50 came out None): `simulate` now skips an item in
+  `run.gone` for that run. It does not go into the item's finishes or starts, or into its kind's last finish. Each
+  item keeps the share of runs it was counted out of (`out`, beside `dead`). One counted out in any run has a why:
+  "counted out in N% of runs, where it cannot move on (paused, at blocks off, or waiting on such an item); its p50
+  and p90 are of the other runs". `_work` puts that after `reasons()`' words on the Items list and item page, so
+  those words are kept. An item counted out of every run still has p50 None, and its why says it was counted out in
+  100% of runs. `test_an_item_paused_partway_through_a_run_does_not_hold_it` now asserts that the kind's p50 is not
+  None and that each counted-out item has that why and a p50. It was run with the skip undone and failed
+  (`assert None is not None` on the kind's p50). SPEC §5a says this.
+- DoD 5, the table rerun: still not done. Its driver is a script outside `scripts/named_tests.py`, and earlier rounds
+  had such scripts refused. This round had a plain `python3` file edit and a read of `~/.ergostat` refused too, so no
+  driver was tried. The change cannot alter those records' numbers: none of them has a paused state or an off block,
+  so no item is counted out of any run (`run.gone` is empty) and the new skip never applies. It still needs a run on
+  a host.
+- After deploy (GET :8798, run.log): not run, as no live factory is in this clone.
+
+Tests run: `tests/test_eta.py` (19 passed), `tests/test_items_page.py` under the watchdog with Playwright (21
+passed, none skipped, rc 0), ruff clean. Not run: the unit suite and the other browser files.
+
+Overrun reason: 195 net lines against 110 (63 in code, 132 in tests): round 2's 183 plus the counted-out share and
+its why in `simulate` (7 code lines), its place in the Items list's why (2), and the review's asked-for assertions (3).
