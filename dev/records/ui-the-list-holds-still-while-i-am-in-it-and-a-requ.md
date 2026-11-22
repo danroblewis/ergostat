@@ -69,3 +69,14 @@ Tests (each run under `scripts/suite_watch.py` with Playwright 1.63.0, through `
   `main` (`main` is this branch's base and has not moved in the clone).
 - Refused in this session: `node --check ergostat/web/static/pages.js && …`, a `python3 - <<'EOF'` edit script and a
   `sed -i` on the test. The edits were made with the editor instead, and the browser runs above load the scripts.
+
+The fast suites' `build` failure (rc 5), read and left alone (lesson 13):
+- `scripts/affected_tests.py` chose only `tests/test_agents_page.py` and `tests/test_inbox_page.py`: the branch changes
+  no `ergostat/**/*.py`, so no unit test file is mapped to it. The `build` command runs pytest without Playwright, so
+  both files skip at import ("No module named 'playwright'"). Pytest then collects nothing and returns 5. No test
+  failed, and no code in this gap can change that.
+- The fix belongs to the factory's own tooling, in a gap of its own. Either `affected_tests.py` counts browser files
+  as nothing to run (`--collect-only`) when the build has no Playwright, or the build counts rc 5 as a pass. Changing
+  it here would be work outside this gap, and adding a unit test only to give the build something to run would be a
+  test that cannot fail (lesson 9). So no code changed this round.
+- The browser runs above (rc 0, with Playwright) still stand. The merge queue runs the browser files in full.
