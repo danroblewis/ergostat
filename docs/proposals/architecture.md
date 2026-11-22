@@ -166,8 +166,15 @@ system whose blocks act for no goal inside it (a system of stocks with no goal, 
 said); goals in no described system, when the model has no
 `purpose:` (a top-level key, the main file only, kept small: one sentence of what the whole model is for).
 
-**Not computed.** Whether a goal serves its system's purpose, or whether the goals together cover it, is a reading
-of the words: the AI rung, with the descriptions and the goals as its input.
+Purpose coverage is also read, on the owner's word, by the AI rung (`ergostat improve --architecture [SYSTEM]`,
+`numbers/vsm_review.py`, SPEC §12): one haiku call per system says which goals serve its description and what it
+asks for that no goal measures. Each quote must be the owner's words, found in the description or `purpose:` after
+whitespace and curly quotes are made plain, or it is dropped; what is kept is held for the owner as a request
+(`purpose-uncovered`, `goal-off-purpose`). A system with no description gets none.
+
+**Not computed.** Whether a goal serves its system's purpose, or whether the goals together cover it, is not worked
+out from the structure: the AI rung's reading is a judgement, held for the owner, and nothing shows it finds every
+gap.
 
 **Reads.** `system idle: is for "nothing yet", and its blocks act for no goal inside it: its purpose is not
 measured`; `goals in-review-clear, nothing-ready-waits: in no system that says what it is for, and
@@ -180,16 +187,21 @@ Systems*, 2011. A viable system has five functions: S1 the operations that do th
 oscillation between them; S3 control of the operations now (resources, audit, S3*); S4 intelligence, the outside
 and the future; S5 policy, identity and purpose. Each S1 is itself viable (recursion).
 
-**Computed today.** Nothing as a finding. The structure answers parts of it: S1 are systems whose goals hold
-stocks of the work; S2, which damps oscillation between the operations, shows as what they share and are
-scheduled by (a pool, a lease tier) across systems; S3 as goals that set other
-goals' setpoints (a cascade's outer loop, `inner_loops`); S3* as sensors that audit (claims, the intent judge); S4 as
-a modelling loop (`use: modelling`: the model of the outside, improved); S5 as `purpose:` and the owner's accept
-policy.
+**Computed today.** Nothing as a finding. The structure's candidates are listed per system as evidence
+(`spec/vsm.py::checklist`, no note): S1 the goals directly in it on its own stocks, and its subsystems; S2 its blocks
+that share a taken kind's leases or a workspace pool with a block outside; S3 its subsystems' inner-loop goals it sets
+(`inner_loops`) and its goals whose setpoint another goal's block commands; S3\* its judge blocks and blocks with a
+`claims` param; S4 its measured flows in from a cloud, and the model's `use: modelling` loop (model-wide); S5 its
+description, `purpose:` and its subsystems' descriptions. The AI rung is built and run on the owner's word
+(`ergostat improve --architecture [SYSTEM]`, `numbers/vsm_review.py`, SPEC §12): one call per system (haiku by
+default, its cost recorded) reads the system and the checklist and says, for each function, present (naming its
+parts) or missing. A function said present that names none of the system's own parts is dropped as unsupported; a
+function said missing is held for the owner as a request (`vsm-s1` … `vsm-s5`, `vsm-s3-audit`), naming the
+checklist's candidates when it had some. A failed call changes nothing. `explain system.NAME` says the latest review.
 
-**Not computed.** The mapping is a judgement: the AI rung reads each system against the five, recursively, and
-says which is missing (no S4 in a system that faces a changing outside; no S2 where two operations share a
-resource and oscillate). Its evidence is the measures above.
+**Not computed.** The mapping itself is a judgement: what the reviewer says is missing is held for the owner, never
+written as a change, and nothing shows it finds every missing function. It reads one system at a time, not the
+recursion as a whole.
 
 **Would read.** `system delivery: S1 (the work) and S3 (the goals on it) are here, and nothing looks outside it
 (S4): when the arrivals change, nothing in it notices.`

@@ -34,12 +34,18 @@ review into *Done recently*). Newest decisions from the owner first within each 
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
   untrusted library's scripts can now run in the allowlist sandbox, with no reads of the owner's files and network
-  only to hosts the owner lists. *Still needed:* the trust gate rebuilt on **provenance** (a value counts as the
-  owner's only if it arrived by substitution of a `type: command` parameter, the marks kept through nested uses;
-  equality to an owner's literal is not enough); the refusal not telling agents to copy commands into `with:`; a
-  library's `example:` and `reading:` marked untrusted wherever an agent reads them; `ask:`, `query`/`source` gated and
-  a minimum `every` for untrusted libraries; `fetch` refusing a lock entry without a tree, symlinks hashed explicitly;
-  then running untrusted library scripts through `ergostat.sandbox` and the rebase onto main.
+  only to hosts the owner lists. **Built** (`library-trust-folders`): a `library:` entry `{folder: PATH}` is untrusted
+  unless it says `trust: owner`; its templates never shadow a trusted one; a use whose chain holds one may make only
+  structure on an allowlist (`ergostat/library/trust.py`: no command, query, daemon, timer, machine block, agent,
+  workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
+  blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
+  refused at the owner's `use:` line, with a refusal that suggests
+  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). *Still needed:* a gate on **provenance**,
+  so an untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
+  substitution of a `type: command` parameter, the marks kept through nested uses); a library's `example:` and
+  `reading:` marked untrusted wherever an agent reads them (library-untrusted-text); `fetch` by git URL or package,
+  refusing a lock entry without a tree, symlinks hashed explicitly; then running untrusted library scripts through
+  `ergostat.sandbox` and the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
@@ -104,6 +110,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   aggregate (from loop dominance), elasticity over the replay, interface stability over the model's history, the
   Viable System Model checklist and purpose coverage (the AI rung), and the per-system redesign and daily
   larger-model review (after `redesign`).
+  system's Dynamics panel (`numbers/aggregation.py`, on `aggregation-from-dominance`); the AI rung's Viable System
+  Model checklist and purpose coverage, on the owner's word (`ergostat improve --architecture`, `spec/vsm.py`,
+  `numbers/vsm_review.py`, on `architecture-vsm-and-purpose`), its findings held for the owner. *Left*: the relative gain
+  array (needs a square, non-singular gain matrix from approved step tests), eigenvalue elasticity, the AI rung's
+  proposal to aggregate, interface
+  stability over the model's history, and the per-system redesign and daily larger-model review (after `redesign`).
 - **Built-in join** (done, de204df and 966a07f, on `causes-join`; SPEC §5a, *Join*): `join: {children: REL, all:
   STATE, to: STATE}` (or `any:`) on the parent's kind, fired on each child's move from the item index, the parent's
   move recorded as `ergostat.item.joined` caused by the child's, folded only forward and counted like any other;
@@ -339,14 +351,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   taken kind or daemon (a block's or a sensor's), with the in-memory values read across shards listed as wires; and
   an engine of one shard (`engine-runs-its-shard-1`, SPEC §9.8): `Engine(project, shard=NAME)` works only on its
   shard's built-ins, machine blocks, goals, clock, item work, triggers, joins, daemons, observer and readings, and a
-  swap clears what moved out. `ergostat run` still runs one engine for the whole model. Left: the owner's asks
-  followed only by the shard that owns them, and the lead's one-time duties (`engine-runs-its-shard-2`); the wires
-  carried between shards (`shard-wires`); a process per shard; and the measurements.
-  taken kind or daemon, with the in-memory values read across shards listed as wires. Nothing runs by it yet. Also done
-  (`route-one-large-system-in-parts`): a line group of more than 100, one system's view included, routed in parts of
-  at most 100 (`static/routeparts.js`; `docs/layout-rules.md`), the shared group past 100 lines routed free. Left: an
-  engine that runs one shard, the wires carried between shards, a process per shard, and the measurements; for the
-  lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's one-system view measured again.
+  swap clears what moved out; each owner's ask is followed only by the shard that owns what it names (an unknown
+  one by the lead), and only the lead does the one-time duties (`engine-runs-its-shard-2`). `ergostat run` still
+  runs one engine for the whole model. Also done (`route-one-large-system-in-parts`): a line group of more than 100,
+  one system's view included, routed in parts of at most 100 (`static/routeparts.js`; `docs/layout-rules.md`), the
+  shared group past 100 lines routed free. Left: the wires carried between shards (`shard-wires`); a process per
+  shard, with a calls socket each (`shard-supervisor`); a moving flow's sensors read wherever they are; the
+  measurements; for the lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's
+  one-system view measured again.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.

@@ -1,0 +1,151 @@
+# queue-batches-larger: the merge queue tests up to 8 commits together, as many as can combine and pass
+
+depends-on: []
+
+The owner (2026-11-21): the merge gate "should test multiple commits at the same time", bisecting on failures and letting "through as many commits as can be combined and are passing". The batch is capped by the constant `BATCH_MOST = 4` in `dev/bin/pools.py`, whose comment sizes it by the 3-hour run timeout in the worst case of every merge failing. With full suites now only in the queue, it is the factory's main test step.
+
+## Definition of done
+1. The most a batch may be is `[pools] batch_max` in `dev/factory.toml`, default 8, with no separate constant below it. `pools.py set batch N` respects it.
+2. A run that has used more than its time allowance stops bisecting: what is proven green lands, the rest go back to `approved` uncounted, and the next run takes them. A batch of 8 with every merge failing can never hit the block's 3-hour timeout.
+3. `picks()` still fills the batch by rank with gaps that merge cleanly together.
+4. The run's record says how many it tried, landed and sent back.
+
+## Files to touch
+`dev/bin/pools.py`, `dev/bin/queue.py`, `dev/factory.toml`, `tests/test_factory.py`.
+
+## Risks
+- A run stopped at its allowance must never push an unproven prefix.
+
+## Acceptance tests
+- a batch of 8 all green lands in one run
+- one bad commit of 8 is found, and the other 7 land
+- a run past its time allowance lands only what is proven and gives back the rest uncounted
+
+## Size budget
+60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+Built in round 1; about 35 net lines of code (queue.py +34, most of it the bisect loop re-indented inside its
+`try`; pools.py -2; factory.toml +3), plus 3 in dev/README.md.
+
+Choices made alone (the most reversible):
+- The allowance is `[pools] batch_minutes`, 120 by default, capped at 150 (`ALLOWANCE_MOST` in queue.py). A value
+  outside 0..150, NaN included, counts as 150. It is measured from the queue process's start, so the lock and
+  quiet-machine waits count too. It is checked before every suite run and every named rerun, so a run lasts at most
+  the allowance plus one suite run. Point 2's "never hits 3 h" holds only while a single suite run takes under 30
+  minutes. Nothing here bounds a suite run that hangs.
+- `batch_max` has no hard ceiling above it: the batch adds serial git merges, not processes, and the allowance bounds
+  its suite runs.
+- A prefix lands at the allowance only if it was proven by a full green run. A prefix green only on the named tests
+  lands nothing.
+- The run's own gap, when it is among those given back, is nacked uncounted (`after` 1m). Others stay `approved`. If
+  others landed, the push is still asked under the own gap's lease (`fenced: false`). The own gap does not wait at
+  `push-pending`, since it has no outcome to hold back.
+- The record is each gap's `queue_runs` entry: `tried`, `landed`, `given_back`. "given_back" means sent back to
+  `approved`, uncounted. It is not `gap.sent-back`, which goes to `fix`.
+
+Not run here: the whole unit suite and the four browser files (the factory runs them under the watchdog); the clone
+has no origin/main to merge, and local main is already in the branch.
+
+Round 2 (the fix round; it replaces two of the round 1 choices above: the value out of range, and no ceiling). Now 54
+net lines of code (queue.py +49, pools.py +2, factory.toml +3), within the 60. Each finding of review 1:
+- Blocking, the give-back with no end: a run that settled none of its batch (all given back, none landed, failed
+  or sent back) leaves `cap` in run/queue.json, half its batch and at least 1. The next run takes at most that many,
+  and the first run that settles any gap clears it. The cap is read and written under the queue's lock (take()). A
+  cap that is not a positive count gives a batch of 1. A batch of 1 is one suite run, so it settles its gap
+  whenever that run begins inside the allowance. Test:
+  test_a_run_out_of_time_before_its_first_finding_halves_the_next_batch (the reviewer's example: a bad, 31-minute
+  runs, 120 allowed. Run 1 gives back all 8; run 2 takes a..d and finds a). Still left: when the waits alone use up
+  the allowance before the first suite run, nothing can be learned and the gap goes back uncounted again. That is a
+  busy machine or lock, not the bisect's own steps. Counting it against the gap would blame the gap for the machine.
+- batch_max with no ceiling: `BATCH_CEILING = 32` in pools.most(), far above 8, so set and run time are both held to
+  it (test_the_batch_s_most_is_batch_max_default_8).
+- An out-of-range batch_minutes counting as 150: now refused. A value of 0 or less, over 150, NaN or not a number
+  makes the run take no gap and give its lease back uncounted, saying why
+  (test_a_time_allowance_out_of_range_is_refused).
+- The 3 h claim: dev/README.md narrowed. The timeout is reached only by a suite run begun inside the allowance that
+  lasts past it (over 60 min at 120, 30 at 150), and nothing bounds a hung suite run. The dry merges in picks()
+  count against the allowance, but they come before the first clock check. Still no test shows a suite run reaching
+  3 h.
+
+Broken to watch the new tests fail: the cap not read (run 2 tries all 8 again), the cap not halved, a bad cap read
+as the full batch, the ceiling removed, and only negative allowances refused. Each failed its test.
+Run: tests/test_factory.py whole (133 passed, 2 skipped for want of Docker), ruff on ergostat tests scripts. Not run:
+the unit suite and the four browser files (the factory runs them), and no origin/main in this clone to merge.
+
+Round 3 (the merge of main b4639301, which conflicted in dev/bin/queue.py). Main added the flake excusal
+(excusable(), excused(): a red run's 1 to 3 named tests each passing alone twice on the red tree, then the suites it
+did not finish). Both kept: the excusal sits inside the branch's `try`, so its named reruns and its `only` run are
+checked against the allowance like every other run (run() takes main's `only` and still calls go() first). Out of
+time during the excusal, no prefix has been proven by a full green run (lo is 0), so nothing lands and the batch goes
+back uncounted. Now 55 net lines of code against main (queue.py +50, pools.py +2, factory.toml +3), within the 60.
+Run: tests/test_factory.py whole (142 passed, 2 skipped), ruff on ergostat tests scripts. Not run: the unit suite and
+the four browser files (the factory runs them). No test runs out of time inside the excusal.
+
+Round 3, after the factory's unit run failed. The tail it gave names no failing test: two "bringing up nodes...", one
+line of 59 passes and a skip, then nothing, no FAILED line and no summary. That reads as a run cut short (killed or
+timed out), not a test failing. The merge of main was already committed (29e38dfc), with no conflict markers left.
+Every test file that loads dev/bin/queue.py or pools.py, or reads dev/factory.toml or dev/model, passes when run alone
+here: tests/test_factory.py (142 passed, 2 skipped), test_queue.py (5), test_agents_drop.py (3), test_identify.py,
+test_mended.py and test_review.py (36 together), and test_factory_resources.py, test_agents.py,
+test_code_health_simplifier.py and test_code_health_coverage.py (36 together). No code was changed in this round,
+since no failure could be found to fix. Refused here: test_factory.py under `scripts/suite_watch.py` with `-n 8`, and
+the whole unit suite run serially, so the failure was never reproduced. Left: the factory's full unit output (or a
+rerun of it) to name the failing test. If no test fails there, the cut-short run was the machine, not this branch.
+
+Round 3, the factory's unit run failed again with a shorter tail: two "bringing up nodes...", a skip and 18 passes,
+then nothing. There is no FAILED line, no pytest summary and no JSON line from scripts/suite_watch.py, which prints
+one on every exit it controls, its own kills included. So the whole run was killed from outside suite_watch (by the
+slot's or the block's timeout, or by the container), and no test was reported failing. Main is in the branch
+(b4639301 is an ancestor of HEAD, merge 29e38dfc, no conflict markers). Read for a hang the branch could cause: no
+test outside tests/test_factory.py calls land(), take(), pools.most() or allowance(). tests/test_queue.py runs
+queue.main() in a subprocess with a 120 s timeout, so it fails rather than hangs. Passed again here, each run alone:
+tests/test_queue.py (5 passed), tests/test_factory.py (142 passed, 2 skipped); ruff clean. No code changed, since no
+failure was found. Refused here: the whole unit suite run serially under scripts/suite_watch.py (`timeout 1800 uv run
+python scripts/suite_watch.py -- uv run python -m pytest -q -x --durations=15 -p no:randomly`). Left: a unit run that
+gets to its end, with its summary and suite_watch's JSON line, to show whether any test fails on this branch.
+
+Round 4 (the queue's "conflicts with main: dev/bin/queue.py"). This clone has no origin and its local main is
+b4639301, already in the branch (merge 29e38dfc; no conflict markers in dev/bin). So the conflict is with a main newer
+than any this clone holds, and it could not be merged or resolved here. Left: merge origin/main into the branch where
+it can be fetched, resolve dev/bin/queue.py, and run the suites again.
+Answered in this round, review 2's non-blocking finding (dev/bin/queue.py, the cap read): run/queue.json is now read
+for the cap inside the `try` that turns Unreadable into an uncounted nack, before `gap.queued` is said, so an
+unreadable file takes no gap. Previously the gap could be taken and then the run would crash. Test:
+test_a_queue_state_unreadable_at_the_cap_read_takes_no_gap (the file turned unreadable right after the checks). With
+the read moved back after gap.queued, the test failed (the run exited 1). Now 56 net lines of code against main.
+Review 2's other findings stay as written in round 2: the cap alternating (about two runs per finding), and waits
+alone using up the allowance. Neither breaks point 2, and neither puts an unproven prefix on main.
+Run: tests/test_factory.py whole (143 passed, 2 skipped), tests/test_queue.py (5 passed), ruff clean. Not run: the
+unit suite and the four browser files (the factory runs them).
+
+Round 4, after the factory's unit run failed with the same kind of tail: two "bringing up nodes...", a skip and 20
+passes, then nothing. There is no FAILED line, no pytest summary and no JSON line from scripts/suite_watch.py. So the
+run was killed from outside the watchdog, and no test was reported failing. No code changed, since no failure was
+found. Run here, each file alone and serially: tests/test_factory.py (143 passed, 2 skipped, 4 min 8 s);
+tests/test_queue.py, test_agents.py, test_agents_drop.py, test_review.py, test_code_health_coverage.py and
+test_code_health_simplifier.py (60 passed together, 1 min 50 s). Seen while timing: the first heavy step in a process
+takes about 60 s here. test_the_factory_model_loads takes 60.4 s, a test that reads only the model, in which this branch
+changes one description string. test_queue.py's first queue.main() also takes 60.5 s, a run that takes no batch and
+reaches none of the branch's new code past allowance(). That matches extremes_cache.BOUND (60 s of model conditions on
+a cache miss), which is not this branch's code. Under `-n 8`, the full suite in this container may be slow enough to
+reach the slot's timeout, but that is a guess. It was not measured. Refused here: `git worktree add /tmp/mainwt main`
+(to time the same tests on main), suite_watch around a test file, and a python -c profile of read(). Left: a unit run
+that reaches its end (its summary and suite_watch's JSON line), or the same tests timed on main, to show whether the
+stop is this branch's.
+
+Round 5 (review 3's blocking finding: the conflict with main). origin/main 93d433d9 is merged (b75b98bf; 93d433d9 is
+an ancestor of HEAD). dev/bin/queue.py merged with no conflict this time; its allowance(), Late and the `except Late`
+around the bisect are kept with main's changes. The conflict was in dev/bin/pools.py, where main added HARD = 9 (no
+role pool above it), POOLS, DEMAND, locked() and the `raise batch` docstring, and kept BATCH_MOST = 4. Resolved: all of
+main's kept, BATCH_MOST dropped (point 1), and most() split: the batch is held to [pools] batch_max, 8 when unset,
+and to BATCH_CEILING = 32. The role pools are held to main's HARD. Choice made alone: HARD's comment says each pool is
+AI sessions at once, and the batch is gaps merged together, so the batch keeps its own ceiling and not HARD's 9.
+Lowering BATCH_CEILING to 9 later is one line. Now 56 net lines of code against main (queue.py +51, pools.py +2,
+factory.toml +3), within the 60.
+Review 3's other findings: the 3 h claim (lesson-8) stays narrowed in dev/README.md as written in round 2, and still
+no test shows a slow suite run's bound. An out-of-range batch_minutes still nacks uncounted and records no
+intervention. It fails closed and says why in its event, and an intervention would be added work outside points 1 to 4.
+Run: tests/test_factory.py whole (149 passed, 2 skipped), tests/test_queue.py (5 passed), ruff clean. Not run: the
+unit suite and the four browser files (the factory runs them under the watchdog). No new test in this round, so
+nothing was broken to watch one fail.
