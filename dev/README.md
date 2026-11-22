@@ -661,11 +661,16 @@ busy processes (1-8) of `[suites] load` run beside the runs under a watchdog of 
 their container, are stopped when the runs end normally, on an error or on a SIGTERM. The load also ends on its own:
 manage.py touches a heartbeat file in the clone every few seconds, and each busy process stops once that file is gone
 or has not changed for `[suites] load_stale_s` (30 s, at most 300). So if manage.py is SIGKILLed, the load is gone
-within about that time. A run during which the load had ended counts as a failure. Each cap is checked when the call
+within about that time. A run during which the load had ended counts as a failure. The load's container has the role
+`measure-load`, which other processes' container sweeps (`agents.sweep`) leave for 12 h (`runs.WALL`) plus 10 min, not
+a suite's 70 min. A measurement starts no run that would end past those 12 h, judged by its longest run so far; each
+run not started counts as a failure. Each run's own container is a suite's, so a single run past 70 min may be swept
+and then counts as a failure. Each cap is checked when the call
 is parsed and again when it runs. A run passes only on exit 0 with the watchdog's last line saying pytest's rc 0 and
 nothing killed. A killed run counts as a failure, and so does one whose log or watchdog line cannot be read. A parked
-gap is measured only if it was parked for `defect` or `needs`, was not resumed, and no other live gap holds its
-branch: a deferred, cancelled or kill-rule park is refused. The counts (passed and
+gap is measured only if it was parked for `defect`, or for `needs` with a `parked_until` action that names a
+measurement (a word starting "measure"), was not resumed, and no other live gap holds its branch: a deferred,
+cancelled or kill-rule park is refused, and so is a need for anything else (an approval, say). The counts (passed and
 failed of N, the head, each run's rc, and the log tail of each failed run) are appended to the gap's `measured_runs`.
 They are also said in its `findings`, which both briefs carry. If every run passed, the gap goes to `built` at the same
 head, for review. If any failed, it goes to `fix`, with the first failing run's tail as its input (one failed gate).

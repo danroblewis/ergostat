@@ -231,7 +231,11 @@ def test_a_park_a_measurement_cannot_clear_is_refused(tmp_path):
     said = f.measure("resume", "--runs", "1", "--tests", "tests/test_x.py", ok=False)  # continued while the runs ran
     assert "recorded alone" in said and "resumed already" in said and len(f.ran()) == 1
     assert f.item(f.gid)["state"] == "parked" and f.interventions() == []
-    f.set_state("parked", parked_for="needs", resumed_as=None)
+    for until, why in ((None, "needs nothing said"), ({"action": "the owner's approval"}, "the owner's approval")):
+        f.set_state("parked", parked_for="needs", resumed_as=None, parked_until=until)   # a need no measurement meets
+        assert why in f.measure("pass", "--runs", "1", "--tests", "tests/test_x.py", ok=False), until
+    assert len(f.ran()) == 1 and f.item(f.gid)["state"] == "parked"
+    f.set_state("parked", parked_for="needs", parked_until={"action": "30 loaded runs (manage.py measure-runs)"})
     assert "back to built" in f.measure("pass", "--runs", "1", "--tests", "tests/test_x.py")
 
 
@@ -277,3 +281,75 @@ def test_the_real_load_ends_without_its_beat(tmp_path):
         took = time.monotonic() - began
         assert p.returncode == 0 and '"rc": 0' in out, out
         assert took < 10 and (took >= 1 or not touched), took
+
+
+def test_the_load_stops_with_its_caller_on_sigterm(tmp_path):
+    f = Measured(tmp_path)
+    deaf = tmp_path / "deaf.py"                     # a load that never reads its beat: only the stop can end it
+    deaf.write_text("import os, sys, time\nopen(sys.argv[1], 'w').write(f'{os.getpid()} 1')\ntime.sleep(120)\n")
+    f.config.write_text(f.config.read_text().replace(str(tmp_path / "burn.py"), str(deaf)))
+    f.plan.write_text("hang")
+    p = subprocess.Popen([sys.executable, str(BIN / "manage.py"), "measure-runs", f.gid, "--runs", "1", "--tests",
+                          "tests/test_x.py", "--load", "1"], cwd=f.model, env=f.env, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(600):
+            if f.pid.exists() and f.pid.read_text() and f.ran():
+                break
+            time.sleep(0.1)
+        load, suite = int(f.pid.read_text().split()[0]), f.ran()[0]["pid"]
+        assert not gone(load, 2)
+        p.send_signal(signal.SIGTERM)               # its finally runs: the load's group stopped at once
+        p.wait(timeout=40)
+        assert gone(load, 5) and gone(suite, 5)
+    finally:
+        p.kill()
+        if f.pid.exists() and f.pid.read_text():
+            try:
+                os.kill(int(f.pid.read_text().split()[0]), signal.SIGKILL)   # (the deaf load, if this test failed)
+            except ProcessLookupError:
+                pass
+        for r in f.ran():
+            try:
+                os.kill(r["pid"], signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_no_run_starts_past_the_wall_bound(tmp_path):
+    f = Measured(tmp_path)
+    f.plan.write_text("wait wait wait")
+    got = f.py("import fac, manage, runs\ncfg = fac.config()\nruns.WALL = 1.5\n"
+               "m = runs.measure(cfg, manage.item(sys.argv[1]), 3, ['tests/test_x.py'])\n"
+               "print(json.dumps([[r['passed'], r.get('why')] for r in m['runs']] + [m['passed'], m['failed']]))", f.gid)
+    late = "not started: past the 1.5 s wall bound"
+    assert got == [[True, None], [False, late], [False, late], 1, 2] and len(f.ran()) == 1
+
+
+def test_the_load_survives_another_process_s_sweep(tmp_path, monkeypatch):
+    runs = runs_module()
+    agents, made, listing = runs.agents, [], [""]
+    real = agents.contained
+
+    def contained(cfg, cmd, work, role="suite"):
+        name, _ = real(cfg, cmd, work, role)
+        made.append(name)
+        return name, "sleep 30"                     # (no docker: a sleeper stands in for the load's container)
+    monkeypatch.setattr(agents, "contained", contained)
+    monkeypatch.setattr(agents, "docker", lambda *a, **k: subprocess.CompletedProcess(a, 0, listing[0], ""))
+    monkeypatch.setattr(agents, "killed", lambda name: None)
+    (tmp_path / ".git").mkdir()
+    cfg = {"suites": {"load": "unused", "load_stale_s": 3}, "ai": {"mode": "claude"}, "agents": {}}
+
+    def made_ago(name: str, hours: float) -> str:
+        return f"{name}\t{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() - hours * 3600))} +0000 UTC\n"
+    with runs.loaded(cfg, tmp_path, 1, tmp_path / "load.txt") as busy:
+        (name,) = made
+        assert name.startswith(agents.PREFIX + "measure-load-")
+        agents.RUNNING.discard(name)                # another process's sweep: the load is not in its RUNNING
+        other = agents.PREFIX + "suite-0123456789"
+        listing[0] = made_ago(name, runs.WALL / 3600 - 0.5) + made_ago(other, 2)
+        assert agents.sweep(cfg) == [other]         # a suite past its 70 min is swept; the load, inside WALL, is not
+        listing[0] = made_ago(name, runs.WALL / 3600 + 1)
+        assert agents.sweep(cfg) == [name]          # past WALL and its slack: a leftover, swept
+    assert gone(busy.pid)

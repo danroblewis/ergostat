@@ -4,7 +4,8 @@ scripts/suite_watch.py) in the shared suite slot, optionally with the CPU loaded
 under a watchdog of their own (killed past 1,500 threads or 6 GB), stopped, their whole process group, when the runs end
 (normally, on an error or a SIGTERM), and ending on their own within [suites] load_stale_s of this program's death
 (a heartbeat it stops touching). A run during which the load had ended is a failure. Each in a suite container like
-the fast suites' (the load in one of its own), but with the stand-in AI.
+the fast suites' (the load in one of its own, role measure-load, which other processes' sweeps leave for WALL), but
+with the stand-in AI. No run starts that would end past WALL by the longest run so far; those not started fail.
 
 Hard maximums, at parse time (manage.py) and again here: N 1-50, K 1-8, the selection's `-n` 1-8. A run passes only on
 exit 0 with the watchdog's own last line saying pytest's rc 0 and nothing killed: a run killed, or one whose log or
@@ -31,6 +32,8 @@ MOST_RUNS, MOST_LOAD, MOST_WORKERS = 50, 8, 8
 TEST = re.compile(r"tests/[\w/.-]+\.py(::[\w\[\].-]+)*")
 TAIL = 1500                 # characters of a failing run's log kept: its traceback's tail
 BEAT = ".git/measure-beat"  # the load's heartbeat, relative to the clone (loaded)
+WALL = agents.TIMEOUTS["measure-load"]   # s: no run starts that would end past it (by the longest so far), so the load's
+                                         # container (role measure-load) is never swept by another process mid-run
 
 
 def bounded(n, most: int, what: str) -> int:
@@ -108,7 +111,7 @@ def loaded(cfg: dict, work: Path, k: int, log: Path):
     threading.Thread(target=beating, daemon=True).start()
     cmd, name = cfg["suites"]["load"].format(procs=bounded(k, MOST_LOAD, "--load"), beat=BEAT, stale=stale), None
     if cfg["ai"]["mode"] != "standin":
-        name, cmd = agents.contained(cfg, cmd, work)
+        name, cmd = agents.contained(cfg, cmd, work, role="measure-load")
     with log.open("w") as out:
         p = subprocess.Popen(cmd, shell=True, cwd=work, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
     try:
@@ -149,8 +152,13 @@ def measure(cfg: dict, gap: dict, n: int, tests: list[str], load: int = 0) -> di
     try:
         fac.wait_quiet(cfg)
         with loaded(cfg, work, load, logs / f"{tag}-load.txt") as busy:
+            began, longest = time.monotonic(), 0.0
             for i in range(1, min(n, MOST_RUNS) + 1):
-                log, c, name = logs / f"{tag}-{i}.txt", cmd, None
+                if time.monotonic() - began + longest > WALL:     # never started: a failure, as any run not made
+                    runs += [{"run": j, "rc": None, "passed": False, "why": f"not started: past the {WALL} s wall bound"}
+                             for j in range(i, n + 1)]
+                    break
+                log, c, name, at = logs / f"{tag}-{i}.txt", cmd, None, time.monotonic()
                 if cfg["ai"]["mode"] != "standin":
                     name, c = agents.contained(cfg, cmd, work)
                 try:
@@ -158,6 +166,7 @@ def measure(cfg: dict, gap: dict, n: int, tests: list[str], load: int = 0) -> di
                 finally:
                     if name:
                         agents.killed(name)
+                longest = max(longest, time.monotonic() - at)
                 got = outcome(rc, log)
                 if busy is not None and busy.poll() is not None:     # the load ended: this run was not loaded
                     got = {**got, "passed": False, "why": f"the load had ended (exit {busy.returncode})"}

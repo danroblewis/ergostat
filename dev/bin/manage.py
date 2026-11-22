@@ -184,7 +184,8 @@ def do_measure_runs(cfg: dict, a) -> str:
 def measurable(g: dict) -> None:
     """Raises Refused for a parked gap a measurement may not move: one resumed already (its continuation holds the
     branch), one whose branch another live gap holds, or one parked for a kind not in MEASURED_PARKS (an allowlist:
-    deferred and cancelled are the coordinator's, the kill rule is past its rounds)."""
+    deferred and cancelled are the coordinator's, the kill rule is past its rounds), or a `needs` park whose
+    parked_until action does not name a measurement (a word starting `measure`: an approval, say, is not cleared)."""
     f = g["fields"]
     if g["state"] != "parked":
         return
@@ -193,6 +194,9 @@ def measurable(g: dict) -> None:
     if f.get("parked_for") not in MEASURED_PARKS or f.get("deferred") or f.get("cancelled"):
         raise Refused(f"{g['id']} is parked for {f.get('parked_for') or 'no kind said'}: a measurement clears only "
                       f"{' or '.join(MEASURED_PARKS)}")
+    need = (f.get("parked_until") or {}).get("action") if isinstance(f.get("parked_until"), dict) else None
+    if f["parked_for"] == "needs" and not re.search(r"\bmeasure", str(need or ""), re.I):
+        raise Refused(f"{g['id']} needs {need or 'nothing said'}: a measurement clears only a need that names one")
     if held := holders(g, {x["id"]: x for x in fac.items("gap")}):
         raise Refused(f"{fac.branch_of(g)} is held by {', '.join(held)}")
 

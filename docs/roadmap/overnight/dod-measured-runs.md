@@ -135,3 +135,44 @@ listed, and it is answered by this merge.
 - Overrun reason: the code in dev/ is about 261 net lines, 81 over 180. The overrun is round 2's two review fixes: the
   park checks under the continue lock, and the load heartbeat with its multi-line load program. The factory's own
   count, which leaves out dev/, is 4.
+
+### Round 4
+
+Review 3 had one blocking finding and three non-blocking ones. All four are answered below (lesson-12).
+
+- **Blocking: another process's sweep removed the load past 70 min.** The load's container is now named with its own
+  role, `measure-load`. `agents.contained` takes a `role`, which defaults to `suite`. `agents.TIMEOUTS["measure-load"]`
+  is 43,200 s (12 h). That value is also `runs.WALL`. So another process's `sweep()` leaves the load alone for 12 h
+  10 min, not 70 min. The measurement's wall time now has a bound. Before each run, if the time so far plus the longest
+  run so far would pass `WALL`, no more runs start. Each run not started is recorded as failed ("not started: past the
+  43200 s wall bound"), so the load never has to outlive its sweep time. A leftover load is still swept after
+  12 h 10 min. Its heartbeat ends it well before that anyway. Each run's own container keeps the `suite` role, so one
+  run longer than 70 min may be swept, and it then counts as a failure. dev/README.md says all of this. Decision taken
+  alone (reversible): 12 h. That covers 30 runs of up to 24 min each, and 50 of up to 14 min.
+  New tests:
+  - `test_the_load_survives_another_process_s_sweep`: the real `runs.loaded`, with docker stood in. The load's name is
+    taken out of RUNNING, as it would be in another process. A sweep then removes a 2 h old suite container but leaves
+    an 11.5 h old load, and it removes a 13 h old load.
+  - `test_no_run_starts_past_the_wall_bound`: with WALL at 1.5 s and 1 s runs, 1 run is made and the other 2 count
+    as failed.
+- **Non-blocking: `needs` parks were cleared whatever they needed.** `manage.measurable` now refuses a `needs` park
+  unless its `parked_until` action has a word starting with "measure". A need for an approval, or with no action said,
+  is refused. The park test checks both cases, and it checks that a need naming `measure-runs` is accepted.
+- **Non-blocking: only the SIGKILL path of the load had a test.** New test: `test_the_load_stops_with_its_caller_on_sigterm`.
+  It uses a load that never reads its beat, so only the finally's process-group stop can end it. After a SIGTERM to
+  manage.py, the load and the hanging suite are gone within 5 s. My first version used the beat-reading stand-in load.
+  It still passed with the stop removed, because the clone's removal deletes the beat. That is why the load here is
+  deaf to it.
+- **Non-blocking: the moved() window.** This stays as it is. Closing it would take a lock shared with the engine's takes,
+  and that is outside this gap. The window is one record read wide, and dev/README.md says so.
+- **Breaks (lesson-9).** I broke each guard and watched its test fail:
+  - the load's role set back to `suite`: the sweep test failed;
+  - the wall check disabled: the wall test failed;
+  - the needs check disabled: the park test failed;
+  - the finally's stop loop emptied: the SIGTERM test failed (the deaf load was still alive).
+- **Run here.** `tests/test_factory_measure_runs.py`: 11 passed. `tests/test_agents.py` and
+  `tests/test_factory_manager.py`: 49 passed. ruff is clean. **Not run here:** the unit suite, the four browser files
+  and any real 30-run load. The factory runs those. No main merge this round: local `main` has nothing new.
+- Overrun reason: the code in dev/ is about 279 net lines, 99 over 180. Round 4 adds about 18 (the measure-load role,
+  the wall bound, the needs check) on top of round 2's two review fixes. The factory's own count, which leaves out
+  dev/, is 4.

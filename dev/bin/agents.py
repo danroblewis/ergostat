@@ -48,7 +48,8 @@ TOOLS = {
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
             "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "librarian": 600, "groomer": 3000,
-            "pipeline_manager": 2400, "suite-queue": 3600, "suite-triage": 3600}   # seconds, each below its block's
+            "pipeline_manager": 2400, "suite-queue": 3600, "suite-triage": 3600,   # seconds, each below its block's
+            "measure-load": 43200}   # (runs.WALL, a whole measurement: its load lives through every run)
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
           "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
 SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
@@ -395,9 +396,10 @@ def browser_ready(cfg: dict, home: Path, logs: Path, tag: str) -> None:
                       f"It said: {got['tail'][-400:]}")
 
 
-def contained(cfg: dict, cmd: str, work: Path) -> tuple[str, str]:
-    """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network)."""
-    name = container("suite")
+def contained(cfg: dict, cmd: str, work: Path, role: str = "suite") -> tuple[str, str]:
+    """(a suite container's name, the command that runs ``cmd`` in it on ``work``, with no network). ``role``, in its
+    name: how long another process's sweep() leaves it (TIMEOUTS)."""
+    name = container(role)
     return name, " ".join(["docker", "run", "--rm", "--name", name, "--network", "none", *limits(cfg, "suite"), *SHOTS,
                            "-v", f"{work}:/work", "-w", "/work", settings(cfg)["image"], "sh", "-c", shlex.quote(cmd)])
 
