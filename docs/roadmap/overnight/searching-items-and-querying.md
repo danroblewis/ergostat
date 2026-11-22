@@ -210,3 +210,14 @@ scripts`: clean. No break was made this round, since the branch changes no code 
 
 Left, for the factory: run the unit suite and the four browser files under the watchdog (point 6). If they pass, the
 gap is closed by main as it stands. Landing this branch adds only this record.
+
+**Round 4: the denied push.** The queue's finding was that the push of this branch's merge (ce282fdaf099) was denied,
+and the merge was undone. That object is not in this clone (`git cat-file -t ce282fdaf099`: not a valid object name).
+The push is the factory's gated step, so this round cannot redo it or find out why it was denied. The branch is
+54a4adb1: main 7c46bc6d merged in, and `git diff main --stat` shows only this file. Main still holds the search
+(`VERSION` 5, `items.TEXT_MOST` 65,536, `items.SEARCH_WORDS` 8, `search` in `goodmodel.READ_FLAGS`). No code was
+changed: 0 net lines. Tests run, round 4, one command at a time: `tests/test_item_search.py` (8 passed);
+`test_item_index`, `test_cli_fallback`, `test_item_graph_queries` (86 passed). `ruff check ergostat tests scripts`:
+clean. Left, for the factory: merge and push again through the gate, after running the unit suite and the four
+browser files under `scripts/suite_watch.py` (point 6, not run here). If the push is denied again, the reason has to be
+recorded where the implementor can read it. Landing this branch adds only this record.
