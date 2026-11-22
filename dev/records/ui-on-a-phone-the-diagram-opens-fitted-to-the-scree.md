@@ -54,3 +54,11 @@ whole without Playwright, so nothing ran. The page code did not change. Added a 
 tests/test_style_tokens.py::test_on_a_phone_the_direction_hint_is_not_hidden (no narrow-layout rule hides .panhint),
 so the build step runs a real check of the style change: 6 passed in that file; it fails with `.panhint` put back in
 the phone layout's `display: none` rule. ruff clean.
+
+Round 2: merged main (d1bfd1a0). The conflicts in tests/test_diagram_rendering.py and tests/test_style_tokens.py
+were two separate new tests added at the same place, so the merge keeps both; the page code is unchanged. After the
+merge: tests/test_style_tokens.py 8 passed; the phone acceptance test (2 cases) and main's new caption test 3 passed
+under the watchdog; ruff clean. The whole tests/test_diagram_rendering.py was started under the watchdog, but the
+session's command time limit stopped it before it finished, and it produced no result; starting it in the background
+with a longer limit was refused (`... named_tests.py tests/test_diagram_rendering.py > /tmp/dr.log 2>&1`). The merge
+queue's run of that file is the check still to come.
