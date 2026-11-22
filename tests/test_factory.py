@@ -2368,6 +2368,8 @@ def test_the_batch_s_most_is_batch_max_default_8(tmp_path):
     assert put(12) == 12                                                        # no constant below it
     f.config.write_text(f.config.read_text().replace("batch_max = 12\n", ""))
     assert put(20) == 8 and put(3) == 3                                         # unset: 8
+    f.config.write_text(f.config.read_text().replace("[pools]", "[pools]\nbatch_max = 1000"))
+    assert put(1000) == 32                                                      # the sanity ceiling
     assert 'batch_max = 8 ' in (ROOT / "dev" / "factory.toml").read_text()
 
 
@@ -2432,6 +2434,37 @@ def test_a_batch_of_8_every_merge_failing_stays_inside_the_block_s_timeout(tmp_p
     assert f.item("gap/a")["fields"]["queue_runs"][-1]["minutes"] <= 120 + 25 < 180
     tried, landed, back = counts(f, "gap/a")
     assert (tried, landed) == (8, 0) and back + said.count("gap.queue-failed") == 8 and back > 0
+
+
+def test_a_run_out_of_time_before_its_first_finding_halves_the_next_batch(tmp_path):
+    # the top-ranked gap bad, 31 minutes a run, 120 allowed: all 8 red (31), test_b alone on them, red (62), a..d red
+    # (93), a..b red (124): out of time before a alone, nothing found, all 8 back
+    f = eight(tmp_path, bad="a")
+    said, _ = clocked(f, "gap/a", 31)
+    assert "gap.merged" not in said and "gap.queue-failed" not in said and counts(f, "gap/a") == (8, 0, 8)
+    queue_json = f.model / "run" / "queue.json"
+    assert json.loads(queue_json.read_text())["cap"] == 4
+    db = f.db()
+    db["items"]["gap/a"]["state"] = "approved"                                 # (the engine's nack, uncounted)
+    f.record.write_text(json.dumps(db))
+    said, _ = clocked(f, "gap/a", 31)                    # the next run: a..d red (31), alone (62), a..b (93), a (124)
+    assert f.item("gap/a")["state"] == "queue-failed" and counts(f, "gap/a") == (4, 0, 3)
+    assert all(f.item(f"gap/{g}")["state"] == "approved" for g in "bcdefgh") and merges(f) == []
+    assert "cap" not in json.loads(queue_json.read_text())                    # a gap settled: the cap is cleared
+    save = json.loads(queue_json.read_text())
+    queue_json.write_text(json.dumps({**save, "cap": "x"}))                     # a cap that is not a count: 1
+    said, _ = f.run("queue.py", "gap/b")
+    assert said.count("gap.merged") == 1 and merges(f) == ["b"] and counts(f, "gap/b") == (1, 1, 0)
+
+
+def test_a_time_allowance_out_of_range_is_refused(tmp_path):
+    for bad in ("0", "151", "nan", "-5"):
+        (tmp_path / bad).mkdir()
+        f = eight(tmp_path / bad, minutes=bad)
+        said, lines = f.run("queue.py", "gap/a")
+        assert said == []                                                       # no gap taken
+        why = next(x["nack"] for x in lines if "nack" in x)
+        assert "batch_minutes" in why["why"] and why["count"] is False and suite_runs(f) == 0
 
 
 def waiting(f: Factory) -> str:

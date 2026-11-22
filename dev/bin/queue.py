@@ -21,7 +21,8 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    `push-main` (one approval for the batch; held for the coordinator; the upgrader follows pushed origin/main). Red:
    bisected to the first failing merge (land(), on the failing tests alone when the run named any), which goes on to
    flake triage with what failed (`queue-failed`) and the rest lands, each merge only on a full green run. Past its
-   time allowance (allowance()) a run starts no suite run: the proven prefix lands, the rest back uncounted. On any
+   time allowance (allowance()) a run starts no suite run: the proven prefix lands, the rest back uncounted; a run
+   that settled none of its batch halves the next run's batch (run/queue.json `cap`, cleared once one is). On any
    error or stop, main is undone with `git reset --keep`. The push is asked under the run's own gap's lease, and is
    not fenced by it (`fenced: false`: it pushes only that commit, only as a fast-forward), so it runs once approved
    whatever became of that lease. When that gap does not land, it waits at `push-pending` and its outcome is said
@@ -541,10 +542,12 @@ ALLOWANCE_MOST = 150     # minutes: one suite run begun at the allowance still e
 
 
 def allowance(cfg: dict) -> float:
-    """A run's time allowance in seconds, from its start: [pools] batch_minutes (120 unset), held to ALLOWANCE_MOST
-    (a value out of 0..ALLOWANCE_MOST, NaN too, is ALLOWANCE_MOST)."""
+    """A run's time allowance in seconds, from its start: [pools] batch_minutes (120 unset); a value not over 0 nor
+    at most ALLOWANCE_MOST (NaN too, or not a number) is refused: ValueError, and the run takes no gap (take())."""
     m = float(cfg.get("pools", {}).get("batch_minutes", 120))
-    return 60 * (m if 0 <= m <= ALLOWANCE_MOST else ALLOWANCE_MOST)
+    if not 0 < m <= ALLOWANCE_MOST:
+        raise ValueError(f"[pools] batch_minutes = {m} is not over 0 and at most {ALLOWANCE_MOST}")
+    return 60 * m
 
 
 class Late(Exception):
@@ -677,7 +680,14 @@ def main() -> int:
 def take(cfg: dict, gap: dict, repo, started: float) -> int:
     """Under the queue's lock throughout: whether a push waits is read from run/queue.json, the gap is taken
     (`gap.queued`), and a push asked for is written there, in one hold, so no run between them takes a gap. Its
-    suite runs end at its time allowance from ``started`` (land()): those given back say so in `queue_runs`."""
+    suite runs end at its time allowance from ``started`` (land()): those given back say so in `queue_runs`. A run
+    that settled none of its batch (all given back) leaves the next a cap of half its batch (at least 1), so a
+    batch out of time before its first finding is not tried again whole: a batch of 1 is one suite run."""
+    try:
+        until = started + allowance(cfg)
+    except (TypeError, ValueError) as e:
+        fac.nack(f"queue: {e}", after="10m", count=False)
+        return 0
     with fac.queue_lock(cfg):
         try:
             why = recover(cfg, repo) or clean_main(cfg, repo) or settle(cfg, repo) or up_to_date(cfg, repo)
@@ -689,6 +699,8 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
         fac.say("gap.queued", queued_at=time.time(), queue_attempts=1)
         pre = fac.git(repo, "rev-parse", "HEAD")
         n = min(pools.state(cfg)["batch"], pools.most(cfg, "batch"))  # (the ceiling again, at run time)
+        cap = state(cfg).get("cap", n)                     # (a cap that is not a count: 1, the smallest batch)
+        n = min(n, cap if type(cap) is int and cap >= 1 else 1)
         batch, dried, empty = picks(cfg, repo, gap, n, pre)
         if not batch:
             emptied(cfg, gap, empty)
@@ -701,7 +713,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
         save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": [g["id"] for g, _ in batch], "at": began}})
         done = settled = False
         try:
-            landed, merged, back = land(cfg, repo, batch, pre, began, waited, dried, started + allowance(cfg))
+            landed, merged, back = land(cfg, repo, batch, pre, began, waited, dried, until)
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
                 HELD["said"] = []
@@ -729,6 +741,9 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             if settled or not done:                        # (stopped while landing: kept, and recover() blocks)
                 st = state(cfg)
                 st.pop("running", None)
+                if settled:                                # none settled: the next run tries half as many
+                    st.pop("cap", None)
+                    st.update({"cap": max(1, len(batch) // 2)} if len(back) == len(batch) else {})
                 save(cfg, st)
         if landed:
             ask(cfg, repo, gap, landed, merged, pre)

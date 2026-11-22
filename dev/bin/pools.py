@@ -15,7 +15,7 @@ the machine's headroom.
     pools.py set ROLE N WHY   the action's command: set it (within 1 and its most)
 
 The merge queue's batch (`batch`: approved gaps it merges and tests together, dev/bin/queue.py) lives here too: [pools]
-batch to start (1, a gap a run), at most [pools] batch_max (8 when unset); a run past its time allowance stops
+batch to start (1, a gap a run), at most [pools] batch_max (8 when unset; never past BATCH_CEILING, 32); a run past its time allowance stops
 bisecting (queue.py allowance()), so no batch size reaches the block's timeout. The tuner asks to raise it by
 one, the same gated action, while the goal queue-wait-short is off (dev/model/measures.yaml); it is not lowered on a
 bad gap (it changes how gaps are tested, not how many are built), only by hand (`set batch N`)."""
@@ -48,8 +48,12 @@ def save(cfg: dict, st: dict) -> None:
     tmp.replace(p)
 
 
+BATCH_CEILING = 32      # a sanity ceiling far above batch_max: picks() dry-merges each gap before the run's clock
+
+
 def most(cfg: dict, role: str) -> int:
-    return max(1, int(cfg.get("pools", {}).get(f"{role}_max", 8 if role == "batch" else 1)))
+    n = max(1, int(cfg.get("pools", {}).get(f"{role}_max", 8 if role == "batch" else 1)))
+    return min(n, BATCH_CEILING) if role == "batch" else n
 
 
 WAIT_GOAL = re.compile(r"^\s*queue-wait-short:\s*$.*?^\s*hold:\s*\"<=\s*([\d.]+)\"\s*$\s*tolerance:\s*([\d.]+)",

@@ -46,3 +46,29 @@ Choices made alone (the most reversible):
 
 Not run here: the whole unit suite and the four browser files (the factory runs them under the watchdog); the clone
 has no origin/main to merge, and local main is already in the branch.
+
+Round 2 (the fix round; it replaces two of the round 1 choices above: the value out of range, and no ceiling). Now 54
+net lines of code (queue.py +49, pools.py +2, factory.toml +3), within the 60. Each finding of review 1:
+- Blocking, the give-back with no end: a run that settled none of its batch (all given back, none landed, failed
+  or sent back) leaves `cap` in run/queue.json, half its batch and at least 1. The next run takes at most that many,
+  and the first run that settles any gap clears it. The cap is read and written under the queue's lock (take()). A
+  cap that is not a positive count gives a batch of 1. A batch of 1 is one suite run, so it settles its gap
+  whenever that run begins inside the allowance. Test:
+  test_a_run_out_of_time_before_its_first_finding_halves_the_next_batch (the reviewer's example: a bad, 31-minute
+  runs, 120 allowed. Run 1 gives back all 8; run 2 takes a..d and finds a). Still left: when the waits alone use up
+  the allowance before the first suite run, nothing can be learned and the gap goes back uncounted again. That is a
+  busy machine or lock, not the bisect's own steps. Counting it against the gap would blame the gap for the machine.
+- batch_max with no ceiling: `BATCH_CEILING = 32` in pools.most(), far above 8, so set and run time are both held to
+  it (test_the_batch_s_most_is_batch_max_default_8).
+- An out-of-range batch_minutes counting as 150: now refused. A value of 0 or less, over 150, NaN or not a number
+  makes the run take no gap and give its lease back uncounted, saying why
+  (test_a_time_allowance_out_of_range_is_refused).
+- The 3 h claim: dev/README.md narrowed. The timeout is reached only by a suite run begun inside the allowance that
+  lasts past it (over 60 min at 120, 30 at 150), and nothing bounds a hung suite run. The dry merges in picks()
+  count against the allowance, but they come before the first clock check. Still no test shows a suite run reaching
+  3 h.
+
+Broken to watch the new tests fail: the cap not read (run 2 tries all 8 again), the cap not halved, a bad cap read
+as the full batch, the ceiling removed, and only negative allowances refused. Each failed its test.
+Run: tests/test_factory.py whole (133 passed, 2 skipped for want of Docker), ruff on ergostat tests scripts. Not run:
+the unit suite and the four browser files (the factory runs them), and no origin/main in this clone to merge.
