@@ -246,3 +246,21 @@ After the merge, these pass when run one file at a time: `test_remote_chain.py` 
 `test_remote_pair.py` (1), `test_remote_box_measures.py` (10) and `test_remote_proposals.py` (31). Ruff is clean. The
 size is unchanged in substance (the `names` line moved). Still not run here: the whole unit suite, the four browser
 files and `demo_check`.
+
+### Round 4
+
+Every finding of review 3, blocking and not:
+- *Blocking, docs/GAPS.md:33-39 (the spliced Left).* The Remote systems entry now has one *Left* clause, with no
+  mid-sentence resume. It no longer lists this gap, and no longer lists proposals text (done on
+  `remote-proposals-text`). The same stale proposals item is gone from the "Left for later" line in
+  `docs/proposals/remote-systems.md`, where main still had it. That line now says the two are built.
+- *GAPS.md:27, the repeated "`examples/remote-pair/` and its two-instance test".* The repeat was main's. It is
+  removed while the entry is reflowed.
+- *SPEC §4c Names taken, the over-wide line.* Reflowed.
+- *The three-instance test's narrower claim, not in SPEC.* SPEC §4c *Readings through a middle* now says it as
+  the test shows it. Between A stopping and M's next read of A, M still serves A's last answer unmarked, and L
+  may take it while its age is within the limit. Once L's reading has failed after A stopped, L records nothing
+  newer for it.
+
+This round changed docs only, and no code. The review of remote-mtls had a SPEC:722 wording note, but it is about
+that branch's text, which this branch does not have.
