@@ -127,6 +127,7 @@ items:
       stalls: sum                    # its suite runs stopped for a limit, it alone in the batch (queue, triage)
       sessions: sum
       ai_cost_usd: sum
+      planning_cost_usd: sum         # the planner's and the plan review's share of it (plan.py; measure.py)
       build_hours: sum
       build_failures: sum            # one per failed build, over the gap's life: the kill rule (dev/README.md)
       review_hours: sum
