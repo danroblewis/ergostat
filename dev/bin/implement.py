@@ -179,8 +179,9 @@ def build(cfg: dict, given: dict, began: float) -> int:
     if refused:
         fac.nack(f"budget: {refused}", after="1h", count=False)
         return 0
-    if not pools.my_turn(cfg, "implementor", "implementor", gap["id"]):
-        fac.nack("the implementor pool is full (run/pools.json): waits its turn", after="5m", count=False)
+    if not pools.my_turn(cfg, "implementor", "implementor", gap["id"]):   # (put off under a minute: it keeps its rank
+        # for the next free slot; implement-when holds the block shut while no session fits, so it does not spin)
+        fac.nack("the implementor pool is full (run/pools.json): waits its turn", after="45s", count=False)
         return 0
     rework = (given.get("lease") or {}).get("back", gap["state"]) == "fix"
     rounds = int(f.get("rounds") or 0) + 1

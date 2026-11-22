@@ -82,7 +82,9 @@ def record(p, evs: list[dict], source: str = "push", causedby: str | None = None
         r = rows[0]
         ev = p.events.add(r["type"], item=r.get("item"), source=r["source"], data=r.get("data"), causedby=r.get("causedby"),
                           id=r.get("id"), patch=r.get("patch"), set=r.get("set"))
-        return {"recorded": 0 if ev.get("seq") is None else 1, "ids": [ev["id"]], "time": ev["time"], "events": [ev]}
+        new = ev.get("seq") is not None
+        ev = ev if new else p.events.get(ev["id"]) or ev    # recorded before (a call asked again): the stored one
+        return {"recorded": int(new), "ids": [ev["id"]], "time": ev["time"], "events": [ev]}
     for r in rows:
         r.setdefault("id", uuid.uuid4().hex)
         r["at"] = now

@@ -3654,3 +3654,154 @@ def test_a_split_park_is_resumed_when_its_stopped_sub_gaps_are(tmp_path):
     assert resumed(f) == ["gap.measured", "gap.measured", "gap.split", "gap.resumed"]
     assert f.item("gap/whole")["state"] == "split" and f.item("gap/part")["fields"]["parent"] == []
     assert f.item("gap/part-continued")["fields"]["parent"] == ["gap/whole"]
+
+
+# ---- pool-full-keeps-its-rank (docs/roadmap/overnight/pool-full-keeps-its-rank.md): given back for a full pool, a gap
+# is put off under a minute, so it still holds its rank when room appears; the gates keep the give-backs from spinning
+
+def pool_full_nack(f: Factory, program: str, block: str) -> dict:
+    """What ``program`` prints when its pool is full (a pool of 1, and gap/second the later of two leases ``block``
+    holds): its nack, as the engine reads it (``nack_of``)."""
+    from ergostat.spec.engine import nack_of
+    lease = lambda t: {"lease": {"block": block, "holder": f"run-{t}", "taken": t}}  # noqa: E731
+    f.fold([{"event": "gap.requested", "item": "gap/first", "data": lease(1)},
+            {"event": "gap.requested", "item": "gap/second", "data": {**lease(2), "branch": "second"}}], None)
+    said, lines = f.run(program, "gap/second")
+    (raw,) = [x["nack"] for x in lines if "nack" in x]
+    assert said == [] and "pool is full" in raw["why"], (said, raw)
+    return nack_of(raw)
+
+
+class Slots:
+    """The real engine on the factory's model and its real dispatch (``tick``: the gate, the pool, ``ready`` and the
+    rank order), on a clock the test moves; each run is played: given back as ``program`` gives it back while
+    ``full()``, else the gap moved on (``done``), as a finished run moves it."""
+
+    def __init__(self, f: Factory, monkeypatch, block: str, program: str, done: str):
+        from types import SimpleNamespace
+
+        from ergostat.leases import dispatch
+        self.nack = pool_full_nack(f, program, block)
+        self.e, _ = instance_engine(f)
+        self.p, self.block, self.done = self.e.p, block, done
+        self.gate_name = f"{'implement' if block == 'implementor' else 'review'}-when"
+        self.t0, self.at = time.time(), 0.0
+        monkeypatch.setattr(dispatch, "time", SimpleNamespace(time=lambda: self.t0 + self.at, monotonic=time.monotonic))
+        add = self.p.events.add                          # (the record on the same clock: a lease's put-off is from it)
+        self.p.events.add = lambda type_, *a, **k: add(type_, *a, **{"at": self.t0 + self.at, **k})
+        self.e.dispatch.pool_now = lambda b: 1 if b.name == block else 0          # (only this block takes, one at once)
+        self.e.run_block = self.run_block
+        # (no pass of the engine's own: a run's end pokes it, and with no loop that runs a whole pass of real sensors in
+        # the run's thread, which outlived the tick under load and set the gate from the machine's real readings over
+        # the test's; the test is the pass here, setting the gate at each tick)
+        self.e.poke = lambda *blocks, now=True: None
+        self.full = lambda: False
+        self.gate = 1.0
+        self.taken: list[tuple[float, str, str]] = []                          # (when, the gap, how its run ended)
+
+    def run_block(self, b, why, *, item, run_id, outcome, **_):
+        if self.full():
+            outcome["nack"] = dict(self.nack)
+            self.taken.append((self.at, item, "given back"))
+        else:
+            self.p.events.add(self.done, item=item, source=self.block, causedby=run_id)
+            self.taken.append((self.at, item, "ran"))
+        return []
+
+    def gap(self, gid: str, event: str, **data) -> None:
+        self.p.events.add(event, item=gid, source="test", data=data)
+
+    def tick(self, at: float) -> None:
+        self.at = at
+        self.e.signals[f"block.{self.gate_name}"] = self.gate                  # (the gate's output, as a pass sets it)
+        self.e.dispatch.tick()
+        deadline = time.monotonic() + 20
+        while (self.e.dispatch.going_items() or self.e.running) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not self.e.dispatch.going_items(), "a played run did not end"
+
+    def gate_of(self, **given) -> float:
+        """The gate's own expression (implement-when, review-when) on these inputs."""
+        from ergostat.spec.blocks import compile_expr, eval_expr
+        b = self.e.spec.blocks[self.gate_name]
+        base = dict(ready=1, fixes=1, open=1, waiting=1, over=0, busy=0, pool=1, room=1, full=0) | given
+        return float(eval_expr(compile_expr(b.params["expr"]), {k: base[k] for k in b.inputs}))
+
+    def lease_of(self, gid: str) -> dict:
+        from ergostat.spec import items as its
+        return its.one(self.p.events, self.e.spec, gid).fields["lease"]
+
+    def close(self) -> None:
+        self.e.close()
+
+
+@pytest.mark.parametrize("block, program, at, done", [("implementor", "implement.py", "gap.defined", "gap.built"),
+                                                       ("reviewer", "review.py", "gap.built", "gap.approved")])
+def test_a_pool_full_give_back_waits_under_a_minute(tmp_path, monkeypatch, block, program, at, done):
+    s = Slots(Factory(tmp_path), monkeypatch, block, program, done)
+    try:
+        assert s.nack["count"] is False and 0 < s.nack["after"] <= 45          # as the program said it
+        s.gap("gap/one", at, rank=1)
+        s.full = lambda: True
+        s.tick(0)
+        lease = s.lease_of("gap/one")
+        (h,) = lease["history"]
+        assert (h["how"], h["counted"]) == ("nack", False) and lease["attempts"] == 0   # not counted as an attempt
+        assert 0 < lease["not_before"] - h["ended"] <= 45                       # put off, under a minute
+        s.full = lambda: False
+        s.tick(10)                                                              # (10 s on: still put off)
+        assert [g for _, g, _ in s.taken] == ["gap/one"]
+        s.tick(46)                                                              # past 45 s: taken again, and it runs
+        assert [(g, how) for _, g, how in s.taken] == [("gap/one", "given back"), ("gap/one", "ran")]
+    finally:
+        s.close()
+
+
+def test_the_highest_ranked_gap_takes_the_next_free_slot(tmp_path, monkeypatch):
+    """As seen on 2026-11-21: the gaps ranked 1 and 2 waiting in fix, unranked ones ready. The gate is open on a
+    reading that still shows room, so the first taken (rank 1) finds the pool full and is given back; the next reading
+    shuts the gate (the machine full) for a minute; then room. The next to run is rank 1, then 2, then the unranked."""
+    s = Slots(Factory(tmp_path), monkeypatch, "implementor", "implement.py", "gap.built")
+    try:
+        for gid, rank in (("gap/u1", None), ("gap/r2", 2), ("gap/u2", None), ("gap/r1", 1)):
+            s.gap(gid, "gap.defined", **({"rank": rank} if rank else {}))
+        for gid in ("gap/r1", "gap/r2"):
+            s.gap(gid, "gap.sent-back")
+        s.full = lambda: s.at < 60
+        assert s.gate_of() == 1.0 and s.gate_of(full=1) == 0.0 and s.gate_of(room=0) == 0.0
+        s.tick(0)                                                               # open on the last reading: given back
+        s.gate = s.gate_of(full=1)                                              # the next reading: no session fits
+        for t in range(5, 60, 5):
+            s.tick(t)
+        s.gate = s.gate_of()                                                    # a minute on: room for one
+        for t in range(60, 100, 5):
+            s.tick(t)
+        assert s.taken[0] == (0, "gap/r1", "given back") and all(t >= 60 for t, _, _ in s.taken[1:])
+        ran = [g for _, g, how in s.taken if how == "ran"]
+        assert ran[:2] == ["gap/r1", "gap/r2"] and set(ran[2:]) == {"gap/u1", "gap/u2"}   # (the unranked: either first)
+        assert s.lease_of("gap/r1")["attempts"] == 0
+    finally:
+        s.close()
+
+
+def test_a_full_machine_does_not_release_and_retake_in_a_loop(tmp_path, monkeypatch):
+    """Twelve minutes of a full machine, looked at every two seconds: with the gate shut (implement-when, no session
+    fits) nothing is leased; even with the gate open while the pool stays full (the worst case: the gate's reading and
+    the run's disagree throughout), a gap is taken again at most once each put-off, not at each look."""
+    s = Slots(Factory(tmp_path), monkeypatch, "implementor", "implement.py", "gap.built")
+    try:
+        s.gap("gap/r1", "gap.defined", rank=1)
+        s.full = lambda: True
+        s.gate = s.gate_of(full=1)
+        for t in range(0, 720, 2):
+            s.tick(t)
+        assert s.taken == []                                                    # shut: nothing leased at all
+        s.gate = s.gate_of()
+        for t in range(720, 1440, 2):
+            s.tick(t)
+        assert 0 < len(s.taken) <= 720 / 45 + 1 and all(how == "given back" for _, _, how in s.taken), s.taken
+        apart = [b - a for (a, _, _), (b, _, _) in zip(s.taken, s.taken[1:], strict=False)]
+        assert apart and min(apart) >= 45                                       # never sooner than its put-off
+        assert s.lease_of("gap/r1")["attempts"] == 0                            # none of them counted
+    finally:
+        s.close()

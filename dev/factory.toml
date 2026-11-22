@@ -103,6 +103,17 @@ suite_cpus = 4.0                     # one of its suites' (in a container of 4 C
 suite_memory_gb = 4.0
 session_keep_hours = 24              # session folders and installs younger than this are never cleaned up
 
+[code_health]                        # coverage (dev/README.md, Coverage) and the simplifier's pick (dev/bin/simplify.py;
+                                     # its pool is 1, fixed in the code). The pick reads main's latest coverage report
+                                     # under run/coverage/ as measure.py does (by seq, on main, not stale); none, no pick
+coverage_floor = 0.6                 # a module whose share of statements run by the unit suite is under this is
+                                     # named (measure.py coverage-below-floor; coverage_report.py --below), and one
+                                     # under it (or not in the report) is never picked
+size = 1.0                         # the weights of a module's score: net lines over the 75th percentile (as a share
+churn = 0.25                         # of it), commits in the last 60 days, duplicate bodies, dead candidates
+duplicates = 1.0
+dead = 0.5
+
 [instance]
 port = 8798
 
@@ -136,7 +147,3 @@ queue_coverage = true                # the queue's unit run (main's alone, never
                                      # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under
                                      # run/coverage/ (dev/README.md, Coverage). On: its overhead on the full unit
                                      # suite measured within noise (code-health-coverage.md, Where it stopped)
-
-[code_health]
-coverage_floor = 0.6                 # a module whose share of statements run by the unit suite is under this is
-                                     # named (measure.py coverage-below-floor; coverage_report.py --below)
