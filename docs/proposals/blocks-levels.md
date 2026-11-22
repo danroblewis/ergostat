@@ -20,7 +20,8 @@ is not what the box means.
 is inside it. It is read from the folded signal graph, never declared, and always says it was inferred (invariant 11).
 A wire is a **u wire** when two things hold. (a) Its signal is set by a controller inside the source system (a
 block's output, or a flow that a block drives). (b) The part of the target it enters (a flow or stock) reaches,
-along the target's own causal edges, a stock that carries a goal of the target. Every other wire is a **y wire**: a
+along the target's own causal edges, a stock or an auxiliary that carries a goal of the target (a goal names either,
+by `stock:` or `auxiliary:`, as in coordinator's `quality.yaml:96-107`). Every other wire is a **y wire**: a
 stock or auxiliary of the source that the target reads, or a controller's output that only feeds the target's
 bookkeeping (a count or a cost that reaches no goal). A block that reads nothing and is commanded by nothing (the
 world, `WORLD_NOTE`) is a disturbance source d, not a controller, so its wires are never u wires. Condition (b) is
@@ -45,7 +46,8 @@ controller. So software-factory's `factory` holds backlog-clear, reviews-done an
 ticket-factory, `factory` → `oversight` carries only y wires, so both are named (neither). Its stocks are read by
 `prs-awaiting-review`, `cycle-hours` and `repinging`, and `flow.work`, `flow.address` and `flow.fix-ci` drive
 `ai-spending` (oversight.yaml:99-109), which fills `ai-spend`. `ai-spend` has no goal and feeds nothing in
-`oversight`, so by (b) those three are y wires: they count what the factory's sessions cost.
+`oversight` (whose two goals are on the stocks `actions-waiting` and `stopped`, with no goal on an auxiliary), so by
+(b) those three are y wires: they count what the factory's sessions cost.
 Each of big's six systems and every `modelling` system is named (neither).
 
 **The same letter and p × m at both levels.** The box carries `C_name` or `P_name` with p × m, where p counts its
@@ -61,8 +63,9 @@ block keeps "Not identified." in its math text.
 When the top level has a C acting on a P, it is drawn as the textbook loop: Ogata §2-3, Fig. 2-9; Franklin, Powell
 & Emami-Naeini, Fig. 1.2 and §3.2, the standard feedback loop with the sensor on the return path.
 
-- **r** is the vector of P's goals that C serves: the goals on P's stocks that no controller inside P holds. It is
-  drawn as the reference and sum nodes already drawn at the leaf, ahead of C.
+- **r** is the vector of P's goals that C serves: every goal of P, on a stock or an auxiliary, that C's u reaches
+  and no controller inside P holds. It is drawn as the reference and sum nodes already drawn at the leaf, ahead of C.
+  A goal on an auxiliary is a reference like any other: its y is that auxiliary's value.
 - **When r is empty** (every goal C's u reaches is also held by a controller inside P), no loop closes at this
   level: no reference, no Σ and no H are drawn. C and P keep their letters and are joined by their labelled wires
   only, as a one-way row of §3, and P's west port reads "r: none, held inside P (goal names)". C is then a
@@ -200,8 +203,9 @@ of its loops. On a classified block:
   The Blocks outline follows this order; aligning `fold.py` is for the owner and not part of these gaps.
 - **C**: no r of its own at the top. Its input port is e, or y_m with the note from §2. Its inner loops' worst status, in the same order, is
   the outline, and the "inside" row of its panel lists them.
-- **P**: y is its output port. Its status is that of the goals on its stocks, which are the top loop's r, so it is
-  shown again on the reference node's value, as at the leaf.
+- **P**: y is its output port. Its status is the worst, in the same order, of its goals not held inside it, on
+  stocks and auxiliaries alike. These are the top loop's r, so each is shown again on its reference node's value, as
+  at the leaf.
 - Nothing new is added to the page. All of this is on the box, its ports and its existing panel rows (the rule of no
   new panels).
 
@@ -218,7 +222,8 @@ the closed block's r/y/status gap waits on the first.
    `sys:factory` and `sys:oversight` and every `sys:modelling`. A fixture with three systems a → b → c, each joined
    by a u wire, makes `b` a named block (mixed). A fixture where a block's flow in `a` drives a flow of `b` makes `a`
    C and `b` P when that flow fills a stock of `b` with a goal, and leaves both named when the stock has none (rule
-   (b)). On ticket-factory, the edges from `flow.work`, `flow.address` and `flow.fix-ci` into `oversight` are marked
+   (b)). A third variant, where that stock has no goal but feeds an auxiliary of `b` that has one, makes `a` C and
+   `b` P too, and its top level draws a reference node for the auxiliary's goal. On ticket-factory, the edges from `flow.work`, `flow.address` and `flow.fix-ci` into `oversight` are marked
    y, and the factory → oversight label lists them. For every example and every top-level system, the class equals the
    one §1's rule gives from the edges' u/y marks, computed in the test, so each system has exactly one class. For every example and every system, the letter and p × m of the closed
    box equal those of its frame when it is opened (`focus=` the system), with disturbances counted. No node's `fn`,
@@ -245,8 +250,13 @@ the closed block's r/y/status gap waits on the first.
 5. **blocks-closed-block-r-y-and-status** (§5, amended to follow 1). Unit: a named block's input ports include r
    (a vector of its loops' setpoints) and its output ports y. Its status is the worst of its loops' statuses in a
    given snapshot, in §5's order: holding + unknown gives unknown, off + unknown gives unknown, off + holding gives
-   off, all holding gives holding, and a loop absent from the snapshot gives unknown. Browser: the outline's class
-   follows a change of the snapshot.
+   off, all holding gives holding, and a loop absent from the snapshot gives unknown. A P whose only goal not held
+   inside it is on an auxiliary takes that goal's status. Browser: the outline's class follows a change of the
+   snapshot.
+
+Not one of these gaps, and proposed as its own: **status-order-aligned**, which makes `WORST` in `ergostat/fold.py:18`
+follow §5's order (unknown worst) so that a system box and its Blocks outline cannot show different worst statuses.
+It is the owner's choice. Until it lands, the two views can differ for a system with an unknown and an off loop.
 
 Each new test is to be seen failing against main first (review lesson 9). The report says which ones were.
 
@@ -261,6 +271,12 @@ Each new test is to be seen failing against main first (review lesson 9). The re
 - A controller's output counts as u only when it reaches a goal of the target (rule (b)), rather than ticket-factory
   being reclassified as C → P with an empty r. Dropping (b) gives that reclassification, and the empty-r case in
   §2 already draws it.
-- Unknown is ranked worst in the Blocks outline. `fold.py`'s order for the system boxes is left as it is.
+- A goal counts for rule (b), for r and for P's status whether it names a stock or an auxiliary. In the four
+  sketched examples nothing changes: software-factory's and ticket-factory's goals are all on stocks, and the-job's
+  goals on auxiliaries are inside its one system `job`. coordinator and image-squeeze do set goals on auxiliaries
+  (`work.yaml:244`, `quality.yaml:96-107`; `intent.yaml:74`, `lab.yaml:169`, `rollout.yaml:141`), and their
+  classes were not worked out by hand here. Test 1 computes them from the rule.
+- Unknown is ranked worst in the Blocks outline. `fold.py`'s order for the system boxes is left as it is and
+  proposed as its own gap (status-order-aligned) for the owner.
 - The widths in the sketches come from reading the YAML. A script that prints `diagram()` could not be run in this
   session. The build gaps' tests pin the real widths.

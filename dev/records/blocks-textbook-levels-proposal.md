@@ -59,3 +59,18 @@ Round 3 (answering review 2's two findings, both blocking; there were no others)
   marks. `examples/ticket-factory/local/prometheus.yaml.in` reads stock.ai-spend. It is a template under local/ and I
   took it as not loaded, which is not verified by running.
 Overrun reason: the proposal is 266 lines against about 200, because rounds 2 and 3 add the u/y wire rule with its goal condition, the empty-r case, the rows table and the single status order that reviews 1 and 2 asked for.
+
+Round 4 (answering review 3's two findings):
+- Goals on auxiliaries (blocking): rule (b) now reads "a stock or an auxiliary that carries a goal of the target".
+  §2's r is every goal of P, on a stock or an auxiliary, that C's u reaches and no controller inside P holds. §5's
+  P status is the worst of P's goals not held inside it, on stocks and auxiliaries alike. Test 1 adds a fixture
+  where the reached stock has no goal but feeds a goaled auxiliary of `b` (a is C, b is P, and a reference node is
+  drawn for it), and test 5 adds a P whose only free goal is on an auxiliary. The four sketched examples do not
+  change: software-factory's and ticket-factory's goals are all on stocks (checked with Grep for `auxiliary:` under
+  examples/), and the-job's goals on auxiliaries are inside `job`. coordinator and image-squeeze do have goals on
+  auxiliaries. Their classes were not worked out by hand, and test 1 computes them.
+- fold.py's WORST order (non-blocking, "should be filed as its own gap"): the proposal now names it as its own gap,
+  status-order-aligned, left to the owner. It is not added to docs/GAPS.md, which is outside this gap's Files list
+  (the most reversible choice: the owner or the factory files it).
+- Not run: `diagram()` is still not printed, so the widths and edge marks are still read from the YAML.
+Overrun reason: the proposal is 282 lines against about 200, because rounds 2 to 4 add the u/y wire rule with its goal condition (now stocks and auxiliaries), the empty-r case, the rows table, the single status order and the status-order-aligned gap that reviews 1 to 3 asked for.
