@@ -58,3 +58,17 @@ under the watchdog but stopped unfinished at the session's 20-minute limit for a
 not known; of it, the three nearest the change pass (rc 0): every part opens its panel even mid-redraw, opening and
 closing a system keeps it on the screen, pages are ordinary links walked back. Not run by me: the unit suite and the other browser files
 (left to the factory and the merge queue, as the brief says); no origin/main ref in the clone (main is the base).
+
+Round 1, the build's fast suites (rc 5): no code fault found, and none changed. `[suites] build` runs
+`scripts/affected_tests.py`. It picks the test files the branch changed, plus `tests/test_<module>.py` for each changed
+`ergostat/**/*.py`. This branch changes only JS and CSS, so the only file picked is `tests/test_diagram_rendering.py`.
+That file skips itself whole without Playwright (`pytest.importorskip("playwright.sync_api")`), and the build runs
+without Playwright, so pytest collected nothing and returned rc 5 ("1 skipped"). The page's own tests can pass only
+where Playwright is installed (the four browser files' run, `--with playwright==1.63.0`).
+I left this alone, the most reversible choice. Mapping the static files to their tests in `affected_tests.py`, or
+treating an all-skipped browser file as a pass, is the factory's change, not this gap's (lesson 13). A unit test made
+up only so the selection runs something would be a test that can't fail (lesson 9).
+Checked here: `tests/test_style_tokens.py` (the unit file that checks style.css, which this branch touches): 5 passed;
+ruff clean. Refused here: a command that ran the style-tokens tests, then
+`uv run python -c "import playwright"`, then a grep of pyproject.toml and dev/factory.toml. So whether Playwright is
+installed in this container was not seen.
