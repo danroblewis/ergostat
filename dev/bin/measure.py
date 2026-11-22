@@ -1,5 +1,5 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
-when nothing in the window to measure, but for the eight named at the end, which have no value then
+when nothing in the window to measure, but for the nine named at the end, which have no value then
 (they exit 1, as ergostat's own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
@@ -24,11 +24,14 @@ when nothing in the window to measure, but for the eight named at the end, which
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
-  split-quality       of split parents whose first join verdict (the first of join_verdicts, in record order, never
+  splits-covered      of split parents whose first join verdict (the first of join_verdicts, in record order, never
                       by its `at`) is in the window, the share whose first verdict was covered (short then covered
                       counts as not covered)
+  split-budgets-held  of sub-gaps (a `parent`) merged in the window, the share whose net_lines are at or under their
+                      own definition's `## Size budget`; a definition, budget or net_lines it cannot read: not held
   split-joins         split parents with at least one join verdict, over the whole record (no window)
-  split-overhead      the median, over split parents merged in the window, of the parent's own ai_cost_usd plus
+  split-overhead      the median, over split parents judged covered in the window (judged_at: the join records no
+                      merged_at), of the parent's own ai_cost_usd plus
                       each child's (join sub-gaps and continuations too; a stopped sub-gap a continuation replaced:
                       its cost, not its lines) over the median ai_cost_usd of merged unsplit gaps (no
                       parent, no children, a counted merged_lines; whole record) in the size class of the children's
@@ -46,8 +49,8 @@ when nothing in the window to measure, but for the eight named at the end, which
                       XL > 400. The window is on the latest merge (merged_at). A gap whose latest merge has no
                       merged_lines is left out of the share, never a hit, and named on stderr.
   size-accuracy-high  the same, of the gaps sized with high confidence only
-First-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean, split-quality, split-overhead and the two
-size measures have no value with nothing to measure.
+First-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
+split-overhead and the two size measures have no value with nothing to measure.
 
   coverage-below-floor  the modules whose share of statements the unit suite on main ran is under [code_health]
                       coverage_floor, from the latest coverage report (scripts/coverage_report.py, under run/coverage/)
@@ -77,6 +80,7 @@ import tempfile
 import time
 
 sys.dont_write_bytecode = True
+import brief  # noqa: E402
 import fac  # noqa: E402
 import parks  # noqa: E402
 import times  # noqa: E402
@@ -191,7 +195,7 @@ def size_accuracy(name: str, since: float) -> float:
                   if counted(g["fields"])], name)
 
 
-SPLITS = ("split-quality", "split-joins", "split-overhead")
+SPLITS = ("splits-covered", "split-budgets-held", "split-joins", "split-overhead")
 
 
 def priced(f: dict) -> float | None:
@@ -212,6 +216,17 @@ def family(g: dict, by_id: dict) -> list[str]:
     return seen
 
 
+def budget(cfg: dict, g: dict) -> float:
+    """A sub-gap's own `## Size budget` in net lines, where brief.definition_text reads its definition; -inf when it
+    has none it can read (never budget_of's default), so nothing is under it."""
+    b = fac.branch_of(g)
+    try:
+        text = brief.definition_text(cfg, str(g["fields"].get("definition") or f"run/defs/{b}.md"), b)
+    except OSError:
+        return -math.inf
+    return float(n) if (n := fac.budget_of(text, -1)) >= 0 else -math.inf
+
+
 def split_reading(name: str, gaps: list[dict], since: float) -> float:
     """The split parents (a gap with `children`): their join verdicts (plan.py join), and their cost against unsplit
     gaps of their size. Each parent's first verdict is the first of its join_verdicts, in record order, never by `at`."""
@@ -219,8 +234,12 @@ def split_reading(name: str, gaps: list[dict], since: float) -> float:
     judged = [g["fields"]["join_verdicts"] for g in parents if g["fields"].get("join_verdicts")]
     if name == "split-joins":
         return float(len(judged))
-    if name == "split-quality":
+    if name == "splits-covered":
         return share([v[0].get("verdict") == "covered" for v in judged if float(v[0].get("at") or 0) >= since], name)
+    if name == "split-budgets-held":                     # a definition, budget or net_lines it cannot read: not held
+        subs, cfg = [g for g in recent(gaps, "merged_at", since) if g["state"] == "merged" and g["fields"].get("parent")], \
+            fac.config()
+        return share([type(n := g["fields"].get("net_lines")) is int and n <= budget(cfg, g) for g in subs], name)
     counted = lambda f: type(f.get("merged_lines")) is int and not f.get("merged_lines_error")  # noqa: E731
     base: dict[str, list[float]] = {}                         # merged unsplit gaps, over the whole record, by class
     for g in gaps:
@@ -228,7 +247,7 @@ def split_reading(name: str, gaps: list[dict], since: float) -> float:
         if g["state"] == "merged" and not f.get("parent") and not f.get("children") and counted(f) and priced(f) is not None:
             base.setdefault(size_class(f["merged_lines"]), []).append(priced(f))
     by_id, ratios = {g["id"]: g for g in gaps}, []
-    for g in [g for g in recent(parents, "merged_at", since) if g["state"] == "merged"]:
+    for g in [g for g in recent(parents, "judged_at", since) if g["state"] == "merged"]:   # (no merged_at: plan.join)
         every = [by_id.get(k) for k in family(g, by_id)]
         kids = [k for k in every if k is None or g["id"] in fac.ids(k["fields"].get("parent"))]   # stopped: priced only
         why = ("a child not merged" if any(k is None or k["state"] != "merged" for k in kids) else "") or \

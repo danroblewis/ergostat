@@ -44,6 +44,7 @@ def config() -> dict:
     local = MODEL / "factory.local.toml"
     if local.is_file():
         cfg = _merge(cfg, tomllib.loads(local.read_text()))
+    limits(cfg)                                         # (a limit past its ceiling refused here, and again at run time)
     return cfg
 
 
@@ -429,6 +430,34 @@ def stop_suites() -> None:
 BOXES: set[str] = set()                                 # the queue's suite containers running now (suite(box=...))
 
 
+SUITE_GOAL_MINUTES = 15                                 # the suites-in-time goal (dev/model/measures.yaml)
+STALL_MOST, WALL_MOST = 60, 120                         # the ceilings of [suites] stall_minutes and wall_minutes
+STALLS_MOST = 3                                         # a gap's stalls (alone): then its failure (queue, triage)
+
+
+def limits(cfg: dict) -> tuple[float, float]:
+    """The queue's suite limits in seconds: (no log growth for [suites] stall_minutes, default 10, at most 60; in all
+    [suites] wall_minutes, default 3 x the suite-minutes goal, at most 120). One past its ceiling, or not above 0, is
+    refused (ValueError), never clamped."""
+    s = cfg.get("suites", {})
+    stall, wall = s.get("stall_minutes", 10), s.get("wall_minutes", 3 * SUITE_GOAL_MINUTES)
+    for key, v, most in (("stall_minutes", stall, STALL_MOST), ("wall_minutes", wall, WALL_MOST)):
+        if isinstance(v, bool) or not isinstance(v, int | float) or not 0 < v <= most:
+            raise ValueError(f"[suites] {key} = {v!r}: more than 0 and at most {most}")
+    return stall * 60.0, wall * 60.0
+
+
+class Stalled(Exception):
+    """A queue suite stopped for a limit (limits()): never its result, nor the batch's failure. Its test: the test
+    function in the last stack pytest's faulthandler dumped (suite() sets its timeout), else the last test id named."""
+
+    def __init__(self, name: str, why: str, text: str):
+        tests = [f"{p}::{t}" for p, t in re.findall(r'File "(?:[^"]*/)?(tests/test_\w+\.py)", line \d+ in (test_\w+)',
+                                                     text)] or re.findall(r"(\S+\.py::[^\s\]]+\]?)", text)
+        self.suite, self.why, self.test, self.tail = name, why, tests[-1] if tests else None, text[-2000:]
+        super().__init__(f"the {name} suite was stopped ({why}), on {self.test or 'no test the log names'}")
+
+
 def agents_module():
     import agents
     return agents
@@ -444,23 +473,42 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     raises agents.NotStarted (an infrastructure failure, never read as the suite's result)."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
     cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
+    stall, wall = limits(cfg) if box else (600.0, 600.0)  # (again at run time: the queue's and triage's only)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
+    if box:                                             # a test running past half the stall limit: its stack, logged
+        env["PYTEST_ADDOPTS"] = f"{env.get('PYTEST_ADDOPTS', '')} -o faulthandler_timeout={stall / 2:g}".strip()
     boxed = None
     if box and cfg["suites"].get("queue_container", True) is not False:
-        boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box)
+        boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box, (f"PYTEST_ADDOPTS={env['PYTEST_ADDOPTS']}",))
         BOXES.add(boxed)
+    held = None
     if slot and cfg["suites"].get("slot") and name != "ruff":
+        if box:                                         # the limits' clocks start once the slot is held (marked inside)
+            held = log.with_name(log.name + ".held")
+            held.unlink(missing_ok=True)
+            cmd = "sh -c " + shlex.quote(f": > {shlex.quote(str(held))}; {cmd}")
         cmd = f"{cfg['suites']['slot']} {cmd}"
-    began = time.time()
+    began, stopped = time.time(), None
     with log.open("w") as out:
-        env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")}   # (never the engine's socket)
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
         SUITES.add(p.pid)
         try:
+            size, grew, clock = 0, began, began
             while p.poll() is None:
+                if held and not held.exists():          # waiting for the slot: the machine's time, not the suite's
+                    size, grew = log.stat().st_size, time.time()
+                    clock = grew
+                elif box:
+                    now, got = time.time(), log.stat().st_size
+                    size, grew = (got, now) if got != size else (size, grew)
+                    stopped = (f"its log did not grow for {stall / 60:g} min" if now - grew > stall else
+                               f"it ran past {wall / 60:g} min" if now - clock > wall else None)
+                    if stopped:                         # (past a limit: never renewed, killed in the finally)
+                        break
                 renew()
                 try:
-                    p.wait(timeout=60)
+                    p.wait(timeout=min(60.0, stall / 10, wall / 10))
                 except subprocess.TimeoutExpired:
                     pass
         finally:
@@ -471,9 +519,13 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                 except subprocess.TimeoutExpired:
                     os.killpg(p.pid, signal.SIGKILL)
             SUITES.discard(p.pid)
+            if held:
+                held.unlink(missing_ok=True)
             if boxed:
                 agents_module().killed(boxed)
                 BOXES.discard(boxed)
+    if stopped:
+        raise Stalled(name, stopped, log.read_text(errors="replace"))
     if boxed and p.returncode in agents_module().NOT_STARTED:
         raise agents_module().NotStarted(f"the {name} suite's container did not start (exit {p.returncode}): "
                                          f"{log.read_text()[-400:].strip()}")

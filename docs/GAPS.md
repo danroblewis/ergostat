@@ -44,12 +44,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
   workspace, action or lease, and no block `out:` to a part the chain did not make, so none of the owner's machine
   blocks or setpoints is commanded by it; its parts may still read and name the owner's), or the whole chain is
   refused at the owner's `use:` line, with a refusal that suggests
-  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). *Still needed:* a gate on **provenance**,
-  so an untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
-  substitution of a `type: command` parameter, the marks kept through nested uses); a library's `example:` and
-  `reading:` marked untrusted wherever an agent reads them (library-untrusted-text); `fetch` by git URL or package,
-  refusing a lock entry without a tree, symlinks hashed explicitly; then running untrusted library scripts through
-  `ergostat.sandbox` and the rebase onto main.
+  no copy into `with:` (SPEC §2a, SECURITY *Libraries you did not write*). **Built** (`library-untrusted-text`): an
+  untrusted template's text is marked in the `templates` tool and in three kinds of `check` problem, its names
+  checked, and its parts' schedules, pools, attempts and runs at once bounded at compile and when runs start, a second
+  line behind the allowlist (SPEC §2a, *Untrusted libraries*). *Still needed:* a gate on **provenance**, so an
+  untrusted library may run a command the owner gave it (a value counts as the owner's only if it arrived by
+  substitution of a `type: command` parameter, the marks kept through nested uses); the text an untrusted template
+  makes in the model marked too (its system's and parts' descriptions, prompts, commands, equations and names,
+  wherever `check`, the diagrams and the MCP model views show them, and the `library-untrusted` refusal's folder
+  path); `ask:` and `query`/`source` gated past the allowlist; `fetch` by git URL or package, refusing a lock entry
+  without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
+  the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
@@ -368,9 +373,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
     `use: upkeep` with the loop `index-files` / `index-files-few` / `index-tidier` (`upkeep tidy --keep N`); the
     engine stands down from tidying under it; the interlock (lock without waiting, age checked again under the lock,
     an allowlist of index names under the resolved folder) stays in `spec/itemindex.py`. Under `use: upkeep` nothing
-    else limits the count if the tidier stops. Still to come: **upkeep-watched-loops** (the watchdog, the heartbeat
-    goal the outer watcher reads, leases and the worktree pool) and **upkeep-record-loops** (the event log's roll-up
+    else limits the count if the tidier stops. Still to come: **upkeep-record-loops** (the event log's roll-up
     and measurement retention).
+  - **The watched loops** (done on `factory/upkeep-watched-loops`, `dev/records/upkeep-watched-loops.md`): the
+    stocks `heartbeat-age`, `stalls` and `restarts` (`ergostat.upkeep.*`), the goals `heartbeat-fresh` (`<= stale`,
+    180, 60 to 3600) and `no-stalls`, and the engine's watchdog and the outer watcher as `type: external` blocks;
+    with `leases: true` lease expiry, with `pool: NAME` that pool's quarantined slots held at 0 by the owner. The
+    engine writes `stale` into `heartbeat.json`; the watcher uses it within 60 to 3600 s, else 180. Left: the loops
+    are drawn, not closed by ergostat (their controllers are its code); the heartbeat the run writes as it starts has
+    no `stale`, so the watcher uses 180 until the watchdog's first beat (5 s); `restarts` has no goal.
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per

@@ -17,8 +17,9 @@ for every block or, with ``@WHO``, one block, rung or model; how the owner's mes
 each projection recipe started turned out (SPEC §12j, ``recipes/uses.py``): ``ergostat.context.RECIPE.outcome``,
 ``.cost`` and counts; and what the runs cost (SPEC §9.1, ``costs/record.py``): ``ergostat.cost.usd``, ``.tokens``,
 ``.cpu``, ``.memory``, ``.runs``, over the last day or hour, for every block or one; the day's budget left (SPEC §9.9,
-``costs/budget.py``): ``ergostat.budget.left``; and ergostat's own upkeep (SPEC
-§2a, *Upkeep*, ``upkeep_measures.py``): ``ergostat.upkeep.index-files`` and ``.retired-index-files``.
+``costs/budget.py``): ``ergostat.budget.left``; and ergostat's own upkeep (SPEC §2a, *Upkeep*,
+``upkeep_measures.py``): ``ergostat.upkeep.index-files``, ``.retired-index-files``, ``.heartbeat-age``, ``.stalls``
+and ``.restarts``.
 """
 
 from __future__ import annotations

@@ -86,7 +86,8 @@ Each of these is tested by an attack (`tests/test_sandbox_attacks.py`), with fak
 
 A folder of templates someone else wrote can be listed in the main file as `library: [{folder: PATH}]` (SPEC §2a).
 A map entry is **untrusted** unless it says `trust: owner`; a plain path, and `$ERGOSTAT_LIBRARY`, are yours and
-trusted. A map entry written wrong (another key, no `folder:`, a `trust:` other than `owner` or `untrusted`) is an
+trusted (`untrusted: true|false`, a YAML bool, may say the same as `trust:`). A map entry written wrong (another
+key, no `folder:`, a `trust:` other than `owner` or `untrusted`, an `untrusted:` not a bool or disagreeing) is an
 error and its folder is not read at all. Trust is decided for each file: a template file that lies inside any folder
 listed untrusted (as listed, or with links resolved) is untrusted, even when a trusted folder that holds it, such as
 its parent, also reaches it.
@@ -117,7 +118,9 @@ that is not a reference.
 What this does **not** stop:
 
 - **Its words reaching agents.** An untrusted template's descriptions, `example:` and `reading:` are still shown to
-  the AI agents that use the authoring tools, and may try to steer them (gap library-untrusted-text).
+  the AI agents that use the authoring tools, and may try to steer them. In the `templates` tool and in three kinds
+  of `check` problem they are marked as the library's (SPEC §2a, *Untrusted libraries*), which tells an agent what
+  they are but does not stop it reading them; the text of the parts a template makes is not marked.
 - **What you trusted.** A path entry, or a map entry with `trust: owner`, is trusted wholesale: its templates may make
   anything, and may take the place of ergostat's own. Read a folder before you mark it so.
 - **An agent that can write the main file.** It can mark a folder trusted, as you can. The agent guide tells agents

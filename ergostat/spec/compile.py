@@ -466,6 +466,7 @@ class Compiler:
     # ---- sections
 
     def sensors(self, owner: Map, of: Ref, what: str) -> dict[str, Sensor]:
+        from ..library import bounds
         out = {}
         raw = {}
         if "sensor" in owner and "sensors" in owner:
@@ -509,7 +510,8 @@ class Compiler:
                              f"with @POOL, or ergostat.cost.usd (or tokens, cpu, memory, runs), over the last day or with "
                              f"-hour the last hour, with @BLOCK or @model:MODEL when about one, or ergostat.inbox.waiting (or "
                              f"oldest, asked), or ergostat.interventions.waiting (or per-day, trend, standing, chattering, "
-                             f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files)",
+                             f"blocked-hours, top-share), or ergostat.upkeep.index-files (or retired-index-files, "
+                             f"heartbeat-age, stalls, restarts)",
                              s.at("builtin"), "bad-measure")
                     measure = None
                 elif of.kind == "flow":
@@ -547,7 +549,8 @@ class Compiler:
             out[str(name)] = Sensor(str(name), of, run=run, query=dict(q) if q else None, averages=averages, builtin=measure,
                                     items=self.item_sensor(s, of, sw) if counted else None,
                                     changes={"what": changes, "over": self.duration(s, "over", sw, 3600.0)} if changes else None,
-                                    manual=bool(s.get("manual")), every=self.duration(s, "every", sw, 60.0),
+                                    manual=bool(s.get("manual")),
+                                    every=self.duration(s, "every", sw, bounds.default_every(self.doc.uses, s.where, 60.0)),
                                     cron=self.cron(s, "cron", sw),
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
@@ -1056,6 +1059,8 @@ class Compiler:
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its kind gains leased and dead
+        from ..library import bounds
+        bounds.check(self, spec)                             # an untrusted library's parts: their limits (SPEC §2a)
         from . import triggers
         triggers.check(self, spec)                           # blocks started by an event, and their loops (SPEC §9.3)
         judges = [b for b in spec.blocks.values() if b.type == "judge" and b.params.get("judge", "model") == "model"]
