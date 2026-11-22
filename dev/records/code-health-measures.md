@@ -153,3 +153,22 @@ reversible option: point `code-health-off`'s `out` back and remove the `code` in
 `test_drift_turns_simplify_when_on` now asserts the new wire, that `improve-factory` has exactly one commander, and
 that the root model has no `competing-commands` finding. Not run: Bash (and so pytest, ruff, `ergostat check` and
 `git commit`) was refused in this session.
+
+### Round 3: the round-2 fixes run
+
+Bash ran this round, so the checks round 2 could not run were run here, at 8c7be35d (main b4639301 merged in; this
+clone has no newer main):
+
+- `tests/test_code_health_measures.py`: 5 passed, `test_check_on_the_root_model_reports_no_errors` included.
+- `tests/test_code_health_simplifier.py` and `tests/test_factory.py`: 146 passed, 2 skipped. Both skips are in
+  `tests/test_factory.py` (lines 1222 and 1477). They need Docker and the agent image, which this container does not
+  have, and this branch does not touch them.
+- `uv run ruff check ergostat tests scripts`: clean, and so is `dev/bin/measure.py`. With all of `dev/bin` added, ruff
+  reports B023 at `dev/bin/plan.py:315` and E501 at `dev/bin/review.py:42`. This branch changes neither file, so both
+  come from main and are left alone (lesson-13).
+- Lesson-9 for round 2's single-commander fix: I pointed `code-health-off`'s `out` back at `block.improve-factory`,
+  and `test_drift_turns_simplify_when_on` failed (`{'improve-factory'} == {'factory-off'}`). I put it back and the
+  tests passed again.
+
+Not run: `uv run ergostat check` as a command (refused again; the pytest check above runs it the way `[suites] check`
+does), and the full unit suite and the four browser files (left to the factory's watchdogged run).
