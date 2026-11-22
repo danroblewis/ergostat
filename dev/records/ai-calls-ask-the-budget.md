@@ -163,3 +163,36 @@ changed this round. This branch did not cause that failure, and fixing it here w
   test_agents test alone (passed), and ruff (clean). Not run: the full unit suite and the browser files (house rules),
   and `demo_check` (no example is touched). The local `main` (5617e225) is already in HEAD, and there is no newer
   remote ref in the clone to merge.
+
+## Where it stopped
+
+Continued (gap/ai-calls-ask-the-budget-continued, round 3). The finding is still the queue's
+`tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network`. No code was
+changed this round. The test is outside this gap (lesson-13), so it is reported here and not fixed.
+
+- **Still nothing of this branch is on that test's path.** `git diff --stat main HEAD -- dev tests/test_agents.py
+  tests/test_factory.py` shows only this record.
+- **The cause, traced in the code this round (still not reproduced).** The option and its assertion came in together
+  in `8212a01f` (2026-11-22, "A hung test is named from pytest's faulthandler stack…"). That commit reached `main`
+  through `4a1bcd10` (Merge branch 'factory/a-queue-suite-that-stops-making') and is in HEAD. The steps:
+  1. The queue runs the unit suite in a container with `-e PYTEST_ADDOPTS=-o faulthandler_timeout=300`
+     (`dev/bin/fac.py:479-482`).
+  2. The test's stand-in factory copies `os.environ` whole into its env (`tests/test_factory.py:184`), and the child
+     `queue.py` is run with that env (`:242`).
+  3. `fac.py:479` *appends* to the value it inherits, so the child's container gets
+     `PYTEST_ADDOPTS=-o faulthandler_timeout=300 -o faulthandler_timeout=300`.
+  4. The exact-element check at `tests/test_agents.py:325` then fails.
+
+  With the variable unset, the test passes (round 2: 1 passed). It fails only inside the queue's own container, for
+  any branch, `main` included. A bisect blames whichever merge it tries first.
+- **The fix belongs in its own gap.** Either `fac.suite` drops an inherited `faulthandler_timeout` before it adds its
+  own, or the test removes `PYTEST_ADDOPTS` from `f.env`. Until one of them lands, every branch fails this test in the
+  queue.
+- **Refused commands this round.** The reproduction,
+  `PYTEST_ADDOPTS="-o faulthandler_timeout=300" timeout 300 uv run python -m pytest -q -p no:cacheprovider
+  "tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network"`, was refused
+  (don't-ask mode). A shell `cat >> … <<EOF` append to this file, followed by `git commit`, was also refused, so this
+  note was written with the editor instead.
+- **Run this round:** tests/test_ai_calls_budget.py (14 passed), tests/test_run_budget.py (36 passed), and ruff (clean).
+  Not run: the full unit suite and the browser files (house rules), and `demo_check` (no example is touched). The
+  local `main` (5617e225) is the only ref of main in the clone, and it is already in HEAD.
