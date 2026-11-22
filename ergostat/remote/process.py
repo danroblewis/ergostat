@@ -42,7 +42,8 @@ def fetched(spec, name: str, since: float, by: str | None, at: tuple[str, ...] =
         body = None
         if token is not None:
             code, body, _, why = client.get(r["url"], "process", token,
-                                            {"since": since, "by": by, "at": list(at) or None}, timeout=10.0)
+                                            {"since": since, "by": by, "at": list(at) or None}, timeout=10.0,
+                                            tls=r.get("tls"))
             if code != 200 or not isinstance(body, dict):
                 body = None
         with _lock:

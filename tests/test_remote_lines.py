@@ -70,7 +70,7 @@ class World:
         monkeypatch.setattr(rp.client, "get", self.get)
         rp._kept.clear()
 
-    def get(self, url, path, token, params=None, etag=None, timeout=5.0):
+    def get(self, url, path, token, params=None, etag=None, timeout=5.0, tls=None):
         self.asked.append(dict(params or {}))
         if self.unreachable:
             return 0, None, None, "unreachable (refused)"

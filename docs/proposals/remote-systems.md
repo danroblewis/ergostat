@@ -239,8 +239,9 @@ model reads the cache and fetches only when the cache is older than `every`.
 
 **Left for later**: the event cache feeding the Items and Record pages;
 proposals written for the remote's owner (the refusal is built, the text is not); serving the IR
-(`?format=ir`); a remote that is itself composed of remotes (a remote's own imported parts are not served);
-mutual TLS.
+(`?format=ir`); a remote that is itself composed of remotes (a remote's own imported parts are not served).
+Mutual TLS is built (`remote-mtls`, SPEC §4c): `web: mtls:` serves the remote API alone on a listener of its
+own, to client certificates one CA signed, and a `remotes:` entry's `tls:` reads it.
 
 ## 9. Decisions, in one place
 

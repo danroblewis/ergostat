@@ -161,7 +161,8 @@ def status(args) -> int:
         print(c(f"the model, since {args.since} ago: " + (f"{len(ch)} change{'' if len(ch) == 1 else 's'}" if ch else "no changes"), "dim"))
         for e in ch:
             d = e["data"]
-            what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]]
+            what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]] + [
+                f"~interface:{x}" for x in d.get("interfaces_changed", [])]
             more = f"  and {len(what) - 6} more" if len(what) > 8 else ""
             when = time.strftime("%a %H:%M" if time.time() - e["time"] > 86400 else "%H:%M:%S", time.localtime(e["time"]))
             print(f"  {when}  " + "  ".join(what[:6] if more else what) + c(more, "dim"))
