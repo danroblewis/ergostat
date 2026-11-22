@@ -45,3 +45,18 @@ serve. In their place: `test_software_factory_product_dynamics_matches_what_is_d
 system=product) and the browser test on a small model served by `ergostat web`. Each new test was seen to fail on a
 deliberate break: disturbances dropped from the variable table, the Blocks entry asking for the Dynamics document,
 and the snapshot check inverted.
+
+Round 2. Net lines outside tests and docs: 151 (export_api.py 121, server.py 16, export.js 12, diagram.js 2), within
+the 180 budget.
+
+- Blocking finding (the Blocks document listed every system's goals): fixed. `export_api.in_view` keeps a goal when
+  `system` is unset, or the goal's own system or the part it holds is inside `system` at any depth (`spec.chain`,
+  `spec.inside`). That is the most reversible reading of "in view": membership comes from the spec's own systems, not
+  from the folded drawing. New test `test_the_blocks_document_keeps_to_the_system_shown`: two systems (desk, store),
+  a goal in each. system=desk gives only desk's goal, system=store only store's, no system gives both, and the test
+  asserts that the page's `g.loops` holds both, so it fails on the old unfiltered rows (seen to fail with `in_view`
+  forced to True). The one-goal test no longer compares against the unfiltered `g.loops`. DESIGN.md now says "a row
+  per goal in the system drawn, the goal or the part it holds inside it at any depth", which is what the code does.
+- Not fixed here (outside the gap, lesson 13): on main, the Blocks side list (diagram.js, the `g.loops` list) shows
+  the same every-goal set under system=S. It is a page bug to file as its own gap. Because of it, the Blocks half of
+  the browser test compares with the side list only when no system is set, where both sets are every goal.

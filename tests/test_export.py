@@ -125,7 +125,7 @@ def test_the_blocks_document_has_a_row_per_goal_in_view_with_the_panels_law(tmp_
     assert md.startswith("# small: the control loops (block diagram)") and "- System: desk" in md
     g = api(live, "graph", {"view": ["blocks"], "system": ["desk"]})
     rows = tables(md)["Control loops"]
-    assert [r["goal"] for r in rows] == list(g["loops"]) == ["inbox-short"]
+    assert [r["goal"] for r in rows] == ["inbox-short"] and "inbox-short" in g["loops"]
     r = rows[0]
     ctl = "keep-inbox-short"                                   # (goal: on the worker: the on-off controller it implies)
     says = next(n["says"] for n in api(live, "graph", {"view": ["blocks"], "open": ["*"]})["nodes"] if n["id"] == f"blk:{ctl}")
@@ -133,6 +133,24 @@ def test_the_blocks_document_has_a_row_per_goal_in_view_with_the_panels_law(tmp_
     assert "on-off controller" in says and r["actuator"] == "worker (sets processed)", r
     assert r["reference"] == "inbox ≤ 20" and r["measured output"] == "y inbox (measured)"
     assert r["sensor and period"] == "sensor main, every 5 s" and r["process"].endswith("not identified")
+
+
+TWO = SMALL.replace("blocks:", '  shelf:\n    stock: shelf\n    hold: ">= 1"\nblocks:').replace(
+    "    description: where the files wait\n", "    description: where the files wait\n  store:\n"
+                  "    description: where things are kept\n").replace("auxiliaries:", "  restock:\n    to: shelf\n"
+                  "    rate: 1\n    system: store\nauxiliaries:").replace("flows:", "  shelf:\n    unit: things\n"
+                  "    system: store\nflows:")
+
+
+def test_the_blocks_document_keeps_to_the_system_shown(tmp_path):
+    """Two systems, a goal in each: system=desk lists desk's goal only, though the page's g.loops holds both."""
+    (tmp_path / "m").mkdir()
+    live = live_of(tmp_path / "m", TWO)
+    assert set(api(live, "graph", {"view": ["blocks"], "system": ["desk"]})["loops"]) >= {"inbox-short", "shelf"}
+    goals = lambda s: [r["goal"] for r in tables(api(live, "export", {"view": ["blocks"], **s})["markdown"])["Control loops"]]  # noqa: E731
+    assert goals({"system": ["desk"]}) == ["inbox-short"]
+    assert goals({"system": ["store"]}) == ["shelf"]
+    assert sorted(goals({})) == ["inbox-short", "shelf"]
 
 
 def test_a_small_spec_with_no_loops_still_gives_tables(tmp_path):

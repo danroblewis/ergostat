@@ -42,7 +42,7 @@ def export(model, view: str, system: str | None, snap: dict, g: dict, flat=None)
     out = [f"# {model.name}: {TITLE[view]}", "", *([getattr(spec, "purpose", ""), ""] if getattr(spec, "purpose", "") else []),
            f"- System: {system or 'everything'}", f"- Moment: {at} ({'live' if snap.get('live') else 'as of'})",
            f"- Window: {human(snap['window'])}", ""]
-    return "\n".join(out + (_dynamics(model, spec, g) if view == "dynamics" else _blocks(snap, g, flat)))
+    return "\n".join(out + (_dynamics(model, spec, g) if view == "dynamics" else _blocks(snap, g, flat, system)))
 
 
 def _dynamics(m, spec, g: dict) -> list[str]:
@@ -91,12 +91,19 @@ def side_list(g: dict) -> list[tuple[dict, str]]:
     return [(c, "drawn") for c in drawn] + inside
 
 
-def _blocks(snap: dict, g: dict, flat) -> list[str]:
+def in_view(spec, name: str, system: str | None) -> bool:
+    """A goal is in view of ``system`` when it, or the part it holds, is in that system at any depth."""
+    goal = spec.goals[name]
+    return not system or system in spec.chain(goal.system) or spec.inside(goal.of, system)
+
+
+def _blocks(snap: dict, g: dict, flat, system: str | None = None) -> list[str]:
     from ..blockdiagram import _hold
     spec = flat.s if flat is not None else None
     rank = {"off": 0, "open": 1, "unknown": 2, "holding": 3}            # the page's order: the ones that need someone first
     rows = []
-    for name, lp in sorted((g.get("loops") or {}).items() if spec is not None else (), key=lambda x: rank.get(x[1].get("status"), 2)):
+    loops = [(k, v) for k, v in (g.get("loops") or {}).items() if spec is not None and in_view(spec, k, system)]
+    for name, lp in sorted(loops, key=lambda x: rank.get(x[1].get("status"), 2)):
         goal, loop = spec.goals[name], spec.loop(name)
         says = lambda nid: (flat.nodes.get(nid) or {}).get("says", "")      # noqa: E731
         y = f"{goal.of.kind}.{goal.of.name}"

@@ -220,7 +220,7 @@ The control diagram is the product's main view. Conventions:
   HTML file that opens offline (agents' logs only with `--with-logs`). The model behind the picture, as Markdown, for
   the system drawn: Dynamics' "Model (Markdown)" (a variable table: name, kind, unit, equation or sensor, now; the
   flows per stock; the feedback loops of the side list, with the goal each closes) and Blocks' "Loops (Markdown)" (a
-  row per loop in view: goal, reference, measured output, controller and its law in the panel's words, actuator,
+  row per goal in the system drawn, the goal or the part it holds inside it at any depth: goal, reference, measured output, controller and its law in the panel's words, actuator,
   process, sensor and period, status). The server writes them (`GET /api/export?view=dynamics|blocks&system=S`,
   `format=md` by default, `json` for the page), so `curl` gets the same file; a snapshot file says it cannot.
 
