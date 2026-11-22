@@ -95,3 +95,45 @@ Overrun reason: dev/bin is about 184 net lines against 130. The extra comes from
 size: intake's guard against Entry-only records being read as definitions, carrying against the records' render at
 `pre` (rendered_at) so main's GAPS.md edits since the split are not lost at the first landing, and carry placing done
 lines under an umbrella (entry-of) with all-or-nothing placement and GAPS-unplaced.md.
+
+## Where it stopped
+
+Built, in round 2 of the continued gap (70bb4328). Both blocking findings of the review are answered. That review
+listed no other findings.
+
+- **A new entry was always unplaced.** It is placed now. When no record holds the entry's title and the record its
+  branch names does not exist, `gapsdoc.carry` makes `dev/records/<branch>.md` holding only that Entry, as split()
+  writes one. A done line naming a missing record makes that record too, as `entry-of:` the entry. Only three things
+  are still unplaced: an entry whose branch names a record whose Entry has another title (it is never written over),
+  a done line under an entry that is not its own nor its umbrella, and a name that fails `fac.SAFE`. The test that
+  pinned the loss now says the opposite:
+  `test_an_approved_branch_that_edited_gaps_md_lands_with_its_text_in_a_record` checks that EPSILON is in
+  `dev/records/epsilon.md`, has its slot in GAPS-head.md, and is on the pushed head's GAPS.md, with nothing unplaced.
+  New: `test_an_entry_whose_branch_names_another_titles_record_is_kept_unplaced`.
+- **An edit outside the entries was reverted with nothing said.** It is carried now. If the head that split() cuts
+  from the batch's GAPS.md differs from the head of `pre`'s render, GAPS-head.md becomes the batch's head. Each
+  `@entry` slot names the record that draws that block (render's new `drawn` map), or the record carry put it in, or
+  the record with its title. A slot no record holds is dropped, and that text is in GAPS-unplaced.md. The run says
+  `GAPS-head.md: the batch's GAPS.md text outside the entries` in `gaps_md_carried`. New:
+  `test_a_batchs_edit_outside_the_entries_is_carried_into_the_head`, which edits the preamble, a section's prose and
+  adds a section heading.
+
+Choices made alone, each the more reversible one:
+
+- **When GAPS-head.md is rebuilt.** Only when the batch's GAPS.md changed outside the entries, which includes adding,
+  removing or moving an entry. A batch that edits GAPS-head.md directly and also edits GAPS.md's head has its
+  GAPS-head.md edit replaced by the GAPS.md one.
+- **An entry the batch deleted from GAPS.md.** It loses its slot, and render puts it back at the end of its
+  section, as before.
+- **A retitled entry.** A batch that changes an entry's title in GAPS.md gets a new record under the new title's
+  branch. The old record's Entry stays and still renders, so the entry shows twice in GAPS.md, never once lost.
+  Both are said by name in `gaps_md_carried`.
+
+Tests run (through `scripts/named_tests.py`; running Python any other way was refused again):
+tests/test_gapsdoc.py, 30 passed; `test_an_approved_branch_that_edited_gaps_md_lands_with_its_text_in_a_record` and
+`test_no_record_change_makes_no_commit_and_a_malformed_record_lands_without_one`, 2 passed. Each fix was broken and
+seen to fail its tests. Refusing a record that does not exist failed 2 tests. Never rebuilding GAPS-head.md failed 3,
+the prose test among them. Removing the other-title guard failed the unplaced test. ruff is clean on ergostat, tests
+and scripts. Not run here: the whole unit suite and the browser files.
+
+Overrun reason: dev/bin is 208 net lines against 130 (184 after round 1). Beyond round 1's three reasons, round 2's review asked for two more things the definition did not size: placing new entries in records made for them (with the guard against writing over another title's Entry), and carrying GAPS.md's text outside the entries into GAPS-head.md with each slot mapped to its record.
