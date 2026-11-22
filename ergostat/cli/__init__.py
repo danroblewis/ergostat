@@ -83,6 +83,7 @@ run it
   projects       Every project on this machine, which run, and their pages
   remote         Remote systems this model reads (status); token NAME lets another ergostat read this one
   library        fetch [NAME...]: clone the libraries: by git URL into .libraries/, pinned in libraries.lock
+  worker         Be a compute node's worker for an engine (--stdio), or write it to copy to a node (--pack FILE)
   report         Reports about ergostat itself, scrubbed, for you to read and submit by hand (--draft TEXT)
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
@@ -308,6 +309,11 @@ def build() -> argparse.ArgumentParser:
             sp.add_argument("--forget-above", type=float, metavar="V", help="set aside readings above V (wrong ones: they "
                                                                           "would skew every rate and residual)")
             sp.add_argument("--forget-below", type=float, metavar="V", help="set aside readings below V")
+            sp.add_argument("--backfill", metavar="FILE", help="readings at past times: JSON lines {\"at\": EPOCH, "
+                                                              "\"value\": N} (- for standard input), written whole or "
+                                                              "not at all; one backfilled before is skipped")
+            sp.add_argument("--from", dest="from_", metavar="TEXT", help="with --backfill: where they came from")
+            sp.add_argument("--backfilled", action="store_true", help="the sensor's backfills: when, from, first, last, count")
         if t == "controller":
             sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")
     r = topic("run", cmd_run, "Start the agents (in the background) and the web page", named=False)
@@ -370,6 +376,8 @@ def build() -> argparse.ArgumentParser:
     library_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
+    from .worker import register as worker_topic
+    worker_topic(sub, common)
     return ap
 
 
