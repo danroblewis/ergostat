@@ -74,3 +74,53 @@ version) had one more failure, `test_every_lines_panel_links_to_the_parts_it_joi
 opened nothing", 5 s wait). It passed twice alone and in the full rerun, and both parts it links are hand-written,
 so this change does not relabel them. It is not fixed here (lesson-13). Not run here: the whole unit suite, the
 other three browser files, `demo_check` (no example changed).
+
+## Where it stopped (round 2)
+
+Main (2abe6348) merged in. 126 net lines of code outside `tests/`, `docs/` and `dev/` (`git diff --numstat 2abe6348 HEAD`).
+
+The conflict in `ergostat/remote/compose.py`: main now holds a remote's parts in `info["pending"]` and `finish` puts
+them after every file, each with a `RemoteVia` carrying its chain. The branch's `parts()` still returns (part, name
+there); `one()` gives each pending part `own(RemoteVia(...chain...), remote, name there)`, so the part `finish` puts
+records its system. A stand-in keeps main's `RemoteVia(stand_in=True)` and records no owner.
+
+Each finding of review round 1:
+- Depended on remote-of-remotes-continued, which was not on main: it is now. The test
+  `test_a_hand_written_m_a_open_beside_remote_ms_a_open_keeps_distinct_owners` compiles the collision: the
+  hand-written `m-a-open` stands with no owner, a `remote-name-taken` finding is about it, and the remote's other
+  part (`m-a-rate`) records `m`.
+- Outline titles were not in the clash check: `shown.py` now counts each open system's title as drawn.
+  New test: `test_a_short_name_that_reads_like_an_open_outlines_title_is_drawn_by_its_full_name`.
+- A `once: true` template's nested use records the instance (its name is prefixed): kept, since the record is true.
+  SPEC is narrowed to match ("a part a `once: true` template keeps unprefixed" records none; its inner use does).
+- `assert g is not None` replaced by a check on what `shorten` hands back. The browser hover check now covers a
+  closed box's port too: `test_a_closed_boxs_port_reads_by_its_short_name_with_its_full_name_on_hover` (a hand-written
+  flow out of `help-queue-waiting`, added in a copy of small-requests, gives the closed help-queue box a port).
+  The page has only one systems view (Dynamics; "control" is its old name), so `diagram.js`'s box drawing is not
+  reachable from the page and this test covers `dynamics.js`. SPEC now says "the Dynamics view (once called Control)".
+  No example's box has measure rows, so rows are checked by the unit test only.
+- No GAPS.md entry: added under Remote systems and libraries.
+
+Broken in turn, and the test caught each: the remote's `own()` in `compose.py` (2 tests failed), the outline seed in
+`shown.py` (1 failed), the port's `fullOnHover` in `dynamics.js` (the new browser test failed). Breaking the port's
+`fullOnHover` in `diagram.js` did not fail it: that is how I found the page draws only Dynamics.
+
+Tests run, serially: `tests/test_parts_belong.py` (8 passed); `test_remote.py`, `test_remote_chain.py`;
+`test_remote_proposals.py`, `test_remote_lines.py`, `test_remote_box_measures.py`; `test_remote_pair.py`,
+`test_templates.py`, `test_upkeep_template.py`; `test_library_trust.py`, `test_library_provenance.py`,
+`test_spec_systems.py`; `test_dynamics_view.py`, `test_correspond.py`, `test_graph_cli_web.py`: all pass. Ruff clean.
+
+`tests/test_diagram_rendering.py` in full, under the watchdog with Playwright: the first run was stopped at its
+20-minute limit. The second finished: 5 failed, 197 passed, rc 1 (30 min). Both of this branch's browser tests passed.
+The five, run again alone (6 failed of 23: image-squeeze's line-links failed too):
+`test_every_part_opens_its_panel_when_clicked_even_mid_redraw` (`stock:passed-changes`, `stock:unanswered-requests`),
+`test_every_lines_panel_links_to_the_parts_it_joins[coordinator|software-factory|ticket-factory|image-squeeze]`
+("link ... opened nothing"), and `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`
+(the Model page lacks "Nothing waiting."). I judge them unrelated to this branch, but I did not prove it on main.
+Each failing part is hand-written with no recorded owner, so nothing on it is relabelled. Every page change here does
+nothing when a part has no `shown`. Panels and links use `label`, which is unchanged, and `details.js` is untouched.
+The Model page test does not touch part labels. Round 1's full run (before main was merged) had only the coordinator
+line-links failure, and it passed when run again. So these more likely come from main's merge or from this machine's
+load. I could not check this: exporting main to `/tmp` to run them there (`git archive 2abe6348 | tar -x -C
+/tmp/mainsrc`) was refused. They are not fixed here (lesson-13). Not run here: the unit suite, the other three
+browser files, `demo_check` (no example changed).
