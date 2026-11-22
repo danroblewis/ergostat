@@ -391,6 +391,24 @@ def _remote_events(spec, name, n, glob) -> dict:
             "events": evs[-n:]}
 
 
+def _record_rows(p, m, snap, about, match, n, skip, span) -> list[dict]:
+    """The Record narrowed: the events of a goal (``about``: it, its controller's and valves' agents, its valves) or
+    those whose type (a glob), item or source is ``match`` (both: the goal's that match), newest ``n``, in seq order."""
+    lp = snap["loops"].get(about) if about else None
+    names = [about] if about else [match]
+    if lp:
+        valves = [v for v in lp["valves"] if v in m.valves]
+        c = m.controllers.get(about)
+        names += [*valves, *(x for x in (c and c.agent, *(m.valves[v].agent for v in valves)) if x)]
+    asks = [{k: v} for v in dict.fromkeys(names) for k in ("item", "machine")] + ([] if about else [{"type": match}])
+    got = {e["id"]: e for a in asks for e in p.events.query(n=n, skip=skip, **a, **span)}
+    rows = sorted(got.values(), key=lambda e: e["seq"])
+    if about and match:
+        import fnmatch
+        rows = [e for e in rows if fnmatch.fnmatchcase(e["type"], match) or match in (e.get("item"), e.get("source"))]
+    return rows[-n:]
+
+
 def api(live: Live, path: str, q: dict):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view."""
@@ -596,14 +614,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
         if name:                                  # one event, by id
             return p.events.get(name)
         after = one("after")
-        skip = () if one("runs") or one("type") else ("agent.started", "agent.ran")   # as `ergostat event`
-        if not one("type") and not one("item"):   # a transcript's lines are on its item's page, asked by type or item
+        typed = one("type") or one("match")
+        skip = () if one("runs") or typed else ("agent.started", "agent.ran")   # as `ergostat event`
+        if not typed and not one("item"):   # a transcript's lines are on its item's page, asked by type or item
             skip = (*skip, "claude.*")
         before = one("before")
-        return p.events.query(n=max(1, min(int(one("n") or 100), EVENTS_MOST)), type=one("type"), item=one("item"),
+        n = max(1, min(int(one("n") or 100), EVENTS_MOST))
+        span = {"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}
+        span |= {k: float(one(w)) for k, w in (("since", "from"), ("until", "to")) if one(w)}
+        if one("about") or one("match"):          # the Record's filter box, or a crossing's goal (details.js)
+            return _record_rows(p, m, snap, one("about"), one("match"), n, skip, span)
+        return p.events.query(n=n, type=one("type"), item=one("item"),
                               source=one("source"), machine=one("machine"), after_seq=int(after) if after else None,
-                              before_seq=int(before) if before else None, skip=skip,
-                              **({"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}))
+                              before_seq=int(before) if before else None, skip=skip, **span)
     if head == "items":
         from ..spec import items as its
         spec = getattr(m, "spec", None)

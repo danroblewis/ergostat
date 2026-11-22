@@ -179,8 +179,12 @@ async function openLoop(name, asController = false) {
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
   if (lp.crossings?.length) {
     kids.push(h("h3", {}, `Crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`));
-    kids.push(h("table", {}, lp.crossings.slice().reverse().map((e) => h("tr", {},
-      h("td", { class: "nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+    // each to the Record: the goal's events (its controller, agents, valves) from it to the next crossing
+    const next = (i) => lp.crossings[i + 1]?.time ?? lp.until;
+    kids.push(h("table", { class: "crossings" }, lp.crossings.map((e, i) => [e, next(i)]).reverse().map(([e, to]) => h("tr", {},
+      h("td", { class: "nowrap" }, h("a", { href: `/record?about=${encodeURIComponent(name)}&from=${e.time}${to != null ? `&to=${to}` : ""}`,
+        title: "What the goal, its controller and its valves recorded from this crossing to the next" },
+        new Date(e.time * 1000).toLocaleTimeString([], { hour12: false }))),
       h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value)),
       h("td", { class: "muted" }, e.type === "loop.off" && e.data.error != null ? `by ${fmt(Math.abs(e.data.error))}` : "")))));
   }
