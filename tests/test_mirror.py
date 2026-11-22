@@ -256,6 +256,49 @@ def test_a_restarted_log_that_grew_past_the_cursor_stops_the_mirror(m):
     assert rc == 1 and said == [] and "its entry at the cursor 10 is not the one recorded" in err
 
 
+def test_clearing_the_memory_does_not_end_a_went_back_stop_renaming_the_sensor_does(m):
+    m.source([{"id": f"old-{n}", "n": n} for n in range(11)])
+    m.poll()
+    m.poll()
+    m.source([{"id": f"new-{n}", "n": n} for n in range(16)])
+    assert m.poll()[0] == 1
+    m.mem.unlink()                                    # the cursor, its type and the entry at it come back from the record
+    rc, said, err = m.poll()
+    assert rc == 1 and said == [] and "name the sensor anew" in err and "memory" not in err, err
+    m.mp.setenv("ERGOSTAT_SENSOR", "feed2-arriving.main")    # the use renamed: a new log, mirrored from its start
+    rc, said, err = m.poll(sensor="feed2-arriving.main", args=["--name", "feed2", *ARGS[2:]])
+    assert rc == 0 and ns(said) == list(range(16)), err
+
+
+def test_a_changed_position_type_stops_and_clearing_the_memory_does_not_help(m):
+    m.source([{"id": str(n), "n": n} for n in range(3)])
+    m.poll()
+    m.mem.unlink()
+    rc, said, err = m.poll(args=[*ARGS, "--position", "text"])
+    assert rc == 1 and said == [] and "set --position back, or name the sensor anew" in err
+    assert "clearing its memory does not help" in err, err
+    assert m.poll()[0] == 0                           # --position set back: it goes on
+
+
+def test_a_changed_fields_param_is_not_read_as_a_restart(m):
+    m.source([{"id": str(n), "n": n, "title": f"t{n}", "who": "ana"} for n in range(11)])
+    m.poll()
+    m.poll()
+    rc, said, err = m.poll(args=[*ARGS, "--field", "n,title", "--event", "seen"])   # the owner edited fields: and event:
+    assert rc == 0 and said == [], err
+    m.mem.unlink()
+    rc, said, err = m.poll(args=[*ARGS, "--field", "n"])
+    assert rc == 0 and said == [], err
+
+
+def test_a_pushed_sensor_failed_is_not_given_as_the_reason(m):
+    m.source([{"id": "1", "n": 1}])
+    m.poll(record=False)
+    envelope.record(m.p, [{"event": "sensor.failed", "item": SENSOR, "data": {"why": "forged"}}])
+    rc, said, err = m.poll()
+    assert rc == 1 and "position 1 of" in err and "not in the record" in err and "forged" not in err, err
+
+
 def test_two_records_at_one_position_fail_the_poll(m):
     m.source([{"id": "a", "n": 1}, {"id": "b", "n": 1}])
     rc, said, err = m.poll()

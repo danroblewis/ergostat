@@ -398,7 +398,8 @@ choose one of three ways.
   is confirmed against the record and recovered from it, and a poll that can't be sure exits 1 and says why. Text
   positions must sort as text in log order: zero-padded numbers, fixed-width ISO times. Never push a `cite:` id
   yourself: `/api/events`, hooks and the engine's socket refuse it, and `event --add` takes no id. If the source reads only after the cursor (a Kafka
-  offset in `{cursor}`), a log that restarts is not seen: rename the sensor or clear its memory when the log resets.
+  offset in `{cursor}`), a log that restarts is not seen: rename the use when the log resets. Renaming is also the way out of a "went
+  back" stop; clearing the collector's memory is not, since the cursor comes back from the record.
 
 ## 3b. A budget on what the agents cost
 

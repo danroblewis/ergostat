@@ -384,3 +384,41 @@ Failed its gates 6 times (the kill rule). Blocking findings:
   empty). This clone has no `origin`, so origin/main was not merged here.
 - Ran: `tests/test_mirror.py` with `-o faulthandler_timeout=120` (30 passed, 12 s) and ruff (clean). I did not run
   the whole unit suite or the four browser files. The factory runs them under the watchdog.
+
+## Where it stopped, continued round 2 (review/external-event-logs-7 answered)
+
+Each of the four findings is answered (lesson-12):
+
+- **"Clear its memory" was a false remedy (blocking): dropped.** That is true of point 6 above too, which says a
+  restarted log stops the mirror "until the owner renames the sensor or clears its memory". Only renaming works. With
+  no memory the cursor, its type and the entry at it come back from the record. SPEC §2, the agent guide and both
+  error messages now say: name the sensor anew, that is, rename the use (`--name` and the sensor `<name>-arriving.main`
+  change together), or set `--position` back. The type-mismatch message says clearing the memory does not help. New
+  tests: `test_clearing_the_memory_does_not_end_a_went_back_stop_renaming_the_sensor_does` (the memory deleted after
+  the stop: still exit 1; renamed: the new log is mirrored from 0) and
+  `test_a_changed_position_type_stops_and_clearing_the_memory_does_not_help`.
+- **The restart check read the owner's params (blocking): fixed.** The check compared the recorded event's type,
+  item and data with the line built this poll. It now compares only the entry's own id in its source (its
+  `--id-field`, the part of the item after `/`). So editing `fields:`, `kind` or `event` no longer reads as a
+  restart. Changing `id-field` still does, and SPEC says so. I chose the id over a digest of the raw record kept in
+  memory. The id works after lost memory with no new state. A raw digest would also trip on sources whose records
+  carry fields that change. New test: `test_a_changed_fields_param_is_not_read_as_a_restart` (`fields:` and `event`
+  edited, with memory kept and with it lost).
+- **A pushed `sensor.failed` could be given as the reason (non-blocking): narrowed.** The reason is now read only from
+  events with source `ergostat`, the source the engine records them under. A push's default source (`push`, or a
+  hook's name) no longer counts. A push that sets `source: ergostat` can still forge the reason. SPEC says so: the
+  reason is the record's word, and the poll still fails closed either way. Refusing `sensor.` types or the
+  `ergostat` source in pushes would change the push rules for everyone, so it is left for its own gap. New test:
+  `test_a_pushed_sensor_failed_is_not_given_as_the_reason`.
+- **`recorded()` takes longer as the record grows (non-blocking): stated in SPEC.** Recovery reads 5,000 events a page.
+  Memory is bounded, but the time grows with the record.
+
+Breaking each guard (lesson-9): without the source filter, the pushed-reason test failed. With `_same` in place of
+`_rid`, the fields test failed. With `_rid` returning `""`, the restarted test and the renaming test failed. With the
+old type-mismatch message, the position-type test failed, once it asserted the whole message. Each was put back.
+
+Size: 267 net lines in `ergostat/` against main (284 added, 17 removed), within the 300 budget.
+
+Ran: `tests/test_mirror.py` with `tests/test_templates.py` (69 passed, `-o faulthandler_timeout=120`) and ruff
+(clean). I did not run the whole unit suite or the four browser files. origin/main was not merged: this clone has no
+`origin`, and `main` is already in the branch.

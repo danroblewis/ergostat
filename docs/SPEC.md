@@ -202,15 +202,19 @@ text, so a text position must sort in log order: zero-padded, fixed-width times)
 with a `cite:` id only when the log it names is that sensor (`sensor.refused` otherwise), and nothing pushed may
 carry one (section 5c). Each poll, under the collector's lock: what it said last poll is looked for in the record,
 and the cursor moves to the last of it that was all recorded; when one is missing (refused, or lost to a timeout or a
-crash), the poll exits 1 naming it and why (the sensor's last `sensor.refused` or `sensor.failed` since that poll,
-else "not in the record"), and the next
-re-reads from the confirmed cursor. With its memory lost (`library/<name>/collect.json` gone or unreadable), the
-cursor is the greatest of the sensor's own cites in the record, its rolled-up items' snapshots included
-(`rollup.cites`); a record it cannot read fails the poll, never starting from the beginning. Every entry is checked
-before any is said (a position missing or not of its type, two different entries at one position: exit 1, nothing
-said), and at most 5,000 are said a poll, the lowest first. Entries at or before the cursor are skipped. A log that
-went back stops the mirror (exit 1) until the owner renames the sensor or clears its memory: when the source's
-newest entry is before the cursor, or the entry it returns at the cursor is not the one recorded there. What is
+crash), the poll exits 1 naming it and why (the sensor's last `sensor.refused` or `sensor.failed` recorded by the
+engine, source `ergostat`, since that poll, else "not in the record"; the reason is the record's word, and a push
+that claims source `ergostat` can still put one there), and the next re-reads from the confirmed cursor. With its
+memory lost (`library/<name>/collect.json` gone or unreadable), the cursor is the greatest of the sensor's own cites
+in the record, its rolled-up items' snapshots included (`rollup.cites`), read a page of 5,000 at a time (bounded
+memory, but a time that grows with the record); a record it cannot read fails the poll, never starting from the
+beginning. Every entry is checked before any is said (a position missing or not of its type, two different entries
+at one position: exit 1, nothing said), and at most 5,000 are said a poll, the lowest first. Entries at or before the
+cursor are skipped. A log that went back stops the mirror (exit 1): when the source's newest entry is before the
+cursor, or the entry it returns at the cursor has another id (`id-field`) than the one recorded there (`fields:`,
+`kind` and `event` may change; a changed `id-field` reads as a restart). So does a changed `position`. Clearing the
+collector's memory does not end the stop, since the cursor, its type and the entry at it come back from the record:
+the owner renames the use (a new sensor, so a new log, mirrored from its start), or sets `position` back. What is
 claimed: an entry is recorded once, under the cite of its position, across polls that failed, timed out or were
 refused, and across lost memory while the record holds that sensor's cites (or their snapshots); only the sensor
 named in a cite records it. Not claimed: after the record forgets the log's entries (`keep`, prune) and the

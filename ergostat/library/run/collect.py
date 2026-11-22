@@ -207,8 +207,8 @@ def mirrored(a, mem: dict, keep_fields) -> str | None:
         elif m["cursor"] is not None:
             m["cursor"] = mi.position(m["cursor"], m["type"])
         if m["type"] != want:
-            return f"{log} was mirrored with {'whole-number' if m['type'] == 'i' else 'text'} positions: clear its memory, " \
-                   "or name the sensor anew"
+            return f"{log} was mirrored with {'whole-number' if m['type'] == 'i' else 'text'} positions: set --position " \
+                   "back, or name the sensor anew (its cites stay in the record: clearing its memory does not help)"
         mem["mirror"], said = m, m["said"]
         have = p.events.known(said) if said else set()
         missing = next((i for i in said if i not in have), None)
@@ -217,7 +217,7 @@ def mirrored(a, mem: dict, keep_fields) -> str | None:
         m["said"] = []
         if missing:
             at = m.get("at") if isinstance(m.get("at"), int) else None    # only a reason given since it was said
-            last = p.events.query(n=1, type="sensor.refused,sensor.failed", item=log, after_seq=at)
+            last = p.events.query(n=1, type="sensor.refused,sensor.failed", item=log, after_seq=at, source="ergostat")
             why = last[-1]["data"].get("why") if last else None
             return f"position {mi.parse(missing)[2]} of {log} was said but not recorded: {why or 'not in the record'}"
         cursor, m["at"] = m["cursor"], p.events.last_seq()
@@ -247,8 +247,9 @@ def mirrored(a, mem: dict, keep_fields) -> str | None:
             if top < cursor:
                 return f"{log} went back: its newest entry {top} is before the cursor {cursor}"
             was = p.events.get(entries[cursor]["id"]) if cursor in entries else None
-            if was and was["id"] == entries[cursor]["id"] and _same(was) != _same(entries[cursor]):
-                return f"{log} went back: its entry at the cursor {cursor} is not the one recorded there (restarted?)"
+            if was and was["id"] == entries[cursor]["id"] and _rid(was) != _rid(entries[cursor]):   # the source's id
+                return f"{log} went back: its entry at the cursor {cursor} is not the one recorded there (restarted?): " \
+                       "name the sensor anew"
     except mi.MirrorError as e:
         return str(e)
     except Exception as e:                                    # any failure stops the poll: never "from the beginning"
@@ -269,6 +270,11 @@ def mirrored(a, mem: dict, keep_fields) -> str | None:
 def _same(e: dict) -> str:
     """What an entry says, to tell two entries at one position apart."""
     return json.dumps([e.get("type", e.get("event")), e.get("item"), e.get("data")], sort_keys=True, default=str)
+
+
+def _rid(e: dict) -> str:
+    """An entry's own id in its source (its ``--id-field``), which ``fields:``, ``kind`` and ``event-field`` don't change."""
+    return str(e.get("item") or "").partition("/")[2]
 
 
 def _key(x):
