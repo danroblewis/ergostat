@@ -172,10 +172,15 @@ The gate review (2026-11-19) passed redesign with these fixes, made on `modellin
 
 ## What it does not do yet
 
+(It used to be judged only on the record it had when the judge took it up. Now a redesign waiting for the owner is
+scored again, at most once every 30 minutes and one a pass, whenever the record its scorecard reads has moved: a mark
+of the model's own items' events, its blocks' runs, its valves' openings, its sensors' latest readings and the model
+itself, `ergostat/numbers/redesign_record.py`. A promoted one is written only on a scorecard of the record as it is,
+scored again under the same lock as the write when the mark moved. What the record cannot show about blocks the
+change set adds is still left out rather than predicted.)
+
 - Parts taken away are named in the banner, not drawn as ghosts.
 - Splitting a model into systems is in the guide, but not scored.
-- A redesign is judged on the record it has when the judge takes it up, not on record made after it; what the record
-  cannot show about blocks the change set adds is left out rather than predicted.
 - The fit stays "cannot be worked out" on a record too short for its time constants; a redesign that adds equations
   with guessed parameters (`estimate: true`) is then judged on structure alone, and calibration comes after.
 - haiku's change sets vary from run to run (the same case gave 12 → 0 findings once and was refused once for equations

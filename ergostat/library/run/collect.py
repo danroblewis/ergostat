@@ -10,7 +10,11 @@ feed made up at RATE records an hour, free and offline). Each record is about th
 ``K.<its event-field, or --event>`` with the record as its data, and never again (de-duplicated by id and event,
 the last 20,000 kept), unless ``--changes`` and the record changed (``K.changed``). With ``--cursor-field`` only
 records past the greatest cursor seen are taken. The number printed last is the new items per hour over
-``--window`` (what the flow's rate is)."""
+``--window`` (what the flow's rate is).
+
+``--mirror`` (with ``--cursor-field``, the entry's position, and ``--position int|text``): each entry of an outside
+log said once, under ``cite:$ERGOSTAT_SENSOR:<type>:<position>`` (``mirror.py``), the cursor confirmed against the
+record and recovered from it (``mirrored``)."""
 
 from __future__ import annotations
 
@@ -23,7 +27,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 
-from .common import kept, note, now, say
+from .common import kept, note, now, project, say
 
 KEEP = 20000
 
@@ -117,19 +121,21 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--changes", action="store_true")
     ap.add_argument("--window", type=float, default=600.0, help="seconds")
     ap.add_argument("--timeout", type=float, default=25.0)
+    ap.add_argument("--mirror", action="store_true", help="each record once, under a cite of its --cursor-field")
+    ap.add_argument("--position", choices=("int", "text"), default="int", help="with --mirror: how positions order")
     a = ap.parse_args(argv)
+    if a.mirror and (not a.cursor_field or a.changes):
+        ap.error("--mirror needs --cursor-field (the position) and takes no --changes")
     keep_fields = [f.strip() for x in a.field for f in x.split(",") if f.strip()] or None
+    if a.mirror:
+        with kept(a.name, "collect") as mem:
+            failed = mirrored(a, mem, keep_fields)
+        if failed:
+            raise SystemExit(failed)
+        return 0
     with kept(a.name, "collect") as mem:
         cursor = mem.get("cursor")
-        if not a.command and not a.url:
-            recs = stand_in(mem, a.kind, a.stand_in, a.answer_after)
-        else:
-            try:
-                text = from_command(a.command, cursor, a.timeout) if a.command else from_url(a.url, cursor, a.header, a.timeout)
-            except (OSError, subprocess.TimeoutExpired) as e:   # (urllib's errors are OSErrors)
-                why = getattr(e, "reason", None) or getattr(e, "code", None) or e
-                raise SystemExit(f"cannot read {a.url or a.command}: {why}") from None
-            recs = records_of(text, a.path)
+        recs = source(a, mem, cursor)
         seen: dict = mem.setdefault("seen", {})
         arrivals: list = mem.setdefault("arrivals", [])
         t = now()
@@ -167,6 +173,108 @@ def main(argv: list[str]) -> int:
         arrivals[:] = [x for x in arrivals if x > t - a.window]
         print(round(len(arrivals) * 3600.0 / a.window, 6))
     return 0
+
+
+def source(a, mem: dict, cursor) -> list[dict]:
+    """One poll's records, from the command, the URL or the stand-in."""
+    if not a.command and not a.url:
+        return stand_in(mem, a.kind, a.stand_in, a.answer_after)
+    try:
+        text = from_command(a.command, cursor, a.timeout) if a.command else from_url(a.url, cursor, a.header, a.timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:   # (urllib's errors are OSErrors)
+        why = getattr(e, "reason", None) or getattr(e, "code", None) or e
+        raise SystemExit(f"cannot read {a.url or a.command}: {why}") from None
+    return records_of(text, a.path)
+
+
+MOST = 5000                 # a mirror's entries said in one poll, the lowest positions first; the rest wait
+
+
+def mirrored(a, mem: dict, keep_fields) -> str | None:
+    """One poll of a mirror (SPEC §2, ``collect``), under ``kept``'s lock: what was said last time confirmed against the
+    record (or, with no memory, the cursor recovered from it), then the source read from that cursor and its new entries
+    said, each under the cite of its position. Why it failed, or None; the memory is written either way."""
+    from ... import mirror as mi
+    log, want = os.environ.get("ERGOSTAT_SENSOR") or "", mi.TYPES[a.position]
+    if not log:
+        return "a mirror cites as the sensor that runs it: ERGOSTAT_SENSOR is not set"
+    try:
+        p = project()
+        m = mem.get("mirror")
+        if not (isinstance(m, dict) and m.get("type") in ("i", "t") and isinstance(m.get("said"), list)):
+            got = mi.recorded(p.events, log)                  # memory lost: resumed from what the record holds
+            m = {"type": got[0] if got else want, "cursor": got[1] if got else None, "said": []}
+        elif m["cursor"] is not None:
+            m["cursor"] = mi.position(m["cursor"], m["type"])
+        if m["type"] != want:
+            return f"{log} was mirrored with {'whole-number' if m['type'] == 'i' else 'text'} positions: set --position " \
+                   "back, or name the sensor anew (its cites stay in the record: clearing its memory does not help)"
+        mem["mirror"], said = m, m["said"]
+        have = p.events.known(said) if said else set()
+        missing = next((i for i in said if i not in have), None)
+        for i in said[: said.index(missing) if missing else len(said)]:
+            m["cursor"] = mi.parse(i)[2]
+        m["said"] = []
+        if missing:
+            at = m.get("at") if isinstance(m.get("at"), int) else None    # only a reason given since it was said
+            last = p.events.query(n=1, type="sensor.refused,sensor.failed", item=log, after_seq=at, source="ergostat")
+            why = last[-1]["data"].get("why") if last else None
+            return f"position {mi.parse(missing)[2]} of {log} was said but not recorded: {why or 'not in the record'}"
+        cursor, m["at"] = m["cursor"], p.events.last_seq()
+        recs = source(a, mem, cursor)
+        entries: dict = {}
+        for r in recs:
+            rid, raw = r.get(a.id_field), r.get(a.cursor_field)
+            what = f"the record {str(rid)[:60]!r}"
+            if rid is None or str(rid) == "" or raw is None:
+                return f"{what} has no {a.id_field if raw is not None else a.cursor_field}: nothing said"
+            try:
+                pos = mi.position(raw, want)
+                cid = mi.cite(log, want, pos)
+            except mi.MirrorError as e:
+                return f"{what}: its {a.cursor_field} {e}: nothing said"
+            why = mi.valid(cid, log)
+            if why:
+                return f"{what}: {why}: nothing said"
+            ev = str(r.get(a.event_field) or a.event) if a.event_field else a.event
+            data = {k: v for k, v in r.items() if k != a.event_field and (keep_fields is None or k in keep_fields)}
+            line = {"event": f"{a.kind}.{ev}", "item": f"{a.kind}/{str(rid).replace(' ', '-')}", "id": cid, "data": data}
+            if pos in entries and _same(entries[pos]) != _same(line):
+                return f"two different records at position {pos} of {log}: nothing said"
+            entries[pos] = line
+        if entries and cursor is not None:
+            top = max(entries)
+            if top < cursor:
+                return f"{log} went back: its newest entry {top} is before the cursor {cursor}"
+            was = p.events.get(entries[cursor]["id"]) if cursor in entries else None
+            if was and was["id"] == entries[cursor]["id"] and _rid(was) != _rid(entries[cursor]):   # the source's id
+                return f"{log} went back: its entry at the cursor {cursor} is not the one recorded there (restarted?): " \
+                       "name the sensor anew"
+    except mi.MirrorError as e:
+        return str(e)
+    except Exception as e:                                    # any failure stops the poll: never "from the beginning"
+        return f"cannot mirror {log}, nothing said: {type(e).__name__}: {e}"
+    new = sorted(x for x in entries if cursor is None or x > cursor)[:MOST]
+    arrivals: list = mem.setdefault("arrivals", [])
+    t = now()
+    for x in new:
+        say(entries[x])
+        if entries[x]["event"] == f"{a.kind}.{a.event}":
+            arrivals.append(t)
+    m["said"] = [entries[x]["id"] for x in new]
+    arrivals[:] = [x for x in arrivals if x > t - a.window]
+    print(round(len(arrivals) * 3600.0 / a.window, 6))
+    return None
+
+
+def _same(e: dict) -> str:
+    """What an entry says, to tell two entries at one position apart."""
+    return json.dumps([e.get("type", e.get("event")), e.get("item"), e.get("data")], sort_keys=True, default=str)
+
+
+def _rid(e: dict) -> str:
+    """An entry's own id in its source (its ``--id-field``), which ``fields:``, ``kind`` and ``event-field`` don't change."""
+    return str(e.get("item") or "").partition("/")[2]
 
 
 def _key(x):

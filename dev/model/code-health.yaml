@@ -2,6 +2,9 @@
 # (size, churn, duplicates, dead candidates, coverage: scripts/code_evidence.py) and a gap asked for that removes code
 # from it, built and reviewed as any other (dev/bin/simplify.py). Pool 1: at most one such gap open, held under a lock
 # in the program. Each merged simplification's `Removed:` trailers become removal items.
+# The code measures (code-health-measures): net lines, long functions, duplicates and dead candidates summed over
+# code_evidence.py's rows on main, and coverage; goals on each one's change over main's last 10 merges (by seq). A size
+# goal off fires the simplifier (code-drift); any off asks the coordinator (code-health-off).
 defaults:
   system: code-health
 
@@ -9,7 +12,9 @@ systems:
   code-health:
     within: factory
     description: the code kept small - one module picked by its evidence every few days and a gap asked for that removes code from it
-    show: [auxiliary.days-since-simplify, auxiliary.simplifications-in-flight, stock.removals-recorded]
+    show: [auxiliary.days-since-simplify, auxiliary.simplifications-in-flight, stock.removals-recorded,
+           auxiliary.code-net-lines, auxiliary.code-long-functions, auxiliary.code-duplicates,
+           auxiliary.code-dead-candidates, auxiliary.code-coverage]
 
 items:
   removal:
@@ -40,8 +45,83 @@ auxiliaries:
     description: simplification gaps not merged, parked or closed (open, ready, building, in review, in fix, queued)
     driven-by: [+flow.simplifications-requested]
     sensor: {run: python3 dev/bin/simplify.py in-flight, every: 10m, timeout: 2m, description: the simplifier's record}
+  code-net-lines:
+    unit: lines
+    description: net lines (neither blank nor only a comment) of ergostat/, dev/bin/ and scripts/ on main
+    driven-by: [+flow.gaps-merged, -flow.removals-merged]
+    sensor: {run: python3 dev/bin/measure.py code-net-lines, every: 1h, timeout: 11m, description: the code's evidence}
+  code-long-functions:
+    unit: functions
+    description: functions longer than 60 lines in ergostat/, dev/bin/ and scripts/ on main
+    driven-by: [+flow.gaps-merged, -flow.removals-merged]
+    sensor: {run: python3 dev/bin/measure.py code-long-functions, every: 1h, timeout: 11m, description: the code's evidence}
+  code-duplicates:
+    unit: functions
+    description: functions whose body (names and constants replaced) is another's, on main
+    driven-by: [+flow.gaps-merged, -flow.removals-merged]
+    sensor: {run: python3 dev/bin/measure.py code-duplicates, every: 1h, timeout: 11m, description: the code's evidence}
+  code-dead-candidates:
+    unit: names
+    description: top-level functions and classes nothing else names, on main - candidates, never findings
+    driven-by: [+flow.gaps-merged, -flow.removals-merged]
+    sensor: {run: python3 dev/bin/measure.py code-dead-candidates, every: 1h, timeout: 11m, description: the code's evidence}
+  code-coverage:
+    unit: share
+    description: statements the unit suite on main ran over all statements, from the latest coverage report (no value without one)
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py code-coverage, every: 1h, timeout: 1m, description: the code's evidence}
+  code-net-lines-change:
+    unit: lines
+    description: code-net-lines' change over main's last 10 merges, by seq (one sha once)
+    driven-by: [+auxiliary.code-net-lines]
+    sensor: {run: python3 dev/bin/measure.py code-net-lines-change, every: 1h, timeout: 1m, description: the code's evidence}
+  code-long-functions-change:
+    unit: functions
+    description: code-long-functions' change over main's last 10 merges, by seq (one sha once)
+    driven-by: [+auxiliary.code-long-functions]
+    sensor: {run: python3 dev/bin/measure.py code-long-functions-change, every: 1h, timeout: 1m, description: the code's evidence}
+  code-duplicates-change:
+    unit: functions
+    description: code-duplicates' change over main's last 10 merges, by seq (one sha once)
+    driven-by: [+auxiliary.code-duplicates]
+    sensor: {run: python3 dev/bin/measure.py code-duplicates-change, every: 1h, timeout: 1m, description: the code's evidence}
+  code-dead-candidates-change:
+    unit: names
+    description: code-dead-candidates' change over main's last 10 merges, by seq (one sha once)
+    driven-by: [+auxiliary.code-dead-candidates]
+    sensor: {run: python3 dev/bin/measure.py code-dead-candidates-change, every: 1h, timeout: 1m, description: the code's evidence}
+  code-coverage-change:
+    unit: share
+    description: code-coverage's change over main's last 10 merges, by the reports' seq (one sha once)
+    driven-by: [+auxiliary.code-coverage]
+    sensor: {run: python3 dev/bin/measure.py code-coverage-change, every: 1h, timeout: 1m, description: the code's evidence}
 
 goals:
+  code-net-lines-not-rising:
+    auxiliary: code-net-lines-change
+    hold: "<= 0"
+    tolerance: 0
+    description: net lines not rising over main's last 10 merges (lines alone never say the code got simpler)
+  code-long-functions-not-rising:
+    auxiliary: code-long-functions-change
+    hold: "<= 0"
+    tolerance: 0
+    description: no more functions over 60 lines than 10 merges ago
+  code-duplicates-not-rising:
+    auxiliary: code-duplicates-change
+    hold: "<= 0"
+    tolerance: 0
+    description: no more duplicate function bodies than 10 merges ago
+  code-dead-candidates-not-rising:
+    auxiliary: code-dead-candidates-change
+    hold: "<= 0"
+    tolerance: 0
+    description: no more dead candidates than 10 merges ago
+  code-coverage-not-falling:
+    auxiliary: code-coverage-change
+    hold: ">= 0"
+    tolerance: 0
+    description: the statement-weighted coverage no lower than 10 merges ago
   simplified-every-few-days:
     auxiliary: days-since-simplify
     hold: "<= 4"                       # 3 days, and the simplifier's 6h pacing, and a day's spent money
@@ -67,9 +147,29 @@ blocks:
       days: auxiliary.days-since-simplify
       inflight: auxiliary.simplifications-in-flight
       over: goal.ai-budget.off
-    # the 0: the measures' drift flag, an input added by code-health-measures (point 5); until then it reads 0
-    expr: max(days >= 3, 0) * (inflight < 1) * (1 - over)
+      drift: block.code-drift
+    expr: max(days >= 3, drift) * (inflight < 1) * (1 - over)
     out: block.simplifier
+  code-drift:
+    type: expr
+    description: a size measure rising over main's last 10 merges - net lines, long functions, duplicates or dead candidates
+    in:
+      lines: goal.code-net-lines-not-rising.off
+      long: goal.code-long-functions-not-rising.off
+      dups: goal.code-duplicates-not-rising.off
+      dead: goal.code-dead-candidates-not-rising.off
+    expr: max(lines, long, dups, dead)
+    out: block.simplify-when
+  code-health-off:
+    type: expr
+    system: measures                   # beside factory-off: a link from outside into the controller of measures'
+                                       # own goals reaches into its internals (check: interface)
+    description: any of the code measures' goals off - the coordinator asked, as for the factory's other measures
+    in:
+      drift: block.code-drift
+      coverage: goal.code-coverage-not-falling.off
+    expr: max(drift, coverage)
+    out: block.factory-off             # one of factory-off's inputs, so the coordinator has one commander
   simplifier:
     type: program
     description: picks one module by its evidence (skipping those under the coverage floor, touched by a gap in flight, or picked in 30 days) and asks for a gap that removes code from it - pool 1, under a lock

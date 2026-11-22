@@ -1,9 +1,10 @@
 """main-broken: the implementor's own triage of its fast suites (implement.py), before a failure counts against the gap.
 
-The fast suites are ruff, [suites] build when set (the small set, scripts/affected_tests.py; else the full unit suite)
-and the four browser files (a browser test skipped fails them, as in the queue). The tests that failed (unit, build or
-browser) are run again alone on the branch (`alone`; `rerun`, with Playwright, for the browser's): passing, they are
-flakes (`flake.seen`), and the fast suites
+The fast suites are ruff, [suites] build when set (the small set, scripts/affected_tests.py; else the full unit suite),
+and the four browser files only with [suites] build_browser = true (a browser test skipped fails them, as in the
+queue); the merge queue runs unit, browser and demo in full either way (queue.py). The tests that failed (unit, build
+or browser) are run again alone on the branch (`alone`; `rerun`, with Playwright, for the browser's): passing, they
+are flakes (`flake.seen`), and the fast suites
 are run once more, uncounted, once per run. Those still failing are run once on clean main (the commit the branch
 merged), in a clone of the drop at it. Each run is in the same kind of suite container as the fast suites, in the
 suite slot. A test that fails on main too is main's, not the gap's (lesson 13: reported, not fixed): an item
@@ -23,7 +24,6 @@ import agents
 import fac
 
 LEAST = 60.0          # seconds a rerun is assumed to take at the least (a container started, the tests collected)
-FAST = ("ruff", "unit", "build", "browser")            # the round's fast suites (unit or build: see step)
 AGAIN = {"unit": "alone", "build": "alone", "browser": "rerun"}  # each one's tests run again alone ("rerun": Playwright)
 
 
@@ -39,8 +39,8 @@ def step(cfg: dict) -> str:
 
 
 def fast(cfg: dict) -> tuple[str, ...]:
-    """The implementor's fast suites: ruff, its test step (see step) and the four browser files."""
-    return ("ruff", step(cfg), "browser")
+    """The implementor's fast suites: ruff, its test step (see step), then the four browser files if turned on."""
+    return ("ruff", step(cfg)) + (("browser",) if cfg["suites"].get("build_browser") is True else ())
 
 
 def failing(cfg: dict, branch: str, main: str, tests: list[str], logs: Path, tag: str, suite: str = "alone") -> dict:

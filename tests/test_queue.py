@@ -5,10 +5,14 @@ a-queue-run-that-lands-nothing.md)."""
 from __future__ import annotations
 
 import json
+import os
+import re
+import signal
 import subprocess
 import sys
+import time
 
-from tests.test_factory import BIN, ROOT, Factory, approved_gaps, main_moves, merges, set_action, suite_runs
+from tests.test_factory import BIN, ROOT, Factory, approved_gaps, main_moves, merges, module, set_action, suite_runs
 
 RED = "echo run >> {runs}"
 
@@ -187,3 +191,197 @@ def test_a_held_send_back_reaches_fix_after_the_run(tmp_path):
     assert c.state == "fix" and c.fields["sent_back_by"] == "queue"
     assert c.fields["findings"] == ["conflicts with main: app.py"] and c.fields["failed_gates"] == 1
     assert e.sent_back_by_queue() > 0
+
+
+# ---- a suite that stops making progress (fac.suite's limits, for the queue and triage: fac.limits())
+
+SUITE = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac; from pathlib import Path\n"
+         "cfg = fac.config()\n"
+         "try:\n"
+         "    rc, secs = fac.suite(cfg, 'unit', Path('.'), Path(sys.argv[2]), slot=False, box='queue')\n"
+         "    print(json.dumps({'rc': rc, 'seconds': secs}))\n"
+         "except fac.Stalled as e:\n"
+         "    print(json.dumps({'stalled': e.suite, 'why': e.why, 'test': e.test, 'tail': e.tail}))\n")
+
+
+def limited(f: Factory, **limits) -> None:
+    """[suites] limits for the fixture's factory ([suites] is its settings' last table)."""
+    f.config.write_text(f.config.read_text() + "".join(f"{k} = {v}\n" for k, v in limits.items()))
+
+
+def one_suite(f: Factory) -> dict:
+    """fac.suite's unit suite as the queue runs it (box "queue"), from the model's folder."""
+    r = subprocess.run([sys.executable, "-c", SUITE, str(BIN), str(f.tmp / "suite.log")], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.splitlines()[-1])
+
+
+def gone(pid: int) -> bool:
+    """The process ended (no such process, or a zombie only)."""
+    out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return not out or out.startswith("Z")
+
+
+def hangs(tmp_path) -> str:
+    """A stand-in suite that names a test, then sleeps (in a process of its own, its pid written) and prints no more."""
+    return f"echo $$ > {tmp_path / 'group'}; echo tests/test_x.py::test_hangs; sleep 600 & echo $! > {tmp_path / 'sleeper'}; wait"
+
+
+def test_a_suite_whose_log_stops_growing_is_stopped_as_a_stall(tmp_path):
+    f, e = Factory(tmp_path, unit=hangs(tmp_path)), Engine(tmp_path)
+    limited(f, stall_minutes=0.05)                                             # 3 s
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    for g in "ab":
+        e.approved(f"gap/{g}")
+    began = time.time()
+    try:
+        said, lines = f.run("queue.py", "gap/a")
+        assert time.time() - began < 60
+        assert gone(int((tmp_path / "sleeper").read_text()))                  # its process group stopped
+    finally:
+        reaped(tmp_path / "group")
+    assert said == ["gap.queued", "gap.measured"] and merges(f) == []         # main undone; nothing to fix or triage
+    nacks = [x["nack"] for x in lines if "nack" in x]
+    assert len(nacks) == 1 and nacks[0]["count"] is False and "did not grow" in nacks[0]["why"]
+    a = f.item("gap/a")["fields"]
+    assert a["stalled"] == "unit" and a["stalled_test"] == "tests/test_x.py::test_hangs"
+    assert "test_hangs" in a["stalled_tail"] and a["stalled_batch"] == ["gap/a", "gap/b"]
+    assert "failed_gates" not in a and "findings" not in a
+    assert a["stalls"] == 0                                                    # not alone: no gap's stall counted,
+    assert json.loads((f.model / "run" / "queue.json").read_text())["cap"] == 1   # but the next batch is halved
+    assert f.item("gap/b")["state"] == "approved"
+    e.run(lines, "gap/a")                                                      # its lease ends after its lines
+    assert e.item("gap/a").state == "approved" and e.item("gap/b").state == "approved"
+
+
+def test_a_suite_past_its_wall_limit_is_stopped(tmp_path):
+    f = Factory(tmp_path, unit=f"echo $$ > {tmp_path / 'sh'}; while true; do echo tick; sleep 0.2; done")
+    limited(f, stall_minutes=1, wall_minutes=0.05)                             # it keeps printing; 3 s in all
+    began = time.time()
+    try:
+        got = one_suite(f)
+        assert time.time() - began < 30
+        assert got["stalled"] == "unit" and got["why"] == "it ran past 0.05 min" and got["test"] is None
+        assert gone(int((tmp_path / "sh").read_text())) and "tick" in got["tail"]
+    finally:
+        reaped(tmp_path / "sh")
+
+
+def reaped(pidfile) -> None:
+    """The stand-in's group stopped by the test itself when the code under test failed to (never left running). Only
+    while it is alive and still leads its own group: a pid gone and reused is never signalled (it is not ours)."""
+    try:
+        pid = int(pidfile.read_text())
+        if not gone(pid) and os.getpgid(pid) == pid:
+            os.killpg(pid, signal.SIGKILL)
+    except (OSError, ValueError):
+        pass
+
+
+def test_stall_limits_have_a_ceiling(tmp_path):
+    f = Factory(tmp_path)
+    text, load = f.config.read_text(), f"import sys; sys.path[:0] = [{str(BIN)!r}]; import fac; from pathlib import Path\n"
+    for bad in ("stall_minutes = 1000", "wall_minutes = 500", "stall_minutes = 0", "wall_minutes = -1"):
+        f.config.write_text(text + bad + "\n")
+        r = subprocess.run([sys.executable, "-c", load + "fac.config()"], cwd=f.model, env=f.env, capture_output=True,
+                           text=True, timeout=60)
+        assert r.returncode != 0 and f"[suites] {bad.split()[0]} =" in r.stderr, (bad, r.stderr)
+    f.config.write_text(text)                  # again at run time: settings changed after they were read are refused
+    code = load + ("cfg = fac.config(); cfg['suites']['stall_minutes'] = 1000\n"
+                   "try:\n    fac.suite(cfg, 'unit', Path('.'), Path('log'), slot=False, box='queue')\n"
+                   "except ValueError as e:\n    print('refused', e)\n")
+    r = subprocess.run([sys.executable, "-c", code], cwd=f.model, env=f.env, capture_output=True, text=True, timeout=60)
+    assert r.stdout.startswith("refused [suites] stall_minutes = 1000"), r.stderr
+    assert not (f.model / "log").exists()                                     # (the suite never started)
+    # the wall limit's default is three times the suites-in-time goal, as the model states the goal
+    goal = re.search(r"suites-in-time:\n\s+auxiliary: suite-minutes\n\s+hold: \"<= (\d+)\"",
+                     (ROOT / "dev" / "model" / "measures.yaml").read_text())
+    assert goal and int(goal[1]) == module("fac").SUITE_GOAL_MINUTES
+
+
+def test_a_hung_pytest_names_the_test_it_was_on(tmp_path):
+    # a real pytest -q under xdist, as the queue's unit suite runs: -q prints no test ids while tests run, so the test
+    # is read from the stack pytest's faulthandler dumps at half the stall limit (fac.suite sets its timeout)
+    hung = tmp_path / "hung" / "tests"
+    hung.mkdir(parents=True)
+    (hung / "test_hangs.py").write_text("import time\n\n\ndef test_quick():\n    pass\n\n\n"
+                                        "def test_hangs():\n    time.sleep(600)\n")
+    f = Factory(tmp_path, unit=f"echo $$ > {tmp_path / 'group'}; exec {sys.executable} -m pytest -q -n 2 "
+                               f"-p no:randomly -p no:cacheprovider {hung}")
+    limited(f, stall_minutes=0.2)                                              # 12 s; its stack dumped at 6 s
+    try:
+        got = one_suite(f)
+        assert got["stalled"] == "unit" and "did not grow" in got["why"]
+        assert got["test"] == "tests/test_hangs.py::test_hangs", got["tail"]
+        assert gone(int((tmp_path / "group").read_text()))
+    finally:
+        reaped(tmp_path / "group")
+
+
+def test_a_gap_that_stalls_alone_again_and_again_goes_to_triage(tmp_path):
+    stalls_most = module("fac").STALLS_MOST
+    f, e = Factory(tmp_path, unit=hangs(tmp_path)), Engine(tmp_path)
+    limited(f, stall_minutes=0.05)
+    approved_gaps(f, {"a": 1})
+    e.approved("gap/a")
+    for n in (1, stalls_most):
+        try:
+            said, lines = f.run("queue.py", "gap/a")
+        finally:
+            reaped(tmp_path / "group")
+        e.run(lines, "gap/a")
+        a = f.item("gap/a")["fields"]
+        assert a["stalls"] == n and json.loads((f.model / "run" / "queue.json").read_text())["cap"] == 1
+        if n == 1:                                                             # counted, given back uncounted
+            assert said == ["gap.queued", "gap.measured"] and [x["nack"]["count"] for x in lines if "nack" in x] == [False]
+            assert e.item("gap/a").state == "approved"
+            given_back(f, "gap/a")
+            db = f.db()
+            db["items"]["gap/a"]["fields"]["stalls"] = stalls_most - 1         # (the stalls between)
+            f.record.write_text(json.dumps(db))
+    assert said == ["gap.queued", "gap.measured", "gap.queue-failed"] and not [x for x in lines if "nack" in x]
+    assert a["failed_tests"] == ["tests/test_x.py::test_hangs"] and f"stalled {stalls_most} times" in a["findings"][0]
+    assert e.item("gap/a").state == "queue-failed" and merges(f) == []
+
+
+def test_a_triage_rerun_that_keeps_stalling_is_the_branchs(tmp_path):
+    from tests.test_factory import queue_failed
+    f, gid = queue_failed(tmp_path)
+    f.config.write_text(re.sub(r"^rerun = .*$", f'rerun = "{hangs(tmp_path)}"', f.config.read_text(), flags=re.M))
+    limited(f, stall_minutes=0.05)
+    for n in (1, module("fac").STALLS_MOST):
+        try:
+            said, lines = f.run("triage.py", gid)
+        finally:
+            reaped(tmp_path / "group")
+        assert f.item(gid)["fields"]["stalls"] == n
+        if n == 1:                                                             # tried again later, uncounted
+            assert said == ["gap.measured"] and [x["nack"]["count"] for x in lines if "nack" in x] == [False]
+            db = f.db()
+            db["items"][gid]["fields"]["stalls"] = module("fac").STALLS_MOST - 1
+            f.record.write_text(json.dumps(db))
+    assert said == ["gap.measured", "gap.sent-back"] and not [x for x in lines if "nack" in x]
+    assert f"stalled {n} times" in f.item(gid)["fields"]["findings"][-1]
+
+
+def test_a_slow_but_progressing_suite_is_left_running(tmp_path):
+    f = Factory(tmp_path, unit="for i in 1 2 3 4 5 6; do echo tick; sleep 1; done; exit 3")
+    limited(f, stall_minutes=0.05, wall_minutes=0.5)                           # 3 s without a line; 30 s in all
+    got = one_suite(f)
+    assert got["rc"] == 3 and got["seconds"] >= 5                              # its own rc: it ran to its end
+
+
+def test_a_wait_for_the_suite_slot_is_not_a_stall(tmp_path):
+    # triage's suites run inside [suites] slot: a slot held elsewhere past both limits is the machine's time, so the
+    # clocks start once the slot is held, and the suite then runs to its own rc
+    slot = tmp_path / "slot.sh"
+    slot.write_text('echo waiting for a slot; sleep 8; exec "$@"\n')
+    f = Factory(tmp_path, unit="for i in 1 2; do echo tick; sleep 1; done; exit 3")
+    limited(f, stall_minutes=0.05, wall_minutes=0.1, slot=json.dumps(f"sh {slot}"))   # 3 s and 6 s; the wait 8 s
+    r = subprocess.run([sys.executable, "-c", SUITE.replace("slot=False, box='queue'", "box='triage'"), str(BIN),
+                        str(tmp_path / "suite.log")], cwd=f.model, env=f.env, capture_output=True, text=True,
+                       timeout=120)
+    got = json.loads(r.stdout.splitlines()[-1])
+    assert got.get("rc") == 3 and got["seconds"] >= 9, got                    # never stopped while it waited
+    assert not (tmp_path / "suite.log.held").exists()
