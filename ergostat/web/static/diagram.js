@@ -1048,10 +1048,11 @@ async function pageDiagram(main, q) {
     const now = new Set(S.graph?.open || []);
     if (now.has(name)) { now.delete(name); for (const [k, v] of Object.entries(S.graph?.tree || {})) if (v.within === name) now.delete(k); }
     else now.add(name);
-    S.graphSig = "";
+    S.graphSig = ""; S.opening = name;
     go({ open: [...now].join(",") || "-" });
+    S.opening = null;
   };
-  S.drill = (name) => { S.graphSig = ""; S.fitted = false; go({ system: name, open: "" }); };
+  S.drill = (name) => { S.graphSig = ""; S.fitted = false; S.opening = name || "everything"; go({ system: name, open: "" }); S.opening = null; };
   const crumbs = h("span", { class: "crumbs" });
   const file = (suffix = "") => `${S.status?.name || "ergostat"}-${system || "all"}-${view}${suffix}.svg`;
   const wrapOn = () => S.wrap === true || (S.wrap == null && S.wrapAuto);
@@ -1136,7 +1137,15 @@ async function pageDiagram(main, q) {
   main.append(shell);
   panZoom(svg);
   S.graphSig = ""; S.fitted = false;
-  wrap.append(h("div", { class: "empty loading" }, "Loading\u2026"));
+  const was = S.was;
+  S.was = null;
+  if (was) {                                       // the diagram left stays, dimmed, and the side list with it, until this one is drawn
+    S.layout = null;                               // (only a picture now: nothing waits on its layout)
+    svg.append(s("g", { class: "was" }, ...was.querySelector("svg.canvas").childNodes),
+               s("text", { class: "opening-note", x: "50%", y: "50%", "text-anchor": "middle" }, S.opening ? `Opening ${S.opening}\u2026` : "Loading\u2026"));
+    side.append(...was.querySelector(".side").childNodes);
+    shell.classList.add("opening");
+  } else wrap.append(h("div", { class: "empty loading" }, "Loading\u2026"));
   let fails = 0;
 
   async function tick() {
@@ -1150,7 +1159,7 @@ async function pageDiagram(main, q) {
     const t0 = performance.now();
     try { g = await api("graph", ask); fails = 0; }
     catch (e) {
-      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
+      if (++fails >= 3) { wrap.querySelector(".empty")?.remove(); svg.querySelector(".opening-note")?.remove(); wrap.append(h("div", { class: "empty" }, SNAP ? "This view is not in the snapshot; the whole system and each system are." : "The server is not answering. Is ergostat still running?")); }
       return;
     }
     // the next ask: every 2.5s, later when an answer is slow (four times as long as it took, at most a minute)
@@ -1168,6 +1177,7 @@ async function pageDiagram(main, q) {
   }
   async function show(g) {
     wrap.querySelector(".loading")?.remove();
+    shell.classList.remove("opening");
     S.graph = g;
     proposedBanner(wrap, g, proposal, go);
     if (g.tree && !sysSel.dataset.tree) {            // the picker as the tree it is: each system under the one it is within

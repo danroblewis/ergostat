@@ -19,7 +19,7 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 
 async function pageLoops(main) {
   const p = page(main, "Loops");
-  const box = h("div"), cap = h("p", { class: "note" });
+  const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
   const perf = {};
   let pts = {}, ptsAt = 0;
   p.append(box, cap);
@@ -550,7 +550,7 @@ function remoteSection(r, d) {
 
 async function pageItems(main, q) {
   const p = page(main, "Items");
-  const notes = h("div"), box = h("div", { class: "item-systems" });
+  const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");
@@ -643,6 +643,7 @@ async function pageItems(main, q) {
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}), ...whatifParams(),
                                                      ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) });
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
+      box.querySelector(".page-loading")?.remove();
       patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
       return;
