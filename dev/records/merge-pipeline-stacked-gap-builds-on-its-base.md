@@ -60,3 +60,21 @@ each the more reversible one:
   gap stays inert until stacks-turned-on.
 
 Extra test, not named in the definition: test_finish_refuses_a_head_that_no_longer_holds_a_base (item 4).
+
+## Where it stopped
+
+Parked by the factory (reviewer, 2026-11-22 14:18).
+
+Stopped on its last attempt by RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/review.py", line 143, in main
+    return judge(cfg, given["item"], began)
+  File "/Users/user/ergostat-live/instance/dev/bin/review.py", line 195, in judge
+    got = fac.session(cfg, "reviewer", text, wt)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 669, in session
+    raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
+RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
+
+```
