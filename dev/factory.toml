@@ -67,6 +67,13 @@ image = "ergostat-agent:latest"      # docker build -t ergostat-agent:latest dev
 proxy_image = "ergostat-dev:latest"  # runs the egress proxy, dev/agent/egress.py
 hosts = ["api.anthropic.com"]        # the only hosts a session can reach, on 443
 token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude setup-token`; mode 600, or no session
+                                     # Docker's VM has 24 CPUs, split three ways so none slows another (the owner,
+                                     # 2026-11-21); an empty cpuset pins nothing (agents.limits)
+session_cpus = 1.5                   # one session's container's --cpus
+session_cpuset = "0-7"               # the sessions' (implementor, reviewer, ...) and their finish's CPUs
+suite_cpuset = "8-11"                # a gap's own suites' (the implementor's rounds, 4 CPUs each)
+queue_cpuset = "12-23"               # the merge queue's and flake triage's suites ([suites] queue_container): unit (8)
+                                     # and browser (4) at once
 
 [pools]                              # the AI pools start at 1, sized by risk (dev/bin/pools.py; the owner's tolerance is
                                      # the parameter risk-tolerance in dev/model/pools.yaml)
@@ -152,6 +159,8 @@ alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p n
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
 rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -p no:randomly {tests}"
 check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
+queue_container = true               # the queue's and triage's suites each in a container of the agent image, on
+                                     # [agents] queue_cpuset, no network (agents.queued); false: on the Mac, as before
 queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the
                                      # line tracer (ERGOSTAT_COVERAGE, tests/coverage_lines.py), its report kept under
                                      # run/coverage/ (dev/README.md, Coverage). On: its overhead on the full unit
