@@ -311,6 +311,9 @@ def build() -> argparse.ArgumentParser:
                                                               "\"value\": N} (- for standard input), written whole or "
                                                               "not at all; one backfilled before is skipped")
             sp.add_argument("--from", dest="from_", metavar="TEXT", help="with --backfill: where they came from")
+            sp.add_argument("--replace", action="store_true", help="with --backfill and --from: every reading from the "
+                                                                   "file's first at to its last set aside first (a measure "
+                                                                   "redefined: its history written again)")
             sp.add_argument("--backfilled", action="store_true", help="the sensor's backfills: when, from, first, last, count")
         if t == "controller":
             sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")

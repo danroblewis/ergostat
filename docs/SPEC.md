@@ -1948,7 +1948,8 @@ fit and `changes` flows read it as any reading:
 | Command | What it does |
 |---|---|
 | `ergostat sensor PART.SENSOR --backfill FILE [--from TEXT] [--json]` | FILE (`-`: standard input) is JSON lines `{"at": <epoch seconds>, "value": <number>}`, written to the series in one transaction. For a sensor that records a value (`run`, `query`, `manual`, `daemon`); refused for `items`, `changes` and `builtin`, which ergostat derives. Refused whole, nothing written, for a line that is not such an object, an `at` or `value` that is not a finite number, an `at` in the future, or more than 200,000 readings. Two lines with one `at`: the last is kept, and the count says so. Prints how many were written and how many skipped |
-| `ergostat sensor PART.SENSOR --backfilled [--json]` | The series' backfills, in the order they were made: when, `from`, the first and last `at` written, how many |
+| `ergostat sensor PART.SENSOR --backfill FILE --replace --from TEXT [--json]` | The same, for a measure whose definition changed: every reading of the series from the file's first `at` to its last (inclusive), live and backfilled alike, is set aside first, then the file is written. Refused without `--from`. Prints how many were set aside |
+| `ergostat sensor PART.SENSOR --backfilled [--json]` | The series' backfills, in the order they were made: when, `from`, the first and last `at` written, how many, and when a later `--replace` replaced it (`replaced`) |
 
 The measurements store keeps a **ledger** of them: each backfill (its id, series, `from`, when it
 was written, first, last, count) and each reading it wrote (series, `at`, the backfill's id). It is
@@ -1970,6 +1971,23 @@ after that roll (the ledger still names it, and it is still skipped). A bucket k
 sum, minimum, maximum, and first and last reading of what fell in it, and a read of readings one by
 one gets each old bucket's last: two readings closer together than an old tier's bucket (two
 commits within the hour, in a tier of one-hour buckets) are one point there, the later one.
+
+**Replacing a span.** Without `--replace`, a file of new values at the old times is all skipped,
+and the record keeps the old definition; old and new readings side by side would be read by
+`changes` flows as rises and falls that never happened. With it, the readings in the span are set
+aside as `forget` sets them (kept in the `forgotten` table, or `measurements.forgotten.json`, with
+when and why: the `--from` text), and so are readings waiting to be merged late there. Every
+tier's buckets that overlap the span are made again from what is left (the finest from the raw
+readings, each coarser from the next finer), or dropped where that is gone; the new readings reach
+them at the next roll. Readings outside the span are untouched, though a bucket that overlaps the
+span's edge and whose raw readings are gone loses that bucket's readings outside the span too. The
+ledger's entries in the span become this call's, and each earlier backfill reaching into the span
+is marked `replaced`, with when (also when it was replaced only in part). On `sqlite` this is one
+transaction with the ledger. `victoriametrics` deletes only whole series, so there the series is
+read out, the span removed, the file added and the whole written back, under the compaction lock
+and the ledger's transaction; a live reading the engine sends between the read and the delete is
+lost. The event `sensor.backfilled` says `replaced`: how many readings were set aside (raw ones,
+and those of finest-tier buckets dropped because their raw readings were gone).
 
 `changes` measures a flow by what it did to its stock: a benchmark's score rising with a release
 is its inflow, a sudden fall its outflow. It is how a stock read by a script gets measured flows

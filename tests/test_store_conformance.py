@@ -417,6 +417,36 @@ def test_backfill_ledger_and_late_merge(me, monkeypatch):
     assert me.backfill("s", [(now - 7110, 3.0)])["count"] == 0 and me.backfills("other") == []
 
 
+def test_backfill_replace(me):
+    """A replacing backfill sets aside every reading of the series in its span (live, backfilled, late, or rolled into
+    buckets), writes the file, and leaves the rest alone; the ledger's entries there are its own."""
+    now = (T + 10 * 86400) // 3600 * 3600
+    lo, hi = now - 6900, now - 6300
+    me.add_many([("s", now - 7200 + i * 60, 1.0) for i in range(60)] + [("t", now - 6600, 4.0)])
+    me.backfill("s", [(now - 7170 + i * 60, 50.0) for i in range(10)], "old")
+    me.roll(now)                                         # (tiers: rolled, raw forgotten: the span is in buckets)
+    outside = [p for p in me.range("s", now - 7200, now - 3600) if not lo <= p[0] <= hi]
+    me.add("s", 77.0, at=now - 6500)                     # late, waiting for the next roll
+    with pytest.raises(ValueError):
+        me.backfill("s", [(lo, 9.0)], None, replace=True)
+    new = [(lo + i * 60, 9.0) for i in range(11)]
+    got = me.backfill("s", new, "redefined", replace=True)
+    assert (got["count"], got["skipped"], got["replaced"]) == (11, 0, 11 + 5 + 1)
+    me.roll(now)
+    after = me.range("s", now - 7200, now - 3600)
+    assert [p for p in after if lo <= p[0] <= hi] == new
+    assert [p for p in after if not lo <= p[0] <= hi] == outside
+    assert me.range("t", 0, now) == [(now - 6600, 4.0)]
+    means = [m for _, m, _, _ in me.bucketed("s", now - 7200, now - 6030, 2)]   # (made from the 1m tier's buckets)
+    assert means == pytest.approx([(5 * 1.0 + 5 * 50.0 + 5 * 9.0) / 15, (6 * 9.0 + 4 * 1.0) / 10])
+    if me.kind == "tiers":                               # the 10m tier's, made again from the 1m tier's and the late
+        assert [m for _, m, _, _ in me.bucketed("s", now - 7200, now - 6000, 2)] == pytest.approx(means)
+    old, mine = me.backfills("s")
+    assert old["replaced"] is not None and mine["replaced"] is None and mine["count"] == 11
+    assert me.backfill("s", new, "again")["count"] == 0 and me.backfill("s", [(now - 6870, 5.0)])["count"] == 1
+    assert me.backfill("s", [(now - 7170, 5.0)])["count"] == 0       # outside the span: the old backfill's still
+
+
 def test_times_are_the_events_time_type_and_seq(ev):
     for i in range(20):
         ev.add("loop.off" if i % 3 else "loop.holding", item=f"l{i % 2}", at=T + i)

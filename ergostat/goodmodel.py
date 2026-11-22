@@ -24,7 +24,8 @@ READ_WHAT = {"remote": ("proposals",)}
 # the other); what decides is the record, which the fallback opens refusing every write
 READ_FLAGS = ("n", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
               "to", "why", "after", "no_count", "all", "around", "depth", "list", "wiring", "blocks", "open", "note",
-              "command", "stats", "search", "near", "path_to", "about_item", "backfilled", "from_")
+              "command", "stats", "search", "near", "path_to", "about_item", "backfilled", "from_",
+              "replace")
 WRITES = ("add", "add_many", "prune", "replace", "forget", "roll", "drop", "flush", "backfill")
 
 
