@@ -13,3 +13,23 @@ Acceptance tests: the new unit test; the existing segment and store conformance 
 Budget: 20 net lines outside tests.
 
 Milestone: pages-answer-fast. Owner items: 2. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+- Done: `Segments._rows` (ergostat/segments.py) now checks the time and seq ranges, then `s.span(item)`, and only then
+  tests the types. Both checks only return `[]` early, so moving one ahead of the other leaves every argument
+  combination's rows as they were. Net change outside tests: 0 lines (a line moved, with a comment added).
+- Not built (the most reversible choice): the optional cache of each segment's matching types per matcher. `_scan`
+  makes a new matcher lambda for each call, so a cache keyed on the matcher could pick up a stale entry when an id is
+  reused (lesson 5), and a cache keyed on (type, skip) would add lines the definition does not require.
+- Tests: tests/test_segments_item_span.py. It builds a record of 12 sealed segments plus a head and keeps the same
+  events in SQLite as the old answer. For 50 random items it runs 11 query shapes (type, prefix, skip, n, first, a time
+  window, a seq window), and each answer must equal SQLite's. A counting matcher, passed to `_rows` directly and also
+  monkeypatched in through `query`, is called only for the types of the segments that hold the item (and the head's).
+  With the old order put back, both counting tests failed (60 calls against 5 expected, and 65 against 15); with the
+  change they pass. tests/test_store_conformance.py passes unchanged (38 passed; its 7 skips need VictoriaMetrics or
+  tiers, which were skipped before this change too).
+- Not run here: point 3 (the snapshot time before and after on a copy of the factory state) and the acceptance
+  measurement "a snapshot on 30+ sealed segments at least 30% faster". This session could only run named test files
+  and ruff (other shell commands were refused), and it has no copy of the factory state. The factory or the
+  coordinator must measure both on the branch head before the PR states any numbers. No speed-up is claimed here.

@@ -440,10 +440,10 @@ class Segments:
             return []
         if after_seq is not None and s.last <= after_seq or before_seq is not None and s.first >= before_seq:
             return []
+        if item is not ... and s.span(item) is None:     # first: it rules out most segments, and costs a bisection
+            return []
         want_types = None if types is None else [t for t in s.types if types(t)]
         if want_types is not None and not want_types:
-            return []
-        if item is not ... and s.span(item) is None:
             return []
         items_ok = None if item_test is None else [i for i, x in enumerate(s.items) if item_test(x)]
         if items_ok is not None and not items_ok:
