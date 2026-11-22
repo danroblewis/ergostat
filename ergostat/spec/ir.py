@@ -104,7 +104,7 @@ MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refu
                        "inconclusive"]            # the record held out could not tell it from the model as it is
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
 MODELLING_REQUEST = "ergostat.modelling-request"   # the built-in item kind: work for modelling, raised from what check finds
-MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered"]
+MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered", "dismissed"]
 CLAIM = "ergostat.claim"          # the built-in item kind: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
@@ -233,16 +233,75 @@ LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or 
 }
 
 
+BUDGET_MEASURES = {                # the day's AI budget (SPEC §9.9): what runs may still reserve
+    "ergostat.budget.left": "dollars of budget.daily left over the last day: daily less what ended runs cost and what "
+                            "runs in flight reserved; an error, never a number, when it cannot be worked out",
+}
+BUDGET_MOST = 10000.0             # the ceiling on budget.daily, in dollars
+
+
+@dataclass
+class RunBudget:
+    """``budget:`` (SPEC §9.9): ``daily``, dollars over the trailing day; ``max_cost``, what a charged run reserves
+    before it starts. Checked at compile time and again before every charged run (``problem``)."""
+    daily: float
+    max_cost: float
+    where: Where | None = None
+
+    def problem(self) -> str | None:
+        """Why these values are out of bounds, or None."""
+        d, m = self.daily, self.max_cost
+        if any(isinstance(x, bool) or not isinstance(x, int | float) or x != x for x in (d, m)):
+            return "budget: out of bounds: daily and max-cost must be numbers"
+        if d > BUDGET_MOST:
+            return f"budget.daily: out of bounds: {d:g} is above the ceiling of {BUDGET_MOST:g}"
+        if d <= 0:
+            return f"budget.daily: out of bounds: {d:g} is not above 0"
+        if m <= 0:
+            return f"budget.max-cost: out of bounds: {m:g} is not above 0"
+        if m > d:
+            return f"budget.max-cost: out of bounds: {m:g} is above budget.daily ({d:g})"
+        return None
+
+
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|heartbeat-age|stalls|restarts)$")
+UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
+    "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
+    "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
+    "ergostat.upkeep.heartbeat-age": "seconds since the last pass heartbeat.json gives; no reading without one",
+    "ergostat.upkeep.stalls": "ergostat.engine.stalled events over the last hour (the engine's watchdog)",
+    "ergostat.upkeep.restarts": "ergostat.engine.restarted events over the last day (the outer watcher)",
+}
+STALE_RANGE = (60, 3600)           # the seconds use: upkeep's heartbeat-fresh may give the outer watcher (SPEC §2a)
+
+
+def stale_ok(x) -> bool:
+    """A real number of seconds within ``STALE_RANGE``: never a bool, NaN or infinity (each fails the comparison)."""
+    return isinstance(x, int | float) and not isinstance(x, bool) and STALE_RANGE[0] <= x <= STALE_RANGE[1]
+
+
+def heartbeat_stale(spec) -> float | None:
+    """The limit of ``use: upkeep``'s goal ``heartbeat-fresh`` (ergostat's own template), for ``heartbeat.json``; None
+    in a model without it, or with one outside ``STALE_RANGE``."""
+    for inst, u in (getattr(spec, "uses", None) or {}).items():
+        if isinstance(u, dict) and u.get("template") == "upkeep" and not u.get("owners"):
+            g = (getattr(spec, "goals", None) or {}).get("heartbeat-fresh")
+            if g is not None and g.system == inst and g.hold.op == "<=" and stale_ok(g.hold.value):
+                return float(g.hold.value)
+    return None
+
+
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
     intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
     ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``), the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``) or what the runs
-    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``)."""
-    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES
+    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), or ergostat's upkeep (``ergostat.upkeep.*``)."""
+    return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES or bool(UPKEEP.match(name))
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
-            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES)
+            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES
+            or name in BUDGET_MEASURES)
 
 
 CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign")   # what accept: names (SPEC §12e)
@@ -279,7 +338,8 @@ def once_made(spec, x) -> bool:
 
 def modelling_request_kind() -> ItemKind:
     on = {f"{MODELLING_REQUEST}.raised": "open", f"{MODELLING_REQUEST}.reopened": "open", f"{MODELLING_REQUEST}.proposed": "proposed",
-          f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered"}
+          f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered",
+          f"{MODELLING_REQUEST}.dismissed": "dismissed"}
     return ItemKind(MODELLING_REQUEST, f"{MODELLING_REQUEST}/*", list(MODELLING_REQUEST_STATES), on,
                     ["code", "about", "source", "tier", "change"], {}, None,
                     "work for the modelling subsystem: a finding, a chain finding, a coherence mismatch or a craft note "
@@ -416,7 +476,8 @@ class Action:
     ``{run}``); ``gate``: ``auto``, ``approve`` or ``deny``; ``cls``: the class it is counted in (its name, else);
     ``args``: name → what it is; ``wait``: how long a session waits for the owner before going on without it;
     ``in_``: where it runs (else the session's working directory); ``fenced``: False for an action that runs once
-    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs)."""
+    approved whatever became of the lease it was asked under (one whose command is safe whenever it runs);
+    ``severity`` (1 to 5; None: no ``risk:``) and ``threshold``: its act-risk (``actions/risk.py``)."""
     name: str
     run: str
     gate: str = "approve"
@@ -428,6 +489,8 @@ class Action:
     description: str = ""
     where: Where | None = None
     fenced: bool = True
+    severity: int | None = None
+    threshold: float = 8.0
 
 
 @dataclass
@@ -466,6 +529,7 @@ class Sensor:
     builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
+    untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
 
     @property
     def window(self) -> float:
@@ -644,10 +708,12 @@ class Block:
     implied: bool = False      # put in by ergostat (a machine block's goal:), not written
     signs: dict[str, int] = field(default_factory=dict)         # port → +1 or -1, for an input written with a sign (+stock.x)
     takes: Takes | None = None   # the items it works, one run per item, each leased (SPEC §9.5)
-    pool: int = 1                # the most runs of it at once, when it takes items
+    pool: int = 1                # the most runs of it at once, when it takes items (``pool: N``, or ``most:``)
+    pool_now: Ref | None = None  # ``pool: {now: stock.S}``: the pool read from S at each dispatch, at most ``pool``
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # its leases' terms, over its kind's and its tier's
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
+    untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
 
     @property
     def builtin(self) -> bool:
@@ -773,6 +839,8 @@ class Relation:
     precedence: bool = False        # its targets come first: this item is not ready until each is finished
     inverse: str = ""               # the other direction's name, derived (blocks, children)
     group: bool = False             # a parent: the Graph view groups by it
+    remote: str = ""                # names a remote's kind (incidents-incident): the remote; never precedence (§4c)
+    there: str = ""                 # the kind's name at that remote (incident)
 
 
 @dataclass
@@ -808,6 +876,8 @@ class ItemKind:
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
+    about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
+    moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
 
     def matches(self, id: str) -> bool:
         import fnmatch
@@ -821,6 +891,7 @@ class Source:
     url: str = ""
     where: Where | None = None
     token_file: str = ""       # an ergostat source (a remote, SPEC §4c): the file holding its token
+    tls: dict | None = None    # and its mutual TLS (cert, key, ca), as its remotes: entry says
 
 
 @dataclass
@@ -889,6 +960,7 @@ class Spec:
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
+    budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept

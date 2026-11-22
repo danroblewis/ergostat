@@ -35,8 +35,8 @@ systems:
     show: [stock.gaps-approved, stock.gaps-queued, stock.upgrades-installed]
   pools:
     within: factory
-    description: the AI pools - one implementor and one reviewer to start, raised on a streak of good gaps, lowered on a bad one
-    show: [stock.implementor-pool, stock.reviewer-pool, auxiliary.good-streak]
+    description: the AI pools - one implementor and one reviewer to start, sized by measured risk against the owner's risk tolerance
+    show: [stock.implementor-pool, stock.reviewer-pool, auxiliary.pool-risk-bound, auxiliary.pool-target]
   oversight:
     within: factory
     description: what the factory may spend, the machine's load, how well it works, and the coordinator's interventions
@@ -74,18 +74,18 @@ systems:
     show: [stock.research-asked]
   managing:
     within: oversight
-    description: the pipeline manager - an AI session per situation (a gap stuck, parked or dead, the queue blocked, an intervention left), acting through manage.py and recording each act as an intervention
-    show: [stock.situations-raised, auxiliary.stuck-gaps]
+    description: the pipeline manager - one AI session over the whole pipeline, on a schedule and at once when the merge pipeline breaks, acting through manage.py and recording each act as an intervention
+    show: [stock.situations-raised, auxiliary.stuck-gaps, auxiliary.pipeline-broken-minutes]
   knowledge:
     within: factory
     description: what the briefs carry (dev/knowledge/) - lessons proposed from reviews, approved, added and retired
-    show: [stock.knowledge-entries, stock.lessons-proposed, auxiliary.first-pass-with-lessons]
+    show: [stock.knowledge-entries, stock.lessons-proposed, stock.lessons-to-apply, auxiliary.first-pass-with-lessons]
 
 items:
   gap:
     id: gap/*
     description: one piece of ergostat's work - a GAPS.md entry or a request - from open to merged, or parked
-    states: [open, replan, planned, split, ready, fix, building, built, in-review, approved, queued, push-pending,
+    states: [open, replan, planned, split, joined, ready, fix, building, built, in-review, approved, queued, push-pending,
              queue-failed, merged, parked, closed]
     on:
       gap.found: open                # intake: an entry of docs/GAPS.md
@@ -93,6 +93,7 @@ items:
       gap.planned: planned           # planner: its definition of done written (run/plans/)
       gap.plan-sent-back: replan             # plan review: sent back to the planner with its findings
       gap.split: split               # planner: split into sub-gaps, each naming it as parent; joined once all merged
+                                     # (or the join judge: short, a new sub-gap requested first)
       gap.defined: ready             # intake, or the plan review: its definition of done exists
       gap.started: building          # implementor
       gap.built: built
@@ -123,9 +124,11 @@ items:
       failed_gates: sum
       retries: sum
       queue_attempts: sum
+      stalls: sum                    # its suite runs stopped for a limit, it alone in the batch (queue, triage)
       sessions: sum
       ai_cost_usd: sum
       build_hours: sum
+      build_failures: sum            # one per failed build, over the gap's life: the kill rule (dev/README.md)
       review_hours: sum
       queue_wait_hours: sum
       queue_runs: append             # each queue run it was in: its id, whole minutes, end (merges-per-hour)
@@ -136,11 +139,18 @@ items:
       plan_reviews: append
       research: union
       research_waits: sum
+      measured_runs: append          # each measure-runs of a named measurement: its head, counts, runs (dev/bin/runs.py)
+      join_verdicts: append          # each judgment of the join judge: covered or short, the points not built
       resources: append              # each session's and suite's CPU and memory, peak and mean (dev/bin/resources.py)
+      tool_denials: sum              # its sessions' tool calls refused (dev/bin/sessions.py), and which (denied); a
+      tool_denials_unknown: sum      # session whose result said nothing of them counts in tool_denials_unknown
+      denied: append
     join:
-      - {children: parent, all: merged, to: merged}   # a split gap is merged once every sub-gap is
+      - {children: parent, all: merged, to: joined}   # a split gap waits for the join judge once every sub-gap is
+                                                       # merged (plan.py join: merged, split again, or parked)
     lease: {attempts: 2}
-    # gap.reverted (no state): the coordinator says a merge was reverted on main - evidence against the pools
+    # gap.reverted (no state): the coordinator says a merge was reverted on main - an escape, evidence against the
+    # pools (dev/bin/risk.py); so is broke_main, or a later gap or intervention naming it as its caused_by
     # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
     # gap.need-met (no state): the coordinator or owner records a needs park's action done (need_met: what was done)
     # gap.resumed (no state): a park resumed (resumed_as, resumed_for, resumed_by, cleared: the condition; parks.py)
@@ -202,15 +212,16 @@ items:
 
   situation:
     id: situation/*
-    description: one thing the pipeline manager is asked to look at - the queue blocked, a gap dead, parked or stuck, an intervention unremedied, or its heartbeat - raised one at a time by pipeline-watch (dev/bin/watch.py)
-    states: [raised, handled, failed]
+    description: one pipeline manager session - every standing trigger no earlier session handled (the queue blocked, gaps dead, parked or stuck, aging defects) and the merge pipeline's broken conditions, raised by pipeline-watch on its schedule or at once when the merge pipeline breaks (dev/bin/watch.py)
+    states: [raised, handled, failed, superseded]
     on:
-      situation.raised: raised
-      situation.handled: handled     # the session's calls run (manage.py), each with what it said
+      situation.raised: raised       # reason: scheduled or broken; triggers, each with its fingerprint (prints)
+      situation.handled: handled     # the session's calls run (manage.py), each with what it said; an answer per trigger
       situation.failed: failed
-    show: [trigger, subject, why, summary, ai_cost_usd]
+      situation.superseded: superseded   # one raised by the one-trigger watch (no prints): closed, never run
+    show: [reason, triggers_n, actions_n, summary, ai_cost_usd]
     relations:
-      gap: gap                       # the gap it is about: the gap's page lists it
+      gap: gap                       # the gaps its triggers are about: each gap's page lists it
     lease: {attempts: 2}
 
   pool:
@@ -221,7 +232,7 @@ items:
       pool.measured: held
       pool.raise-asked: held
       pool.lowered: held
-    show: [pool, most, streak, why]
+    show: [pool, most, decision, risk_bound, tolerance, target, why]
 
   upgrade:
     id: upgrade/*
@@ -252,15 +263,17 @@ items:
 
   lesson:
     id: lesson/*
-    description: a change to the review lessons - a new class seen, proposed by the librarian, requested as a gap once approved, denied by the coordinator, or retired
-    states: [seen, proposed, requested, denied, retired]
+    description: a change to the review lessons, its exact text on the item (entry) - a new class seen, proposed by the librarian (or added by the coordinator), approved, applied by lesson-apply to the record the briefs read, denied by the coordinator, or retired
+    states: [seen, proposed, requested, approved, applied, denied, retired]
     on:
       lesson.seen: seen              # librarian: a class not listed, found in one review
       lesson.proposed: proposed      # librarian: a new shape of a known class, or a class found twice
-      lesson.requested: requested    # knowledge-change approved: a gap with the exact edit (lesson.py)
+      lesson.requested: requested    # before the knowledge queue: a gap with the exact edit (migrated by lesson.py settle)
+      lesson.approved: approved      # knowledge-change approved, or lesson.py add / retire
+      lesson.applied: applied        # lesson-apply: carried by the briefs from the record
       lesson.denied: denied          # knowledge-change denied: settled, never proposed again (lesson.py settle)
-      lesson.retired: retired        # lesson.py retire
-    show: [kind, lesson, name, text, times, gap, denied_by, why]
+      lesson.retired: retired        # lesson-apply, for lesson.py retire: no longer carried
+    show: [kind, lesson, name, entry, text, times, gap, denied_by, why]
     fold: {times: sum, reviews: union, findings: append}
 
   knowledge:
@@ -271,11 +284,12 @@ items:
       knowledge.found: active        # knowledge-sync: an entry in the files (or back in them)
       knowledge.changed: active      # knowledge-sync: its title, text, areas or how many briefs carried it changed
       knowledge.retired: retired     # knowledge-sync: no longer in the files
-    show: [kind, title, file, areas, carried, text]
+    about: about                     # its *About:* line: the parts of this model it bears on (explain, check, status)
+    show: [kind, title, file, areas, about, carried, text]
 
 messages:
-  done: {gap: [merged, closed], situation: [handled, failed], upgrade: [healthy, reverted, superseded, failed], research: [answered],
-         lesson: [requested, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
+  done: {gap: [merged, closed], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+         lesson: [requested, applied, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
 

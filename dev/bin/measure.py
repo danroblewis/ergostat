@@ -1,6 +1,6 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
-when nothing in the window to measure, but for first-pass-yield, which has no value then (it exits 1, as ergostat's
-own measures do).
+when nothing in the window to measure, but for the nine named at the end, which have no value then
+(they exit 1, as ergostat's own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
   build-hours         median hours the implementor's runs took per merged gap (every round)
@@ -14,26 +14,73 @@ own measures do).
   fix-rounds          mean rounds sent back to the implementor per merged gap
   flake-rate          flaky retries per queue run
   cost-per-merged     dollars of AI sessions per merged gap (every round, implementor and reviewer)
+  tool-denials        tool calls refused to the AI sessions (sessions.py), over the sessions that said; one with no
+                      result (a timeout, a crash) or a result silent on them is left out and counted on stderr, and
+                      with none that said there is no value (exit 1)
+  tool-denials-unknown  the sessions left out of tool-denials
   interventions-trend the coordinator's interventions over the last 7 days less the 7 before
   lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
   first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
+  splits-covered      of split parents whose first join verdict (the first of join_verdicts, in record order, never
+                      by its `at`) is in the window, the share whose first verdict was covered (short then covered
+                      counts as not covered)
+  split-budgets-held  of sub-gaps (a `parent`) merged in the window, the share whose net_lines are at or under their
+                      own definition's `## Size budget`; a definition, budget or net_lines it cannot read: not held
+  split-joins         split parents with at least one join verdict, over the whole record (no window)
+  split-overhead      the median, over split parents judged covered in the window (judged_at: the join records no
+                      merged_at), of the parent's own ai_cost_usd plus
+                      each child's (join sub-gaps and continuations too; a stopped sub-gap a continuation replaced:
+                      its cost, not its lines) over the median ai_cost_usd of merged unsplit gaps (no
+                      parent, no children, a counted merged_lines; whole record) in the size class of the children's
+                      summed merged_lines. A parent with a child not merged, with no merged_lines (or an error) or
+                      no ai_cost_usd, with no ai_cost_usd of its own, or whose class has no unsplit gap, is left out
+                      and named on stderr, never a ratio of 0 or 1
+  manager-triggers-per-session, manager-actions-per-session   the mean a pipeline manager session was given, and did
   parks KIND          gaps whose last park was for KIND (parks.KINDS); resumes KIND: parks of KIND resumed (by the
                       program or by hand); parked-hours KIND: their mean hours parked, to the resume or now
   in-STATE-hours, loop-hours, loop-rounds, gate-GATE-minutes (each also with -p90)
                       time in each state, the build-review loop and the gates, per gap, over every gap that left the
                       state, ended the loop or passed the gate in the window, whatever its end (times.py)
-The last three, like first-pass-yield, have no value with nothing to measure."""
+  size-accuracy       of merged gaps the planner sized (planned_size and its confidence), the share whose
+                      merged_lines fall inside their class: S <= 50 (a net removal too), M 51-150, L 151-400,
+                      XL > 400. The window is on the latest merge (merged_at). A gap whose latest merge has no
+                      merged_lines is left out of the share, never a hit, and named on stderr.
+  size-accuracy-high  the same, of the gaps sized with high confidence only
+First-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
+split-overhead and the two size measures have no value with nothing to measure.
+
+  coverage-below-floor  the modules whose share of statements the unit suite on main ran is under [code_health]
+                      coverage_floor, from the latest coverage report (scripts/coverage_report.py, under run/coverage/)
+  coverage NAME       one module's share (NAME: its path, e.g. ergostat/model.py)
+These two read no window: they have no value (exit 1) with no report, an unreadable one, or the latest more than
+STALE of main's first-parent commits (its merges) old; never 0 or 1 for a report that cannot be read.
+
+  code-net-lines, code-long-functions, code-duplicates, code-dead-candidates   sums over scripts/code_evidence.py's
+                      rows on the checkout's main: net lines of ergostat/, dev/bin/ and scripts/, functions over 60
+                      lines, duplicate function bodies, dead candidates
+  code-coverage       the statement-weighted share (covered over statements) of the latest coverage report, as above
+  NAME-change         one of these five's change over the last TREND of main's merges: the reading at the latest seq
+                      less the earliest within TREND seqs of it, from run/code-measures.jsonl
+Each code reading is stamped there with the seq and sha it measured (main's; the report's for code-coverage). A sha
+counts once (its last reading), readings are ordered by seq, never by time, and only shas on main are read. No
+checkout, a failing evidence run, no coverage report, an unreadable history line, or fewer than two seqs in the
+window: no value (exit 1), never 0."""
 
 from __future__ import annotations
 
+import json
+import math
 import statistics
+import subprocess
 import sys
+import tempfile
 import time
 
 sys.dont_write_bytecode = True
+import brief  # noqa: E402
 import fac  # noqa: E402
 import parks  # noqa: E402
 import times  # noqa: E402
@@ -61,9 +108,27 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         if not first:
             raise SystemExit("first-pass-yield: no value yet (no first review in the window)")   # not 0: unknown
         return round(sum(r["fields"].get("verdict") == "merge" for r in first) / len(first), 3)
+    if name in ("manager-triggers-per-session", "manager-actions-per-session"):   # (allowlist: a typo is refused)
+        done = [r["fields"] for r in recent(fac.items("situation"), "handled_at", since)]
+        field = "triggers_n" if name == "manager-triggers-per-session" else "actions_n"
+        return round(statistics.mean(float(r.get(field) or 0) for r in done), 2) if done else 0.0
+    if name in ("tool-denials", "tool-denials-unknown"):   # unknown: a timeout, a crash, a result silent on them
+        rows = [r["fields"] for r in recent(fac.items("session"), "started", since)]
+        unknown = [r for r in rows if "tool_denials" not in r]
+        if name == "tool-denials-unknown":
+            return float(len(unknown))
+        if unknown:
+            print(f"tool-denials: left out, {len(unknown)} session(s) whose refusals are unknown", file=sys.stderr)
+            if len(unknown) == len(rows):
+                raise SystemExit("tool-denials: no value (no session in the window said what it was refused)")
+        return float(sum(int(r["tool_denials"] or 0) for r in rows if "tool_denials" in r))
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
+    if name in ("size-accuracy", "size-accuracy-high"):
+        return size_accuracy(name, since)
     gaps = fac.items("gap")
+    if name in SPLITS:
+        return split_reading(name, gaps, since)
     if name in ("parks", "resumes", "parked-hours"):                   # by kind (parks.py): its last park, per gap
         if kind not in parks.KINDS:
             raise SystemExit(f"measure.py {name}: no kind {kind!r} (one of {', '.join(parks.KINDS)})")
@@ -114,6 +179,91 @@ def share(xs: list[bool], name: str) -> float:
     return round(sum(xs) / len(xs), 3)
 
 
+def size_class(lines: int) -> str:
+    return "S" if lines <= 50 else "M" if lines <= 150 else "L" if lines <= 400 else "XL"
+
+
+def size_accuracy(name: str, since: float) -> float:
+    """The planner's planned_size, never `size`: the groomer (gap.groomed) regrades `size` on its own scale."""
+    sized = [g for g in recent(fac.items("gap"), "merged_at", since) if g["state"] == "merged"
+             and g["fields"].get("planned_size") and g["fields"].get("size_confidence") in (
+                 ("high",) if name == "size-accuracy-high" else ("low", "medium", "high"))]
+    counted = lambda f: type(f.get("merged_lines")) is int and not f.get("merged_lines_error")  # noqa: E731
+    if left := [g["id"] for g in sized if not counted(g["fields"])]:
+        print(f"{name}: left out, no merged_lines: {', '.join(left)}", file=sys.stderr)
+    return share([size_class(g["fields"]["merged_lines"]) == g["fields"]["planned_size"] for g in sized
+                  if counted(g["fields"])], name)
+
+
+SPLITS = ("splits-covered", "split-budgets-held", "split-joins", "split-overhead")
+
+
+def priced(f: dict) -> float | None:
+    """A gap's recorded ai_cost_usd, or None when it has none it can count (missing, not a number, negative, NaN)."""
+    v = f.get("ai_cost_usd")
+    return float(v) if type(v) in (int, float) and math.isfinite(v) and v >= 0 else None
+
+
+def family(g: dict, by_id: dict) -> list[str]:
+    """A parent's sub-gaps: its recorded children, the gaps whose parent names it (parks.split_again links a
+    continuation only so), and what each was resumed as. One split_again unlinked (stopped, replaced) stays in."""
+    todo = fac.ids(g["fields"]["children"]) + [i for i, k in by_id.items() if g["id"] in fac.ids(k["fields"].get("parent"))]
+    seen: list[str] = []
+    while todo:
+        if (i := todo.pop(0)) not in seen and i != g["id"]:
+            seen.append(i)
+            todo += fac.ids((by_id.get(i) or {"fields": {}})["fields"].get("resumed_as"))
+    return seen
+
+
+def budget(cfg: dict, g: dict) -> float:
+    """A sub-gap's own `## Size budget` in net lines, where brief.definition_text reads its definition; -inf when it
+    has none it can read (never budget_of's default), so nothing is under it."""
+    b = fac.branch_of(g)
+    try:
+        text = brief.definition_text(cfg, str(g["fields"].get("definition") or f"run/defs/{b}.md"), b)
+    except OSError:
+        return -math.inf
+    return float(n) if (n := fac.budget_of(text, -1)) >= 0 else -math.inf
+
+
+def split_reading(name: str, gaps: list[dict], since: float) -> float:
+    """The split parents (a gap with `children`): their join verdicts (plan.py join), and their cost against unsplit
+    gaps of their size. Each parent's first verdict is the first of its join_verdicts, in record order, never by `at`."""
+    parents = [g for g in gaps if g["fields"].get("children")]
+    judged = [g["fields"]["join_verdicts"] for g in parents if g["fields"].get("join_verdicts")]
+    if name == "split-joins":
+        return float(len(judged))
+    if name == "splits-covered":
+        return share([v[0].get("verdict") == "covered" for v in judged if float(v[0].get("at") or 0) >= since], name)
+    if name == "split-budgets-held":                     # a definition, budget or net_lines it cannot read: not held
+        subs, cfg = [g for g in recent(gaps, "merged_at", since) if g["state"] == "merged" and g["fields"].get("parent")], \
+            fac.config()
+        return share([type(n := g["fields"].get("net_lines")) is int and n <= budget(cfg, g) for g in subs], name)
+    counted = lambda f: type(f.get("merged_lines")) is int and not f.get("merged_lines_error")  # noqa: E731
+    base: dict[str, list[float]] = {}                         # merged unsplit gaps, over the whole record, by class
+    for g in gaps:
+        f = g["fields"]
+        if g["state"] == "merged" and not f.get("parent") and not f.get("children") and counted(f) and priced(f) is not None:
+            base.setdefault(size_class(f["merged_lines"]), []).append(priced(f))
+    by_id, ratios = {g["id"]: g for g in gaps}, []
+    for g in [g for g in recent(parents, "judged_at", since) if g["state"] == "merged"]:   # (no merged_at: plan.join)
+        every = [by_id.get(k) for k in family(g, by_id)]
+        kids = [k for k in every if k is None or g["id"] in fac.ids(k["fields"].get("parent"))]   # stopped: priced only
+        why = ("a child not merged" if any(k is None or k["state"] != "merged" for k in kids) else "") or \
+            ("a child with no merged_lines" if not all(counted(k["fields"]) for k in kids) else "") or \
+            ("a child with no ai_cost_usd" if any(priced(k["fields"]) is None for k in every) else "") or \
+            ("no ai_cost_usd of its own" if priced(g["fields"]) is None else "")
+        cls = "" if why else size_class(sum(k["fields"]["merged_lines"] for k in kids))
+        if why or cls not in base:
+            print(f"split-overhead: left out, {g['id']}: {why or f'no merged unsplit {cls} gap'}", file=sys.stderr)
+            continue
+        ratios.append((priced(g["fields"]) + sum(priced(k["fields"]) for k in every)) / statistics.median(base[cls]))
+    if not ratios:
+        raise SystemExit("split-overhead: no value (no split parent merged in the window could be priced)")
+    return round(statistics.median(ratios), 3)
+
+
 def knowledge_reading(name: str, since: float) -> float:
     gaps = {g["id"]: g for g in fac.items("gap")}
     carried = {i: next((len([k for k in c.get("knowledge") or [] if k.startswith("lesson-")])
@@ -133,5 +283,126 @@ def knowledge_reading(name: str, since: float) -> float:
     return share([not (risks[r["id"]] & set(r["fields"].get("classes") or [])) for r in first if risks[r["id"]]], name)
 
 
+STALE = 20                                              # main's merges after which a coverage report says nothing
+
+
+def coverage_report(cfg: dict) -> dict:
+    """The latest coverage report of main, by its ``seq`` (never by a file's time), among those whose commit is on
+    main (a run whose merge was undone measured a commit main never had); SystemExit (no value) when there is none,
+    any is unreadable (it may be the latest), or main has moved more than STALE first-parent commits past it."""
+    return latest_coverage(cfg)[2]
+
+
+def latest_coverage(cfg: dict) -> tuple[int, str, dict, dict]:
+    """coverage_report's choice: (its seq, its sha, the shares, its modules as written)."""
+    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
+    found = []
+    for p in sorted(fac.path(cfg, "run").joinpath("coverage").glob("*/coverage.json")):
+        try:
+            r = json.loads(p.read_text())
+            found.append((int(r["seq"]), str(r["main"]), {m: float(v["share"]) for m, v in r["modules"].items()},
+                          r["modules"]))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            raise SystemExit(f"coverage: no value (an unreadable report: {p})") from None
+    on_main = [f for f in found if fac.git_ok(repo, "merge-base", "--is-ancestor", f[1], base)]
+    if not on_main:
+        raise SystemExit("coverage: no value (no coverage report of a commit on main)")
+    seq, sha, shares, mods = max(on_main, key=lambda f: f[0])
+    since = int(fac.git(repo, "rev-list", "--count", "--first-parent", f"{sha}..{base}"))
+    if since > STALE:
+        raise SystemExit(f"coverage: no value (the latest report, {sha[:12]}, is {since} merges behind {base})")
+    return seq, sha, shares, mods
+
+
+def coverage_reading(name: str, args: list[str]) -> float:
+    cfg = fac.config()
+    shares = coverage_report(cfg)
+    if name == "coverage":
+        if len(args) != 1 or args[0] not in shares:
+            raise SystemExit(f"coverage: no value (no module {' '.join(args)!r} in the report)")
+        return shares[args[0]]
+    floor = (cfg.get("code_health") or {}).get("coverage_floor")
+    if not isinstance(floor, int | float) or not 0 <= floor <= 1:
+        raise SystemExit(f"coverage-below-floor: no value ([code_health] coverage_floor is {floor!r}, not a share)")
+    return float(sum(s < floor for s in shares.values()))
+
+
+EVIDENCE = fac.HERE.parent / "scripts" / "code_evidence.py"
+CODE = {"code-net-lines": lambda r: r["lines"], "code-long-functions": lambda r: len(r["long_functions"]),
+        "code-duplicates": lambda r: len(r["duplicates"]), "code-dead-candidates": lambda r: len(r["dead_candidates"])}
+TREND = 10                                              # main's merges a code measure's change is taken over
+
+
+def evidence(cfg: dict) -> tuple[int, str, list[dict]]:
+    """code_evidence.py's rows on main as the checkout has it now, with main's seq and sha (resolved first, so the
+    rows and the stamp are of one commit). No checkout or a failing run: SystemExit, no value."""
+    repo = fac.path(cfg, "checkout")
+    try:
+        sha = fac.git(repo, "rev-parse", "--verify", f"{cfg['git']['base']}^{{commit}}")
+        seq = int(fac.git(repo, "rev-list", "--count", "--first-parent", sha))
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as none:   # (these four read no coverage)
+            none.write("{}")
+            none.flush()
+            r = subprocess.run([sys.executable, str(EVIDENCE), "--root", str(repo), "--ref", sha, "--coverage",
+                                none.name], capture_output=True, text=True, timeout=600)
+        rows = [json.loads(line) for line in r.stdout.splitlines() if line.strip()] if not r.returncode else []
+    except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired) as e:
+        raise SystemExit(f"code: no value (no checkout of main to measure: {e})") from None
+    if not rows:
+        raise SystemExit(f"code: no value (code_evidence.py: exit {r.returncode} {r.stderr.strip()[-300:]})")
+    return seq, sha, rows
+
+
+def code_reading(name: str) -> float:
+    """One code measure, appended to run/code-measures.jsonl with the seq and sha it measured."""
+    cfg = fac.config()
+    if name == "code-coverage":
+        seq, sha, _, mods = latest_coverage(cfg)
+        try:
+            statements, covered = (sum(int(v[k]) for v in mods.values()) for k in ("statements", "covered"))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise SystemExit("code-coverage: no value (a report with no statement counts)") from None
+        if statements <= 0:
+            raise SystemExit("code-coverage: no value (a report with no statements)")
+        value = round(covered / statements, 4)
+    else:
+        seq, sha, rows = evidence(cfg)
+        value = float(sum(CODE[name](r) for r in rows))
+    with open(fac.run_dir(cfg) / "code-measures.jsonl", "a") as f:
+        f.write(json.dumps({"measure": name, "seq": seq, "sha": sha, "value": value, "at": time.time()}) + "\n")
+    return value
+
+
+def code_change(name: str) -> float:
+    """A code measure's change over the last TREND of main's merges, by seq: each sha once (its last reading)."""
+    cfg, measure = fac.config(), name.removesuffix("-change")
+    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
+    by_sha: dict[str, tuple[int, float]] = {}
+    try:
+        for line in (fac.path(cfg, "run") / "code-measures.jsonl").read_text().splitlines():
+            r = json.loads(line)
+            if r["measure"] == measure:
+                by_sha[str(r["sha"])] = (int(r["seq"]), float(r["value"]))
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raise SystemExit(f"{name}: no value (the code measures' history cannot be read: {e!r})") from None
+    window: list[tuple[int, float]] = []
+    for sha, (seq, value) in sorted(by_sha.items(), key=lambda kv: -kv[1][0]):    # the latest seq first
+        if window and seq < window[0][0] - TREND:
+            break
+        if fac.git_ok(repo, "merge-base", "--is-ancestor", sha, base):           # (a merge undone measured nothing)
+            window.append((seq, value))
+    if len({seq for seq, _ in window}) < 2:
+        raise SystemExit(f"{name}: no value (fewer than two of main's commits measured within {TREND} merges)")
+    return round(window[0][1] - window[-1][1], 4)
+
+
 if __name__ == "__main__":
-    print(reading(sys.argv[1], kind=sys.argv[2] if len(sys.argv) > 2 else ""))
+    name = sys.argv[1]
+    if name in CODE or name == "code-coverage":
+        print(code_reading(name))
+    elif name.removesuffix("-change") in (*CODE, "code-coverage"):
+        print(code_change(name))
+    elif name in ("coverage", "coverage-below-floor"):
+        print(coverage_reading(name, sys.argv[2:]))
+    else:
+        print(reading(name, kind=sys.argv[2] if len(sys.argv) > 2 else ""))

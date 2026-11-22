@@ -120,6 +120,11 @@ once per fresh reading, and never twice at once.
     run: $ERGOSTAT_CMD session developer --model sonnet
 ```
 
+A pool can follow the model's state instead: `pool: {now: stock.developers, most: 4}` takes as many at once as the
+stock (which needs a sensor) reads now, read at each dispatch and never more than `most`. Lower the stock and the
+block drains: nothing running is stopped, and no new run starts until fewer are going. With no reading it starts
+nothing new, and says so.
+
 Each run holds a **lease** on its item: its input carries the item (`item`: id, kind, state, fields) and the lease
 (`lease`: fence, ttl, expires, attempt); its environment `ERGOSTAT_ITEM` and `ERGOSTAT_LEASE` (the fencing number);
 an event line that names no item is about it. Whatever the run records about the item (`$ERGOSTAT_CMD event --add`,

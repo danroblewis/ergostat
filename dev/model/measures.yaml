@@ -60,6 +60,36 @@ auxiliaries:
     description: dollars of AI sessions per merged gap, every round of the implementor and the reviewer
     driven-by: [+auxiliary.ai-spend]
     sensor: {run: python3 dev/bin/measure.py cost-per-merged, every: 10m, timeout: 1m, description: the factory's measures}
+  tool-denials:
+    unit: calls
+    description: >-
+      tool calls refused to the AI sessions that said what they were refused; one with no result or a result silent
+      on them is left out (tool-denials-unknown), and with none that said there is no value
+    driven-by: [+stock.gaps-building]
+    sensor: {run: python3 dev/bin/measure.py tool-denials, every: 10m, timeout: 1m, description: the factory's measures}
+  tool-denials-unknown:
+    unit: sessions
+    description: AI sessions whose refused tool calls are unknown (a timeout, a crash, a result silent on them)
+    driven-by: [+stock.gaps-building]
+    sensor: {run: python3 dev/bin/measure.py tool-denials-unknown, every: 10m, timeout: 1m, description: the factory's measures}
+  size-accuracy:
+    unit: share
+    description: of merged gaps the planner sized, the share whose merged lines fell inside their size class (S/M/L/XL)
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py size-accuracy, every: 10m, timeout: 1m, description: the factory's measures}
+  size-accuracy-high:
+    unit: share
+    description: size-accuracy, of the gaps the planner sized with high confidence only
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py size-accuracy-high, every: 10m, timeout: 1m, description: the factory's measures}
+  coverage-below-floor:
+    unit: modules
+    description: >-
+      modules of ergostat/, dev/bin/ and scripts/ whose share of statements run in-process by main's unit suite is
+      under [code_health] coverage_floor (dev/README.md, Coverage; a subprocess-only module's share is a lower bound);
+      no value without a readable report at most 20 of main's merges old
+    driven-by: [-flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py coverage-below-floor, every: 30m, timeout: 1m, description: the factory's measures}
 
 goals:
   first-pass-good:
@@ -92,11 +122,16 @@ goals:
     hold: "<= 25"
     tolerance: 5
     description: a merged gap costs at most $25 of AI sessions
+  no-tool-denials:
+    auxiliary: tool-denials
+    hold: "<= 0"
+    tolerance: 0
+    description: no AI session is refused a tool call (a missing permission shows the first time)
 
 blocks:
   factory-off:
     type: expr
-    description: any of the factory's own measures off, or a dependency problem
+    description: any of the factory's own measures off (the code measures' through code-health-off), or a dependency problem
     in:
       firstpass: goal.first-pass-good.off
       fixes: goal.few-fix-rounds.off
@@ -106,7 +141,9 @@ blocks:
       cost: goal.merged-gap-cost.off
       deps: goal.dependencies-sound.off
       plans: goal.plans-agreed.off
-    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, plans)
+      denials: goal.no-tool-denials.off
+      code: block.code-health-off
+    expr: max(firstpass, fixes, suites, wait, flakes, cost, deps, plans, denials, code)
     out: block.improve-factory
   improve-factory:
     type: person

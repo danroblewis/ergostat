@@ -122,13 +122,14 @@ uses:                                   # any file; the instances of every file 
       every: 1d
       limit: 3
       ping: ./bin/remind.sh
-library:                                # main file only: folders of the owner's own templates
+library:                                # main file only: folders of templates (a path: the owner's own)
   - ~/private/ergostat-templates
+  - {folder: ~/shared/from-a-friend}    # not marked trusted: untrusted (below)
 ```
 
 | Key | Type | Meaning |
 |---|---|---|
-| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so |
+| `use` | template name | Required. ergostat's own (`ergostat/library/templates/`), or one from a `library:` folder or `$ERGOSTAT_LIBRARY` (folders, separated by `:`); the owner's shadows ergostat's of the same name, and `check` says so; an untrusted folder's never does (below) |
 | `with` | map | The template's parameters. A parameter it does not take, a value of the wrong type (a duration that does not parse, a setpoint, a cron expression, a name) and a required one left out are errors at that line |
 | `within` | system name | The system the instance is part of |
 | `description` | string | |
@@ -153,6 +154,62 @@ fitted, a tuning) is refused, and says what to change instead.
 **Stand-ins.** A template's parameters that reach the world (a source, an action) each say what stands in for
 them when they are left out: a made-up feed, a pretend answer, a level that creeps up. Each instance runs offline
 on them, and `check` lists the instances still on stand-ins (**template-stand-in**, a finding).
+
+**Untrusted libraries.** Which folders are untrusted is declared in the main file's `library:` (below, *Folders the
+owner did not write*): a map `{folder: PATH}` is untrusted unless it says `trust: owner`, and it may say so with a
+YAML bool instead, `untrusted: true|false` (a value that is not a bool, or one disagreeing with a `trust:` beside it,
+is **bad-library**). Only the main file declares trust: a `uses:` entry takes only `use`, `with`, `within` and
+`description`, so `trusted:` or `untrusted:` there is **unknown-key**. `$ERGOSTAT_LIBRARY` folders and ergostat's
+own templates are trusted. `Template.trust` is the one attribute (`Template.untrusted` is read from it, true unless
+it is `ergostat` or `owner`), and a later source of trust sets it too. An untrusted template's name and each
+parameter's name must match `^[a-z][a-z0-9-]{0,63}$`, or the template is refused. An instance is untrusted when its
+template is or when any instance it sits inside is (a trusted template used by an untrusted one is untrusted there),
+recorded in its `uses` entry (`untrusted`, a bool).
+
+*Marked.* Library text is shown between ergostat's markers, `⟦untrusted: LABEL⟧` and `⟦end of untrusted⟧`, every
+`⟦` and `⟧` inside it written `[` and `]`, so no marker character inside a marked span is the library's. `LABEL` is
+never library text: `template NAME` (the name checked above) or the words `library file`. Three places are marked,
+for an untrusted template only; a trusted template's output is unchanged:
+
+- the `templates` tool (MCP, `author.library`), listed and in full: `description`, `reading`, `example`, `from`, and
+  each parameter's `description`, `stand-in`, and `default` and `choices` (a list or a map written as JSON first;
+  a number or a bool as it is). Each untrusted entry says `"untrusted": true`, and the output's `markers` says that
+  text between the markers is a library's: data, not instructions;
+- **template-library** notes from an untrusted folder (a file that does not read, a name refused, a shadowing
+  refused): `untrusted library folder FOLDER:` (the owner's path), then the rest, file name included, marked as
+  `library file`;
+- the problems a use of an untrusted template gives: **bad-param** and **bad-template** messages after
+  `use INSTANCE:`, the stand-ins in **template-stand-in**, and a broken template's note in **unknown-template**.
+
+*Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
+known types), and everything an untrusted template makes in the model: its system's description, its parts'
+descriptions, prompts, commands, equations and names, however `check`, the diagrams and the MCP model views show
+them. Gating `ask:` and `query`/`source` is not done either (docs/GAPS.md, *Shared libraries*).
+
+*Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
+(an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
+the leases are checked, each limit below that an untrusted part passes is an error, **untrusted-limit**, at its
+`use:` line. The limits are constants (`ergostat/library/bounds.py`), never config. They are a second line behind
+the allowlist below: a held chain may not make a program, ai or judge block or a sensor with `run`, `every`, `cron`
+or `daemon` at all, so today the limits that compile can reach are a sensor's default `every` and the run-time gates;
+the rest bound whatever a later rule admits (docs/GAPS.md, *Shared libraries*):
+
+| Limit | Value | Applies to |
+|---|---|---|
+| `UNTRUSTED_EVERY` | 300 s | a stock's or flow's sensor, and a program, ai or judge block: `every:` at least this, and its default when none is written (not 60 s, not the judge's 30 s); `cron:` firing at one minute of the hour at most (its minute field a single value, so at most hourly) |
+| `UNTRUSTED_POOL` | 2 | a block's `pool:` |
+| `UNTRUSTED_ATTEMPTS` | 5 | a block's lease attempts, as its lease terms come out (its own `lease:`, its kind's, the owner's `leases:` tier) |
+| `UNTRUSTED_RUNS` | 4 | the runs at once of every untrusted program, ai and judge block together: its pool for a block that takes items, else 1 |
+
+Refused outright for an untrusted part: a sensor's `daemon:`, a block's `on:`, and a program or ai block with none of
+`every:`, `cron:` or `takes:` (it would run on every reading). These are the only fields bounded. A value that does
+not read (`every: soon`, `pool: many`, a bad cron, `attempts: x`) stays the error it always is. When runs start, the
+engine's `start` and a lease's take count the untrusted runs in `running` under the engine's lock, in the same hold
+that adds the run (a take reserves before its lease is written, so no lease is written for a run that cannot
+start), and a judge's pass is counted the same way. A run counts while its process is still exiting, and counts as
+untrusted if it was when it began, if the model says so now, or if the model no longer has its block. The clock
+paces an untrusted sensor, block or judge at `UNTRUSTED_EVERY` at least, even if the spec changed after it was
+compiled. A sensor's `run:` goes through the reader pool, which is bounded already (`READERS`).
 
 **Writing one.** A template file is YAML: `template:` (its name), `description:`, `reading:` (what it is in
 control theory and in system dynamics), `params:` (each with `type`, `description`, and `default`,
@@ -184,7 +241,8 @@ until answered, up to a count, then a person takes over), `daily-report` (a repo
 item), `keep-under` (a level held under a limit by a corrective action), `steps` (an item worked through a list
 of steps, a block each), `collect` (the event collector) and `modelling` (the model improved as a loop of its
 own, section 12e: its fit held by a goal, what `check` finds held as requests, a rule tier and an AI tier that answer
-them, and the judge; once a model, every model should have it). Each says its reading in both disciplines
+them, and the judge; once a model, every model should have it), and `upkeep` (ergostat's own upkeep as loops of
+the model, below). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
 ergostat.library.run`): `collect` (a sensor that polls a command or an HTTP endpoint, records each new record as
 an event about an item, once, from a cursor, and prints the arrivals per hour), `each` (a block's program that
@@ -192,11 +250,189 @@ runs a command on the item leased to its run and moves it on, or gives it back),
 blocks that work on items take them (section 9.5): `respond-to`'s `answer` and each of `steps`' steps is leased
 one item a run, `pool` at once, and an item that fails every try is a dead letter.
 
+**Mirroring an outside log** (`collect` with `mirror: true`, `cursor-field:` the entry's position, `position: int`
+or `text`). A system that keeps its own event log (Kafka, a ticket history, an incident log) is copied in, read in
+place (another ergostat only, section 4c), or mirrored. A mirror records each entry once, under the id
+`cite:<log>:<type>:<position>`: the log is the sensor that runs it (`<flow>.<sensor>`, given to its command as
+`ERGOSTAT_SENSOR`), the type `i` (a whole number, `9` and `"9"` alike, ordered as numbers) or `t` (text, ordered as
+text, so a text position must sort in log order: zero-padded, fixed-width times). The engine records a sensor's line
+with a `cite:` id only when the log it names is that sensor (`sensor.refused` otherwise), and nothing pushed may
+carry one (section 5c). Each poll, under the collector's lock: what it said last poll is looked for in the record,
+and the cursor moves to the last of it that was all recorded; when one is missing (refused, or lost to a timeout or a
+crash), the poll exits 1 naming it and why (the sensor's last `sensor.refused` or `sensor.failed` recorded by the
+engine, source `ergostat`, since that poll, else "not in the record"; the reason is the record's word, and a push
+that claims source `ergostat` can still put one there), and the next re-reads from the confirmed cursor. With its
+memory lost (`library/<name>/collect.json` gone or unreadable), the cursor is the greatest of the sensor's own cites
+in the record, its rolled-up items' snapshots included (`rollup.cites`), read a page of 5,000 at a time (bounded
+memory, but a time that grows with the record); a record it cannot read fails the poll, never starting from the
+beginning. Every entry is checked before any is said (a position missing or not of its type, two different entries
+at one position: exit 1, nothing said), and at most 5,000 are said a poll, the lowest first. Entries at or before the
+cursor are skipped. A log that went back stops the mirror (exit 1): when the source's newest entry is before the
+cursor, or the entry it returns at the cursor has another id (`id-field`) than the one recorded there (`fields:`,
+`kind` and `event` may change; a changed `id-field` reads as a restart). So does a changed `position`. Clearing the
+collector's memory does not end the stop, since the cursor, its type and the entry at it come back from the record:
+the owner renames the use (a new sensor, so a new log, mirrored from its start), or sets `position` back. What is
+claimed: an entry is recorded once, under the cite of its position, across polls that failed, timed out or were
+refused, and across lost memory while the record holds that sensor's cites (or their snapshots); only the sensor
+named in a cite records it. Not claimed: after the record forgets the log's entries (`keep`, prune) and the
+collector's memory is lost, they are mirrored again; and a restart is seen only when the source returns the entry at
+the cursor or nothing newer than it: a log that restarted and grew past the cursor read from after it (a Kafka
+offset in `{cursor}`) loses the new entries up to the cursor without a word, and so does a restart that grew past the
+cursor once the cursor's own event is rolled up or pruned (there is then nothing recorded at the cursor to compare with).
+
 **What a template may declare.** `items`, `systems`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`,
 `blocks`, `agents` and `uses`, and the `workspaces` and gated `actions` its AI blocks use (section 12k): each named
 for the instance like any part (`steps` makes `NAME-workspace`, and `NAME-push` for an action `push`), and a
 block's `workspace:` and `actions:` follow the names. A block's lease terms are its own (`lease:`, with `takes:`
 and `pool:`); `leases:`, each tier's terms, belongs to the model as a whole, as do `messages:` and `storage:`.
+
+**Folders the owner did not write.** A `library:` entry is a path (the owner's folder, trusted) or a map
+`{folder: PATH}`, which is **untrusted** unless it says `trust: owner` (`trust: untrusted` says so plainly):
+
+```yaml
+library:
+  - ~/private/ergostat-templates          # the owner's: trusted
+  - {folder: ~/shared/team-templates}     # not marked trusted: untrusted
+```
+
+A map with another key, no `folder:`, or a `trust:` other than `owner` or `untrusted` is an error at its line
+(**bad-library**), and its folder is not read at all. `$ERGOSTAT_LIBRARY` is the owner's. Trust is each file's: a
+template file inside any folder listed untrusted is untrusted, even when a trusted folder (its parent, whose
+`*/template.yaml` reaches it) is listed too. Each template's trust
+(`ergostat`, `owner` or `untrusted`) is shown by the authoring tools' `library`. An untrusted template never takes the
+place of ergostat's own or a trusted one of the same name, whatever order the folders are listed in: the trusted one is
+used and `check` names the file skipped (**template-library**); between untrusted folders the first wins.
+
+A use is **held** when its template, or any template it uses at any depth, is untrusted. Its whole chain is expanded
+before anything of it is put in the model, and every part made from the first untrusted template down (trusted and
+built-in templates it uses included), as expanded with every parameter's value in it, is checked against the allowlist
+in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`,
+`goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
+`onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
+`alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
+names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs below.
+Anything else is refused: any other section, block type or key (a sensor's `query` or `daemon`, a block's
+`on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
+anywhere). One refused part refuses the whole
+use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
+nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
+*Libraries you did not write*).
+
+**Writers.** Every parameter value has a writer: the **owner** (a value in the owner's own file, in a depth-0
+`with:`), a **trusted** template (ergostat's own, or one from the owner's folders: its literal text, its defaults and
+its `|default`s), or the **library** (anything an untrusted template writes: its literal text, defaults, `|default`s,
+and text it builds around values). A nested use's `with:` value that is wholly one `${p}` (no `:how`, `|default` or
+`.field`) keeps p's writer; any other is the library's if any part of it is (a parameter written by a library, a
+field such as `${it.x}`, `${p.first}` or `${p.count}`, whose writer can't be told, or a key that can't be found in the
+template), else the writer of the template writing it. A value is an **owner command** only if the owner wrote it for
+a `type: command` parameter and every later hop passed it wholly to a `type: command` parameter again; a hop through
+any other type, or text equal to a command the owner wrote elsewhere, is not one. `expand.py` marks every substituted
+value with its writer, its type and whether its own text is its type's narrow form, keeps the marks until the gate
+has judged the chain, then strips them. Only expand makes marks: a template or a value holding a mark's control
+characters is refused, whole.
+
+**R1, what a held chain may run.** A sensor's or a `program` block's `run` stands when every character of it is: (a)
+an owner command, as the whole value; or, inside a built-in template's run, (b) the template's own text, ergostat's
+names (`${lib}`, `${python}`, `${name}`), a value ergostat's template wrote, or an owner command through `:quote` or
+`:arg`; or (c) a value allowed by R2. A library's text (an untrusted template's words around `${cmd}`, its
+`${here}`, a library default for a command), an owner value of another type (a `string`), and a run holding a field
+(`${it.run}`) refuse the chain. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
+template wrote them. A `program` block may say only `goal`, `run`, `every`, `cron`, `timeout` and the common block
+keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, as do
+`ai` and `person` blocks (`prompt`, `ask`).
+
+**R2, a library's values as arguments to ergostat's programs.** A value not written by ergostat's template (the
+library's, the owner's of a narrow type, or an owner folder's) may stand in a run only in a built-in template whose
+run starts `${lib} `, directly after a flag in trust.py's `LIB_DATA_FLAGS` (flags of `ergostat.library.run` whose
+value is data, such as `--kind`, `--state`, `--every`, `--limit`; never `--run`, `--render`, `--command` or another
+of `LIB_EXEC_FLAGS`), for a parameter typed `name`, `duration`, `number`, `integer` or `bool`, when both the value's
+own text and the text that lands (after `:seconds`, `:hours`) fully match its type's pattern, with no space or
+newline: name `[a-z][a-z0-9-]{0,63}`; duration `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`; number or integer
+`-?[0-9]{1,15}(\.[0-9]{1,9})?`; bool the bare flag (`:arg`), or `true`/`false`. A rate or count flag is also bounded
+(`LIB_BOUNDS`): `--every` `UNTRUSTED_EVERY` (300 s) or more, `--limit` 100 or less, `--stand-in` 3600 an hour or
+less, `--window` 60 s to a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any) reaches a run, and no value
+not ergostat's own reaches the run of a template from the owner's folders (such as `sh -c ${x:quote}`), even though
+that template is trusted: no test can vouch for one. Every option of every program is in exactly one of the two
+lists, and every built-in run slot is scanned against these rules (`tests/test_library_provenance.py`).
+
+What R1 and R2 let through is still an untrusted part, under the limits of *Untrusted libraries* above: one floor on
+how often, `UNTRUSTED_EVERY`, whoever wrote the `every`. So a held chain's program block needs the owner's `every:`
+of 5m or more, and built-in templates whose own timers are faster (collect's 30 s count of what it has collected,
+re-ping's 10 s sensors and 30 s pinger) pass the gate but not those limits; collect compiles in a held chain with
+`into:` a stock the chain made and the owner's `poll:` of 5m or more.
+
+### Upkeep
+
+`use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own
+upkeep as loops of the model: the item-index files (section 4b: one `<state>/items/<hash>[.n].db` per shape of the
+model's item kinds), and the watched loops below. The stock `index-files` (`ergostat.upkeep.index-files`,
+the live files) fills by `index-files-made` (`changes: rises`, a new file on each change to the kinds) and drains by
+`index-files-tidied` (`changes: falls`). The stock `retired-index-files` (`ergostat.upkeep.retired-index-files`)
+drains by `retired-index-files-removed`. A file is *retired* when its mark `<hash>[.n].retired` stands beside it
+(`itemindex.retired`, the one test the measures and the tidy both use): a process still held it when it was due to
+go, and it is never opened again. The goal `index-files-few` holds `index-files <= ${index-files}` (default 6, 1 to
+64, checked when the model loads), and `no-retired-index-files` holds the retired ones at 0. The controller
+`index-tidier` is a program on the rule rung, `${lib} upkeep tidy --keep ${index-files}` every `tidy-every` (10m).
+It works from the state directory alone (never the project, its model or an index, which it only locks), refuses
+`--keep` outside 1 to 64 (exit 2), and exits 1 with a message when `<state>/items` is missing or cannot be listed.
+It prints one line per output: `{"out": "flow.index-files-tidied", "moved": LIVE, "left": ..., "held": ...,
+"young": ...}` (the live files it removed) and `{"out": "flow.retired-index-files-removed", "moved": RETIRED}` (the
+retired ones), so the engine opens each flow's valve by its own count.
+
+**The engine stands down.** In a model whose `uses:` holds ergostat's own `upkeep`, `index_for` no longer tidies the
+folder when it makes a new file; the `index-tidier` does. The engine reads that from the model it is given (the
+spec it folds with, after each reload). A model without it tidies as before (`KEPT_FILES`, 6).
+
+**The interlock stays in the code.** Whether a file may be deleted is decided only in `spec/itemindex.py`, for the
+engine and the tidier alike, and no goal, parameter or template changes it: only a regular file named
+`^[0-9a-f]{16}(\.[0-9]+)?\.db$` directly in the resolved items folder (never a symlink, never another name), with
+its `-wal`, `-shm` and `.lock`; only under its exclusive lock taken without waiting (a lock file that cannot be
+opened counts as held). A retired file goes once its lock is taken, whatever its age (it is never opened again). A
+live file goes only when, besides, neither it nor its WAL or shared memory changed within `TIDY_AGE` (an hour),
+checked before the lock and again once it is held.
+
+**Fail-safe.** A measure with no state directory, or a folder it cannot list, gives no reading, never 0. If the
+tidier stops, nothing else limits the number of files under `use: upkeep`: they only pile up (one per change of the
+kinds), and every index still opens and folds right. The event log's roll-up and measurement retention are still
+to come.
+
+**The watched loops.** The template also draws the functions that keep the engine itself going. They are drawn,
+not run: each controller is ergostat's code, a `type: external` block (observed, never started by ergostat), and no
+goal, parameter or block turns one off or goes round it (`coordinator/08-modes-and-protection.md` §5.3).
+
+- The stock `stalls` (`ergostat.upkeep.stalls`: `ergostat.engine.stalled` events over the last hour) is held at 0 by
+  `no-stalls`, served by `watchdog`, the engine's own watchdog (`spec/watchdog.py`, section 9.1). It drains by
+  `stalls-mended` (`changes: falls`).
+- The stock `heartbeat-age` (`ergostat.upkeep.heartbeat-age`: the seconds since the last pass `heartbeat.json`
+  gives) is held at `<= ${stale}` by `heartbeat-fresh` (`stale` 180 by default, 60 to 3600, checked when the model
+  loads), served by `outer-watcher` (`watcher.py`, kept running by `ergostat run --service`: launchd or systemd). It
+  fills by `heartbeat-aged` (time passing, its rises) and drains by `heartbeat-renewed`. The stock `restarts`
+  (`ergostat.upkeep.restarts`: `ergostat.engine.restarted` events over the last day) fills by `restarts-made`, which
+  the outer watcher moves, and has no goal.
+- With `leases: true` (default false): the stocks `overdue-leases` and `expired-leases` (`ergostat.leases.overdue`,
+  `.expired`), the goal `no-overdue-leases` (`<= 0`), and the external block `lease-expiry` (`leases/dispatch.py`).
+- With `pool: NAME` (default none): the stocks `free-workspaces` and `quarantined-workspaces`
+  (`ergostat.workspaces.free@NAME`, `.quarantined@NAME`), the goal `no-quarantined-workspaces` (`<= 0`), and
+  `pool-keeper`, a person: the owner, asked to free a quarantined slot (`ergostat workspaces NAME --free N`).
+  Ergostat never frees one by itself. Nothing for leases or a pool appears unless asked for.
+
+**The layers**, in order: the engine's watchdog mends a wedged sensor pool or loop inside its process and restarts
+the process past that; the outer watcher, or launchd or systemd beneath it, restarts an engine dead or frozen whole;
+then the owner. **The heartbeat goal is read from outside.** In a model with `use: upkeep` the engine writes the
+goal's limit into `heartbeat.json` as `"stale": N` each beat (`ir.heartbeat_stale`). The file is written whole each
+time, so a model without the template, or one the template was taken out of, writes no `stale`. The watcher uses
+`stale` only when it is a real number (never a bool, NaN or infinity) with `60 <= stale <= 3600`; missing, it uses
+180 and says nothing (the normal case without the template); malformed or out of range, it uses 180 and says so in
+`run.log`, once for each value in a watcher process. So `stale` lets the watched engine relax the outer watcher's
+limit to at most 3600 s, or tighten it to 60 s; it never turns the watcher off, and it never changes whether the
+engine's own watchdog runs. The heartbeat the run writes as it starts carries no `stale`, so 180 applies until the
+watchdog's first beat.
+
+**No controller reads what it manages.** The watcher still reads only `run.pid`, `heartbeat.json` and `stopped`
+(and, when it restarts, its own back-off, `restarts.json`, and `run.log`). The engine's sensor of `heartbeat-age` is
+a drawing, not a protection: an engine frozen whole reads nothing, and the outer watcher is the layer that acts. Each
+measure gives no reading, never 0, when what it reads is missing: no `heartbeat.json`, one that cannot be read, one
+with no finite last pass or a pass stamped in the future; an event log that cannot be read.
 
 ## 3. Names, references and values
 
@@ -282,8 +518,8 @@ remotes:                        # optional: systems other ergostats run, read he
   ...
 web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
-library:                        # optional, main file only: folders of the owner's templates (section 2a)
-  - ...
+library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
+  - ...                         # a folder (trusted), {folder: PATH, trust: owner}, or {folder: PATH, untrusted: true|false}
 ```
 
 ## 4a. Systems: parts made of parts
@@ -316,6 +552,10 @@ A system named by a part and not described here is a top-level system.
 `purpose:` (top level, the main file only) says in a sentence what the whole model is for: a goal in no system that
 says what it is for is traced to it (the `purpose` note, section 12). Each system's size (its parts at any depth, the
 feedback loops inside it and through it, and the levels of systems within it) is in `explain` and on its panel.
+Beside its size, the Dynamics panel names each chain of its own stocks that, over the window shown, no feedback loop
+beyond each stock's own drove: a candidate to aggregate into one delay, not a finding (section 12c, *Stocks to
+aggregate*). It is worked out from the loop dominance over that window; no row is shown when the dominance is not
+known.
 
 **Its interface is worked out, never written.** Whatever crosses a system's boundary is one of
 its ports:
@@ -333,6 +573,18 @@ A system whose setpoint comes in from outside, and whose goal's measurement goes
 **inner loop**: seen from outside, it is one block that holds what it is told, and an outer loop
 can treat it so. `ergostat explain system.NAME` says what goes in and out, and names it an inner
 loop when it is one.
+
+With a project, it also says how stable the interface has been: "Interface over the model's
+recorded history: unchanged over the last U of V recorded versions (since DATE); C changes."
+It counts the `model.changed` events (section 9.1) in their order in the record, never by time,
+over the latest unbroken run that records this system's interface. An event without interfaces
+(a TOML stretch, a record from before they were kept), one without this system (it was removed and
+made again), or one that cannot be read starts the count over. Two equal records of one version
+count once. Only versions ergostat loaded are seen, so an edit made and undone between loads is
+not. A change can also come from an upgrade that works out interfaces differently, with the model
+unedited. When the interface as it is now is not the last one recorded, it says "the interface as
+it is now is not recorded yet" and gives no counts. Only `explain` says this; the system's box
+and panel do not.
 
 **Drawn as parts.** The control diagram draws each system as one box: its ports on its edges
 (inputs left, outputs right, each named for the part inside it reaches, with that part's
@@ -363,11 +615,26 @@ storage:
   items:
     idle: 1d                       # an item with no event for this long is read from the item index, not kept in memory
   logs:                            # caps on what would otherwise grow without limit
-    block: 5MB                     # a block's log (logs/<block>.log) past this is cut to its last fifth, at its next run
+    block: 5MB                     # a block's log (logs/<block>.log) past this is cut to its last fifth, as a run ends
+    runs: 50                       # each block's run files (logs/runs/<block>/) kept, newest by start seq: 1 to 1000
     run: 5MB                       # run.log past this is copied to run.log.1 and emptied, at each start and each roll-up
     threads: 1MB                   # threads.txt (kill -USR1's stacks) past this is cut to its last fifth
     transcripts: 30d               # a transcript unchanged this long is forgotten by transcripts.json, not read again
 ```
+
+**Each run's own log.** Each run of a `program` or `ai` block (a daemon's run too) writes to a file of its own,
+`logs/runs/<block>/<seq>-<id>.log` (`<seq>` the seq of its `agent.started`, `<id>` the first 12 characters of the run's
+id): its standard error and the lines it printed that were not JSON, with no header, and nothing of any other run. Its
+`agent.ran` or `agent.failed` names it (`log`). It is opened relative to `logs/`, without following a link, and never
+over a file already there (the names tried next are `-2` to `-9`, then `run-<seq>-<fullid>.log`). A block name that is
+not a plain name, a link or something not a folder where `runs` or `runs/<block>` should be, or no start seq: the run
+does not start (`could not start: its run log: ...`). When the run ends (its process has exited, or its daemon has
+answered), its entry is added to the block's log, `logs/<block>.log`, in one write under `logs/<block>.log.lock`, with
+the trim: the header `--- <start time> run <id8> (<why>)`, then the last `block:` bytes of its file, after
+`(N bytes earlier: logs/runs/<block>/<file>)` when it is longer. So the block's log holds whole runs one after another
+and shows a run once it has ended; a run's output as it goes is in its own file. Then the block's files past `runs:` are
+removed, oldest by start seq first, but only names ergostat gives them and only a file no run still holds (a run holds a
+shared lock on its file for its whole life; so does a process its child left behind, which keeps the file).
 
 `ergostat compact --projects` lists the record folders under `~/.ergostat` whose `repo.json` names a repository
 that is gone (its parent folder is there and it is not: an unmounted drive is not gone) and where no engine runs,
@@ -490,6 +757,7 @@ remotes:
     systems: [triage]                 # optional: only these of its systems (and what is inside them)
     within: support                   # optional: the system it is drawn inside
     every: 1m                         # how often its model and readings are read (default 1m, least 10s)
+    show: [stock.open]                # optional: what its closed box shows, in its own names
     description: the incident desk
 ```
 
@@ -497,10 +765,12 @@ remotes:
 |---|---|---|---|
 | `url` | URL | required | The remote ergostat's page. Plain `http://` only to a loopback address (else **remote-insecure**, an error): across machines, https or an SSH tunnel (`ssh -N -L 8795:127.0.0.1:8781 HOST`) |
 | `token-file` | path | none | The file holding the token the remote made for this model (`ergostat remote token NAME`, on the remote); `~` expanded, relative to this file |
+| `tls` | map | none | Mutual TLS to a remote serving `web: mtls:` (below): `{cert: me.pem, key: me.key, ca: servers.pem}`, the certificate and key this model shows and the CA it trusts for the remote's (`ca` optional: else the system's trust, as for any https). Paths as `token-file`. Only with an `https://` url; a key missing or unknown is **bad-remote**; a file given that is missing, a directory or not PEM is **mtls-unreadable**, an error. Every read of the remote uses it; when a context can't be made from it the read fails (`tls: ca …: why`), never sent without the certificate or with the system's trust in place of `ca` |
 | `systems` | list | all | Only these of the remote's systems, and the systems within them; a reference from them to a part left out is cut (a flow's end becomes a cloud, a cause or an input is dropped) |
 | `within` | system name | the file's default | The local system it is drawn inside |
 | `every` | duration | `1m` | How often its model is checked and its readings read |
 | `description` | string | where it runs | |
+| `show` | list | its top systems' `show:` | The measures its closed box shows, each `stock.NAME`, `flow.NAME` or `auxiliary.NAME` in the **remote's own** names, as it serves them: `stock.open` is its `open`, drawn here as `incidents-open`, even when this model has an `open` of its own; a local part is never shown on a remote's box. It takes the place of the served tops' `show:`. Anything else is **bad-remote**, an error |
 
 **What it becomes here.** Each part it serves is put in under the remote's name (`stock.incidents-open`),
 as a template's instance names its parts (§2a), in the system `incidents` (its own systems inside it,
@@ -535,10 +805,69 @@ least) is stale and is not taken.
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
 in place like any system. In Process its kinds' maps are drawn beside ours, framed *remote incidents*.
+
+**Lines to a remote's items.** Where one of our items names a remote's item through a relation to the remote's kind
+(§5a, *A remote's kind*), the process map draws a related line, dashed, from the step our item was last at in the
+window to the step the remote says its item was last at (`at=` on `/remote/v1/process`, in the same request as its
+map). The ids sent are the distinct ids named, each 1 to 128 characters with no space or control character (any
+other is `bad-id`), sorted by id (never by time), as many as fit in 200 ids and 32,000 bytes of query (the rest
+`capped`); the remote refuses more than 200 (400). A link is drawn only when the remote's answer names its item with
+the relation's kind (`other-kind` otherwise) and a step (`not-answered` when the answer leaves it out, is malformed,
+or the remote predates `at`), that step is in the remote's map as drawn (`not-drawn`) and our step in ours
+(`not-drawn-here`); an unreachable remote counts its links `unreachable`, after `bad-id` and `capped`, which are
+decided before the request. A link not drawn is never dropped: `remotes.NAME.unlinked` counts it by reason, and
+`linked` the ones drawn, so the two add up to every link; the side list says how many are not drawn and why.
+Several relations naming one id ask it once, and the answer is checked against each link's kind. No time of the
+remote's is compared with one of ours, and the line never gates (§5a). The remote's map as last read in the window
+is drawn when it does not answer, marked `cached`, its `at` used only when it was for exactly the ids sent now.
+Its closed box shows, in this order of precedence: (a) the `show:` on its `remotes:` entry; else (b) the
+served `show:` of its top systems (those with no `within`, or with `systems:` the kept ones whose `within` is
+not kept), in the order it serves them, each part once, a part `systems:` leaves out cut; else (c) the
+measures of its goals that it serves (never a stand-in's); (d) a remote never read shows the parts its local
+`show:` names, each *never read*, and with none no measures at all, never a goal's. A system inside it shows
+its own served `show:`. The panel (Dynamics' module, the system panel) lists them under the remote note,
+and Blocks' box draws them as rows. A measure there is **stale**, dimmed, and says `last V · AGE old`
+(AGE: the snapshot's moment less its newest reading here) or *never read* when the remote is not answering,
+its readings fail, or it has not answered yet: then every measure is stale. When it answers, a measure is
+stale when its sensors' newest reading here is older than three of its sensor's periods (two minutes at
+least, also for a sensor with no period), and says *never read here* when they have none; a part with no
+sensor here is stale only when the remote is not answering. A local `show:` part it does not serve stays,
+dimmed, *not served*, and is a finding (**remote-show-unresolved**, on the `show:` key: the version it was
+checked against, as last read when the remote is not answering, and why: it serves no such part, `systems:`
+leaves it out, or the name is a local one); neither it nor a *never read* one is charted.
 The local residuals, coherence and attention leave its parts out: they are held to its own record, there.
 
 **Never edited here.** A model change (§12e) that would write a remote part is refused, as one that would
 write a template's part: it is the remote owner's to make.
+
+**Proposals for its owner** (`ergostat/numbers/remote_text.py`). When the calibration's parameter estimate or the
+equation finder (§12b) finds a change whose every edited part is one remote's (a parameter proposal's parameters, an
+equation's flow), it is written as **text for that remote's owner**, never as an edit. Under the same id the local
+one would have, it is an `ergostat.model-change` item holding only `kind`, `title`, `text`, `evidence`,
+`for_remote` (`{remote, version, parts: {local ref: remote ref}}`), `subject`, `made_by`, `created` and `made`
+(an allowlist, `FIELDS`): no fit, gate, estimate, edit or local version. Its text names the remote's parts in the
+remote's own names (looked up in what it served, `parameter.incidents-rate` → `parameter.rate`; a stand-in is never
+there), says what to change (a value from → to, ± one standard error; or a flow's equation and each new parameter's
+value, the new names made from the remote's names and free against its parameters), and gives the evidence: points,
+window and the series read. It makes no claim of fit. When a name is not served, nothing is written, and what is
+under its id is left as it was. It is recorded under the proposals' lock and, inside it, the remote's cache lock
+(`<state>/remotes/NAME/model.lock`, which a refresh holds while it reads and writes `model.json`), only when the
+version in the cache file is the version the evidence was computed on: a file missing, unreadable or without a
+version, or another version, records nothing. It is **current** only while both versions are read and equal (never
+by time); a superseding pass supersedes it when the cache's version has moved (saying from what to what), and one
+that cannot be read supersedes nothing but is listed as not current, with why. Found again at the same version with
+the same text it is left alone, and a dismissed one is not written again there; at a new version, or with another
+text, it is made again, open, and nothing of a decision under that id is kept (a change of this model's own under
+the id, whatever became of it, is superseded first; one made again from a text loses `for_remote`, `text` and
+`evidence`). Its state is `checked` and it is never in the review queue (`proposals.pending`), the judge, the
+inbox, MCP or the Model page; Accept refuses it first, by every path ("is text for remote NAME's owner: it is never
+applied here"); dismiss lets it go. It is **never sent by ergostat: sending it is the owner's act.** `ergostat
+remote proposals [NAME] [--json]` lists the open and the dismissed ones, each with the version it was written
+against, whether it is current and its text; it takes no lock and writes nothing, and runs on the last good model
+while the YAML is broken (`goodmodel.READ_WHAT`; the rest of `ergostat remote` acts). `ergostat proposals` says how
+many are waiting there. Not made for a remote: a change touching both this model's parts and a remote's, or two
+remotes' (kept with its edit's error, and refused by Accept as before); structural changes, redesigns, a block's
+proposal and the owner's what-if (refused, as any edit of a remote part).
 
 **What a remote serves.** Any ergostat whose page runs serves this read-only API once a token is made
 (`ergostat remote token NAME`, printed once, kept only as its hash; `--revoke`; `ergostat remote tokens`).
@@ -554,11 +883,44 @@ what admits.
 | `/remote/v1/items`, `/remote/v1/items/ID`, `/remote/v1/counts` | the item listing (`n` ≤ 500), one item, items by kind and state |
 | `/remote/v1/readings?series=…&ref=…` | the newest reading of each series and part (`stock.x`, `flow.x`, `auxiliary.x`, `goal.x`), with its time; at most 200 a call |
 | `/remote/v1/series?name=…` | one series over `since`…`until`, `n` ≤ 1,000 points |
-| `/remote/v1/process` | its process map (§5b) |
+| `/remote/v1/process` | its process map (§5b); with `at=ID` (repeated, each id whole, at most 200), `at`: the kind and the step each id asked was last at in the window (an id with no step there left out) |
 
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
-most); `ergostat remote refresh` asks each again now.
+most); `ergostat remote refresh` asks each again now; `ergostat remote proposals` lists the texts written for
+remotes' owners (above).
+
+**Over mutual TLS.** `web: mtls:` (§4d; per machine, so in `ergostat.local.yaml` when the model is shared)
+starts a second listener beside the loopback page that serves only this API, over TLS, to clients whose
+certificate the owner's CA signed:
+
+```yaml
+web:
+  mtls:
+    port: 8796                                       # required, 1..65535
+    bind: 0.0.0.0                                    # an address (default 0.0.0.0)
+    cert: ~/.config/ergostat/tls/server.pem          # this listener's certificate (required)
+    key: ~/.config/ergostat/tls/server.key           # and its key (required)
+    client-ca: ~/.config/ergostat/tls/clients.pem    # required: whose client certificates are taken
+```
+
+Paths expand `~` and are relative to the model's folder. An unknown key, a bad port or a bad address is
+**bad-web**. Each file that is missing, a directory or not PEM (or a key that is not the certificate's) is
+**mtls-unreadable**: an error to `ergostat check`, and when the model loads no port is bound, the loopback
+page serves as ever, and `ergostat run` and `ergostat web` say `remote API over mutual TLS: not listening:
+web.mtls.cert PATH: why` (else `remote API over mutual TLS: https://BIND:PORT`). Both contexts, this
+listener's and a remote's `tls:`, are set to TLS 1.2 at least; the listener requires a client certificate
+and trusts `client-ca` alone (never the system's trust); a remote's checks the host name. Its limits are
+fixed, not settings: 16 connections at once (one more is closed at once, never queued), 10 s for a
+handshake in all (however slowly its bytes come), then 10 s without a byte after it or between requests;
+past either the connection is closed. A client holding a certificate from `client-ca` that sends a byte
+now and then keeps its slot: only the handshake has a total bound. Only `GET` (any
+other method 405) of `/remote/v1/status`, `model`, `events`, `items`, `counts`, `readings`, `series` or
+`process` and below, read on decoded path segments (none `.`, `..`, empty or holding a slash); any other
+path is 404 and never reaches the page. The token is still needed, as on the page (its 10 a second, and
+404 until one is made): the certificate admits the connection and the token names the consumer. The two are
+not tied: any certificate `client-ca` signed may carry any consumer's token. Stopping the page stops the
+listener, closing every open connection.
 
 ## 4d. The page behind a public name
 
@@ -597,6 +959,13 @@ proposal, approved an action, answered the inbox, sent a message); the inbox cou
 never an agent's. Under a public name `/file/` never serves the state directory (its tokens). The push paths (`/api/events`, `/api/hooks/`,
 section 5c) and the remote API (`/remote/`, section 4c) keep their own tokens. Requests still come only from this
 machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**), and names without `access`.
+
+| `web:` key | Meaning |
+|---|---|
+| `names` | the public names the page answers to (a tunnel's hostnames) |
+| `access` | the Cloudflare Access application in front of them: `team`, `aud`, `emails` |
+| `open` | `read`: the names public and read only, with no login (never with `access`) |
+| `mtls` | the remote API on a listener of its own, over mutual TLS: `port`, `bind`, `cert`, `key`, `client-ca` (section 4c) |
 
 ## 5. Stocks
 
@@ -675,6 +1044,7 @@ items:
 | `fold` | map of field → rule | `replace` | How the plain `data` of its events folds into each field (the rules below) |
 | `relations` | map of name → kind(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
 | `join` | a rule, or a list | none | When its children move it on (*Join*, below) |
+| `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `system`, `description` | | | |
 
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
@@ -775,6 +1145,39 @@ what an item names and what names it (the inverse: `blocks`, `children`) are bot
 them both ways, each related item with its state, and what it waits on first. A link to an id that was never
 recorded is kept, and said: what it names is not known to be finished.
 
+**A remote's kind.** A relation may name a remote's item kind by its local name (`blocked_by: incidents-incident`,
+for the kind `incident` of remote `incidents`, §4c): a kind that is not a local kind and starts with a remote's
+name and `-` (the longest such name, when more than one fits). A local kind of that name comes first: the relation
+is local, and nothing is asked of the remote. A remote relation names only that kind (with another kind it is an
+error, `bad-relation`), is never precedence or a group, whatever its name (`precedence: true` on it is an error,
+`remote-relation-precedence`: ergostat does not see when a remote's item is finished, so it cannot gate on it;
+`group: true` is `bad-relation`), so an item it names never blocks, and is not waited on by `takes: {unblocked:
+true}`. It is checked against the remote's model as last read: a kind the remote no longer serves, or a remote
+never read, is a finding (`remote-reference-unresolved`), never an error. It is drawn in the process map (§4c).
+
+**Graph queries.** Three questions over the links, both ways, and the items' fields (`spec/itemgraph.py`), as the
+record is now: `ergostat item ID --near [N]`, `ergostat item A --path B`, `ergostat item ID --about`, each with
+`--json`, and `GET /api/items-query?near=ID&depth=N`, `?path=A&to=B`, `?about=ID`, which answer the same JSON.
+- **near**: the items within `N` hops (1 to 4, default 1), each with its distance and the step that first reached it
+  (`via`: the item it came from and the relation).
+- **path**: a shortest chain of relations from A to B (breadth first, the fewest steps), walked either way. A step
+  walked backward is named by the relation's inverse: the one the kind declares (`inverse:`), else `blocks`,
+  `children`, `before`, `dependents`, `duplicated_by`, `related_from` for the relations of those names, and `NAME_of`
+  for any other (`relations.inverse_of`; any relation may be walked, the names are not an allowlist). `says` is
+  `found`, `no path` (every item reachable was visited), or `none within the cap`.
+- **about**: the items linking to it by a declared relation (`declared`, with the relation), then those whose fields
+  hold its id as a whole token (`inferred`, with the first such field): `ticket/1` is not in `ticket/12`,
+  `ticket/1/x` or `xticket/1`. Each string value of a field is matched, nested ones too, so an id at the start of a
+  line counts. The mentions are looked for among the items whose indexed text (*Search*: the first
+  65,536 characters of their fields' strings) holds the id, newest first; a mention past that is not found.
+
+Each visits at most 2,000 items (`itemgraph.VISIT`), and says `capped` when it stopped there: a path not found
+within the cap is never said to be "no path"; a walk that runs out of items to visit exactly at the cap is.
+An unknown id is an error (the command exits 2, the API answers 404); a depth outside 1 to 4 or not a number, a path
+with no `to=`, more than one of `near=`, `path=` and `about=` (the CLI's flags likewise), or one of them with `--at`
+(`at=`) is refused (exit 2, 400), never answered with a default (only
+no depth at all is 1; the API reads an empty `depth=` as none).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:
@@ -803,6 +1206,41 @@ for:
   completion estimates are worked out, from a levelled run of their simulation instead (below).
 - **Cycles**: items whose precedence relations go round can never all be ready. Each cycle needs attention
   (`ergostat`, the page's side panel), and is left out of the projection.
+
+**About.** An item may say which parts of the model it bears on: a lesson about a goal, a note about a stock. A kind
+opts in by naming the field that holds them, `about: FIELD`; the field holds one name or a list, each in the text
+form a claim's `about` uses: `goal.x`, `stock.x`, `flow.x`, `auxiliary.x`, `block.x`. ergostat declares no such
+kind of its own, and a model none of whose kinds declares `about:` looks nothing up.
+
+```yaml
+items:
+  note:
+    id: note/*
+    states: [open, retired]
+    about: about                            # "data": {"about": ["goal.inbox-short", "stock.inbox"]}
+messages:
+  done: {note: [retired]}
+```
+
+The field folds by `replace` (any other `fold:` for it, or a relation's name, is an error, `bad-about`): an event
+that sets it replaces the whole list, so a part dropped from an item, or an item made again under the same id with
+a new list, no longer points at the old part. The item index keeps each item→part link beside its relations' links,
+as they stand now, so the items about a part are one indexed lookup, never a read of every item (an index built
+before these links is built again). They are read in three places, each listing only the **open** items about the
+part (not in a state its kind counts as finished, `messages: done:`, else as the item index says; a kind without
+states, always open), the latest first:
+
+- `ergostat explain PART` (and MCP's `explain`), with a project, ends with a line `Open items about goal.x: ID
+  (title), ...`: each item's id, then its `title`, else its first field with a value; **at most 5**, then `and N
+  more`. `none.` when there are none; `unknown` (with why) when the item index cannot be read, never `none`.
+- `ergostat check`: a finding whose part has open items about it carries their ids (`items` in `--json`, and said
+  in its message, at most 5 named); an open item naming something that is not a part of the model (`goal.gone`,
+  `foo.x`, `goal.`, `stock.x.main`) is a finding, `about-missing-part` (section 12). Finished items are not checked.
+- `ergostat` (the status): a loop that is off names the open items about its goal or the value it measures
+  (`goal.x`, or its `stock.y` / `flow.y` / `auxiliary.y`), on its attention line (`· items about it: a, b, c +2`)
+  and in its row of the loops table, **at most 3**, then `+N`; `unknown` when the index cannot be read. A loop that
+  is not off names none. Under `--at` (a past snapshot) no items are named: the items open now are not the ones
+  that were open then.
 
 **Join.** A parent moved on by its children (fork-join) is a rule on the parent's kind, over the relation its children
 name it by, not a block that lists and matches items:
@@ -847,9 +1285,14 @@ the completion estimates (none at a moment travelled to), and the status's list 
 (`ergostat snapshot`) holds the Items page's list with no kind chosen; each kind chosen alone, its list (the
 first 500 of its items, as `items?kind=K` answers) and its list in each state it declares or counts; and the
 Graph and the Timeline of each system's related kinds together and of each kind alone, related or not. An
-answer that could not be got is left out, and the page says it is not in the snapshot. A set chosen (`where`,
-`moved`, a process map's `through`, `followed` or `caused`) is not held: in a snapshot it says so. The Process
-view draws relations too (§5b).
+answer that could not be got is left out, and the page says it is not in the snapshot. It also holds the item sets its own panels link to: each part's (a stock's, a
+flow's, a sensor's side-panel set) and each node's and line's of every process map it holds (a node's `through`, a
+related line's first end's `through`, a caused line's `caused`, any other line's `followed`, with the map's `by` and
+span). Each is held both as the side panel lists it and as the Items page opened from its link shows it, at most 400
+sets: parts first, then each map's nodes as the map lists them, then all the maps' lines by count, most first
+(equal counts as listed). A set named twice is held, and counted, once; one past the 400, or one the server refuses,
+is not held and says "not in this snapshot", as a set typed into the address does. The process map's other `by`
+and the leased items a flow's panel links to are not held. The Process view draws relations too (§5b).
 
 **Completion estimates.** Each open item's time to completion (a state its kind counts as finished, or a dead
 letter) is estimated by a discrete-event **Monte Carlo over every open item together** (`numbers/eta.py`), from what
@@ -873,7 +1316,10 @@ stand now):
   more items wait on, which agree on a chain but may differ between items of unequal durations). An item waiting in a state
   whose every block that takes from it is commanded off now (its gate shut, a switch at 0 or never read: worked out as
   the engine would from the newest readings) is projected not to move: no bar, its reason "waits for B, which is
-  switched off now (by C)", at most the block's capacity at once: its `pool`, its agent's
+  switched off now (by C)", at most the block's capacity at once: its pool now (its `pool:` number, or its stock's
+  newest reading at or before the moment estimated, at most its `most`; a pool read as 0 or not read at all is
+  estimated at 1, and each item waiting there says so: "its pool (stock.S) is 0 now: estimated at 1 run at once";
+  the what-if `block.NAME.pool` overrides it), its agent's
   `at-once` and its daemon's `concurrency`, whichever binds (seats and daemons shared with the other blocks that use
   them), and its `workspace:` pool (§12k): a workspace taken at the item's first run of such a block is held by the
   item across every state until it finishes, so a pool of three keeps at most three items between that take and their
@@ -934,7 +1380,9 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
 the window, 400 more reached by relations (six links away at most), 300 cards and 200 rows drawn; a note says when
-any was reached. In a snapshot they are not drawn.
+any was reached. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
+is read by id and its own status counts (one that cannot be read counts as unfinished, and is named). In a snapshot
+they are not drawn.
 
 **Built-in kinds.** Seven kinds are ergostat's own, present in every project and never declared (a project's
 kinds may not take ids starting `ergostat.`): `ergostat.model-change`, every change to the model (section 12e),
@@ -1001,7 +1449,13 @@ gives the same.
 **States.** An item arrives in its kind's first state (a move from nowhere, so a flow can count
 arrivals with `entering:`), and stays there until an event its kind maps moves it; every move is
 kept (from, to, when, by which event), so how long it spent in each state is known. An item no
-kind matches is still shown, with its fields (folded with no rules) and no state.
+kind matches is still shown, with its fields (folded with no rules) and no state. A built-in kind
+may also say which states an event moves an item **from** (`ItemKind.moves_from`: event type to a
+tuple of states): such an event moves the item only when its state at that point of the fold (in
+the record's order, `seq`) is one of them; otherwise it moves nothing, and the item lists it in
+`refused` with `form: "from"`. So a decision to move an item is made against its state where the
+event lands, not where its writer last read it (the repair loop's failures, section 12r). It is
+not written in a model's YAML.
 
 A field whose value is `file:PATH` names a file in the project (a picture a program made, a report,
 an agent's transcript): the page shows it where the item is shown, as what it is (`formats`, or its
@@ -1112,7 +1566,7 @@ happened between the moves, and loops on one step.
 
 **The paths slider** (in the view bar) hides the lines rarer than its share of their kind's most frequent
 (the lines between kinds, of theirs), and the nodes it leaves alone, as process mining tools' slider does;
-the side panel says how many were hidden.
+the side panel says how many were hidden. The related lines to a remote's items (§4c) are not subject to it.
 
 **Bounded.** The newest 50,000 events in the window are read, the moves of at most 20,000 items (the
 latest moved), and the 60 most frequent nodes and 160 most frequent lines drawn; the side panel says when
@@ -1156,9 +1610,11 @@ it: section 9.5) wakes on the write itself. Collectors stay as they are, the fal
 
 **`POST /api/events`** on the running ergostat's page (`ergostat run` prints where): one event, or a list, in the
 envelope a block's output lines use: `{"event": "ticket.found", "item": "ticket/SCRUM-12", "data": {...}}` (or
-`patch` / `set` in place of `data`), with an optional `id` that makes a retry the same event (recorded once). A push
-is checked whole and recorded in one write, or refused whole (400, and why). The answer says how many were new and
-their ids. An event type is lowercase words joined by dots, never ergostat's own.
+`patch` / `set` in place of `data`), with an optional `id` that makes a retry the same event (recorded once). An `id`
+starting `cite:` is refused: it is a mirror's own, recorded only by the sensor it names (section 2, *Mirroring an
+outside log*); so is one from a webhook's `id:` or from `ergostat event` sent to the engine. A push is checked
+whole and recorded in one write, or refused whole (400, and why). The answer says how many were new and their ids.
+An event type is lowercase words joined by dots, never ergostat's own.
 
 **Webhooks, `POST /api/hooks/NAME`**: a sender's own payload, made into events by a small mapping per sender:
 
@@ -1210,6 +1666,22 @@ answered, so a step's own code may speak it with no ergostat installed: `{"op": 
 "count", "env": {...}}`, each with `"root"`, the project's folder (another project's call is not answered:
 `{"elsewhere": ...}`). An answer is the command's `--json` answer, or `{"error": WHY, "code": EXIT}`. An `act` that
 waits for an approval holds no thread: it is answered when the owner answers.
+
+A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no engine answers (no socket, a refused
+connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
+120, at most 3600), then does what it does with no engine. A command from a shell does not wait. It does not wait
+where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
+the socket is removed it waits 10 s at most for it to be made again. Only a final stop removes it: `ergostat run`
+starting itself again in place under the same name (a change of storage or format, or the watchdog's restart) leaves
+it, as a killed engine does, so its calls wait the whole bound for the new engine; a new name is a new state folder,
+so that restart removes it. Over-long keys are hashed, never cut short. Each call carries a
+key, `"call"`, made once by the command, the same on every try and in what the command records itself when it falls
+back: an event it records without an `id` of its own is given `call-KEY.N`, a lease's
+renewal or nack `call-KEY`, so a call recorded just before the engine stopped is not recorded again (its answer is
+the event recorded the first time); an `act` with
+no `--key` from a run with no item is keyed by it, so one held for the owner is asked once (a run with an item already
+finds its held action again, by its action and arguments). An `act` asked again after a restart waits for its `wait`
+again, from when it is asked.
 
 ## 6. Sensors
 
@@ -1266,7 +1738,7 @@ flows:
 | `sum` | field | | On a flow's `items`: the rate per hour of this field summed over the items moving (a number; else 0), not how many moved. `model-mended` sums each written change's `fit_gained`, what Accept measured it took off the error |
 | `changes` | `rises`, `falls`, `net` or `rest` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over`; `rest` (two-way, one a stock): the net change less what the stock's other measured flows moved, each at its last reading (the residual flow). Every rise or fall is whatever caused it: a flow so measured that is drawn as caused by another flow is the finding `measured-not-caused` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
-| `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings` | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
+| `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings`; `ergostat.upkeep.*` (`index-files`, `retired-index-files`, `heartbeat-age`, `stalls`, `restarts`) | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e) or of its own upkeep (section 2a, *Upkeep*), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
 | `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
 | `where` | map of field → value (or list) | | Only items whose fields match; a field's field is named with a dot (`lease.back: triage`: the items whose lease was taken at `triage`, section 9.5). Values compare as typed JSON: a number matches a number (`1` matches `1.0`), a string a string, a boolean a boolean, `null` a field that is null or missing, so `priority: 1` never matches the text `"1"` (write it quoted when the field holds text). *Decided* (2026-11-18): before, both sides were compared as text, so `1` missed a field holding `1.0`; `check` notes each bare number or boolean in a `where:` (**where-typed**) since its meaning changed. The same holds for a block's `takes: where:` |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
@@ -1289,6 +1761,7 @@ it measured). These are recorded as events from the sensor (`benchmark-score.mai
 the items like any other. An observation records what was seen, never a command: it must name an
 item (an id with a `/`), may not use ergostat's own types, and a sensor has no outputs. A measured
 value is shown as measured by its sensor; an auxiliary a block sets is shown as set by that block.
+A sensor read by a daemon may print the same lines tagged with `"sensor": "STOCK.SENSOR"` (section 9.7).
 
 ## 7. Flows
 
@@ -1719,7 +2192,20 @@ saturation.
 **Lines take effect as they arrive.** A run's standard output is read while it runs, line by line, and each
 complete line is taken when it is printed, in the order printed; half a line waits for the rest (or for the end of
 the output). Its input is written, and its errors go to its log, beside the reading, so neither a large output nor
-a program that reads its input slowly stalls it. Event lines in a row are recorded together, in one write, before
+a program that reads its input slowly stalls it. **A run outlives its engine:** it starts in its own session, its
+input is a file and its output goes to its run log file (`runs/RUN.out` in the state folder), which the engine
+follows (looking again within 50 ms when nothing is new), so no pipe ties the run to the engine: an engine killed
+mid-run leaves the run going, and a small `sh` wrapper writes its exit code to `runs/RUN.exit` when it ends.
+`runs/RUN.json` is its record: pid, the process's start time (a pid reused by another process has another start
+time), run id, lease and block. The files are removed once the engine has read the run to its end. (Taking up a run
+left behind by a stopped engine is not built yet.) A run has ended when its process has and nothing it started is
+left in its process group, or 2 s after its process ended, whichever is first. **Its exit code is the wrapper's**,
+and `sh` reports a command killed by signal N and one that exits with 128+N alike, so the wrapper chooses: for HUP,
+INT, PIPE, ALRM, TERM, USR1, USR2 and KILL it ends itself by the same signal, and the run's exit reads -N (as a
+simple command's did before the wrapper); for every other code it exits with the code itself, so a run killed by a
+signal that dumps core (SEGV, ABRT, QUIT, ILL, BUS, FPE, TRAP, SYS, XCPU, XFSZ) reads 128+N, e.g. 139, never
+crashing the wrapper. The cost: a command that *exits* 129, 130, 134, 137, 139, 141, 142, 143 or another such code on
+purpose reads as ended by that signal (section 12's triage files both as `signal`). Event lines in a row are recorded together, in one write, before
 anything printed after them, so a run printing thousands of lines a second costs a few writes. A program flushes
 each line for it to be seen at once (`print(..., flush=True)`, `python -u`; `echo` and `jq -c` in a shell already
 do); what it holds in its own buffer arrives when it flushes or ends. By line:
@@ -1755,7 +2241,14 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   built-in block written the same keeps its state; one changed takes over the state of the one before it (a
   counter's count, a timer's start, a delay's line) when it is of the same type.
 - `model.changed` records it, with how many runs carried over (`carried`, and which: `runs`), the version before
-  and after, and the blocks still finishing under an old definition (`finishing`: `removed`, `changed`).
+  and after, and the blocks still finishing under an old definition (`finishing`: `removed`, `changed`). A YAML
+  model's `model.changed` also carries each system's interface as a short signature (`interfaces`: system → a hash
+  of its ports' direction, kind, part and peers). An event is recorded when only the interfaces differ, with the
+  systems whose signature differs, appears or disappears (`interfaces_changed`, listed only when the event before
+  has `interfaces` to compare). With the parts and the version unchanged, such a change comes from how ergostat
+  works out interfaces (an upgrade), not from an edit to the model. The first time a model with a record from
+  before interfaces were kept is loaded unchanged, one event with `baseline: true` records them; like `first`, it
+  is not a change (`status --since` leaves both out). A TOML model records no `interfaces`.
 - **Only once the edits settle** (`ergostat/reload.py`): a change is taken once the model's files, and the folders
   holding them, have stayed the same for 1.5 s (`ERGOSTAT_RELOAD_SETTLE`). A burst of writes is one change, and a file
   read half written (truncated, then written in pieces, as an editor or an agent saves it) is never taken.
@@ -1807,7 +2300,11 @@ nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest t
 and 10 s more, when that is longer: one still queued never lengthens it), a fresh pool takes over and the readings it held are asked for again; when no pass has
 finished for 30 s, the loop is started again; when there is still no pass 30 s after that, or the pool wedged three
 times in ten minutes, the process restarts in place (by the run loop, or by the watchdog itself if that has not
-happened within 20 s), which stops the runs under way (leased items are taken again when their leases end). Each
+happened within 20 s), which stops the runs under way (leased items are taken again when their leases end, the
+attempt not counted). Before it waits on the daemons' groups it closes dispatch as stopping does (its stop set under
+the lock a take checks it under, waiting at most 1 s for that lock): no lease is taken in that wait, and a run whose
+process starts from then on is killed at once, so no run of an item outlives the old process to run beside the new
+one's (one exception: a run whose process is being forked at the very moment of the exec). Each
 time every thread's stack is written to `<state>/stalls/` and `ergostat.engine.stalled` is recorded (`what`: pool or
 pass, `seconds`, `recovery`, `stacks`); the stacks begin with what holds the item index (the thread holding its lock,
 with its stack, and any other process with the file open). **Restarts back off** (`ergostat/restarts.py`): the first
@@ -1816,9 +2313,9 @@ and it waits 60 s from it, then 2 m, 4 m, ... at most 30 m, said once and record
 the engine recovering meanwhile cancels it. The last restart is kept in `<state>/restarts.json`, so the back-off
 outlives the process. **A start that hangs** (a lock held by another process, say) is caught by a startup deadline
 (120 s, `ERGOSTAT_STARTUP`): its stacks dumped (`stalls/*-start.txt`) and the process restarted under the same
-back-off. Every 5 s the watchdog writes `<state>/heartbeat.json` (when the last pass finished, the pid), and the run
-writes it as it starts. The alarms' own sensor pool is watched as the sensors' is: replaced when wedged, and a third time in ten minutes
-restarts the process. `kill -USR1`
+back-off. Every 5 s the watchdog writes `<state>/heartbeat.json` (when the last pass finished, the pid, and under
+`use: upkeep` the `stale` the outer watcher uses), and the run writes it as it starts. The alarms' own sensor pool
+is watched as the sensors' is: replaced when wedged, and a third time in ten minutes restarts the process. `kill -USR1`
 on the runner writes every thread's stack to `<state>/threads.txt` at any time, and the socket's `ping` says how long
 ago the last pass finished.
 
@@ -1831,16 +2328,18 @@ PATH (each in turn; one whose `#!` is a launcher, a repository's `.venv` or a te
 and none left is refused). What it keeps running is the watcher,
 which reads only `run.pid`, `heartbeat.json` and `stopped` every 5 s: an engine dead, unless stopped on purpose
 (`ergostat run --stop` leaves `<state>/stopped`, removed by the next start; a logout or a shutdown leaves none), is
-started again; one whose last pass is older than 180 s is stopped (`SIGTERM`, then `SIGKILL`) and started again; each
-under the same back-off, said in `run.log`, and recorded as `ergostat.engine.restarted` when the start succeeded. `ergostat status` says "engine not running (last seen ...)", from the heartbeat, and
-shows each loop as it was then, never as holding now.
+started again; one whose last pass is older than 180 s, or than the heartbeat's `stale` when that is 60 to 3600 s
+(`use: upkeep`'s `heartbeat-fresh`, section 2a; malformed or out of range, 180, said once in `run.log`), is stopped
+(`SIGTERM`, then `SIGKILL`) and started again; each under the same back-off, said in `run.log`, and recorded as
+`ergostat.engine.restarted` when the start succeeded. `ergostat status` says "engine not running (last seen ...)",
+from the heartbeat, and shows each loop as it was then, never as holding now.
 
 **What a run records.** Every machine block's run ends with `agent.ran` (or `agent.failed`), and besides what it said
 and moved, that event says what the run cost, measured by ergostat, never by the run's own say:
 
 | Field | What | How |
 |---|---|---|
-| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status; the clock |
+| `exit`, `seconds` | Its exit code; its wall time, from start to end | Its process's wait status (the run's wrapper's: a signal that dumps core reads 128+N, section 9.1); the clock |
 | `resources.cpu` (`cpu_user`, `cpu_system`) | CPU seconds of its whole process tree: its process, everything it started, user and system | The larger of its wait status (`wait4`: exact for the process and every descendant it waited for) and one shared sampler's sum (below) |
 | `resources.memory_peak` | The most memory the tree held at once, in bytes (resident) | The larger of the sampler's peak (summed over the tree at each sample) and the largest single process (`wait4`) |
 | `resources.processes_peak`, `open_files_peak` | The most processes in its tree, and the most files they held open at once | The sampler; open files where cheap to count (Linux `/proc`, macOS `libproc` for the user's own processes), else left out |
@@ -2038,7 +2537,7 @@ blocks:
 - **Gated** like any machine block: while what commands it (`goal:`, `in: block.x`) is off, its events wait.
 - **Alone, and on what blocks say.** A block started by events has no `every:`, `cron:` or `takes:`, and neither its
   `on:` nor its `emits:` names a type of ergostat's own record (`agent.*`, `block.*`, `person.*`, `trigger.*`,
-  `loop.*`, `ergostat.*`, ...: which no block may say) (`check`: `bad-trigger`); a block that works items one by one,
+  `budget.*`, `loop.*`, `ergostat.*`, ...: which no block may say) (`check`: `bad-trigger`); a block that works items one by one,
   each needing doing until done, takes them (section 9.5) instead.
 
 **How a commanded block runs.** While its command is nonzero it runs, once per fresh reading:
@@ -2053,8 +2552,8 @@ moved; a block: a command; a goal: a setpoint). JSON lines may also be `{"moved"
 `out` when it moves one flow, and `{"event": "backup.verified", "item": "backup/nightly"}` for
 anything else that happened (an event about an item, section 5a: `data` holds its fields, folded by
 its kind's rules; or, in place of `data`, a JSON `patch` or the whole document, `set`), each taken as it is printed
-(section 9.1). Lines that are not JSON go to its log (`logs/<block>.log` in the state
-directory). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
+(section 9.1). Lines that are not JSON go to the run's own log (`logs/runs/<block>/`, copied
+into `logs/<block>.log` when it ends: section 4b). Its environment carries `ERGOSTAT_BLOCK`, `ERGOSTAT_RUN` (the run's id), `ERGOSTAT_ITEM` and
 `ERGOSTAT_LEASE` (for a run holding a lease on an item: section 9.5), `ERGOSTAT_COMMAND` (the amount),
 `ERGOSTAT_STATE_DIR`, and `ERGOSTAT_CMD`, the command that runs this ergostat on this project
 (`$ERGOSTAT_CMD item --kind ticket --state open --json`, `$ERGOSTAT_CMD event --add ...`), for a
@@ -2114,12 +2613,17 @@ blocks:
     lease: {ttl: 45m, attempts: 2}     # optional: this block's terms
     goal: backlog-short                # optional: it takes items only while its command is on
     run: $ERGOSTAT_CMD session developer --model sonnet
+  reviewer:
+    type: ai
+    takes: {kind: ticket, at: review, to: [done, ready]}
+    pool: {now: stock.reviewers, most: 4}   # as many at once as the stock (measured) reads now, never more than 4
+    run: $ERGOSTAT_CMD session reviewer --model sonnet
 ```
 
 | Key | On | Meaning |
 |---|---|---|
 | `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
-| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped |
+| `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
 
@@ -2132,8 +2636,16 @@ changed in the model reaches the next lease.
 **Dispatch.** While nothing commands the block, or what commands it is on (a `goal:` on it gates
 it, as on any machine block), every item of its kind in a state of `at`, not held, not put off, and
 matching `where`, is leased to a new run, oldest first (by when it entered its state), while the
-leases its runs hold are fewer than its `pool`. With `unblocked: true`, an item a precedence relation says waits on
-an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
+leases its runs hold are fewer than its pool now. A pool written `{now: stock.NAME, most: N}` is read at each look,
+with the dispatcher's lock held, in the same hold as the count of the leases and the take: the stock's level as the
+engine last read it (its newest reading, whatever its age; no sensor runs at dispatch), rounded down, at most `N`, and
+0 when it has no reading (also before the engine's first pass has loaded the readings, when it is not said). A raised
+stock starts more runs at the next look, with no reload; a lowered one drains (no new lease until fewer than the pool
+now are held; nothing running is stopped). The lock is this engine's: a lease another engine takes after the count is
+counted at the next look; on the same item the fold refuses the second lease, on another item both stand, as for a
+`pool:` number. The pool's stock is not one of the block's reads, so its `on-stale` (section 9.6) does not watch it.
+`ergostat block NAME --now` runs whatever the pool is. With `unblocked: true`, an item a precedence relation says
+waits on an unfinished item is not taken (one in a cycle never is), and the rest are taken the critical first: the least
 slack, then the longest path ahead (section 5a, *Relations*), oldest first among equals. The kind must have a
 precedence relation. With `order: FIELD` (or `[FIELD, ...]`), the items it may take are taken by those
 fields first, each lowest first (`-FIELD`: highest first; numbers, then text, the items without it after those with
@@ -2145,10 +2657,14 @@ the order the block will take them; only the critical tiebreak among equals is m
 notes an order field no item in the record holds yet (`takes-order-unset`). ergostat looks whenever the record has something new,
 so a run starts as soon as its item reaches its state, and every second besides. A block that takes
 items has no `every:` or `cron:`: its items start it. Nor has it `mode: advise` (`check`:
-`advise-with-takes`), which asks before a command or an event, never before each item: to have a person
-hold its items, gate it with `goal:` or `in: block.X` from a block a person commands, and its items wait
-while that is off. A kind taken by a block gains two states, when
-it does not list them: `leased`, after the first `at` state, and `dead`, last.
+`advise-with-takes`), which asks before a command or an event, never before each item. To have a person
+hold its items, gate it with `in: block.X` from an `expr` block that reads a stock with `sensor: {manual:
+true}` (`expr: o` over `in: {o: stock.open}`). `ergostat sensor open --read 1` opens the gate and
+`--read 0` shuts it. It opens for all of the block's items at once, not for one item; while it is off,
+or has no reading yet, the items wait. A `person` block is no gate: its `--done` records work and never
+sets a command, so `check` refuses one wired to command a block that takes (`person-gate`). A kind taken
+by a block gains two states, when it does not list them: `leased`, after the first `at` state, and
+`dead`, last.
 
 **A lease** is a run's hold on one item. Its events, about the item, are ergostat's own:
 
@@ -2157,7 +2673,7 @@ it does not list them: `leased`, after the first `at` state, and `dead`, last.
 | `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
 | `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
-| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `item`, `state`, `terminal` | back to `back`, the attempt counted; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
+| `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `count` (false: its holder was not a run this engine process took); `item`, `state`, `terminal` | back to `back`, the attempt counted unless `count` is false; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
 | `ergostat.lease.redriven` | `why`, `to` | a dead letter back to `to` (else `back`), its attempts from nothing |
 
 A counted attempt that reaches the most allowed moves the item to `dead` instead: a **dead letter**.
@@ -2184,15 +2700,27 @@ dispatcher's next look. A run stopped with ergostat gives its item
 back uncounted, unless what it printed before had already moved the item on (its lines take effect as it prints
 them, section 9.1): that is an ack. Once ergostat has begun stopping it takes no lease; a take that raced the stop is
 given back uncounted before its run starts, and a run still going when ergostat has waited its last for it has its
-lease given back uncounted as ergostat exits. A lease that could not be given back (the write failed, or ergostat was
-killed) is expired by the next engine's watchdog on its TTL, so after a restart no item stays leased by a run that
-never ran. A
-lease that expired is not ended again when its run ends.
+lease given back uncounted as ergostat exits. Before the engine records `ergostat.stopped`, every lease it took and
+has not ended is given back uncounted (one whose run's own end failed too), each ended once. A process that a run of a
+block's own `run` starts while its engine stops is killed (its process group) before the engine exits; this keys on
+that engine's own stop, so another engine in the same process keeps a run it starts after the first one's kill (a run
+of another engine already going when one engine kills its runs is killed with them, and one that then exits non-zero
+is said to be stopped with ergostat). A daemon's item is stopped by the daemon's own close (section 9.7). A lease
+that could not be given back (the write failed, or ergostat was killed, or restarted itself at once) is expired by the
+next engine's watchdog on its TTL, so after a restart no item stays leased by a run that never ran; that expiry counts
+no attempt (`count: false`), since its holder was not a run this engine process took (the dispatcher keeps, in
+memory, the runs it took whose leases have not ended). A lease that expired is not ended again when its run ends.
 
 **Fencing.** Each lease of an item has the next fencing number (`fence`, 1, 2, ...), and its run is
 told it (`ERGOSTAT_LEASE`). A run whose lease expired is **killed** (*decided*, 2026-11-18: before, it was left
 to run on, and the item was back in the queue meanwhile): when its lease expires, the engine that started it sends
-SIGTERM to its process group and every process it started (in whatever group or session), and SIGKILL after a grace
+SIGTERM to its process group and every process it started (in whatever group or session; one whose parent has
+exited too, as the run's watch saw it: the run's processes are looked at after each sample of the runs' resource
+sampler, about once a second, so one started and left between two looks is not seen; a pid the watch saw is
+signalled only while its start time is still the one it saw, so a pid used again by another process is left alone
+(start times are read to the second: a pid freed and taken again within the same second as its first start is not
+told apart); the run itself and its group are signalled while it is not yet waited on, even when the processes
+cannot be listed), and SIGKILL after a grace
 (`ERGOSTAT_KILL_GRACE`, read at each kill; 10 s when unset or not a number) to what is left, and records
 `ergostat.run.killed` (about its block; `run`, `item`, `fence`, `why`, `signal`: TERM or KILL, or `cancel` with no
 `pids` for a run a daemon holds, which is sent `cancel` instead: section 9.7, *Cancel*; `pids`, `grace`). The run
@@ -2338,6 +2866,7 @@ Either is a map, or the name of a top-level `daemons:` entry, so one process may
 daemons:
   probes:
     run: python3 probes.py             # started in the model's folder; its standard error goes to logs/daemon-probes.log
+                                       # (one stream for all its runs: never copied into a run's own log, section 12r)
     concurrency: 50                    # the most runs it holds at once (default 10; readings are not counted)
     heartbeat: 30s                     # restarted when it prints no line of any kind for this long (default: never)
     restart: {max: 5, within: 10m, backoff: [1s, 2m]}   # given up after more than 5 restarts within 10 minutes
@@ -2374,17 +2903,36 @@ Out, on its standard output, every line tagged with what it is for:
 | `{"done": EXIT, "run": ID}` | The run ended with that exit code. Exactly these two keys, `EXIT` a whole number (never `true`, never `1.0`) |
 | `{"reading": V, "request": ID}` | The answer to a reading (`{"error": WHY, "request": ID}`: none) |
 | `{"reading": V, "sensor": "STOCK.SENSOR"}` | A reading it sends by itself, for a sensor with `push: true` |
+| `{"event": T, "item": I, "data": {...}, "sensor": "STOCK.SENSOR"}`, `{"message": {...}, "sensor": "STOCK.SENSOR"}` | What one of its sensors observed (section 6), or a message it relays: checked and recorded as a `run` sensor's are, from that sensor (a refused one is a `sensor.refused`). No `reading` beside it |
 | `{"heartbeat": true}` | It lives (any line says so) |
 
 A line that is not a JSON object, tags nothing, or names a run or request the daemon does not hold, is written to its
-log and dropped: never taken as another run's. The `env` of an item travels in its line and never in the process's
-environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
+log and dropped: never taken as another run's. So is an observation that also carries a `reading`, that names a
+sensor this daemon does not serve (a warm daemon serves none), or that a `run` sensor's would neither take nor
+refuse (`{"message": "text"}`): it is never recorded from another source, and never counted. A sensor's
+observations are taken at most 50 a second (accepted and refused alike, in one-second windows from the first); more
+are dropped and counted, not recorded, and each window's count is said once, as a `sensor.refused` with
+`{"why": "N observations dropped: more than 50 a second", "dropped": N}`, at the first of: its sensor's next
+observation after the window closes, the supervisor's next look once the window is a second old (every 0.2 s), or
+ergostat stopping (after its daemons have ended, or a second after they were killed; a line read later than that is
+written to the log and dropped, not counted). The lines of one read are judged at the time it was read. A line over
+1 MiB is dropped (said once in the log), up to its newline, and never held. Lines are read as UTF-8, what is not
+UTF-8 replaced. A run's `done` is taken after its earlier lines; should taking a run's batch of lines fail as a
+whole, each line of it is said dropped in the log. The `env` of an item travels in its line and never in the
+process's environment, which holds only what every item shares (`ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR`,
 `ERGOSTAT_SOCKET`): a daemon passes an item's `env` to what it starts for that item, and never writes it into its own.
+Its standard error is one stream for all its runs: it stays in `logs/daemon-<name>.log` and is never split by run or
+copied into a run's own log (section 4b), which holds only what that run handed back that was not an event (usually
+nothing); so a daemon run's failure is triaged by how it ended (section 12r).
 
 **Each item is still a run**: `agent.started`, `agent.ran` or `agent.failed` (with `daemon`: its name), its lease
-and fencing, its lines taking effect as printed. Its time is its wall time only: a process serving many items at
-once cannot say which CPU second was whose, so a daemon's CPU and memory are its own, sampled every 30 s (and exact
-from its wait status when it ends: on `ergostat.daemon.restarted`), shown on the Agents page, and no run claims them.
+and fencing, its lines taking effect in the order it printed them (a run's line may be taken after lines of the
+same read that are no run's, such as requests, readings and observations, printed after it). Its time is its wall
+time only: a process serving many items at once cannot say which CPU second was whose, so a daemon's CPU and memory
+are its own, sampled about 1 s after it
+starts, then at doubling gaps up to every 30 s (never two samples within 1 s), and exact from its wait status when it
+ends (on `ergostat.daemon.restarted`), shown on the Agents page, and no run claims them. Lines that arrive together
+are taken together, per run, up to 500 at once, in the order printed.
 A sensor read by a daemon starts no process and holds none of the sensor pool's threads while it waits.
 
 **Supervision** (`ergostat/daemons/supervise.py`: a thread of its own, never the engine's loop). Everything written
@@ -2424,7 +2972,8 @@ are taken at most one a second; more are dropped.
   On a restart for a new model the daemons were first sent `stop` as when ergostat stops; this catches what that
   left (a warm process being killed, a group still waiting for its SIGKILL). On the watchdog's restart they are sent
   no `stop` and not drained: their groups get SIGTERM, then SIGKILL after at most 3 s, their runs are not recorded by
-  the old process, and the items they leased are taken again when their leases end.
+  the old process, and the items they leased are taken again when their leases end, uncounted. Dispatch is closed
+  before the groups are signalled, so no item is handed to a daemon in that wait.
 
 Its state is written to `<state>/daemons.json` every 2 s (running, backoff, failed or stopped; its pid, restarts,
 last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
@@ -2438,7 +2987,10 @@ It serves blocks only (a sensor naming one is an error). The protocol is the one
 run, the run is charged its CPU (`resources: {cpu, method: warm}`): what its process group used between hand-over
 and `done`, each member's own CPU and that of every descendant it reaped (read from outside: `proc_pid_rusage` on
 macOS, `/proc` on Linux; elsewhere none): the group's total at `done` less its total at hand-over, so a member that
-ended during the run and was reaped inside the group is charged only its part since. Everything outside a run is
+ended during the run and was reaped inside the group is charged only its part since. A run that never says `done`
+(its process crashed, or hung past its timeout and was restarted) is charged the same way when it is failed, its
+leader's part read from its exit (`wait4`) once it has ended; when its leader can be read neither way, the run's CPU
+is `unmeasured`, never zero. Everything outside a run is
 the process's own, left over with its start-up: CPU used after `done` and before the next hand-over is no run's;
 only what is used after the next hand-over's total was taken is that run's. Not charged: a child
 that left the group (`setsid`) or was orphaned and reaped outside it, and a member whose usage cannot be read. At
@@ -2459,6 +3011,129 @@ was kept, rc 1; the fresh runs differing, the program is not deterministic for t
 rc 3. A daemon that is not warm, or a FILE that is missing, not JSON or not a JSON object, is a usage error (rc 2,
 the file named, nothing run). A program started for a run reads its `env` from the line and passes `{**os.environ, **env}` to what it starts;
 it never writes its own environment, and it reaps what it starts before `done`.
+
+### 9.8 Engine shards
+
+A model can be divided into **shards**, each to be run by an engine of its own. The division is worked out from the
+model's graph, never written in it (invariant 8): `ergostat/spec/shards.py`'s `plan(spec, most=16)` reads the compiled
+model and changes nothing. `ergostat run` does not use it yet: it runs one engine for the whole model, and no shard
+runs as a process of its own.
+
+- **Seeds.** Each top-level system (the outermost system a part is within) starts a shard, named after the system,
+  lowercased. A name that is not `^[a-z0-9][a-z0-9-]{0,63}$` becomes `s-` and the first 12 hex digits of the system
+  name's sha256; a name already taken gets `-2`, `-3` and so on. The **lead** shard, named `lead`, always exists, even
+  in a model with no systems. It holds the parts with no system, ergostat's own kinds (`ergostat.*`) that no block
+  takes, agents no block runs on, and anything else nothing assigns.
+- **Parts.** Every stock, flow, auxiliary, goal, block, sensor, agent and kind of item is in exactly one shard. A
+  sensor is in its part's shard, an agent in the shard of the blocks that run on it, a kind in the shard of the
+  blocks that take it, else in its system's, else in the lead. `Plan.of(ref)` names a part's shard and raises
+  `KeyError` for one not in the model; it has no default. A stock's estimate or uncertainty is in the stock's shard.
+  A daemon (`daemon.NAME`) is in the shard of the blocks and sensors it serves, else in the lead; it is in
+  `Plan.where`, not in a shard's `parts`.
+- **Merges.** Two shards are merged when blocks in each run on the same agent (its `at-once` is counted in one
+  process), take items of the same kind (a lease is locked in one process), or are served by the same daemon (a
+  block's `daemon:` or a sensor's: it is one process, started by one engine). Kinds tied by a join (a parent kind
+  and the kinds whose relation names it) count as one kind here. Nothing else merges shards; in particular, reading a
+  signal across them does not. Each merge is recorded in `Plan.why`: the shard that joined, the rule (`agent`,
+  `kind`, `daemon` or `ceiling`) and the agent, kind or daemon.
+- **Wires.** `Plan.wires` lists, sorted, each value a part in one shard reads from a part in another that exists only
+  in memory, with the shard it comes from and the one that reads it: a goal's setpoint, error or off (`goal`), a
+  block's output read by another block (`cascade`), a block's output to a goal's setpoint (`setpoint`) or to a block,
+  flow or auxiliary (`command`), a flow or auxiliary worked out from its equation (`equation`), a stock's estimate or
+  uncertainty, which its shard's observer keeps (`estimate`), and any other stock, flow or auxiliary with no sensor
+  (`memory`). The readers counted are goals (their part), equations, blocks (their inputs, and each goal they read or
+  act in as an actuator, with that goal's part, as the engine gives them), and the observer of an estimated stock
+  (each flow it adds up). Reading a part with a sensor is reading the measurements, which any shard can do, so it is
+  never a wire; its sensors are read only by the shard that owns it. Writing to one (a command) still is.
+- **Ceiling.** `most` is clipped to 1 to 16. While there are more shards than that, the two smallest (counted in
+  parts, ties broken by name) are merged (`ceiling`). With `most` 1 there is one shard, the lead, with every part.
+- **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
+- **An engine of one shard.** `Engine(project, shard=NAME)` works only on what `Plan.of` puts in that shard; with
+  `shard=None` (what `ergostat run` uses) it works on everything, as before. A name the plan does not have is a
+  `ValueError` when the engine is made. Its own are: the built-ins, the machine blocks and the goals a pass works out;
+  the clock's timed sensors, sensor crons, timed and cron blocks and judges, and the item-count sensors read when the
+  record moves; the blocks the dispatcher takes items for and the kinds whose leases it watches; the blocks an event
+  starts and the kinds whose joins move a parent; the daemons `Supervisor.sync` starts, with the sensors they serve;
+  and the stocks the observer estimates. A pass reads the newest measurements of its own stocks, flows and auxiliaries
+  and of those in other shards its parts read (a goal's part, a block's inputs, an equation's references, an estimated
+  stock's flows), and no others; an estimate read from another shard is a wire and is not carried yet. The shards of
+  one plan divide each of these between them: none twice, none left out. The plan is worked out once per model, so
+  whatever reads a model reads that model's plan. `swap` works out the new model's plan under the engine's lock; a
+  plan without the engine's shard is refused, and the last model keeps running. A part that moved to another shard
+  leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
+  readings, estimate and observer track, and its daemon (drained). Each owner's ask in the record is followed by
+  the one engine whose shard `Plan.of` gives for what it names: an approval, a denial, a breaker reset or a stop by
+  the block's (`block.NAME`), a restart by the daemon's, a step test by its goal's (and at start each engine resumes
+  only its own goals' tests), an approved program action by the shard of the block whose run asked for it. An ask
+  about something the model does not have (a removed block, an unknown daemon, an action with no block) is the
+  lead's alone; besides, an engine still holding the run of the block a stop names, itself or in a daemon, stops it,
+  whoever owns the block now. Each engine judges an ask under the one model it read for it, so after a `swap` the
+  next ask about a moved part goes to its new owner. `start` refuses a block outside the shard as the model is when
+  the run would start: an approval judged just before a swap moved its block is refused there, said, and must be
+  given again (the new owner judged it not its own). Only the lead does what is done once: the `ergostat.started`
+  event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases, actions and notices,
+  the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket. Not yet by shard: the
+  wires are not carried; a run a block's moving a flow asks for reads that flow's stocks' sensors wherever they are;
+  and the calls socket is one per state directory, not one per shard process.
+
+### 9.9 The day's AI budget: runs reserve before they start
+
+```yaml
+budget: {daily: 20, max-cost: 2}     # dollars over the trailing 24 hours; dollars a charged run reserves
+```
+
+`budget:` (main file only; `ergostat.local.yaml` may not set it) takes both keys, each required: `daily`, US dollars
+over the trailing 24 hours (the window of `ergostat.cost.usd`), with 0 < daily ≤ 10000; `max-cost`, with
+0 < max-cost ≤ daily. An unknown key, a missing key, a value that is not a number, and one out of bounds are each an
+error with its own message. Without `budget:` nothing here applies and no run or lease event carries a `reserve`.
+
+`max-cost` is only what a run **reserves** before it starts. It is not a cap on what the run spends: a run that
+spends more is charged what it spent, and nothing stops it as it runs (that is T1, `docs/GAPS.md`).
+
+- **Charged and free runs.** A run is free (it reserves 0) only when its block is not `ai` and its agent is declared
+  with kind `person`, `decision`, `program` or `rule`. Every other run is charged and reserves `max-cost`, including
+  a block with no agent, or an agent with no kind.
+- **The permit.** Before a charged run starts, ergostat opens `<state dir>/budget.lock` (a new open each time) and
+  holds `flock(LOCK_EX)` while it reads the record, decides and writes the run's reserving event. Threads of one
+  process and separate processes (the engine and `ergostat block NAME --now`) exclude each other. It refuses when
+  `spent + reserved + max-cost > daily`, when the record cannot be read, or when the budget's values are out of
+  bounds when the run asks (checked again, as at compile time). A leased run's reserving event is its
+  `ergostat.lease.taken` (written by the dispatcher's take: the dispatch loop, and `block --now` on a block that
+  takes items); an unleased run's is its `agent.started` (the engine's loop, event triggers, `block --now`, the
+  message classifier, step tests, library trials). Each carries `reserve` and `pid`. The `agent.started` of a leased
+  run has the lease's run id and carries no `reserve`: it is not counted again.
+- **A refusal** writes no `ergostat.lease.taken` or `agent.started`; no lease is held and the block is not left
+  running. It records `budget.refused` (item: the block; data: `reserve`, `spent`, `reserved`, `daily`, `why`) at
+  most once a minute per block per process. `ergostat block NAME --now` prints `refused: budget: …` and exits 1.
+- **What is spent and reserved** is a fold by run id (`data.run` of a lease's take, the id of an `agent.started`),
+  never by lease state. It reads reserving events and ends (`agent.ran`, `agent.failed`, and `budget.closed`, data
+  `run`, `cost_usd` or null, `why`) over the last 7 days, and matches each end to its run by `causedby` or `run`,
+  never by time. A run with no end is *reserved* at its reserve, however old within the 7 days: a lease that expires,
+  is released or nacked changes nothing. An end counts in *spent* only while it is within the last 24 hours: its
+  known `cost_usd`; else its reserve, or `max-cost` when it used AI at no known price; a run with several ends, the
+  largest. An end whose run has no reserving event in the 7 days (a free run, a run started more than 7 days ago,
+  and the starts outside the permit below) counts its known cost, `max-cost` when it used AI at no known price, and
+  otherwise 0. A cost is known only when it is a finite number of at least 0. A cost that is reported but is NaN,
+  infinite or negative (it comes from the run's own output) is unknown: it is charged the run's reserve, or
+  `max-cost` when the run has none.
+- **Closing what has no end.** `budget.closed` with cost null (charged its reserve for 24 hours from the close) is
+  written by recovery, under the same lock, for each reserving run with no end whose recorded `pid` is not alive, or
+  is this process's but no longer among the runs it has open. Recovery runs when the engine starts and on the
+  dispatcher's clock, at most once a minute, and reads the open runs without taking the engine's or dispatcher's
+  locks. It copies the open runs before it reads the record, so a run that ends between the two is seen as ended.
+  A run is listed as open under the lock, before its event is written. A run that `run_block` raises out of
+  after its `agent.started` is closed there, cost null. A take the item fold refused (another holder won), or one
+  that won its lease as ergostat stopped and so never ran, is closed with `cost_usd: 0`: nothing ran.
+- **Only ergostat writes them.** `budget.*` is among ergostat's own types: no run's output, `ergostat event --add`
+  (whatever its `--as`), push, MCP call or trigger may record one, so no run can close itself, or another, at 0.
+- **`ergostat.budget.left`** is daily − spent − reserved. With no `budget:`, or a record that cannot be read, it is
+  an error (`MeasureError`), never `daily` or 0: the measures list shows none and the error.
+- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take`, and only
+  those. It does not cover ergostat's own judge passes (`Engine.judge`), the AI calls inside ergostat that keep their
+  own per-call caps (decisions extract, intent verdicts, the redesigner), or models in `ergostat.toml`
+  (`runner.run_agent`), which have no `budget:`; their ends count in spent as ends with no reserving run. A pid
+  reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
+  drops out of reserved. Each permit reads 7 days of starts and ends.
 
 ## 10. Agents
 
@@ -2517,7 +3192,7 @@ sources:
 |---|---|---|
 | `prometheus` | `url` | `source` and `promql`: an instant query, which must return one series |
 | `command` | none | (the same as `run`) |
-| `ergostat` | `url`, `token-file` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
+| `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
 More types (Datadog, CloudWatch, SQL) can follow the same shape.
 
@@ -2559,7 +3234,15 @@ where the error is 0.
 - a `run`, `prompt` or `ask` on an external block, or a built-in block with an `agent`;
 - a block whose agent cannot run its type (an `ai` block on an agent of kind `person`);
 - units that disagree between a flow and its stocks, or a sensor and what it measures;
-- a cycle of built-in blocks with no delay (an algebraic loop).
+- a cycle of built-in blocks with no delay (an algebraic loop);
+- **bad-library**: a `library:` entry that is neither a path nor `{folder: PATH}` with an optional `trust: owner` or
+  `trust: untrusted`, or `untrusted: true|false` (a YAML bool, agreeing with any `trust:`) (its folder is not read;
+  section 2a);
+- **untrusted-limit**: a part an untrusted instance made whose schedule, pool, attempts or runs at once pass the
+  limits of section 2a, *Untrusted libraries*, at its `use:` line;
+- **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
+  `ergostat/library/trust.py` does not allow: at the owner's `use:` line, and nothing of the chain is in the model
+  (section 2a).
 
 **Findings** (reported, not errors):
 
@@ -2578,7 +3261,19 @@ where the error is 0.
 - **no-modelling-loop**: a model with stocks and no judge, so nothing improves it: add `use: modelling`
   (section 12e);
 - **template-library**: a template in a `library:` folder that does not read, or one used in place of
-  ergostat's own.
+  ergostat's own; in an untrusted folder, also a template whose name or a parameter's name is refused, or one not
+  used because a trusted one has its name (its text marked, section 2a, *Untrusted libraries*);
+- **about-missing-part**: an open item (of a kind that declares `about:`, section 5a, *About*) names something that
+  is not a part of the model: a part taken out, an unknown prefix (`foo.x`), no name (`goal.`), a port
+  (`stock.x.main`). One finding per name, with the ids of the open items that hold it (at most 5 named in its
+  message, all in `items`). Finished items are not checked. When the item index cannot be read, **about-unknown**
+  says so instead, and nothing is said to be missing or not.
+
+A finding of `check` (CLI or MCP) about a part (`about`: `goal.x`) that has open items about it carries their ids:
+`items` in `check --json` and MCP's `check`, and `(open items about it: a, b)` at the end of its message, at most 5
+named there. This is done last, after the calibration and extreme-conditions findings, so those carry them too; the
+coherence report (section 12l) is apart and does not. These two findings and the ids are `check`'s alone: loading the
+model (any other command, the engine, a proposal's trial) does not open the item index for them.
 
 **Structure** (findings, the tests system dynamics makes of a model's structure before its
 behaviour: Sterman, *Business Dynamics*, ch. 21, structure assessment, dimensional consistency and
@@ -2619,6 +3314,12 @@ change only through the use's `with:`):
 - **event-names-mixed**: an item kind whose event types are not all `KIND.verb-past`, with the name each reads best as;
 - **queue-goal-tolerance**: a goal served by a block that takes the items its stock counts, with a tolerance or a
   setpoint above 0, so items wait unseen (the block runs only while the goal is off);
+- **schedule-removed**: a machine block with `every:` or `cron:`, and no `takes:` or `on:`, that also names a `goal:`.
+  The controller that goal puts in front of it (§9.1) commands it, and a commanded block leaves the clock: it runs
+  only while the goal is off, its `every:` only a pace. Meant, that is a paced controller; meant as a schedule (a
+  sweep that must run whatever the goal reads, or one whose goal only its own runs can set off), read the goal as an
+  input instead (`in: goal.NAME`). Only the model's author knows which was meant, so `check` says it and no
+  modelling request is raised for it (§12e);
 - **process-not-identified**: a goal's `process:` with no `identified:`.
 
 **A kind's states, chained** (findings, `ergostat/spec/chains.py`). When two or more stocks count the items of one
@@ -2706,6 +3407,52 @@ block's taken as its goal's; a system's subsystems each one node), never a run:
 - **purpose**, in a model with systems: a system with no `description` (its purpose); a described system whose blocks
   act for no goal inside it (one with stocks and no blocks, a sector, is normal); goals in no described system, when
   the model has no `purpose:`.
+
+**Modes** (`ergostat/numbers/modes.py`; eigenvalue elasticity analysis, Kampmann 1996/2012, Saleh et al. 2010): only
+`explain` shows them, never `check`, which neither imports nor works them out. They are the eigenvalues of the
+stocks' Jacobian at the model's start, linearised by the same forward differences the time constants use (one
+evaluation of the equations, no run; the diagonal is the one `time-scales` reads). Only the stocks are states: a
+delay's stages are not. `explain` lists up to 8 modes, slowest first: each mode's λ per hour, its time constant 1/|Re λ|
+(or "grows, e-folding every τ"), its period when complex (a conjugate pair once, ±), its 3 strongest links by |ε| (the
+eigenvalue elasticity ε_ij = (a_ij/λ)·∂λ/∂a_ij; a link is each nonzero entry of the Jacobian, "stock.j → stock.i", or
+a stock's own; real modes show ε signed, complex ones |ε| and ε), and the stock it is most in (participation |w_k
+v_k|). `explain system.NAME` lists those most in a stock of the system. Over 40 stocks, modes are not worked out.
+In place of numbers it says why: a λ = 0 mode (a conserved quantity, or a stock nothing drains) or a repeated one
+has no elasticities; an eigenvector not found is said; and "Modes: not worked out" is printed when an equation the stocks
+depend on is not run (a parameter with no value yet, as one still to be estimated; by name), no equation reads a
+stock, the equations fail or fault at the start or when a stock is moved by the difference step (by name; a value
+that is not a number or is past ±10¹² counts as a fault), an entry is not finite, or QR does not converge.
+
+**The AI rung: the Viable System Model and purpose coverage** (`ergostat/spec/vsm.py`,
+`ergostat/numbers/vsm_review.py`), run only when the owner asks: `ergostat improve --architecture [SYSTEM]`. For a
+system, the **checklist** is computed from the structure (no run, and no note): for each of Beer's functions the
+parts that may fill it, with why: S1 the goals directly in it on a stock of its own, and its subsystems; S2 its blocks
+that take an item kind (sharing its leases, §9.5) or use a workspace pool that a block outside also does; S3 its
+subsystems' inner-loop goals it sets, and its goals whose setpoint another goal's block commands; S3\* its judge
+blocks and blocks with a `claims` param; S4 its measured flows in from a cloud, and the model's `use: modelling` loop
+(marked model-wide); S5 its description, the model's `purpose:` and its subsystems' descriptions. One AI call
+(`$ERGOSTAT_AI`, haiku by default, no tools, `--max-budget-usd 0.25`, killed with its process group after 300 s)
+is given a brief of the system (its words, parts, subsystems, interface, its architecture notes and the checklist,
+at most 30,000 characters) and answers with one JSON line. The answer is checked, not trusted: a function said
+present must name at least one of the system's own parts (for S5, its description or the purpose), or it is dropped
+as unsupported and counted; a goal must be the system's own (a subsystem's goal is judged by the subsystem's
+review); a goal said to serve the purpose, and each part of the
+purpose said uncovered (two words or more), must quote the owner's words, found in the description (or the purpose)
+after whitespace and curly quotes are made plain, or it is dropped. A system with no description gets no purpose
+coverage. The review is recorded (`ergostat.architecture.reviewed`: the system's `signature` and a hash of its words,
+the model, its cost, `cost: reported`, or `charged` at the whole cap when none was reported, and what was kept). What
+it keeps becomes modelling requests held for the owner (§12e, `source: architecture`): `vsm-s1` … `vsm-s5` and
+`vsm-s3-audit` for a function said missing (naming the checklist's candidates, when it had some),
+`purpose-uncovered`, `goal-off-purpose`. A later review answers one only on evidence it kept: that function present
+with a real part, purpose coverage reviewed with nothing left uncovered, that goal said to serve; one said again is
+reopened afresh and held. A call that fails, times out, errs or gives no answer line is recorded as
+`ergostat.architecture.unreviewed`, at its cost, and raises and answers nothing. Writes are made under
+`architecture.lock`, after reading the latest review's seq again: a review of the same system recorded since wins,
+and this one is recorded `applied: false`. One call per system; at most 12 systems a run (never a once template's
+own); a run's `--max-cost` is $1.00 by default and at most $5.00, and a call is made only while what was spent plus
+$0.25 stays within it. `explain system.NAME` (with a project) says the latest applied review, and when the system's
+parts or words have changed since. The reviewer is not shown to find every missing function: what the checks
+guarantee is only that a function said present names one of the system's parts and that a quote is the owner's.
 
 ## 12a. Feedback loops (system dynamics)
 
@@ -2845,7 +3592,7 @@ slowest time constant the replay met, within a twentieth and a quarter of the wi
 
   | The block | Its identified model | Identified from |
   |---|---|---|
-  | takes items (`takes:`, §9.5) | *servers*, a multi-server queue: success × min(waiting, servers) / the time a server is held (a run's median time; its lease's TTL for an attempt that expired) | its runs' times, the share that ended well, the expiries; its pool and lease terms |
+  | takes items (`takes:`, §9.5) | *servers*, a multi-server queue: success × min(waiting, servers) / the time a server is held (a run's median time; its lease's TTL for an attempt that expired) | its runs' times, the share that ended well, the expiries; its pool now (at the end of the record: 1 when its stock reads 0 or nothing, said in its basis) and lease terms |
   | moves a flow with an equation | the equation, while commanded, at most its servers over their time | the model; its runs for the cap |
   | reads the goal on the stock it fills (a dispatcher reading its work-in-progress limit) | *fill*: at most the 95th percentile of its rate, never past that goal's setpoint, a run every `every` | the flow's record while commanded |
   | drains a stock | *drain*: min(the 95th percentile of its rate, waiting / residence time) while commanded | the residence time (time in system) by Little's law over the buckets it was commanded, mean level over mean outflow |
@@ -3117,6 +3864,25 @@ where a loop through it cannot be scored (the share of its loops that are scored
 loop through a link that cannot be scored (a decision with several inputs, an equation with a delay
 inside it, an unsigned link) says why, and is left out of the sums.
 
+**Stocks to aggregate** (`ergostat/numbers/aggregation.py`; a system's panel, the `aggregate` of
+`GET /api/dominance`), from that loop dominance over the same window, the one the page shows: a chain
+of stocks whose stages are each driven only by their own drain behaves as one delay (Simon and Ando
+1961; Iwasaki and Simon 1994), so it is a **candidate** to aggregate into one, never a finding: it
+holds for the window scored, and only among the loops of up to 30 parts that the loop search finds. A
+stock qualifies when it is in the system itself (its innermost system), has a balancing loop of its
+own through no other stock (its drain; a stock without one, an accumulator, is not a stage of a
+delay), every loop through it is scored, it is named and moved in the window, it was never tied while
+a loop through other stocks runs through it, and no loop through it and another stock dominated any
+stock in any bucket. Anything not known disqualifies: a loop not scored (through one stock or more),
+a stock not named or that never moved, the dominance missing or worked out for other loops than the
+model's now, the loop search at its cap. A group is two or more qualifying stocks of one system
+joined by flows into one linear chain, said in its material order: `over the window (SINCE to UNTIL)
+no feedback loop beyond each stock's own drove stock.a, stock.b: a candidate to aggregate into one
+delay`. A branch (a to b and a to c) or a cycle among them is no group, nor are two stocks with no
+flow between them, nor two in different systems. The system's panel shows an `aggregate` row for
+each of its groups, and none when there is none or the dominance could not be worked out; `check` is
+unchanged.
+
 ## 12d. Control: identification, analysis, monitoring and tuning
 
 The control view's numbers (`ergostat/control/`), for each loop whose controller moves one thing: a
@@ -3169,15 +3935,50 @@ process (follows 2% held out; its errors held out not white). What would: a step
 in its input (a burst of arrivals), or 2h more of record". It holds while the loop is as it was (`loop.key`) and clears
 once an identification passes.
 
-**Outside steps** (`ident.outside_steps`, `ident.around`, `loop.around_step`): a large change in what arrives at the
+**Outside steps** (`ident.outside_steps`, `experiments.py`, `loop.around_step`): a large change in what arrives at the
 goal's stock (a flow into it from outside the loop, measured) or in a measured input beside the path (a change from one
 bucket to the next past six of its typical changes and a fifth of its range: a burst like 130 tickets added at once)
-excites the loop from outside, as a step test does, while the controller keeps working. The process is identified
-from the record around the largest one, that input fitted beside u: from forty buckets before it to where y has come
-half way back from its furthest, fitted; as long again after, held out. Its estimate leans far less toward the
-controller's inverse than one from the loop working (on a synthetic loop with a known process, its gain within a
-quarter where the loop working's was off by half or more: `tests/test_churn.py`). It is ranked with the others, and
-said "identified around an outside step at 14:20 (flow.asked)", in its reason and its `identified:`.
+excites the loop from outside, as a step test does, while the controller keeps working. Every input is searched. Steps
+on different inputs within forty buckets of each other are one step, at the earlier bucket, naming each input. On one
+input, the larger of two such steps is kept (a burst's rise and fall are one). At most six are kept, the largest, and
+they are taken in bucket order. Their windows, those inputs fitted beside u, are fitted together as one data set of
+several experiments (Ljung §14.3, as the step tests are): the same K, τ and θ, each its own start and level, all but
+the last fitted and the last held out whole. Windows that overlap are one experiment over their union, held out to its
+last step's end. The windows are chosen in passes, three fits at most:
+- Pass 0 is y's excursion: from forty buckets before the step to where y has come half way back, read no further than
+  the next step. With one experiment, as long again after it is held out.
+- Each later pass sizes the windows from the process the kept pass found. It fits from forty buckets before the step
+  to its settling S = max(θ + 4τ, 5 (τ + θ) − 40 buckets) after it. With one experiment, it holds out as long again (20
+  buckets at least).
+- A later pass is kept unless it is worse by the order the identifications are ranked by (proposable, told apart,
+  then precision). Its held-out record differs from the kept pass's, so this is not a like-for-like comparison: the
+  precision favours the longer window.
+- The passes stop when one would fit windows already fitted, when the kept pass found no process, or when it found an
+  integrator (no settling to size from). What each pass did is said in `outside_step.passes`, and `window` says
+  `process` or `excursion`.
+- Nothing is clipped or filled in. A step whose process window runs past the record's end is dropped and said: "the
+  step at 18:00 (flow.asked): the record after it covers 7m of the 8m40s its process needs to settle". If an earlier
+  pass fitted that step, its result is not proposable either, and when no step is left nothing is proposed. A step
+  where u or an input fitted has no readings in its window is dropped ("d2 has no readings in its window"). It is not
+  filled from another experiment. When none is left, there is no process.
+- The steps said as dropped (`outside_step.dropped`) are those the kept pass dropped, with the "covers" lines a later
+  pass found for steps the kept pass fitted. A pass that was not kept does not add its own drops
+  (`test_a_drop_in_a_pass_not_kept_is_not_said`).
+- When there are several experiments, the record drawn with the result is the held-out one, the last (`last`), as for
+  step tests (`test_the_record_of_several_experiments_draws_only_the_held_out_one`).
+
+What is measured, on a synthetic loop with a known process (`tests/test_outside_experiments.py`):
+- With one burst (τ = 60 s), K is within 0.1 and θ within 10 s on each of six seeds. The mean relative error of K and τ
+  is under 0.3 and under a third of the loop working's.
+- With three equal bursts, the standard error of K is below that from the largest burst alone, on each seed.
+- With a slow process (τ = 300 s), the excursion's fitted part spans too little on every seed. The mean error is under
+  0.3 and at most half the excursion's, but not every seed reaches a process window, so no per-seed claim is made. On
+  some seeds the longer window has no step of u large enough for `ident.moves`: integral action ramps u.
+
+The result is ranked with the others. It is said "identified around outside steps at 14:20, 16:05 (flow.asked), each
+window from the process (θ + 4τ = 7m)" in its reason and its `identified:`, with any steps dropped. A later pass kept
+as an integrator has no τ, and is said "… from the process (integrating: no settling time, so no θ + 4τ)"
+(`test_the_reason_names_every_step_and_how_its_window_was_chosen`).
 
 **Analysis** (`lti.py`; Åström & Wittenmark, *Computer-Controlled Systems*, ch. 2, 3, 8): with the
 process (the model's, else the one identified, said as such) and the controller as its block writes
@@ -3252,7 +4053,31 @@ blocks, record the setting's value, check the step fits its limits (else it is n
 put the setting back to the value it recorded (commanded `"to"`, not back by the step), wait, and
 give the loop back, recording each move and what the block said it moved (`steptest.approved`,
 `.started`, `.stepped`, `.finished`). A block that moves anything but what it was commanded (to
-within the setting's resolution) stops the test, the setting put back at once.
+within the setting's resolution) stops the test, the setting put back at once. `.started` and `.finished` each carry
+`plant`: for every system enclosing the goal, innermost first, its `plant_signature` (its stocks, flows and auxiliaries
+as written, the parameters their equations use, and which u each of its loops moves; goals and blocks otherwise left
+out, so accepting a `process:` or a `gain:` keeps it), or null when one cannot be worked out (the test runs anyway).
+
+**Relative gain array** (`rga.py`; Bristol 1966, Skogestad & Postlethwaite §3.4, §10.6): for a system, never the model
+without one, `explain system.NAME` with a project says one line of it. Its loops are the goals in it, at any depth, whose
+u the record can read; fewer than two, no line; more than 8, or one whose `process:` is integrating or whose u fills or
+drains its stock directly, not computed and why. Its tests are the latest 12 of them, in record order across the whole
+system (so an older one may be the only test of a loop, and that loop is then named as having none), that finished
+`done`, recorded their steps and finish, and whose stamps at start and at finish both hold this system's signature as it
+is now, string for string (a missing or null one never matches). Each test gives, for every loop's u and y, Δ = the mean
+of its readings over the last quarter of the hold, `[back − hold/4, back)`, less the mean over the quarter before the
+step: the gains as held at the end of the hold, not a steady state proved. A test is left out, with its reason, when a
+window has no reading of one of them, or when the two halves of that last quarter differ by more than 0.03·|Δ| plus
+twice the spread before the step. A ramp always differs by a seventh of Δ, so an integrator the model does not declare
+is left out this way, unless its Δ is within about 18 times the noise before the step. A first-order lag of time
+constant τ differs by 0.016 of Δ at τ = hold/4 and by 0.030 at hold/3 (93% of its gain held), so a lag longer than about
+a third of the hold is left out too. So is a response still rising late, behind a dead time near the hold. The other
+controllers keep working: their u moves too, and every loop's ΔU and ΔY are fitted together by least
+squares (ΔY = ΔU Gᵀ), so G is the open-loop gain matrix, not the closed loop's. Not computed: fewer tests than loops; a
+loop with no test of its own; ΔU's columns (each scaled by its RMS) collinear, or the square root of the 1-norm
+condition number of ΔUᵀΔU (the inverse taken exactly, not estimated) past 100; G singular. Else Λ = G ⊙ (G⁻¹)ᵀ, said
+as each loop's λ on the pairing as built (its own u), with "never pair on a negative relative gain" (λ < 0), "the loops
+fight" (λ > 10) and, with two loops, a better pairing swapped.
 
 **Proposals.** Each is worked out afresh when the loop is looked at, and is one item while the loop is as it was
 (`loop.key`): offered again with other numbers, the item is `revised`, never made anew; Accept applies what the page was
@@ -3653,12 +4478,37 @@ and, once the record is long enough to compare, each coherence mismatch (§12l) 
 ergostat's own kinds are left out). Each records what it is about (`about`), why (`says`, check's words), where, its
 `source` (check, craft, coherence) and the tier that answers it first (`tier`: rule or ai).
 
+Two sources are not check's, and the collector (`sync`) never answers them: `redesign` (a redesign's trigger, below)
+and **`architecture`**, what an architecture review the owner ran kept (§12, *The AI rung*: `vsm-s1` … `vsm-s5`,
+`vsm-s3-audit`, `purpose-uncovered`, `goal-off-purpose`, its id `rid("architecture", code, about)`). An
+architecture request is held for the owner at once (`owner: true`, `tier: owner`): no tier writes a model change for
+a judgement, and approval is not offered (only a dismissal, or the owner's own change). Only a later applied review
+answers it, on the evidence it kept; one said again after it was answered is reopened with fresh `says`, `version`
+and `review` (the review's seq), its `why` and `change` cleared, and held again.
+
 | State | When |
 |---|---|
 | open | check finds it, and no change waiting cites it |
 | proposed | a change waiting cites it (its finding, `finding:CODE@ABOUT` or `coherence:CODE@ABOUT`, among its evidence) |
-| held | no tier enabled has a change for it, or its change was turned away (with why); the owner's when the owner dismissed it; opened again when the model's version changes |
+| held | no tier enabled has a change for it, or its change was turned away (with why); left to the owner (no tier takes it up) when the owner dismissed its change, or its finding is control; opened again when the model's version changes (unless left to the owner). It is in the inbox (§12o) |
 | answered | check no longer finds it |
+| dismissed | the owner denied it from the inbox with why (`--deny --note WHY`; the note and who are kept): not raised again while the part it is about is unchanged (its definition and description, hashed; a finding about the model, or about no part found, waits on the whole model); raised again (`reopened`) once that part changes, as a new finding: untried, not the owner's, its tier the finding's, its dismissal's note and who cleared. Counted as an answered intervention (denied), never a suppressed one |
+
+A held request **approved** from the inbox is `reopened`: open again, for the AI tier (`tier: ai`, its tries given
+back, `approved_by` kept); if the AI tier holds it again after its tries, it is back in the inbox. Approval is offered
+from an allowlist: only for a request the tiers take up (raised by check, a craft note, a coherence mismatch or the
+fit; never a redesign's, such as `too-large`), whose tier is the rule or the AI tier (not the owner's), whose finding is
+not one only the owner changes, and only when the model runs the AI tier. Otherwise the owner's own change citing it
+answers it, or a dismissal. A redesign's request the owner dismissed stays dismissed across the redesigner's passes
+while its unit is as it was (its own parts, hashed), and is held again once the unit changes.
+
+Every write of a request's state (the owner's answer, the collector's moves, a tier's word, the redesigner's holds and
+its run's end) is made under one lock (`requests.lock` in the project's state), the request read again inside it. A
+tier that read a request before calling its model writes its word only if the request has not moved since it read it
+(the record's seq of its last move, an event that changed its state or reopened it, is the one it read; the state alone
+is not enough, because held then approved is open again): an answer the owner gave meanwhile stands. A tier's own
+word in the same state (its tries and cost) and a refreshed wording from check are not moves. The redesigner's run writes its end only on a request still open (or
+answered as never ended), never over a dismissal.
 
 The **request collector** (`modelling requests`, the sensor of the template's `requests-raised`) reads check, raises
 what is new, answers what is gone and moves each to where its changes say it is. **The tiers**, each an ordinary
@@ -3689,7 +4539,22 @@ block of the template, answer them, the cheapest first:
   is its settled cost, or its whole reservation until settled (a run killed mid-call), dated by its reservation; a
   ledger that cannot be read means no call. A run the cap stops leaves its requests as they were (no try counted), and
   the status line says `the AI tier has spent $X of its $Y today` once a call was refused for the cap that day or the
-  spend is within the latest reservation of it. The lock covers the AI tier's own calls only, not the redesigner's or
+  spend is within the latest reservation of it. **A failed call** (`modeller.call`: it timed out, exited non-zero,
+  said `is_error`, or said no cost that is a finite number of dollars, 0 or more) is an `error` with what it said
+  (its result, or its standard error), charged its reservation, or what it said if more. The AI tier does not try again
+  in that run; when its first call fails, its requests keep their tries and state, are charged their share, and say the
+  error (`why`, `error`), so the next run gives them to it again, within the cap. When only its second (go-back) call
+  fails, its first answer was a real one, so the requests it did not answer use their try as before, held saying the
+  second call failed. Failed calls are counted apart from tries (`failed`) and bounded, since some fail the same way
+  every time (a prompt too long): a request that failed before is never in a call with others. While any request with
+  no failed call waits, the call takes only those; after that, the one that failed least goes alone in its call. After
+  `modeller.FAILS` (3) failed calls a request is held for the owner, saying the error. They are failed calls in a
+  row: a first call that answers sets the count back to 0, and so does the owner's approval (with its `error`
+  cleared), so an approved request is called again; raised again after a dismissal, it starts with none. The reviewer counts no failed
+  call toward its tries and stops its pass there; the changes that failed least are read first, and one with
+  `FAILS` failed calls is `undecided`, the owner's. A redesigner run whose calls failed ends `error` (with the
+  error), not `nothing proposed`; its request stays open saying so, and the unit takes no rest for it until `FAILS`
+  runs in a row have failed, when it rests as after a run that made nothing. The lock covers the AI tier's own calls only, not the redesigner's or
   repair's, and does not reach a claude child that outlives a killed run.
 
 Edits may be written `{"part": "stock.x", "set": {"unit": "alerts"}}` (a sensor's: `"sensor": "main"`) or `{"add":
@@ -3728,6 +4593,30 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   equation) are said beside the verdict and count against it only when nothing else moves. The judge takes a redesign
   up at once: its scorecard worked out again on the record as it is, passed when better, failed otherwise; the owner
   sees the scorecard either way (the review queue; one judged not better is a model-change item, on the Items page).
+  Every judging stamps what it read (`scored`: a **mark** of the record the scorecard reads, the store's last seq, for
+  order only, and when) and clears `rescoring` and `rescore_error`, so a redesign made again under its id, or carried,
+  keeps neither, nor an old stamp. The mark (`ergostat/numbers/redesign_record.py`) is model-wide and an allowlist: the
+  newest seq of the events of the model's own kinds' items, of its own blocks' runs and of its own valves'
+  openings; the latest reading of each of its own parts' sensors; and the model itself (its dynamics, control, sensors,
+  words, units and kinds). The judge's, the redesigner's and modelling's own events, and a `once` template's parts, do
+  not move it. It is compared for equality only, never by age. **A redesign waiting for the owner is scored again at
+  most once every 30 minutes, and only when the record it reads has moved**, one a pass (first judgings and the write
+  aside), least recently scored first; still better, it stays passed with the new scorecard; else it is failed, "no
+  longer better on the record as it is now", and its system rests as after any failed redesign. Sensors read every
+  few seconds move the mark nearly every pass, so in practice a waiting redesign is scored again about every 30 minutes,
+  and most promoted ones are scored again when they are written. A mark that cannot be read fails closed: every passed
+  redesign says `rescoring` with why (the review queue shows it), written once, not each pass; nothing is scored or
+  written that pass, of any class (words and parameter changes too, not only redesigns), and the next pass that can
+  read it scores them again at once, one a pass. **A promoted redesign is written only on a scorecard of the record as
+  it is**: in one hold of the proposals' lock it is read again, its mark held against the record's, scored again when
+  they differ (or it says `rescoring`), and written only if still better. With `reviewed: [redesign]` that hold also
+  reads the reviewer's verdict again, and writes it only if the reviewer passed it as it stands then. A verdict that
+  lands after the write loop's copy was read counts too. A rescore makes a new verdict, so the reviewer's pass, stamped
+  with the verdict it read, would go stale and send the redesign back to the reviewer every 30 minutes. A rescore that
+  is still better **keeps the reviewer's reading** instead: the edits it read are the same, and the review is stamped
+  again to the new verdict (`kept`). A failed rescore keeps none. A first judging keeps none either, since one made
+  again or carried is read again. So a reviewed redesign is written on the scorecard of the record as it is and on a
+  review of the same edits, and the reviewer is not called again, against the daily cap, for every move of the record.
 - **Never written without the owner** unless the class is promoted by name: `accept: {redesign: auto}`; `accept: auto`
   for every kind leaves it the owner's (promoted and passed, it is written first, alone in its pass; one that cannot be
   written is superseded, and the pass goes on). Even promoted, a redesign that takes a part away, rewires a kind's chain
@@ -3783,6 +4672,53 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   reason given, and to read each recurring intervention as a loop the model lacks, with a lookup from symptom to
   structure (a queue that builds only in bursts: a capacity; items seen twice: rework; a part that lags another: a
   delay or a stock between; a level that settles whatever its start: a balancing flow).
+- **Its architecture** (`redesigner.architecture`). A redesign of a system is shown that system's architecture, from
+  the structure alone (no run, no call), in a section of its own: its size (`architecture.size_said`), its interface
+  (each port's part, kind, direction and peers, at most 30 listed and the rest counted), its subsystems and whether
+  it is nearly decomposable. For the whole model: its size and each top system's. Its "What check finds" section
+  holds the architecture notes on the system and on the systems within it (`system-splits`, `systems-merge`,
+  `interface`, `time-scales`, `purpose`), and not those on other systems (`redesign_due._in`: a `system.S` note
+  is a unit's when the unit is S or S lies within it; every note is the whole model's).
+- **The daily architecture review** (`ergostat/numbers/archreview.py`, guide `architect.md`). Once a day, inside the
+  redesigner block's run and before it plans, one call (no retry, tools off) on `review`, a model larger than haiku
+  (sonnet by default, the owner's allowance in the overnight note of 2026-11-19: the redesign and architecture
+  reviews may use a larger model, their costs recorded), reads the model's architecture as a whole: check's
+  architecture notes, each system's size, interface counts by kind, subsystems, nearly-decomposable line and
+  description, each unit's replay fit by stock, each unit's last redesign result, and the units too large to
+  redesign; never the YAML; at most 40,000 characters and 60 systems. A part it cannot read (check, the fit) is
+  said as unknown, never as fine. It answers JSON lines `{"review": {"system", "advice", "says"}}`, read by
+  allowlist: `advice` is `redesign`, `split` or `merge`; a redesign's system is a unit the redesigner can take (or
+  `model`), a split's or merge's one of the model's own systems; `says` is cut to 600 characters; at most 8 are
+  taken, the first for a system and advice kept, and what is dropped is said on the review's event. Each is held as
+  a modelling request (`source: redesign`, so the collector never answers it as "check no longer finds it"),
+  `review-redesign`, `review-split` or `review-merge` about the system, stamped with the review's event
+  (`review`). A `review-redesign` is open, and makes its system due before those due only for their daily review
+  ("the architecture review: ..."); a system resting is still not taken. A `review-split` or `review-merge` is held
+  for the owner and never acted on: it moves parts between systems, which is structure. One the review raised
+  before and does not say again is answered ("the architecture review no longer says it"), but one `proposed`,
+  waiting on its change; one said again is written again, its old change and why cleared. The run that takes a
+  review's request up marks it after (proposed with its change, or answered with the result) only if, read again
+  under the locks, it still carries the stamp the plan read: a newer review that said it again meanwhile leaves it
+  open. The review writes no model change and edits no file.
+  - *When*: with `when: auto` only (never `ask` or `off`; never with `review: off`), and only when no
+    `ergostat.model.architecture-reviewed` event but a `capped` one is in the last day: a review that started
+    (written before its call), failed (its call failed, or its answer had no JSON line) or reviewed is the day's, so
+    a failing call is not retried each run.
+  - *Cost*: within the redesigner's `daily` cap, on the redesigner's side of it. It is not called when its
+    estimated most (`modeller.unsaid`) is more than the redesigner's block has left (`redesign.room`: what is left of
+    the cap, and never the quarter kept for the reviewer), said on the log with an `architecture-reviewed` event,
+    `capped`. That check and the estimate's charge are made under the lock `redesign.held` takes, so the reviewer and
+    the review do not both start calls on one remainder. The
+    estimate is charged before the call (`redesign-ran`, `result: call`, `by: architecture-review`) and the
+    difference after it, so a run killed mid-call keeps the estimate charged. The bound is that estimate: `claude
+    -p` takes no output limit, so a call can cost more. Its cost is printed as a Claude Code result line, and its
+    event holds the model, the cost and the requests it raised. The redesign that follows gets what is left of
+    the cap, read again after the review. Time: after a review that called, the review's call and each round's call
+    are each given one share of the block's timeout in rounds + 1 (`archreview.timeouts`, through `per_call`), so
+    their limits together are what the rounds' alone would be on a day with no review.
+  - *The lock*: the review (due, cap, call, requests, event) and the mark after a redesign hold `redesign.lock` in
+    the project's state directory, taken without waiting: a run that finds it held skips the review, or leaves the
+    request unmarked, and says so.
 - **The benchmark** (`scripts/redesign_bench.py`, `docs/redesign-bench.md`): models of known structure
   (`tests/redesign_cases/`) each cut (a capacity limit, a rework loop, a delay, a goal gap, a stock merged away, an
   outflow), the record made from the whole model, the redesigner asked to repair the cut one (nothing submitted), and
@@ -3798,8 +4734,12 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   tinted, the changed and renamed dashed, and names what it takes away; the review section's Dynamics and Blocks
   buttons open it.
 
-The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2}` (and
-`redesign-every`, 10m).
+The template's parameter: `redesign: {when: auto|ask|off, model: haiku, budget: 0.5, rounds: 3, daily: 2, review:
+sonnet|off}` (and `redesign-every`, 10m). `review` is a decision taken here, the most reversible form of the
+owner's allowance: it exists only with `ai: true` and `when: auto`, stays inside `daily`, and `review: haiku` or
+`review: off` changes it (unquoted: the model's YAML takes only `true` and `false` as booleans, and `review: false`
+is `off` too). `modelling redesign` itself takes `--review` (a model's name or `off`; `off` when not
+given, so a run by hand reviews only when asked to).
 
 ### The reviewer: a senior modeller reads what the judge passed
 
@@ -3824,7 +4764,10 @@ and the change is read again on the next run, at most 3 times on the change as i
 what it read, and calls on an earlier version do not count): then it is recorded `undecided` ("the reviewer could not
 decide") and goes to the inbox for the owner, and the reviewer moves on. A review holds for the change as the judge last
 passed it: each is stamped with what it read (`read`: the judge's verdict and the edit, fingerprinted), and one made
-again under the same id, revised or carried and judged again has another stamp and is read again. The verdict is
+again under the same id, revised or carried and judged again has another stamp and is read again. A waiting redesign
+the judge scores again as the record moves (section 12e, *Redesign*) is not read again: the rescore makes a new
+verdict, which would make the review stale, so a rescore that is still better stamps the review again to it (`kept`).
+A failed rescore leaves the review nothing to hold. The verdict is
 recorded under the changes' lock and only if the change is still the one it read; one that moved on during the call
 records nothing and is read again. **The authors remember:** the improver's input (`reviewer`), and the
 modeller's and the redesigner's prompts ("The reviewer on your recent proposals") carry its latest five verdicts on
@@ -4535,6 +5478,7 @@ actions:
     wait: 15m                      # how long the session waits for the owner before going on (default 5m)
     timeout: 2m                    # how long it may run (default 2m)
     # fenced: false                # run once approved even after a later lease took the item (default true)
+    risk: {severity: 3, threshold: 8}   # one step stricter when this act is riskier than its class (below)
 blocks:
   developer:
     type: ai
@@ -4566,11 +5510,50 @@ where, and the block, run, session and work item), and then by its gate:
   input, with the actions still held. Each result given is `.delivered` (how: `session` or `context`). An action runs
   once: the first to take its lock runs it.
 
+**Act-risk.** An action may declare `risk: {severity: S, threshold: T}` (`ergostat/actions/risk.py`, plain
+arithmetic). Each request for it is then scored, and its gate moves one step stricter when the score reaches T:
+
+    act_risk = S × (1 + 4c) × (1 + n)        step  ⇔  act_risk ≥ T
+
+A step goes from `auto` to `approve` (held for the owner) or from `approve` to `deny`, never the other way; `deny`
+stays `deny`. An action without `risk:` is gated by its `gate:` alone. `S` is a whole number from 1 to 5 (not `true`);
+`T` a number above 1 and at most 50 (not NaN or infinite), default 8. Anything else is `bad-value`, said where it was
+written. Scores run from 1 to 50, and T is absolute, not a multiple of S, so severity alone can change the outcome.
+
+- `c` is the asking block's contradicted share of its checked claims over the last week (as
+  `ergostat.trust.contradicted` counts them). Each case where it cannot be read counts as the worst, c = 1, its reason
+  recorded: `claims record unreadable`, `no asking block`, `no claims on record`, `claims made, none checked`. A share
+  that is not a finite number counts as 1; any other is held to [0, 1]. A request that names no block (one the owner
+  makes) always has c = 1, so an owner's own `auto` request with S ≥ 2 is held for that owner: intended, since no
+  record vouches for it.
+- `n` is novelty: 0 only when the record holds another action of the same name that reached `ran` (exit 0) within the
+  last 90 days, else 1. One that only `failed` does not count; neither does an unreadable record (`action record
+  unreadable`, n = 1). It is keyed by the action's name: an action whose command was changed under the same name
+  counts as known, so "novel" never means "this command never ran".
+- The staleness of the state the act was planned on is **not** part of the score.
+
+The score is worked out before `requested` is written and recorded on it, `risk: {score, severity, threshold, c,
+c_why, n, n_why, gate}`, `gate` being the stepped gate, which then decides as `gate:` does. A stepped gate says so in
+its denied or held note ("act-risk 12 ≥ 8: its gate auto stepped to approve"), and the session is told it.
+
+**At the act**, for every action, inside its run lock, after the fence check and before the command starts, the
+model is read again (an in-memory model with no file: the one given). Unreadable, the action is **held again**: a
+`requested` event with `held_by: act-risk`, its note, and `approved_by` cleared, written before the lock this run
+took (`<short id>.run`) is removed by its name, so a sweep finds it held and the owner's later approval runs it.
+Gone from the model, it is `denied` by `gate`. Otherwise its gate and `risk:` as they are now are scored on the
+record as it is now, and the **effective gate** is the stricter of that and the request's stepped gate (the first
+`requested`'s `risk.gate`, which a re-hold never replaces; its `gate` without `risk:`): `deny` is denied, even when
+the owner approved it; `approve` runs if a person approved it and is held again if only `gate` did; `auto` runs. The
+act's reading is recorded on the event that ends it (`ran`, `failed`, `denied` or the re-held `requested`) as
+`risk_at_act`. So a gate is never looser than its `gate:`, at the request and at the act. A claim verdict, or the
+owner's edit, recorded between the request and the act is seen at the act; one recorded after the act's re-check, in
+the moment before the command starts, is not.
+
 Actions are counted by class: `ergostat actions` lists them and, per class, how many were held, approved by the
 owner, let through by the gate (auto), denied, ran and failed this week; a class the owner has approved five times or
 more and never denied is said to be ready for `gate: auto`. **Promoting** a class is the owner's edit to the model
-(`gate: auto`), never ergostat's, and takes effect at the next request: the refactor path (invariant 5) from a person
-approving to a rule.
+(`gate: auto`), never ergostat's, and takes effect at the next request; a gate made stricter takes effect at the act
+too, for what was approved before it (above): the refactor path (invariant 5) from a person approving to a rule.
 
 | Measure | What it is |
 |---|---|
@@ -4908,6 +5891,11 @@ must reach the person and be quick to answer. **The inbox** is everything waitin
 | `advise` | an advised command (`block.advised`) is neither approved (`block.approved`) nor denied (`block.denied`) | `advise/BLOCK@SEQ` | `approve`, `deny` |
 | `steptest` | a step test was offered (`steptest.offered`, recorded when a loop's analysis first offers it, section 12d), is undecided, and the loop is as it was | `steptest/<id>` | `approve`, `deny` (accepted or dismissed) |
 | `change` | a change to the model awaits the owner (the review queue, section 12b; with a judge, the ones it passed) | `change/<id>` | `approve`, `deny` (accepted or dismissed) |
+| `request` | a modelling request is `held` (section 12e, *Requests*) | `request/<id>` | `approve` (`reopened`: open again for the AI tier, its tries given back; offered only for a request the tiers take up, never a redesign's, and when the model has the AI tier: section 12e), `deny --note WHY` (`dismissed`, with the note, until its part changes) |
+| `breaker` | a block started by events tripped its breaker (`trigger.tripped`, section 9.3) | `breaker/BLOCK@SEQ` | `approve` (`trigger.reset`) |
+
+An entry kind with no verb is not shown as answerable (`answer` says where it is settled instead); today every kind has
+one. `ergostat inbox`, the status and the notifications say the same command for each entry.
 
 A person's or an advised block's entry is **one ask**: `SEQ` is the event that asked. A newer ask before any answer
 replaces it (the older is superseded, and no longer waits); an answer is to exactly the ask shown, and is recorded
@@ -5122,9 +6110,8 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
-is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (verifying
-a fix by the runs after it, offering its revert, the ladder's other rungs, a check for programs that swallow their
-errors) is in `docs/GAPS.md`.
+is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (the
+ladder's other rungs) is in `docs/GAPS.md`.
 
 ```yaml
 uses:
@@ -5137,20 +6124,76 @@ uses:
       daily: 2                # dollars, every AI call of the loop in a day
       test: pytest -q         # the project's tests, for a program that is not read-only
       tries: 3                # fixes tried for one failure before it is a dead letter
+      verify: 3               # good runs of the block, begun after a fix, before it counts as verified (1 to 50)
 ```
 
 **Triage.** In a model that uses repair, every failed run of a `program` or `ai` block is recorded as
 `ergostat.run.failed` about an item of the built-in kind **`ergostat.failure`** (it exists only in such a model), one
 item a **signature**: the block, its program (the first word of its `run:` that is a file under the model's folder), the
-exception's type and its innermost frame in the project (from Python's traceback); without a traceback, the block, its
-program and how it ended. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
+exception's type and its innermost frame in the project, from the last trace in the run's output; without one, the
+block, its program and how it ended. Traces are read from the **tail** only: the last 8,000 characters of the run's own
+file, its first partial line dropped when it does not begin at the run's start. Four languages are read
+(`repair/traces.py`): **Python**'s `Traceback (most recent call last)` (its frame the innermost one outside
+`site-packages`, `/lib/python`, `<frozen` and `<string>`, as triage always signed it, so a Python failure keeps its id);
+**Node**'s `Name[ [CODE]]: message` directly followed by `    at` lines; **Java**'s outer exception line (with or
+without `Exception in thread "T"`) directly followed by `\tat` lines, then its `Caused by:` blocks (indented
+`Suppressed:` blocks ignored); **Go**'s `panic: message`, `goroutine N [running]:` and its function and file lines (its
+type `panic`). The trace whose header line comes last is taken, and **a trace needs its header**: one whose header the
+tail cut off is no trace, whatever frames or `Caused by:` lines are left, and the run is signed by how it ended (so a
+Python traceback more than 8,000 characters before the end of a failed run's output is too). A **project frame** is one
+whose file, a relative path taken against the model's folder, lies under that folder, in none of its `site-packages`,
+`node_modules`, `.venv`, `venv` or `vendor` folders, and is not the runtime's (`node:`, `<frozen`, `<string>`); for
+Node and Go the signature frame is the innermost project frame, else the innermost frame. **Java** signs by its **root
+cause** (the last `Caused by:`, else the outer exception): its type and message, and the innermost project frame of
+its own frames, else of the nearest enclosing exception's, else its innermost frame. A Java frame's file is its class's
+package path (`com/acme/Store.java`), the project's when a file under the model's folder ends with it; the folder is
+walked for that once a trace, at most 5,000 entries (dot-folders and the library folders not entered), and a walk that
+reaches the cap finds no Java frame the project's (the trace says `walk: capped`). Ruby and other languages are not
+read. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
-of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. A failure starts
+of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. The standard
+error is read only from the run's own file (`log`, `logs/runs/<block>/<seq>-<id>.log`, section 4b), never from the
+block's log, so a run that overlapped it adds nothing. A daemon's run (section 9.7) is the exception in what it can say:
+the daemon's standard error is one stream for all its runs, kept in `logs/daemon-<name>.log` and never copied into a
+run's file, so a daemon run's file holds only the lines it handed back that were not JSON (usually none), its `stderr`
+is usually empty, and it is triaged by how it ended. A run whose own file could not be made safely does not start (its
+note `could not start: its run log: ...`), so its failure stays `noted`. A failure starts
 `noted` and is **opened** for repair only when its block runs a program of the project's and it did not end by a
-timeout, a kill, a signal or failing to start; one that fails again after its fix was applied is opened again. The loop's
-own blocks (`repair-fix`, `repair-settle`) and any run a failure's events caused (six steps up the cause chain) record no
-failure. States: `noted`, `open`, `leased` (being fixed), `awaiting-approval`, `applied`, `dismissed`, `dead` (its fixes
-failed `tries` times).
+timeout, a kill, a signal or failing to start. A signal is an exit of -N, or of 128+N for a signal that dumps core
+(SEGV, ABRT and the rest of section 9.1's list), so a segfault or an abort is noted, never opened; a program that
+exits with such a code on purpose is noted too. Triage writes `ergostat.failure.opened` whenever the run's own facts
+allow it, and the **fold decides** whether it moves the item, by the item's state at that event's place in the record
+(`moves_from`, section 5a): `opened` moves a failure only from `noted`, `verified` or `superseded`, so a failure leased,
+awaiting approval, dismissed or dead stays where it is, the refusal listed, whatever triage read before it wrote. One
+that fails again while its fix is `applied` is counted on the item and left for `repair-settle` to judge (below), one
+that fails again after it was `verified` is opened again, and a `regressed` or `reverted` one is left to a person. An
+`opened` written when triage read one of the states it moves from clears the last cycle's `verdict`, `revert` and
+`revert_key`; one written when triage read another carries none of them, so a refused `opened` never wipes a regressed
+failure's `revert_key`. What triage still decides from a read (whether the item is new, when its run of failures
+`began`, which old item it supersedes, whether `opened` clears the cycle's fields) is read, decided and written while it
+holds `repair/capture.lock` in the state directory. The loop's own blocks (`repair-fix`, `repair-settle`) and any run a
+failure's events caused (six steps up the cause chain) record no failure. States: `noted`, `open`, `leased` (being
+fixed), `awaiting-approval`, `applied`, `superseded`, `dismissed`, `dead` (its fixes failed `tries` times),
+`verified`, `regressed`, `reverted`.
+
+**Swallowed errors.** A run of a `program` or `ai` block that ended well (exit 0, no note), whose block runs a program
+of the project's, has its tail read the same way. When its last trace has a project frame, one
+`ergostat.run.swallowed` is written about the failure that trace signs (the same signature a failure would get). A new
+item arrives `noted`, with a failure's fields, `swallowed: 1` and `count: 0`, and is never opened by it; for an
+item that exists, in any state, the event says only `{"swallowed": 1, "last_swallowed": RUN}` (`swallowed` folds as a
+sum). The event moves no state, writes no `repair/NAME.input` for an existing item, and carries none of the fields the
+fixer reads, so a failure being fixed keeps its lease and its traceback. A trace with only library or runtime frames,
+or none, records nothing. A later failed run with the same signature opens the noted item as usual. A daemon's run
+hands back no standard error (above), so what a daemon swallows is not seen.
+
+**Superseding.** Node, Java and Go failures were signed by how they ended before triage read their traces, so their old
+items have other ids. When a failure is signed by such a trace, triage looks for the item at its old signature (block,
+program, how it ended); only if that item's kept `stderr` parses to the same new signature does it write
+`ergostat.failure.superseded` (`{"by": NEW}`) about it, which moves it to `superseded` from `noted` or `open` only. One
+being worked (leased, awaiting approval, applied) is not moved, the refusal listed, and a later failure tries again;
+one whose stderr is another bug that ended the same way is left alone. A failure at that old signature with no readable
+trace (one that ended the same way) opens the superseded item again, so it hides nothing. Python failures are never
+superseded: their signatures did not change.
 
 **Sealed.** A failure's fields are ergostat's alone: its kind is *sealed* (`ItemKind.sealed`), so the fold
 (`spec/items.py`) refuses every event about it whose type is not ergostat's own (`ergostat.*`, which no block line,
@@ -5210,8 +6253,51 @@ awaiting approval with a tested fix; the approved action's `key` must name that 
 the owner's `HEAD` must still be the commit the fix was made on (else refused: fixed again on the new one). Then the
 tested commit is fetched from the clone and fast-forwarded (`git merge --ff-only`, which refuses atomically when the
 branch moved or a local change would be overwritten), and the clone removed. Refused, the failure goes back to open
-(`apply-failed`, with why). **`repair-settle`** (every 30 s) dismisses a failure whose `apply-fix` was denied, and
-removes the clones of failures applied, dismissed or dead.
+(`apply-failed`, with why). **`repair-settle`** (every 30 s) dismisses a failure whose `apply-fix` was denied, judges
+the applied fixes (below), and removes the clones of failures no longer awaiting approval.
+
+**Verifying** (`repair-settle`, `python -m ergostat.repair settle --verify N`). Each applied failure is judged on its own,
+under its lock (`<state>/repair/locks/<name>.lock`, an `fcntl.flock` the kernel frees when the process dies), and read
+again inside it: one no longer `applied` is left alone. The runs counted are the failing block's `agent.started` events
+whose `seq` is after the newest `ergostat.failure.applied` about the failure (never compared by time), oldest first,
+each with its end event (by `causedby`). A run not yet ended stops the count there; one that ended by a timeout, a kill,
+a signal or failing to start (triage's rule) counts neither way; any other `agent.failed` **regresses** the fix; each
+`agent.ran` is one good run, and at `verify` of them the fix is **verified**. Verified means only that `verify` runs
+of its block begun after it finished well, not that the failure is fixed. A regression is any failed run of the block
+the code may be to blame for, whatever its failure's signature: the `verdict` says which run it was, its note, and
+whether triage recorded it on this same failure (`same`). The `verdict` field holds the runs counted, the seq they
+were counted after and `verify: {used, asked, clamped}`. With an input missing (no `applied` event, the block no longer
+in the model, a commit that cannot be read) the fix is not verified: it stays `applied` and settle says why. It can
+also stay `applied` for good, said each pass: a run that never ends, or a first ten times `verify` runs begun since
+the fix that all ended by a timeout, a kill, a signal or failing to start; a person looks. **`verify`** is a whole
+number from 1 to 50: `check` refuses any other in `repair-settle`'s `run:`, and settle clamps again (below 1 is 1,
+above 50 is 50, one that cannot be read is 50) and records the clamp. It reads the oldest ten times `verify` runs begun
+since the fix, by seq, however many began after them, so a first run that failed regresses the fix even when many
+more followed before settle's pass.
+
+**Reverting.** A regressed failure gets `revert_key` (`<name>-<commit>`), and settle asks for the gated action
+**`revert-fix`** in the same locked step, and on every later pass while it is regressed, unless an action about the
+failure already has that key, so a request lost to a crash is asked next pass and none is asked twice. The inbox says:
+"Approving reverts the applied fix COMMIT in your repository with one new commit (git revert); the program goes back to
+what it was before the fix." (never "merges"). The approved action runs `python -m ergostat.repair revert` (`timeout:
+5m`), every step under the failure's lock: the failure must be `regressed` (`reverted` already: said, nothing done,
+exit 0) and the action's key its `revert_key`, so an earlier cycle's approval reverts nothing; the commit must be 40
+hex characters and an ancestor of the owner's `HEAD`. A revert commit of it already there (`This reverts commit ...`,
+from a run whose event was never written) is recorded as the revert. Otherwise the owner's tree must be clean (tracked
+files) and no revert, merge or cherry-pick in progress, else `revert-failed` with why and nothing touched; then `git
+revert --no-edit` through `ergostat.sandbox.git` (no hooks, editor, filters or gc; each git call stopped after 120 s).
+When git fails or times out, `git revert --abort` is run and checked: `aborted: true` means no revert in progress, `HEAD`
+where it was and a clean tree; otherwise the owner is told the repository is left mid-revert. `revert-failed` writes the
+`revert` field and moves nothing, so it never undoes a `reverted`; the failure stays `regressed`. A gated action past its
+`timeout` has its whole session killed (section 12k's `run_once`: the shell, its command and theirs). A **denied**
+`revert-fix` leaves the failure `regressed` for good: nothing reopens or moves it; a person reverts or fixes it by hand.
+
+| state | entered by | left by |
+|---|---|---|
+| `applied` | the approved `apply-fix` | `verified`, `regressed` (settle) |
+| `verified` | `verify` good runs after the fix | `opened`, when it fails again |
+| `regressed` | a failed run after the fix | `reverted` (the approved `revert-fix`); else stays |
+| `reverted` | the revert commit | nothing: a person looks |
 
 **Costs and the cap.** Each AI call's Claude Code result message is passed on without its text (so its cost is the
 run's, section 9.1, and nothing the AI wrote is read as one of the run's lines). Before every call the loop's ledger

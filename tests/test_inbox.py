@@ -238,8 +238,8 @@ def test_a_delivery_passes_through_its_gate_and_a_denied_channel_sends_nothing(t
     p, snap = project(tmp_path, DENIED)
     spec, now = p.model.spec, time.time()
     ran = []
-    real = subprocess.run
-    monkeypatch.setattr(gate.subprocess, "run", lambda cmd, **kw: ran.append(cmd) or real(
+    real = subprocess.Popen                                                        # (run_once's: SPEC §12k)
+    monkeypatch.setattr(gate.subprocess, "Popen", lambda cmd, **kw: ran.append(cmd) or real(
         cmd if "cat >>" in cmd else "true", **kw))                                # nothing leaves the machine
     p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 3}, at=now - 300)
     assert deliver.sweep(p, spec, now) == 3
@@ -401,3 +401,255 @@ def test_a_failed_delivery_is_tried_again_and_said(tmp_path):
     states = [e["data"]["state"] for e in p.events.query(n=None, type=deliver.SENT)]
     assert states == ["failed"] * 3
     assert [f.about for f in watch.find(p, spec) if f.code == "notify-failing"] == ["notify.log"]
+
+
+# ---- held modelling requests, answered from the inbox (docs/roadmap/overnight/inbox-dismiss.md)
+
+def held_request(tmp_path, code: str = "collector-undescribed", ai: bool = True):
+    """A modelling project whose finding ``code`` (on flow.alerts-fired) the ai tier held after using its tries (the
+    usual way a request reaches the inbox): an inbox entry."""
+    from ergostat.numbers import requests as rq
+
+    from .test_modelling_core import MODELLING
+    from .test_self_improve import POOR
+    from .test_self_improve import project as poor_project
+    p = poor_project(tmp_path, POOR + (MODELLING if ai else MODELLING.replace("      ai: true\n", "")))
+    rq.sync(p)
+    r = next(r for r in rq.current(p, ("open",)) if r["code"] == code)
+    rq.mark(p, r, "held", "acting on its own: a decision for the owner", tier="ai", tried={"ai": 2})
+    return p, r, f"request/{r['id']}"
+
+
+def test_a_held_modelling_request_is_dismissed_with_its_note(tmp_path):
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    spec = p.model.spec
+    with pytest.raises(answer.AnswerError, match="--note"):
+        answer.answer(p, spec, eid, "deny")                               # a dismissal says why
+    assert cli(["-C", str(tmp_path), "inbox", eid, "--deny", "--note", "the pager is the collector: nothing to say",
+                "--as", "sam"]) == 0
+    x = rq.stored(p)[r["id"]]
+    assert x["state"] == "dismissed" and x["note"] == "the pager is the collector: nothing to say"
+    assert x["dismissed_by"] == "sam" and eid not in {e["id"] for e in entries.entries(p)}
+    got = rq.sync(p)
+    assert rq.stored(p)[r["id"]]["state"] == "dismissed" and got["raised"] == got["reopened"] == 0   # not raised again
+    assert eid not in {e["id"] for e in entries.entries(p)}
+    rec = stats.by_class(p, spec)[f"request:{r['code']}"]                 # an answered intervention, not a suppressed one
+    assert (rec["asked"], rec["denied"], rec["waiting"]) == (1, 1, 0)
+    said = [x for x in stats.asked(p, spec, 0, time.time()) if x["class"] == f"request:{r['code']}"]
+    assert [(x["verdict"], x["by"], x["note"]) for x in said] == [("denied", "sam", "the pager is the collector: nothing to say")]
+
+
+def test_a_dismissed_finding_returns_when_its_part_changes(tmp_path):
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    answer.answer(p, p.model.spec, eid, "deny", note="not now")
+    text = p.model.path.read_text()
+    assert "sensor: {items: alert, state: triaged, every: 2s}" in text
+    p.model.path.write_text(text.replace("sensor: {items: alert, state: triaged, every: 2s}",
+                                         "sensor: {items: alert, state: triaged, every: 3s}"))
+    q = Project(mdl.load(tmp_path))                                       # another part changed: still dismissed
+    assert rq.sync(q)["reopened"] == 0 and rq.stored(q)[r["id"]]["state"] == "dismissed"
+    text = p.model.path.read_text()
+    p.model.path.write_text(text.replace("sensor: {run: python3 bin/watch.py, every: 2s}",
+                                         "sensor: {run: python3 bin/watch.py, every: 5s}"))
+    q = Project(mdl.load(tmp_path))                                       # its own part changed: raised again
+    assert rq.sync(q)["reopened"] >= 1
+    x = rq.stored(q)[r["id"]]                                             # a new finding: untried, the tier's again
+    assert x["state"] == "open" and r["id"] in {w["id"] for w in rq.for_ai(q, 2)}
+    assert not x["owner"] and x["tried"] == {} and x["tier"] == "ai"
+    assert all(x.get(k) is None for k in rq.DISMISSAL)                   # no dismissal shown on an open request
+    rq.mark(q, x, "held", "the ai tier: nothing", tried={"ai": 2})       # the tier holds it again: in the inbox
+    assert eid in {e["id"] for e in entries.entries(q)}
+
+
+def test_a_dismissal_made_while_the_ai_tier_works_stands(tmp_path):
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    rq.mark(p, rq.stored(p)[r["id"]], "held", "tries left", tried={"ai": 1})
+    read = next(w for w in rq.for_ai(p, 2) if w["id"] == r["id"])        # the ai tier reads it, then calls the model
+    answer.answer(p, p.model.spec, eid, "deny", note="not a modelling matter")
+    assert rq.mark(p, read, "held", "the ai tier: nothing", tried={"ai": 2}) is False
+    assert rq.mark(p, read, "held", tried={"ai": 2}, cost_usd=0.01) is False
+    assert rq.stored(p)[r["id"]]["state"] == "dismissed" and eid not in {e["id"] for e in entries.entries(p)}
+
+
+def test_an_approval_made_while_the_ai_tier_works_stands_though_the_state_is_as_it_read(tmp_path):
+    """review/inbox-dismiss-4: the tier reads R open; meanwhile R is held (a change citing it turned away) and the
+    owner approves it, so R is open again, as the tier read it. The tier's word is refused all the same."""
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    answer.answer(p, p.model.spec, eid, "approve")
+    read = next(w for w in rq.for_ai(p, 2) if w["id"] == r["id"])        # the ai tier reads it open, calls the model
+    assert rq.move(p, r["id"], "held", {"why": "its change was dismissed", "tier": "ai", "owner": False}, ("open",))
+    answer.answer(p, p.model.spec, eid, "approve")                        # the owner hands it back: open, untried
+    assert rq.stored(p)[r["id"]]["state"] == read["state"] == "open"
+    assert rq.mark(p, read, "held", "the ai tier: nothing", tried={"ai": 1}) is False
+    assert rq.mark(p, read, "open", tried={"ai": 1}, cost_usd=0.01) is False
+    x = rq.stored(p)[r["id"]]
+    assert x["state"] == "open" and x["tried"]["ai"] == 0 and eid not in {e["id"] for e in entries.entries(p)}
+    again = rq.stored(p)[r["id"]]                                         # a tier that reads it now is heard
+    assert rq.mark(p, again, "open", tried={"ai": 1}) and rq.mark(p, rq.stored(p)[r["id"]], "held", "nothing")
+
+
+def test_a_request_is_answered_under_the_lock(tmp_path, monkeypatch):
+    import threading
+
+    from ergostat.numbers import requests as rq
+    from ergostat.numbers import version as ver
+    p, r, eid = held_request(tmp_path)
+    read, real, seen = rq.stored(p)[r["id"]], ver.part, {}
+
+    def gap(spec, about):                                 # between the answer's read and its write: a tier marks it
+        t = threading.Thread(target=lambda: seen.update(wrote=rq.mark(p, read, "held", "the ai tier: nothing")))
+        t.start()
+        t.join(0.5)
+        seen["waited"] = t.is_alive()
+        seen["thread"] = t
+        return real(spec, about)
+    monkeypatch.setattr(ver, "part", gap)
+    answer.answer(p, p.model.spec, eid, "deny", note="mine to decide")
+    seen["thread"].join(10)
+    assert seen["waited"] and seen["wrote"] is False                      # it waited for the answer, then stood down
+    assert rq.stored(p)[r["id"]]["state"] == "dismissed"
+
+
+def test_the_collector_moves_requests_under_the_lock(tmp_path, monkeypatch):
+    import threading
+
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)
+    real, seen = rq._citing, {}
+
+    def gap(changes):                                     # between sync's read of the requests and its moves: the owner
+        t = threading.Thread(target=lambda: answer.answer(p, p.model.spec, eid, "deny", note="no"))
+        t.start()
+        t.join(0.5)
+        seen.update(waited=t.is_alive(), thread=t)
+        return real(changes)
+    monkeypatch.setattr(rq, "_citing", gap)
+    rq.sync(p)
+    seen["thread"].join(10)
+    assert seen["waited"] and rq.stored(p)[r["id"]]["state"] == "dismissed"
+
+
+def test_a_held_modelling_request_approved_goes_back_to_the_loop(tmp_path):
+    from ergostat.numbers import requests as rq
+    p, r, eid = held_request(tmp_path)                                    # held with the ai tier's tries used
+    assert r["id"] not in {w["id"] for w in rq.for_ai(p, 2)}
+    got = answer.answer(p, p.model.spec, eid, "approve", by="sam")
+    assert "ai tier" in got["said"]
+    x = rq.stored(p)[r["id"]]
+    assert x["state"] == "open" and x["approved_by"] == "sam" and x["tier"] == "ai" and x["tried"]["ai"] == 0
+    assert r["id"] in {w["id"] for w in rq.for_ai(p, 2)}                  # what the ai tier takes up next
+    rq.sync(p)
+    assert rq.stored(p)[r["id"]]["state"] == "open" and eid not in {e["id"] for e in entries.entries(p)}
+    assert stats.by_class(p, p.model.spec)[f"request:{r['code']}"]["approved"] == 1
+    rq.mark(p, rq.stored(p)[r["id"]], "held", "the ai tier: nothing", tried={"ai": 2})   # its tries used again
+    assert eid in {e["id"] for e in entries.entries(p)}                   # back in the inbox
+
+
+def test_a_held_request_no_tier_takes_up_is_only_dismissed(tmp_path):
+    from ergostat.numbers import requests as rq
+    (tmp_path / "a").mkdir()
+    p, _, _ = held_request(tmp_path / "a")
+    mine = [r for r in rq.current(p, ("held",)) if r["code"] in rq.OWNER]   # control: held for the owner at once
+    assert mine
+    for r in mine:
+        e = entries.find(p, p.model.spec, f"request/{r['id']}")
+        assert e["verbs"] == ["deny"] and "--deny --note WHY" in entries.command(e)
+        with pytest.raises(rq.RequestError, match="no tier"):
+            rq.answer(p, p.model.spec, r["id"], True)
+        assert rq.stored(p)[r["id"]]["state"] == "held"
+    (tmp_path / "b").mkdir()
+    q, r, eid = held_request(tmp_path / "b", ai=False)                    # a model without the ai tier
+    assert entries.find(q, q.model.spec, eid)["verbs"] == ["deny"]
+    with pytest.raises(answer.AnswerError, match="--deny"):
+        answer.answer(q, q.model.spec, eid, "approve")
+    assert rq.stored(q)[r["id"]]["state"] == "held"
+
+
+def test_a_redesign_request_is_never_approved_to_the_ai_tier(tmp_path):
+    from ergostat.numbers import redesign_due as due
+    from ergostat.numbers import requests as rq
+    p, r, _ = held_request(tmp_path)                                      # a model running the ai tier
+    assert rq.approvable(p.model.spec, rq.stored(p)[r["id"]])
+    k = due.hold(p, "model", "too-large", "too large to redesign in one pass", owner=True)
+    assert entries.find(p, p.model.spec, f"request/{k}")["verbs"] == ["deny"]   # the allowlist: check's, not a redesign's
+    with pytest.raises(rq.RequestError, match="no tier"):
+        rq.answer(p, p.model.spec, k, True)
+    assert rq.stored(p)[k]["state"] == "held" and k not in {w["id"] for w in rq.for_ai(p, 2)}
+
+
+def test_a_dismissed_redesign_request_stays_dismissed_across_the_redesigners_passes(tmp_path, monkeypatch):
+    from ergostat.numbers import redesign_due as due
+    from ergostat.numbers import requests as rq
+
+    def big(n: int) -> str:
+        return "name: big\nstocks:\n" + "".join(f"  s{i}:\n    unit: things\n    description: stock {i}\n" for i in range(n))
+    monkeypatch.setattr(due, "MOST_PARTS", 10)
+    monkeypatch.setattr(due, "_fit", lambda p_, spec: {"stocks": {}, "span": 0.0})
+    (tmp_path / "ergostat.yaml").write_text(big(14))
+    p = Project(mdl.load(tmp_path))
+    due.next_due(p)
+    r = next(r for r in rq.stored(p).values() if r["code"] == "too-large")
+    assert r["state"] == "held"
+    rq.answer(p, p.model.spec, r["id"], False, note="one plant, kept whole", by="sam")
+    due.next_due(p)                                                       # the redesigner's next pass: still dismissed
+    x = rq.stored(p)[r["id"]]
+    assert x["state"] == "dismissed" and x["note"] == "one plant, kept whole"
+    (tmp_path / "ergostat.yaml").write_text(big(15))                      # the unit changed: said again, for the owner
+    q = Project(mdl.load(tmp_path))
+    due.next_due(q)
+    x = rq.stored(q)[r["id"]]
+    assert x["state"] == "held" and x["owner"] and all(x.get(k) is None for k in rq.DISMISSAL)
+
+
+def test_the_redesigner_holds_under_the_lock(tmp_path, monkeypatch):
+    import threading
+
+    from ergostat.numbers import redesign_due as due
+    from ergostat.numbers import requests as rq
+    p, _, _ = held_request(tmp_path)
+    k = due.hold(p, "model", "too-large", "too large", owner=True)
+    real, seen = rq.stored, {}
+
+    def gap(p_):                                          # between hold's read and its write: the owner dismisses it
+        if not seen:
+            seen["thread"] = t = threading.Thread(target=lambda: rq.answer(p, p.model.spec, k, False, note="kept whole"))
+            t.start()
+            t.join(0.5)
+            seen["waited"] = t.is_alive()
+        return real(p_)
+    monkeypatch.setattr(rq, "stored", gap)
+    due.hold(p, "model", "too-large", "too large still: 40 parts", owner=True)
+    seen["thread"].join(10)
+    assert seen["waited"] and real(p)[k]["state"] == "dismissed"          # it waited, then the owner's answer landed
+
+
+def test_the_status_and_notifications_say_how_a_request_is_denied(tmp_path):
+    p, _, eid = held_request(tmp_path)
+    e = next(e for e in entries.entries(p) if e["id"] == eid)
+    assert entries.command(e) == f"ergostat inbox {eid} --approve | --deny --note WHY"
+    att = st.attention(st.snapshot(p), False, p.model)
+    assert any(a["says"].endswith(entries.command(e)) for a in att if a["what"] == eid)
+    n = type("N", (), {"wait_at_most": 3600.0})()
+    assert entries.command(e) in deliver.message(n, [{**e, "age": 60.0}], False, "")[1]
+
+
+def test_every_inbox_entry_kind_has_a_verb(tmp_path):
+    (tmp_path / "a").mkdir()
+    p, snap = project(tmp_path / "a", MODEL.replace("blocks:\n", "blocks:\n  poked:\n    type: program\n"
+                                                    "    on: {event: queue.poked}\n    run: \"true\"\n", 1))
+    seed(p, snap)
+    p.events.add("trigger.tripped", item="poked", source="ergostat", data={"runs": 9, "most": 3})
+    (tmp_path / "b").mkdir()
+    q, _, _ = held_request(tmp_path / "b")
+    es = entries.entries(p) + entries.entries(q)
+    assert {e["kind"] for e in es} == set(entries.KINDS)                 # every kind the inbox can list
+    for e in es:
+        assert e["verbs"], e["id"]
+        wrong = next(v for v in ("approve", "deny", "done") if v not in e["verbs"])
+        with pytest.raises(answer.AnswerError) as no:
+            answer.answer(q if e["kind"] == "request" else p, None, e["id"], wrong)
+        assert "--" in str(no.value).split(" is answered with ", 1)[1], e["id"]

@@ -69,7 +69,7 @@ than 10 times between neighbours (above 10, not at it), with the fast and slow p
 **Not computed.** A stock with no equation (measured only) has no time constant; most observed models are mostly
 such stocks, so the measure is silent on them until equations are fitted. A loop's closed-loop speed (its
 controller's period, its answer time from the record: `back_in` on the loop's panel) is not yet used; nor are
-the eigenvalues of the whole Jacobian (modes, not parts).
+the modes at the start (§4, `explain`) in `time-scales`.
 
 **Reads.** `system plant: its parts run on time scales 20 times apart: fast [stock.fast 6m], slow [stock.slow
 1h59m], linked within it. Each stock's own time constant is a screen, not the system's modes; if they hold, the
@@ -82,18 +82,24 @@ by the slow (hierarchical control).`
 Skogestad and Postlethwaite ch. 3.4 and 10.6: Λ = G ⊙ (G⁻¹)ᵀ of the steady-state gains from each valve to each
 held quantity; pair loops on λ near 1, never on a negative λ; large λ means the loops fight.
 
-**Computed today.** Nothing numeric. Structurally, `competing-commands` (two controllers on one block) and
-`own-disturbance` are the extreme cases; `interface` says when a block outside moves or commands what a system's
-own loops use (a reach-in: two controllers on one path).
+**Computed today.** Per system, from the step tests the owner approved (`control/rga.py`, SPEC §12d): each test
+made of the system as it is now (its stamp of the system's process matches) gives every loop's Δu and Δy over the
+last quarter of its hold; the latest 12 are fitted together by least squares (ΔY = ΔU Gᵀ, the other controllers
+acting), and Λ = G ⊙ (G⁻¹)ᵀ is said as one line of `explain system.NAME`, on the pairing as built, with a negative
+λ, a λ past 10 and, with two loops, a better pairing swapped. Not computed, and why: integrating loops (declared by
+`process:`, or a u that fills its stock directly), more than 8 loops, too few tests or a loop with none, collinear moves
+(ΔU's 1-norm condition past 100), singular gains. An integrator the model does not declare ramps, so its tests are left
+out as not settled (unless the step is within about 18 times the noise), and so are those of a lag over a third of the
+hold.
+Structurally, `competing-commands` (two controllers on one block) and `own-disturbance` are the extreme cases;
+`interface` says when a block outside moves or commands what a system's own loops use (a reach-in: two
+controllers on one path).
 
-**Not computed.** The relative gain array needs a square, non-singular steady-state gain matrix: as many valves
-as held quantities, each loop's gain from every valve, not only its own. The identification (`control/ident.py`)
-fits one input per loop. Step tests that move one valve at a time and record every goal, each approved by the
-owner (SPEC §12d), give the cross gains as a least-squares fit; with the matrix square and well conditioned, Λ
-follows. Next, after identifying existing controllers.
+**Not computed.** A model with no systems has no relative gain array. The other pairings beyond a two-loop swap,
+the array's frequency dependence, and a finding or request from it (it is said by `explain` only).
 
-**Would read.** `goals queue-short and latency-low: their loops interact (relative gain 2.4 on the pairing as built,
-0.6 if swapped): pair queue-short with flow.scale-up instead, or decouple.`
+**Reads.** `Relative gain array: λ g1 1.25, g2 1.25 (each loop on its own u, from 2 step tests, the gains as held
+over the last quarter of each hold).`
 
 ## 4. Loop dominance and eigenvalue elasticity: which parts matter, and aggregation
 
@@ -104,16 +110,20 @@ Davidsen, "A comprehensive analytical approach for policy analysis of system dyn
 aggregation, Simon and Ando 1961 and Iwasaki and Simon 1994.
 
 **Computed today.** Loops That Matter on the replay (`numbers/dominance.py`, each loop's panel): which loop drives
-each stock over the window. The count of loops inside each system and through it (`size`, below).
+each stock over the window. The count of loops inside each system and through it (`size`, below). The computed rung
+of aggregation (`numbers/aggregation.py`, an `aggregate` row on a system's Dynamics panel, SPEC §12c): a linear
+chain of a system's own stocks, each with its own drain, that no loop beyond each stock's own drove over the window
+the page shows, every loop through it scored and named. It reads: `over the window (2026-11-20 09:00 to 2026-11-20
+10:00) no feedback loop beyond each stock's own drove stock.ramps-briefed, stock.ramps-to-research: a candidate to
+aggregate into one delay`. A candidate, not a finding: it says nothing beyond the window, and nothing is proposed.
+The modes at the start and each link's eigenvalue elasticity (`numbers/modes.py`, shown by `explain` and `explain
+system.NAME`, never by `check`): the eigenvalues of the stocks' Jacobian, from the one Jacobian the time constants
+take (the same point, the same forward differences), for stocks only (a delay's stages are not states there), up to
+40 stocks; a λ = 0 or repeated mode, or a fault in the equations, is said instead of numbers (SPEC, *Modes*).
 
-**Not computed.** Eigenvalue elasticity needs the Jacobian over time and its eigenvectors: one Jacobian is already
-taken for time constants, so the elasticities at the start are a small step; over the replay they are a
-simulation, kept out of `check`. Aggregation (a group of parts no dominant loop runs through, replaced by one
-stock or one delay) follows from dominance per system over a long record: the AI rung's proposal, with LTM as its
-evidence.
-
-**Would read.** `system safety: over the last week no dominant loop passed through stock.ramps-briefed and
-stock.ramps-to-research: a candidate to aggregate into one delay.`
+**Not computed.** Eigenvalue elasticity over the replay (the Jacobian over time): a simulation, kept out of
+`check`. The proposal to aggregate (the chain replaced by one stock or one delay, judged over a long record) is the
+AI rung's, with the computed candidates and LTM as its evidence.
 
 ## 5. Interface control documents: what crosses each boundary
 
@@ -127,10 +137,13 @@ setpoint, command, action, signal, material, influence; `explain system.NAME` li
 crosses by kind, when one of three is true: material crosses through clouds on both sides (a flow to a cloud on
 one side drives a flow from a cloud on the other, in one unit: what is conserved is lost at the boundary); a block
 outside moves or commands what the system's own goals' loops use (filing work into a queue is not: that is how
-systems hand work on); or ten or more information links cross it (a heuristic, set on the examples).
+systems hand work on); or ten or more information links cross it (a heuristic, set on the examples). Whether the
+interface is stable (an ICD's point is a boundary that changes slowly): each `model.changed` of a YAML model
+carries every system's interface as a signature (`interface_history.py`), and `explain system.NAME` counts how
+often it changed over the recorded versions, starting over at a stretch that does not record it (SPEC §4a).
 
-**Not computed.** Whether a crossing is stable (an ICD's point is a boundary that changes slowly): the model's
-history (`history.py`) has every version, and how often each boundary's crossings changed is a count over it.
+**Not computed.** Changes between the versions ergostat loaded are not seen, and the system's box and panel do not
+show the count.
 
 **Reads.** `system down: what crosses its boundary: 1 command, 1 influence. material crosses through clouds on both
 sides: flow.shipped leaves for a cloud and flow.received arrives from one, driven by it; one flow from shipped's
@@ -162,8 +175,15 @@ system whose blocks act for no goal inside it (a system of stocks with no goal, 
 said); goals in no described system, when the model has no
 `purpose:` (a top-level key, the main file only, kept small: one sentence of what the whole model is for).
 
-**Not computed.** Whether a goal serves its system's purpose, or whether the goals together cover it, is a reading
-of the words: the AI rung, with the descriptions and the goals as its input.
+Purpose coverage is also read, on the owner's word, by the AI rung (`ergostat improve --architecture [SYSTEM]`,
+`numbers/vsm_review.py`, SPEC §12): one haiku call per system says which goals serve its description and what it
+asks for that no goal measures. Each quote must be the owner's words, found in the description or `purpose:` after
+whitespace and curly quotes are made plain, or it is dropped; what is kept is held for the owner as a request
+(`purpose-uncovered`, `goal-off-purpose`). A system with no description gets none.
+
+**Not computed.** Whether a goal serves its system's purpose, or whether the goals together cover it, is not worked
+out from the structure: the AI rung's reading is a judgement, held for the owner, and nothing shows it finds every
+gap.
 
 **Reads.** `system idle: is for "nothing yet", and its blocks act for no goal inside it: its purpose is not
 measured`; `goals in-review-clear, nothing-ready-waits: in no system that says what it is for, and
@@ -176,16 +196,21 @@ Systems*, 2011. A viable system has five functions: S1 the operations that do th
 oscillation between them; S3 control of the operations now (resources, audit, S3*); S4 intelligence, the outside
 and the future; S5 policy, identity and purpose. Each S1 is itself viable (recursion).
 
-**Computed today.** Nothing as a finding. The structure answers parts of it: S1 are systems whose goals hold
-stocks of the work; S2, which damps oscillation between the operations, shows as what they share and are
-scheduled by (a pool, a lease tier) across systems; S3 as goals that set other
-goals' setpoints (a cascade's outer loop, `inner_loops`); S3* as sensors that audit (claims, the intent judge); S4 as
-a modelling loop (`use: modelling`: the model of the outside, improved); S5 as `purpose:` and the owner's accept
-policy.
+**Computed today.** Nothing as a finding. The structure's candidates are listed per system as evidence
+(`spec/vsm.py::checklist`, no note): S1 the goals directly in it on its own stocks, and its subsystems; S2 its blocks
+that share a taken kind's leases or a workspace pool with a block outside; S3 its subsystems' inner-loop goals it sets
+(`inner_loops`) and its goals whose setpoint another goal's block commands; S3\* its judge blocks and blocks with a
+`claims` param; S4 its measured flows in from a cloud, and the model's `use: modelling` loop (model-wide); S5 its
+description, `purpose:` and its subsystems' descriptions. The AI rung is built and run on the owner's word
+(`ergostat improve --architecture [SYSTEM]`, `numbers/vsm_review.py`, SPEC §12): one call per system (haiku by
+default, its cost recorded) reads the system and the checklist and says, for each function, present (naming its
+parts) or missing. A function said present that names none of the system's own parts is dropped as unsupported; a
+function said missing is held for the owner as a request (`vsm-s1` … `vsm-s5`, `vsm-s3-audit`), naming the
+checklist's candidates when it had some. A failed call changes nothing. `explain system.NAME` says the latest review.
 
-**Not computed.** The mapping is a judgement: the AI rung reads each system against the five, recursively, and
-says which is missing (no S4 in a system that faces a changing outside; no S2 where two operations share a
-resource and oscillate). Its evidence is the measures above.
+**Not computed.** The mapping itself is a judgement: what the reviewer says is missing is held for the owner, never
+written as a change, and nothing shows it finds every missing function. It reads one system at a time, not the
+recursion as a whole.
 
 **Would read.** `system delivery: S1 (the work) and S3 (the goals on it) are here, and nothing looks outside it
 (S4): when the arrivals change, nothing in it notices.`
@@ -197,6 +222,16 @@ found. The AI rung comes next, per system, not on the whole model at once: the r
 edited the whole model in one change. It takes one system's notes, its interface and its parts, proposes a change
 to that system alone, and the judge tests it. The notes say where to start: loose parts that split are two redesigns;
 a pair that should merge is one; a nearly decomposable system is already as many redesigns as its subsystems.
+
+**What is built** (on `architecture-per-system-redesign`, SPEC §12e *Redesign*). The redesigner already took the
+model a system at a time (`redesign_due.units`). Its prompt now carries the system's architecture: the notes on it
+and on the systems within it (not on others), its size, its interface port by port with the peers, its
+subsystems and whether it is nearly decomposable. Above it, once a day, one call on a larger model (sonnet by
+default) reads the architecture of the whole model (the notes, each system's size, interface, subsystems and
+purpose, each unit's fit and last redesign; not the YAML) and says where to start. Its findings are requests: a
+`redesign` of a unit is taken up next (a resting unit still rests); a `split` or `merge` is held for the owner,
+since it moves parts between systems. It shares the redesigner's daily cap, checked against its estimated most
+before the call. Not built: a merge redesigned as one change set over two systems.
 
 ## What the examples say
 

@@ -23,6 +23,7 @@ sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
+import implement  # noqa: E402
 import parks  # noqa: E402
 import pools  # noqa: E402
 
@@ -37,13 +38,13 @@ def gates(cfg: dict, wt: Path, branch: str, base: str, continued: bool = False,
     is in the branch's history. The branch's own commits are its first-parent line (main merged in is not the
     branch's). The definition is ``rel`` (fac.definition_file: for a continued gap, the file its `definition`
     names, first committed on the continued branch under whatever name that branch had), else
-    `docs/roadmap/overnight/<branch>.md`. A continued branch must hold the main implement.py merged at its build
-    (``built_main``), not the main of this moment: main moving between build and review is the merge queue's to
+    `dev/records/<branch>.md` (or the old `docs/roadmap/overnight/<branch>.md` when the branch has only that). A
+    continued branch must hold the main implement.py merged at its build (``built_main``), not the main of this moment: main moving between build and review is the merge queue's to
     settle (it merges and runs the suites again), never a failed gate. A ``built_main`` missing, or not on main,
     counts as the worst case: current main."""
     if not (re.fullmatch(r"[0-9a-f]{40}", built_main) and fac.git_ok(wt, "merge-base", "--is-ancestor", built_main, base)):
         built_main = fac.git(wt, "rev-parse", base)
-    rel = rel or f"{fac.DEFS}/{branch}.md"
+    rel = rel or fac.definition_file({"id": f"gap/{branch}", "fields": {"branch": branch}}, wt)
     found = []
     own = ("--first-parent", "--topo-order", "--reverse")
     touched = fac.git(wt, "log", *own, "--format=%H", f"{base}..HEAD", "--", rel).split()
@@ -59,6 +60,43 @@ def gates(cfg: dict, wt: Path, branch: str, base: str, continued: bool = False,
     if first and cut(first) != cut(now):
         found.append(f"gate 1: {rel} was changed after its first commit (other than a 'Where it stopped' section)")
     return found, first or now
+
+
+def appended(wt: Path, rel: str, first: str) -> str:
+    """What the definition at the branch's HEAD (``wt/rel``) adds after its first-committed text ``first``: where the
+    house rules put an overrun's reason ('Where it stopped'). A HEAD file that cannot be read, or that does not start
+    with the first text (an edited definition), adds nothing, so a branch cannot write its reason by editing."""
+    try:
+        now = (wt / rel).read_text()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    first = first.strip()
+    return now.lstrip()[len(first):] if first and now.lstrip().startswith(first) else ""
+
+
+# An overrun's reason as the gate reads it: a line of its own that starts 'Overrun reason:' and says something after
+# it. An allowlisted form, not words found anywhere, so free prose ('however ... reason'), a quoted size finding (the
+# phrase falls mid-line there) and the factory's own park text do not pass for one.
+OVER_REASON = re.compile(r"^(?:[-*][ \t]+)?(?:\*\*)?overrun reason:(?:\*\*)?[ \t]*\w[^\n]{8,}", re.I | re.M)
+
+
+def stopped(text: str) -> str:
+    """The 'Where it stopped' sections of ``text`` that the branch wrote: anything outside such a section, and the
+    factory's own (park() writes 'Parked by the factory' first), are left out."""
+    parts = re.split(r"^## ", text, flags=re.M)[1:]
+    return "\n".join(p for p in parts if p.startswith("Where it stopped")
+                     and not p.partition("\n")[2].lstrip().startswith("Parked by the factory"))
+
+
+def size_gate(net: int, budget: int, first: str, wt: Path, rel: str) -> list[str]:
+    """The size gate: an overrun blocks unless a reason for it (OVER_REASON) is written in the definition as first
+    committed (``first``, which also gave the budget) or in a 'Where it stopped' section the branch's HEAD appended
+    to it (appended(), stopped())."""
+    if net <= budget or OVER_REASON.search(first) or OVER_REASON.search(stopped(appended(wt, rel, first))):
+        return []
+    return [f"size: {net} net lines of core code against a budget of {budget}, with no reason written (looked for in "
+            f"{rel} as first committed and in a 'Where it stopped' section its HEAD appends to that, as a line that "
+            "starts 'Overrun reason:')"]
 
 
 def verdict(said: str) -> dict:
@@ -80,10 +118,11 @@ def park(cfg: dict, gap: dict, why: str, by: str, where: str = "review", kind: s
     of its own, pushed to the drop), then the gap parked: why as a kind (parks.KINDS) and, for the kinds a program
     resumes, what would end it (``until``). A park clears the last one's resume and need met (the same id parked
     again)."""
-    branch, rel = fac.branch_of(gap), fac.definition_file(gap)
+    branch = fac.branch_of(gap)
     d = agents.drop(cfg)
     if fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{fac.git_branch(branch)}"):
         _, work = agents.clone(cfg, branch, "park")
+        rel = fac.definition_file(gap, work)
         if (work / rel).is_file():
             with (work / rel).open("a") as fh:
                 fh.write(f"\n## Where it stopped\n\nParked by the factory ({by}, {time.strftime('%Y-%m-%d %H:%M')})."
@@ -127,7 +166,7 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
         fac.nack(f"budget: {refused}", after="1h", count=False)
         return 0
     if not pools.my_turn(cfg, "reviewer", "reviewer", gap["id"]):
-        fac.nack("the reviewer pool is full (run/pools.json): waits its turn", after="5m", count=False)
+        fac.nack("the reviewer pool is full (run/pools.json): waits its turn", after="45s", count=False)   # (as implement.py)
         return 0
     branch, base = fac.branch_of(gap), f"origin/{cfg['git']['base']}"       # (in the clone made from the drop)
     n = int(f.get("reviews_n") or 0) + 1
@@ -137,18 +176,20 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         raise RuntimeError(f"{gap['id']} has no built head to review")
     home, wt = agents.clone(cfg, branch, "reviewer", at=head)
+    rel = fac.definition_file(gap, wt)
     blocking, definition = gates(cfg, wt, branch, base, continued=bool(f.get("continues")),
-                           built_main=str(f.get("built_main") or ""), rel=fac.definition_file(gap))
+                                 built_main=str(f.get("built_main") or ""), rel=rel)
     net, budget = fac.net_lines(wt, base, "HEAD"), fac.budget_of(definition)
-    if net > budget and not re.search(r"over.*reason|reason.*over", definition, re.I | re.S):
-        blocking.append(f"size: {net} net lines of core code against a budget of {budget}, with no reason written")
+    blocking += size_gate(net, budget, definition, wt, rel)
     diff = fac.git(wt, "diff", f"{base}...HEAD")
     if len(diff) > brief.DIFF_MOST:
         diff = (fac.git(wt, "diff", "--stat", f"{base}...HEAD") + "\n\n(the diff is too long to give whole: read it"
                 f" with `git diff {base}...HEAD -- FILE`)")
     text, context = brief.assemble(
-        cfg, "reviewer", gap, wt, definition=definition, diff=f"```diff\n{diff}\n```", net_lines=net,
-        gates="; ".join(blocking) or "all passed")
+        cfg, "reviewer", gap, wt, definition=definition, diff=f"```diff\n{diff}\n```", net_lines=net, unlisted="\n".join(
+            f"- `{p}`" for p in implement.unlisted(wt, base, "HEAD", definition)) or "(none)",
+        gates="; ".join(blocking + [f"`ergostat check` finding allowed by the definition (judge its reason): {k}: {why}"
+                                    for k, why in fac.allowances(definition).items()]) or "all passed")
     context["brief"] = brief.save(cfg, "reviewer", gap, text)
     try:
         got = fac.session(cfg, "reviewer", text, wt)

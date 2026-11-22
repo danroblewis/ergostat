@@ -139,13 +139,14 @@ def test_a_promoted_redesign_whose_edit_fails_is_superseded(tmp_path, monkeypatc
                                        "edit": {"part": "stock.triage", "set": {"description": "alerts not yet triaged"}},
                                        "reasons": [{"says": "none", "evidence": "finding:no-description@stock.triage"}]})
     assert words["status"] == "proposed", words["why"]
-    real = pr.accept
+    real = pr._accept                                         # (a promoted redesign is written by _accept, under the
+    # lock the judge holds for its check-and-write: redesign-rescored-as-the-record-moves)
 
     def accept(p_, pid, *a, **k):
         if pid == got["id"]:
             raise pr.ProposalError("the files have changed under it")
         return real(p_, pid, *a, **k)
-    monkeypatch.setattr(pr, "accept", accept)
+    monkeypatch.setattr(pr, "_accept", accept)
     out = jd.run(p, "judge")
     assert pr.changes(p)[got["id"]][0] == "superseded"
     assert pr.changes(p)[words["id"]][0] == "accepted" and out["accepted"] == 1   # the queue went on
@@ -340,7 +341,8 @@ def test_a_held_modelling_request_is_in_the_inbox(tmp_path):
     r = next(r for r in rq.current(p, ("open",)))
     rq.mark(p, r, "held", "no tier has a change for it")
     got = [e for e in en.entries(p) if e["kind"] == "request"]
-    assert {e["id"] for e in got} == {f"request/{x}" for x in held | {r["id"]}} and got[0]["verbs"] == []
+    assert {e["id"] for e in got} == {f"request/{x}" for x in held | {r["id"]}}
+    assert {e["id"]: e["verbs"] for e in got} == {f"request/{x}": ["deny"] for x in held} | {f"request/{r['id']}": ["approve", "deny"]}
     assert f"/item/ergostat.modelling-request/{r['id']}" in {e["link"] for e in got}
 
 

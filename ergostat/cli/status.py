@@ -106,7 +106,13 @@ def status(args) -> int:
                 att.append({"level": "bad" if "(critical)" in f.message else "hint", "what": f.about,
                             "says": f.message.split(": ", 1)[-1]})
     loops = snap["loops"]
-    if args.system:                                       # only what is in that system
+    if spec is not None and not getattr(args, "at", None):   # an off loop names the open items about it (SPEC §5a)
+        for n, says in off_about(p, spec, loops).items():
+            loops[n]["about"] = says
+            for a in att:
+                if a["what"] == f"loop {n}":
+                    a["says"] += f" · items about it: {says}"
+    if args.system:                                      # only what is in that system
         parts = parts_of(args, m)
         agents = {x.agent for t in (m.sensors, m.controllers, m.valves) for x in t.values() if x.name in parts}
         loops = {n: lp for n, lp in loops.items() if n in parts}
@@ -155,7 +161,8 @@ def status(args) -> int:
         print(c(f"the model, since {args.since} ago: " + (f"{len(ch)} change{'' if len(ch) == 1 else 's'}" if ch else "no changes"), "dim"))
         for e in ch:
             d = e["data"]
-            what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]]
+            what = [f"+{x}" for x in d["added"]] + [f"-{x}" for x in d["removed"]] + [f"~{x}" for x in d["changed"]] + [
+                f"~interface:{x}" for x in d.get("interfaces_changed", [])]
             more = f"  and {len(what) - 6} more" if len(what) > 8 else ""
             when = time.strftime("%a %H:%M" if time.time() - e["time"] > 86400 else "%H:%M:%S", time.localtime(e["time"]))
             print(f"  {when}  " + "  ".join(what[:6] if more else what) + c(more, "dim"))
@@ -166,7 +173,8 @@ def status(args) -> int:
     if loops:
         print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "TIME OFF"],
                     [[n + (c(" ⏲", "dim") if lp.get("open_loop") else ""),
-                      c(f"was {lp['status']}", "dim") if dead else show.status_word(lp["status"]), lp["stock"],
+                      (c(f"was {lp['status']}", "dim") if dead else show.status_word(lp["status"]))
+                      + (c(f" ({lp['about']})", "dim") if lp.get("about") else ""), lp["stock"],
                       fmt(lp["value"]), st.setpoint_text(lp),
                       (c(f"{round(lp['off_share'] * 100)}%", "bad" if lp["off_share"] >= 0.5 else "warn") if lp.get("off_share")
                        else ("0%" if lp.get("observed") else "-"))]
@@ -177,6 +185,22 @@ def status(args) -> int:
         return f"{x} {word}{'' if x == 1 else 's'}"
     print(c(" · ".join(n(k[w + "s"], w) for w in ("loop", "stock", "flow", "agent", "event", "measurement")), "dim"))
     return code
+
+def off_about(p, spec, loops: dict) -> dict[str, str]:
+    """Per loop that is off with open items about its goal or its measured value: their ids (at most 3, "+N"), or
+    that they are unknown when the item index cannot be read. No lookup when none is off or no kind declares about:."""
+    from ..spec import about as ab
+    off = {n: [f"goal.{n}", str(spec.goals[n].of)] for n, lp in loops.items() if lp.get("status") == "off" and n in spec.goals}
+    if not off or not ab.declared(spec):
+        return {}
+    try:
+        got = ab.open_about(p.events, spec, {x for ps in off.values() for x in ps})
+    except ab.Unknown:
+        return dict.fromkeys(off, "unknown (the item index could not be read)")
+    ids = {n: list(dict.fromkeys(i for i, _, _ in sorted((y for x in ps for y in got.get(x, [])), key=lambda y: -y[2])))
+           for n, ps in off.items()}                     # the latest first, whichever part each is about
+    return {n: ab.short(v) for n, v in ids.items() if v}
+
 
 def last_seen(p, snap: dict) -> float | None:
     """When the engine was last seen alive: its last heartbeat, else its last reading."""

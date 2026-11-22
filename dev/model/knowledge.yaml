@@ -3,7 +3,7 @@
 # writes each open gap's definition of done, or splits it; a program lints it and a lint-clean plan is the definition
 # at once; an advisory plan review reads a sample against the code and the task graph, its findings appended as notes
 # and recorded by class for the knowledge loop (never a gate); a researcher answers questions; the librarian turns review findings into proposed lessons, approved by the
-# coordinator and landed as gaps like any other.
+# coordinator and applied by a program (lesson-apply) to the record the briefs read - a queue of their own, never gaps.
 defaults:
   system: planning
 
@@ -21,6 +21,11 @@ stocks:
     unit: gaps
     description: gaps split into sub-gaps, each waiting until every one of its sub-gaps is merged (a join)
     sensor: {items: gap, state: split, every: 1m}
+  gaps-joined:
+    system: intake
+    unit: gaps
+    description: split gaps whose sub-gaps all merged, waiting for the join judge - covered (merged) or short (split again)
+    sensor: {items: gap, state: joined, every: 1m}
   research-asked:
     system: research
     unit: questions
@@ -42,8 +47,19 @@ stocks:
     unit: proposals
     description: lessons the librarian proposed, waiting for the coordinator (the gated action knowledge-change)
     sensor: {items: lesson, state: proposed, every: 1m}
+  lessons-to-apply:
+    system: knowledge
+    unit: lessons
+    description: lessons approved (knowledge-change, or the coordinator's lesson.py add / retire), waiting for lesson-apply
+    sensor: {items: lesson, state: approved, every: 1m}
 
 auxiliaries:
+  lesson-apply-hours:
+    system: knowledge
+    unit: hours
+    description: mean hours from proposed (or the coordinator's own, approved) to applied, of lessons applied in 14 days
+    driven-by: [+stock.lessons-to-apply]
+    sensor: {run: python3 dev/bin/lesson.py hours, every: 10m, timeout: 1m, description: the knowledge queue's measure}
   planning-open:
     unit: switch
     exogenous: true
@@ -102,6 +118,30 @@ auxiliaries:
     description: of sub-gaps merged, the share approved on their first review
     driven-by: [+flow.gaps-split-off]
     sensor: {run: python3 dev/bin/measure.py splits-clean, every: 10m, timeout: 1m, description: the factory's measures}
+  splits-covered:
+    system: intake
+    unit: share
+    description: of split parents whose first join verdict is in 14 days, the share whose first verdict (in record order) was covered; short then covered counts as not covered
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py splits-covered, every: 10m, timeout: 1m, description: the factory's measures}
+  split-budgets-held:
+    system: intake
+    unit: share
+    description: of sub-gaps merged in 14 days, the share whose net lines are at or under their own definition's size budget; a definition, budget or net lines it cannot read is not held
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py split-budgets-held, every: 10m, timeout: 1m, description: the factory's measures}
+  split-joins:
+    system: intake
+    unit: parents
+    description: split parents with at least one join verdict, over the whole record
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py split-joins, every: 10m, timeout: 1m, description: the factory's measures}
+  split-overhead:
+    system: intake
+    unit: ratio
+    description: of split parents judged covered in 14 days (judged_at), the median of the parent's own AI cost plus its children's (join sub-gaps and continuations too, a parked sub-gap's cost but not its lines) over the median cost of merged unsplit gaps of the children's summed size class; a parent that cannot be priced is left out
+    driven-by: [+flow.gaps-split-off]
+    sensor: {run: python3 dev/bin/measure.py split-overhead, every: 10m, timeout: 1m, description: the factory's measures}
 
 flows:
   plans-written:
@@ -141,9 +181,32 @@ flows:
   splits-joined:
     system: intake
     from: gaps-split
-    description: a split gap moved to merged once every sub-gap was merged (a join; also counted by gaps-merged)
+    to: gaps-joined
+    description: a split gap moved to joined once every sub-gap was merged (a join), for the join judge
     driven-by: [+stock.gaps-split]
     equation: stock.gaps-split / split-time
+    sensor: {items: gap, entering: joined, over: 1d}
+  joins-covered:
+    system: intake
+    from: gaps-joined
+    to: gaps-landed
+    description: a joined gap the join judge found covered - merged (merged_by join-judge, so not gaps-merged's), with its verdict
+    driven-by: [+stock.gaps-joined]
+    equation: (1 - short-share) * stock.gaps-joined / judge-time
+    sensor: {items: gap, entering: merged, where: {join_verdict: covered}, over: 1d}
+  joins-short:
+    system: intake
+    from: gaps-joined
+    to: gaps-split
+    description: a joined gap the join judge found short - a sub-gap requested for what was not built, then split again
+    driven-by: [+stock.gaps-joined]
+    equation: short-share * stock.gaps-joined / judge-time
+    sensor: {items: gap, entering: split, where: {lease.back: joined}, over: 1d}
+  joins-parked:
+    system: intake
+    from: gaps-joined
+    description: a joined gap found short past the most short rounds - parked with the points still not built
+    sensor: {items: gap, entering: parked, where: {parked_in: joined}, over: 1d}
   splits-parked:
     system: intake
     from: gaps-split
@@ -204,13 +267,14 @@ flows:
     to: lessons-proposed
     description: a new shape of a known class, or a class found in a second review, proposed by the librarian
     sensor: {items: lesson, entering: proposed, over: 1d}
-  lessons-requested:
+  lessons-approved:
     system: knowledge
     from: lessons-proposed
-    description: a proposal the coordinator approved - a gap whose definition is the exact edit
+    to: lessons-to-apply
+    description: a proposal the coordinator approved - recorded approved with its exact text, never a gap
     driven-by: [+stock.lessons-proposed]
     equation: stock.lessons-proposed / lesson-approve-time
-    sensor: {items: lesson, entering: requested, over: 1d}
+    sensor: {items: lesson, entering: approved, over: 1d}
   lessons-denied:
     system: knowledge
     from: lessons-proposed
@@ -218,8 +282,12 @@ flows:
     sensor: {items: lesson, entering: denied, over: 1d}
   lessons-added:
     system: knowledge
+    from: lessons-to-apply
     to: knowledge-entries
-    description: a knowledge gap merged and the instance switched to it - an entry (or a shape) added, said by knowledge-sync and counted by the stock's own reading
+    description: an approved lesson applied by lesson-apply to the record the briefs read - a new entry or a "seen as" line, shown as knowledge/* by knowledge-sync
+    driven-by: [+stock.lessons-to-apply]
+    equation: stock.lessons-to-apply / lesson-apply-time
+    sensor: {items: lesson, entering: applied, over: 1d}
   lessons-retired:
     system: knowledge
     from: knowledge-entries
@@ -250,6 +318,18 @@ parameters:
     value: 3d
     estimate: true
     description: how long a split gap waits for every one of its sub-gaps to merge
+  judge-time:
+    system: intake
+    value: 30m
+    estimate: true
+    description: how long a joined gap waits for the join judge
+  short-share:
+    system: intake
+    value: 0.2
+    unit: "1"
+    range: [0, 1]
+    estimate: true
+    description: the share of joined gaps the join judge finds short
   stuck-share:
     system: intake
     value: 0.1
@@ -267,6 +347,10 @@ parameters:
     value: 12h
     estimate: true
     description: how long a proposed lesson waits for the coordinator
+  lesson-apply-time:
+    system: knowledge
+    value: 1m
+    description: how long an approved lesson waits for lesson-apply (a program, no AI)
 
 goals:
   open-gaps-planned:
@@ -307,6 +391,12 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: every proposed lesson approved or denied by the coordinator
+  lessons-applied:
+    system: knowledge
+    stock: lessons-to-apply
+    hold: "<= 0"
+    tolerance: 0
+    description: every approved lesson applied (lesson-apply's loop reads it)
 
 actions:
   park-gap:
@@ -324,7 +414,7 @@ actions:
     class: knowledge
     args: {lesson: the proposed lesson (lesson/...)}
     timeout: 2m
-    description: A proposed change to the review lessons, made a gap whose definition is the exact edit - the coordinator approves
+    description: A proposed change to the review lessons, recorded approved with its exact text for lesson-apply (never a gap) - the coordinator approves
 
 blocks:
   plan-when:
@@ -388,6 +478,18 @@ blocks:
     every: 5m
     timeout: 5m
     out: flow.splits-parked
+  join-judge:
+    type: ai
+    system: intake
+    agent: opus
+    description: a session per joined gap in a read-only clone of main - its entry, its coverage, each sub-gap's definition and last review against the code (a sub-gap it cannot read is short, with no session); covered merges it (no merged_at), short requests a sub-gap for what is missing and splits it again (the second short parks it); it waits while the day's money is spent
+    run: python3 dev/bin/plan.py join
+    prompt: dev/prompts/join_judge.md
+    takes: {kind: gap, at: [joined], to: [merged, split, parked]}
+    pool: 1
+    lease: {ttl: 60m, attempts: 2}
+    timeout: 1h
+    out: [flow.joins-covered, flow.joins-short, flow.joins-parked]
 
   research-when:
     type: expr
@@ -425,23 +527,33 @@ blocks:
   knowledge-sync:
     type: program
     system: knowledge
-    description: the collector - each entry of the running version's dev/knowledge/ an item (knowledge.found, .changed, .retired), with how many briefs carried it; each decision of decisions.md whose ergostat.decision is in no state proposed; a file it cannot read stops it with nothing recorded
+    description: the collector - each entry of the running version's dev/knowledge/, with the record's applied lessons, an item (knowledge.found, .changed, .retired), with how many briefs carried it; each decision of decisions.md whose ergostat.decision is in no state proposed; a file or record it cannot read stops it with nothing recorded
     run: python3 dev/bin/knowledge.py sync
     every: 10m
     timeout: 2m
-    out: flow.lessons-added
   lesson-settle:
     type: program
     system: knowledge
-    description: each proposed lesson whose knowledge-change the coordinator denied, settled denied with who and why (lesson.py settle); a denial by the gate is no decision, and a record it cannot read stops it with nothing written
+    description: each proposed lesson whose knowledge-change the coordinator denied, settled denied with who and why (lesson.py settle); a denial by the gate is no decision, and a record it cannot read stops it with nothing written. Then the migration, idempotent - a lesson requested as a gap/knowledge-* not merged applied, and that gap closed
     run: python3 dev/bin/lesson.py settle
     every: 10m
     timeout: 2m
     out: flow.lessons-denied
+  lesson-apply:
+    type: program
+    system: knowledge
+    description: the knowledge queue's worker, no AI - an approved lesson's exact text applied to the record (a new entry, numbered next, or a "seen as" line), or a lesson retired; no session, branch, review or merge
+    run: python3 dev/bin/lesson.py apply
+    takes: {kind: lesson, at: approved, to: [applied, retired]}
+    pool: 1
+    lease: {ttl: 5m, attempts: 3}
+    timeout: 2m
+    goal: lessons-applied
+    out: [flow.lessons-added, flow.lessons-retired]
   approve-lesson:
     type: external
     system: knowledge
     agent: coordinator
     description: the coordinator approves or denies a proposed lesson - the gated action knowledge-change, asked in the inbox
     in: goal.lessons-decided
-    out: flow.lessons-requested
+    out: flow.lessons-approved

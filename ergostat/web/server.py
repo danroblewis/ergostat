@@ -405,6 +405,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
+        from ..spec import itemgraph as ig
+        asked = [k for k in ("near", "path", "about") if one(k) is not None]
+        if one("at") or len(asked) != 1:
+            raise BadSet("items-query: one of near=ID, path=A&to=B or about=ID, as the record is now (never at=)")
+        ev, s = p.events, getattr(m, "spec", None)
+        try:
+            return ig.near(ev, s, one("near"), one("depth")) if asked == ["near"] else \
+                ig.path(ev, s, one("path"), one("to")) if asked == ["path"] else ig.about(ev, s, one("about"))
+        except ig.Unknown:
+            return None
+        except ig.Bad as e:
+            raise BadSet(str(e)) from e
     at = None
     if one("at"):
         try:
@@ -470,9 +483,13 @@ def _answer(live: Live, path: str, q: dict, project=None):
             g = graph.control(m, snap, graph.select(m), graph.readings(p, at))
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
+            reads = None
+            if getattr(m.spec, "remotes", None):     # when what remotes' boxes show last read (SPEC §4c)
+                from ..remote.measures import read_times
+                reads = read_times(p, m.spec, snap["at"])
             if sd:
-                return {**finish(fold(dynamics(g, m), m, want, system)), "attention": att}
-            return {**fold(g, m, want, system), "attention": att}
+                return {**finish(fold(dynamics(g, m), m, want, system, reads)), "attention": att}
+            return {**fold(g, m, want, system, reads), "attention": att}
         sel = graph.select(m, system, around, int(one("depth") or 1))
         g = graph.control(m, snap, sel, graph.readings(p, at))
         return {**(dynamics(g, m) if sd else g), "attention": att}

@@ -1,5 +1,6 @@
 """The factory's knowledge in its briefs (dev/knowledge/README.md), put together by priority within a size budget
-([knowledge] in dev/factory.toml): the house rules and the review lessons always; then, as they fit, the owner's
+([knowledge] in dev/factory.toml): the house rules and the review lessons always (the files' and the
+record's applied lesson items, lesson.py); then, as they fit, the owner's
 decisions (ergostat.decision items, confirmed or proposed) whose scope the gap's text names, related gaps, past review
 findings on the files it touches, and the module map of main. Each brief records the ids it carried and dropped, so
 the model can relate what a brief carried to how its gap did.
@@ -14,10 +15,12 @@ import ast
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,6 +31,7 @@ KINDS = ("component", "rule", "lesson", "finding", "question", "source")   # the
 DECISION = "ergostat.decision"       # the one other kind, and only decisions.md's: read as the owner's decisions
 STOP = set("a an the and or but of to in on for with at by from is are be it this that we i you our my as so "
            "not no do does don't dont never always should must".split())      # ergostat.decisions.kinds.STOP
+ABOUT = re.compile(r"^\*About:\*\s*(.+)$", re.M)      # the parts of the root model an entry bears on: goal.x, stock.y
 FILES = re.compile(r"\b((?:ergostat|dev|scripts|tests|docs|examples)/[\w./-]+\.(?:py|md|yaml|toml|sh))\b")
 MORE = {"implementor": ("decisions", "related", "findings", "modules"),   # beyond the rules and the lessons, in order
         "reviewer": ("decisions", "findings", "related", "modules"), "planner": ("decisions", "related", "findings",
@@ -67,7 +71,8 @@ def sections(path: Path) -> list[tuple[str, str, str, list[str]]]:
 
 def entries() -> list[dict]:
     """Every entry of dev/knowledge/ but decisions.md: {id (rules-process, lesson-3, <kind>-<slug of its heading>),
-    title, kind (the file's), file, text, areas}. Refused: a file whose kind is missing or not allowed, a lesson not
+    title, kind (the file's), file, text, areas, about (its *About:* line: the parts of the root model it bears on,
+    goal.x)}. Refused: a file whose kind is missing or not allowed, a lesson not
     headed `## N. Title`, two entries with one id."""
     out, ids = [], set()
     for p in sorted(p for p in (fac.HERE / "knowledge").glob("*.md") if p.name not in ("README.md", "decisions.md")):
@@ -80,9 +85,37 @@ def entries() -> list[dict]:
             if eid in ids or eid.endswith("-"):
                 raise Refused(f"{p.name}: {head!r} gives the id {eid!r}, empty or already another entry's")
             ids.add(eid)
+            about = ABOUT.search(text)
             out.append({"id": eid, "text": text, "title": n[2] if n else head, "kind": kind,
-                        "file": f"dev/knowledge/{p.name}", "areas": areas})
+                        "file": f"dev/knowledge/{p.name}", "areas": areas,
+                        "about": [x for x in re.split(r"[,\s]+", about[1].strip().rstrip(".")) if x] if about else []})
     return out
+
+
+def applied(es: list[dict], lessons: list[dict]) -> list[dict]:
+    """The entries with the record's lesson items (lesson.py): each applied new lesson its own entry (lesson-N, numbered
+    when applied), each applied "seen as" a line under its lesson, and a lesson retired by lesson.py retire (with its
+    lines) left out. An entry's `items` are the lesson items it carries."""
+    gone = {i["fields"].get("lesson") for i in lessons if i["state"] == "retired" and i["id"].startswith(
+        "lesson/retire-")}
+    got = sorted((i for i in lessons if i["state"] == "applied"), key=lambda i: int(i["fields"].get("number") or 0))
+    seed = {e["id"] for e in es}
+    for n, i in enumerate(got):         # a number the seed took too (a gap of before the queue): kept apart, and said
+        if i["fields"].get("kind") == "entry" and i["fields"].get("lesson") in seed:
+            print(f"{i['id']}: {i['fields']['lesson']} is the seed's too; carried as {i['fields']['lesson']}-record",
+                  file=sys.stderr)
+            got[n] = {**i, "fields": {**i["fields"], "lesson": f"{i['fields']['lesson']}-record"}}
+    out = [*(dict(e) for e in es), *({"id": i["fields"]["lesson"], "title": str(i["fields"]["entry"]).split("\n")[0],
+                                      "kind": "lesson", "file": f"record: {i['id']}", "areas": [], "about": [],
+                                      "text": f"## {i['fields']['lesson'][7:]}. {i['fields']['entry']}", "items": [i["id"]]}
+                                     for i in got if i["fields"].get("kind") == "entry")]
+    by = {e["id"]: e for e in out}
+    for i in got:
+        if i["fields"].get("kind") == "seen" and i["fields"].get("lesson") in by:
+            e = by[i["fields"]["lesson"]]
+            head, sep, check = e["text"].partition("\n**Check:**")
+            e["text"], e["items"] = f"{head}\nSeen as: {i['fields']['entry']}.{sep}{check}", [*e.get("items", []), i["id"]]
+    return [e for e in out if e["id"] not in gone]
 
 
 def decision_id(text: str) -> str:
@@ -133,13 +166,24 @@ def first_line(src: str) -> str:
     return (doc if len(doc) <= 140 else doc[:137].rsplit(" ", 1)[0] + "...") if doc else "(no docstring)"
 
 
+def mtime(p: Path) -> float:
+    try:
+        return p.stat().st_mtime
+    except FileNotFoundError:   # pruned by another session already: sorted oldest, and its unlink is a no-op
+        return 0.0
+
+
 def module_map(cfg: dict) -> tuple[str, dict[str, list[list[str]]]]:
     """(main's sha, {package: [[module, its docstring's first sentence]]}), read from the checkout's main with git,
-    cached by its sha: a merge makes a new one. The last three are kept; only files named for a sha are removed."""
+    cached by its sha: a merge makes a new one. The last three are kept; only files named for a sha are removed.
+    Safe with sessions starting together: one read (a missing or partial file is made again), a renamed whole write,
+    and a prune that keeps its own sha's file and skips one already gone."""
     repo, d = fac.path(cfg, "checkout"), fac.run_dir(cfg, "modules")
     sha = fac.git(repo, "rev-parse", cfg["git"]["base"])
-    if (d / f"{sha}.json").is_file():
+    try:                    # one read: a file another session removed or is half-way writing is made again
         return sha, json.loads((d / f"{sha}.json").read_text())
+    except (FileNotFoundError, ValueError):
+        pass
     there = fac.git(repo, "ls-tree", "--name-only", sha, "--", "ergostat", "dev/bin", "scripts").split()
     raw = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", sha, "--", *there], capture_output=True,
                          check=True, timeout=300).stdout if there else b""
@@ -148,10 +192,22 @@ def module_map(cfg: dict) -> tuple[str, dict[str, list[list[str]]]]:
         for m in sorted((m for m in tar if m.isfile() and m.name.endswith(".py")), key=lambda m: m.name):
             pkg, _, mod = m.name.rpartition("/")
             out.setdefault(pkg, []).append([mod, first_line(tar.extractfile(m).read().decode(errors="replace"))])
-    (d / f"{sha}.json").write_text(json.dumps(out))
-    for p in sorted((p for p in d.glob("*.json") if re.fullmatch(r"[0-9a-f]{40}", p.stem)),
-                    key=lambda p: p.stat().st_mtime)[:-3]:
-        p.unlink()
+    tmp = ""
+    try:                    # written whole, then renamed into place: no reader sees part of it
+        fd, tmp = tempfile.mkstemp(dir=d, prefix=f".{sha}.", suffix=".tmp")
+        os.fchmod(fd, 0o644)  # mkstemp makes 0600; readable by others as write_text left it
+        with os.fdopen(fd, "w") as w:
+            w.write(json.dumps(out))
+        os.replace(tmp, d / f"{sha}.json")
+    except OSError:         # a cache that cannot be written is not a failure: the map is still the map
+        if tmp:
+            Path(tmp).unlink(missing_ok=True)
+    for p in sorted((p for p in d.glob("*.json") if re.fullmatch(r"[0-9a-f]{40}", p.stem) and p.stem != sha),
+                    key=mtime)[:-2]:        # its own sha's file is never pruned; one already gone is skipped
+        p.unlink(missing_ok=True)
+    for p in d.glob(".*.tmp"):              # left by a session killed mid-write; a live write is seconds old
+        if re.fullmatch(r"\.[0-9a-f]{40}\..+\.tmp", p.name) and time.time() - mtime(p) > 600:
+            p.unlink(missing_ok=True)
     return sha, out
 
 
@@ -199,8 +255,13 @@ def findings(touched: list[str]) -> list[tuple[str, str]]:
 def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
     """A brief's knowledge for ``role``, given the gap's own text (its definition, GAPS entry, a reviewer's diff), and
     what it carried: {knowledge: [ids], knowledge_dropped: [ids], knowledge_chars}."""
-    k = cfg.get("knowledge") or {}
+    k, unread = cfg.get("knowledge") or {}, ""
     budget, es = int(k.get(f"{role}_chars") or k.get("chars") or 24000), entries()
+    try:
+        es = applied(es, fac.items("lesson"))
+    except (RuntimeError, ValueError, OSError) as e:                 # said in the brief, never carried as none
+        unread = (f"\n\n**The applied lessons could not be read from the record** ({str(e)[:200]}): this brief "
+                  "carries only the repository's.")
     touched = sorted(set(FILES.findall(text)))
     words = set(re.findall(r"[a-z]+", f"{text} {gap['fields'].get('title', '')}".lower()))
     rules = [e for e in es if e["kind"] == "rule" and role != "plan_reviewer"]
@@ -208,8 +269,9 @@ def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
     parts = ["## The house rules\n\n" + "\n".join(e["text"].replace("## ", "**", 1).replace("\n", "**\n", 1)
                                                   for e in rules)] if rules else []
     parts.append("## What reviews keep finding (the review lessons, by id)\n\n" + "\n\n".join(
-        e["text"].replace(f"## {e['id'][7:]}.", f"### {e['id']}:", 1) for e in lessons))
-    ids, dropped, used = [e["id"] for e in rules + lessons], [], sum(map(len, parts))
+        e["text"].replace(f"## {e['id'][7:]}.", f"### {e['id']}:", 1) for e in lessons) + unread)
+    ids = [e["id"] for e in rules + lessons] + [i for e in lessons for i in e.get("items", [])]
+    dropped, used = [], sum(map(len, parts))
     for name in MORE.get(role, ()):
         if name == "decisions":
             ds = sorted((d for d in held() if d["state"] in ("confirmed", "proposed") and any(
@@ -231,7 +293,8 @@ def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
             parts.append(f"## {HEADS[name]}\n\n" + "\n".join(took))
             used += len(HEADS[name]) + 8
     out = "\n\n".join(parts)
-    return out, {"knowledge": ids, "knowledge_dropped": dropped, "knowledge_chars": len(out)}
+    return out, {"knowledge": ids, "knowledge_dropped": dropped, "knowledge_chars": len(out),
+                 **({"knowledge_unread": ["lessons"]} if unread else {})}
 
 
 def short(text: str, most: int = 300) -> str:
@@ -252,7 +315,8 @@ def carried() -> dict[str, int]:
 
 
 def sync() -> tuple[int, ...]:
-    """The collector: each entry of the running version's dev/knowledge/ as an item knowledge/<id>. A new entry (or one
+    """The collector: each entry of the running version's dev/knowledge/, with the applied lessons (applied()), as an
+    item knowledge/<id>. A new entry (or one
     back after it was retired) is knowledge.found, one whose fields differ from its item's is knowledge.changed with
     only those fields, and an active item no file holds any more is knowledge.retired; nothing else is said, so a
     second run says nothing. Each decision of decisions.md whose ergostat.decision id is in no state (never proposed,
@@ -260,20 +324,23 @@ def sync() -> tuple[int, ...]:
     read first, and a file refused or decisions not read raise before a line is printed. Two overlapping runs that
     both propose one decision record it once: ergostat records the proposal under its own event id, checked inside
     the record's write lock, and adds words only when they differ (acts.propose). (found, changed, retired, proposed)"""
-    es, ds, have = entries(), decisions(), {d["id"] for d in held()}
+    es, ds, have = applied(entries(), fac.items("lesson")), decisions(), {d["id"] for d in held()}
     known, counts, now = {i["id"]: i for i in fac.items("knowledge")}, carried(), time.time()
     said: list[tuple[str, str, dict]] = []
     for e in es:
         iid = f"knowledge/{e['id']}"
         want = {"title": e["title"], "kind": e["kind"], "file": e["file"], "text": short(e["text"]),
-                "carried": counts.get(e["id"], 0), **({"areas": e["areas"]} if e["areas"] else {})}
+                "carried": counts.get(e["id"], 0), **({"areas": e["areas"]} if e["areas"] else {}),
+                **({"about": e["about"]} if e["about"] else {})}
         it = known.get(iid)
         if it is None or it["state"] != "active":
-            said.append(("knowledge.found", iid, {**want, "found_at": now}))
+            again = {"about": []} if it is not None and it["fields"].get("about") and not e["about"] else {}
+            said.append(("knowledge.found", iid, {**want, **again, "found_at": now}))  # found again: old about cleared
             continue
         diff = {k: v for k, v in want.items() if it["fields"].get(k) != v}
-        if it["fields"].get("areas") and not e["areas"]:
-            diff["areas"] = []
+        for k in ("areas", "about"):                                       # taken out of the file: cleared
+            if it["fields"].get(k) and not e[k]:
+                diff[k] = []
         if diff:
             said.append(("knowledge.changed", iid, {**diff, "changed_at": now}))
     held_ids = {f"knowledge/{e['id']}" for e in es}

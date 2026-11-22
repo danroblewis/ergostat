@@ -1,0 +1,40 @@
+template: plain
+description: A stock of work and a block that drains it, as the owner wrote it.
+reading: |
+  System dynamics: one stock, drained by one flow.
+  Control: a program on a timer.
+example: |
+  uses:
+    w:
+      use: plain
+params:
+  every:
+    type: duration
+    default: 10m
+    description: how often it runs
+  limit:
+    type: integer
+    default: 3
+    min: 1
+    max: 9
+    description: how many at most
+  mode:
+    choices: [fast, slow]
+    default: fast
+    description: which way
+  flags:
+    type: strings
+    default: [a, b]
+    description: some words
+  live:
+    type: bool
+    default: true
+    description: on or off
+  command:
+    type: command
+    stand-in: a made-up feed
+    description: the source
+stocks:
+  ${name}-waiting:
+    unit: items
+    sensor: {run: "echo 1", every: "${every}"}

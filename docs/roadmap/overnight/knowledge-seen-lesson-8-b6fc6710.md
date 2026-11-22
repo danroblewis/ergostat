@@ -1,0 +1,55 @@
+# knowledge-seen-lesson-8-b6fc6710: lesson-8 seen as a new shape
+
+depends-on: []
+
+Branch `knowledge-seen-lesson-8-b6fc6710`, from main. Asked by the librarian, approved by the coordinator.
+
+## Definition of done
+
+`dev/knowledge/review-lessons.md`: lesson-8 seen as a new shape, as below, and nothing else changed.
+
+Add to its "Seen as:" (a new line under its first paragraph if it has none), in its style: SPEC §9.5 says the schema is the machine-checkable form of the spec, but the schema still types `pool` as an integer only, so the documented mapping form and the factory's own building.yaml are refused and no test checks it
+
+From:
+
+> schema/ergostat.schema.json:1590 (lesson-8): `pool` is still `{"type": "integer", "minimum": 1}`. docs/SPEC.md:5 says this schema is 'the machine-checkable form of this document', and the schema tracks every other block key (unblocked, daemon, on-stale, workspace). The branch adds `pool: {now: stock.NAME, most: N}` to SPEC §9.5, the help and the factory's own dev/model/building.yaml, so the published schema now refuses a valid model, the factory's included, in any editor or validator that uses it. tests/test_spec_schema.py only checks docs/spec-examples/*.yaml, so nothing catches it. Fix: let `pool` be either an integer of 1 or more or an object {now: string matching ^stock\., most: integer of 1 or more}, with both keys required and no others, and add a spec example (or a schema test) that uses the mapping form.
+
+## Acceptance tests
+
+- `tests/test_factory_knowledge.py::test_knowledge_files_parse`: the knowledge files still parse into entries with ids.
+
+## Size budget
+
+0 net lines of code (knowledge only).
+
+## Where it stopped
+
+Built: lesson-8's "Seen as:" in dev/knowledge/review-lessons.md gains the pool-schema shape. Nothing else changed
+(`git diff main --stat`: that file and this one).
+
+The factory's `unit` run was reported failed, but its tail stops at 36% of the progress lines with no failing test,
+error or traceback in it. That looks like the run was cut off (a timeout or the watchdog), not a test failing. The only
+test that reads dev/knowledge/ is tests/test_factory_knowledge.py. All 22 of its tests pass (run alone, serially, after
+the report). The branch changes no code, so no code fix applies. I did not re-run the whole unit suite myself: the
+house rules leave that to the factory, under the watchdog. If the next run fails again, the test it names is what to
+look at.
+
+Second report: `unit` failed again, and its tail again stops partway (46% this time, 36% before) with no failing test,
+error or traceback. A cut-off at a different point each run points to the run being stopped (timeout, watchdog or
+machine load), not to a test in this branch. Checked again: the branch's whole diff is one lesson-8 "Seen as" line set
+in dev/knowledge/review-lessons.md plus this file. The only tests that read dev/knowledge/ are in
+tests/test_factory_knowledge.py (test_factory_manager.py imports its fixture). Both files pass run serially (40
+passed), and ruff is clean. With no code changed and no failing test named, I made no code fix. This is the reversible
+option: if a later run names a test, that test is the lead.
+
+Round 2: there were no review findings to answer (none were handed over). Checked again: the branch's diff against main is
+unchanged (the lesson-8 "Seen as" lines and this file), main is still its base (8eb0fc0), and this clone has no
+origin remote, so there was nothing to merge in. tests/test_factory_knowledge.py: 22 passed, run alone. ruff is clean.
+The unit suite and the browser files are left to the factory's watchdogged run.
+
+Third report: `unit` failed again, and again its tail stops partway (97% this time, after 46% and 36%). It has no
+failing test, no error or traceback and no pytest summary line. Three cut-offs at three different points mean
+something outside the tests is stopping the run (a timeout, the watchdog or load), not a test failing. The branch
+still changes only the lesson-8 "Seen as" lines in dev/knowledge/review-lessons.md and this file.
+tests/test_factory_knowledge.py passes run serially (22 passed), and ruff is clean. No code fix applies, so I made
+none. What is left: a unit run that finishes, or one whose tail names the failing test. That test is where to look.

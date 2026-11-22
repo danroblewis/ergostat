@@ -40,6 +40,7 @@ import fac  # noqa: E402
 
 HEALTH_WAIT = 120            # seconds a new version has to show it is healthy
 PASS_FRESH = 30              # a pass at most this old
+DISPATCH_FAILING = 120       # seconds the dispatcher may meet an error in every look before it is a situation
 SENSOR = "suites-running.main"     # the load interlock's, read every 15 s
 
 
@@ -192,17 +193,37 @@ def state_dir(cfg: dict) -> Path:
     return home / f"{name}-{hashlib.sha256(str(inst.resolve()).encode()).hexdigest()[:8]}"
 
 
+def dispatch_failing(beat: dict, now: float) -> str | None:
+    """The dispatcher's error, when every look has met one for more than DISPATCH_FAILING seconds (the heartbeat's
+    ``dispatch_error``): what it says and for how long; a ``since`` that is not a time (missing, NaN) is never fresh."""
+    err = beat.get("dispatch_error")
+    if not isinstance(err, dict):
+        return None
+    try:
+        age = now - float(err.get("since"))
+    except (TypeError, ValueError):
+        age = float("inf")
+    return None if age <= DISPATCH_FAILING else f"the dispatcher has failed every look for {age / 60:.0f} min: {err.get('why')}"
+
+
+def heartbeat(cfg: dict) -> dict:
+    return json.loads((state_dir(cfg) / "heartbeat.json").read_text())
+
+
 def health(cfg: dict, since: float = 0.0) -> dict:
-    """What the running engine shows: a pass within PASS_FRESH seconds (its heartbeat), the interlock's and the intake's
-    sensors read since ``since``, the record read back (the gaps), and the merge queue in the model."""
+    """What the running engine shows: a pass within PASS_FRESH seconds (its heartbeat), and no dispatcher error standing
+    past DISPATCH_FAILING, the interlock's and the intake's sensors read since ``since``, the record read back (the
+    gaps), and the merge queue in the model."""
     sha = target(live(cfg) / "current")
     out: dict = {"sha": sha}
     try:
-        beat = json.loads((state_dir(cfg) / "heartbeat.json").read_text())
+        beat = heartbeat(cfg)
         out["pass_age_s"] = round(time.time() - float(beat["pass"]), 1)
         out["engine"] = out["pass_age_s"] <= PASS_FRESH and float(beat["pass"]) >= since
+        out["dispatch_said"] = dispatch_failing(beat, time.time())
+        out["dispatch"] = out["dispatch_said"] is None
     except (OSError, ValueError, KeyError) as e:
-        out["engine"], out["engine_said"] = False, str(e)
+        out["engine"], out["dispatch"], out["engine_said"] = False, False, str(e)
     got = engine(cfg, sha, "sensor", SENSOR, "--json")
     readings = json.loads(got.stdout).get("now", {}).get("readings", []) if got.returncode == 0 else []
     out["sensors"] = any(float(r["at"]) >= since for r in readings)
@@ -210,7 +231,7 @@ def health(cfg: dict, since: float = 0.0) -> dict:
     out["record"] = got.returncode == 0 and "items" in json.loads(got.stdout or "{}")
     got = engine(cfg, sha, "block", "merge-queue", "--json")
     out["queue"] = got.returncode == 0
-    out["healthy"] = all(out[k] for k in ("engine", "sensors", "record", "queue"))
+    out["healthy"] = all(out[k] for k in ("engine", "dispatch", "sensors", "record", "queue"))
     return out
 
 

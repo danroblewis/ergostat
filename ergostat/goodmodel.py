@@ -16,12 +16,15 @@ DIR, MANIFEST, OBJECTS = "good", "manifest.json", "objects"
 READS = {None, "status", "item", "event", "lease", "loop", "system", "explain", "findings", "residual", "fit", "claims",
          "messages", "agent", "block", "inbox", "stock", "flow", "valve", "sensor", "controller", "disturbance"}
 ACTS = ("add", "redrive", "renew", "nack", "check", "about", "reopen", "now", "done", "approve", "deny", "stop",
-        "restart", "check_warm", "opened", "read", "forget_above", "forget_below", "decided", "requests", "invest", "reset")
+        "restart", "check_warm", "opened", "read", "forget_above", "forget_below", "decided", "requests", "invest", "reset",
+        "revoke")
+# a topic that mostly acts, with subcommands (its ``what``) that only read: only those run on the last good model
+READ_WHAT = {"remote": ("proposals",)}
 # the read topics' other flags, each one that only reads (tests/test_cli_fallback.py holds every flag to one list or
 # the other); what decides is the record, which the fallback opens refusing every write
 READ_FLAGS = ("n", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
               "to", "why", "after", "no_count", "all", "around", "depth", "list", "wiring", "blocks", "open", "note",
-              "command", "stats", "search")
+              "command", "stats", "search", "near", "path_to", "about_item")
 WRITES = ("add", "add_many", "prune", "replace", "forget", "roll", "drop", "flush")
 
 
@@ -42,8 +45,11 @@ class _ReadOnly:
 
 
 def reads(args) -> bool:
-    """Whether this command only reads: a topic that reads, with none of its acting flags."""
-    return getattr(args, "topic", None) in READS and not any(getattr(args, a, None) not in (None, False) for a in ACTS)
+    """Whether this command only reads: a topic that reads (or one of ``READ_WHAT``'s subcommands), with none of its
+    acting flags."""
+    topic = getattr(args, "topic", None)
+    return (topic in READS or getattr(args, "what", None) in READ_WHAT.get(topic, ())) and \
+        not any(getattr(args, a, None) not in (None, False) for a in ACTS)
 
 
 def _load(kept: dict, fetch):

@@ -19,6 +19,7 @@ The record uses the same stores and event types as before (``valve.opened``, ``l
 
 from __future__ import annotations
 
+import contextlib
 import heapq
 import json
 import os
@@ -34,17 +35,20 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+from .. import mirror
 from .. import runner as old
 from ..costs import ai as costs_ai
+from ..costs import budget
 from ..costs import record as costs_record
 from ..costs.sampler import SAMPLER, Measured
+from ..library import bounds, reap
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
 from . import blocks as bl
-from . import stream, triggers
+from . import runrecord, stream, triggers
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
-from .observer import KEEP, RUN, Observer, estimated, opted, stale_age
+from .observer import KEEP, PORTS, RUN, Observer, estimated, opted, stale_age
 
 TICK = 1.0
 READERS = 8                 # the fixed pool that runs sensors' commands and queries: no thread per reading (scale.md #1)
@@ -96,13 +100,15 @@ class Engine:
     incremental = True                                 # a pass works out only what changed (False: everything, each pass)
     lock_wait = 5.0                                    # seconds ``close`` waits for a lock it stops under, at most
 
-    def __init__(self, project, say=print):
+    def __init__(self, project, say=print, shard: str | None = None):
         self.p, self.say = project, say
         self.spec: Spec = project.model.spec
+        self.shard = shard                             # the shard it works on (SPEC §9.8); None: the whole model
+        self._shard_of(self.spec)
         self.stop = threading.Event()
         self.lock = threading.RLock()
         self.signals: dict[str, float] = {}
-        self.builtins = {n: bl.make(self.spec.blocks[n], self.spec) for n in bl.order(self.spec)}
+        self.builtins = {n: bl.make(self.spec.blocks[n], self.spec) for n in bl.order(self.spec) if self.own(f"block.{n}")}
         self.status: dict[str, str] = {}               # goal → holding / off
         self.setpoint: dict[str, float] = {}           # goal → a setpoint a block set (a cascade)
         self.per: dict[str, tuple] = {}                # goal held per item or group → (worst, breaking, how many)
@@ -110,6 +116,7 @@ class Engine:
         self.outputs: dict[str, dict[str, float]] = {}   # machine block → port → its last command (held)
         self.commands: dict[str, dict] = {}            # machine block → its last command's detail
         self.running: set[str] = set()
+        self.untrusted_runs: set[str] = set()          # those of them an untrusted library's block began (library/bounds.py)
         self.judge_next: dict[str, float] = {}         # judge block → when its next pass is due (monotonic): it backs off idle
         self.judge_idle: dict[str, int] = {}           # judge block → its passes in a row that moved nothing
         self.finished: dict[str, float] = {}
@@ -120,7 +127,7 @@ class Engine:
         self.reading: set[str] = set()                 # sensors whose read is under way
         self.seen: dict[str, float] = {}               # series → the newest reading's time
         self.slots = {a.name: threading.Semaphore(a.at_once) for a in self.spec.agents.values()}
-        self.machines = [b for b in self.spec.blocks.values() if b.machine]
+        self.machines = [b for b in self.spec.blocks.values() if b.machine and self.own(f"block.{b.name}")]
         # what caused what, kept so the record can say it (causedby): the event carrying each block's latest
         # output (a built-in's decision, or the run that gave the command), each block's latest run, and the
         # run whose moving a flow made a sensor read at once
@@ -165,6 +172,7 @@ class Engine:
         self.passing = threading.Lock()                # one pass at a time, whichever thread asks
         self.full = True                               # the next pass works out everything (the first, after a swap)
         self.mark = None                               # the measurements' changes, as of the last pass
+        self.measured = False                          # every part's newest reading loaded once (a pool's "no reading")
         self.dirty_keys: set[str] = set()              # signals changed since the last pass (a machine's output, ...)
         self.dirty_goals: set[str] = set()             # goals whose setpoint a run set since
         self.dirty_blocks: set[str] = set()            # machine blocks whose run ended since
@@ -194,6 +202,65 @@ class Engine:
         self.born = time.time()                        # (or when it last woke: nothing is stale before it could be read)
         self.clock_at = (self.born, time.monotonic())
 
+    # ---- its shard (SPEC §9.8)
+
+    def _shard_of(self, spec: Spec):
+        """This engine's ``Shard`` in this model's plan (None: no shard). ValueError when the plan has no such shard:
+        it never runs nothing quietly, nor everything."""
+        if self.shard is None:
+            return None
+        from .shards import planned
+        got = planned(spec).shards.get(self.shard)
+        if got is None:
+            raise ValueError(f"no shard {self.shard!r} in this model (its shards: {', '.join(planned(spec).shards)})")
+        return got
+
+    @property
+    def plan(self):
+        from .shards import planned
+        return None if self.shard is None else planned(self.spec)
+
+    def own(self, key: str, spec: Spec | None = None) -> bool:
+        """Whether a part (a key ``Plan.of`` takes) is this engine's to work on, in ``spec`` (the model now if None):
+        every part with no shard; else as ``Plan.of`` says, and by nothing else (a part not in the plan raises)."""
+        if self.shard is None:
+            return True
+        from .shards import planned
+        return planned(spec or self.spec).of(key) == self.shard
+
+    def leads(self) -> bool:
+        """Whether this engine does what is done once for the whole model: the lead shard's, or the whole's."""
+        return self.shard is None or self.shard == self.plan.lead
+
+    def follows(self, key: str, spec: Spec | None = None) -> bool:
+        """Whether this engine follows an owner's ask about a part: its owner's, as ``Plan.of`` says. A part ``spec``
+        does not have (``KeyError``) is the lead's alone: never no one's, never everyone's."""
+        try:
+            return self.own(key, spec)
+        except (KeyError, ValueError):
+            return self.leads()
+
+    def _mine(self, spec: Spec):
+        return None if self.shard is None else lambda k: self.own(k, spec)
+
+    def _measured(self, spec: Spec) -> set | None:
+        """The stocks, flows and auxiliaries ``measure`` reads: its own, and those its parts read in other shards (a
+        goal's ``of``, a block's reads, an equation's refs, an observed stock's flows). None: every one."""
+        if self.shard is None:
+            return None
+        kept, k = spec.lookups().kept, f"engine.measured.{self.shard}"
+        if k not in kept:
+            tables = {"stock": spec.stocks, "flow": spec.flows, "auxiliary": spec.auxiliaries}
+            got = {(kd, n) for kd, t in tables.items() for n in t if self.own(f"{kd}.{n}", spec)}
+            refs = [g.of for n, g in spec.goals.items() if self.own(f"goal.{n}", spec)]
+            refs += [r for n, b in spec.blocks.items() if self.own(f"block.{n}", spec) for r in b.reads()]
+            refs += [Ref.parse(t) for kd, n in sorted(got) if kd != "stock" and tables[kd][n].equation
+                     for t in tables[kd][n].equation.refs]
+            refs += [Ref("flow", f.name) for n in opted(spec).stocks if ("stock", n) in got for f in spec.flows_of(n)]
+            kept[k] = got | {(r.kind, r.name) for r in refs if r is not None and r.name in tables.get(r.kind, ())
+                             and not (r.port in PORTS and r.port not in tables[r.kind][r.name].sensors)}  # (an estimate: a wire)
+        return kept[k]
+
     # ---- signals
 
     def get(self, r: Ref) -> float | None:
@@ -220,6 +287,8 @@ class Engine:
         else:
             by = self._wiring()["parts"]
             parts = list(dict.fromkeys(x for sr in only for x in by.get(sr, ())))
+        if (read := self._measured(spec)) is not None:          # a shard: its own, and what they read (SPEC §9.8)
+            parts = [x for x in parts if x in read]
         for kind, name in parts:
             x = tables[kind].get(name)
             if x is None:
@@ -242,6 +311,7 @@ class Engine:
             if v is not MISSING and sig.get(f"{kind}.{name}", MISSING) != v:
                 sig[f"{kind}.{name}"] = v
                 changed.add(f"{kind}.{name}")
+        self.measured = self.measured or only is None
         return changed
 
     def _event(self, out: list | None, type: str, **kw) -> dict:
@@ -260,7 +330,7 @@ class Engine:
         goals to work out again (None: every one); ``out``: see ``_event``. Returns the signals that changed."""
         spec, sig, changed = self.spec, self.signals, set()
         names = spec.goals if only is None else sorted((g for g in only if g in spec.goals), key=self._wiring()["goal_pos"].get)
-        for name in names:
+        for name in (n for n in names if self.own(f"goal.{n}", spec)):
             g = spec.goals[name]
             r = self.setpoint.get(name, g.hold.value)
             if sig.get(f"goal.{name}", MISSING) != r:
@@ -302,7 +372,7 @@ class Engine:
         from .goal_per import held, members, sensor_of
         moved, version = set(), None
         for g in self.spec.goals.values():
-            s = sensor_of(self.spec, g) if g.per else None
+            s = sensor_of(self.spec, g) if g.per and self.own(f"goal.{g.name}") else None
             if s is None or not (every or s.series in (changed or ())):
                 continue
             if version is None:
@@ -375,6 +445,8 @@ class Engine:
                     if tick:
                         names |= {n for n, on in self.was_commanded.items() if on and n not in self.running}
                     pos = w["mpos"]
+                    if self.shard is not None:                          # (its shard's: SPEC §9.8)
+                        names &= {b.name for b in self.machines}
                     todo = [b for b in sorted((self.spec.blocks[n] for n in names if n in pos), key=lambda b: pos[b.name])
                             if self.due(b, events)]
             if events:
@@ -540,7 +612,7 @@ class Engine:
             return set()
         ob = self.observer
         if ob is None:
-            ob = self.observer = Observer(self.spec, lambda n: self.history(self.spec, n))
+            ob = self.observer = Observer(self.spec, lambda n: self.history(self.spec, n), mine=self._mine(self.spec))
         ob.advance(now, self.signals)
         new = []
         for n, tr in ob.tracks.items():
@@ -588,7 +660,7 @@ class Engine:
                 ages[str(r)] = age
         changed = set(ages) ^ set(self.stale_parts)
         self.stale_parts = ages
-        for name, policy in o.goals.items():
+        for name, policy in ((n, x) for n, x in o.goals.items() if self.own(f"goal.{n}")):
             g = self.spec.goals[name]
             age = ages.get(str(Ref(g.of.kind, g.of.name)))
             if (age is None) != (name not in self.stale):
@@ -673,10 +745,13 @@ class Engine:
         if b.name in self.running or b.takes or b.on:         # started by the items it takes, or by its events
             return False
         cmd, _ = self.command_of(b)
+        gap = bounds.pace(self.spec, b, b.every)                # (an untrusted library's: never under its floor)
         if cmd is None:
             if b.every or b.cron:
                 return False                                    # on its own schedule
             data = [r for r in b.inputs.values() if r.kind != "block"]
+            if gap and time.time() - self.began.get(b.name, 0.0) < gap:
+                return False
             return bool(data) and self.last_reading > self.finished.get(b.name, 0.0)
         on = bool(cmd)
         rising = on and not self.was_commanded.get(b.name)
@@ -694,7 +769,7 @@ class Engine:
         flows = [t.name for t in b.targets() if t.kind == "flow"]
         if any(s.series in self.reading for s in self.after_acting(flows)):
             return False                                        # its last effect is not read yet: never outrun its sensors
-        if b.every and time.time() - self.began.get(b.name, 0.0) < b.every:
+        if gap and time.time() - self.began.get(b.name, 0.0) < gap:
             return False                                        # paced: a commanded block runs at most every `every`
         return rising or self.fresh_for(b, flows) > self.finished.get(b.name, 0.0)
 
@@ -728,7 +803,12 @@ class Engine:
             b = self.spec.blocks.get(b.name)                    # a new run starts under the model as it is now
             if b is None or not b.machine:                      # (removed, or no longer a machine: no more runs)
                 return False
-            self.running.add(b.name)
+            if not self.own(f"block.{b.name}"):                 # another shard's block: never run here (SPEC §9.8)
+                self.say(f"{b.name}: not started here, it is shard {self.plan.of(f'block.{b.name}')}'s")
+                return False
+            if not bounds.room(self, b):                        # an untrusted library's runs at once: counted and
+                return False                                    # added under this one lock (SPEC §2a)
+            bounds.hold(self, b.name, b)
             self.began[b.name] = time.time()
             spec, version = self.spec, self.version
         threading.Thread(target=self._run, args=(b, why, spec, version, extra, cause), daemon=True).start()
@@ -858,18 +938,44 @@ class Engine:
         ``run_id``, the run's id, named by the lease before it starts; ``cause``, what started it; ``outcome`` is filled
         with how it ended (exit, note, nack)."""
         if b.takes and item is None:                             # a block that takes items runs on one, leased (SPEC §9.5)
-            return self.dispatch.once(b, why)
+            return self.dispatch.once(b, why, outcome)
         spec, version = spec or self.spec, version or self.version
         ctx = {**self.context(b, why), **(extra or {})}
         ev = self.p.events
         commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
         cause = cause or (self.cause.get(commander) if commander else None)
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, id=run_id, causedby=cause,
-                       data={"trigger": why, "command": ctx.get("command"), "model": version,
-                             **({"event_seq": ctx["event"].get("seq")} if isinstance(ctx.get("event"), dict) else {}),
-                             **self.triggers.of_run(b, ctx, cause),          # what led to it, carried (SPEC §9.3)
-                             **({"timeout": b.timeout} if b.timeout else {}),
-                             **({"item": item, "lease": fence} if item else {})})
+        data = {"trigger": why, "command": ctx.get("command"), "model": version,
+                **({"event_seq": ctx["event"].get("seq")} if isinstance(ctx.get("event"), dict) else {}),
+                **self.triggers.of_run(b, ctx, cause),          # what led to it, carried (SPEC §9.3)
+                **({"timeout": b.timeout} if b.timeout else {}),
+                **({"item": item, "lease": fence} if item else {})}
+
+        def write(more: dict | None = None) -> dict:
+            return ev.add("agent.started", item=b.name, source=SOURCE, id=run_id, causedby=cause, data={**data, **(more or {})})
+        if spec.budget is None or item is not None:          # (a leased run reserved at its take: not again)
+            begun = write()
+        else:                                                # the permissive (SPEC §9.9)
+            run_id = run_id or uuid.uuid4().hex
+            begun, no = budget.permit(self.p, spec, b, write, run_id)
+            if begun is None:
+                if outcome is not None:
+                    outcome["refused"] = no
+                self.say(f"{b.name}: refused: budget: {no}")
+                return []
+        try:
+            return self._ran(b, why, spec, version, item, fence, ctx, begun, outcome)
+        except BaseException:
+            if begun["id"] in budget.OPEN:                   # raised out of before its end: its reserve stays charged
+                with contextlib.suppress(Exception):
+                    budget.close(self.p, b.name, begun["id"], None, "the run raised before its end")
+            raise
+        finally:
+            budget.OPEN.discard(begun["id"])
+
+    def _ran(self, b: Block, why: str, spec: Spec, version: str | None, item: str | None, fence: int | None, ctx: dict,
+             begun: dict, outcome: dict | None) -> list[str]:
+        """The run, once started (its ``agent.started`` written): to its end."""
+        ev = self.p.events
         if outcome is not None:
             outcome["run"] = begun["id"]
         self.last_run[b.name] = begun["id"]
@@ -921,11 +1027,17 @@ class Engine:
             from ..actions import sandbox
             cmd += " " + sandbox.command_line(ready.cfg)
         cwd = ready.workdir if ready.workdir and "run" not in b.params else spec.root
-        log = old.log_path(self.p, b.name)
         note, code, resources = "", None, None
         said = Said(self, b, begun["id"], spec, version, item=item, fence=fence)
 
         usage = costs_ai.Usage(b.params.get("model") or (spec.agents[b.agent].model if b.agent in spec.agents else None))
+        from .. import runlog
+        try:                                                     # its own log, or it does not start (SPEC §4b)
+            seq = begun.get("seq")
+            seq = seq if seq is not None else (ev.get(begun["id"]) or {}).get("seq")
+            rl = runlog.open_run(self.p, b.name, seq, begun["id"])
+        except Exception as e:
+            rl, note = None, f"could not start: its run log: {e}"
 
         def take(got: list[str]) -> None:                       # its lines, as they arrive (SPEC §9.1)
             got = costs_ai.expand(usage, got)                   # (what its AI sessions cost, taken as they say it)
@@ -934,26 +1046,32 @@ class Engine:
                     lf.write(raw if raw.endswith("\n") else raw + "\n")
             lf.flush()
             said.lines(got)
-        from ..storage import trim
-        trim(log, self.p.storage.logs["block"])                 # (storage: logs: block:)
-        with open(log, "a", encoding="utf-8") as lf:
-            lf.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} run {begun['id'][:8]} ({why})\n")
-            lf.flush()
-            back, pos = None, lf.tell()                          # (where its standard error begins)
-            if b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
+        lf, back, tail, unread = rl.file if rl else None, None, "", ""
+        try:
+            if rl is None:                                       # (no log of its own: not started)
+                pass
+            elif b.params.get("daemon") and not refused:            # handed to its daemon (SPEC §9.7): wall time only
                 code, note, back, resources = self.daemons.run_item(b, begun["id"], ctx, env, take, b.timeout, item,
                                                                      fence)
                 with self.lock:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
             else:
+                files, proc = runrecord.files(self.p.dir, begun["id"]), None   # its input, output, exit, record
                 try:
                     if refused:
                         raise OSError(refused)
-                    proc = Measured(cmd, shell=True, cwd=cwd, env=env, stdin=subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
+                    files["in"].write_text(stdin or "", encoding="utf-8")
+                    with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
+                        proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
+                                        stderr=lf, start_new_session=True)
+                    runrecord.write(files, proc.pid, begun["id"], b.name, item, fence)
                 except OSError as e:
                     note = refused or f"could not start: {e}"
+                    if proc is not None:                         # started, but its record not written: stopped
+                        old._kill(proc)
+                        proc.wait()
+                    runrecord.remove(files)
                 else:
                     old.LIVE.add(proc)
                     if self.stop.is_set():                       # this engine stopping (set before its kill_all): it may
@@ -963,10 +1081,14 @@ class Engine:
                         self.live[begun["id"]] = proc
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                     try:
-                        if stream.pump(proc, stdin, b.timeout, take):
+                        proc.watch = reap.Watch(proc.pid)            # what it starts, for a lease kill (leases/kill.py)
+                        if stream.follow(proc, files["out"], b.timeout, take):
                             note = f"stopped after its timeout of {b.timeout:g}s"
                     finally:
+                        runrecord.remove(files)                      # read to its end: nothing left to take again
                         resources = SAMPLER.finish(tracked)
+                        if getattr(proc, "watch", None):
+                            proc.watch.close(look=False)         # (its run is over: no last ps)
                         old.LIVE.discard(proc)
                         with self.lock:
                             if self.procs.get(b.name) is proc:
@@ -979,14 +1101,34 @@ class Engine:
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
                     elif code and not note:
-                        note = old.STOPPED_WITH_US if old.STOPPING.is_set() else STOPPED_BY_OWNER if asked else f"exited {code}"
-        if code == 0 and not note:                               # a bare number only from a run that finished well
+                        note = (old.STOPPED_WITH_US if old.STOPPING.is_set() or self.stop.is_set()
+                                else STOPPED_BY_OWNER if asked else f"exited {code}")
+        finally:                                                 # its entry in the block's log, whole, as it ends
+            if rl is not None:
+                from ..repair.capture import TAIL, clip
+                try:                                             # (read first, whatever the block log's fate)
+                    tail = clip(rl.tail(TAIL + 1)) if note or (code == 0 and "ergostat.failure" in spec.items) else ""
+                except Exception as e:
+                    tail = f"(its run log {rl.rel} could not be read: {type(e).__name__}: {e})\n"
+                    unread = f"its run log could not be read: {type(e).__name__}: {e}"
+                try:
+                    runlog.finish(rl, begun["time"], why, self.p.storage.logs["block"])
+                except Exception as e:
+                    self.say(f"{b.name}: its log: {type(e).__name__}: {e}")
+                finally:
+                    rl.close()
+                try:
+                    runlog.prune(self.p, b.name, self.p.storage.logs.get("runs"))
+                except Exception as e:
+                    self.say(f"{b.name}: its run logs: {type(e).__name__}: {e}")
+        if code == 0 and not note:                              # a bare number only from a run that finished well
             said.finish()
         if said.proposals:
             said.counts["proposed"] = sum(1 for x in said.proposals if x["status"] != "not-proposed")
             said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"daemon": b.params["daemon"]} if b.params.get("daemon") else {}),
+                **({"log": rl.rel} if rl else {}),
                 **({"item": item} if item else {}),
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {}), "model": version,
@@ -1007,6 +1149,7 @@ class Engine:
             if ready.full:                                       # no workspace free: given back, put off, not counted
                 outcome["nack"] = {"why": note, "after": POOL_FULL_AFTER, "count": False}
         ended = ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
+        budget.OPEN.discard(begun["id"])                          # (ended: nothing after this closes it again)
         try:                                                     # its numbers as series of its block (SPEC §9.1)
             costs_record.write_series(self.p, b.name, data, ended["time"])
         except Exception as e:
@@ -1016,11 +1159,17 @@ class Engine:
             if spec.items.get("ergostat.failure"):               # triaged, one failure a signature (SPEC §12r)
                 try:
                     from ..repair import capture
-                    with open(log, encoding="utf-8", errors="replace") as lf:
-                        lf.seek(pos)
-                        capture.failed(self.p, spec, b, begun, data, stdin, lf.read())
+                    capture.failed(self.p, spec, b, begun, data, stdin, tail)   # (its own file's, only)
                 except Exception as e:
                     self.say(f"{b.name}: its failure: {type(e).__name__}: {e}")
+        elif code == 0 and not note and rl is not None and b.type in ("program", "ai") and spec.items.get("ergostat.failure"):
+            try:                                                 # an error it caught and printed (SPEC §12r)
+                if unread:                                       # (unread: nothing recorded, and said)
+                    raise OSError(unread)
+                from ..repair import capture
+                capture.swallowed(self.p, spec, b, begun, tail, stdin)
+            except Exception as e:
+                self.say(f"{b.name}: its swallowed check: {type(e).__name__}: {e}")
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
         if said.claims:                                          # what it said it did, checked by ergostat (SPEC §12g)
@@ -1141,7 +1290,7 @@ class Engine:
             with self.lock:
                 self.running.discard(b.name)
         if b.judge_mode != "intent":                   # nothing new to judge: it backs off (judge.pause)
-            every = b.every or JUDGE_EVERY
+            every = bounds.pace(spec, b, b.every or JUDGE_EVERY)
             wait = jd.pause(got, every, self.judge_idle.get(b.name, 0))
             self.judge_idle[b.name] = 0 if wait <= every else self.judge_idle.get(b.name, 0) + 1
             self.judge_next[b.name] = time.monotonic() + wait
@@ -1191,9 +1340,13 @@ class Engine:
                     except Exception as err:
                         refused.append(f"message: {err}")
                     continue
+                why = "id" in o and mirror.valid(o["id"], name)     # a cite only of its own log (mirror.py)
+                if why:
+                    refused.append(why)
+                    continue
                 try:
                     self.p.events.add(o["type"], item=o["item"], source=name, data=o["data"], patch=o.get("patch"),
-                                      set=o.get("set"))
+                                      set=o.get("set"), id=o.get("id"))
                 except ChangesetError as err:
                     refused.append(f"{o['type']}: {err}")
             for why in refused:
@@ -1251,17 +1404,18 @@ class Engine:
 
     def _item_sensors(self) -> tuple[dict[bool, list[Sensor]], dict[str, bool]]:
         """The model's sensors that count items, by the fold they count from; and each one's fold."""
-        kept = self.spec.lookups().kept
-        got = kept.get("engine.item_sensors")
+        spec = self.spec
+        kept = spec.lookups().kept
+        got = kept.get(f"engine.item_sensors.{self.shard}")
         if got is None:
             from .counts import transcript_of
             by: dict[bool, list[Sensor]] = {False: [], True: []}
             flag = {}
-            for s in self.spec.sensors():
-                if s.items is not None:
-                    flag[s.series] = transcript_of(self.spec, s)
+            for s in spec.sensors():
+                if s.items is not None and self.own(f"{s.of.kind}.{s.of.name}.{s.name}", spec):
+                    flag[s.series] = transcript_of(spec, s)
                     by[flag[s.series]].append(s)
-            got = kept["engine.item_sensors"] = (by, flag)
+            got = kept[f"engine.item_sensors.{self.shard}"] = (by, flag)
         return got
 
     def _read_here(self, sensors: list[Sensor]) -> list[tuple]:
@@ -1393,12 +1547,13 @@ class Engine:
         """What the clock reads, from this model: its timed sensors and blocks, its judges and its crons. A cron
         already counting down, and written the same, keeps its next time (a model change moves no schedule)."""
         from ..cron import Cron
-        timed = [s for s in spec.sensors() if s.measured and not s.cron]
-        machines = [b for b in spec.blocks.values() if b.machine]
+        sensors = [s for s in spec.sensors() if self.own(f"{s.of.kind}.{s.of.name}.{s.name}", spec)]   # (its shard's)
+        timed = [s for s in sensors if s.measured and not s.cron]
+        machines = [b for b in spec.blocks.values() if b.machine and self.own(f"block.{b.name}", spec)]
         timed_blocks = [b for b in machines if (b.every and not b.cron) and not spec.commanders_of(b.name)]
-        judges = [b for b in spec.blocks.values() if b.type == "judge"]
+        judges = [b for b in spec.blocks.values() if b.type == "judge" and self.own(f"block.{b.name}", spec)]
         new: dict[str, tuple] = {}
-        for s in spec.sensors():
+        for s in sensors:
             if s.measured and s.cron:
                 new[s.series] = (Cron(s.cron), lambda s=s: self.read_soon(s), s.cron)
         for b in machines:
@@ -1429,7 +1584,8 @@ class Engine:
                 except Exception as e:
                     self.say(f"schedules: {type(e).__name__}: {e}")
                 mono = time.monotonic()                          # a shorter every holds from now; a longer, from the next
-                for k, every in [(s.series, s.every or 60.0) for s in timed] + [(f"block/{b.name}", b.every) for b in timed_blocks]:
+                for k, every in [(s.series, bounds.pace(spec, s, s.every or 60.0)) for s in timed] + [
+                        (f"block/{b.name}", bounds.pace(spec, b, b.every)) for b in timed_blocks]:
                     if k in due:
                         due[k] = min(due[k], mono + every)
                 heap = [(due.get(s.series, 0.0), i) for i, s in enumerate(timed)]
@@ -1441,20 +1597,22 @@ class Engine:
                 if due.get(s.series, 0.0) > mono:               # another sensor of its series just read: due with it
                     heapq.heappush(heap, (due[s.series], i))
                     continue
-                due[s.series] = mono + (s.every or 60.0)
+                due[s.series] = mono + bounds.pace(spec, s, s.every or 60.0)
                 heapq.heappush(heap, (due[s.series], i))
                 self.read_soon(s)
             for b in timed_blocks:
                 k = f"block/{b.name}"
                 if mono >= due.get(k, 0):
-                    due[k] = mono + b.every
+                    due[k] = mono + bounds.pace(spec, b, b.every)
                     self.start(b, "schedule")
             for b in judges:                                     # the judge: built in, on its own clock (SPEC §12e)
                 k = f"block/{b.name}"
                 if mono >= due.get(k, 0) and mono >= self.judge_next.get(b.name, 0) and b.name not in self.running:
-                    due[k] = mono + (b.every or JUDGE_EVERY)
+                    due[k] = mono + bounds.pace(spec, b, b.every or JUDGE_EVERY)
                     with self.lock:
-                        self.running.add(b.name)
+                        if not bounds.room(self, b):             # (an untrusted library's judge counts as a run)
+                            continue
+                        bounds.hold(self, b.name, b)
                     threading.Thread(target=self.judge, args=(b,), daemon=True).start()
             if self.spec.contexts and mono >= due.get("contexts", 0):   # outcomes found later (an item kept, reopened)
                 due["contexts"] = mono + OUTCOMES_EVERY
@@ -1491,7 +1649,7 @@ class Engine:
             self.wake.wait(max(0.0, min(0.2, last_eval + TICK - now, (heap[0][0] - now) if heap else 0.2)))
 
     def _sweep(self) -> None:
-        if self._sweeping.locked():
+        if self._sweeping.locked() or not self.leads():          # (the lead's alone: SPEC §9.8)
             return
         with self._sweeping:
             try:
@@ -1534,60 +1692,84 @@ class Engine:
                 continue
             for e in new:
                 seq = max(seq, e["seq"])
-                if e["type"] == STOP_ASKED:
-                    self.stop_run(e.get("item") or "")
-                    continue
-                if e["type"] == RESTART_ASKED:                    # the owner reviving a daemon (SPEC §9.7)
-                    self.daemons.revive(e.get("item") or "")
-                    continue
-                if e["type"] == "ergostat.action.approved":       # a program's action, run here, never by it (SPEC §12k)
-                    threading.Thread(target=self.run_action, args=(e["item"],), daemon=True).start()
-                    continue
-                if e["type"] == "steptest.approved":
-                    from ..control import steptest
-                    steptest.begin(self, e)
-                    continue
-                b = self.spec.blocks.get(e.get("item") or "")
-                if e["type"] == "trigger.reset":                  # a block's breaker, reset by the owner (SPEC §9.3)
-                    self.triggers.reset(e.get("item") or "")
-                elif b and b.machine and b.on is not None:        # an ask about an event (SPEC §9.3): it, or the next
-                    self.triggers.answered(b, e["type"] == "block.approved", (e.get("data") or {}).get("ask"))
-                elif b and b.machine and e["type"] == "block.approved":
-                    cmd, _ = self.command_of(b)
-                    if cmd == 0:                                # nothing to approve: its command fell back meanwhile
-                        self.say(f"{b.name}: approved, but its command is 0 now; nothing to run")
-                        continue
-                    self.start(b, "approved")
+                self._ask(e)
             seq = max(seq, top)
             if board is None:
                 self.stop.wait(0.5)
             else:
                 mark = board.wait(mark, 0.5)
 
-    def run_action(self, aid: str) -> None:
+    def _ask(self, e: dict) -> None:
+        """One owner's ask, followed only by the engine whose shard owns what it names (SPEC §9.8), judged and acted on
+        under the one model read for it. A run it approves still starts only under the model as it is then: when a
+        swap has moved the block meanwhile, ``start`` refuses it here and the owner approves it again."""
+        spec, t, name = self.spec, e["type"], e.get("item") or ""
+        if t == STOP_ASKED:                                   # (and by an engine holding its run, itself or in a daemon,
+            if self.follows(f"block.{name}", spec) or name in self.procs or self.daemons.holds(name):  # whoever owns it)
+                self.stop_run(name)
+        elif t == RESTART_ASKED:                              # the owner reviving a daemon (SPEC §9.7)
+            if self.follows(f"daemon.{name}", spec):
+                self.daemons.revive(name)
+        elif t == "ergostat.action.approved":                 # a program's action, run here, never by it (SPEC §12k)
+            if self.follows(f"block.{self._asker(name)}", spec):
+                threading.Thread(target=self.run_action, args=(name, spec), daemon=True).start()
+        elif t == "steptest.approved":
+            if self.follows(f"goal.{(e.get('data') or {}).get('goal') or name}", spec):
+                from ..control import steptest
+                steptest.begin(self, e, spec)
+        elif self.follows(f"block.{name}", spec):
+            b = spec.blocks.get(name)
+            if t == "trigger.reset":                          # a block's breaker, reset by the owner (SPEC §9.3)
+                self.triggers.reset(name)
+            elif b and b.machine and b.on is not None:        # an ask about an event (SPEC §9.3): it, or the next
+                self.triggers.answered(b, t == "block.approved", (e.get("data") or {}).get("ask"))
+            elif b and b.machine and t == "block.approved":
+                cmd, _ = self.command_of(b)
+                if cmd == 0:                                # nothing to approve: its command fell back meanwhile
+                    self.say(f"{b.name}: approved, but its command is 0 now; nothing to run")
+                    return
+                if not self.start(b, "approved") and not self.follows(f"block.{name}"):
+                    self.say(f"{b.name}: approved before it moved to another shard; not run, approve it again")
+
+    def _asker(self, aid: str) -> str:
+        """The block whose run asked for an action ("" when it cannot be read: then the lead's, as an unknown block)."""
+        from ..actions import record
+        try:
+            return (record.get(self.p, aid) or {}).get("block") or ""
+        except Exception:
+            return ""
+
+    def run_action(self, aid: str, spec: Spec | None = None) -> None:
         """An approved action a program block's run asked for: run by ergostat, with its environment, once."""
         from ..actions import gate, record
         try:
             a = record.get(self.p, aid)
             if a is not None and a.get("asker") == "program":
-                gate.run_once(self.p, self.spec, aid)
+                gate.run_once(self.p, spec or self.spec, aid)
         except Exception as e:
             self.say(f"actions: {aid}: {type(e).__name__}: {e}")
 
     def _initial(self) -> None:
-        for g in self.spec.goals:
+        for g in (g for g in self.spec.goals if self.own(f"goal.{g}")):
             last = self.p.events.query(n=1, item=g, type="loop.*", unvoided=True)
             if last:
                 self.status[g] = last[-1]["type"].split(".", 1)[1]
 
     def start_all(self) -> None:
         from .. import history
-        history.note(self.p)
+        lead = self.leads()                                      # what is done once for the model: by the lead (SPEC §9.8)
+        if lead:
+            history.note(self.p)
         old.STOPPING.clear()
         self._initial()
         seq = self.p.events.last_seq()
-        self.p.events.add("ergostat.started", source=SOURCE,
-                          data={"blocks": sorted(self.spec.blocks), "pid": os.getpid(), "format": "yaml"})
+        if lead:
+            self.p.events.add("ergostat.started", source=SOURCE,
+                              data={"blocks": sorted(self.spec.blocks), "pid": os.getpid(), "format": "yaml"})
+        try:                                                    # runs whose process is gone hold no reserve open
+            budget.recover(self.p, self.spec, every=0)
+        except Exception as e:
+            self.say(f"budget: recovery: {type(e).__name__}: {e}")
         from ..control import steptest
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
         self._listen()
@@ -1596,7 +1778,8 @@ class Engine:
         threading.Thread(target=self._schedule, name="ergostat-loop", daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
         self.following = True                                    # it runs the actions programs ask for (SPEC §12k)
-        threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
+        if lead:
+            threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
         self.dispatch.holding = True                             # leases held when it last stopped are watched at once
         threading.Thread(target=self.dispatch.run, daemon=True).start()   # blocks that take items, their leases (SPEC §9.5)
         threading.Thread(target=self._record_follow, name="ergostat-record", daemon=True).start()
@@ -1633,6 +1816,8 @@ class Engine:
 
     def _ingest(self) -> None:
         from .. import transcripts
+        if not self.leads():                                     # (the lead's alone: SPEC §9.8)
+            return
         if self.ingester is not None:
             self.ingester.spec = self.spec                       # (swapped: it reads the new model's item kinds)
             return
@@ -1669,8 +1854,12 @@ class Engine:
             before, was = self.spec, self.version
             # all of it worked out first, nothing of the running model touched: a change that cannot be taken (a
             # built-in that will not make, a version that will not hash) leaves the last one running as it was
+            self._shard_of(new)                          # its shard gone from the new plan: refused, nothing taken
+            goals = {n for n in new.goals if self.own(f"goal.{n}", new)}     # what it works on under the new model
+            blocks = {n for n in new.blocks if self.own(f"block.{n}", new)}
+            read = self._measured(new)
             builtins, kept_as = {}, []
-            for n in bl.order(new):
+            for n in (n for n in bl.order(new) if n in blocks):
                 b, kept = new.blocks[n], self.builtins.get(n)
                 if kept is not None and same(kept.b, b):
                     kept_as.append((kept, b))
@@ -1683,7 +1872,7 @@ class Engine:
                             setattr(x, k, v)
                 builtins[n] = x
             version = history.version(model)
-            observer = Observer(new, lambda n: self.history(new, n), carry=self.observer) \
+            observer = Observer(new, lambda n: self.history(new, n), carry=self.observer, mine=self._mine(new)) \
                 if self.observer and opted(new).stocks else None
             carried = sorted(n for n in self.running if n.split(" ", 1)[0] in before.blocks)   # ("block item": a leased run)
             blk = lambda n: n.split(" ", 1)[0]                                                    # noqa: E731
@@ -1697,31 +1886,38 @@ class Engine:
             for n in set(self.builtins) - set(builtins):
                 self.signals.pop(f"block.{n}", None)
             self.builtins = builtins
-            for g in set(self.status) - set(new.goals):
+            for g in set(self.status) - goals:                   # (a goal removed, or moved to another shard)
                 self.status.pop(g, None)
+            for d in (self.per, self.per_rows):
+                for g in set(d) - goals:
+                    d.pop(g, None)
             o = opted(new)                                       # what the new model no longer asks the observer for
-            for g in set(self.stale) - set(o.goals):
+            for g in set(self.stale) - (set(o.goals) & goals):
                 self.stale.pop(g, None)
             self.stale_parts = {k: v for k, v in self.stale_parts.items() if k in {str(r) for r in o.parts}}
             for k in [k for k in self.signals if k.endswith((".estimate", ".uncertainty")) and k.startswith("stock.")]:
-                st = new.stocks.get(k.split(".")[1])
-                if st is None or k.split(".")[2] not in st.sensors and k.split(".")[1] not in o.stocks:
+                st, n = new.stocks.get(k.split(".")[1]), k.split(".")[1]
+                if st is None or k.split(".")[2] not in st.sensors and (n not in o.stocks or not self.own(f"stock.{n}", new)):
                     self.signals.pop(k, None)
+            if read is not None:                                 # a part it no longer reads: its readings forgotten
+                for k in [k for k in self.signals if k.split(".")[0] in ("stock", "flow", "auxiliary")]:
+                    if tuple(k.split(".")[:2]) not in read and not k.endswith((".estimate", ".uncertainty")):
+                        self.signals.pop(k, None)
             self.observer = observer
-            for k in [k for k in self.signals if k.startswith("goal.") and k.split(".")[1] not in new.goals]:
+            for k in [k for k in self.signals if k.startswith("goal.") and k.split(".")[1] not in goals]:
                 self.signals.pop(k, None)
             setters = {t.name for b in new.blocks.values() for t in b.targets() if t.kind == "goal"}
-            for g in set(self.setpoint) - setters:               # a cascade removed: its goal holds what is written
+            for g in set(self.setpoint) - (setters & goals):     # a cascade removed: its goal holds what is written
                 self.setpoint.pop(g, None)
             for a in new.agents.values():
                 if a.name not in self.slots or before.agents.get(a.name) is None or \
                         before.agents[a.name].at_once != a.at_once:
                     self.slots[a.name] = threading.Semaphore(a.at_once)   # (a run holding the old one gives it back)
             for n in list(self.outputs):
-                if n not in new.blocks and n not in self.running:
+                if n not in blocks and n not in self.running:
                     self.outputs.pop(n, None)
                     self.commands.pop(n, None)
-            self.machines = [b for b in new.blocks.values() if b.machine]
+            self.machines = [b for b in new.blocks.values() if b.machine and b.name in blocks]
             self.spec = new
             self.p.model = model
             self.version = version
@@ -1734,21 +1930,26 @@ class Engine:
                 **({"finishing": finishing} if finishing else {})}
         took = time.monotonic()
         try:
-            history.note(self.p, said)
+            if self.leads():                                     # (the lead's alone: SPEC §9.8)
+                history.note(self.p, said)
         except Exception as e:                                   # the record of it never undoes the change
             self.say(f"recording the change: {type(e).__name__}: {e}")
         return {**said, "version": self.version, "seconds": {"swap": round(worked, 3),
                                                              "record": round(time.monotonic() - took, 3)}}
 
-    def close(self) -> None:
-        # Set under the lock: a lease taken past this waits in ``running``. Never waited on for good (a lock held by
-        # something wedged, as the watchdog allows): a take needs the same lock to pass its check, so it sees the stop.
-        got = self.lock.acquire(timeout=self.lock_wait)
+    def shut(self, wait: float) -> None:
+        """Dispatch closed: the stop set under the lock a take checks it under, so a lease taken past this waits in
+        ``running``. Never waited on for good (at most ``wait``: a lock held by something wedged, as the watchdog
+        allows); a take past its check without it sees the stop again after its write, and gives the item back."""
+        got = self.lock.acquire(timeout=wait)
         try:
             self.stop.set()
         finally:
             if got:
                 self.lock.release()
+
+    def close(self) -> None:
+        self.shut(self.lock_wait)
         self.wake.set()
         if self.calls is not None:
             self.calls.close()
@@ -1763,7 +1964,7 @@ class Engine:
         # A run still going: its lease given back, not counted (SPEC §9.5). Its process outlived kill_all (or a daemon
         # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
         # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
-        self.dispatch.give_back()
+        self.dispatch.give_back()                # (and every lease still held here, its run's own end failed)
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
 
 
@@ -2106,8 +2307,10 @@ def observations(text: str) -> tuple[list[dict], list[str]]:
         elif not isinstance(item, str) or "/" not in item:
             refused.append(f"{t}: a sensor's observation names an item (an id with a /, case/logo-3)")
         else:
+            cited = isinstance(obj.get("id"), str) and obj["id"].startswith(mirror.PREFIX)   # any other id: a fresh one
             seen.append({"type": t, "item": item, "data": obj.get("data") if isinstance(obj.get("data"), dict) else {},
-                         **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None}})
+                         **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None},
+                         **({"id": obj["id"]} if cited else {})})
     return seen, refused
 
 
@@ -2154,6 +2357,7 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
         if env is None:
             from ..store import state_dir
             env = callback_env(spec, state_dir(spec.name, spec.root))
+        env = {**env, "ERGOSTAT_SENSOR": sensor_name(s.of.name, s.name)}      # who a mirror cites as (mirror.py)
         p = subprocess.run(s.run, shell=True, cwd=spec.root, capture_output=True, text=True, timeout=s.timeout,
                            start_new_session=True, env=env)
     except subprocess.TimeoutExpired:

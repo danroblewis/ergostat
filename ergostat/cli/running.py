@@ -99,8 +99,10 @@ def cmd_run(args) -> int:
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
     from ..spec.watchdog import heartbeat, startup
     heartbeat(p.dir, time.time())                       # this process's, before its slow start
+    eng: list = []                                      # the engine, once made: its dispatch closed by a hard restart
+    hard = lambda why: _restart_hard(p, args, why, *eng)                  # noqa: E731
     started = startup(p.dir, lambda s: print(time.strftime("%H:%M:%S"), s, flush=True),
-                      lambda why: _restart_hard(p, args, why))   # a start that hangs (a lock held elsewhere): restarted
+                      hard)                             # a start that hangs (a lock held elsewhere): restarted
     from ..storage import rotate, trim
     rotate(p.dir / "run.log", p.storage.logs["run"])    # (storage: logs:) on every start, in the background or not
     trim(p.dir / "threads.txt", p.storage.logs["threads"])
@@ -116,11 +118,14 @@ def cmd_run(args) -> int:
         server, url = serve(Project(p.model, p.dir), args.port)   # its own Project: the page never hands the runner a model
         print(f"web: {url}", flush=True)
         print(f"push: POST {url}/api/events (token: {p.dir / 'intake.token'})", flush=True)
+        if server.mtls_said:                            # web: mtls: where it listens, or why it does not
+            print(server.mtls_said, flush=True)
     say = lambda s: print(time.strftime("%H:%M:%S"), s, flush=True)       # noqa: E731
     if getattr(p.model, "spec", None) is not None:      # the YAML model: ergostat closes its loops itself
         from ..spec.engine import Engine
         r = Engine(p, say=say)
-        r.restart_hard = lambda why: _restart_hard(p, args, why)
+        eng.append(r)
+        r.restart_hard = hard
         r.start_all()
         sp = p.model.spec
         print(f"running {len(sp.sensors())} sensors, {len(r.builtins)} built-in blocks, {len(r.machines)} machine blocks",
@@ -141,7 +146,7 @@ def cmd_run(args) -> int:
     _kept()
     rl.write_state(p.dir, None)
     name = mdl.file_name(p.model)
-    reload = False
+    reload = moved = False
     try:
         while not stopping:
             time.sleep(0.25)
@@ -168,7 +173,7 @@ def cmd_run(args) -> int:
                 # another state directory, format or store: not the same runner any more
                 print(f"{name} changed its name, format or storage: restarting with it (its runs are stopped)", flush=True)
                 rl.write_state(p.dir, None)
-                reload = True
+                reload, moved = True, fresh.name != p.model.name           # (a new name: a new state folder)
                 break
             old = p.model
             try:                                        # in place: runs under way carry on (SPEC §9.1)
@@ -199,7 +204,9 @@ def cmd_run(args) -> int:
     except KeyboardInterrupt:
         pass
     if reload and getattr(r, "wedged", None) and not stopping:
-        _restart_hard(p, args, r.wedged)                # (closing may wait on what is wedged)
+        hard(r.wedged)                                  # (closing may wait on what is wedged)
+    if kept := reload and not stopping and not moved and getattr(r, "calls", None):
+        kept.keep = True                                # its socket left: a run's calls wait for the new engine's
     r.close()
     if server:
         server.shutdown()
@@ -207,6 +214,8 @@ def cmd_run(args) -> int:
         (p.dir / "web.json").unlink(missing_ok=True)
     if reload and not stopping:                         # the same process, the new model (a stop asked meanwhile wins)
         _restart(p, args)
+    if kept:                                            # not started again after all: its calls fall back after GONE
+        kept.remove()
     return 0
 
 
@@ -281,12 +290,16 @@ def _restart(p, args) -> None:
         raise
 
 
-def _restart_hard(p, args, why) -> None:
-    """The watchdog's restart when the run loop could not do it: its runs killed, its daemons' groups ended (by
-    ``_restart``: TERM, KILL within 3 s, never ``stop`` nor drained), nothing else waited on (what is wedged may be
-    what closing would wait for: no supervisor's lock, no event recorded)."""
+def _restart_hard(p, args, why, eng=None) -> None:
+    """The watchdog's restart when the run loop could not do it: the engine's dispatch closed first (its stop set,
+    waiting at most 1 s for its lock), so no lease is taken while the daemons' groups end and a run spawned from now
+    kills itself; its runs killed, its daemons' groups ended (by ``_restart``: TERM, KILL within 3 s, never ``stop``
+    nor drained), nothing else waited on (what is wedged may be what closing would wait for: no supervisor's lock, no
+    event recorded)."""
     from .. import runner
     print(f"restarting the engine's process at once ({why})", flush=True)
+    if eng is not None:
+        eng.shut(min(eng.lock_wait, 1.0))
     runner.kill_all()
     _restart(p, args)
 
@@ -313,6 +326,8 @@ def cmd_web(args) -> int:
     from ..remote import refresh as remote_refresh
     remote_refresh.start(server.RequestHandlerClass.live.get)    # remotes' models kept current (SPEC §4c)
     print(f"web: {url}  (Ctrl-C stops it)", flush=True)
+    if server.mtls_said:
+        print(server.mtls_said, flush=True)
     try:
         while True:
             time.sleep(1)

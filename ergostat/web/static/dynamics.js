@@ -93,7 +93,9 @@ function sdSystem(n, w, hgt) {
   const into = "Into", open = "Open";
   g.append(btn(w - textWidth(into) - 24, into, "Draw this system alone, with what it reaches outside at its edge", () => S.drill?.(n.label)));
   g.append(btn(w - textWidth(into) - textWidth(open) - 46, open, "Open it here: its parts in place of the box", () => S.toggleSystem?.(n.label)));
-  const at = { west: 0, east: 0 };
+  const at = { west: 0, east: 0 }, sg = S.graph || { nodes: [], edges: [] }, kept = sdFlowLinks(sg);
+  // (Flows only hides a port none of whose lines it keeps)
+  const flowing = new Set(sg.edges.filter((e) => kept.has(e.id)).flatMap((e) => [e.sourcePort, e.targetPort]));
   for (const p of n.ports || []) {
     const side = p.at || (p.side === "in" ? "west" : "east");
     const twin = sysTwin(n, p);
@@ -102,7 +104,8 @@ function sdSystem(n, w, hgt) {
     p.both = !!twin;
     const left = side === "west";
     // a named connection point (as Stella's module connectors): no square, the line meets the edge at its name
-    g.append(s("text", { x: left ? 8 : w - 8, y: y + 4, class: "t-sub sd-port-name", "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
+    const cls = "t-sub sd-port-name" + (flowing.has(p.id) || (twin && flowing.has(twin.id)) ? " flow-port" : "");
+    g.append(s("text", { x: left ? 8 : w - 8, y: y + 4, class: cls, "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
       p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
@@ -490,9 +493,29 @@ function sdLegend() {
     has((n) => n.kind === "cloud" && n.beyond) && row("cloud", "cloud named <x>: the flow goes on to x, outside this system"),
     has((n) => n.kind === "cloud" && n.from) && row("cloud", "cloud named from x: an inflow from outside the model, coming from x (the outside system its sensor reads, or what drives it)"));
 }
+/* the lines Flows only keeps, by the model: the pipes, and each link across a system's edge (at a port, a shadow or
+   a stub) whose tail is a flow (its rate crosses); a link from a stock or an auxiliary carries information only */
+const SD_FLOW_LINKS = new WeakMap();                      // (once a graph: each poll brings a new one)
+function sdFlowLinks(g) {
+  if (SD_FLOW_LINKS.has(g)) return SD_FLOW_LINKS.get(g);
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n])), flowy = (k) => k === "valve" || k === "disturbance";
+  const out = new Set(g.edges.filter((e) => {
+    const src = byId[e.source], dst = byId[e.target];
+    const tail = e.sourcePort ? (src?.ports || []).find((p) => p.id === e.sourcePort)?.kind : src?.role === "shadow" ? src.of : src?.kind;
+    return e.kind === "pipe" || ((e.sourcePort || e.targetPort || src?.kind === "terminal" || dst?.kind === "terminal") && flowy(tail));
+  }).map((e) => e.id));
+  SD_FLOW_LINKS.set(g, out);
+  return out;
+}
 /* the same, in one row under a saved picture */
 function sdExportItems() {
   const g = S.graph || { nodes: [], edges: [] };
+  if (document.body.classList.contains("flows-only")) {      // only what it shows: no auxiliary, no loop, no information link
+    const kept = g.edges.filter((e) => sdFlowLinks(g).has(e.id)), has = (k) => g.nodes.some((n) => n.kind === k);
+    return [has("stock") && ["stock", "stock"], kept.some((e) => e.kind === "pipe") && ["flow", "flow"], kept.some((e) => e.twoWay) && ["biflow", "biflow"],
+            has("cloud") && ["cloud", "source / sink"], kept.some((e) => e.kind !== "pipe" && e.polarity === "+") && ["plus", "connector +"],
+            kept.some((e) => e.kind !== "pipe" && e.polarity === "-") && ["minus", "connector −"]].filter(Boolean);
+  }
   return [["stock", "stock"], ["flow", "flow"], g.edges.some((e) => e.twoWay) && ["biflow", "biflow"], ["cloud", "source / sink"],
           ["aux", "auxiliary"], g.nodes.some((n) => n.exogenous) && ["exo", "exogenous"], ["plus", "connector +"], ["minus", "connector −"],
           ["loopR", "reinforcing"], ["loopB", "balancing"]].filter(Boolean);
@@ -621,6 +644,17 @@ async function openNodeSD(n) {
   void byId;
 }
 
+/* a system's stocks that are candidates to aggregate into one delay, over the window (aggregation.py, from the loop
+   dominance the page asks for anyway): an `aggregate` row for each group, none when there is none or no answer */
+function sdAggregate(system) {
+  const box = h("div", { class: "aggregate" });
+  api("dominance", { points: CHART_POINTS }).then((d) => {
+    const mine = (d?.aggregate || []).filter((g) => g.system === system);
+    if (mine.length) box.replaceChildren(dl(mine.map((g) => ["aggregate", g.said])));
+  }).catch(() => {});
+  return box;
+}
+
 function sdOpenSystem(n) {
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, sdKindWord(p.kind)),
@@ -629,7 +663,7 @@ function sdOpenSystem(n) {
   showDetail(h("div", { class: "kind" }, n.remote ? "Module, remote" : "Module"), h("h2", {}, n.label),
     moduleCharts(n),
     n.description ? h("p", { class: "muted" }, n.description) : null,
-    remoteNote(n.remote), n.size ? dl([["size", n.size]]) : null,
+    remoteNote(n.remote), remoteMeasures(n), n.size ? dl([["size", n.size]]) : null, sdAggregate(n.label),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
     h("h3", {}, "Out, to outside"), list(side("out"), "Nothing outside depends on it here."),
     inside.length ? h("p", {}, `${inside.length} feedback loop${inside.length > 1 ? "s" : ""} inside it or through it, not drawn here: open it to see them`) : null,

@@ -21,7 +21,8 @@ from ..spec import files
 from ..spec.ir import NAME
 from ..spec.load import Map, Problem, Where
 
-KEYS = {"url", "token-file", "systems", "within", "every", "description"}
+KEYS = {"url", "token-file", "systems", "within", "every", "description", "show", "tls"}
+SHOW = re.compile(r"^(stock|flow|auxiliary)\.([a-z][a-z0-9-]*)$")
 EVERY, EVERY_LEAST = 60.0, 10.0
 IMPORTED = ("systems", "parameters", "auxiliaries", "stocks", "flows", "goals", "blocks", "agents")
 BLOCK_KEEP = {"in", "out", "agent", "role", "description", "system"}
@@ -44,6 +45,11 @@ def fresh():
         yield
     finally:
         _FRESH.reset(tok)
+
+
+def checking() -> bool:
+    """Within ``fresh()``: ``ergostat check`` is reading the model."""
+    return _FRESH.get()
 
 
 @contextlib.contextmanager
@@ -121,6 +127,19 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
     if only is not None and (not isinstance(only, list) or not all(isinstance(x, str) for x in only)):
         err("systems: a list of the remote's systems to bring in", entry.at("systems"))
         only = None
+    shown = entry.get("show")
+    if shown is not None and not (isinstance(shown, list) and all(isinstance(x, str) and SHOW.match(x) for x in shown)):
+        err("show: a list of the remote's own parts, as it names them: stock.NAME, flow.NAME or auxiliary.NAME",
+            entry.at("show"))
+        shown = None
+    tls = None
+    if entry.get("tls") is not None:                   # mutual TLS: a bad tls: is never read without it
+        from . import mtls
+        tls = mtls.parse_tls(entry["tls"], url, doc.root, lambda msg: err(msg, entry.at("tls")))
+        if tls is None:
+            return None
+        for msg in mtls.unreadable_tls(tls):
+            err(msg, entry.at("tls"), "mtls-unreadable")
     token_file = entry.get("token-file")
     via = RemoteVia(w.file if w else doc.root, w.line if w else 1, name, url)
     from . import cache
@@ -129,18 +148,19 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         st = cache.status(d)
         if _FRESH.get() or not cache.model(d) or time.time() >= float(st.get("next") or 0):
             cache.refresh(d, url, str(token_file) if token_file else None, doc.root, every,
-                          force=_FRESH.get() or not cache.model(d))
+                          force=_FRESH.get() or not cache.model(d), tls=tls)
     served = cache.model(d)
     st = cache.status(d)
     parent = entry.get("within") or defaults.get("system")
-    put("sources", name, as_map({"type": "ergostat", "url": url, **({"token-file": str(token_file)} if token_file else {})},
-                                via), via, {})
+    put("sources", name, as_map({"type": "ergostat", "url": url, **({"token-file": str(token_file)} if token_file else {}),
+                                 **({"tls": tls} if tls else {})}, via), via, {})
     where_text = f"remote: run by the ergostat at {url}"
     put("systems", name, as_map({"description": str(entry.get("description") or where_text),
                                  **({"within": str(parent)} if parent else {})}, via), via, {})
     info = {"url": url, "token_file": str(token_file) if token_file else None, "every": every, "dir": str(d),
             "where": via, "within": parent, "systems": list(only) if only else None, "version": None, "fetched": None,
-            "name": None, "parts": {}, "kinds": {}, "missing": [], "status": st}
+            "name": None, "parts": {}, "names": {}, "kinds": {}, "missing": [], "status": st, "show": None,
+            "tls": tls}
     doc.remotes[name] = info
     if not st.get("ok", True) or st.get("ok") is None and served is None:
         why = st.get("why") or "not asked yet"
@@ -151,16 +171,58 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         doc.problems.append(Problem("finding", f"remote {name}: {url} did not answer ({why})"
                                     + (f" since {_ago(since)} ago" if since else "") + age, via, "remote-unreachable",
                                     f"system.{name}"))
-    if served is None:
+    if served is None:                          # never read: its local show: drawn unchecked, else nothing
+        info["show"] = [{"part": _id(x, name), "unchecked": True} for x in shown or []]
         return
     info.update(version=served.get("version"), fetched=served.get("fetched"), name=served.get("name"))
     secs = served.get("sections") or {}
     info["kinds"] = {k: v for k, v in (secs.get("items") or {}).items() if isinstance(v, dict)}
+    info["served_parameters"] = sorted(secs.get("parameters") or {})   # every one, systems: or not (taken names)
     made = parts(name, secs, only, every)
     for section, entries in made.items():
         for pname, got in entries.items():
             put(section, pname, as_map(got, via), via, {})
             info["parts"][f"{SINGULAR[section]}.{pname}"] = True
+            info["names"][f"{SINGULAR[section]}.{pname}"] = f"{SINGULAR[section]}.{pname[len(name) + 1:]}"   # served only
+    info["show"] = _shown(doc, name, info, secs, made, only, shown, entry.at("show") if shown else via)
+
+
+def _id(ref: str, remote: str) -> str:
+    """A remote's own ``stock.open`` as the node drawn here: ``stock:incidents-open`` (an auxiliary's is ``stock:``)."""
+    kind, _, n = ref.partition(".")
+    return f"{'flow' if kind == 'flow' else 'stock'}:{remote}-{n}"
+
+
+def _shown(doc, name: str, info: dict, secs: dict, made: dict, only, local, at) -> list[dict] | None:
+    """What the remote's own box shows (SPEC §4c): its ``show:`` here, in the remote's own names, each one it does not
+    serve kept as missing, with a finding; else its top systems' served ``show:``, in served order, once each; None:
+    neither (its goals', ``measures.refs``)."""
+    def kept(ref: str) -> bool:
+        kind, _, n = ref.partition(".")
+        return kind in ("stock", "flow", "auxiliary") and f"{name}-{n}" in made.get(KINDS[kind], {})
+    if local is not None:
+        st = info["status"]
+        for x in local:
+            if kept(x):
+                continue
+            kind, _, n = x.partition(".")
+            if n.startswith(f"{name}-"):
+                why = f"names in show: are the remote's own: {kind}.{n[len(name) + 1:]}"
+            elif only and n in (secs.get(KINDS[kind]) or {}):
+                why = f"it is left out by systems: [{', '.join(only)}]"
+            else:
+                why = f"it serves no {kind} {n}"
+            last = f", as last read {_ago(st.get('answered') or info.get('fetched'))} ago" if not st.get("ok", True) else ""
+            doc.problems.append(Problem("finding", f"remote {name}: show: {x} is not in its model (version "
+                                        f"{str(info.get('version') or '')[:7]}{last}): {why}", at,
+                                        "remote-show-unresolved", f"system.{name}"))
+        return [{"part": _id(x, name), "missing": not kept(x)} for x in dict.fromkeys(local)]
+    systems = {s: v or {} for s, v in (secs.get("systems") or {}).items()}
+    keep = kept_systems(secs, only)
+    tops = [s for s, v in systems.items() if (not v.get("within") if keep is None else
+                                               s in keep and v.get("within") not in keep)]
+    refs = [str(x) for s in tops for x in (systems[s].get("show") or []) if isinstance(systems[s].get("show"), list)]
+    return [{"part": _id(x, name)} for x in dict.fromkeys(refs) if kept(x)] or None
 
 
 SINGULAR = {"systems": "system", "parameters": "parameter", "auxiliaries": "auxiliary", "stocks": "stock",

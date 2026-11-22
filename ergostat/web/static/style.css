@@ -395,6 +395,7 @@ svg.dragging-part .pm-node { cursor: grabbing; }
 .edge.pm-follows .info { stroke: var(--ink); stroke-linejoin: round; opacity: .82; }
 .edge.pm-caused .info { stroke: var(--muted); stroke-dasharray: 6 4; }
 .edge.pm-related .info { stroke: var(--muted); stroke-dasharray: 1.5 3; }
+.edge.pm-related.pm-remote .info { stroke-dasharray: 9 5; }   /* to a remote's item: dashed, as its frame is */
 .edge.pm-follows.rework .elabel { font-style: italic; }
 .edge.pm-follows .elabel, .edge.pm-caused .elabel, .edge.pm-related .elabel { fill: var(--muted); }
 .toolbar .pm-paths { width: 96px; accent-color: var(--ink); }
@@ -434,6 +435,7 @@ svg.canvas rect.band { fill: var(--accent); fill-opacity: .08; stroke: var(--acc
 .measure-row { cursor: pointer; }
 .measure-row .measure-bg { fill: var(--bg); stroke: var(--line); stroke-width: 1; }
 .measure-row:hover .measure-bg { stroke: var(--accent); }
+.measure-stale { opacity: 0.5; font-style: italic; }   /* a remote's measure not current: its age, not its number */
 /* tracing a line: the one pointed at, and every piece of the same connection */
 .edge .edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 svg.tracing .edge, svg.tracing .node { opacity: .16; transition: opacity .12s; }
@@ -542,9 +544,13 @@ svg.sd .edge.lit .pipe-head, svg.sd .edge.in-loop .pipe-head, svg.sd .edge.lit .
 .loop-marker.dim { opacity: .18; }
 svg.tracing .loop-markers { opacity: .3; }
 body.no-loops .loop-markers { display: none; }
-/* flows only (the Dynamics view's ⋯ menu): the pipes and what they join, by an allowlist; the rest keeps its place, unseen */
-body.flows-only svg.sd .edge:not(.pipe), body.flows-only svg.sd .loop-markers,
-body.flows-only svg.sd :is(.node, .pins .pin):not(.k-stock):not(.k-valve):not(.k-disturbance):not(.k-cloud):not(.k-system) { display: none; }
+/* flows only (the Dynamics view's ⋯ menu): the pipes and what they join, by an allowlist; the rest keeps its place, unseen.
+   A line across a system's edge that carries a flow (flow-link: by the model, dynamics.js) stays, with the shadow or
+   stub at its end; a port none of whose lines stays is hidden; a level with none of them says so (flows-none) */
+body.flows-only svg.sd .edge:not(.pipe):not(.flow-link), body.flows-only svg.sd .loop-markers,
+body.flows-only svg.sd .node .sd-port-name:not(.flow-port), svg.sd .flows-none,
+body.flows-only svg.sd :is(.node, .pins .pin):not(.k-stock):not(.k-valve):not(.k-disturbance):not(.k-cloud):not(.k-system):not(.flow-end) { display: none; }
+body.flows-only svg.sd .flows-none { display: inline; fill: var(--sd-ink); }
 .design .loop-marker .marker-hit { fill: none; }
 .loop-tag { display: inline-block; min-width: 2.4em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .loop-tag.pol-unknown { color: var(--muted); }

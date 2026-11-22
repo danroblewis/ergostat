@@ -1,18 +1,28 @@
 """Triage (SPEC §12r): a failed run kept as ``ergostat.run.failed`` about ``ergostat.failure/<block>-<signature>``, and
-opened for repair only when its block runs a program of the project's and the code may be to blame."""
+opened for repair only when its block runs a program of the project's and the code may be to blame; a run that ended
+well but printed a traceback through the project's code kept as ``ergostat.run.swallowed``, which moves nothing."""
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
-import re
 from pathlib import Path
 
-from . import BLOCKS, FAILURE
+from ..spec import runrecord
+from . import BLOCKS, FAILURE, FROM, traces
 
 TAIL = 8000
-FRAME = re.compile(r'^\s*File "(?P<file>[^"]+)", line (?P<line>\d+), in (?P<function>.+)$')
-LIBRARY = ("site-packages", "/lib/python", "<frozen", "<string>")
 NOT_THE_CODE = ("stopped", "killed", "could not start", "signal")    # how a run ended that a change to its code is not for
+OTHER = ("node", "java", "go")              # signed by how they ended until triage read their traces (superseded)
+
+
+def clip(text: str) -> str:
+    """The tail of a run's output from its last ``TAIL + 1`` characters: the last ``TAIL``, the first partial line
+    dropped when they do not begin at the run's start (so no trace's header is there in part)."""
+    if len(text) <= TAIL:
+        return text
+    return text[-TAIL:] if text[-TAIL - 1] == "\n" else text[-TAIL:].partition("\n")[2]
 
 
 def scrub(p, text: str) -> str:
@@ -24,24 +34,29 @@ def scrub(p, text: str) -> str:
 
 
 def traceback_of(text: str, root: Path) -> dict | None:
-    """The last Python traceback: its exception's type and message, and its innermost frame in the project's code."""
-    lines = text.splitlines()
-    starts = [i for i, s in enumerate(lines) if s.startswith("Traceback (most recent call last)")]
-    if not starts:
-        return None
-    frames, kind, msg = [], None, ""
-    for s in lines[starts[-1] + 1:]:
-        if m := FRAME.match(s):
-            f = Path(m["file"]).resolve()
-            f = str(f.relative_to(root.resolve())) if f.is_relative_to(root.resolve()) else m["file"]
-            frames.insert(0, {"file": f, "line": int(m["line"]), "function": m["function"]})
-        elif s.strip() and not s[:1].isspace():
-            kind, _, msg = s.strip().partition(": ")
-            break
-    if not kind or not frames:
-        return None
-    return {"type": kind, "message": msg, **next((f for f in frames if not any(x in f["file"] for x in LIBRARY)),
-                                                 frames[0])}
+    """The last traceback, of any language read (``traces.last``)."""
+    return traces.last(text, root)
+
+
+def signature(block: str, program: str | None, tb: dict | None, how: str = "") -> str:
+    return hashlib.sha1(repr((block, program, tb["type"], tb["file"], tb["function"]) if tb else
+                             (block, program, how)).encode()).hexdigest()[:8]
+
+
+def current(p, spec, fid: str):
+    """The failure as the record has it now; read only while ``held``."""
+    from ..spec.items import one
+    return one(p.events, spec, fid)
+
+
+@contextlib.contextmanager
+def held(p):
+    """``repair/capture.lock``: held across each read of a failure, what is decided from it, and its write."""
+    keep = Path(p.dir) / "repair"
+    keep.mkdir(exist_ok=True)
+    with open(keep / "capture.lock", "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        yield keep
 
 
 def program_of(spec, b) -> str | None:
@@ -52,6 +67,13 @@ def program_of(spec, b) -> str | None:
         if not w.startswith("-") and f.is_file() and f.is_relative_to(root):
             return str(f.relative_to(root))
     return None
+
+
+def ended(data: dict) -> str:
+    """How a run ended, from its end event's data: ``signal``, else its note's first words; begins with one of
+    ``NOT_THE_CODE`` when a change to the code is not for it."""
+    code, note = data.get("exit"), str(data.get("note") or "")
+    return "signal" if runrecord.by_signal(code) else note.split(":")[0].split(" after")[0] or f"exited {code}"
 
 
 def guarded(p, b, cause: str | None) -> bool:
@@ -68,36 +90,80 @@ def guarded(p, b, cause: str | None) -> bool:
     return False
 
 
-def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict | None:
-    """Record the failed run on its failure, opened when it may be repaired; None when it is the loop's own."""
-    if guarded(p, b, begun.get("causedby")):
-        return None
-    from ..spec.items import one
-    tb = traceback_of(stderr, spec.root)
-    program = program_of(spec, b) if b.type in ("program", "ai") else None
-    code, note = data.get("exit"), str(data.get("note") or "")
-    how = "signal" if isinstance(code, int) and code < 0 else note.split(":")[0].split(" after")[0] or f"exited {code}"
-    sig = hashlib.sha1(repr((b.name, program, tb["type"], tb["file"], tb["function"]) if tb else
-                            (b.name, program, how)).encode()).hexdigest()[:8]
-    name = f"{b.name}-{sig}"
-    fid = f"{FAILURE}/{name}"
-    keep = Path(p.dir) / "repair"
-    keep.mkdir(exist_ok=True)
-    (keep / f"{name}.input").write_text(scrub(p, stdin), encoding="utf-8")   # the latest input that failed
+def _fields(p, b, begun, data, name, sig, program, tb, stderr) -> dict:
+    """What a failure keeps of a run: the fields the fixer and the impact report read."""
     if tb:
         tb["message"] = scrub(p, tb["message"])
-    d = {"block": b.name, "run": begun["id"], "signature": sig, "program": program, "exit": code, "note": note,
-         "error": f"{tb['type']}: {tb['message']}" if tb else note, "traceback": tb,
-         "stderr": scrub(p, stderr[-TAIL:]), "input": f"file:repair/{name}.input", "model": data.get("model"),
-         "item": data.get("item"), "read_only": b.params.get("read-only") is True, "count": 1,
-         "first_seen": begun["time"], "began": begun["time"]}
-    it = one(p.events, spec, fid)
-    if it is not None and it.state != "applied":
-        d.pop("began")                                       # (when this run of failures began: the impact report's)
-    opens = program is not None and not how.startswith(NOT_THE_CODE) and (it is None or it.state in ("noted", "applied"))
-    rows = [{"type": "ergostat.run.failed", "item": fid, "source": "ergostat", "causedby": begun["id"], "data": d}]
-    if opens:
-        rows.append({"type": f"{FAILURE}.opened", "item": fid, "source": "ergostat", "causedby": begun["id"],
-                     "data": {"reopened": it is not None}})
-    p.events.add_many(rows, new=True)
+    note = str(data.get("note") or "")
+    return {"block": b.name, "run": begun["id"], "signature": sig, "program": program, "exit": data.get("exit"),
+            "note": note, "error": f"{tb['type']}: {tb['message']}" if tb else note, "traceback": tb,
+            "stderr": scrub(p, stderr[-TAIL:]), **({"log": data["log"]} if data.get("log") else {}),
+            "input": f"file:repair/{name}.input", "model": data.get("model"), "item": data.get("item"),
+            "read_only": b.params.get("read-only") is True, "count": 1, "first_seen": begun["time"],
+            "began": begun["time"]}
+
+
+def _row(type_: str, fid: str, begun: dict, data: dict) -> dict:
+    return {"type": type_, "item": fid, "source": "ergostat", "causedby": begun["id"], "data": data}
+
+
+def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict | None:
+    """Record the failed run on its failure, opened when it may be repaired; None when it is the loop's own.
+    ``stderr``: the tail of the run's own log file (``data["log"]``), never the block's log, so no other run's lines;
+    a daemon's run has only what it handed back that was not an event, usually nothing (SPEC §12r).
+    Whether ``opened`` moves the failure is the fold's (``ItemKind.moves_from``), at the event's place in the record;
+    what is decided here from a read (whether it is new, ``began``, which old failure it supersedes) is under ``held``."""
+    if guarded(p, b, begun.get("causedby")):
+        return None
+    tb = traces.last(stderr, spec.root)
+    program = program_of(spec, b) if b.type in ("program", "ai") else None
+    how = ended(data)
+    sig = signature(b.name, program, tb, how)
+    name = f"{b.name}-{sig}"
+    fid = f"{FAILURE}/{name}"
+    d = _fields(p, b, begun, data, name, sig, program, tb, stderr)
+    opens = program is not None and not how.startswith(NOT_THE_CODE)
+    with held(p) as keep:
+        (keep / f"{name}.input").write_text(scrub(p, stdin), encoding="utf-8")   # the latest input that failed
+        it = current(p, spec, fid)
+        if it is not None and it.state != "verified":
+            d.pop("began")                                   # (when this run of failures began: the impact report's)
+        rows = [_row("ergostat.run.failed", fid, begun, d)]
+        if opens:   # the fold moves it only from noted, verified or superseded (FROM): an applied fix failing again
+            # is settle's to judge (regressed), a regressed or reverted one a person's. A new cycle clears the last
+            # one's verdict and revert; an opened the fold will refuse carries none, so a regressed one keeps its key
+            new = it is None or it.state in FROM["opened"]
+            rows.append(_row(f"{FAILURE}.opened", fid, begun, {"reopened": it is not None, **(
+                {"verdict": None, "revert": None, "revert_key": None} if new else {})}))
+        if tb and tb.get("language") in OTHER:               # its old item, signed by how it ended, if the same bug
+            old = f"{FAILURE}/{b.name}-{signature(b.name, program, None, how)}"
+            was = current(p, spec, old)
+            again = was is not None and traces.last(str(was.fields.get("stderr") or ""), spec.root)
+            if again and was.state not in ("superseded", "dismissed") and signature(b.name, program, again) == sig:
+                rows.append(_row(f"{FAILURE}.superseded", old, begun, {"by": fid}))
+        p.events.add_many(rows, new=True)
     return rows[0]
+
+
+def swallowed(p, spec, b, begun: dict, tail: str, stdin: str = "") -> dict | None:
+    """A run that ended well whose output's last trace goes through the project's code: ``ergostat.run.swallowed``
+    about the failure that trace signs. A new one arrives ``noted`` with a failure's fields and is never opened; an
+    existing one gets counts only, so no failure is moved, unleased or given another's traceback (SPEC §12r)."""
+    if guarded(p, b, begun.get("causedby")):
+        return None
+    program = program_of(spec, b) if b.type in ("program", "ai") else None
+    tb = traces.last(tail, spec.root) if program else None
+    if not tb or not any(f["project"] for f in tb["frames"]):
+        return None
+    sig = signature(b.name, program, tb)
+    name = f"{b.name}-{sig}"
+    fid = f"{FAILURE}/{name}"
+    with held(p) as keep:
+        if current(p, spec, fid) is None:
+            (keep / f"{name}.input").write_text(scrub(p, stdin), encoding="utf-8")
+            d = {**_fields(p, b, begun, {"exit": 0}, name, sig, program, tb, tail), "count": 0, "swallowed": 1}
+        else:
+            d = {"swallowed": 1, "last_swallowed": begun["id"]}
+        row = _row("ergostat.run.swallowed", fid, begun, d)
+        p.events.add_many([row], new=True)
+    return row
