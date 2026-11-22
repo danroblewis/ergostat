@@ -370,3 +370,18 @@ def test_a_slow_but_progressing_suite_is_left_running(tmp_path):
     limited(f, stall_minutes=0.05, wall_minutes=0.5)                           # 3 s without a line; 30 s in all
     got = one_suite(f)
     assert got["rc"] == 3 and got["seconds"] >= 5                              # its own rc: it ran to its end
+
+
+def test_a_wait_for_the_suite_slot_is_not_a_stall(tmp_path):
+    # triage's suites run inside [suites] slot: a slot held elsewhere past both limits is the machine's time, so the
+    # clocks start once the slot is held, and the suite then runs to its own rc
+    slot = tmp_path / "slot.sh"
+    slot.write_text('echo waiting for a slot; sleep 8; exec "$@"\n')
+    f = Factory(tmp_path, unit="for i in 1 2; do echo tick; sleep 1; done; exit 3")
+    limited(f, stall_minutes=0.05, wall_minutes=0.1, slot=json.dumps(f"sh {slot}"))   # 3 s and 6 s; the wait 8 s
+    r = subprocess.run([sys.executable, "-c", SUITE.replace("slot=False, box='queue'", "box='triage'"), str(BIN),
+                        str(tmp_path / "suite.log")], cwd=f.model, env=f.env, capture_output=True, text=True,
+                       timeout=120)
+    got = json.loads(r.stdout.splitlines()[-1])
+    assert got.get("rc") == 3 and got["seconds"] >= 9, got                    # never stopped while it waited
+    assert not (tmp_path / "suite.log.held").exists()

@@ -731,7 +731,7 @@ def main() -> int:
 def stalled(cfg: dict, gap: dict, batch: list, pre: str, e: fac.Stalled) -> None:
     """A suite stopped for a limit (fac.limits()) is a stall, not the batch's failure: said on the run's own gap
     (stalled: the suite, the test its log was on, its tail), whose lease is given back uncounted; its batch-mates never
-    left `approved`, and the next run takes half as many (at least 1), so a gap that hangs comes to run alone. A stall
+    left `approved`, and the next run takes half as many (at least 1; a settled run clears it: likely, not sure). A stall
     of the own gap alone is counted (`stalls`); its fac.STALLS_MOST-th goes to triage (queue-failed, the stalled test
     as its failed test). Until then nothing goes to fix or triage for it (an outcome already held for it stands)."""
     save(cfg, {**state(cfg), "cap": max(1, len(batch) // 2)})          # (under the queue's lock: take())

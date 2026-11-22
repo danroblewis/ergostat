@@ -77,3 +77,24 @@ it, because `except Late` does not catch it). Both blocking findings are answere
 - Run here: tests/test_queue.py (12 passed), tests/test_agents.py (16 passed), and tests/test_factory.py -k
   "triage or queue or flake or quarantin" (21 passed), each file alone. ruff is clean on ergostat tests scripts. The
   unit suite and the four browser files were not run here: that is the factory's step after this.
+
+Round 3 (main is already in the branch: `git merge-base --is-ancestor main HEAD` holds). The blocking finding is
+answered:
+- The slot wait is no longer timed. When a queue or triage suite runs inside `[suites] slot`, fac.suite runs the command
+  as `<slot> sh -c ': > <log>.held; <command>'`. The stall and wall clocks start when that marker appears, that is,
+  once the slot script has handed over. Until then the lease is renewed and no limit is checked, and the slot
+  script's own output is not counted as growth. The marker is removed in the finally. The seconds returned are still
+  timed from the start, slot wait included, as before. Choice made alone: an outer bound on the slot wait itself is
+  not added. It was unbounded before this gap too (wait_quiet is as well), and bounding it would bring back the stall
+  the finding is about. New test tests/test_queue.py::test_a_wait_for_the_suite_slot_is_not_a_stall: a stand-in slot
+  prints a line, sleeps 8 s (past a 3 s stall and a 6 s wall limit), then runs a suite that ends with rc 3. With the
+  guard disabled it failed: `stalled: unit, its log did not grow for 0.05 min`. With the guard restored it passes.
+- The non-blocking findings of rounds 1 and 2 (lesson-12) are answered by narrowing the text, not by code. README
+  and queue.stalled's docstring now say the halving only makes it likely that a gap which hangs comes to run alone:
+  any settled run clears it, and a batch stall counts on no gap. README also says that a stall during a bisect
+  throws away a green prefix that run already found, and that gaps already sent on keep their outcome although
+  `stalled_batch` lists them.
+- Run here: tests/test_queue.py (13 passed) and tests/test_agents.py (16 passed), each alone. ruff is clean on
+  ergostat tests scripts. `ruff check dev/bin` reports B023 in plan.py and E501 in review.py, files this branch does
+  not touch. The unit suite and the four browser files were not run here.
+Overrun reason: the slot-wait fix the round-2 review asked for adds 10 net lines to fac.suite (the marker, its wait branch and its cleanup), on top of the 80 already at budget; 90 net in all.

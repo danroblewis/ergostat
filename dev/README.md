@@ -534,8 +534,12 @@ of these suites runs with `PYTEST_ADDOPTS=-o faulthandler_timeout=<half the stal
 has its stack dumped into the log, and `stalled_test` is the `tests/test_*.py::test_*` function in the last such
 stack. A method or a parametrized case is named by its file and function only. With no stack, it is the last test id
 the log names, or null. Each hung test's dump grows the log once, so it stops the suite up to half a stall limit
-later. A stall also halves the next run's batch (at least 1), so a gap that hangs comes to run alone. A stall
-with the gap alone in its batch is counted on it (`stalls`). Its third (`STALLS_MOST` in fac.py) is no longer given
+later. A stall also halves the next run's batch (at least 1), so a gap that hangs tends to come to run alone. This is
+not guaranteed: any run that settles a gap clears the halving, and a stall in a batch of more than one counts on no
+gap. A stall during a bisect throws away a green prefix that run already found. Gaps that run already sent on (to
+triage, or back for a conflict) keep that outcome, though `stalled_batch` still lists them. A stall
+with the gap alone in its batch is counted on it (`stalls`). The clocks start once `[suites] slot` (triage's suites)
+is held, so a wait for the slot is never a stall. Its third (`STALLS_MOST` in fac.py) is no longer given
 back: it goes to triage as `queue-failed`, the stalled test as its failed test. In triage, a stalled rerun gets the
 same fields and `stalls`, and its lease is given back the same way until the gap's third stall. Then the failure is
 the branch's: back to fix, or parked by the kill rule.

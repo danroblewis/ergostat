@@ -481,7 +481,12 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     if box and cfg["suites"].get("queue_container", True) is not False:
         boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box, (f"PYTEST_ADDOPTS={env['PYTEST_ADDOPTS']}",))
         BOXES.add(boxed)
+    held = None
     if slot and cfg["suites"].get("slot") and name != "ruff":
+        if box:                                         # the limits' clocks start once the slot is held (marked inside)
+            held = log.with_name(log.name + ".held")
+            held.unlink(missing_ok=True)
+            cmd = "sh -c " + shlex.quote(f": > {shlex.quote(str(held))}; {cmd}")
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began, stopped = time.time(), None
     with log.open("w") as out:
@@ -489,13 +494,16 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                              start_new_session=True)
         SUITES.add(p.pid)
         try:
-            size, grew = 0, began
+            size, grew, clock = 0, began, began
             while p.poll() is None:
-                if box:
+                if held and not held.exists():          # waiting for the slot: the machine's time, not the suite's
+                    size, grew = log.stat().st_size, time.time()
+                    clock = grew
+                elif box:
                     now, got = time.time(), log.stat().st_size
                     size, grew = (got, now) if got != size else (size, grew)
                     stopped = (f"its log did not grow for {stall / 60:g} min" if now - grew > stall else
-                               f"it ran past {wall / 60:g} min" if now - began > wall else None)
+                               f"it ran past {wall / 60:g} min" if now - clock > wall else None)
                     if stopped:                         # (past a limit: never renewed, killed in the finally)
                         break
                 renew()
@@ -511,6 +519,8 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
                 except subprocess.TimeoutExpired:
                     os.killpg(p.pid, signal.SIGKILL)
             SUITES.discard(p.pid)
+            if held:
+                held.unlink(missing_ok=True)
             if boxed:
                 agents_module().killed(boxed)
                 BOXES.discard(boxed)
