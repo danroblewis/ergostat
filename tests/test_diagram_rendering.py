@@ -1889,7 +1889,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
 
 SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
-  // parts drawn as themselves) has its marker; every connector whose polarity is known shows it at its head;
+  // parts drawn as themselves) has its marker; every connector shows its polarity (? where not known) at its head;
   // connectors are curves that cut through no part; and the drawing is in one ink (no fill or stroke in colour
   // but what is pointed at; the correspondence colours' rings are not drawn unless asked for)
   const bad = [], svg = document.querySelector("svg.canvas");
@@ -1908,7 +1908,7 @@ SD_CHECK = """() => {
     const eg = svg.querySelector(`.edge[data-id="${CSS.escape(e.id)}"]`);
     if (!eg) { bad.push(`not drawn: ${e.id}`); continue; }
     const sign = eg.querySelector("text.polarity")?.textContent;
-    const want = { "+": "+", "-": "−" }[e.polarity];
+    const want = { "+": "+", "-": "−" }[e.polarity] || "?";
     if (want !== sign) bad.push(`${e.id}: polarity ${e.polarity}, shows ${sign}`);
     const path = eg.querySelector("path.sd-connector"), len = path.getTotalLength();
     for (let d = 8; d < len - 8; d += 6) {
@@ -1945,6 +1945,58 @@ def test_the_dynamics_view_draws_only_system_dynamics_symbols_each_loop_marked_e
             bad = pg.evaluate(SD_CHECK)
             assert not bad, (v, bad[:10])
         assert pg.locator(".toolbar .seg button.on").inner_text().lower().startswith("dynamics")
+        assert not errors, errors
+        pg.close()
+
+
+SIGNS_CHECK = """() => {
+  // every link drawn has one sign (+, − or ?); no two signs' boxes overlap or lie within 10 px; each sign's nearest
+  // link line is its own (data-edge, and the line it is drawn with); a link declared with driven-by is dashed
+  const svg = document.querySelector("svg.canvas"), bad = [];
+  const links = [...svg.querySelectorAll(".edge")].filter((g) => g.querySelector("path.sd-connector"));
+  for (const g of links) {
+    const t = g.querySelectorAll("text.polarity");
+    if (t.length !== 1 || !["+", "−", "?"].includes(t[0].textContent))
+      bad.push(`sign of ${g.dataset.id}: ${[...t].map((x) => x.textContent)}`);
+    else if (t[0].dataset.edge !== g.dataset.id) bad.push(`${g.dataset.id}'s sign says ${t[0].dataset.edge}`);
+  }
+  const glyphs = [...svg.querySelectorAll(".edge text.polarity")], boxes = glyphs.map((t) => t.getBBox());
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i], b = boxes[j];
+    const gap = Math.max(b.x - a.x - a.width, a.x - b.x - b.width, b.y - a.y - a.height, a.y - b.y - b.height);
+    if (gap < 10) bad.push(`${glyphs[i].dataset.edge} and ${glyphs[j].dataset.edge}: ${gap.toFixed(1)} px apart`);
+  }
+  const pts = links.flatMap((g) => { const p = g.querySelector("path.sd-connector"), L = p.getTotalLength(), out = [];
+    for (let d = 0; d <= L; d += 1) { const q = p.getPointAtLength(d); out.push([q.x, q.y, g.dataset.id]); }
+    return out; });
+  glyphs.forEach((t, i) => {
+    const cx = boxes[i].x + boxes[i].width / 2, cy = boxes[i].y + boxes[i].height / 2;
+    let best = null, bd = Infinity;
+    for (const [x, y, id] of pts) { const d = Math.hypot(x - cx, y - cy); if (d < bd) { bd = d; best = id; } }
+    if (best !== t.dataset.edge) bad.push(`${t.dataset.edge}'s sign at ${Math.round(cx)},${Math.round(cy)} is nearest ${best}`);
+  });
+  for (const e of S.graph.edges.filter((x) => x.drivenBy)) {
+    const p = svg.querySelector(`.edge[data-id="${CSS.escape(e.id)}"] path.sd-connector`);
+    if (p && getComputedStyle(p).strokeDasharray === "none") bad.push(`driven-by, drawn solid: ${e.id}`);
+  }
+  return { bad, links: links.length, drivenBy: S.graph.edges.filter((x) => x.drivenBy).length };
+}"""
+
+
+@pytest.mark.parametrize("example", [pytest.param(e, marks=pytest.mark.serial) if e in HEAVY else e for e in EXAMPLES])
+def test_each_polarity_sign_sits_on_its_own_link_apart_from_the_others_and_every_link_has_one(browser, tmp_path, example):
+    """The design review's Q25: on the demos' first page (software-factory's, and every example's) the signs were
+    stacked where many links meet, the nearest one belonging to another link; deployed → shipped had none; and the
+    links declared with driven-by were solid."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        r = pg.evaluate(SIGNS_CHECK)
+        assert not r["bad"], "\n".join(r["bad"][:12])
+        if example == "software-factory":                    # (its links between factory and product: driven-by)
+            assert r["links"] >= 5 and r["drivenBy"], r
         assert not errors, errors
         pg.close()
 
