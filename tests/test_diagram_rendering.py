@@ -783,6 +783,32 @@ TRANSCRIPT = [
 ]
 
 
+BOX_TEXTS = """() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node.k-system')].map((g) =>
+  [g.querySelector('.sys-title')?.textContent, [...g.querySelectorAll('text')].map((t) => t.textContent)]))"""
+
+
+@pytest.mark.parametrize("example,box,description", [("the-job", "job", "what I am expected to do, and what I am judged on"),
+                                                    ("software-factory", "product", "textkit and its customers")])
+def test_each_closed_system_box_says_what_the_system_is(browser, tmp_path, example, box, description):
+    """A closed system's box in Dynamics prints its description under its name, and no longer counts its
+    feedback loops (the count is on its panel)."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=-", 0)
+        boxes = pg.evaluate(BOX_TEXTS)
+        assert box in boxes, f"no closed box {box!r} drawn: {sorted(boxes)}"
+        said = " ".join(pg.evaluate("""(name) => [...[...document.querySelectorAll('svg.canvas g.node.k-system')]
+          .find((g) => g.querySelector('.sys-title')?.textContent === name).querySelectorAll('text.sys-desc')]
+          .map((t) => t.textContent)""", box))
+        assert said == description, f"{box}'s box says {said!r}, not its description"
+        counted = {n: [t for t in ts if re.search(r"feedback loops? inside", t)] for n, ts in boxes.items()}
+        assert not any(counted.values()), f"a closed box still counts its loops: {counted}"
+        assert not errors, errors
+        pg.close()
+
+
 # item ids as the Items page links them: a / (as %2F), and the characters a path or a query would take for its own
 ADDRESSED = ["ticket/7", "ticket/a b?c#d%e&f+g", "ticket/ünï(1)!'*~"]
 
