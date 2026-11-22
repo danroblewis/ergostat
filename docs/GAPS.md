@@ -21,13 +21,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
     (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
+    `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
+    parts written as text for its owner, in its names, against the version read, never applied or sent
+    (`remote-proposals-text`; `ergostat remote proposals`, SPEC §4c "Proposals for its owner").
     `examples/remote-pair/` and its two-instance test. A remote's measures on its closed box (done on
     `remote-box-measures`): its top systems' served `show:`, or a `show:` on its `remotes:` entry in its own
     names (`remote-show-unresolved` for one it does not serve), each marked stale with its age when the remote
     or the reading is not current.
   - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
-    it); lines in the process map between our items and theirs (needs an id both logs carry); proposals
-    written as text for the remote's owner (the refusal is built, the text is not); serving the IR beside
+    it); lines in the process map between our items and theirs (needs an id both logs carry); serving the IR beside
     `ergostat-model/1` once it exists; a remote that is itself composed of remotes (its imported parts are
     not served); mutual TLS.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
@@ -49,6 +51,23 @@ review into *Done recently*). Newest decisions from the owner first within each 
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
+  only to hosts the owner lists. *Still needed:* the trust gate rebuilt on **provenance** (a value counts as the
+  owner's only if it arrived by substitution of a `type: command` parameter, the marks kept through nested uses;
+  equality to an owner's literal is not enough); the refusal not telling agents to copy commands into `with:`; a
+  library's `example:` and `reading:` marked untrusted wherever an agent reads them; `ask:`, `query`/`source` gated and
+  a minimum `every` for untrusted libraries; `fetch` refusing a lock entry without a tree, symlinks hashed explicitly;
+  then running untrusted library scripts through `ergostat.sandbox` and the rebase onto main.
+- **External event logs** (mirroring done on `external-event-logs`; reading in place open): systems that keep their
+  own event log (Kafka, a ticket history, an incident log): copy in (works through collectors), read in place, or
+  mirror with a cursor that cites the original.
+  - *Done*: mirroring (`collect` with `mirror: true`, SPEC §2, *Mirroring an outside log*): each entry recorded once
+    under `cite:<sensor>:<type>:<position>`, only by the sensor it names (pushes refuse a `cite:` id); the cursor
+    confirmed against the record each poll and recovered from it (snapshots included) when the collector's memory is
+    lost; a log that went back stops the mirror when the source shows it.
+  - *Left*: reading in place for logs other than another ergostat's (Kafka and the like; remote systems, SPEC §4c,
+    are the one case built); a restart seen when the source reads only after the cursor (a Kafka offset), which needs
+    the source's own epoch or generation in the cite; entries mirrored again after the record forgot them and the
+    memory was lost.
 - **Identifying existing controllers** (done on `identify`; SPEC §12d, *Existing controllers*): an external block's
   `identify: {input, output}` fits on-off, proportional, PI and three-position step (floating) laws with a delay from the
   record, picks one by held-out error with a parsimony penalty, runs it in the closed-loop projection, draws it in the
@@ -91,6 +110,12 @@ review into *Done recently*). Newest decisions from the owner first within each 
   regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
   fails). *Left*: log events; the swallowed-errors check (M5); the ladder's lower rungs (narrow AI, program, rule) and promoting a class automatically;
   failures from tracebacks of other languages; a program with uncommitted changes is fixed from its committed text.
+  program). Triage reads Python, Node, Java and Go traces and notes an error a good run swallowed (M5) without moving
+  any failure. *Left*: verifying a fix by the runs after it and offering its revert; log events; the ladder's lower
+  rungs (narrow AI, program, rule) and promoting a class automatically; a program with uncommitted changes is fixed
+  from its committed text; a Python traceback more than 8,000 characters before the end of a failed run's output is
+  now signed by how the run ended; a daemon's run hands back little or no standard error, so what a daemon swallows is
+  not seen; Ruby and other languages are not read.
 - **AI approver for repairs: needs a positive allowlist of the AST changes a fix may make** (SPEC §12r). One was built
   on `repair2` (the AI shown only the diff and pass or fail, behind a guard that escalated new imports, processes,
   network, environment, writes and URL or path literals) and cut before merging: a guard that denies by list was
@@ -320,18 +345,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
     else limits the count if the tidier stops. Still to come: **upkeep-watched-loops** (the watchdog, the heartbeat
     goal the outer watcher reads, leases and the worktree pool) and **upkeep-record-loops** (the event log's roll-up
     and measurement retention).
-- **From upkeep's fault injection** (`docs/proposals/upkeep.md` §4; `docs/roadmap/overnight/resilience-core.md`):
-  - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (done, 3e106ee:
-    `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
-  - **The watchdog restarts without finding the cause, every 6.5 minutes; a hang while starting is unseen; pool
-    wedge found at 130 s** (done, 3e106ee: the index lock's holder dumped; back-off 60 s to 30 m; a startup deadline).
-  - **An `alarm` block lights nothing** (done, 3e106ee).
-  - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
-    (done, 3e106ee: `storage: logs:`; `ergostat compact --projects`).
-  - **The CLI refuses to run while the YAML is broken**, so every `$ERGOSTAT_CMD` call fails while an agent edits
-    (done on branch `cli-fallback`, `docs/roadmap/overnight/cli-fallback.md`: the engine keeps the model it takes as
-    one content-addressed snapshot of every file its loading read; commands that read load that snapshot alone,
-    never running anything; commands that act, `event --add` among them, refuse naming the YAML's error).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per
@@ -438,6 +451,21 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Done recently
 
+- **From upkeep's fault injection** (done on main; found by upkeep's fault injection,
+  `docs/roadmap/overnight-2026-11-19.md` at 01:30, whose proposal was not merged to main): the first four problems
+  from `resilience-core` (`docs/roadmap/overnight/resilience-core.md`, tests in `tests/test_resilience.py`), the fifth
+  from `cli-fallback` (`docs/roadmap/overnight/cli-fallback.md`, tests in `tests/test_cli_fallback.py`).
+  - **Nothing restarts a dead engine; `status` shows a dead engine's last reading as alive** (3e106ee:
+    `ergostat run --service [--install]`, the outer watcher; "engine not running (last seen ...)").
+  - **The watchdog restarts without finding the cause; a hang while starting is unseen; a wedged pool is found
+    late** (3e106ee: the index lock's holder dumped; restarts that did not help back off; a startup deadline).
+  - **An `alarm` block lights nothing** (3e106ee: one line in needs attention, "alarm raised" on its block).
+  - **Block logs, `threads.txt`, `transcripts.json` and `run.log` grow without limit; old project folders pile up**
+    (3e106ee: `storage: logs:`; `ergostat compact --projects`).
+  - **The CLI refuses to run while the YAML is broken** (75e7687, the merge of `cli-fallback`; 366241d and 6affe4f
+    class `block --reset` and `block --check-warm` as acting): the engine keeps the model it takes as one snapshot
+    of every file its loading read; commands that read fall back to that snapshot alone, with a warning; commands
+    that act, `event --add` among them, refuse naming the YAML's error.
 - **A lease taken while the engine closes outlives the close** (done on `factory/a-lease-taken-while-the-engine`;
   found by `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`; SPEC §9.5,
   `docs/roadmap/overnight/a-lease-taken-while-the-engine.md`): `Dispatcher.take` checks the engine's own stop and

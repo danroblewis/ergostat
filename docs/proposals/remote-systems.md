@@ -196,9 +196,10 @@ later, the Record page); the remote's items are read in place through its own `/
   state to integrate: a remote stock in a replay is an input series, like a measured disturbance.
 - **The modelling loop never changes a remote part.** A proposal that would add, remove or change a remote part
   (an estimate, an equation, a rewiring) is refused like an edit to a template's part, and says why. It may
-  instead write the change **as text for the remote's owner**: what to change, the evidence, the fit it would
-  give. Those are kept as proposals marked `for-remote: NAME` and shown, never applied; sending them is the
-  owner's act (an outbound message, by a valve the owner grants).
+  instead write the change **as text for the remote's owner**, in the remote's names: what to change, and the
+  evidence (the points, the window and the series read). Those are kept as proposals marked `for_remote` (the
+  remote and the version of its model read) and shown by `ergostat remote proposals`, never applied; sending
+  them is the owner's act, never ergostat's (built: SPEC §4c, "Proposals for its owner").
 - **Structure on our side is ours to change**: a local flow driven by a remote stock, a goal on a remote measure,
   a new local stock fed from a remote flow, all as any proposal.
 
