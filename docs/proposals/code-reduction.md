@@ -1,13 +1,14 @@
 # What ergostat's code can lose: a map, with evidence
 
 The owner, 2026-11-21: before ergostat is given to people, review and reduce the amount of code. This is the map;
-later gaps make the cuts. Nothing here changes code. Every line reference is to `main` as of 1336e50e (this branch's
-base: its only commit is the definition of done, `dev/records/code-reduction-map.md`).
+later gaps make the cuts. Nothing here changes code. Every line reference is to `main` as of 277a9c6c. The first draft
+was made on 1336e50e, and every reference was checked again on 277a9c6c and moved where main had moved it (§1, the
+last paragraph).
 
 **What was looked at:** `ergostat/` (Python and the page's own JavaScript in `ergostat/web/static/`) and `dev/bin/`.
-**The total:** eleven items, about **1,160 net lines**. That is about 1.3% of the 88,609 lines `wc -l` counts in the
-Python of `ergostat/` and `dev/bin/`. Little of the code is dead. Most of what can go is a whole feature that a newer one
-replaced, or that sits outside ergostat's purpose. Each of those is the owner's decision, not a finding.
+**The total:** eleven items, about **1,310 net lines**. That is about 1.4% of the 91,289 lines `wc -l` counts in the
+Python of `ergostat/` and `dev/bin/` (`git ls-files 'ergostat/*.py' 'dev/bin/*.py' | xargs wc -l`). Little of the code
+is dead. Most of what can go is a whole feature that a newer one replaced, or that sits outside ergostat's purpose. Each of those is the owner's decision, not a finding.
 
 "Net lines" means lines that are neither blank nor only a comment (the rule `scripts/code_evidence.py` uses). For whole
 files they were counted with the Grep pattern `^\s*[^\s#]`. For spans they were counted by reading the lines named
@@ -47,6 +48,18 @@ a name would be a false "dead", and none of the eleven below is one. Duplicates 
 not by hashing every body (`code_evidence.py`'s `duplicates`). Coverage was not measured. The first gap's acceptance
 test runs `code_evidence.py` to confirm its numbers.
 
+**Checked again on 277a9c6c.** Main gained about 3,750 lines in 67 files of `ergostat/`, `dev/bin/`, README and SPEC
+after 1336e50e. In this second session
+`python3`/`uv run python` were refused again, and so were shell loops and long pipelines. So passes 1 to 3 were **not**
+run again over the new code: a name added after 1336e50e and never called is not in this map. What was done instead:
+each name in item 4 was searched again with Grep over every file (only its own `def` and the mentions shown in item 4
+remain), each file the map cites was checked with `git diff 1336e50e main`, and every line in a changed file (SPEC,
+GAPS, `dev/bin/fac.py`, `dev/bin/watch.py`, `numbers/review.py`, `numbers/structural.py`, `remote/compose.py`,
+`remote/serve.py`, `library/trust.py`, `library/expand.py`, `spec/compile.py`, `spec/load.py`, `spec/ir.py`,
+`spec/engine.py`, `repair/fix.py`, `cli/intent.py`, `cli/remote.py`, `web/server.py`, docs/MESSAGES.md,
+`tests/test_graph_cli_web.py`) was read again and its number corrected. Item 2 was surveyed again from the start (it
+names every site `git grep -n "ergostat.toml" -- ergostat` finds).
+
 ## 2. The ranking
 
 Risk: 1 = nothing calls it, or a pure refactor under existing tests; 2 = a user-visible command or text changes, or a
@@ -56,7 +69,7 @@ score is net lines divided by risk.
 | # | Item | Evidence | Net lines | Risk | Score |
 |---|---|---|---:|---:|---:|
 | 1 | Delete the parity benchmark (`ergostat bench parity`) | outside the product's purpose; one caller | ≈487 | 2 | 243 |
-| 2 | Stop reading `ergostat.toml` (the format before YAML) | superseded, said in README and SPEC | ≈330 | 3 | 110 |
+| 2 | Stop reading `ergostat.toml` (the format before YAML) | superseded, said in README and SPEC | ≈482 | 3 | 161 |
 | 3 | Drop `check --example`'s TOML starters and the empty-folder hint that points to them | superseded; no test | ≈75 | 2 | 37 |
 | 4 | Delete ten dead names, and one only a test calls | no caller on main | 37 | 1 | 37 |
 | 5 | Delete `avoidMove` and the router's single-part move (JS) | no caller on main | ≈34 | 1 | 34 |
@@ -66,9 +79,12 @@ score is net lines divided by risk.
 | 9 | Stop reading the old name `variables:` (and `variable.X`, a goal's `variable:`) | deprecated in SPEC | ≈35 | 3 | 12 |
 | 10 | One percentage and one "ago" formatter for the CLI | duplicate code | ≈10 | 1 | 10 |
 | 11 | Stop re-signing old Node/Java/Go failures (`failure.superseded`) | a one-time migration in SPEC | ≈7 | 2 | 4 |
-| | **Total** | | **≈1,157** | | |
+| | **Total** | | **≈1,309** | | |
 
 Items 2, 3 and 6 overlap in subject (all are TOML), but not in lines: item 2 counts only what 3 and 6 leave behind.
+Item 2's count rose from ≈330 in the first draft: the first draft missed the TOML body of `model.check`,
+`cmd_convert`, the converted-spec path of `blockdiagram.spec_of`, the scrubber's TOML branch and the old runner's
+start, and it counted all of `spec/convert.py`, whose YAML writer two other modules import.
 
 ## 3. The items
 
@@ -93,23 +109,62 @@ Items 2, 3 and 6 overlap in subject (all are TOML), but not in lines: item 2 cou
 
 ### 2. Stop reading `ergostat.toml`
 
-- **Files and lines.** `ergostat/model.py:405-511` (`parse`, the TOML tables), `:517-524` (`find` also looks for
-  `FILE`), `:551-555` (the TOML branch of `load_main`), `:11` (`import tomllib`) and `:17` (`FILE = "ergostat.toml"`). `ergostat/spec/convert.py`
-  (248 lines, 226 net). `ergostat/cli/__init__.py:39`, `:153-155` (the `convert` topic). Also `model.py:383-400`
-  (`_names`, `_take`), if the gap finds that only `parse` calls them.
+- **How the sites were found.** `git grep -n "ergostat.toml" -- ergostat` (26 files on 277a9c6c), then
+  `git grep -n -E "mdl\.FILE|tomllib|mdl\.parse|model\.parse|spec\.convert|from \.convert"` over the whole repository,
+  then the callers of each function found. Every one of the 26 files is in one of the two tables below.
 - **Evidence.** README.md:36: "An `ergostat.toml` from before still runs; `ergostat convert` writes it as
-  `ergostat.yaml`". SPEC.md:6550 says the same. `model.py:518-519` calls YAML "the format" and TOML what came "before
-  it". No folder in the repository holds an `ergostat.toml` (Glob `**/ergostat.toml`: none).
-- **Net lines:** parse ≈100 + load branch 5 + find ≈3 + convert 226 + topic 3, less a refusal message of about 3 lines
-  ≈ 330.
+  `ergostat.yaml`". SPEC.md:6961 says the same. `model.py:518-519` calls YAML "the format" and TOML what came "before
+  it". No folder in the repository holds an `ergostat.toml` (Glob `**/ergostat.toml`: none). A model only lacks
+  `spec` when `model.parse` made it: the only other `Model(` in the repository is `spec/legacy.py:27`, which sets
+  `m.spec` at `:81`.
+
+**Removed** (each exists only for a model `model.parse` made):
+
+| Where | What | Net lines |
+|---|---|---:|
+| `ergostat/model.py:402-511` | `COMMON` and `parse`, the TOML tables | 104 |
+| `ergostat/model.py:383-399` | `_names`, `_take`: only `parse` calls them (`:427`, `:431`-`:509`; the `_names` of `numbers/extremes.py:106` and the `_take`s of `changeset.py`, `engine.py`, `itemindex.py`, `pool.py` are others) | 15 |
+| `ergostat/model.py:614-708` | the body of `check` after the YAML model's return at `:610-613` | 92 |
+| `ergostat/model.py:551-555`, `:11` | the TOML branch of `load_main` (it becomes a refusal of about 3 lines), `import tomllib` | 3 |
+| `ergostat/spec/convert.py:1-223` | `convert`, `fix`, `schedule`, `human`. `Dumper`, `whole`, `spaced` (`:225-248`, 20 net) **move** to `spec/discover.py`, which imports them (`discover.py:96`) | 206 |
+| `ergostat/cli/spec_cmds.py:142-168` | `cmd_convert`: the second caller of `mdl.parse` (`:149`) and of `mdl.FILE` (`:145-147`) | 27 |
+| `ergostat/cli/__init__.py:39`, `:153-155`, the name at `:22` | the `convert` topic | 4 |
+| `ergostat/blockdiagram.py:1486-1505` | `spec_of`'s converted spec for a model with none (the other importer of `convert`, `:1494`); `spec_of` keeps `:1483-1485` | 19 |
+| `ergostat/reports/scrub.py:378-385` | the parts' names of "an ergostat.toml" | 8 |
+| `ergostat/cli/running.py:133-136` | the `else` that starts `runner.Runner` for a TOML model; `:171`'s format comparison loses its `spec` half (0 net) | 4 |
+| `ergostat/model.py:1`, `:600`, `ergostat/web/server.py:5` | docstrings and `file_name`'s fallback that say `ergostat.toml` (0 net) | 0 |
+| | **Total** | **≈482** |
+
+**Stays, and why** (the gap does not touch these):
+
+| Where | Why it stays |
+|---|---|
+| `ergostat/model.py:17`, `:517-524`, `:531` (`FILE`, `find`) | `find` must still see an `ergostat.toml`, so a TOML folder is refused, never read as "no model" or passed over for an `ergostat.yaml` in a folder above it (lesson-3) |
+| `ergostat/calls/client.py:65`, `:89`; `ergostat/cli/fast.py:18` | the same rule on the fast path: a TOML folder gets no socket call, so the command loads the model and is refused |
+| `ergostat/cli/common.py:27-28`, `ergostat/cli/__init__.py:150` | item 3 removes them |
+| `ergostat/supervisor.py:2`, `:16`, `:20`, `:88-90` | item 6 removes them |
+| `ergostat/cli/common.py:38` | names the file that failed to load; `mdl.FILE` is its fallback |
+| 21 guards on `spec is None`: `cli/claims.py:25`, `cli/gated.py:48`, `cli/intent.py:45`, `cli/leases.py:43`, `cli/messages.py:15`, `cli/numbers.py:24-25`, `cli/spec_cmds.py:176`, `intent/measures.py:76`, `mcp.py:212`, `:307`, `numbers/measures.py:155`, `:161`, `:183`, `:194`, `web/actions_api.py:25`, `web/control_api.py:42`, `web/messages_api.py:17`, `web/numbers_api.py:746`, `web/remote_api.py:116`, `reports/shape.py:50`, `web/static/pages.js:1046` | With TOML refused, none of them can be reached from a loaded model. But they are 21 of the 111 `getattr(…, "spec", None)` reads in 50 files of `ergostat/` (Grep `"spec", None\)`), the old model's second path. Cutting them is the old-model migration (§4), ≈50 net lines more (2 to 4 lines each, not counted one by one), and is not counted here. `pages.js:1046` also shows when the fit request fails (`d` null), so its words are wrong today; that is for the same gap |
+| `ergostat/reports/trace.py:29` | `tomllib` there is a name in a list of the standard library's modules, not TOML support |
+
+- **Net lines:** ≈482 (the first table).
 - **Risk 3.** Anyone with a TOML project loses it. The way out is to convert with the last release that has `convert`,
-  and the refusal must say which release. The tests build many models in TOML: `tests/test_runner_and_state.py` (28
-  mentions), `tests/test_model.py` (13), `tests/test_graph_cli_web.py` (9), `tests/conftest.py:176`, `tests/test_cron.py`.
-  All of those move to YAML. `scripts/demos.sh` and `scripts/demo_check.py` name TOML, so `demo_check` must pass on
-  every demo in `~/ergostat-demos/`. **Not part of this item:** `ergostat/runner.py`. The YAML engine still runs it
-  (`ergostat/spec/engine.py:39` imports it as `old`, `:1782` uses `old.Runner`).
-- **Tests.** The files above, plus `tests/test_spec_compile.py` (it names `ergostat.toml`) and
-  `tests/test_reload_in_place.py`.
+  and the refusal must say which release. The tests are the larger change. The `repo` fixture writes a TOML model
+  (`tests/conftest.py:157-171`, `:162`). 76 functions in 16 files of `tests/` take `repo` (Grep `def \w+\([^)]*\brepo\b`, the `project`
+  fixture among them), and 59 test functions in 5 files take `project`
+  (`conftest.py:174-178`), which loads it. Direct TOML: `tests/test_model.py` (15 mentions; `:9` calls `model.parse`),
+  `tests/test_runner_and_state.py` (28), `tests/test_graph_cli_web.py` (9), `tests/test_cron.py:39`, `:42`,
+  `tests/test_reload_in_place.py:241`, `:246`, `tests/test_spec_compile.py:183-192` (with the twelve files of
+  `tests/fixtures/toml/`). `tests/test_spec_compile.py:172-180` (the YAML wins over a TOML beside it) still holds, since
+  `find` keeps its order. Some tests assert words only the TOML `check` says (`tests/test_model.py:99`, `:108`, `:129`,
+  `:164`; `tests/test_runner_and_state.py:589`); those findings go, or are pinned on the YAML model's own. Each change
+  must be named. `scripts/demos.sh:13` and `scripts/demo_check.py:303` still list a TOML demo, so that it is refused
+  and seen. `demo_check` must pass on every demo in `~/ergostat-demos/`.
+- **Not part of this item:** `ergostat/runner.py`. The engine borrows its helpers (`spec/engine.py:39`, `:1090`,
+  `:1808` uses `old.Runner._prune`; `spec/stream.py:20`; `daemons/supervise.py:18`). Once `cli/running.py:133-136` goes,
+  `runner.Runner` (`runner.py:364-561`, 182 net) is started only by tests (`tests/test_runner_and_state.py:99`, `:494`,
+  `tests/test_reload_in_place.py:241`) and `_prune`. That is for the old-model migration too.
+- **Tests.** The files above.
 
 ### 3. `check --example`'s TOML starters and the empty-folder hint
 
@@ -134,8 +189,8 @@ Each is named nowhere else in the 1,398 tracked files (pass 2), except where not
 |---|---|---:|
 | `commit_all` | `dev/bin/fac.py:191-197` | 7 |
 | `key_raw` | `ergostat/numbers/memory.py:37-42` | 6 |
-| `find_any` | `ergostat/numbers/review.py:396-400` | 5 |
-| `_entry` | `ergostat/numbers/structural.py:655-657` | 3 |
+| `find_any` | `ergostat/numbers/review.py:412-416` | 5 |
+| `_entry` | `ergostat/numbers/structural.py:663-665` | 3 |
 | `traceback_of` | `ergostat/repair/capture.py:36-38` (named only in `dev/records/repair-traces.md:9`, `:56`, a record of its move to `traces.last`) | 3 |
 | `expr_names` | `ergostat/spec/blocks.py:57-59` | 3 |
 | `is_lease` | `ergostat/leases/fold.py:35-36` | 2 |
@@ -176,7 +231,7 @@ Each is named nowhere else in the 1,398 tracked files (pass 2), except where not
   `ergostat/cli/running.py:340-343`, `ergostat/cli/__init__.py:352-355`, the hints at `cli/common.py:29` and
   `cli/status.py:139`) would remove ≈84; that is the owner's call.
 - **Risk 2.**
-- **Tests.** `tests/test_graph_cli_web.py:365` (runs `chat`), `:159`.
+- **Tests.** `tests/test_graph_cli_web.py:379` (runs `chat`), `:159`.
 
 ### 7. One helper for item records
 
@@ -201,7 +256,7 @@ Each is named nowhere else in the 1,398 tracked files (pass 2), except where not
 - **Files and lines.** In `ergostat/`: `numbers/proposals.py:94-104`, `remote/cache.py:50-59`,
   `workspaces/pool.py:101-108`, and the non-blocking ones `numbers/extremes_cache.py:82-93` and
   `numbers/archreview.py:45-57`. In `dev/bin/`: `pools.py:65-72`, `drain.py:84-87`, `agents.py:112-118`,
-  `fac.py:350-358`, `simplify.py:150-173`, `watch.py:246-257`, `parks.py:109-110`.
+  `fac.py:350-358`, `simplify.py:150-173`, `watch.py:295-304`, `parks.py:109-110`.
 - **Evidence.** Each opens `<dir>/<name>.lock` and runs `fcntl.flock(f, LOCK_EX)` (or `| LOCK_NB`, yielding whether the
   lock was taken), then unlocks in `finally` (pass 6; Grep of `fcntl.flock(`: 46 uses in 25 files).
 - **Left as they are.** `repair/apply.py:64-73` (it checks the name before building the path: lesson-11),
@@ -214,12 +269,12 @@ Each is named nowhere else in the 1,398 tracked files (pass 2), except where not
 
 ### 9. The old name `variables:`
 
-- **Files and lines.** `ergostat/spec/compile.py:141-156` (`deprecated`, `renamed`), `:354`, `:997-1005`,
-  `:1019-1030`. Also `ergostat/spec/load.py:21`, `ergostat/spec/ir.py:19` (`OLD_KIND`),
-  `ergostat/library/trust.py:131`, `:174`, `ergostat/library/expand.py:52`, `:54`, `ergostat/remote/compose.py:29`,
-  `:325`, `ergostat/remote/serve.py:24`, `:83`, `ergostat/state.py:264` (`variable.set` in old records),
-  `ergostat/numbers/requests.py:42`.
-- **Evidence.** SPEC.md:463 and SPEC.md:3257 ("**deprecated name**: `variables:`, `variable.x` or a goal's
+- **Files and lines.** `ergostat/spec/compile.py:142-157` (`deprecated`, `renamed`), `:76` (`GOAL_KEYS`' `variable`),
+  `:355`, `:994-1002`, `:1016`, `:1022-1024`, `:1027`, `:1143` (the call of `renamed`), `:1248`. Also
+  `ergostat/spec/load.py:19`, `:21`, `ergostat/spec/ir.py:19`, `:34` (`OLD_KIND`), `ergostat/library/trust.py:137`,
+  `:194`, `ergostat/library/expand.py:52`, `:54`, `ergostat/remote/compose.py:37`, `:430`, `ergostat/remote/serve.py:27`,
+  `:98`, `ergostat/state.py:264` (`variable.set` in old records), `ergostat/numbers/requests.py:42`.
+- **Evidence.** SPEC.md:523 and SPEC.md:3510 ("**deprecated name**: `variables:`, `variable.x` or a goal's
   `variable:`, still read; rename to …").
 - **Net lines** ≈ 35. **Risk 3.** It breaks a promise in SPEC. A file still using the old names stops compiling, so
   the error must say what to rename. Records written before the rename still hold `variable.set`, so the gap must decide
@@ -231,7 +286,7 @@ Each is named nowhere else in the 1,398 tracked files (pass 2), except where not
 
 - **Files and lines.** `ergostat/cli/claims.py:12-13`, `ergostat/cli/context_cmd.py:13-14`, `ergostat/cli/intent.py:29-30`,
   `ergostat/cli/numbers.py:30-31` (four `_pct`/`pct`). `ergostat/cli/remote.py:61-62` and
-  `ergostat/remote/compose.py:232-238` (two `_ago`, beside `ergostat/show.py:20-23` `ago`).
+  `ergostat/remote/compose.py:334-339` (two `_ago`, beside `ergostat/show.py:20-23` `ago`).
 - **Evidence.** The same job written four times, with differences that look accidental: `""` or `"–"` for none, and
   `round(x*100)`, `:.0%` or `:.0f`.
 - **Net lines** ≈ 10. **Risk 1.** The output text changes where the copies differed, so the gap must state each change.
@@ -240,7 +295,7 @@ Each is named nowhere else in the 1,398 tracked files (pass 2), except where not
 ### 11. Re-signing old Node/Java/Go failures
 
 - **Files and lines.** `ergostat/repair/capture.py:17` (`OTHER`), `:138-143`.
-- **Evidence.** SPEC.md:6189-6196 ("**Superseding.** Node, Java and Go failures were signed by how they ended before
+- **Evidence.** SPEC.md:6476-6483 ("**Superseding.** Node, Java and Go failures were signed by how they ended before
   triage read their traces, so their old items have other ids…"). It is a migration for records written before that
   change. A new install has none.
 - **Net lines** ≈ 7. The `superseded` state stays in `ergostat/repair/__init__.py:8-12`, so old records still fold.
@@ -258,21 +313,27 @@ Each is named nowhere else in the 1,398 tracked files (pass 2), except where not
   mention is code in every case.
 - **The old model and its runner.** `ergostat/model.py`, `ergostat/spec/legacy.py` and `ergostat/runner.py`:
   `legacy.py:1-2` says the YAML model is turned into the old objects "so a YAML project is shown like any other while
-  those move to the new model". `model as mdl` is imported by 24 modules of `ergostat/` (among them `cli/common.py:10`,
-  `web/server.py:22` and `mcp.py:16`), and the engine runs `old.Runner` (`spec/engine.py:1782`). That is a migration of its own and needs a
-  survey first, not a cut.
-- **Warm workers.** GAPS.md:324-331 calls them superseded by daemons, but the `warm` branch never landed; `warm: true`
+  those move to the new model". `model as mdl` is imported by 25 modules of `ergostat/` (among them `cli/common.py:10`,
+  `web/server.py:22` and `mcp.py:16`), and the engine borrows the old runner's helpers (`spec/engine.py:39`, `:1808`
+  `old.Runner._prune`). Once item 2 lands, two parts of it are reachable only from tests: the 21 `spec is None`
+  guards listed in item 2 (with 90 more `getattr(…, "spec", None)` reads, 111 in 50 files) and `runner.Runner`'s
+  scheduling (`runner.py:364-561`, 182 net). They are not counted in the total. That is a migration of its own (which
+  of `model.py`'s objects the page and the CLI still read), and it needs a survey first, not a cut.
+- **Warm workers.** GAPS.md:369-376 calls them superseded by daemons, but the `warm` branch never landed; `warm: true`
   daemons are current (`ergostat/daemons/config.py`). Nothing on main to remove.
 - **The improvement benchmark** (`ergostat bench improve | judge | meta`, `ergostat/bench/__init__.py:1-6`,
   `cli/bench.py:1-4`). It is how the improver is verified (SPEC §12f). Kept.
 - **`ergostat/session_echo.py`.** The free stand-in for a Claude Code session (`ERGOSTAT_CLAUDE=echo`), documented
-  (SPEC.md:5121, docs/MESSAGES.md:113) and used by `tests/test_messages.py`, `tests/test_run_costs.py`,
+  (SPEC.md:5407, docs/MESSAGES.md:112) and used by `tests/test_messages.py`, `tests/test_run_costs.py`,
   `tests/test_workspaces.py`.
 - **Flags.** `ERGOSTAT_STALL` and `ERGOSTAT_STARTUP` (`ergostat/spec/watchdog.py:45`, `:52`) are set nowhere in
-  code or tests, but they are documented tuning knobs (SPEC.md:2299, `:2315`), not feature flags. `ERGOSTAT_IMPACT_SECONDS`
-  (`ergostat/repair/fix.py:180-181`) is set only by tests (`tests/test_repair2.py:87`, `tests/test_repair_verify.py:35`):
-  a 2-line test seam. `FACTORY_STANDIN_*` (`dev/bin/fac.py:676-704`) are the factory's stand-ins, set by its tests.
-  Every other variable read is set by ergostat itself or documented.
+  code or tests, but they are documented tuning knobs (SPEC.md:2478, `:2494`), not feature flags. `ERGOSTAT_IMPACT_SECONDS`
+  (`ergostat/repair/fix.py:181-182`) is set only by tests (`tests/test_repair2.py:87`, `tests/test_repair_verify.py:35`):
+  a 2-line test seam. `FACTORY_STANDIN_*` (`dev/bin/fac.py:677-706`) are the factory's stand-ins, set by its tests.
+  The other names read in `ergostat/` (Grep `environ(?:\.get)?[\[(]\s*f?"([A-Z_]+)`: 34 distinct names on 277a9c6c, most of them
+  `ERGOSTAT_RUN`, `_BLOCK`, `_ITEM`, `_SOCKET` and the like, which the engine sets for its runs) were read in the
+  first draft and none looked like a flag left unset. That was a reading, not a check: a name was not traced to its
+  setter one by one, so this map claims no more than that none of them is a found candidate.
 - **Same-named functions that are not duplicates:** `_said` (10 modules), `_when` (6), `table` (9), `settle`, `sweep`,
   `stamp`, `listing`. Read side by side, each does something different.
 - **`ergostat/spec/convert.py:35` `human`** next to `ergostat/durations.py:25` `human`. The first writes exact YAML
@@ -316,17 +377,34 @@ depends-on: []
 depends-on: [code-cut-toml-starters, code-cut-chat-brief]
 
 **Definition of done**
-1. `model.parse` (`ergostat/model.py:405-511`), the TOML branch of `load_main` (`:551-555`) and TOML in `find`
-   (`:517-524`) are gone. So are `ergostat/spec/convert.py` and the `convert` topic (`cli/__init__.py:39`,
-   `:153-155`). `_names`/`_take` (`:383-400`) go too, if nothing else calls them.
-2. A folder with only an `ergostat.toml` is refused (exit 2). The message names the last release that converts it.
-3. Every test that builds a TOML model builds YAML instead. `demo_check` passes on every demo.
-4. README.md:36, `:132`, SPEC.md:6550 and SPEC.md:3133 are current.
+1. Every site in item 2's "Removed" table is gone: `model.py:383-399`, `:402-511`, `:614-708`, `:551-555` and `:11`;
+   `spec/convert.py:1-223`; `cli/spec_cmds.py:142-168`; `cli/__init__.py:39`, `:153-155` and `cmd_convert` at `:22`;
+   `blockdiagram.py:1486-1505`; `reports/scrub.py:378-385`; `cli/running.py:133-136`, with `:171` comparing no
+   format. The docstrings at `model.py:1` and `web/server.py:5`, and `file_name`'s fallback (`model.py:600`), stop
+   saying `ergostat.toml`. `Dumper`, `whole` and `spaced` move unchanged to `spec/discover.py`, which imports them, and
+   `spec/convert.py` is deleted.
+2. `load_main` refuses an `ergostat.toml` (`ModelError`, exit 2 from the CLI), naming the last release that converts
+   it. `find` (`model.py:517-524`), `calls/client.py:65`, `:89` and `cli/fast.py:18` still see the file, so a TOML
+   folder below a YAML project is refused, not read as its parent's model.
+3. Item 2's "Stays" table is not touched; the 21 guards and `runner.Runner` are left for the old-model migration.
+4. The `repo` fixture (`tests/conftest.py:157-171`) writes YAML (the one `ergostat convert` writes for `DISK` today,
+   made before `convert` is deleted), and every test in item 2's Risk list builds YAML. A test that asserted a message
+   only the TOML `check` gives (`tests/test_model.py:99`, `:108`, `:129`, `:164`; `tests/test_runner_and_state.py:589`)
+   is removed or pinned to the YAML model's finding, each one named in the definition's notes.
+   `tests/test_spec_compile.py:183-192` and `tests/fixtures/toml/` are removed. `demo_check` passes on every demo.
+5. `git grep -l "ergostat.toml" -- ergostat` lists exactly 20 files: `model.py`, `calls/client.py`, `cli/fast.py`, and
+   the 17 that hold the 21 guards (`cli/claims.py`, `cli/gated.py`, `cli/intent.py`, `cli/leases.py`,
+   `cli/messages.py`, `cli/numbers.py`, `cli/spec_cmds.py`, `intent/measures.py`, `mcp.py`, `numbers/measures.py`,
+   `reports/shape.py`, `web/actions_api.py`, `web/control_api.py`, `web/messages_api.py`, `web/numbers_api.py`,
+   `web/remote_api.py`, `web/static/pages.js`). The other six of today's 26 drop out: `cli/__init__.py`, `cli/common.py`
+   and `supervisor.py` (with the two gaps this one waits on), `spec/convert.py`, `reports/scrub.py`, `web/server.py`.
+6. README.md:36, `:132`, SPEC.md:3352, `:6961`, docs/AGENT-GUIDE.md:517, docs/DESIGN.md:13 and docs/GAPS.md:351 are
+   current.
 
-**Files:** `ergostat/model.py`, `ergostat/spec/convert.py`, `ergostat/cli/__init__.py`, `ergostat/cli/spec_cmds.py`, the tests named in item 2, README, SPEC.
-**Risks:** lesson-3 (a TOML file must be refused, never read as "no model"); lesson-8 (`git grep -n "ergostat.toml"` in code and tests says only the refusal); lesson-13 (`runner.py` is not part of this gap, `spec/engine.py:1782`).
-**Acceptance tests:** `tests/test_model.py::test_an_ergostat_toml_alone_is_refused_naming_the_release_that_converts_it` (new); `tests/test_runner_and_state.py`, `tests/test_graph_cli_web.py`, `tests/test_cron.py`, `tests/test_spec_compile.py` pass on YAML fixtures; `scripts/demo_check.py` passes.
-**Size budget:** −300 net lines or more.
+**Files:** `ergostat/model.py`, `ergostat/spec/convert.py` (deleted), `ergostat/spec/discover.py`, `ergostat/cli/spec_cmds.py`, `ergostat/cli/__init__.py`, `ergostat/cli/running.py`, `ergostat/blockdiagram.py`, `ergostat/reports/scrub.py`, `ergostat/web/server.py` (its docstring); `tests/conftest.py`, `tests/test_model.py`, `tests/test_runner_and_state.py`, `tests/test_graph_cli_web.py`, `tests/test_cron.py`, `tests/test_reload_in_place.py`, `tests/test_spec_compile.py`, `tests/fixtures/toml/`, and any other file of item 2's `repo`/`project` counts whose assertions change; README.md, docs/SPEC.md, docs/AGENT-GUIDE.md, docs/DESIGN.md, docs/GAPS.md. These are exactly the files of DoD 1, 2, 4 and 6; the files of DoD 5's list are not edited.
+**Risks:** lesson-3 (a TOML file must be refused, never read as "no model" or as a parent folder's model); lesson-8 (DoD 5 is a test, not a reading); lesson-13 (`runner.py` and the guards are not part of this gap). If the move of the tests is too large for one review, it goes first in a branch of its own (tests only: `repo` writes YAML), and this gap waits on it.
+**Acceptance tests:** `tests/test_model.py::test_an_ergostat_toml_alone_is_refused_naming_the_release_that_converts_it`, `::test_an_ergostat_toml_below_a_yaml_project_is_refused_not_read_as_the_parent`, `::test_ergostat_toml_is_named_only_by_the_refusal_find_and_the_listed_guards` (runs DoD 5's `git grep -l` and compares it with the 20 files) (all new); `tests/test_runner_and_state.py`, `tests/test_graph_cli_web.py`, `tests/test_cron.py`, `tests/test_reload_in_place.py`, `tests/test_spec_compile.py`, `tests/test_blockdiagram.py`, `tests/test_spec_discover.py` (it covers the moved YAML writer) pass; `scripts/demo_check.py` passes.
+**Size budget:** −450 net lines or more (item 2 counts ≈482).
 
 ---
 
@@ -395,7 +473,7 @@ depends-on: []
 
 **Files:** `ergostat/supervisor.py`, `tests/test_graph_cli_web.py`.
 **Risks:** lesson-3 (if the guide cannot be read, chat refuses, never starts unbriefed); lesson-8.
-**Acceptance tests:** `tests/test_graph_cli_web.py::test_chat_briefs_from_the_agent_guide_and_shows_the_yaml` (new); the existing chat test at `tests/test_graph_cli_web.py:365` passes.
+**Acceptance tests:** `tests/test_graph_cli_web.py::test_chat_briefs_from_the_agent_guide_and_shows_the_yaml` (new); the existing chat test at `tests/test_graph_cli_web.py:379` passes.
 **Size budget:** −55 net lines or more.
 
 ---
@@ -428,7 +506,7 @@ depends-on: []
    It replaces the bodies at `numbers/proposals.py:94-104`, `remote/cache.py:50-59`, `workspaces/pool.py:101-108`,
    `numbers/extremes_cache.py:82-93` and `numbers/archreview.py:45-57`.
 2. `dev/bin/fac.py` gains `locked(cfg, name)`, used at `pools.py:65-72`, `drain.py:84-87`, `agents.py:112-118`,
-   `fac.py:350-358`, `simplify.py:150-173`, `watch.py:246-257` and `parks.py:109-110`.
+   `fac.py:350-358`, `simplify.py:150-173`, `watch.py:295-304` and `parks.py:109-110`.
 3. Every lock file keeps its path and name. `repair/apply.py:64-73`, `resources.py:192-204` and `manage.py:83-85`,
    `:272-273` are left as they are.
 
@@ -445,10 +523,10 @@ depends-on: []
 
 **Definition of done**
 1. `variables:`, `variable.NAME` and a goal's `variable:` are refused at compile time, each with an error that says
-   what to rename. `deprecated`/`renamed` (`ergostat/spec/compile.py:141-156`) are gone, and so are the other
+   what to rename. `deprecated`/`renamed` (`ergostat/spec/compile.py:142-157`) are gone, and so are the other
    readings listed in item 9.
 2. Old records' `variable.set` events are still read (`ergostat/state.py:264`), because a record is never rewritten.
-3. SPEC.md:463 and SPEC.md:3257 say the old names are refused, and since when.
+3. SPEC.md:523 and SPEC.md:3510 say the old names are refused, and since when.
 
 **Files:** the files of item 9, `tests/test_spec_auxiliaries.py`, SPEC.
 **Risks:** lesson-3 (an old name must fail closed, never be ignored silently); lesson-8.
@@ -464,7 +542,7 @@ depends-on: []
 **Definition of done**
 1. `ergostat/show.py` has `pct(x, none="–")` beside `ago`. The four copies (`cli/claims.py:12-13`,
    `cli/context_cmd.py:13-14`, `cli/intent.py:29-30`, `cli/numbers.py:30-31`) and the two `_ago`s
-   (`cli/remote.py:61-62`, `remote/compose.py:232-238`) use them.
+   (`cli/remote.py:61-62`, `remote/compose.py:334-339`) use them.
 2. Each changed output is listed in the definition. Where the copies differed, one form is chosen and said.
 
 **Files:** the modules named, `ergostat/show.py`.
