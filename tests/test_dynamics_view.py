@@ -27,6 +27,21 @@ def factory(tmp_path):
     return lambda **q: api(live, "graph", {k: [v] for k, v in q.items()})
 
 
+@pytest.mark.parametrize("example,box,description", [("the-job", "job", "what I am expected to do, and what I am judged on"),
+                                                    ("software-factory", "product", "textkit and its customers")])
+def test_each_closed_system_box_is_given_the_description_it_prints(tmp_path, example, box, description):
+    """A closed system's box in Dynamics prints the description its node carries (dynamics.js sdSystem); with none
+    it falls back to 'a module: open it…'. The browser half of this check, that the box shows it and counts no
+    loops, is tests/test_diagram_rendering.py::test_each_closed_system_box_says_what_the_system_is."""
+    d = tmp_path / example
+    shutil.copytree(ROOT / "examples" / example, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    g = api(Live(Project(mdl.load(d))), "graph", {"view": ["dynamics"], "open": ["-"]})
+    closed = {n["label"]: n.get("description") for n in g["nodes"] if n["kind"] == "system"}
+    assert closed.get(box) == description, closed
+
+
 def test_no_sensor_controller_or_agent_is_drawn_and_every_connector_says_its_sign(factory):
     g = factory(view="dynamics", open="*")
     assert g["kind"] == "dynamics"
