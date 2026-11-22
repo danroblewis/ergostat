@@ -72,3 +72,12 @@ Broken to watch the new tests fail: the cap not read (run 2 tries all 8 again), 
 as the full batch, the ceiling removed, and only negative allowances refused. Each failed its test.
 Run: tests/test_factory.py whole (133 passed, 2 skipped for want of Docker), ruff on ergostat tests scripts. Not run:
 the unit suite and the four browser files (the factory runs them), and no origin/main in this clone to merge.
+
+Round 3 (the merge of main b4639301, which conflicted in dev/bin/queue.py). Main added the flake excusal
+(excusable(), excused(): a red run's 1 to 3 named tests each passing alone twice on the red tree, then the suites it
+did not finish). Both kept: the excusal sits inside the branch's `try`, so its named reruns and its `only` run are
+checked against the allowance like every other run (run() takes main's `only` and still calls go() first). Out of
+time during the excusal, no prefix has been proven by a full green run (lo is 0), so nothing lands and the batch goes
+back uncounted. Now 55 net lines of code against main (queue.py +50, pools.py +2, factory.toml +3), within the 60.
+Run: tests/test_factory.py whole (142 passed, 2 skipped), ruff on ergostat tests scripts. Not run: the unit suite and
+the four browser files (the factory runs them). No test runs out of time inside the excusal.
