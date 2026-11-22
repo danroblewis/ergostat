@@ -42,3 +42,10 @@ tests/test_diagram_rendering.py, run serially: 195 passed, 7 failed. On a rerun,
 These four were not run on main: the command that put main's page code in place for the comparison was refused. The
 unit suite and the other browser files were not run here (the factory runs them). main has not moved since the clone,
 so there was nothing to merge.
+Build fix: the factory's `build` step (affected_tests) chose only tests/test_diagram_rendering.py, a browser file.
+Without Playwright it skips as a module, so pytest exits rc 5 (no tests run). The page code was not at fault. A unit
+test that needs no browser now checks the sentence at its source:
+`test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_may_do` in tests/test_graph_cli_web.py.
+That test is outside the Files list, but it is the reversible choice: it changes no factory script and no ergostat
+code, so the build has a real test to run. tests/test_graph_cli_web.py passes in full, run serially: 33 passed. Ruff
+is clean. `suite_watch.py` around named_tests was refused, so the file was run without the watchdog.

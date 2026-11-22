@@ -211,6 +211,18 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_may_do():
+    """The sentence is defined once (pages.js MAY_DO); the Needs attention group shows that same constant, described
+    by it (aria-describedby), with its empty form when nothing waits (the browser half is test_diagram_rendering.py)."""
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static"
+    pages, diagram = (static / "pages.js").read_text(), (static / "diagram.js").read_text()
+    said = "You can look at everything. Approving or denying these is the only thing that changes the system."
+    assert f'const MAY_DO = "{said}";' in pages and said not in diagram
+    assert '"aria-describedby": "may-do"' in diagram and "? MAY_DO :" in diagram
+    assert "Nothing waits for you. Looking never changes the system." in diagram
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""
