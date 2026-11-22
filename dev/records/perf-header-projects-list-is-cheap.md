@@ -68,3 +68,11 @@ Run here: tests/test_projects_header.py (6 passed), tests/test_page_refresh.py (
 tests/test_projects_listing.py, tests/test_web_access.py and tests/test_graph_cli_web.py (all passed). ruff is clean.
 Not run here: the owner-machine check, the full unit suite and the other three browser files.
 Overrun reason: 96 net lines outside tests against the definition's 90. The extra 6 make the lister stoppable (start/stop by server, joined), which review 1 required.
+
+Round 3: the merge of main (720426bd) conflicted in ergostat/projects.py `_row`. Kept both sides: main's
+`goals_off(snap, names=True)` counts (`off` from system and open goals, `unknown`, the new `upkeep_off`) and the
+branch's third return value, the model kept for a running project. No other change.
+Run here after the merge: tests/test_projects_header.py, tests/test_goal_upkeep.py, tests/test_projects_listing.py
+(8 passed), tests/test_web_access.py and tests/test_graph_cli_web.py (60 passed), tests/test_page_refresh.py (9 passed,
+under suite_watch, rc 0). ruff is clean.
+Not run here: the owner-machine check, the full unit suite and the other three browser files.
