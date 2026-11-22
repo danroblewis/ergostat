@@ -3811,14 +3811,19 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
 
 
 SAYS = """(id) => { const g = document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(id)}"]`);
-  return g && { text: [...g.querySelectorAll("text")].map((t) => t.childNodes[0]?.textContent || "").join("|"),
-                title: g.querySelector(":scope > title")?.textContent || null,
-                label: S.graph.nodes.find((n) => n.id === id)?.label }; }"""
+  const said = () => [...g.querySelectorAll("text")].map((t) => t.childNodes[0]?.textContent || "").join("|");
+  if (!g) return null;
+  const now = said();
+  g.dispatchEvent(new PointerEvent("pointerenter"));
+  const pointed = said();
+  g.dispatchEvent(new PointerEvent("pointerleave"));
+  return { text: now, pointed, left: said(), label: S.graph.nodes.find((n) => n.id === id)?.label }; }"""
 
 
 def test_inside_its_own_systems_box_a_part_reads_by_its_short_name_with_its_full_name_on_hover(browser, tmp_path):
-    """Drilled into the use help-queue, its stock reads ``waiting``, its full name on hover and in the graph (links,
-    lookups); drawn where no system is around it, it reads ``help-queue-waiting`` (SPEC §2a, *A part's system*)."""
+    """Drilled into the use help-queue, its stock reads ``waiting``; pointed at, ``help-queue-waiting`` (in its own
+    text: a part has no tooltip), its full name kept in the graph (links, lookups); drawn where no system is around
+    it, it reads ``help-queue-waiting`` (SPEC §2a, *A part's system*)."""
     with served("small-requests", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
@@ -3827,9 +3832,10 @@ def test_inside_its_own_systems_box_a_part_reads_by_its_short_name_with_its_full
             drawn(pg, url, view, n)
             got = pg.evaluate(SAYS, "stock:help-queue-waiting")
             assert got and "waiting" in got["text"].split("|") and "help-queue-waiting" not in got["text"], (view, got)
-            assert got["title"] == "help-queue-waiting" and got["label"] == "help-queue-waiting", (view, got)
+            assert "help-queue-waiting" in got["pointed"].split("|") and got["left"] == got["text"], (view, got)
+            assert got["label"] == "help-queue-waiting" and not pg.evaluate(NO_TOOLTIPS), (view, got)
         drawn(pg, url, "around=stock/help-queue-waiting", 3)        # no system drawn around it: its full name
         got = pg.evaluate(SAYS, "stock:help-queue-waiting")
-        assert got and "help-queue-waiting" in got["text"].split("|") and got["title"] is None, got
+        assert got and "help-queue-waiting" in got["text"].split("|") and got["pointed"] == got["text"], got
         pg.close()
         assert not errors, errors

@@ -105,8 +105,8 @@ function sdSystem(n, w, hgt) {
     const left = side === "west";
     // a named connection point (as Stella's module connectors): no square, the line meets the edge at its name
     const cls = "t-sub sd-port-name" + (flowing.has(p.id) || (twin && flowing.has(twin.id)) ? " flow-port" : "");
-    g.append(s("text", { x: left ? 8 : w - 8, y: y + 4, class: cls, "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
-      p.both ? "⇄ " : "", nameOf(p), p.shown ? s("title", {}, p.label) : null, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
+    g.append(fullOnHover(s("text", { x: left ? 8 : w - 8, y: y + 4, class: cls, "text-anchor": left ? "start" : "end", "data-part": p.part, "data-side": side },
+      p.both ? "⇄ " : "", nameOf(p), p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null), p));
   }
   return g;
 }
