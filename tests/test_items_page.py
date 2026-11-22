@@ -934,3 +934,92 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+# ---- the Timeline and the Graph of items that do not wait on one another (no relations declared)
+
+DESK = """name: desk
+items:
+  ticket:
+    id: ticket/*
+    states: [todo, doing, review, done]
+    on:
+      ticket.filed: todo
+      ticket.started: doing
+      ticket.submitted: review
+      ticket.closed: done
+"""
+
+
+@pytest.fixture(scope="module")
+def desk(tmp_path_factory):
+    """Eight tickets with no relations, none finished (the Frontier, on by default, hides the finished), each moved
+    through its states at its own pace."""
+    d = tmp_path_factory.mktemp("desk") / "desk"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(DESK)
+    home = d.parent / "home"
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+t = time.time() - 3000
+for i in range(1, 9):
+    p.events.add("ticket.filed", item=f"ticket/{{i}}", data={{"title": f"ask {{i}}"}}, at=t + i * 60)
+    p.events.add("ticket.started", item=f"ticket/{{i}}", at=t + i * 60 + 600)
+    if i % 2:
+        p.events.add("ticket.submitted", item=f"ticket/{{i}}", at=t + i * 60 + 1500)
+p.events.add("ticket.started", item="ticket/1", at=t + 2000)     # sent back: review is left, so not a finished state
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def test_the_timeline_draws_each_items_states_without_relations_and_the_graph_says_there_is_none(browser, desk):
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{desk}/items?view=timeline")
+    pg.wait_for_function("() => document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ticket/\"]').length >= 8",
+                         timeout=20000)
+    rows = pg.locator('.rg-timeline .rg-row[data-id^="ticket/"]').evaluate_all("""els => els.map((e) => ({
+        id: e.dataset.id, top: e.getBoundingClientRect().top,
+        states: [...e.querySelectorAll('rect.rg-seg')].map((r) => r.dataset.state),
+        labels: [...e.querySelectorAll('text.rg-inbar')].map((t) => t.textContent) }))""")
+    assert sorted(r["id"] for r in rows) == [f"ticket/{i}" for i in range(1, 9)], rows     # one row a ticket
+    for r in rows:
+        assert r["top"] < 900, r                                                          # within the first 900 px
+        n = int(r["id"].split("/")[1])
+        want = ["todo", "doing", "review", "doing"] if n == 1 else ["todo", "doing", "review"] if n % 2 else ["todo", "doing"]
+        assert r["states"] == want and r["labels"] == want, r                            # split by state, each named
+    tl, charts = pg.locator("section.sys-group:has(.rg-timeline)").first.evaluate(
+        "(e) => [e.querySelector('.rg-timeline').getBoundingClientRect().top, e.querySelector('.kind-flows').getBoundingClientRect().top]")
+    assert tl < charts, (tl, charts)                                                     # the mode's own drawing first
+    assert "relations:" not in pg.locator("#main").inner_text()
+    pg.goto(f"{desk}/items?view=graph")
+    said = "These items do not wait on one another, so there is no dependency graph."
+    pg.wait_for_function(f"() => document.body.innerText.includes({said!r})", timeout=20000)
+    top, charts = pg.locator("p.muted", has_text=said).first.evaluate(
+        "(e) => [e.getBoundingClientRect().top, e.closest('section').querySelector('.kind-flows').getBoundingClientRect().top]")
+    assert top < charts, (top, charts)                                                   # above the charts here too
+    assert "relations:" not in pg.locator("#main").inner_text()
+    assert not errors, errors
+    pg.close()

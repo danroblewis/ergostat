@@ -25,3 +25,35 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. Net code: +4 lines (`ergostat/web/static/pages.js` +5 −3, `relations.js` +2 −1); within budget.
+
+- `pages.js`: in Graph and Timeline, a system none of whose kinds has relations asks `items-graph` for its kinds
+  that have items, for the Timeline only; the Graph says "These items do not wait on one another, so there is no
+  dependency graph." (the old "relations: (blocked_by: ticket)" instruction is gone). In both modes each system's
+  view is drawn above its kinds' charts; List keeps its order.
+- `relations.js`: each Timeline segment that actually happened is named by its state inside its bar where it fits
+  (more than 30 px), and has `data-state`. Projected bars are not labelled.
+- SPEC §5a ("The Items page's views") says both.
+- Test: `tests/test_items_page.py::test_the_timeline_draws_each_items_states_without_relations_and_the_graph_says_there_is_none`.
+  It uses a small `desk` model of its own: 8 tickets, no relations, on a port from `tests/ports.py` (the 8791-8799
+  range), not a fixed :8791. Checked: 8 rows, one per ticket, each above 900 px, segments with `data-state` and
+  labels matching its moves; the Timeline and the Graph message sit above the kinds' charts; no "relations:" in the
+  page. Each of four breaks was seen to fail it: Timeline asking only related kinds (timeout), charts first (row at
+  910 px), no in-bar labels, the old Graph wording.
+
+Decisions taken alone (the most reversible option):
+- The Frontier (on by default: only the unfinished) is left as it is, so finished items still drop out of the
+  Timeline unless Frontier is unchecked. So the test's 8 tickets are all unfinished. To show the finished by default
+  when there are no relations would change a default that is outside this gap.
+- In a snapshot, a system with several kinds and no relations now says "The graph and the timeline are not in a
+  snapshot." for the Timeline, because `snapshot.py` holds `items-graph` only for related kinds per system (and each
+  kind alone, so choosing a kind still works). Making snapshots hold this too is a separate change.
+- No docs/GAPS.md entry: the gap has none.
+
+Tests run: `tests/test_items_page.py` whole, with Playwright, under the watchdog: 22 passed, none skipped, rc 0.
+`uv run ruff check ergostat tests scripts`: clean. Not run by me (left to the factory, per the rules): the unit
+suite and the other three browser files. Nothing on `main` is newer than the branch's base, so there was nothing to
+merge.

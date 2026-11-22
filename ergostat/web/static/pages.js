@@ -673,7 +673,9 @@ async function pageItems(main, q) {
     const relAsked = {};
     if (view !== "list") for (const g of systems) {
       if (!isOpen(g.name) || (d.set && !g.kinds.includes(kind))) continue;
-      const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : g.kinds.filter((n) => relKinds.has(n));
+      const related = g.kinds.filter((n) => relKinds.has(n));     // none: the Timeline still draws each item's states
+      const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : related.length || view === "graph" ? related
+        : g.kinds.filter((n) => Object.values(kindOf[n]?.counts || {}).some(Boolean));
       relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }).catch((err) => ({ err })) : null };
     }
     if (!p.isConnected) return;
@@ -763,7 +765,7 @@ async function pageItems(main, q) {
     const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
     const relPart = async (g) => {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
-      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "No relations among these kinds: a kind declares them under relations: (blocked_by: ticket).")];
+      if (!want.length) return kind || view !== "graph" ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);
@@ -788,7 +790,7 @@ async function pageItems(main, q) {
       if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head, charts)); continue; }   // the charts, not the lists
       const t = view === "list" ? await tables(names) : await relPart(g);
       anyRows ||= t.length > 0;
-      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name }, head, charts, ...t));
+      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name }, head, ...(view === "list" ? [charts, ...t] : [...t, charts])));   // a mode's own drawing first
     }
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
