@@ -233,11 +233,31 @@ LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or 
 }
 
 
-UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files)$")
+UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|heartbeat-age|stalls|restarts)$")
 UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
     "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
     "ergostat.upkeep.retired-index-files": "the retired item-index files (marked, waiting for no process to hold them), now",
+    "ergostat.upkeep.heartbeat-age": "seconds since the last pass heartbeat.json gives; no reading without one",
+    "ergostat.upkeep.stalls": "ergostat.engine.stalled events over the last hour (the engine's watchdog)",
+    "ergostat.upkeep.restarts": "ergostat.engine.restarted events over the last day (the outer watcher)",
 }
+STALE_RANGE = (60, 3600)           # the seconds use: upkeep's heartbeat-fresh may give the outer watcher (SPEC §2a)
+
+
+def stale_ok(x) -> bool:
+    """A real number of seconds within ``STALE_RANGE``: never a bool, NaN or infinity (each fails the comparison)."""
+    return isinstance(x, int | float) and not isinstance(x, bool) and STALE_RANGE[0] <= x <= STALE_RANGE[1]
+
+
+def heartbeat_stale(spec) -> float | None:
+    """The limit of ``use: upkeep``'s goal ``heartbeat-fresh`` (ergostat's own template), for ``heartbeat.json``; None
+    in a model without it, or with one outside ``STALE_RANGE``."""
+    for inst, u in (getattr(spec, "uses", None) or {}).items():
+        if isinstance(u, dict) and u.get("template") == "upkeep" and not u.get("owners"):
+            g = (getattr(spec, "goals", None) or {}).get("heartbeat-fresh")
+            if g is not None and g.system == inst and g.hold.op == "<=" and stale_ok(g.hold.value):
+                return float(g.hold.value)
+    return None
 
 
 def is_measure(name: str) -> bool:

@@ -264,8 +264,8 @@ nothing of the chain is in the model. Only the owner can mark a folder trusted, 
 ### Upkeep
 
 `use: upkeep` (once a model, its parts in a system named for the use, `upkeep` by convention) draws ergostat's own
-upkeep as loops of the model. Its first and so far only loop is the item-index files (section 4b: one
-`<state>/items/<hash>[.n].db` per shape of the model's item kinds). The stock `index-files` (`ergostat.upkeep.index-files`,
+upkeep as loops of the model: the item-index files (section 4b: one `<state>/items/<hash>[.n].db` per shape of the
+model's item kinds), and the watched loops below. The stock `index-files` (`ergostat.upkeep.index-files`,
 the live files) fills by `index-files-made` (`changes: rises`, a new file on each change to the kinds) and drains by
 `index-files-tidied` (`changes: falls`). The stock `retired-index-files` (`ergostat.upkeep.retired-index-files`)
 drains by `retired-index-files-removed`. A file is *retired* when its mark `<hash>[.n].retired` stands beside it
@@ -293,8 +293,46 @@ checked before the lock and again once it is held.
 
 **Fail-safe.** A measure with no state directory, or a folder it cannot list, gives no reading, never 0. If the
 tidier stops, nothing else limits the number of files under `use: upkeep`: they only pile up (one per change of the
-kinds), and every index still opens and folds right. The other upkeep loops (the watchdog, the heartbeat, leases
-and the worktree pool; the event log's roll-up and measurement retention) are still to come.
+kinds), and every index still opens and folds right. The event log's roll-up and measurement retention are still
+to come.
+
+**The watched loops.** The template also draws the functions that keep the engine itself going. They are drawn,
+not run: each controller is ergostat's code, a `type: external` block (observed, never started by ergostat), and no
+goal, parameter or block turns one off or goes round it (`coordinator/08-modes-and-protection.md` §5.3).
+
+- The stock `stalls` (`ergostat.upkeep.stalls`: `ergostat.engine.stalled` events over the last hour) is held at 0 by
+  `no-stalls`, served by `watchdog`, the engine's own watchdog (`spec/watchdog.py`, section 9.1). It drains by
+  `stalls-mended` (`changes: falls`).
+- The stock `heartbeat-age` (`ergostat.upkeep.heartbeat-age`: the seconds since the last pass `heartbeat.json`
+  gives) is held at `<= ${stale}` by `heartbeat-fresh` (`stale` 180 by default, 60 to 3600, checked when the model
+  loads), served by `outer-watcher` (`watcher.py`, kept running by `ergostat run --service`: launchd or systemd). It
+  fills by `heartbeat-aged` (time passing, its rises) and drains by `heartbeat-renewed`. The stock `restarts`
+  (`ergostat.upkeep.restarts`: `ergostat.engine.restarted` events over the last day) fills by `restarts-made`, which
+  the outer watcher moves, and has no goal.
+- With `leases: true` (default false): the stocks `overdue-leases` and `expired-leases` (`ergostat.leases.overdue`,
+  `.expired`), the goal `no-overdue-leases` (`<= 0`), and the external block `lease-expiry` (`leases/dispatch.py`).
+- With `pool: NAME` (default none): the stocks `free-workspaces` and `quarantined-workspaces`
+  (`ergostat.workspaces.free@NAME`, `.quarantined@NAME`), the goal `no-quarantined-workspaces` (`<= 0`), and
+  `pool-keeper`, a person: the owner, asked to free a quarantined slot (`ergostat workspaces NAME --free N`).
+  Ergostat never frees one by itself. Nothing for leases or a pool appears unless asked for.
+
+**The layers**, in order: the engine's watchdog mends a wedged sensor pool or loop inside its process and restarts
+the process past that; the outer watcher, or launchd or systemd beneath it, restarts an engine dead or frozen whole;
+then the owner. **The heartbeat goal is read from outside.** In a model with `use: upkeep` the engine writes the
+goal's limit into `heartbeat.json` as `"stale": N` each beat (`ir.heartbeat_stale`). The file is written whole each
+time, so a model without the template, or one the template was taken out of, writes no `stale`. The watcher uses
+`stale` only when it is a real number (never a bool, NaN or infinity) with `60 <= stale <= 3600`; missing, it uses
+180 and says nothing (the normal case without the template); malformed or out of range, it uses 180 and says so in
+`run.log`, once for each value in a watcher process. So `stale` lets the watched engine relax the outer watcher's
+limit to at most 3600 s, or tighten it to 60 s; it never turns the watcher off, and it never changes whether the
+engine's own watchdog runs. The heartbeat the run writes as it starts carries no `stale`, so 180 applies until the
+watchdog's first beat.
+
+**No controller reads what it manages.** The watcher still reads only `run.pid`, `heartbeat.json` and `stopped`
+(and, when it restarts, its own back-off, `restarts.json`, and `run.log`). The engine's sensor of `heartbeat-age` is
+a drawing, not a protection: an engine frozen whole reads nothing, and the outer watcher is the layer that acts. Each
+measure gives no reading, never 0, when what it reads is missing: no `heartbeat.json`, one that cannot be read, one
+with no finite last pass or a pass stamped in the future; an event log that cannot be read.
 
 ## 3. Names, references and values
 
@@ -1575,7 +1613,7 @@ flows:
 | `sum` | field | | On a flow's `items`: the rate per hour of this field summed over the items moving (a number; else 0), not how many moved. `model-mended` sums each written change's `fit_gained`, what Accept measured it took off the error |
 | `changes` | `rises`, `falls`, `net` or `rest` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over`; `rest` (two-way, one a stock): the net change less what the stock's other measured flows moved, each at its last reading (the residual flow). Every rise or fall is whatever caused it: a flow so measured that is drawn as caused by another flow is the finding `measured-not-caused` |
 | `over` | duration | `1h` | On a flow: the window the rate is taken over |
-| `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings`; `ergostat.upkeep.*` (`index-files`, `retired-index-files`) | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e) or of its own upkeep (section 2a, *Upkeep*), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
+| `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings`; `ergostat.upkeep.*` (`index-files`, `retired-index-files`, `heartbeat-age`, `stalls`, `restarts`) | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e) or of its own upkeep (section 2a, *Upkeep*), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
 | `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
 | `where` | map of field → value (or list) | | Only items whose fields match; a field's field is named with a dot (`lease.back: triage`: the items whose lease was taken at `triage`, section 9.5). Values compare as typed JSON: a number matches a number (`1` matches `1.0`), a string a string, a boolean a boolean, `null` a field that is null or missing, so `priority: 1` never matches the text `"1"` (write it quoted when the field holds text). *Decided* (2026-11-18): before, both sides were compared as text, so `1` missed a field holding `1.0`; `check` notes each bare number or boolean in a `where:` (**where-typed**) since its meaning changed. The same holds for a block's `takes: where:` |
 | `every` | duration | `1m` | How often it reads (`run`, `query`) |
@@ -2150,9 +2188,9 @@ and it waits 60 s from it, then 2 m, 4 m, ... at most 30 m, said once and record
 the engine recovering meanwhile cancels it. The last restart is kept in `<state>/restarts.json`, so the back-off
 outlives the process. **A start that hangs** (a lock held by another process, say) is caught by a startup deadline
 (120 s, `ERGOSTAT_STARTUP`): its stacks dumped (`stalls/*-start.txt`) and the process restarted under the same
-back-off. Every 5 s the watchdog writes `<state>/heartbeat.json` (when the last pass finished, the pid), and the run
-writes it as it starts. The alarms' own sensor pool is watched as the sensors' is: replaced when wedged, and a third time in ten minutes
-restarts the process. `kill -USR1`
+back-off. Every 5 s the watchdog writes `<state>/heartbeat.json` (when the last pass finished, the pid, and under
+`use: upkeep` the `stale` the outer watcher uses), and the run writes it as it starts. The alarms' own sensor pool
+is watched as the sensors' is: replaced when wedged, and a third time in ten minutes restarts the process. `kill -USR1`
 on the runner writes every thread's stack to `<state>/threads.txt` at any time, and the socket's `ping` says how long
 ago the last pass finished.
 
@@ -2165,9 +2203,11 @@ PATH (each in turn; one whose `#!` is a launcher, a repository's `.venv` or a te
 and none left is refused). What it keeps running is the watcher,
 which reads only `run.pid`, `heartbeat.json` and `stopped` every 5 s: an engine dead, unless stopped on purpose
 (`ergostat run --stop` leaves `<state>/stopped`, removed by the next start; a logout or a shutdown leaves none), is
-started again; one whose last pass is older than 180 s is stopped (`SIGTERM`, then `SIGKILL`) and started again; each
-under the same back-off, said in `run.log`, and recorded as `ergostat.engine.restarted` when the start succeeded. `ergostat status` says "engine not running (last seen ...)", from the heartbeat, and
-shows each loop as it was then, never as holding now.
+started again; one whose last pass is older than 180 s, or than the heartbeat's `stale` when that is 60 to 3600 s
+(`use: upkeep`'s `heartbeat-fresh`, section 2a; malformed or out of range, 180, said once in `run.log`), is stopped
+(`SIGTERM`, then `SIGKILL`) and started again; each under the same back-off, said in `run.log`, and recorded as
+`ergostat.engine.restarted` when the start succeeded. `ergostat status` says "engine not running (last seen ...)",
+from the heartbeat, and shows each loop as it was then, never as holding now.
 
 **What a run records.** Every machine block's run ends with `agent.ran` (or `agent.failed`), and besides what it said
 and moved, that event says what the run cost, measured by ergostat, never by the run's own say:
