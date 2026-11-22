@@ -884,7 +884,13 @@ its age (`sensor.failed`), its box says *not answering for 2m · readings 3m old
 in the remote's clock; one older than three of its sensor's periods (two minutes at least), more than 5 s in
 the remote's future, with no `time`, in an answer with no `now`, or marked `unreachable` is not taken. A
 `now` or `time` that is not a finite number (JSON's `NaN` or `Infinity`) counts as none, and a middle keeps
-no age for it, so it serves that reading on as `time: null`.
+no age for it, so it serves that reading on as `time: null`. When the model answers but its last readings
+request got no answer (`read_ok` false in `status.json`, what the box reads), the Check page and `check`
+carry **remote-stale**: *remote incidents: its readings fail (WHY) since 5m ago; its measures here are 10m
+old* (or *none of its measures has been read here*). A remote whose readings were never asked for, or whose
+last request was answered, has none; one that is remote-unreachable is never remote-stale too at the same
+load. A reading refused as stale (too old, in the remote's future, untimed) from an answered request is not
+remote-stale: that sensor's `sensor.failed` says it.
 
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens

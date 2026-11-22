@@ -18,7 +18,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
     reading says the version moved; parts brought in as an external subsystem, blocks never run, sensors
     reading the remote, `systems:` to narrow); source type `ergostat` (one batched request per remote a
     period, stale readings refused); local references checked against the remote's current model
-    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
+    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`, `remote-stale`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
     `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
