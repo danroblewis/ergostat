@@ -10,6 +10,7 @@ With ``RUNCOST_SHOTS=DIR`` it leaves screenshots of the page and the panel there
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -21,8 +22,6 @@ from pathlib import Path
 import pytest
 
 from tests.ports import free_port
-
-playwright = pytest.importorskip("playwright.sync_api")
 
 MODEL = """
 name: agents-costs
@@ -117,6 +116,7 @@ def site(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def browser():
+    playwright = pytest.importorskip("playwright.sync_api")   # (here, not at import: the API test needs no browser)
     with playwright.sync_playwright() as p:
         try:
             b = p.chromium.launch()
@@ -280,6 +280,16 @@ def test_an_agent_that_never_ran_is_behind_or_last_failed_stands_out(standout, b
     assert said and runs == said.group(1) == "10"                         # the list and the panel: one count
     assert not errors, errors
     pg.close()
+
+
+def test_the_agents_listing_sends_each_agents_runs_and_the_runs_asked_for(standout):
+    """No browser: /api/agents gives each agent the window's run count (the one source of the list's runs cell and the
+    panel's) and the runs its every: asks for over the hour of record, so judge reads 10 of 120."""
+    with urllib.request.urlopen(standout["url"] + "/api/agents", timeout=10) as r:
+        got = json.load(r)
+    assert (got["judge"]["runs"], got["judge"]["expected"]) == (10, 120)
+    assert (got["improver"]["runs"], got["improver"]["expected"]) == (0, 20)
+    assert got["tidy"]["expected"] == 1
 
 
 def test_the_agents_page_lists_the_daemons(site, browser):

@@ -50,3 +50,10 @@ Round 1: built. About 23 net lines of code (server.py +2, pages.js +15, style.cs
   tests/test_page_refresh.py (8 passed), tests/test_page_polling.py (17 passed). `ruff check ergostat tests scripts`
   is clean. Not run: the unit suite, tests/test_diagram_rendering.py and tests/test_items_page.py (neither covers
   /agents). `main` has not moved since the clone, so there was nothing to merge.
+
+Round 1, after the build step: the build step has no Playwright, so `tests/test_agents_page.py` (the only file it
+picks) was skipped whole at import, and pytest returned rc 5. The Playwright skip now sits in the `browser` fixture.
+A new check that needs no browser, `test_the_agents_listing_sends_each_agents_runs_and_the_runs_asked_for`, reads
+`/api/agents` on the standout fixture (judge 10 of 120, improver 0 of 20, tidy 1 asked for). With `expected` sent as
+null it failed, as it should. No code outside `tests/` changed. Run: the file without Playwright (1 passed, 4 skipped),
+with Playwright under suite_watch (5 passed, rc 0), and ruff (clean).
