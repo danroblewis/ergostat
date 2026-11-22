@@ -374,6 +374,14 @@ A held chain may run the owner's own commands: a value in the owner's `with:` fo
 library (its `example:`, a default, a description) into `with:`**: ask the owner for the command, and let them write
 it.
 
+A held chain may also ask a person or an AI session, or read a query, in the owner's own words: a person block's
+`ask`, an ai block's `prompt`, a sensor's `query` and a `sources` entry stand only when no piece of them is the
+library's (SPEC §2a, R3); otherwise the use is refused as `untrusted-text`. The instance's name and a part's renamed
+name count as the library's there (they hold its `uses:` keys), so a trusted template's `${name}` in a prompt is
+refused too. Read that refusal as you read
+`library-untrusted`. **Never copy the library's question, prompt or query (or its default) into `with:` to get past
+it**: ask the owner what they want asked or read, and let them write it.
+
 ## 3a. A system another ergostat runs: compose it, never copy it
 
 When part of the person's work is run by **another ergostat** (another team's, another machine's), do

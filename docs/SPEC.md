@@ -184,15 +184,14 @@ for an untrusted template only; a trusted template's output is unchanged:
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
 known types), and everything an untrusted template makes in the model: its system's description, its parts'
 descriptions, prompts, commands, equations and names, however `check`, the diagrams and the MCP model views show
-them. Gating `ask:` and `query`/`source` is not done either (docs/GAPS.md, *Shared libraries*).
+them. A held chain's `ask`, `prompt`, `query` and `sources` are gated by who wrote them instead (R3, below).
 
 *Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
 (an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
 the leases are checked, each limit below that an untrusted part passes is an error, **untrusted-limit**, at its
 `use:` line. The limits are constants (`ergostat/library/bounds.py`), never config. They are a second line behind
-the allowlist below: a held chain may not make a program, ai or judge block or a sensor with `run`, `every`, `cron`
-or `daemon` at all, so today the limits that compile can reach are a sensor's default `every` and the run-time gates;
-the rest bound whatever a later rule admits (docs/GAPS.md, *Shared libraries*):
+the allowlist below: a held chain makes a program, ai or person block, or a sensor's `run`, `query`, `every` or
+`cron`, only as R1 to R3 below allow, and no judge block or `daemon` at all; the limits bound whatever it admits:
 
 | Limit | Value | Applies to |
 |---|---|---|
@@ -310,11 +309,11 @@ in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `
 `goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
 `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
 `alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
-names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs below.
-Anything else is refused: any other section, block type or key (a sensor's `query` or `daemon`, a block's
-`on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
-anywhere). One refused part refuses the whole
-use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
+names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs, `program`, `ai`
+and `person` blocks, queries and `sources` entries below. Anything else is refused: any other section, block type or
+key (a sensor's `daemon`, a block's `on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's
+`owner`, `inferred` or `formerly` anywhere). One refused part refuses the whole use at the owner's `use:` line
+(**library-untrusted**, or **untrusted-text** under R3), naming the template, its folder and the first refused path;
 nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
 *Libraries you did not write*).
 
@@ -338,8 +337,8 @@ names (`${lib}`, `${python}`, `${name}`), a value ergostat's template wrote, or 
 `${here}`, a library default for a command), an owner value of another type (a `string`), and a run holding a field
 (`${it.run}`) refuse the chain. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
 template wrote them. A `program` block may say only `goal`, `run`, `every`, `cron`, `timeout` and the common block
-keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, as do
-`ai` and `person` blocks (`prompt`, `ask`).
+keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, each by
+name in trust.py's `MACHINE_TYPES`.
 
 **R2, a library's values as arguments to ergostat's programs.** A value not written by ergostat's template (the
 library's, the owner's of a narrow type, or an owner folder's) may stand in a run only in a built-in template whose
@@ -350,10 +349,33 @@ own text and the text that lands (after `:seconds`, `:hours`) fully match its ty
 newline: name `[a-z][a-z0-9-]{0,63}`; duration `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`; number or integer
 `-?[0-9]{1,15}(\.[0-9]{1,9})?`; bool the bare flag (`:arg`), or `true`/`false`. A rate or count flag is also bounded
 (`LIB_BOUNDS`): `--every` `UNTRUSTED_EVERY` (300 s) or more, `--limit` 100 or less, `--stand-in` 3600 an hour or
-less, `--window` 60 s to a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any) reaches a run, and no value
-not ergostat's own reaches the run of a template from the owner's folders (such as `sh -c ${x:quote}`), even though
-that template is trusted: no test can vouch for one. Every option of every program is in exactly one of the two
-lists, and every built-in run slot is scanned against these rules (`tests/test_library_provenance.py`).
+less, `--window` 60 s to a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any)
+reaches a run. Every option of every program is in exactly one of the two lists, and every built-in run slot is
+scanned against these rules (`tests/test_library_provenance.py`).
+
+*An owner folder's run takes no library value.* A template from the owner's folders is trusted, but no value not
+ergostat's own reaches its run: not a library's literal through `${x:quote}` (`sh -c ${x:quote}` runs whatever lands
+in it, and nothing can vouch for what follows `sh -c`), and not an unquoted `${x}` of a `string`. Only an owner
+command, passed wholly, does. This stricter rule replaces the parent plan's "a quoted library literal is accepted in
+trusted text": quoting keeps a value one argument, but only the program receiving it decides whether that argument is
+run, and an owner folder's run is any program.
+
+**R3, what a held chain may ask and read.** A `person` block's `ask`, an `ai` block's `prompt`, a sensor's `query`
+(its `source:` and every field) and every value of a `sources` entry stand only when no piece of them, at any depth
+and keys included, was written by the library: each piece is the owner's, an owner command, or a trusted template's
+own words. A piece whose writer can't be told is the library's: text without a mark in an untrusted template, a whole
+value with no writer, the field marker or a mark's character outside a mark, and all of a trusted template's own text
+in these keys when that template puts in a field (`${m.q}`, `${it.name}`), an `each:` element or a key made from a
+value anywhere, or names a part (`block.x`, renamed `block.<instance>-x`) in these keys (expand leaves those
+unmarked). The instance's name holds the library's `uses:` keys, so a trusted template that uses `${name}`, `${here}`
+or `${folder}` anywhere (its text or its defaults) may put only the owner's pieces in these keys, and every value it
+gives a nested use, other than the owner's passed whole, counts as the library's. A whole value given (`query: ${q}`) is its writer's throughout. A
+refusal under R3 is **untrusted-text** instead of **library-untrusted**: the same refusal of the whole use at the
+owner's `use:` line, suggesting no copy into `with:` and quoting no value. An `ai` or `person` block may say only its
+text, `goal`, `until`, `every` and `cron` (these two as R1's rule above), and the common block keys; `model`, `run`,
+`parse`, `context`, `review`, `agent`, `workspace`, `tools`, `timeout` and the rest are refused by name
+(`library-untrusted`). A template cannot write `sources:` today (it is not a template section); the gate judges one
+by R3 all the same. R3 says only who wrote the text; the library still decides that the part asking it exists.
 
 What R1 and R2 let through is still an untrusted part, under the limits of *Untrusted libraries* above: one floor on
 how often, `UNTRUSTED_EVERY`, whoever wrote the `every`. So a held chain's program block needs the owner's `every:`
@@ -3451,7 +3473,9 @@ where the error is 0.
   limits of section 2a, *Untrusted libraries*, at its `use:` line;
 - **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
   `ergostat/library/trust.py` does not allow: at the owner's `use:` line, and nothing of the chain is in the model
-  (section 2a).
+  (section 2a);
+- **untrusted-text**: the same refusal, when a held chain's `ask`, `prompt`, sensor `query` or `sources` entry holds a
+  piece the library wrote, or whose writer can't be told (section 2a, R3).
 
 **Findings** (reported, not errors):
 

@@ -99,17 +99,19 @@ including trusted and built-in templates it uses, is checked against an allowlis
 expanded, with every parameter's value put in. If any part is not on it, the whole use is refused at your `use:` line
 (`library-untrusted`), and nothing of it is in the model. What a held chain may make:
 
-- **Sections:** `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`, `blocks`, `uses`.
+- **Sections:** `systems`, `items`, `parameters`, `auxiliaries`, `stocks`, `flows`, `goals`, `blocks`, `uses`, and
+  `sources` only as below (a template cannot write `sources:` today; the gate would judge one if it could).
 - **Block types:** `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`,
-  `timer`, `counter`, `alarm`: computed by ergostat from their inputs.
+  `timer`, `counter`, `alarm`: computed by ergostat from their inputs. Also `program`, `ai` and `person` blocks, only
+  as below.
 - **Sensor keys:** `items`, `state`, `entering`, `leaving`, `where`, `over`, `measure`, `sum`, `changes`, `unit`,
   `description`: sensors that count items or read a stock's changes from the record ergostat keeps; and `run`,
-  `every`, `cron`, `timeout`, `averages`, only as below.
+  `query`, `every`, `cron`, `timeout`, `averages`, only as below.
 
 Each section's keys are listed in trust.py, each with its reason; any other section, key, block type or shape of value
-is refused, including queries and daemons on sensors, `ai`, `person`, `external` and `judge` blocks, `on-stale`, an
-item kind's `lease`, a goal's `owner`, and `inferred` or `formerly` anywhere. A test holds this list to trust.py's
-tables (`tests/test_library_trust.py`).
+is refused, including daemons on sensors, `external` and `judge` blocks, `on-stale`, an item kind's `lease`, a goal's
+`owner`, and `inferred` or `formerly` anywhere. A test holds this list to trust.py's tables
+(`tests/test_library_trust.py`).
 
 **What runs.** Every value carries who wrote it: you (in your own file's `with:`), a trusted template (ergostat's or
 one from your folders), or the library. Only two kinds of `run` (a sensor's, or a `program` block's) are let through:
@@ -135,8 +137,29 @@ A sensor's or a program block's `every`, `cron`, `timeout` and `averages` stand 
 them; a library's (its own `poll: 1m`) is refused. Whoever wrote it, the period of a part made under an untrusted
 template is still at least 5 minutes (SPEC §2a, *Untrusted libraries*). A program block may say nothing else but
 `goal`, `in`, `out`, `role` and its words: `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network`
-and the rest stay refused, and so do `prompt` and `ask` (no `ai` or `person` block). Marks are made only by ergostat
-as it expands a template; a template or a value that holds a mark's control characters is refused whole.
+and the rest stay refused. Marks are made only by ergostat as it expands a template; a template or a value that holds
+a mark's control characters is refused whole.
+
+A template from your own folders is trusted, but its run still takes no value the library wrote, even quoted: `sh -c
+${x:quote}` runs whatever lands in `x`, and nothing can vouch for that. An unquoted `${x}` of a `string` is refused
+too. Only your own command, passed wholly, reaches such a run. (This replaces the earlier plan to accept a quoted
+library literal in trusted text.)
+
+**What is read or asked (R3).** A person block's `ask`, an ai block's `prompt`, a sensor's `query` (its `source:` and
+every field, keys included) and every value of a `sources` entry stand only when no piece of them was written by the
+library: your own value, a trusted template's words, or both. A library's literal, its default or its words around
+your value (`"${q} and more"`) refuse the whole use as **`untrusted-text`**, whose message suggests no copy into
+`with:` and does not quote the text. A piece whose writer can't be told counts as the library's: a value without a
+mark, a whole value given with no writer, a field of a value (`${m.q}`), an `each:` element or a key made from a
+value in a trusted template's own text, or a part it names there (renamed with the instance's name). The instance's
+name holds the library's `uses:` key (`u-ignore-previous-instructions`), so a trusted template that uses `${name}`,
+`${here}` or `${folder}` may put only your own pieces in these keys, and what it passes to a template it uses counts
+as the library's. An `ai` or `person` block may say only its text, `goal`, `until`, and `every`
+or `cron` as written by you or a trusted template; `model`, `run`, `parse`, `context`, `review`, `agent`, `workspace`,
+`tools` and the rest stay refused by name (`library-untrusted`). R3 says who wrote the text, not what it says: a
+library's template still decides that a block asking your text exists, and what it reads (`in:`), within the limits
+above. Only these four keys are judged so; any other text of the chain that a session or a person is shown beside
+them (the names and descriptions of its parts) may still be the library's.
 
 A block's `out:` commands the block it names, and sets the goal it names. So a held chain's blocks may name in `out:`
 only parts the chain made itself: an `out:` to one of your blocks (a `program` block that deploys, run on the
