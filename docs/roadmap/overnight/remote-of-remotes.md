@@ -229,3 +229,20 @@ Turned off only for `m-a`, the m / m-a assertion fails the same way.
 Size: 324 net lines outside `tests/` and `docs/` (297 + 27), within 380. The tests in `test_remote_chain.py` (29),
 `test_remote.py`, `test_remote_pair.py` and `test_remote_box_measures.py` pass, and ruff is clean. What round 1 says
 was not run is still not run.
+
+### Round 3
+
+The queue's one finding, a conflict with main in `ergostat/remote/compose.py`, is resolved by merging main
+(c9d3bab5). Main's remote-proposals-text added `info["served_parameters"]` and `info["names"]` (each composed part's
+served name). Both were written where `one` put the remote parts, and this branch moved that `put` into `finish`.
+`served_parameters` stays in `one`, since it lists every parameter served. `names` is now written in `finish`, next
+to `info["parts"]`, for each part that is actually put, so a part cut or whose name was taken has no served name.
+
+The merge broke one test: main's `test_ergostat_sends_nothing_for_a_for_remote_proposal` fakes `urlopen` with a
+`read()` that takes no size, while `client.get` now reads `BODY_MOST + 1` bytes. The fake now takes an optional size.
+That is the only line changed outside the files this definition names, and it changes test code only.
+
+After the merge, these pass when run one file at a time: `test_remote_chain.py` (29), `test_remote.py` (12),
+`test_remote_pair.py` (1), `test_remote_box_measures.py` (10) and `test_remote_proposals.py` (31). Ruff is clean. The
+size is unchanged in substance (the `names` line moved). Still not run here: the whole unit suite, the four browser
+files and `demo_check`.
