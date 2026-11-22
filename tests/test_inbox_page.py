@@ -150,7 +150,7 @@ def test_approve_in_the_side_panel(site):
 
 def waiting_entries(pg) -> list[dict]:
     """Each entry waiting on the owner in the side list: its text, its first line, its command box and its answers."""
-    pg.locator("[data-inbox]").first.wait_for(timeout=20000)
+    pg.locator("[data-inbox]").first.wait_for(state="attached", timeout=20000)   # held requests sit folded in housekeeping
     return pg.eval_on_selector_all("[data-inbox]", """els => els.map(e => ({
         id: e.dataset.inbox, text: e.textContent, first: e.querySelector('.ask-first')?.textContent,
         ladder: e.querySelector('.ladder')?.textContent,

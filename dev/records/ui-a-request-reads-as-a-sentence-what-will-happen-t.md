@@ -87,3 +87,27 @@ tests in all (round 3 subtracted 1).
 - Run: `tests/test_inbox.py` (31 passed), `tests/test_inbox_page.py` (4 passed, under the watchdog, with Playwright),
   ruff clean. Not run here: the unit suite and the four browser files, which the merge queue runs. `main` has no
   commits the branch lacks.
+
+Round 4: main (720426bd) merged in. Its conflicts in diagram.js and style.css are resolved, keeping both sides. About
+29 net lines of code outside tests in all (round 4 added 1, a CSS rule).
+
+- The conflict: main split the side list into three headed groups ('Waiting for you', 'Goals off', 'Model
+  housekeeping'), and each entry now starts with a state word. Each inbox entry keeps main's word (`waiting · `,
+  `request · `) as its first element, then this gap's sentence, ladder line and folded command. A CSS rule
+  (`.att-word + .ask-first`) keeps the word and the sentence on one line.
+- A clash found by main's test: the branch's `waiting` field (the entry's age, as text) had the same name as main's
+  `waiting` flag (it waits on a person). So held modelling requests were sorted under 'Waiting for you'. The age is now
+  `age` (state.py, diagram.js).
+- Two tests updated to fit both changes:
+  - `tests/test_diagram_rendering.py::test_needs_attention_is_three_headed_groups_in_a_fixed_order` found held requests
+    by the text `request/` in the row. That is the id, which this gap replaces with the sentence. It now finds them by
+    their `request · ` word and checks each says 'Modelling cannot decide it'. It was seen to fail before the rename
+    (3 rows under 'Waiting for you').
+  - `tests/test_inbox_page.py`'s `waiting_entries` now waits for the entries to be in the page, not visible, because
+    held requests sit in the folded housekeeping group.
+- Choice taken (reversible): the acceptance names 'Waiting for you'. With main's groups, a Deny-only modelling request
+  sits under 'Model housekeeping', not there. The acceptance checks are run on every `[data-inbox]` entry wherever it
+  sits, so the Deny sentence is still checked.
+- Run: `tests/test_inbox_page.py` and the grouping test (5 passed), `tests/test_items_page.py` (23 passed), both under
+  the watchdog with Playwright; `tests/test_inbox.py` (32 passed); ruff clean. Not run here: the unit suite and the
+  rest of the four browser files, which the merge queue runs.

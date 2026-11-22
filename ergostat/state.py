@@ -750,7 +750,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
              + (f". runs: {e['run']}" if e.get("run") else "") + (f". {en.command(e)}" if e["verbs"] else ""),
-             "first": e["summary"] + (f" because {by}" if by else ""), "waiting": human(e["age"]), "run": e.get("run"),
+             "first": e["summary"] + (f" because {by}" if by else ""), "age": human(e["age"]), "run": e.get("run"),
              "cli": en.command(e), "record": e.get("record"), "suggest": e.get("suggest"),
              "more": None if by else e.get("why") or None}         # an action's reason ends its sentence, said once
             for e in snap.get("inbox", []) for by in [e["kind"] == "action" and not e.get("warn") and e.get("why")]]

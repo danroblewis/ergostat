@@ -3943,8 +3943,8 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
             waiting, off, house = groups
             assert len(waiting["rows"]) == 1 and waiting["rows"][0].startswith("waiting · ") \
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
-            held = [r for r in house["rows"] if "request/" in r]
-            assert len(held) == 2 and all(r.startswith("request · request/") for r in held), house
+            held = [r for r in house["rows"] if r.startswith("request · ")]   # each read as its sentence
+            assert len(held) == 2 and all("Modelling cannot decide it" in r for r in held), house
             assert off["rows"][0].startswith("off · loop short-backlog"), off          # the system's first,
             assert off["rows"][1] == "---", off                                         # a rule,
             assert off["rows"][2].startswith("off · loop requests-handled"), off       # then modelling's
