@@ -206,3 +206,9 @@ definition is amended, building more here would be building what was not asked. 
 `splits-covered ≥ 0.7` over at least 5 joins the condition this gap gates XL auto-split on. The definition asks for
 no XL auto-split, so that sentence is a claim about this gap that its definition does not make. It is main's text and
 is left alone; the owner's amendment should say whether the XL path is meant to wait on it.
+
+## Where it stopped
+
+Parked by the factory (review/plan-by-size-3, 2026-11-22 01:45).
+
+Built to its definition and tested by its own account: S/M/L/XL routing, the fail-closed path, config bounds checked before any session, the per-gap L sample, exclusive create of the S definition, planning_cost_usd summed with the whole reservation charged on failure, planning-cost-share leaving out unrecorded and out-of-range gaps, model flows, sensors and the auxiliary, README and prompt. Left: no program records a size class on a gap before it is planned (planned_size comes only from the planner's own plan), so on main the size paths never fire. The only live effect would be every planner-made plan reviewed instead of 1 in 3. The owner must decide where the pre-planning class comes from (the groomer, a coordinator manage.py tool, or a cheap sizing step) and whether unsized plans keep main's review sample, and the definition must be amended to match. Building more under the current definition ships dead routing and higher review spend.
