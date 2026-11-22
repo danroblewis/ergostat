@@ -66,3 +66,10 @@ Built, round 1: 22 net lines in ergostat/ (budget 80).
   written anywhere but the legend's toggle handler, so it now catches the first-visit 'closed' write coming back,
   which the browser tests could not. Seen to fail with that write put back in legendBox; passes without it. The
   build step now picks it, so it runs at least one test. ruff is clean. No page code changed.
+- Round 2, merge of main (720426bd): main landed Q42's groups (Waiting for you, Goals off, Model housekeeping, each
+  entry led by its state or kind word). The conflict in renderSide is resolved as this gap's order over main's
+  groups: Waiting for you (main's rule for what waits: an answer that is not a held request, or a.waiting) only when
+  something waits, above 3 folded into 'N wait for you'; then the legend; then Goals off and Model housekeeping as
+  main draws them; then Suggestions, the loops and The model, closed. The rows stay keyed (lesson-5). The panel's
+  own 'Needs attention' heading and its 6-entry cap are gone, replaced by main's groups. Q43's header link is still
+  not on main. style.css keeps both sides' rules. SPEC's side-panel paragraph names the two groups.
