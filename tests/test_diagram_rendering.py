@@ -4437,6 +4437,39 @@ def test_open_all_on_a_model_that_will_not_fit_opens_the_first_level_and_says_in
         assert not errors, errors
 
 
+@pytest.mark.serial
+def test_open_all_on_a_flat_model_that_will_not_fit_stays_at_the_system_boxes_and_says_into(browser, tmp_path):
+    """big (its systems all first level, too big open at 1600x1000): 'Open all (system boxes)' keeps every system a
+    closed box with its Into (Blocks: its +), the canvas says how many, and the address (open=-) shows the same on a
+    reload; the page as first drawn says nothing."""
+    with served("big", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        assert tree and not any(t["within"] for t in tree.values()), tree
+        said = f"Opened to the system boxes: {len(tree)} systems stay closed. Use Into to open one."
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, (view, box, ctl) in enumerate([("view=dynamics", "system:", ".sys-btn"), ("view=blocks", "sys:", ".bd-toggle")]):
+            drawn(pg, url, view, i)
+            assert pg.evaluate(LEVEL_SAID) == ""
+            t0 = time.monotonic()
+            assert open_all(pg).startswith("Open all (system boxes)")
+            pg.wait_for_function(OPENED, arg="-", timeout=DRAWN_S * 1000)    # (the server says back what was asked: "-")
+            if view == "view=dynamics":
+                assert time.monotonic() - t0 < 3, "the system boxes and their lines took 3s or more"
+            assert "open=-" in pg.url, pg.url
+            for _ in range(2):                                       # as opened, then as reloaded from the address
+                got = pg.evaluate("""([box, ctl, names]) => names.filter((x) =>
+                  !document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(box + x)}"]`)?.querySelector(ctl))""",
+                                  [box, ctl, sorted(tree)])
+                assert not got, f"[{view}] not drawn as a closed box with its control: {got}"
+                assert pg.evaluate(LEVEL_SAID) == (said if view == "view=dynamics" else said.replace("Into", "a block's +"))
+                pg.reload()
+                pg.wait_for_function(OPENED, arg="-", timeout=DRAWN_S * 1000)
+        pg.close()
+        assert not errors, errors
+
+
 def test_open_all_on_a_model_that_fits_opens_every_system_as_before(browser, tmp_path):
     """software-factory (about 65 parts open, a system within another) fits: Open all opens every system (open=*)."""
     with served("software-factory", tmp_path) as url:

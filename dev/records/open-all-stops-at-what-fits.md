@@ -93,3 +93,27 @@ Built (round 1), in `ergostat/web/static/diagram.js` (`openPlan`, `openLevelNote
   the merge (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
   tests/test_diagram_rendering.py`, started in the background, was refused) and `node --check` (refused). The
   page-load tests passing shows the merged script parses.
+- Round 3 answers the review's one finding: item 1 was not met on big, the model :8797 serves. Using the-job in place
+  of :8797 in round 1 was wrong. A too-big model whose first level is everything (flat, as big is) now stays at the
+  system boxes: `openPlan` gives `to: "-"` (nothing opened), the menu reads 'Open all (system boxes)' (hint: 'N stay
+  closed') and goes to `open=-`, and the canvas says 'Opened to the system boxes: N systems stay closed. Use Into to
+  open one.' (Blocks: 'a block's +'), where N counts the closed boxes. The address records it (`open=-`), so a reload
+  says it again. The-job keeps the first-level rule (open=job,modelling); a model that fits keeps `open=*`.
+  - Choices made without an answer (the most reversible ones): the flat sentence is shown only while the address
+    carries `open=-`, so the page as first drawn (also all closed) says nothing. 'Close all systems' writes the same
+    `open=-`, so on a too-big model it shows the sentence too (it is still true there). The server echoes `open=-`
+    back as `["-"]`, so the note compares only names that are in the tree. A too-big model with no systems at all is
+    unchanged.
+  - New acceptance test: `test_open_all_on_a_flat_model_that_will_not_fit_stays_at_the_system_boxes_and_says_into`
+    (big at 1600x1000, in Dynamics and Blocks: the label, `open=-` in the address, each of the seven systems drawn as
+    a closed box with its Into or +, the sentence with 7, drawn and routed within 3 s in Dynamics, the same after a
+    reload, nothing said on first draw; marked serial). Seen to fail (lesson 9): with the old rule (null when nothing
+    is nested) the menu read 'Open all systems'; with the address check removed the sentence appeared on the first
+    draw.
+  - Run here: the three open-all acceptance tests under Playwright and the watchdog (3 passed, 19 s, rc 0);
+    tests/test_style_tokens.py (9 passed); ruff is clean. Net code lines are now about 34 (diagram.js +33/-1,
+    style.css +3/-1), inside the 60. Not run: the whole of tests/test_diagram_rendering.py (`uv run python
+    scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+    tests/test_diagram_rendering.py`, run in the background, was refused again). The round-1 failures named above do
+    not use the menu item and are left to the factory's rerun on main. Main has not moved in this clone since the
+    round-2 merge (3a2a891f), so there was nothing new to merge.

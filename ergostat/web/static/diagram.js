@@ -1033,12 +1033,14 @@ function openPlan(g, system, svg) {
                                                      : n.kind === "terminal" || n.kind === "port" ? 0 : 1), 0);
   const r = svg.getBoundingClientRect(), room = Math.max(r.width * r.height, 1) / FIT_FLOOR ** 2;
   const big = parts * PART_AREA > FIT_OVER * room || parts * LINES_EACH > LINES_MAX;
-  return big && nested.length ? { first, nested } : null;
+  if (!big || !first.length) return null;              // flat (nothing nested): it stays at the system boxes, all closed
+  return nested.length ? { first, nested, to: first.join(","), level: "first level" } : { first: [], nested: first, to: "-", level: "system boxes" };
 }
 function openLevelNote(wrap, g, system, svg, view) {   // said while what is open is that first level (a reload too)
-  const plan = openPlan(g, system, svg), open = [...(g.open || [])].sort().join(",");
-  const say = plan && open === plan.first.join(",") ? `Opened to the first level: ${plan.nested.length} system${plan.nested.length === 1 ? "" : "s"} ` +
-    `stay${plan.nested.length === 1 ? "s" : ""} closed. Use ${view === "blocks" ? "a block's +" : "Into"} to open one.` : "";
+  const plan = openPlan(g, system, svg), open = (g.open || []).filter((x) => g.tree?.[x]).sort().join(","), n = plan?.nested.length;
+  const asked = plan && (plan.to !== "-" || new URLSearchParams(location.search).get("open") === "-");  // flat: as the address says
+  const say = asked && open === plan.first.join(",") ? `Opened to the ${plan.level}: ${n} system${n === 1 ? "" : "s"} ` +
+    `stay${n === 1 ? "s" : ""} closed. Use ${view === "blocks" ? "a block's +" : "Into"} to open one.` : "";
   const el = wrap.querySelector(".open-level");
   if (!say) el?.remove();
   else if (el) el.textContent = say;
@@ -1121,8 +1123,8 @@ async function pageDiagram(main, q) {
     view !== "process" ? { label: "Colour by correspondence", checked: CORR.on, hint: "or hold C",
       onclick: () => corrSet(!CORR.on) } : null,
     ...(view === "process" ? [...pmKindItems(), { sep: true }, unpinAll] : [
-      ((plan) => plan ? { label: "Open all (first level)", hint: `${plan.nested.length} within stay closed`,
-                          onclick: () => { S.graphSig = ""; go({ open: plan.first.join(",") }); } }
+      ((plan) => plan ? { label: `Open all (${plan.level})`, hint: `${plan.nested.length} ${plan.first.length ? "within " : ""}stay closed`,
+                          onclick: () => { S.graphSig = ""; go({ open: plan.to }); } }
         : { label: "Open all systems", onclick: () => { S.graphSig = ""; go({ open: "*" }); } })(openPlan(S.graph, system, svg)),
       { label: "Close all systems", onclick: () => { S.graphSig = ""; go({ open: "-" }); } },
       { sep: true },
