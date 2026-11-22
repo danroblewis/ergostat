@@ -124,3 +124,19 @@ line-links failure, and it passed when run again. So these more likely come from
 load. I could not check this: exporting main to `/tmp` to run them there (`git archive 2abe6348 | tar -x -C
 /tmp/mainsrc`) was refused. They are not fixed here (lesson-13). Not run here: the unit suite, the other three
 browser files, `demo_check` (no example changed).
+
+## Where it stopped (round 3)
+
+Main (277a9c6c) merged in. The one conflict, `ergostat/library/uses.py`, is resolved by keeping both: main's
+`given_on` (a nested use's `with:` values marked LIBRARY when its template is `named`) is what `plan` is now handed,
+and the branch's `(inst, short)` still goes with it as `mine`, so a nested use's system still records its outer
+instance. 126 net lines of code outside `tests/`, `docs/` and `dev/` (`git diff --numstat 277a9c6c HEAD`).
+No review findings were given this round beyond the conflict.
+
+Tests run, serially: `test_parts_belong.py`, `test_templates.py`, `test_library_trust.py` (91 passed);
+`test_library_provenance.py`, `test_remote.py`, `test_upkeep_template.py` (80); `test_remote_box_measures.py`,
+`test_remote_lines.py`, `test_remote_pair.py` (31); `test_spec_systems.py`, `test_dynamics_view.py`,
+`test_correspond.py` (28); `test_graph_cli_web.py` (32). Ruff clean. Of `tests/test_diagram_rendering.py`, only this
+branch's two browser tests, under the watchdog with Playwright: 2 passed, rc 0. The merge touched no page code, so
+the full file (30 minutes in round 2, with 5 failures judged unrelated there) was not run again here, nor the unit
+suite, the other three browser files, or `demo_check`.
