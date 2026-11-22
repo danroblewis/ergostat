@@ -60,8 +60,7 @@ def main() -> int:
             rc, got = rerun(cfg, branch, str(f["reviewed_head"]), str(f.get("pre") or cfg["git"]["base"]), tests, n)
         except fac.Stalled as e:                        # (stopped for a limit: not the branch's, tried again later,
             n = int(f.get("stalls") or 0) + 1           # until its fac.STALLS_MOST-th stall: then the branch's)
-            fac.say("gap.measured", stalled=e.suite, stalled_why=e.why, stalled_test=e.test, stalled_tail=e.tail,
-                    stalls=1)
+            fac.say("gap.measured", stalled=e.suite, stalled_why=e.why, stalled_test=e.test, stalled_tail=e.tail, stalls=1)
             if n < fac.STALLS_MOST:
                 fac.nack(f"triage: {e}", after="10m", count=False)
                 return 0
