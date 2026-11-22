@@ -53,3 +53,11 @@ Round 1: built. About 28 net lines of code outside `tests/` and `docs/`.
   `tests/test_gated_actions.py` pass; ruff is clean. Breaks seen to fail the new test: inputs back to 6em, yes/no
   ignored, the unit dropped. The four browser files and the unit suite were not run here (the merge queue runs
   them). There is no origin/main in the clone and main has not moved since the branch was made.
+
+Round 1, after the build step: `build` failed with rc 5. It ran only `tests/test_inbox_page.py`, because
+`ergostat/inbox/entries.py` and `ergostat/state.py` have no `tests/test_<module>.py`. Without Playwright that browser
+file skips entirely, so pytest collected nothing. No code was wrong. The new unit test
+`tests/test_inbox.py::test_a_persons_entry_says_what_its_number_moves_and_whether_it_is_yes_or_no` covers the keys
+`_done_in` adds and that `attention` passes them on. It also puts `tests/test_inbox.py` in the build's selection.
+It passes, and it was seen to fail with `yes_no` forced to False. `tests/test_inbox.py` passes (31), and ruff is clean.
+The browser file was not run again in this session.

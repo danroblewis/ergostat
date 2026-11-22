@@ -107,6 +107,20 @@ def test_the_inbox_aggregates_every_kind(tmp_path):
     assert measures.measure(p, "ergostat.inbox.waiting") == 5.0 and measures.measure(p, "inbox.asked") == 5.0
 
 
+def test_a_persons_entry_says_what_its_number_moves_and_whether_it_is_yes_or_no(tmp_path, tmp_path_factory):
+    p, snap = project(tmp_path)
+    seed(p, snap)
+    e = next(e for e in entries.entries(p) if e["kind"] == "person")
+    assert (e["flow"], e["unit"], e["yes_no"]) == ("reviewed", "jobs", False)      # the stock's unit, from: queue
+    att = next(a for a in st.attention(st.snapshot(p), False, p.model) if a["what"] == e["id"])
+    assert (att["flow"], att["unit"], att["yes_no"]) == ("reviewed", "jobs", False)   # passed on to the side list
+    two = (MODEL.replace("    out: flow.reviewed\n", "    out:\n      kept: flow.reviewed\n      dropped: flow.dropped\n", 1)
+           .replace("  pushed:\n", "  dropped:\n    from: queue\n  pushed:\n", 1))
+    p2, _ = project(tmp_path_factory.mktemp("two"), two)
+    p2.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 3, "ask": "review the queue"})
+    assert next(e for e in entries.entries(p2) if e["kind"] == "person")["yes_no"] is True   # two ends: a decision
+
+
 def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):
     p, _ = project(tmp_path, MODEL.replace("blocks:", "items:\n  failure:\n    id: failure/*\n    states: [open]\n"
                                                    "    on: {failure.seen: open}\nblocks:", 1))
