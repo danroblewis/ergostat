@@ -50,3 +50,15 @@ depends-on: []
 ## Size budget
 90 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built, round 1: all four acceptance tests pass, with the rest of `tests/test_redesign.py`. No overrun (about 86 net
+lines). Choices made alone, each the reversible one:
+- Links are `spec/causal.links` (flow↔stock material links and the causal links); "in a system" is at any depth
+  (`spec.chain` of `correspond.system_of`); a part whose system is none or not declared is in none, so its links cross.
+- A system added whose direct parts (renamed parts under their new names) are exactly those of a system taken away is
+  read as that system renamed, so renaming a system alone adds no measure.
+- Weight 3 in the ranking number (as findings and chains). Equal inside and crossing is neither worse nor improved.
+- The review entry is `web/static/review.js` (a row in the scorecard table, not in Files to touch, but where the other
+  measures are drawn); no browser file opens the review page, so it was not run in a browser, and `node --check` was
+  refused here. SPEC §12e has the scorecard as prose, not a table: the prose was extended.
