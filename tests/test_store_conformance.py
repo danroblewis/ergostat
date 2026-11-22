@@ -462,6 +462,35 @@ def test_backfill_replace_keeps_a_late_reading_outside_the_span(me):
     assert [m for _, m, _, _ in me.bucketed("s", now - 7200, now - 6601, 1)] == pytest.approx([want])
 
 
+def test_backfill_replace_past_the_finest_keep(me):
+    """A span older than the finest tier's keep is held by coarser buckets only: those it overlaps are dropped, and
+    every reading they held (in the span or beside it) is counted in ``replaced``; the buckets beside them are kept."""
+    now = (T + 10 * 86400) // 3600 * 3600
+    base = now - 3 * 86400
+    me.add_many([("s", base + i * 60, 1.0) for i in range(120)])
+    me.roll(now)                                         # (tiers: raw and the 1m tier forgotten, the 10m tier holds it)
+    got = me.backfill("s", [(base + 1230, 9.0), (base + 1290, 9.0)], "redefined", replace=True)
+    n = 10 if me.kind == "tiers" else 1                  # (tiers: the 10m bucket at base+1200, whole)
+    assert got["replaced"] == n
+    me.roll(now)
+    assert me.count("s", base, base + 7200) == 120 - n + 2
+    assert me.count("s", base + 600, base + 1199) == 10 and me.count("s", base + 1800, base + 2399) == 10
+    assert [m for _, m, _, _ in me.bucketed("s", base + 1200, base + 1799, 1)] == pytest.approx(
+        [9.0] if me.kind == "tiers" else [(9 * 1.0 + 2 * 9.0) / 11])
+
+
+def test_backfill_replace_counts_each_reading_once(me):
+    """A span still kept raw, and rolled into buckets wholly inside it: each reading is counted once, not again as a
+    bucket's."""
+    now = (T + 10 * 86400) // 3600 * 3600
+    me.add_many([("s", now - 1800 + i * 10, 1.0) for i in range(120)])
+    me.roll(now)
+    got = me.backfill("s", [(now - 1500, 9.0), (now - 1200, 9.0)], "redefined", replace=True)
+    assert got["replaced"] == 31
+    me.roll(now)
+    assert me.count("s", now - 1800, now) == 120 - 31 + 2
+
+
 def test_times_are_the_events_time_type_and_seq(ev):
     for i in range(20):
         ev.add("loop.off" if i % 3 else "loop.holding", item=f"l{i % 2}", at=T + i)

@@ -1997,14 +1997,18 @@ readings, each coarser from the next finer), or dropped where that is gone; the 
 them at the next roll. A late reading outside the span is dropped from the waiting list only where
 the finest bucket it falls in was made again from the raw readings (it is in that bucket, and so in
 the coarser ones made from it); every other waits for the next roll as before. Readings outside the span are untouched, though a bucket that overlaps the
-span's edge and whose raw readings are gone loses that bucket's readings outside the span too. The
+span's edge and is not made again (its raw readings, or for a coarser tier the finer tier's buckets,
+gone past their keep) loses that bucket's readings outside the span too. The
 ledger's entries in the span become this call's, and each earlier backfill reaching into the span
 is marked `replaced`, with when (also when it was replaced only in part). On `sqlite` this is one
 transaction with the ledger. `victoriametrics` deletes only whole series, so there the series is
 read out, the span removed, the file added and the whole written back, under the compaction lock
 and the ledger's transaction; a live reading the engine sends between the read and the delete is
-lost. The event `sensor.backfilled` says `replaced`: how many readings were set aside (raw ones,
-and those of finest-tier buckets dropped because their raw readings were gone).
+lost. The event `sensor.backfilled` says `replaced`: how many readings were set aside, each once:
+the raw ones, and those of every tier's buckets dropped and not made again, less what the source
+under it already counted (so a span older than the finest tier's keep counts the coarser buckets it
+drops). Only the raw ones are kept in `forgotten`: a bucket's readings are a count and a sum, not
+readings one by one.
 
 `changes` measures a flow by what it did to its stock: a benchmark's score rising with a release
 is its inflow, a sudden fall its outflow. It is how a stock read by a script gets measured flows

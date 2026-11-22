@@ -91,6 +91,27 @@ def test_replace_after_the_roll(repo, tmp_path, capsys):
     assert means == [sum(v for _, v in new) / 10]
 
 
+@pytest.mark.parametrize("days, lost", [(30, 15), (120, 30)])
+def test_replace_older_than_the_finest_keep(repo, tmp_path, capsys, days, lost):
+    """Past the 1m tier's keep (14 days) only 10m buckets hold the span, past the 10m's (90) only 1h ones: those it
+    overlaps are dropped, with their readings outside the span, and all of them are counted as set aside."""
+    now = time.time()
+    t0 = (now - days * DAY) // 3600 * 3600
+    old = [(t0 + i * 120, 1.0) for i in range(60)]
+    assert cli(repo, "sensor", "points.main", "--backfill", str(lines(tmp_path, old)), "--from", "v1", capsys=capsys)[0] == 0
+    p = project(repo)
+    p.measurements.roll(now)
+    new = [(t0 + 1500 + i * 120, 9.0) for i in range(11)]
+    rc, out, _ = replace(repo, tmp_path, new, capsys, "--from", "v2")
+    assert rc == 0 and f"{lost} set aside, 11 written" in out
+    p.measurements.roll(now)
+    m = p.measurements
+    assert m.count(SERIES, t0 - 3600, t0 + 10800) == 60 - lost + 11
+    assert m.count(SERIES, t0 + 3600, t0 + 7200) == 30                         # the next hour: untouched
+    if days == 30:                                                             # the 10m buckets beside the dropped ones
+        assert m.count(SERIES, t0 + 600, t0 + 1199) == 5 and m.count(SERIES, t0 + 3000, t0 + 3599) == 5
+
+
 def test_changes_flow_sees_no_false_step(repo, tmp_path, capsys):
     now = time.time()
     old = [(now - 3000 + i * 600, 100.0 - i * 10) for i in range(4)]            # the old definition: falling

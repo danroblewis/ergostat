@@ -11,6 +11,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -700,6 +701,8 @@ class Measurements:
         span = (series, lo, hi)
         c.execute("insert into forgotten(series, time, value, forgotten_at, why) select series, time, value, ?, ? "
                   "from samples where series = ? and time >= ? and time <= ?", (time.time(), why, *span))
+        under = Counter(r[0] for r in c.execute("select time from samples where series = ? and time >= ? and time <= ?", span))
+        under.subtract(r[0] for r in c.execute("select time from late where series = ? and time >= ? and time <= ?", span))
         n = c.execute("delete from samples where series = ? and time >= ? and time <= ?", span).rowcount
         self._deleted(c)
         prev, a, b = 0.0, lo, hi                       # (a, b): the span and the finest dropped buckets, made from raw
@@ -713,10 +716,15 @@ class Measurements:
                     self._roll_raw(c, e, t, t + e, series)
                 else:
                     self._roll_tier(c, e, prev, t, t + e, series)
-            if prev == 0:                              # the finest's not made again: their raw readings were gone
-                kept = {r[0] for r in c.execute("select t " + over, (series, e, hi, e, lo))}
-                n += sum(k for t, k in got.items() if t not in kept)
-            prev = e
+            # Not made again: its readings counted, less those the source under it counted (the raw readings deleted
+            # that were not late, or the finer tier's dropped buckets), so a span past every keep but the coarsest's
+            # still counts what it drops, and nothing twice.
+            kept = {r[0] for r in c.execute("select t " + over, (series, e, hi, e, lo))}
+            below = Counter()
+            for u, k in under.items():
+                below[u // e * e] += k
+            n += sum(max(0, k - below[t]) for t, k in got.items() if t not in kept)
+            under, prev = Counter(got), e
         c.execute("delete from late where series = ? and time >= ? and time < ?", (series, a, b + 1e-9))
         self._write(c, rows)
         return n
