@@ -52,3 +52,10 @@ Round 1: built. 15 net lines outside tests (ergostat/web/static/diagram.js `inbo
 - Run here: tests/test_inbox_page.py (2 passed, rc 0, Playwright, under the watchdog); tests/test_inbox.py and
   tests/test_gated_actions.py (40 passed); ruff clean. Not run here: the unit suite and the four browser files
   (the factory's and the merge queue's). Nothing to merge: `main` has not moved since the clone.
+
+Round 1, after the build step: `build` failed with rc 5. It picked only tests/test_inbox_page.py, a browser file
+that is skipped where Playwright is absent, so no test ran. The `object` field that `attention()` now gives each
+entry had no unit test. It has one now, in tests/test_inbox.py::test_the_inbox_aggregates_every_kind: the action's
+entry names `push`, the person's `reviewer`, the advised command's `pusher`. The build selects that file too.
+The test failed when the field was broken (the action's name dropped) and passes with it in place.
+Run here: tests/test_inbox.py (30 passed); ruff clean. No code outside tests changed.
