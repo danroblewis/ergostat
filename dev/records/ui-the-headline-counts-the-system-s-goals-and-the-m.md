@@ -45,3 +45,9 @@ Round 1: built (35c0bb01), about 23 net lines outside tests. The choices made al
 Run: that test file whole (22 passed, rc 0, under the watchdog), tests/test_projects_listing.py,
 tests/test_graph_cli_web.py, tests/test_resilience.py (73 passed), ruff clean. Main merged (already up to date). The unit
 suite and the other three browser files were not run here (left to the factory and the merge queue).
+
+Build fix (round 1): the factory's build step (scripts/affected_tests.py) selected only tests/test_items_page.py,
+which skips without Playwright, so it ran nothing (rc 5). Added a unit test the selection now picks up,
+tests/test_projects_listing.py::test_the_switcher_counts_the_systems_goals_and_the_models_upkeep_apart (the switcher
+row's goals_off / upkeep_off and state.upkeep on examples/first-loop with the two modelling goals off). It was seen
+to fail with state.upkeep returning an empty set. That file passes (2 passed), and ruff is clean. No code changed.
