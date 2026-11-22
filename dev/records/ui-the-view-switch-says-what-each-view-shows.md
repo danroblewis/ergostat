@@ -57,3 +57,18 @@ Round 1: built.
 - Not run: the full file again after the stacking fix (only the six tests above), tests/test_items_page.py (that page
   is not touched), the unit suite and the other browser files (left to the factory and the merge queue). There is no
   merge of main to do: the branch is main plus this work.
+
+Round 1, after the build step failed:
+
+- The `build` step (`[suites] build`, scripts/affected_tests.py) picked only tests/test_diagram_rendering.py (the one
+  changed test file; diagram.js and style.css map to no test file). It ran that file with plain `uv run python -m
+  pytest`, without Playwright, so the whole module was skipped at tests/test_diagram_rendering.py:38 and pytest gave
+  rc 5 ("1 skipped"). No test failed. No code change in this gap can fix that, because any branch whose only changed
+  test file is a browser file gets the same result. The fix belongs in the factory's build command or in
+  affected_tests.py: run browser files with `--with playwright`, or leave out the ones that need it. That is outside
+  this gap (lesson-13), so I did not change it here. The gap has to be built with `build_browser`, or through the
+  merge queue, which runs the browser files with Playwright.
+- Fixed: an unrelated stray edit in style.css's phone rule. Two lines, `.toolbar button` and `.toolbar select`, had
+  been joined into one. They are back as on main.
+- Not run in this round: Bash was refused in this session, so the acceptance test was not run again after the
+  style.css fix. That fix only restores main's lines.
