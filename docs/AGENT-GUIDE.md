@@ -388,6 +388,13 @@ When part of the person's work is run by **another ergostat** (another team's, a
 not re-model it and do not copy its YAML: compose it as a **remote system** (SPEC §4c). Its own ergostat
 keeps running it; this model reads it.
 
+**Call the `remotes` MCP tool before you reference a remote's part, and before you propose a change near one.**
+It lists each remote: its version, whether it answers (`state`, and `why`), its parts by kind, the references it no
+longer serves (`missing`), and what its box shows. With `name`, it also lists each part here with its name there;
+add `proposals: true` for the open texts waiting for its owner. A part in that list is the remote's: never edit it
+here, and write a change to it as text for its owner. The tool is read only. It asks no remote, so a version can be
+old: `read` says how many seconds ago it was read. It still answers on the last good model while the YAML is broken.
+
 1. **On the remote**, its owner makes a token for this model: `ergostat remote token support` (printed
    once). The token goes in a file here, never in the YAML (`incidents.token`, git-ignored).
 2. **Here**, declare it and look before referencing anything:

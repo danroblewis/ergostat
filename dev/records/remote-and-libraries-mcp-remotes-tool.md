@@ -15,3 +15,13 @@ Acceptance tests: test_mcp_remotes_lists_status (a planted remote: version, stat
 Size budget: 120 net lines.
 
 Area: remote-and-libraries. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: all five points, with the four acceptance tests. The code adds 70 net lines (ergostat/mcp.py and ergostat/cli/remote.py), inside the budget. Nobody was there to ask, so I made these calls; each is the reversible choice:
+- No refresh: the tool loads the model inside `compose.offline()`, so only the cache is read. The first test sets the status as due and makes `cache.refresh` fail the test if it is called.
+- `proposals` keeps the rows `remote proposals NAME --json` gives (same function, `cli.remote.proposal_rows`) but only the open ones (state in `proposals.OPEN`). Dismissed texts are left out because the definition says "open". When the remote's version can't be read, `proposals_why` says so, so an empty list is never mistaken for none written.
+- `proposals: true` also works without `name`, for every remote listed. The part map is `part_list` (part, remote, kind), with `part_list_cut` counting the parts past 500.
+- "its box's show" is `remote.measures.refs(spec, NAME)`: the parts the closed box draws.
+- "writes nothing" is tested as: every file under the project and its state folder is byte-identical, and the event and measurement counts are unchanged. SQLite's own `-wal`/`-shm` sidecars are left out of the byte check, because opening a store rewrites them (seen in the first run of the test). `ergostat remote proposals` on the fallback does the same.
+- The test was seen to fail on each break: `compose.fresh()` in place of offline, no fallback, no unknown-name check, the open filter inverted.

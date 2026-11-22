@@ -191,6 +191,14 @@ TOOLS = [
     {"name": "messages", "description": "The owner's messages and what became of each (routed, delivered, unrouted, "
      "answered, missed), with the counts; or one (id) with its routing and deliveries.",
      "inputSchema": _obj({"id": {"type": "string"}})},
+    {"name": "remotes", "description": "The systems other ergostats run that this model composes (remotes:, SPEC §4c): "
+     "per remote its url, the version of its model read and how long ago (read, seconds), state (ok, unreachable, "
+     "unknown, as its box says) and why, its parts here by kind, the references it no longer serves (missing) and what "
+     "its box shows. name: one remote, with its parts (local name, the remote's name, kind; at most 500); proposals: "
+     "true adds the open texts written for its owner (ergostat remote proposals NAME --json). Call it before "
+     "referencing a remote's part (its parts are its owner's, never edited here) and before proposing a change near "
+     "one (a change to them is text for its owner). Read only: no remote is asked, nothing is written.",
+     "inputSchema": _obj({"name": {"type": "string"}, "proposals": {"type": "boolean"}})},
 ]
 
 
@@ -243,6 +251,8 @@ class Server:
             sp = Project(mdl.load(Path(a["project"]).expanduser()))
             got = co.of_project(sp, sp.model.spec, parse_duration(a["since"], "since") if a.get("since") else co.WINDOW)
             return _text({"scores": [co.score_line(k, x) for k, x in got["kinds"].items()], **got})
+        if name == "remotes":
+            return self.remotes(a)
         if name == "improve_model":
             from . import helpdocs
             skill, guide = helpdocs.read("improve-model"), helpdocs.read("modelling")
@@ -423,6 +433,53 @@ class Server:
                 out["refused"] = why
             return _text(out)
         return {**_text(f"no tool {name!r}"), "isError": True}
+
+    def remotes(self, a: dict) -> dict:
+        """The model's remotes, from the rows ``ergostat remote`` and ``remote proposals --json`` read (cli/remote.py):
+        loaded from their caches only (no remote asked, no refresh), on the last good model while the YAML is broken
+        (as ``remote proposals``, goodmodel.READ_WHAT), and nothing written."""
+        from . import goodmodel
+        from .cli import remote as cr
+        from .durations import DurationError
+        from .numbers.proposals import OPEN
+        from .remote import box, compose
+        from .remote.measures import refs
+        from .store import Project
+        try:
+            with compose.offline():
+                p = Project(mdl.load(self.root))
+        except (mdl.ModelError, DurationError) as e:
+            if (p := goodmodel.fallback(self.root, e)) is None:
+                raise
+        spec = getattr(p.model, "spec", None)
+        remotes = getattr(spec, "remotes", None) or {}
+        want = a.get("name") or None
+        if want is not None and want not in remotes:
+            return {**_text(cr.unknown(want, remotes)), "isError": True}
+        now, out = time.time(), []
+        for n, r in remotes.items():
+            if want and n != want:
+                continue
+            row, b, kinds = cr.status_row(n, r), box(spec, n) or {}, {}
+            for k in r.get("parts") or {}:
+                kinds[k.partition(".")[0]] = kinds.get(k.partition(".")[0], 0) + 1
+            got = {"name": n, "url": row["url"], "version": row["version"],
+                   "read": round(now - float(row["read"]), 1) if row["read"] else None,
+                   "state": b.get("state", "unknown"), "parts": kinds, "missing": row["missing"], "show": refs(spec, n)}
+            if got["state"] == "unreachable":
+                got["why"] = row["why"] if row["ok"] is False else f"its readings fail: {row['readings_why']}"
+            if want:
+                names = r.get("names") or {}
+                got["part_list"] = [{"part": k, "remote": names.get(k), "kind": k.partition(".")[0]}
+                                    for k in list(r.get("parts") or {})[:500]]
+                got["part_list_cut"] = max(0, len(r.get("parts") or {}) - 500)
+            if a.get("proposals"):
+                rows, unread = cr.proposal_rows(p, spec, n)
+                got["proposals"] = [x for x in rows if x.get("state") in OPEN]
+                if n in unread:
+                    got["proposals_why"] = "its model's version can't be read, so nothing is written for it"
+            out.append(got)
+        return _text({"remotes": out})
 
     def author(self, name: str, a: dict) -> dict:
         """The authoring tools (ergostat/library/author.py): templates, add_use, scaffold, try_use, where_drawn."""

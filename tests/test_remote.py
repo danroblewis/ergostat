@@ -267,3 +267,82 @@ def test_a_remote_part_is_never_edited_here(tmp_path):
     via = compose.RemoteVia(tmp_path / "ergostat.yaml", 3, "incidents", "http://127.0.0.1:8794")
     with pytest.raises(yamledit.EditError, match="belongs to remote incidents"):
         yamledit.own(via, "flow incidents-resolved")
+
+
+def _mcp_remotes(d, **a):
+    from ergostat.mcp import Server
+    got = Server(d).call("remotes", a)
+    return got, (json.loads(got["content"][0]["text"]) if not got.get("isError") else got["content"][0]["text"])
+
+
+def _status(local, **kw):
+    f = cache.folder("support", local, "incidents") / cache.STATUS
+    f.write_text(json.dumps({**json.loads(f.read_text()), **kw}))
+
+
+def test_mcp_remotes_lists_status(tmp_path, monkeypatch):
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    body = served_into(local, tmp_path)
+    _status(local, answered=time.time() - 5, next=0)                 # due: a load that asks would refresh now
+    monkeypatch.setattr(cache, "refresh", lambda *a, **k: pytest.fail("the remotes tool asked the remote"))
+    got, out = _mcp_remotes(local)
+    [r] = out["remotes"]
+    assert r["name"] == "incidents" and r["version"] == body["version"] and r["url"] == "http://127.0.0.1:1"
+    assert r["state"] == "ok" and "why" not in r and 0 <= r["read"] < 60
+    assert r["parts"]["stock"] == 2 and r["parts"]["flow"] == 2 and r["parts"]["block"] == 2 and r["parts"]["goal"] == 1
+    assert r["missing"] == [] and r["show"] and "part_list" not in r and "proposals" not in r
+    served_into(local, tmp_path, ok=False)
+    _status(local, next=0)
+    [r] = _mcp_remotes(local)[1]["remotes"]
+    assert r["state"] == "unreachable" and "refused" in r["why"]
+    write(local, LOCAL.replace("stock: incidents-open", "stock: incidents-waiting"))
+    [r] = _mcp_remotes(local)[1]["remotes"]
+    assert [m["name"] for m in r["missing"]] == ["incidents-waiting"]
+
+
+def test_mcp_remotes_parts_and_proposals(tmp_path):
+    from tests.test_remote_proposals import _made, _texts
+    p, _, _ = _made(tmp_path)
+    [pid] = _texts(p)
+    d = p.model.path.parent
+    _, out = _mcp_remotes(d, name="incidents")
+    [r] = out["remotes"]
+    assert {"part": "stock.incidents-review-asked", "remote": "stock.review-asked", "kind": "stock"} in r["part_list"]
+    assert {"part": "parameter.incidents-review-time", "remote": "parameter.review-time", "kind": "parameter"} \
+        in r["part_list"] and r["part_list_cut"] == 0 and "proposals" not in r
+    [r] = _mcp_remotes(d, name="incidents", proposals=True)[1]["remotes"]
+    assert [x["id"] for x in r["proposals"]] == [pid] and "parameter.review-time" in r["proposals"][0]["text"]
+    assert r["proposals"][0]["for_remote"]["remote"] == "incidents" and "proposals_why" not in r
+
+
+def test_mcp_remotes_unknown_name(tmp_path):
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    served_into(local, tmp_path)
+    got, says = _mcp_remotes(local, name="nothing")
+    assert got.get("isError") and "'nothing'" in says and "incidents" in says
+    write(tmp_path / "alone", "name: alone\nstocks:\n  s:\n    sensor: {run: echo 1}\n")
+    assert _mcp_remotes(tmp_path / "alone")[1] == {"remotes": []}
+
+
+def test_mcp_remotes_on_broken_yaml(tmp_path):
+    from ergostat.goodmodel import keep
+    from tests.test_cli_fallback import _break
+    from tests.test_remote_proposals import _made, _texts
+    p, body, _ = _made(tmp_path)
+    [pid] = _texts(p)
+    assert keep(p) is None
+    d = p.model.path.parent
+    _break(d)
+
+    def tree():                                 # every file but SQLite's own -wal/-shm, which opening a store rewrites,
+        return {str(f): f.read_bytes() if f.is_file() else None for root in (tmp_path, p.dir)   # and the record's rows
+                for f in sorted(root.rglob("*")) if not f.name.endswith(("-wal", "-shm"))}, \
+            (p.events.count(), p.measurements.count())
+    before = tree()
+    got, out = _mcp_remotes(d, name="incidents", proposals=True)
+    assert not got.get("isError"), got
+    [r] = out["remotes"]
+    assert r["version"] == body["version"] and [x["id"] for x in r["proposals"]] == [pid] and r["part_list"]
+    assert tree() == before                                             # nothing written
