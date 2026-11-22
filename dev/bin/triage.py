@@ -31,11 +31,11 @@ def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) 
             return 1, {"why": "the merge no longer applies"}
         log = fac.run_dir(cfg, "queue") / f"{branch}-{n}-triage.txt"
         q, held = fac.run_dir(cfg, "queue") / f"{branch}-{n}-triage-quarantined.txt", fac.quarantine(repo, pre)
-        fac.beside(held, q, lambda ts: fac.suite(cfg, "rerun", wt, q, tests=ts))
+        fac.beside(held, q, lambda ts: fac.suite(cfg, "rerun", wt, q, box="triage", tests=ts))
         tests = [t for t in tests if t not in held]       # main's list, not the branch's: they never block
         if not tests:
             return 0, {"why": "only quarantined tests failed", "quarantined": held}
-        rc, secs = fac.suite(cfg, "rerun", wt, log, tests=tests)
+        rc, secs = fac.suite(cfg, "rerun", wt, log, box="triage", tests=tests)
         return rc, {"seconds": round(secs), "log": str(log), "tests": fac.failed_tests(log.read_text()),
                     "quarantined": held}
     finally:
@@ -44,6 +44,7 @@ def rerun(cfg: dict, branch: str, sha: str, pre: str, tests: list[str], n: int) 
 
 
 def main() -> int:
+    fac.stop_on_term()                                  # (stopped: its suite's container killed by name, fac.suite)
     cfg = fac.config()
     gap = fac.read_input()["item"]
     f = gap["fields"]

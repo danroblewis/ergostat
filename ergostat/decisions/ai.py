@@ -100,17 +100,51 @@ def command(model: str | None, budget: float | None, system: str | None = None) 
     return cmd
 
 
+def _grouped(cmd: list[str], prompt: str, timeout: float) -> subprocess.CompletedProcess:
+    """``subprocess.run`` in a session of its own: at the timeout the whole process group is killed (its children
+    too, which would otherwise keep the pipes open), then reaped."""
+    import signal
+    with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                          start_new_session=True) as pr:
+        try:
+            out, err = pr.communicate(prompt, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(pr.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            pr.communicate()
+            raise
+        except BaseException:
+            try:
+                os.killpg(pr.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            raise
+    return subprocess.CompletedProcess(cmd, pr.returncode, out, err)
+
+
 def call(prompt: str, model: str | None, budget: float | None, spent: Spent, timeout: float = 600,
-         system: str | None = None) -> str:
+         system: str | None = None, group: bool = False, seen: dict | None = None, capped: bool = False) -> str:
     """One call: what it answered, and its cost added to ``spent`` (``system``: its system prompt, else the extractor's;
-    the intent judge's is its own, SPEC §12i)."""
+    the intent judge's is its own, SPEC §12i). ``group``: run in a session of its own, the group killed at the
+    timeout. ``capped``: ``--max-budget-usd`` given whatever ``$ERGOSTAT_AI`` is. ``seen``, when given, is filled with
+    the exit code, the reported cost (None: none) and ``is_error``."""
+    seen = seen if seen is not None else {}
+    seen.update(rc=None, cost=None, is_error=False, error=None)
+    cmd = command(model, budget, system)
+    if capped and budget and "--max-budget-usd" not in cmd:
+        cmd += ["--max-budget-usd", f"{budget:.2f}"]
     try:
-        r = subprocess.run(command(model, budget, system), input=prompt, capture_output=True, text=True, timeout=timeout)
+        r = (_grouped(cmd, prompt, timeout) if group else
+             subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout))
     except (OSError, subprocess.TimeoutExpired) as e:
         spent.failed += 1
         spent.notes.append(f"call failed: {type(e).__name__}: {e}"[:300])
+        seen["error"] = f"{type(e).__name__}: {e}"[:300]
         return ""
     spent.calls += 1
+    seen["rc"] = r.returncode
     out = r.stdout
     try:
         d = json.loads(out)
@@ -118,6 +152,7 @@ def call(prompt: str, model: str | None, budget: float | None, spent: Spent, tim
         return out                                    # a plain command: its output is the answer
     if not isinstance(d, dict):
         return out
+    seen["cost"], seen["is_error"] = d.get("total_cost_usd"), bool(d.get("is_error"))
     spent.cost_usd += float(d.get("total_cost_usd") or 0)
     u = d.get("usage") or {}
     spent.tokens_in += sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
