@@ -9,8 +9,9 @@ from what a controller decided (`state.decisions`, the `controller.decided` word
 running demo shows either rung; `examples/docs-fresh` declares `picker: kind: decision`.
 
 The proposal in one line: **nothing new is declared.** A narrow AI's specification is its block's contract as it
-is written today. A decision's means is its block's program, plus what it **may** decide (already declared:
-`takes.to`, or its `out` ports), plus what it **did** decide (the record). The page sets those side by side.
+is written today. A decision's means is its block's program, plus, for item work, what it **may** decide (already
+declared: `takes.to`) against what it **did** (the record). A controller decision has no closed answer set: the page
+shows what it said and what of its commands was carried out, per `out` port, labelled apart.
 
 ## 1. A narrow AI's specification
 
@@ -43,11 +44,15 @@ are kept apart and labelled.
 - **an item-taking decision** (an approver, a triage): `takes.to`, the states that count as done. `check` already
   refuses a state the kind lacks (`leases/compile.py`, `bad-states`), and `leases/dispatch.moved_on` already judges
   each run by it. `to: [approved, denied, deferred]` is the answer set.
-- **a controller decision** (a picker): its `out` ports, the blocks and flows it may command. Its decision words
-  (`{"decision": ...}` lines, `controller.decided`) are what it said, not a closed set.
+- **a controller decision** (a picker) has **no closed answer set**. Its `out` ports say what it may command, not
+  what it may decide: `page-picker`'s one port, `block.doc-writer`, takes any amount and any page. Its decision
+  words are free text and never name a port (`examples/docs-fresh/pick.py:17,20`: "N stale, M changes/h: rewrite
+  K, PAGE first", "few enough: wait"). They are filed under the goals the block serves, with the block as
+  `source` and `{decision, why}` as data, no port (`spec/engine.py:2155-2158`).
 
-So the means is: the block's program (`run`, or `daemon`), what it may decide (`takes.to` or `out`), and what it
-decided. This is the default the definition gave, confirmed and made sharper: the "fixed answers" are already there.
+So the means is: the block's program (`run`, or `daemon`); for item work, what it may decide (`takes.to`) and
+what it decided; for a controller, what it may command (`out`), what it said (its grouped words) and what was
+carried out. This is the default the definition gave, confirmed: nothing new is declared.
 
 **Rejected:**
 - *`answers: [approve, deny, defer]`, checked by `ergostat check` against decision lines.* For item work it repeats
@@ -65,22 +70,41 @@ one block's type and what it runs; the goal and the loop stay put). A rule's mea
 
 The agent page, one block at a time (no new panel: rows in the agent page the owner already decided on):
 
-- **may / did.** One row per declared answer, with its count over the page's window. For `takes.to`: the
-  `ergostat.lease.ended` acks, grouped by their `state` and joined by `run` to the `ergostat.lease.taken` that
-  names the block. For `out`: the `controller.decided` words, grouped as `state.decisions` groups them. A declared
-  answer never taken shows **0**, not missing. An outcome outside the declared set (a nack back to `back`, a dead
-  letter, a word that names no port) is its own row, **"other"**, never folded into an answer. A `lease.ended`
-  whose `lease.taken` is not found counts as **unattributed** and is shown, never dropped (lesson-3).
-- **The ladder hint** stays as it is (`state.py`) and is shown beside the "did" row it is read from.
+- **may / did, for item work** (`takes.to`). One row per declared state, with its count over the page's window:
+  the `ergostat.lease.ended` acks, grouped by their `state` and joined by `run` to the `ergostat.lease.taken` that
+  names the block. A declared state never reached shows **0**, not missing. An outcome outside the set (a nack back
+  to `back`, a dead letter) is its own row, **"other"**, never folded into an answer. A `lease.ended` whose
+  `lease.taken` is not found counts as **unattributed** and is shown, never dropped (lesson-3).
+- **said / carried out, for a controller.** No 0 rows and no "other": there is no answer set to hold the words
+  against. Two lists, labelled apart:
+  - *what it said*: the `controller.decided` events whose `source` is the block, grouped with the numbers taken out
+    as `state.decisions` groups them. A block serving two goals writes each line once per goal, so a word is
+    counted once per run (`causedby`), not once per goal.
+  - *what was carried out*, one row per `out` port, read from the record each kind of port leaves: a block port
+    from the target's `block.commanded` events whose `data.from` is this block (`spec/engine.py:743, 990`); a flow
+    port from `valve.opened` with this block as `source`; an auxiliary from `auxiliary.set`. A goal port (a
+    setpoint) leaves no event, so it is shown as declared with "not recorded", not 0. The row is named "commands
+    acted on", because a zero command, a command superseded while the target runs (only the latest starts it), and
+    an advised command still waiting for approval leave no `block.commanded` (`pick.py`'s "wait" is never counted there). It is not a count of
+    decisions and the page does not say it is.
+- **The ladder hint** stays as it is (`state.py`) and is shown beside the "what it said" list it is read from. It
+  reads `controller.decided` by goal name (`spec/legacy.py:76` keys controllers by goal), which is where a
+  program's lines are filed, so the two read the same events.
 - **A ladder move as the same block's history.** The model's versions (`ergostat/numbers/version.py`) already keep
   each version's blocks and agents. The page lists the block's rung per span of versions ("ai until v12, decision
-  v13 to v20, rule since v21"), keyed by block name, and the may/did counts are split by span, so a rule's record
+  v13 to v20, rule since v21"), keyed by block name, and the counts above are split by span, so a rule's record
   never mixes with the decision it replaced. A block removed and made again under the same name shows the gap, and
   its old counts are not merged into the new one (lesson-5). Spans are ordered by version number, not by time
   (lesson-2).
 
-**Rejected:** *a rung timeline drawn as a chart.* The owner's rule is no new panels. The span list is text in the
-existing page.
+**Rejected:**
+- *A controller's `out` ports as its answers, its words matched to them, the rest "other"* (this proposal's first
+  round). No word names a port, so on `page-picker` every decision would be "other" and `block.doc-writer` would
+  always show 0: a table that is wrong on its own acceptance case.
+- *A port named on each decision line* (a new `port` field). It is a new run-time contract for every controller's
+  program, and the `{out, command}` line beside it already says which port. Reading the command records instead
+  needs nothing new.
+- *A rung timeline drawn as a chart.* The owner's rule is no new panels. The span list is text in the existing page.
 
 ## 4. The real cases for acceptance
 
@@ -88,8 +112,11 @@ existing page.
   `takes: {kind: alert, at: new, to: [triaged, dismissed]}`) moves from `claude` (`ai`) to a new agent
   `triager: {kind: narrow-ai}`. The stand-in `run:` stays, so no AI is called. It is a real ladder move (a general
   agent's role narrowed) with a declared answer set.
-- **decision: `examples/docs-fresh`'s `page-picker`** (already `kind: decision`, a controller with `out` ports).
-  It gets a `{"decision": ...}` line from its stand-in so "did" has words. It must also be among the running demos.
+- **a controller decision: `examples/docs-fresh`'s `page-picker`**, unchanged. It is already `kind: decision`,
+  its stand-in already prints decision lines (`pick.py:17,20`) and commands `block.doc-writer`, which is advised
+  (`mode: advise`). So "commands acted on" counts only the approved rewrites, while "what it said" counts every
+  run: the case shows the two lists differ. No file in the example changes; the follow-up's acceptance runs it
+  (it is not among the demos counted on :8791-:8797).
 - **an item-taking decision: a fixture in `tests/`,** an approver on `kind: decision` with
   `to: [approved, denied, deferred]`. It seeds acks to two of the states, a nack and a dead letter, and covers the
   0 row, the "other" row and the unattributed count. It is a fixture and not a demo, because adding an approver role
@@ -111,9 +138,11 @@ works rather than what the block is.
 ## 6. Lines to change in the docs
 
 - **SPEC §10, the agents table:** the `kind` row gains: "A narrow AI's page shows each of its blocks' contract (§9.3,
-  §12k); a decision's shows its program, what it may decide (`takes.to`, or its `out` ports) and what it decided".
+  §12k); a decision's shows its program and, for item work, its `takes.to` states against what it decided; for a
+  controller, what it said and which of its commands were carried out (it has no closed answer set)".
 - **SPEC §9.5, the `takes` row:** `to` gains: "for a decision, these are its answers, counted on its agent's page".
-- **SPEC §9.3:** no new key, and a sentence saying so (a decision's answers are its `takes.to` or `out`).
+- **SPEC §9.3:** no new key, and a sentence saying so (an item-taking decision's answers are its `takes.to`; a
+  controller's decision words are free text, and its `out` ports are what it may command, not an answer set).
 - **docs/vocabulary.md, the comparison table:** a row that keeps the words apart. System dynamics' *decision rule*
   (a policy in a flow's equation) is ergostat's controller, filled at any rung, often a built-in on the rule rung.
   ergostat's *decision* is the rung (a short, fixed-answer call). They are not the same thing.
@@ -127,10 +156,12 @@ a fail-open on cost (lesson-3), and it belongs in a gap of its own, not in this 
 
 This amends that gap's (unwritten here) scope to the above: no new key, and the page reads what is declared.
 
-- **Files:** `ergostat/agent_means.py` (new, small: a block's spec rows; may/did counts; rung spans from versions),
+- **Files:** `ergostat/agent_means.py` (new, small: a block's spec rows; may/did and said/carried-out counts; rung spans from versions),
   `ergostat/web/server.py` (the agent answer gains `spec`, `means`, `rungs` per block), `ergostat/web/static/pages.js`
   (rows in the agent page), `examples/alert-triage/ergostat.yaml` and `model/alerts.yaml` (the `triager` agent),
-  `examples/docs-fresh/pick.py` (a decision line), `docs/SPEC.md`, `docs/vocabulary.md`.
+  `docs/SPEC.md`, `docs/vocabulary.md`. `examples/docs-fresh` is not changed (its decision lines are already there).
 - **Tests:** `tests/test_agent_means.py` (the approver fixture: 0 row, other, unattributed, a same-name remake, spans
-  by version), the browser file that covers the Agents page (both rungs shown), and `demo_check` on both examples.
+  by version; a controller fixture serving two goals: each word counted once per run, a zero command not counted as
+  acted on, a goal port shown as not recorded), the browser file that covers the Agents page (both rungs shown),
+  and `demo_check` on both examples.
 - **Budget:** about 250 net lines of code outside tests and docs.
