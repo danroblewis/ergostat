@@ -80,7 +80,8 @@ class Watchdog:
         if now - self.beat_at >= BEAT:
             self.beat_at = now
             heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls,
-                      heartbeat_stale(getattr(self.e, "spec", None)))   # (the model as it is now: a reload moves it)
+                      heartbeat_stale(getattr(self.e, "spec", None)),   # (the model as it is now: a reload moves it)
+                      getattr(getattr(self.e, "dispatch", None), "failing", None))
 
     # ---- looking
 
@@ -280,16 +281,19 @@ def startup(state: Path, say, restart, deadline: float | None = None) -> threadi
     return done
 
 
-def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None = None) -> None:
+def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None = None,
+              failing: tuple[str, float] | None = None) -> None:
     """``heartbeat.json``: when the last pass finished (wall clock), and this pid. Written at start too, so a watcher
     never reads a slow start by the last process's heartbeat. ``stale``: the limit of ``use: upkeep``'s
     ``heartbeat-fresh`` (``ir.heartbeat_stale``), for the outer watcher; the file is written whole each time, so a
-    model without the template leaves no ``stale`` in it."""
+    model without the template leaves no ``stale`` in it. With ``failing``, the dispatcher's error while every
+    look meets one, and since when (``dispatch_error``)."""
     path = state / "heartbeat.json"
     tmp = path.with_name(f"heartbeat.{os.getpid()}.tmp")
+    err = {"dispatch_error": {"why": failing[0], "since": round(failing[1], 3)}} if failing else {}
     try:
         tmp.write_text(json.dumps({"pass": round(passed, 3), "written": round(time.time(), 3), "stalls": stalls,
-                                   "pid": os.getpid(), **({"stale": stale} if stale_ok(stale) else {})}))
+                                   "pid": os.getpid(), **({"stale": stale} if stale_ok(stale) else {}), **err}))
         os.replace(tmp, path)
     except OSError:
         pass

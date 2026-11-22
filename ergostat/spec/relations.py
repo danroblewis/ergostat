@@ -68,6 +68,21 @@ def compile_relations(c, m, what: str, rules: dict) -> dict[str, Relation]:
         if not isinstance(prec, bool) or not isinstance(group, bool):
             c.err(f"{what}.relations.{name}: precedence: and group: are true or false", at, "bad-relation")
             continue
+        far = [remote_of(c.doc.remotes, c.doc.sections.get("items") or {}, str(k)) for k in kinds]
+        remote, there = next((x for x in far if x[0]), ("", ""))
+        if remote:                                  # a remote's kind: read beside ours, never gating (SPEC §5a)
+            if len(kinds) > 1:
+                c.err(f"{what}.relations.{name}: a relation naming a remote's kind names only that kind", at,
+                      "bad-relation")
+                continue
+            if opts.get("precedence") is True:
+                c.err(f"{what}.relations.{name}: precedence: ergostat does not see when a remote's item is finished; "
+                      f"it cannot gate on it", at, "remote-relation-precedence")
+                continue
+            if opts.get("group") is True:
+                c.err(f"{what}.relations.{name}: group: a remote's items are not grouped here", at, "bad-relation")
+                continue
+            prec = group = False
         inv = opts.get("inverse") or inverse_of(name)
         if not isinstance(inv, str) or not REL_NAME.match(inv) or inv == name:
             c.err(f"{what}.relations.{name}.inverse: the other direction's name, a field name unlike its own (blocks)",
@@ -79,14 +94,36 @@ def compile_relations(c, m, what: str, rules: dict) -> dict[str, Relation]:
         elif rule not in REL_FOLDS:
             c.err(f"{what}.fold.{name}: a relation folds as a set of ids ({', '.join(REL_FOLDS)}), not {rule}", at,
                   "bad-fold")
-        out[name] = Relation(name, [str(k) for k in kinds], prec, inv, group)
+        out[name] = Relation(name, [str(k) for k in kinds], prec, inv, group, remote, there)
     return out
 
 
+def remote_of(remotes, local, kind: str) -> tuple[str, str]:
+    """(remote, its kind's name there) when ``kind`` is a remote's (``incidents-incident``): not a local kind (local
+    first), and named ``R-K`` for a remote ``R`` (the longest that fits); else ("", "")."""
+    if kind in local:
+        return "", ""
+    fits = [r for r in remotes or {} if kind.startswith(f"{r}-") and len(kind) > len(r) + 1]
+    r = max(fits, key=len, default="")
+    return (r, kind[len(r) + 1:]) if r else ("", "")
+
+
 def check_relations(c, spec) -> None:
-    """Once every kind is known: each relation names kinds of the model."""
+    """Once every kind is known: each relation names kinds of the model, or a kind its remote serves (as last read;
+    one it no longer serves, or a remote never read, is a finding: the model still compiles)."""
+    from .load import Problem
     for k in spec.items.values():
         for r in k.relations.values():
+            if r.remote:
+                info = spec.remotes.get(r.remote) or {}
+                if r.there not in (info.get("kinds") or {}):
+                    ver = info.get("version")
+                    c.problems.append(Problem(
+                        "finding", f"item kind {k.name}.relations.{r.name}: item kind {r.kinds[0]} is not in remote "
+                        f"{r.remote}'s model" + (f" (version {ver}): it has no item kind {r.there}" if ver else
+                                                 " (it has not been read)") + "; no line is drawn to it",
+                        k.where, "remote-reference-unresolved", f"item.{k.name}"))
+                continue
             for t in r.kinds:
                 if t not in spec.items:
                     c.err(f"item kind {k.name}.relations.{r.name}: {t!r} is not a kind of item" + c.suggest(t, spec.items),

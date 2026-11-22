@@ -7,7 +7,7 @@ from ..spec.ir import NAME
 from ..spec.load import SECTIONS, Map, Problem, Where
 from . import templates as tp
 from . import trust
-from .expand import MAX_DEPTH, USE_KEYS, ExpandError, Via, expand
+from .expand import MAX_DEPTH, USE_KEYS, ExpandError, Via, author, expand
 from .untrusted import FILE, LABEL, mark
 
 
@@ -48,17 +48,19 @@ class Chain:
 
     def __init__(self):
         self.steps: list[tuple] = []      # in order: (put, section, name, entry, via), (problem, p), (use, inst, record), (soft, key)
-        self.checks: list[tuple] = []     # what was made under an untrusted template: (that template, section, name, entry)
+        self.checks: list[tuple] = []     # made under an untrusted template: (that template, its writer, section, name,
+        #                                   entry with its marks)
         self.names: list[tuple] = []      # the uses this chain marked defined
+        self.forged = None                # (template, what) when a held template or value holds a mark's characters
 
 
 def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int, within: str | None) -> None:
     """One owner's entry: its whole chain planned; held and making anything trust.py refuses, none of it is put."""
     chain = Chain()
     plan(doc, chain, inst, entry, w, defaults, depth, within, None)
-    held = {(s, n) for _, s, n, _ in chain.checks}
-    for u, section, name, made in chain.checks:
-        path = trust.refused(section, name, made, held)
+    held = {(s, n) for _, _, s, n, _ in chain.checks}
+    for u, tw, section, name, made in [*([chain.forged] if chain.forged else []), *chain.checks]:
+        path = trust.refused(section, name, made, held, tw) if section else name
         if path is None:
             continue
         for key in chain.names[1:]:
@@ -67,7 +69,8 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         doc.problems.append(Problem(
             "error", f"use {inst}: refused, and nothing of it is in the model: it makes {path}, under template {u.name} "
             f"from {u.path.parent}, a library folder not marked trusted, and a use of such a folder may make only "
-            f"structure (SPEC §2a). Only the owner can mark a folder trusted, after reading it.", at, "library-untrusted",
+            f"structure, and run only the owner's own commands and ergostat's programs with checked arguments "
+            f"(SPEC §2a). Only the owner can mark a folder trusted, after reading it.", at, "library-untrusted",
             f"system.{inst}"))
         return
     for step in chain.steps:
@@ -82,8 +85,9 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
 
 
 def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, depth: int, within: str | None,
-         under: tp.Template | None) -> None:
-    """One instance of the chain; ``under``: the first untrusted template above it (or it), from which all is untrusted."""
+         under: tp.Template | None, writers: dict | None = None) -> None:
+    """One instance of the chain; ``under``: the first untrusted template above it (or it), from which all is untrusted.
+    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a)."""
     def err(msg, where=None, code="bad-use"):
         chain.steps.append(("problem", Problem("error", f"use {inst}: {msg}", where or w, code, f"system.{inst}")))
 
@@ -122,8 +126,11 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
     if depth > MAX_DEPTH:
         return err(f"templates using templates more than {MAX_DEPTH} deep (does {t.name} use itself?)", at, "template-cycle")
     try:
-        made = expand(t, inst, dict(given))
+        made = expand(t, inst, dict(given), writers)
     except ExpandError as e:
+        if getattr(e, "forged", False) and (under or not tp.trusted(t)):
+            chain.forged = (under or t, None, None, "a text holding a control character only ergostat's marks use", None)
+            return
         for msg, key in getattr(e, "all", [(str(e), e.key)]):
             err(said(msg), given.at(key) if key and hasattr(given, "at") else at, "bad-param")
         return
@@ -133,8 +140,10 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
     system = {**made.system, **({"description": str(entry["description"])} if entry.get("description") else {}),
               **({"within": str(parent)} if parent else {})}
     if under is not None:
-        chain.checks += [(under, "systems", inst, system),
-                         *((under, s, n, x) for s, entries in made.sections.items() for n, x in entries.items())]
+        tw = author(t)
+        chain.checks += [(under, tw, "systems", inst, system),
+                         *((under, tw, s, n, x) for s, entries in made.marked.items() for n, x in entries.items()),
+                         *((under, tw, "uses", n, x) for n, x in made.sections.get("uses", {}).items())]
     if not (t.once and ("systems", inst) in doc.defined):     # a once template's system, when the model declares it, is the model's
         chain.steps.append(("put", "systems", inst, as_map(system, via), via))
         if t.once:
@@ -155,4 +164,4 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "
                                                f"real", via, "template-stand-in", f"system.{inst}")))
     for sub, e in (made.sections.get("uses") or {}).items():
-        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under)
+        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, made.writers.get(sub, {}))
