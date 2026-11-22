@@ -1357,7 +1357,8 @@ function renderSide(side, g, view) {
     const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
     const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
     att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
-      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
+      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
+      a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null));   // its suggestion, once due
   }
   if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
   side.append(att);
@@ -1369,7 +1370,7 @@ function renderSide(side, g, view) {
     const d = h("details", { class: "suggest", open: open ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
-      const loop = /^loop (\S+)/.exec(a.says)?.[1];
+      const loop = /^loop (\S+)/.exec(a.what)?.[1];
       d.append(h("div", { class: "hint" }, h("b", {}, a.what), " ", op(a.says), " ",
         loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(loop); } }, "Evidence") : null));
     }
