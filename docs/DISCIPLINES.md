@@ -27,7 +27,7 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 | System dynamics | Behaviour over time: stocks and flow rates with desired levels | ✅ causes strip |
 | System dynamics | Causes strip: a part and what drives it, one time axis | ✅ |
 | Control engineering | Scope: setpoint and measurement, control output, error, time off marked | ✅ |
-| Control engineering | Loop performance table: time off, recovery, saturation | ✅ Loops page |
+| Control engineering | Loop performance table: time off, recovery, saturation | ✅ Goals page |
 | Workflow / lean / Kanban | Cumulative flow diagram per item kind | ✅ Items page |
 | Workflow / lean / Kanban | Cycle-time scatter / lead-time distribution | ✅ scatter · ◻ histogram |
 | Queueing theory | Little's law check per stock (level = throughput × time in stock) | ◻ |

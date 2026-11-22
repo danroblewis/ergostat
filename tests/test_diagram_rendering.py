@@ -2336,8 +2336,8 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
         assert names == ["y", "u", "e"], names
         assert hover_all(pg, "#detail .scope") == (3, 3)
         assert "Saturated" in pg.locator("#detail .scope dl").inner_text()
-        # the Loops page: the sparkline opens the same scope
-        pg.goto(url + "/loops")
+        # the Goals page: the sparkline opens the same scope
+        pg.goto(url + "/goals")
         pg.locator("td.spark-cell").first.click()
         pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=20000)
         # the Items page: the kind's flow, and under its table its cycle times
@@ -3352,7 +3352,8 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         assert "window-time" in avail.inner_text() and "quality-turnover" in avail.inner_text()
         avail.locator("tr", has_text="quality-held").first.get_by_role("link", name="process", exact=True).click()
         pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden", timeout=60000)
-        pg.wait_for_function("() => /The loop quality-held/.test(document.querySelector('#detail').textContent)", timeout=60000)
+        pg.wait_for_function("() => /The control loop of goal quality-held/.test(document.querySelector('#detail').textContent)",
+                             timeout=60000)
         assert pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel?.node)?.role") == "process"
         pg.goto(url + "/model?v=1")
         pg.wait_for_function("() => document.querySelector('.available table.avail')", timeout=30000)

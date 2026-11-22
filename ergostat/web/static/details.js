@@ -24,7 +24,7 @@ const WHAT = {
   disturbance: ["Flow, uncontrolled (a disturbance)", "material moving into or out of a stock that nothing in the model sets. The world pushes it; the loops on its stocks must make up for it."],
   sensor: ["Sensor", "an instrument. It reads one stock or flow; a loop sees only what its sensor reads."],
   controller: ["Controller", "the part that decides, to hold a goal. At its summing point (the Σ in its corner) it compares the stock's reading y with the setpoint r: e = r − y. While that error says the goal is off, it commands a valve. The badge names the block that fills it. With its sensor, the stock and the valve it closes a feedback loop: the loop is the whole cycle, not this box."],
-  loop: ["Feedback loop", "a goal on a stock and what serves it. When the stock's reading is off the setpoint, the controller commands a valve until it is back."],
+  goal: ["Goal", "what is wanted of a stock (its bound) and whether it holds; its control loop (sensor, controller, valve) serves it"],
   system: ["System", "a part of the model drawn as one part. Its ports are what crosses its edge: what it reads and is told, what it moves and drives."],
   agent: ["Agent", "the program, AI or person that does a part's work: reads a sensor, decides as a controller, or opens a valve."],
   pipe: ["Flow", "the pipe a flow runs along: material leaving one stock and arriving in another (or coming from or going to outside the model). Only flows change stocks."],
@@ -137,8 +137,8 @@ async function openLoop(name, asController = false) {
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
   const kids = asController
-    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("controller"), whatIs("loop")]
-    : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("loop")];
+    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("controller"), whatIs("goal")]
+    : [h("div", { class: "kind" }, lp.open_loop ? "Goal, open loop" : "Goal"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("goal")];
   kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));

@@ -32,7 +32,7 @@ EVENTS_MOST = 1000                   # the most events one answer carries (``n``
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
+UI_PAGES = ("diagram", "goals", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
 
 
 _VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)

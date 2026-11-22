@@ -39,7 +39,7 @@ REF_MS = 8.5                   # measured 8.2 to 8.8 ms on the reference laptop 
 SPEED_PROBE = """() => { const t0 = performance.now(); let x = 0;
   for (let i = 0; i < 2e6; i++) x = (x * 31 + i) % 1000003;
   return [performance.now() - t0, x]; }"""
-PAGES = ["diagram", "diagram?view=dynamics&open=*", "diagram?view=blocks", "diagram?view=process", "loops",
+PAGES = ["diagram", "diagram?view=dynamics&open=*", "diagram?view=blocks", "diagram?view=process", "goals",
          "agents", "items", "item/hypothesis%2F1", "record", "model"]
 INIT = f"""window.ERGOSTAT_POLL_SPEED = {SPEED}; window.__lt = [];
 try {{ new PerformanceObserver((l) => {{ for (const e of l.getEntries()) window.__lt.push(e.duration); }})
@@ -171,9 +171,9 @@ def test_leaving_a_page_stops_its_polling(browser, site):
     """Pages left quickly, each before its first answer came: only the header's and the last page's polls go on."""
     pg = browser.new_page()
     pg.add_init_script(INIT)
-    pg.goto(f"{site}/loops")
+    pg.goto(f"{site}/goals")
     pg.wait_for_timeout(3000)
-    for r in ["/diagram", "/items", "/loops", "/diagram?view=blocks", "/agents", "/model", "/diagram"] * 2 + ["/record"]:
+    for r in ["/diagram", "/items", "/goals", "/diagram?view=blocks", "/agents", "/model", "/diagram"] * 2 + ["/record"]:
         pg.evaluate(f"navigate({r!r})")
         pg.wait_for_timeout(150)
     pg.wait_for_timeout(4000)
@@ -184,6 +184,40 @@ def test_leaving_a_page_stops_its_polling(browser, site):
     pg.close()
     assert alive == 2, f"{alive} polls alive (the header's and the Record's)"
     assert set(asked) <= {"events", "status", "projects"}, f"pages left behind still ask: {sorted(set(asked))}"
+
+
+def test_the_goals_page_and_its_old_address(browser, site):
+    """What is held or off is a goal: /goals is the page (h1 'Goals', first column 'goal'), /loops lands there with
+    its query, the header never says 'loop', a goal's panel is a Goal; 'control loop' and 'Feedback loops' stay."""
+    pg = browser.new_page()
+    rows = "() => [...document.querySelectorAll('#main tr.click td:first-child b')].map((b) => b.textContent)"
+    pg.goto(f"{site}/goals?status=off")
+    pg.wait_for_function("() => document.querySelector('#main tr.click')", timeout=30000)
+    assert pg.locator("#main h1").inner_text() == "Goals"
+    assert pg.locator("#main th").first.inner_text() == "goal"
+    nav = pg.locator("#nav").inner_text()
+    assert "Goals" in nav and "Loops" not in nav, nav
+    goals = pg.evaluate(rows)
+    pg.goto(f"{site}/loops?status=off")
+    pg.wait_for_function("() => location.pathname === '/goals' && document.querySelector('#main tr.click')", timeout=30000)
+    assert pg.evaluate("location.search") == "?status=off" and pg.evaluate(rows) == goals
+    pg.wait_for_function("() => document.querySelector('#running').textContent", timeout=10000)
+    assert "loop" not in pg.locator("header").first.inner_text().lower()
+    pg.locator("#main tr.click").first.click()
+    pg.wait_for_function("() => document.querySelector('#detail .kind')", timeout=20000)
+    assert pg.locator("#detail .kind").first.inner_text() in ("Goal", "Goal, open loop")
+    pg.goto(f"{site}/diagram?view=blocks&open=*")
+    pg.wait_for_function("() => S.graph?.nodes?.length && document.querySelector('.side h3')", timeout=60000)
+    ctl = "S.graph.nodes.find((n) => n.role === 'controller' && (n.loops || []).length)"
+    assert pg.evaluate(f"() => !!{ctl}"), pg.evaluate("() => S.graph.nodes.map((n) => [n.kind, n.role, n.loops])")
+    pg.evaluate(f"() => openBlock({ctl})")
+    pg.wait_for_function("() => document.querySelector('#detail .kind')", timeout=20000)
+    assert "control loop" in pg.locator("#detail").inner_text()
+    assert "Goals and their control loops" in pg.locator(".side").first.inner_text()
+    pg.goto(f"{site}/diagram?view=dynamics&open=*")
+    pg.wait_for_function("() => [...document.querySelectorAll('.side h3')].some((x) => x.textContent.startsWith('Feedback loops'))",
+                         timeout=60000)
+    pg.close()
 
 
 def test_a_hidden_tab_asks_for_nothing(browser, site):

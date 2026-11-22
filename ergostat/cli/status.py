@@ -171,7 +171,7 @@ def status(args) -> int:
     if loops and dead:
         print(c(f"engine not running: these are the loops as last seen, {ago(seen)}; nothing is measuring now", "warn"))
     if loops:
-        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "TIME OFF"],
+        print(table(["GOAL", "STATUS", "HOLDS", "NOW", "SETPOINT", "TIME OFF"],
                     [[n + (c(" ⏲", "dim") if lp.get("open_loop") else ""),
                       (c(f"was {lp['status']}", "dim") if dead else show.status_word(lp["status"]))
                       + (c(f" ({lp['about']})", "dim") if lp.get("about") else ""), lp["stock"],

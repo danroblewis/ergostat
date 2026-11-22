@@ -12,7 +12,7 @@ const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y:
    opened with no server) the same path is kept in the hash instead, as #/items. UI_PAGES are the first parts
    of the paths the page answers (the server's UI_PAGES, the same list) */
 const HASHED = !!window.SNAPSHOT || location.protocol === "file:";
-const UI_PAGES = ["diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
+const UI_PAGES = ["diagram", "goals", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
 function isPagePath(path) { return path === "/" || UI_PAGES.includes(String(path).split(/[/?#]/)[1]); }
 function appHref(v) { return HASHED && typeof v === "string" && v.startsWith("/") && isPagePath(v) ? "#" + v : v; }
 
@@ -371,7 +371,7 @@ async function refreshHeader() {
     if (run.title !== tip) run.title = tip;
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
-      : off ? `${off} loop${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
+      : off ? `${off} goal${off > 1 ? "s" : ""} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
   } catch (e) { /* the server may be restarting */ }
@@ -505,8 +505,9 @@ async function route() {
   if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
   main.replaceChildren();
-  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
+  const pages = { "/diagram": pageDiagram, "/goals": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
+  if (path === "/loops") { replaceRoute(`/goals${q.toString() ? `?${q}` : ""}`); return route(); }   // the Goals page's old name
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
   return (pages[path] || pageDiagram)(main, q);

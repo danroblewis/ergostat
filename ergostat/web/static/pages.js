@@ -18,7 +18,7 @@ const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("tab
 const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el; };
 
 async function pageLoops(main) {
-  const p = page(main, "Loops");
+  const p = page(main, "Goals");
   const box = h("div"), cap = h("p", { class: "note" });
   const perf = {};
   let pts = {}, ptsAt = 0;
@@ -49,13 +49,13 @@ async function pageLoops(main) {
         if (cell) setText(cell, perf[n]);
       }).catch(() => {});
     }
-    patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
+    patch(box, table(["goal", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
         h("td", { class: "nowrap" }, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
         h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num nowrap" }, op(lp.setpoint) + (lp.band || "")),
         h("td", { class: "num", title: "e = r − y" }, lp.error != null ? fmt(lp.error) : ""),
-        h("td", { class: "num", title: "The share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
+        h("td", { class: "num", title: "The share of the window the goal spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
         h("td", { class: "num", title: lp.back_in != null ? `Typically holding again this long after going off (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times); its valve opens ${lp.answers_in != null ? dur(lp.answers_in) : "?"} after` : "It has not gone off and come back in the window" },
           lp.back_in != null ? dur(lp.back_in) : "–"),
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },

@@ -1010,7 +1010,7 @@ function legend(view) {
     row('<path d="M1 9 H20" stroke="var(--ctl-line)" stroke-width="1.8"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--ctl-line)"/>', "information link, control action: the controller opens a valve"),
     (S.graph?.edges || []).some((e) => e.kind === "influence") &&
       row('<path d="M1 9 H20" stroke="var(--dist)" stroke-width="1.6" stroke-dasharray="7 4"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--dist)"/>', "information link, influence: a flow's rate follows this (driven-by)"),
-    row('<path d="M1 9 H25" stroke="var(--bad)" stroke-width="2"/>', "a loop off: its lines in red when pointed at in the list (amber: open)"),
+    row('<path d="M1 9 H25" stroke="var(--bad)" stroke-width="2"/>', "a goal off: its lines in red when pointed at in the list (amber: open)"),
     h("span", { class: "sym" }, "H A P"), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, `${RUNG_LETTER[i]} ${k}`))));
 }
 
@@ -1359,7 +1359,7 @@ function renderSide(side, g, view) {
     att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
       linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
   }
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
+  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/goals" }, "Goals"), " and ", h("a", { href: "/model" }, "Model"), "."));
   side.append(att);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside
@@ -1379,8 +1379,8 @@ function renderSide(side, g, view) {
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {
-    side.append(h("h3", {}, "Loops", h("span", { class: "muted" }, ` ${loops.length}`)));
-    if (!loops.length) side.append(h("div", { class: "muted" }, "No loops in view."));
+    side.append(h("h3", {}, "Goals and their control loops", h("span", { class: "muted" }, ` ${loops.length}`)));
+    if (!loops.length) side.append(h("div", { class: "muted" }, "No goals in view."));
     const rank = { off: 0, open: 1, unknown: 2, holding: 3 };       // the ones that need someone first
     for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {
       side.append(h("div", { class: "looprow", "data-loop": name,

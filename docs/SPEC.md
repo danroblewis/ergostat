@@ -4303,7 +4303,7 @@ three times their spread past 1, five crossings or more, the record four periods
 amplitude past the tolerance), with its period and amplitude; the share of time u was at a limit (a
 setting at the end of its block's `limits:`, or a valve's openings at its most); and, each time the
 loop went off and came back to stay, how long it took to **settle**, and for a level held (==) how
-far it **overshot** to the other side. Shown under the scope, and in a word on the Loops page (which
+far it **overshot** to the other side. Shown under the scope, and in a word on the Goals page (which
 says what it lacks, "needs θ" or "too little record", rather than nothing).
 
 **Tuning** (`tuning.py`; Skogestad's SIMC, 2003): for a controller whose law its block writes and the
@@ -4373,7 +4373,7 @@ Approve records a step test's approval; a dismissed one is not offered again unt
 on in the model changes. Shown where the loop is: the process block's panel in the blocks view (the
 identification, its step response and Bode plot, the process and step-test proposals), the
 controller's panel (its law with that process, margins, closed-loop step and Bode, the tuning), the
-scope (performance), and a loop's panel on the Loops page (all of it).
+scope (performance), and a goal's panel on the Goals page (all of it).
 
 **Existing controllers** (`numbers/extlaw.py`, `numbers/external.py`; the gap in `docs/proposals/external-systems.md`):
 a controller ergostat does not run (an autoscaler, an alert rule, a vendor's limiter) is an `external` block, and

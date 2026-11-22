@@ -50,6 +50,6 @@ if (SNAP) {                                   // one moment, one window: nothing
   poll(refreshHeader, 5000);
   oldAddress();                                                // #/items, an old address: shown at /items
   const bare = HASHED ? !location.hash.startsWith("#/") : location.pathname === "/";
-  if (bare && window.innerWidth < 700) replaceRoute("/loops");    // on a phone, the loops first
+  if (bare && window.innerWidth < 700) replaceRoute("/goals");    // on a phone, the goals first
   route();
 })();

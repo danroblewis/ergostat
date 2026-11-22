@@ -214,7 +214,7 @@ process each: [docs/DAEMONS.md](docs/DAEMONS.md).
 address (`/items`, `/item/ticket%2F7`, `/diagram?view=blocks`), to open in a new tab, copy or reload. It opens on the
 control diagram, laid out by ELK: stocks as tanks, flows as pipes through valves (a bow tie) or
 disturbances (a diamond), sensors as gauges, controllers as boxes with their setpoint and status,
-each part tagged with the agent that fills it (a lettered dot by its kind, and its schedule). Loops are coloured by status;
+each part tagged with the agent that fills it (a lettered dot by its kind, and its schedule). A goal's control loop is coloured by its status;
 systems are drawn as outlines that may overlap; an open loop (a timer) has a clock where a feedback
 controller has its Σ; a chain of loops in series folds into rows where one feeds the next. The blocks view draws each loop as a classic
 negative-feedback block diagram (r, Σ, e, C, u, the actuator, the disturbance d joining at the
@@ -224,7 +224,7 @@ The Export menu's "SVG" and "PNG" write the diagram as a standalone file, with a
 the structure (parts, flows, roles and schedules, no live values or status), for a design document. `ergostat snapshot` writes the whole page, with
 what it shows now, to one HTML file that opens anywhere with no ergostat running (every view, page and part, the Items
 page's Graph and Timeline and each kind chosen among them, as of then; a set chosen on the Items page is not). The process view draws the process map of each
-kind of item from the record (a directly-follows graph: states or events, how often, what came next, rework), and where work on one kind caused work on another. Loops, Agents (by rung), Items, Record, Model and Check show
+kind of item from the record (a directly-follows graph: states or events, how often, what came next, rework), and where work on one kind caused work on another. Goals, Agents (by rung), Items, Record, Model and Check show
 what the command line shows; the Guide steps through tiny models, drawn by the same renderers, that introduce system dynamics and control, then shows your own model both ways. The header's "Last 1h" menu sets the window and looks at any past moment; "Back to live"
 returns.
 

@@ -359,7 +359,7 @@ def cmd_projects(args) -> int:
         unknown = f", {len(x.get('unknown', []))} unknown" if x.get("unknown") else ""
         held = x["loops"] - len(x["off"]) - len(x.get("unknown", []))
         off = (c(f"{len(x['off'])} off: {names}", "bad") + unknown if x["off"] else
-               (c(f"{held} holding", "ok") if held else "") + (unknown.lstrip(", ") if not held else unknown) if x["loops"] else "no loops")
+               (c(f"{held} holding", "ok") if held else "") + (unknown.lstrip(", ") if not held else unknown) if x["loops"] else "no goals")
         rows.append([x["name"], state, off, x["web"] or "", x["repo"]])
-    print(table(["PROJECT", "STATE", "LOOPS", "PAGE", "REPOSITORY"], rows, "no projects yet: ergostat run in a repository"))
+    print(table(["PROJECT", "STATE", "GOALS", "PAGE", "REPOSITORY"], rows, "no projects yet: ergostat run in a repository"))
     return 0
