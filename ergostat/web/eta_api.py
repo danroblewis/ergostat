@@ -95,14 +95,11 @@ def _worker() -> None:
                 _LOCK.notify_all()
             continue
         ans = _work(p, spec, kinds, w)
-        with _LOCK:
-            if ans is not None:
-                _CACHE[key] = {"made": time.time(), "mark": mark, "ans": ans}
-                _CACHE.move_to_end(key)
-                while len(_CACHE) > KEEP:
-                    _CACHE.popitem(last=False)
-            elif key not in _CACHE:                    # (failed: tried again no sooner than EVERY)
-                _CACHE[key] = {"made": time.time(), "mark": mark, "ans": None}
+        with _LOCK:                                    # (a failure kept too: said, tried again as an answer is)
+            _CACHE[key] = {"made": time.time(), "mark": mark, "ans": ans}
+            _CACHE.move_to_end(key)
+            while len(_CACHE) > KEEP:
+                _CACHE.popitem(last=False)
             _LOCK.notify_all()
 
 
@@ -116,29 +113,35 @@ def _calibrate(p, spec, kinds) -> dict | None:
         return None
 
 
-def _work(p, spec, kinds, w) -> dict | None:
+def _work(p, spec, kinds, w) -> dict:
     from ..numbers import eta, etamodel
     try:
         inp = etamodel.read(p, spec, kinds, time.time())
         ans = eta.simulate(inp, pools=w.pools, failures=w.failures)
         why = eta.reasons(inp, w.pools)
-        for i, x in ans["items"].items():
-            x.update(why.get(i) or {})
+        for i, x in ans["items"].items():               # (reasons' words kept; one not scheduled says so first)
+            r = dict(why.get(i) or {})
+            if x.get("unscheduled") and not r.get("why", "").startswith(x["why"]):
+                r["why"] = f"not scheduled: {x['why']}" + (f"; {r['why']}" if r.get("why") else "")
+            elif x.get("out"):                          # (counted out in some runs: said after reasons' words)
+                r["why"] = "; ".join(filter(None, [r.get("why"), x["why"]]))
+            x.update(r)
         ans["assumed"] = {b.name: b.assumed for b in inp.blocks if b.assumed}
         ans["whatif"] = w.said()
         return ans
-    except Exception as e:                       # the page goes on without estimates; said in the server's log
+    except Exception as e:                       # the page goes on without estimates, the failure said on it and in the log
         import sys
         print(f"eta: {type(e).__name__}: {e}", file=sys.stderr)
-        return None
+        return {"error": f"{type(e).__name__}: {e}", "items": {}, "kinds": {}}
 
 
 def merge(ans: dict, est: dict | None) -> dict:
-    """The Graph's and Timeline's answer (``precedence.build``) with the estimates: each open item's p50, p90 and why,
-    its projected bars from the levelled run (a block's lane on each), each kind's last finish, and each kind's
-    calibration (how well last week's estimates held: ``{coverage, items, mae, since, said}``, ``{}`` until worked out)."""
+    """The Graph's and Timeline's answer (``precedence.build``) with the estimates: each open item's p50, p90 and why
+    (an item left out of the run: unscheduled, and why), its projected bars from the levelled run (a block's lane on
+    each), each kind's last finish, and each kind's calibration (how well last week's estimates held:
+    ``{coverage, items, mae, since, said}``, ``{}`` until worked out); a failed simulation's error as ``eta_error``."""
     if not est or not est.get("items"):
-        return {**ans, "eta": None}
+        return {**ans, "eta": None, "eta_error": (est or {}).get("error")}
     items = []
     for x in ans["items"]:
         e = est["items"].get(x["id"])
