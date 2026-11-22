@@ -528,8 +528,9 @@ Round 15 (the fix round for review operating-states-12). Each finding:
    dispatch uses pool 0, and with several shards the other shards' dispatchers are not held by it. They cap their
    blocks by `in_force` only. Sharing the hold through the record would be a later gap if wanted.
 3. **Not run by that review** (a note). This session's shell refused running the gate check
-   (`uv run python /tmp/gate.py`). Only the definition file and SPEC changed, so no test was run this round. Round
-   14's runs stand: `tests/test_operating.py` and `tests/test_cli_fallback.py` (54 passed), and ruff clean. Not run:
+   (`uv run python /tmp/gate.py`), so the gate's reading of this section is checked by reading `stopped()` only.
+   Only the definition file and SPEC changed. Run this round: `tests/test_operating.py` (36 passed) and ruff
+   (clean). Not run:
    the full unit suite and the four browser files. No demo is touched, so `demo_check` is not needed.
 
 Overrun reason: 455 net lines, 5 over the 450 budget: 3 for the try/except in `Dispatcher.trip` that review operating-states-4 asked for (a trip write that raises holds dispatch at pool 0), 1 for classifying `operating` as refused in `library/trust.py` that main's allowlist test required after its merge, and 1 for moving `take()`'s post-TAKEN re-check inside the `try` that review operating-states-9 asked for; nothing else in the gap could go without dropping a part of the definition.
