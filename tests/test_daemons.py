@@ -662,3 +662,136 @@ def test_a_daemon_runs_1200_lines_are_all_recorded_in_order(tmp_path):
     assert [x["data"]["i"] for x in seen] == list(range(1200)), "every line, in the order printed"
     assert {x["causedby"] for x in seen} == {started[0]["id"]} and {x["item"] for x in seen} == {"ticket/1"}
 
+
+BURN = r'''
+import json, os, sys, time
+mode = sys.argv[1]
+for line in sys.stdin:
+    m = json.loads(line)
+    if m["op"] != "item":
+        continue
+    sys.stdout.write(json.dumps({"event": "ticket.started", "run": m["run"]}) + "\n"); sys.stdout.flush()
+    t = time.process_time()
+    while time.process_time() - t < 0.6:        # 0.6 s of CPU in its run, then it crashes or hangs, never done
+        pass
+    if mode == "crash":
+        os._exit(3)
+    time.sleep(600)                             # (hung: its cancel never read)
+'''
+
+
+def _failed_warm_run(tmp_path, mode: str, timeout: str) -> dict:
+    (tmp_path / "burn.py").write_text(BURN)
+    p = project(tmp_path, KIND + f"""
+blocks:
+  worker:
+    type: program
+    takes: {{kind: ticket, at: ready}}
+    timeout: {timeout}
+    lease: {{ttl: 1m}}
+    daemon: {{run: python3 burn.py {mode}, warm: true, concurrency: 1, restart: {{backoff: [5s, 5s]}}}}
+""")
+    p.events.add("ticket.opened", item="ticket/1", source="t")
+    e = start(p)
+    try:
+        assert wait_for(lambda: events(p, "agent.failed"), 20)
+    finally:
+        e.close()
+    groups = [x["data"]["pid"] for x in events(p, "ergostat.daemon.started")]
+
+    def gone(g: int) -> bool:
+        try:
+            os.killpg(g, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        return False
+    assert groups and wait_for(lambda: all(gone(g) for g in groups), 5), f"nothing it started outlives close: {groups}"
+    return events(p, "agent.failed")[0]["data"]
+
+
+def test_a_crashed_warm_run_is_charged(tmp_path):
+    data = _failed_warm_run(tmp_path, "crash", "1m")
+    assert "exited 3" in data["note"], data
+    res = data.get("resources") or {}
+    assert res.get("method") == "warm" and 0.5 <= res.get("cpu", 0) < 1.5, f"its 0.6 s charged, not lost: {data}"
+
+
+def test_a_timed_out_warm_run_is_charged(tmp_path, monkeypatch):
+    monkeypatch.setattr(kill, "GRACE", 1.0)
+    data = _failed_warm_run(tmp_path, "hang", "2s")
+    res = data.get("resources") or {}
+    assert res.get("method") == "warm" and 0.5 <= res.get("cpu", 0) < 1.5, f"its 0.6 s charged, not lost: {data}"
+
+
+def test_a_warm_run_failed_between_its_done_s_charge_and_its_pop_is_charged_and_ended_once():
+    import types
+
+    from ergostat.daemons.proc import Handle, Process
+    p = Process.__new__(Process)                 # (no program: only the done path and fail_all)
+    p.d = types.SimpleNamespace(warm=True, recycle=100, name="w")
+    p.lock, p.requests, p.served, p.idle_since, p.recycle = threading.Lock(), {}, 0, None, None
+    h = Handle(take=lambda lines: None)
+    h.sent, p.runs = True, {"r1": h}
+    calls = []
+
+    def charge():                                # fail_all takes the run while done is being charged
+        calls.append(1)
+        if len(calls) == 1:
+            p.fail_all("its daemon exited 3", requeue=False)
+            return {"cpu": 0.25, "method": "warm"}, [7]
+        return {"cpu": 0.5, "method": "warm"}, []
+    p.charge = charge
+    p.line(json.dumps({"done": 0, "run": "r1"}))
+    assert h.code is None and h.note == "its daemon exited 3", "ended once, by fail_all, never as done"
+    assert h.resources == {"cpu": 0.5, "method": "warm"}, "fail_all's charge kept, never done's written over it"
+    assert p.served == 0 and p.recycle is None, "a run done never took is not counted as served"
+
+
+def test_a_warm_run_whose_charge_raises_in_fail_all_is_still_ended_and_unknown():
+    import types
+
+    from ergostat.daemons.proc import Handle, Process
+    p = Process.__new__(Process)                 # (no program: only fail_all)
+    p.d = types.SimpleNamespace(warm=True)
+    p.lock, p.requests = threading.Lock(), {}
+    h = Handle(take=lambda lines: None)
+    h.sent, p.runs = True, {"r1": h}
+
+    def charge():
+        raise IndexError("a /proc read cut short")
+    p.charge = charge
+    p.fail_all("its daemon exited 3", requeue=False)
+    assert h.done.is_set() and h.note == "its daemon exited 3", "ended, never left waiting for its charge"
+    assert h.resources == {"unmeasured": "its group's CPU could not be read (IndexError)", "method": "warm"}
+
+
+def test_a_warm_run_whose_leader_cannot_be_read_when_it_ends_is_unknown_never_zero():
+    import subprocess
+
+    from ergostat.daemons import usage
+    gone = subprocess.Popen(["true"], start_new_session=True)
+    gone.wait()                                  # (reaped by Popen: no rusage of its own to give)
+    cpu, _, _ = usage.charge({gone.pid: 0.5}, gone.pid)
+    assert cpu is None, "its leader unread at the end: unknown, never the rest of the group (here none) as all"
+    assert usage.charge({gone.pid: 0.5}, gone.pid, last=1.25)[0] == 0.75, "reaped with its CPU known: charged"
+
+
+def test_a_warm_run_s_resources_say_which_read_failed_and_hold_no_cpu():
+    import subprocess
+    import types
+
+    from ergostat.daemons.proc import Process
+    gone = subprocess.Popen(["true"], start_new_session=True)
+    gone.wait()                                  # (reaped by Popen, its rusage never read: unknown at the end)
+    p = Process.__new__(Process)                 # (no program: only charge)
+    p.pid, p.proc = gone.pid, types.SimpleNamespace(rusage=None)
+    p.before = {gone.pid: 0.5}
+    res, left = p.charge()
+    assert res == {"unmeasured": "its group's CPU could not be read when the run ended", "method": "warm"}, res
+    assert left == []
+    p.before = {}                                # (its hand-over's read failed)
+    res, _ = p.charge()
+    assert res == {"unmeasured": "its group's CPU could not be read when it was handed the run", "method": "warm"}, res
+

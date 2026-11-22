@@ -146,7 +146,7 @@ def cmd_run(args) -> int:
     _kept()
     rl.write_state(p.dir, None)
     name = mdl.file_name(p.model)
-    reload = False
+    reload = moved = False
     try:
         while not stopping:
             time.sleep(0.25)
@@ -173,7 +173,7 @@ def cmd_run(args) -> int:
                 # another state directory, format or store: not the same runner any more
                 print(f"{name} changed its name, format or storage: restarting with it (its runs are stopped)", flush=True)
                 rl.write_state(p.dir, None)
-                reload = True
+                reload, moved = True, fresh.name != p.model.name           # (a new name: a new state folder)
                 break
             old = p.model
             try:                                        # in place: runs under way carry on (SPEC §9.1)
@@ -205,6 +205,8 @@ def cmd_run(args) -> int:
         pass
     if reload and getattr(r, "wedged", None) and not stopping:
         hard(r.wedged)                                  # (closing may wait on what is wedged)
+    if kept := reload and not stopping and not moved and getattr(r, "calls", None):
+        kept.keep = True                                # its socket left: a run's calls wait for the new engine's
     r.close()
     if server:
         server.shutdown()
@@ -212,6 +214,8 @@ def cmd_run(args) -> int:
         (p.dir / "web.json").unlink(missing_ok=True)
     if reload and not stopping:                         # the same process, the new model (a stop asked meanwhile wins)
         _restart(p, args)
+    if kept:                                            # not started again after all: its calls fall back after GONE
+        kept.remove()
     return 0
 
 
