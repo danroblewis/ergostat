@@ -233,6 +233,37 @@ LEASE_MEASURES = {                 # the leases on items (SPEC §9.5); @KIND or 
 }
 
 
+BUDGET_MEASURES = {                # the day's AI budget (SPEC §9.9): what runs may still reserve
+    "ergostat.budget.left": "dollars of budget.daily left over the last day: daily less what ended runs cost and what "
+                            "runs in flight reserved; an error, never a number, when it cannot be worked out",
+}
+BUDGET_MOST = 10000.0             # the ceiling on budget.daily, in dollars
+
+
+@dataclass
+class RunBudget:
+    """``budget:`` (SPEC §9.9): ``daily``, dollars over the trailing day; ``max_cost``, what a charged run reserves
+    before it starts. Checked at compile time and again before every charged run (``problem``)."""
+    daily: float
+    max_cost: float
+    where: Where | None = None
+
+    def problem(self) -> str | None:
+        """Why these values are out of bounds, or None."""
+        d, m = self.daily, self.max_cost
+        if any(isinstance(x, bool) or not isinstance(x, int | float) or x != x for x in (d, m)):
+            return "budget: out of bounds: daily and max-cost must be numbers"
+        if d > BUDGET_MOST:
+            return f"budget.daily: out of bounds: {d:g} is above the ceiling of {BUDGET_MOST:g}"
+        if d <= 0:
+            return f"budget.daily: out of bounds: {d:g} is not above 0"
+        if m <= 0:
+            return f"budget.max-cost: out of bounds: {m:g} is not above 0"
+        if m > d:
+            return f"budget.max-cost: out of bounds: {m:g} is above budget.daily ({d:g})"
+        return None
+
+
 UPKEEP = re.compile(r"^ergostat\.upkeep\.(index-files|retired-index-files|heartbeat-age|stalls|restarts)$")
 UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
     "ergostat.upkeep.index-files": "the live item-index files under the state directory's items folder, now",
@@ -258,21 +289,6 @@ def heartbeat_stale(spec) -> float | None:
             if g is not None and g.system == inst and g.hold.op == "<=" and stale_ok(g.hold.value):
                 return float(g.hold.value)
     return None
-
-
-BUDGET_MEASURES = {                # the day's AI budget (SPEC §9.9, costs/budget.py)
-    "ergostat.budget.left": "dollars of budget.daily left over the trailing 24 h: daily less what ended runs cost and what "
-                            "runs still going reserve; no value when no budget: is declared or the record cannot be read",
-}
-
-
-@dataclass(frozen=True)
-class Budget:
-    """``budget:`` (SPEC §9.9): US dollars the runs may cost over the trailing 24 h, and what one run reserves before it
-    starts (never a cap on what it spends)."""
-
-    daily: float
-    max_cost: float
 
 
 def is_measure(name: str) -> bool:
@@ -824,6 +840,8 @@ class Relation:
     precedence: bool = False        # its targets come first: this item is not ready until each is finished
     inverse: str = ""               # the other direction's name, derived (blocks, children)
     group: bool = False             # a parent: the Graph view groups by it
+    remote: str = ""                # names a remote's kind (incidents-incident): the remote; never precedence (§4c)
+    there: str = ""                 # the kind's name at that remote (incident)
 
 
 @dataclass
@@ -943,7 +961,7 @@ class Spec:
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
-    budget: Budget | None = None                                       # the day's AI budget (SPEC §9.9); None: none declared
+    budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept

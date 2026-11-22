@@ -30,23 +30,13 @@
       "$ref": "#/$defs/duration"
     },
     "budget": {
+      "description": "The day's AI budget (SPEC 9.9): no charged run starts unless daily, less what runs spent over the last day and what runs in flight reserved, covers max-cost. Main file only.",
       "type": "object",
-      "description": "The day's AI budget (main file only, never ergostat.local.yaml; SPEC section 9.9). max-cost must also be at most daily, which the compile checks.",
       "additionalProperties": false,
       "required": ["daily", "max-cost"],
       "properties": {
-        "daily": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 10000,
-          "description": "US dollars the runs may cost over the trailing 24 h."
-        },
-        "max-cost": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 10000,
-          "description": "What one run reserves before it starts (at most daily): never a cap on what the run spends."
-        }
+        "daily": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "US dollars over the trailing 24 hours"},
+        "max-cost": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
       }
     },
     "defaults": {

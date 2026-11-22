@@ -1,133 +1,204 @@
-"""The day's AI budget (SPEC §9.9): ``budget: {daily, max-cost}`` checked, which runs it charges, and the trailing day's
-spend folded from the record by run id, never by lease state or by time order.
+"""The day's AI budget (SPEC §9.9): the permissive P3. No charged run starts unless what is left of ``budget.daily``
+covers its reserve (``budget.max-cost``).
 
-A run reserves before it starts (``reserve`` on its ``ergostat.lease.taken``, or on its ``agent.started`` when it is
-not leased) and is charged, while its end is within the last 24 h, what it cost; until it ends, its reserve. What
-cannot be known counts as the worst case: a missing or malformed cost is the run's reserve (``max-cost`` when it
-reserved nothing), and a record that cannot be read is an error, never 0. Nothing is refused here: the permit is
-``run-budget-permit``'s."""
+- **The fold** (``fold``), keyed by run id, never by lease state: each reserving event of the last 7 days
+  (``ergostat.lease.taken``: its ``data.run``; ``agent.started``: its id; each with ``reserve``) is matched to its
+  ends of the same 7 days (``agent.ran``, ``agent.failed`` by ``causedby``; ``budget.closed`` by ``data.run``). A run
+  with no end is *reserved* at its reserve; an end counts in *spent* only while it is within the last day, at its
+  cost, or (unknown) its reserve, or ``max-cost`` when it used AI at no known price; several ends, the largest.
+- **The permit** (``permit``): under ``fcntl.flock`` on ``<state dir>/budget.lock``, opened anew each call (threads
+  and processes alike exclude each other), the fold is read, the decision made and the reserving event written. It is
+  the innermost lock: nothing is taken inside it but the event store's own.
+- **Recovery** (``recover``): a reserving run with no end whose process is gone, or is this one but no longer has it
+  open (``OPEN``), is closed (``budget.closed``, cost unknown: charged its reserve for a day from the close).
+"""
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import math
+import os
 import time
 
-from ..spec.ir import Budget
+from ..leases import TAKEN
+from . import record as cr
 
-KEYS = ("daily", "max-cost")
-DAILY_MAX = 10000.0                    # dollars a day: the ceiling on what config may let runs spend (lesson-4)
-FREE_KINDS = ("person", "decision", "program", "rule")   # the allowlist: an agent of one of these, on a block not ai
-STARTS, ENDS = "ergostat.lease.taken,agent.started", "agent.ran,agent.failed,budget.closed"
-DAY, READ = 86400.0, 7 * 86400.0
-
-
-def _number(v) -> float | None:
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
-
-
-def _bad(key: str, v, top: float, said: str) -> list[str]:
-    x = _number(v)
-    if x is None:
-        return [f"budget.{key}: a number of US dollars, not {v!r}"]
-    return [] if 0 < x <= top else [f"budget.{key}: more than 0 and at most {said}, not {x:g}"]   # NaN, inf: out of bounds
+SOURCE = "ergostat"
+STARTED, CLOSED, REFUSED = "agent.started", "budget.closed", "budget.refused"
+DAY, WEEK = 86400.0, 7 * 86400.0
+FREE = ("person", "decision", "program", "rule")   # the agent kinds whose non-ai runs are free (an allowlist)
+OPEN: set[str] = set()                     # the reserving runs this process has open (added under the flock)
+SAID_EVERY, RECOVER_EVERY = 60.0, 60.0
+_said: dict[tuple[str, str], float] = {}   # (state dir, block) → when (monotonic) a refusal was last recorded
+_recovered: dict[str, float] = {}          # state dir → when (monotonic) it was last recovered
 
 
-def check(daily, max_cost) -> list[str]:
-    """What is wrong with these values, each its own sentence: run again at run time by the permit."""
-    wrong = _bad("daily", daily, DAILY_MAX, f"{DAILY_MAX:g} (dollars over the trailing 24 h)")
-    top, said = (DAILY_MAX, f"{DAILY_MAX:g}") if wrong else (float(daily), "budget.daily (what one run reserves)")
-    return wrong + _bad("max-cost", max_cost, top, said)
-
-
-def parse(raw) -> tuple[Budget | None, list[str]]:
-    """``budget:`` as written: the Budget, or None and every error (an unknown key, a missing key, a non-number, a
-    value out of bounds)."""
-    if not isinstance(raw, dict):
-        return None, ["budget: a map of daily: and max-cost: (US dollars)"]
-    wrong = [f"budget: unknown key {k!r} (known: {', '.join(KEYS)})" for k in raw if k not in KEYS]
-    wrong += [f"budget: {k}: is required" for k in KEYS if k not in raw]
-    if "daily" in raw and "max-cost" in raw:
-        wrong += check(raw["daily"], raw["max-cost"])
-    elif "daily" in raw or "max-cost" in raw:
-        k = "daily" if "daily" in raw else "max-cost"
-        wrong += _bad(k, raw[k], DAILY_MAX, f"{DAILY_MAX:g}")
-    return (None, wrong) if wrong else (Budget(float(raw["daily"]), float(raw["max-cost"])), [])
+def _between() -> None:
+    """Called under the flock, after the read and the decision and before the write (a test's hook)."""
 
 
 def free(spec, b) -> bool:
-    """A run of this block costs the budget nothing only when the block is not ``ai`` and its agent is declared with a
-    kind on the allowlist; every other run (no agent, an undeclared one, no kind, ai, narrow-ai) is charged."""
-    a = spec.agents.get(b.agent) if b.agent else None
-    return b.type != "ai" and a is not None and a.kind in FREE_KINDS
+    """A run of this block is free (reserves 0) only when it is not ``ai`` and its agent is declared a person, a
+    decision, a program or a rule; every other (no agent, no kind, narrow AI, AI) is charged ``max-cost``."""
+    a = spec.agents.get(b.agent or "")
+    return b.type != "ai" and a is not None and a.kind in FREE
 
 
-def _known(v) -> float | None:
-    v = _number(v)
-    return v if v is not None and math.isfinite(v) and v >= 0 else None
-
-
-def cost_of(e: dict) -> float | None:
-    """An end's cost in dollars when known (finite and at least 0); None when missing or malformed."""
-    d = e.get("data") or {}
-    ai = d.get("ai")
-    return _known(ai.get("cost_usd") if isinstance(ai, dict) else d.get("cost_usd"))
-
-
-def _charged(spec, blocks: set) -> bool:
-    """A run is charged unless every block its events name is a declared, free block (no spec, no name: charged)."""
-    found = [spec.blocks.get(n) if spec is not None and isinstance(n, str) else None for n in blocks]
-    return not found or not all(b is not None and free(spec, b) for b in found)
-
-
-def fold(p, budget: Budget, now: float | None = None, spec=None) -> dict:
-    """The trailing day's spend: ``spent`` (ended runs' charges, the end within 24 h), ``reserved`` (runs not ended),
-    and ``runs`` (run id → its charge; a free block's runs are left out, given ``spec``). Reads 7 days of starts and
-    ends; a record that cannot be read raises. A ``budget.closed`` counts only when ergostat wrote it."""
-    now = time.time() if now is None else now
-    reserve: dict[str, float] = {}
-    blocks: dict[str, set] = {}            # run id → the blocks its events name (lease: data.block; agent.*: item)
-    for e in p.events.query(n=None, type=STARTS, since=now - READ):
-        d = e.get("data") or {}
-        leased = e["type"] == "ergostat.lease.taken"
-        run = d.get("run") if leased else e.get("id")
-        if run is None:
-            continue
-        blocks.setdefault(run, set()).add(d.get("block") if leased else e.get("item"))
-        if not leased and "reserve" not in d:
-            continue                       # an agent.started with no reserve: a leased run's (its lease reserved) or free
-        r = _known(d.get("reserve"))
-        reserve[run] = max(reserve.get(run, 0.0), budget.max_cost if r is None else r)
-    ends: dict[str, list[float]] = {}
-    for e in p.events.query(n=None, type=ENDS, since=now - READ):
-        closed = e["type"] == "budget.closed"
-        if closed and e.get("source") != "ergostat":
-            continue                       # a block's output, `ergostat record` or a push may not release a reserve
-        run = (e.get("data") or {}).get("run") if closed else e.get("causedby")
-        if run is None:
-            continue
-        blocks.setdefault(run, set()).add((e.get("data") or {}).get("block") if closed else e.get("item"))
-        got = ends.setdefault(run, [])     # ended, though perhaps more than a day ago: charged 0
-        if e["time"] >= now - DAY:
-            c = cost_of(e)
-            got.append(c if c is not None else reserve.get(run, budget.max_cost))
-    gone = {run for run, bs in blocks.items() if not _charged(spec, bs)}
-    reserve = {run: r for run, r in reserve.items() if run not in gone}
-    runs = {run: max(ends[run], default=0.0) for run in ends if run not in gone}
-    spent = sum(runs.values())
-    held = {run: r for run, r in reserve.items() if run not in ends}
-    runs.update(held)
-    return {"spent": spent, "reserved": sum(held.values()), "runs": runs}
-
-
-def left(p, spec, now: float | None = None) -> float:
-    """``ergostat.budget.left``: daily − spent − reserved. Raises when no budget: is declared or the record cannot be
-    read, never daily or 0."""
-    from ..numbers.measures import MeasureError
-    b = getattr(spec, "budget", None) if spec is not None else None
-    if b is None:
-        raise MeasureError("no budget: is declared in ergostat.yaml (SPEC §9.9)")
+@contextlib.contextmanager
+def held(p):
+    """``<state dir>/budget.lock`` held exclusively, by a new open of it."""
+    fd = os.open(os.path.join(p.dir, "budget.lock"), os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        f = fold(p, b, now, spec)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)                        # (closing releases the lock)
+
+
+def _number(v) -> bool:
+    return isinstance(v, int | float) and not isinstance(v, bool)
+
+
+def _known(v) -> bool:
+    """A cost that can be counted: a finite number, not below 0 (NaN, ±inf or a negative from a run's own output
+    is unknown)."""
+    return _number(v) and math.isfinite(v) and v >= 0
+
+
+def _charge(e: dict, reserve: float | None, cap: float) -> float:
+    """One end's charge: its known cost; unknown, its reserve (0 for a free run or one whose start is not in the
+    window), or ``max-cost`` when it used AI at no known price, or a close of unknown cost with no reserve. A cost
+    reported but malformed is unknown, charged the reserve, or ``max-cost`` when there is none."""
+    d = e.get("data") or {}
+    if e["type"] == CLOSED:
+        return float(d["cost_usd"]) if _known(d.get("cost_usd")) else reserve or cap
+    c = cr.numbers(e)["cost_usd"]
+    if _known(c):
+        return float(c)
+    if c is not None:
+        return reserve or cap
+    return cap if isinstance(d.get("ai"), dict) else reserve or 0.0
+
+
+def read(p, now: float) -> tuple[dict[str, dict], dict[str, list[dict]]]:
+    """The reserving runs of the last 7 days (run → reserve, pid, block) and the ends of the same 7 days, by run."""
+    runs: dict[str, dict] = {}
+    for e in p.events.query(n=None, type=f"{TAKEN},{STARTED}", source=SOURCE, since=now - WEEK):
+        d = e.get("data") or {}
+        if _number(d.get("reserve")):
+            run = d.get("run") if e["type"] == TAKEN else e["id"]
+            runs[run] = {"reserve": float(d["reserve"]), "pid": d.get("pid"), "block": d.get("block") or e.get("item")}
+    ends: dict[str, list[dict]] = {}
+    for e in p.events.query(n=None, type=f"{cr.ENDS},{CLOSED}", source=SOURCE, since=now - WEEK):
+        run = (e.get("data") or {}).get("run") if e["type"] == CLOSED else e.get("causedby")
+        ends.setdefault(run or e["id"], []).append(e)        # (an end of no run: on its own)
+    return runs, ends
+
+
+def fold(p, spec, now: float | None = None) -> tuple[float, float]:
+    """(spent, reserved) over the trailing day; raises when the record cannot be read."""
+    now = time.time() if now is None else now
+    runs, ends = read(p, now)
+    spent = 0.0
+    for run, es in ends.items():
+        r = runs[run]["reserve"] if run in runs else None
+        day = [_charge(e, r, spec.budget.max_cost) for e in es if e["time"] >= now - DAY]
+        spent += max(day, default=0.0)
+    return spent, sum(v["reserve"] for run, v in runs.items() if run not in ends)
+
+
+def permit(p, spec, block, write, run: str):
+    """A run of ``block`` asks to start: ``write(more)`` writes its reserving event (``more``: its reserve and pid).
+    Returns (the event written, None), or (None, why it was refused): then nothing is written but ``budget.refused``,
+    at most once a minute per block. A free run is written without the decision."""
+    why, r = spec.budget.problem(), spec.budget.max_cost
+    spent = reserved = None
+    if not why and free(spec, block):
+        return write({"reserve": 0.0, "pid": os.getpid()}), None
+    more = {"reserve": r, "pid": os.getpid()}
+    try:
+        with held(p):
+            if not why:
+                try:
+                    spent, reserved = fold(p, spec)
+                except Exception as e:
+                    why = f"the record could not be read: {type(e).__name__}: {e}"
+            if not why and spent + reserved + r > spec.budget.daily:
+                why = (f"{spent:.2f} spent and {reserved:.2f} reserved of {spec.budget.daily:g} today; "
+                       f"this run reserves {r:g}")
+            if not why:
+                _between()
+                OPEN.add(run)               # (before its write: recovery never closes a run between the two)
+                try:
+                    return write(more), None
+                except BaseException:
+                    OPEN.discard(run)
+                    raise
+    except OSError as e:                          # (its lock, or the write: not started, either way)
+        why = f"the budget's lock or record: {e}"
+    refused(p, block.name, {"reserve": r, "spent": spent, "reserved": reserved,
+                            "daily": getattr(spec.budget, "daily", None), "why": why})
+    return None, why
+
+
+def refused(p, block: str, data: dict) -> None:
+    """A refusal recorded, at most once a minute per block in this process."""
+    key, mono = (str(p.dir), block), time.monotonic()
+    if mono - _said.get(key, -SAID_EVERY) < SAID_EVERY:
+        return
+    _said[key] = mono
+    with contextlib.suppress(Exception):          # (an unwritable record: the run is refused all the same)
+        p.events.add(REFUSED, item=block, source=SOURCE, data=data)
+
+
+def close(p, block: str, run: str, cost: float | None, why: str) -> None:
+    """A reserving run ended with no end of its own: ``budget.closed`` (``cost`` None: charged its reserve)."""
+    p.events.add(CLOSED, item=block, source=SOURCE, causedby=run, data={"run": run, "cost_usd": cost, "why": why})
+    OPEN.discard(run)
+
+
+def alive(pid) -> bool:
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:                           # (another user's: it is there)
+        return True
+    return True
+
+
+def recover(p, spec, every: float = RECOVER_EVERY) -> list[str]:
+    """Close each reserving run with no end whose process is gone, or is this one without it open; at most every
+    ``every`` seconds. OPEN is read as a copy, taking no other lock inside the flock. Returns the runs closed."""
+    if spec.budget is None:
+        return []
+    key, mono = str(p.dir), time.monotonic()
+    if mono - _recovered.get(key, -every - 1) < every:
+        return []
+    _recovered[key] = mono
+    closed = []
+    with held(p):
+        mine, me = OPEN.copy(), os.getpid()        # (before the read: a run that ends after the copy is seen ended)
+        runs, ends = read(p, time.time())
+        for run, v in runs.items():
+            if run in ends or v["reserve"] <= 0 or (v["pid"] == me and run in mine) or (v["pid"] != me and alive(v["pid"])):
+                continue
+            close(p, v["block"], run, None, f"its process ({v['pid']}) is gone" if v["pid"] != me else "not open here")
+            closed.append(run)
+    return closed
+
+
+def left(p, spec) -> float:
+    """``ergostat.budget.left``: daily less spent and reserved. Raises when no budget is declared or the record
+    cannot be read: never ``daily``, never 0, for what could not be worked out."""
+    from ..numbers.measures import MeasureError
+    if spec is None or spec.budget is None:
+        raise MeasureError("no budget: is declared in ergostat.yaml")
+    try:
+        spent, reserved = fold(p, spec)
     except Exception as e:
-        raise MeasureError(f"the record cannot be read for the budget: {type(e).__name__}: {e}") from e
-    return b.daily - f["spent"] - f["reserved"]
+        raise MeasureError(f"the record could not be read: {type(e).__name__}: {e}") from e
+    return spec.budget.daily - spent - reserved

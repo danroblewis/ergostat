@@ -335,7 +335,10 @@ longer, then check again.
       (`system-splits`, `systems-merge`, `interface`, `time-scales`, `purpose`) are answered or knowingly left: loose
       parts that fall into unlinked clusters may each be a system. A system whose subsystems share few links is
       nearly decomposable (`explain` says so): that is a good hierarchy, so leave its structure alone and change one
-      subsystem at a time (`docs/proposals/architecture.md`).
+      subsystem at a time (`docs/proposals/architecture.md`). With the project, `explain system.NAME` (and the MCP
+      `explain` tool) also gives the relative gain array of a system of two or more loops, from the step tests the
+      owner approved since its process last changed, or why it is not computed: a λ far from 1 says its loops interact
+      and may be paired wrongly; run an approved step test of each loop before reading it.
 
 ### Modelling well: beyond correct
 
@@ -362,6 +365,11 @@ that makes more is refused (`library-untrusted`), whole. **Never write `trust: o
 into a plain path**, to get past that refusal or for any other reason: that is the owner's decision, made after
 reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
 which template and part were refused, and ask.
+
+A held chain may run the owner's own commands: a value in the owner's `with:` for a `type: command` parameter
+(SPEC §2a, R1). That is why a value in `with:` counts as the owner's, whoever wrote it. **Never copy a command from a
+library (its `example:`, a default, a description) into `with:`**: ask the owner for the command, and let them write
+it.
 
 ## 3a. A system another ergostat runs: compose it, never copy it
 
@@ -401,7 +409,8 @@ keeps running it; this model reads it.
    runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
 5. **Use its measures, not its items.** The local fold never sees the remote's items: count them through
    the remote stock that counts them (its sensor is mirrored), or a sensor of your own, `query: {source:
-   incidents, ref: stock.open}`.
+   incidents, ref: stock.open}`. To link one of your items to one of its items, name its kind by its local
+   name in `relations:` (`blocked_by: incidents-incident`): the process map draws the line, and it never gates.
 6. **What the record says about its parts** is in `ergostat remote proposals [NAME] [--json]`: estimates and
    equations for the remote's parts, written as text in its names for its owner, each marked current or not.
    They are never in `ergostat proposals` and can't be accepted here; pass one on only if the owner asks.
@@ -462,15 +471,24 @@ blocks:
 - Spend is an auxiliary, not a stock: it is a sum over a moving window, with no memory of its own.
 - `ergostat check` should say both goals are closed by a loop. Without the gate, the budget goal is "missing
   feedback": a number watched, not held.
-- A hard daily limit for the whole model is `budget: {daily: 25, max-cost: 2.5}` in `ergostat.yaml` (SPEC §9.9;
-  never in `ergostat.local.yaml`). `max-cost` is what one run reserves before it starts. It is not a cap on what the
-  run spends. `ergostat.budget.left` is daily less what runs were charged and what runs still going hold, counting
-  a run whose cost is unknown at its reserve. It gives no value, never a guess, when no `budget:` is declared or the
-  record cannot be read. Runs of `ai` blocks and runs whose agent is not declared as a person, decision, program or
-  rule are charged; other runs count nothing. `budget.*` is ergostat's own type: a block's output, `ergostat event
-  --add` (whatever `--as`), the MCP tool and a push are refused it, so a run cannot release a reserve through them
-  (writing the record's files directly is not guarded). Nothing is refused yet: runs are not stopped when the budget
-  is spent (`run-budget-permit`), so keep the goal and gate above for that.
+
+The goal above is a loop the model holds. When the person also wants the model's runs held to a day's budget before
+they start, whatever the wiring, add `budget:` to `ergostat.yaml` (SPEC §9.9). It is a check at each start, not a
+cap on spending: a run can spend more than it reserved, and the judge and ergostat's own AI calls are outside it:
+
+```yaml
+budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charged run reserves $0.50 to start
+```
+
+- Before each charged run starts, ergostat checks that what is left of `daily` (less what ended runs cost and what
+  runs in flight reserved) covers `max-cost`, and refuses the run otherwise (`budget.refused`; `ergostat block NAME
+  --now` says `refused: budget: …`). `max-cost` is what a run reserves to start, not a cap on what it spends: set
+  it near what one run usually costs. A run that ends with an unknown cost is charged its reserve.
+- Free runs reserve nothing: a block that is not `ai` and whose agent is declared `kind: person`, `decision`,
+  `program` or `rule`. Give program blocks an agent of kind `program`, or each of their runs is charged.
+- `ergostat.budget.left` reads what is left (a sensor's `builtin:`, or `ergostat measure`); it is an error, not a number, when no
+  `budget:` is declared or the record cannot be read.
+- It covers the model's own runs only, not ergostat's judge passes or its own internal AI calls (SPEC §9.9).
 
 ## 3c. Stale readings and estimates
 
