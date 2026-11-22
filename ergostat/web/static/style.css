@@ -521,6 +521,7 @@ svg.sd .sys-hull text { font-size: var(--canvas-sm); font-weight: 500; fill: var
 svg.sd .edge .pipe-out { stroke: var(--sd-ink); stroke-width: 8; }
 svg.sd .edge .pipe-in { stroke: var(--sd-paper); stroke-width: 4.4; }
 svg.sd .edge .sd-connector { stroke: var(--sd-ink); stroke-width: 1.1; }
+svg.sd .edge .sd-connector.driven-by { stroke-dasharray: 6 4; }
 svg.sd .edge .sd-head { fill: var(--sd-ink); stroke: none; }
 svg.sd .edge .polarity { fill: var(--sd-ink); font-size: var(--canvas-lg); font-weight: 700; stroke: var(--sd-paper); stroke-width: 3px; stroke-linejoin: round; }
 svg.sd .node:hover .hit, svg.sd .node.sel .hit { stroke: var(--accent); }
