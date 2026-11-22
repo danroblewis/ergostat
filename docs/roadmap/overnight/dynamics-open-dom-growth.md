@@ -145,3 +145,9 @@ findings: source the listener bound from the measurement. (The `idle_metrics` do
 to what is checked: no poll running and no routing, with a draw from `S.relayout()` caught only through `S.drawN`.
 That is wording only, in the working tree, not committed and not run.) None of this can be done without a working
 shell and Playwright with Chromium.
+
+## Where it stopped
+
+Parked by the factory (review/dynamics-open-dom-growth-2, 2026-11-22 01:29).
+
+Done, by reading only: the test-side work. That is idle_metrics/quiet_metrics reads (between refreshes, with drawN checked), settle and the old test's end read using them, and the two acceptance tests on scripts/scale_model.py 20: one at normal speed, one with 4x CDP CPU throttling and three S.relayout() refreshes overlapping the poll's own. The bound is unchanged and no page code changed. Every page name used exists, every tick redraws, and the browser suite runs these tests. Left, in order: (1) run both acceptance tests and the old parametrized test in a browser (uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_page_polling.py) and write the printed nodes/listeners series into Where it stopped; (2) if nodes or listeners grow, take a CDP heap snapshot's detached nodes, find what holds them (look first at the charts.js causesStrip side panel) and fix it in the page (item 2); if they don't grow, say why the merge-queue reads grew given the forced collection; (3) the lesson-9 run with a planted leak, showing both new tests fail; (4) the unit suite and the four browser files under suite_watch with rc 0. Why stop: in every round so far, before and after the first park, the implementor's shell was refused or had no Playwright, so no fix round can take the measurement the gap hinges on.
