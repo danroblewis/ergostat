@@ -92,3 +92,15 @@ test_code_health_simplifier.py and test_code_health_coverage.py (36 together). N
 since no failure could be found to fix. Refused here: test_factory.py under `scripts/suite_watch.py` with `-n 8`, and
 the whole unit suite run serially, so the failure was never reproduced. Left: the factory's full unit output (or a
 rerun of it) to name the failing test. If no test fails there, the cut-short run was the machine, not this branch.
+
+Round 3, the factory's unit run failed again with a shorter tail: two "bringing up nodes...", a skip and 18 passes,
+then nothing. There is no FAILED line, no pytest summary and no JSON line from scripts/suite_watch.py, which prints
+one on every exit it controls, its own kills included. So the whole run was killed from outside suite_watch (by the
+slot's or the block's timeout, or by the container), and no test was reported failing. Main is in the branch
+(b4639301 is an ancestor of HEAD, merge 29e38dfc, no conflict markers). Read for a hang the branch could cause: no
+test outside tests/test_factory.py calls land(), take(), pools.most() or allowance(). tests/test_queue.py runs
+queue.main() in a subprocess with a 120 s timeout, so it fails rather than hangs. Passed again here, each run alone:
+tests/test_queue.py (5 passed), tests/test_factory.py (142 passed, 2 skipped); ruff clean. No code changed, since no
+failure was found. Refused here: the whole unit suite run serially under scripts/suite_watch.py (`timeout 1800 uv run
+python scripts/suite_watch.py -- uv run python -m pytest -q -x --durations=15 -p no:randomly`). Left: a unit run that
+gets to its end, with its summary and suite_watch's JSON line, to show whether any test fails on this branch.
