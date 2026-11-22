@@ -78,3 +78,23 @@ The branch's change is in JS, CSS and HTML under `ergostat/web/static/`, and `sc
 nothing the gap changed (served HTML carries none of the new names: aria-current, aria-pressed and the labels are set
 by the scripts), and moving that work into `server.py` to change the selection would be work outside the gap. The
 gap waits on the factory: run the build step with Playwright installed, or set `build_browser = true` for it.
+
+Round 2 (main 720426bd merged in). The conflict in `diagram.js` was the view buttons. Kept: main's " · what is /
+what is controlled / what happened" spans, and the branch's aria-pressed on each. The acceptance test now compares
+the view's word that leads the pressed button's name ('Dynamics · what is' → 'Dynamics'), because main's words are
+part of the name. Still 18 net lines outside tests.
+
+Tests run after the merge, with Playwright: tests/test_items_page.py, tests/test_view_switch_words.py and
+tests/test_agents_page.py (39 passed). tests/test_diagram_rendering.py in full: 197 passed, 7 failed:
+- the same four as round 1 (coordinator and image-squeeze routing 32 s and 31 s against 20 s, the big tangled model
+  2.9 s against 2.5 s, and /model's 'Nothing waiting.' at line 3356);
+- test_a_block_dragged_in_the_blocks_view_stays_pinned_its_lines_end_on_it_and_unpin_all_restores_it: 48 'outside
+  frame' blocks in the full run, passes when run alone. It fails only under load, in layout code this branch leaves
+  alone;
+- test_every_lines_panel_links_to_the_parts_it_joins: a different edge and example 'opened nothing' in each of
+  three runs (ticket-factory in the full run, two others when run alone). This is the test's 5 s wait for the panel.
+  The branch does not touch openEdge or the panel's `dl` links;
+- test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known: the side panel says 'Goals
+  off', main's needs-attention heading (`diagram.js:1378`, not in this branch's diff). The test reads the same panel
+  whether it is a div or an aside. This fails from main's change, not this branch's.
+Not compared on clean main: `git worktree add --detach /tmp/mainwt 720426bd...` was refused in this session.
