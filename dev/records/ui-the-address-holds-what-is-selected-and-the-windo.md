@@ -76,3 +76,9 @@ Browser files run here, serially, under the watchdog, with Playwright (none skip
     main), so whether it also fails on main is not shown here.
 - Not run here: the unit suite (not touched: no Python changed), and a merge of main (main is the clone's base,
   unchanged since).
+
+The factory's `build` step ended with rc 5. Its only affected file, tests/test_diagram_rendering.py, was skipped
+as a whole because the build step has no Playwright ("could not import 'playwright.sync_api'": 1 skipped, 0 run).
+No test failed, so there was no code to fix. I ran it again here with Playwright, under the watchdog:
+tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen_and_the_window passed (rc 0). Ruff is clean.
+To give a verdict on this gap, a build step that runs only browser files needs Playwright (or `[suites] build_browser`).
