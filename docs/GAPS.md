@@ -119,11 +119,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   run's output is now signed by how the run ended; a daemon's run hands back little or no standard error, so what a
   daemon swallows is not seen; Ruby and other languages are not read.
 - **What the AI approver's guard does not see** (SPEC §12r, `approver: ai`; the guard is an allowlist of shaped
-  values and statements, `ergostat/repair/allow.py`). Its four residuals, each pinned by a test: implicit raises (a
+  values and statements, `ergostat/repair/allow.py`). Its five residuals, each pinned by a test: implicit raises (a
   fix may stop the program earlier; process-wide hooks are not followed); where standard output points (a module the
   program imports may point it at code of its own); other modules' code (what an import does, and what another
   module's function does when called, such as `unittest.mock.patch('json.loads', f)`, `pickle` or a C extension);
-  time and memory (bounded only by the timeout). A program that stores any attribute has no trusted `print` or `json`
+  time and memory (bounded only by the timeout); the program's own unchanged code, which can rebind a builtin,
+  `print` or `json` through a call the guard does not follow (the refused spellings of rebinding are a list, not a
+  proof; a fix cannot add such a call). Trusting forms (a) to (c) only in a module whose every call is classified
+  would close it, but would refuse nearly every real program (`open(...).read()` alone). A program that stores any attribute has no trusted `print` or `json`
   (bar `X.stdout = open(<constants>)`), so many real programs' fixes go to the person. *Left*:
   `inbox/interventions.py` reads `stats.asked`, so an action the AI approved is still counted there as an
   intervention, as one answered through the MCP already is; a fix that calls one of the module's own functions always

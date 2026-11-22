@@ -2,8 +2,8 @@
 program, read from its text before and after. ``escalate`` returns the reasons a person must decide; an empty list means
 only that the AI may be asked. Every rule is "allowed only if", and anything it cannot parse, align or classify is a
 reason (it fails closed). G0 preconditions; G1 alignment; S shaped values; G2 allowed statements; G3 taint; G4 control;
-G5 exception paths. What it does not see (implicit raises, where standard output goes, other modules, time and memory)
-is SPEC §12r's residuals."""
+G5 exception paths. What it does not see (implicit raises, where standard output goes, other modules, time and memory,
+and a builtin, ``print`` or ``json`` rebound by a call of the program's own unchanged code) is SPEC §12r's residuals."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ RAISES = frozenset("ValueError KeyError TypeError RuntimeError SystemExit".split
 PRINT_KW, DUMPS_KW = frozenset({"sep", "end", "flush"}), frozenset({"indent", "sort_keys", "ensure_ascii"})
 TRUSTED = CALLS | RAISES | {"print", "json", "load", "loads", "dumps"}     # names whose meaning (a)-(c) rely on
 DYNAMIC = frozenset("globals locals vars setattr delattr getattr exec eval compile __import__ __builtins__ "
-                    "breakpoint".split())                                   # ways to rebind a name the text does not show
+                    "breakpoint".split())             # common ways to rebind a name out of sight: a list (residual 5)
 FRAMES = frozenset({"modules", "f_globals", "f_locals", "f_builtins"})
 MODULES = frozenset({"builtins", "importlib", "ctypes", "gc", "inspect"})
 LISTS = ("body", "orelse", "handlers", "finalbody", "cases")
@@ -55,7 +55,8 @@ def escalate(path: str, old: str, new: str, beside, tests=None, risk=None) -> li
 
 
 def dynamic(t) -> list[str]:
-    """G0's module-wide refusals: ``import *``, ``builtins`` and the ways a name is rebound out of the text's sight."""
+    """G0's module-wide refusals: ``import *``, ``builtins`` and the common spellings of rebinding a name out of the
+    text's sight. A list, not a proof: a call the guard does not read can still rebind one (SPEC §12r residual 5)."""
     why = set()
     for n in ast.walk(t):
         if isinstance(n, (ast.Import, ast.ImportFrom)):

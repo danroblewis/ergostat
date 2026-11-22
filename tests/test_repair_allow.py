@@ -376,5 +376,16 @@ def test_residual_other_modules_not_read():
     assert change("x = 1\n", "x = json.loads('ls')\n", base=base) == []
 
 
+@pytest.mark.parametrize("gadget", [
+    # the review's trace: a module's namespace reached and written through calls whose effect the guard does not read
+    "import operator, sys\nns = operator.attrgetter('__dict__')(operator.attrgetter('modules')(sys)['builtins'])\n"
+    "operator.setitem(ns, 'len', os.system)\n",
+    "import timeit\ntimeit.timeit('import builtins, os; builtins.len = os.system', number=1)\n"])
+def test_residual_own_code_rebinding_accepted(gadget):
+    # (5): the program's own unchanged code may rebind a builtin, print or json by a call; the guard trusts it to not
+    base = BROKEN + gadget
+    assert change("print(len(answer))\n", "print(len(answer['values']))\n", base=base) == []
+
+
 def test_residual_time_and_memory_accepted():
     assert change("", "big = 'x' * 10 ** 9\nfor i in range(10 ** 12):\n    pass\n") == []

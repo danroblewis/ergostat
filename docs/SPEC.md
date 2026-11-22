@@ -6259,7 +6259,8 @@ reason.
   `inspect`; a reference to `globals`, `locals`, `vars`, `setattr`, `delattr`, `getattr`, `exec`, `eval`, `compile`,
   `__import__` or `breakpoint`; an attribute read starting `__` or named `modules`, `f_globals`, `f_locals` or
   `f_builtins`; a store to an attribute named like a listed builtin, `print`, `json`, `load`, `loads` or `dumps`. These
-  are the ways a name the forms below rely on could be rebound out of the text's sight.
+  are the common spellings of rebinding a name the forms below rely on out of the text's sight: a list, not a proof
+  (residual 5).
 - **G1, alignment.** The old and new statement lists are aligned with `difflib.SequenceMatcher`, body by body: a simple
   statement keyed by its whole `ast.dump`, a compound one by its header (its dump with its bodies emptied); two compound
   statements with equal keys are aligned in each of their bodies. A new statement that matches nothing is *changed*,
@@ -6320,8 +6321,13 @@ the program opened by a constant name (`sys.stdout = open('out', 'w')`), or wher
 `print` is given. (3) **One file**: other modules' code is not read: what a module the program imports does when
 imported, and what another module's function does when the program calls it (rebinding a builtin, `json.loads` or
 `sys.stdout` given its name as a string, as `unittest.mock.patch('json.loads', f)` does; code `pickle` deserialises; a
-C extension). What this file itself does is read, and a way of rebinding in it that the guard does not classify is a
-reason. (4) **Time and memory**: `"x" * 10**9` and `range(10**12)` pass; the block's timeout bounds them.
+C extension). (4) **Time and memory**: `"x" * 10**9` and `range(10**12)` pass; the block's timeout bounds them. (5)
+**The program's own unchanged code**: forms (a) to (c) trust that a listed builtin, `print` and `json` mean what Python
+gives them. The text's own bindings of them are refused (above), but an unchanged call whose effect the guard does not
+read can rebind one at run time (`operator.setitem` on a module's namespace reached by `operator.attrgetter`, or code
+run from a string by `timeit.timeit`), and a changed `len(x)` then runs whatever it was bound to. That trust is placed
+in the owner's committed code, never in the fix: changed and removed statements may call nothing but forms (a) to (d),
+and a listed exception, so a fix cannot add such a call, and G3 and G4 hold any unchanged statement its values reach or steer to G2.
 
 **The AI approver** (`ergostat/repair/approve.py`) runs once a fix's `apply-fix` was just requested, in the fix's own
 run. When the guard gives no reason, the AI (the template's `model`, haiku by default, no tools, the prompt

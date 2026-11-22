@@ -28,6 +28,10 @@ what the AI may be asked about; the AI can still approve a wrong fix within that
   program calls them (say, `unittest.mock.patch` replacing `json.loads` or a builtin by name, or code loaded by
   `pickle`), is not seen.
 - **Time and memory.** A fix may use a lot of either; the block's timeout bounds it.
+- **The program's own code.** The guard trusts that `len`, `print`, `json.loads` and the like mean what Python gives
+  them. It refuses a program that rebinds them in ways it can read, but your program's unchanged code could still
+  rebind one through a call the guard does not follow (`operator.setitem` on a module's namespace, code run from a
+  string). A fix cannot add such a call; the trust is in your committed code, not in the fix.
 
 ## What it stops
 

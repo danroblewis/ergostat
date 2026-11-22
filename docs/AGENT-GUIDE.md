@@ -698,7 +698,7 @@ What you set:
   tools) may approve a fix the guard of SPEC §12r lets it see (a change that computes with plain values and prints,
   touching nothing that runs, writes or imports); the rest, and whatever the AI does not approve, waits for the owner.
   Propose `ai` only once the owner has approved this loop's fixes for a while, and say what the guard does not see
-  (docs/SECURITY.md).
+  (docs/SECURITY.md: among it, the program's own unchanged code can rebind a builtin or `json` the guard relies on).
 - **`verify:`** how many good runs after a fix verify it (default 3; 1 to 50, `check` refuses others). A block that
   runs rarely takes that long to verify.
 - **`daily:`** and **`budget:`**: what the loop may spend. The model's folder must be in a git repository, its programs

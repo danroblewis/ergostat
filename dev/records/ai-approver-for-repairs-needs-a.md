@@ -483,3 +483,43 @@ Refused in this round:
 Parked by the factory (review/ai-approver-for-repairs-needs-a-4, 2026-11-21 16:43).
 
 Done: approver: ai is wired through check, fix.run, the stamped and locked approval in approve.py, inbox stats and the docs, and the guard's G0-G5 structure with its tests. Left: the guard's trust in builtins, print and json (forms a-c) rests on a list of refused spellings that the program's own unchanged code gets round (operator.attrgetter('modules')(sys) with operator.setitem on a module's __dict__; attributes named setattr reached through a module), so a fix can still hand a chosen string to os.system. Round 1 (attributes), round 2 (class headers), round 3 (json internals) and now round 5 each found a new way past the same kind of check. A safe design must stop assuming the builtins and json are what the text suggests, for example by trusting forms (a)-(c) only when every call in the module is itself classified, or by dropping them. Otherwise the claim must be cut to say that the program's own code can rebind them. Either way it is a redesign, not a fix round. Size is also 627 against 450.
+
+### Continued, round 1: the park's finding answered by cutting the claim
+
+The merge of main (5617e22518f4) was finished first. It conflicted in AGENT-GUIDE, SPEC, the template and compile.py.
+Each kept main's change (the `verify:` bullet, the repair-settle sentence, the `--verify` bounds check) and the
+branch's (`approver: ai` accepted, the ladder's second rung). GAPS merged with no conflict but was spliced (lesson-7):
+the residuals entry landed inside main's Repair entry, and the old AI-approver entry came back. Main's Repair entry is
+now whole, with "Done since: the second rung" and *Left* "the ladder's lower rungs (program, rule)". The residuals
+entry follows it, and the old entry is gone again.
+
+**The park's finding.** The trust in forms (a) to (c) rests on a list of refused spellings, and the program's own
+unchanged code can get round that list. The note offered two remedies: trust (a) to (c) only when every call in the
+module is classified, or cut the claim. I chose to cut the claim, the more reversible option. The every-call rule would
+refuse the definition's own headline fix: `BROKEN` calls `open("answer.json").read()`, so `test_accepts_the_shape_fix`
+and the residual tests could not pass. A narrower "inert call" allowlist cannot be made sound either. A library
+function given only strings can run code (`timeit.timeit('...')`, `pdb.run`, `cProfile.run`), so any such list would be
+another denylist.
+- SPEC §12r: G0's list is called "the common spellings ...: a list, not a proof (residual 5)". Round 4's sentence "a
+  way of rebinding in it that the guard does not classify is a reason" is removed, since it was false. A new residual
+  (5), **the program's own unchanged code**, says that an unchanged call the guard does not read can rebind a builtin,
+  `print` or `json` at run time. It also says why the trust sits with the owner's code and not with the fix: changed
+  and removed statements may call only forms (a) to (d) and a listed exception, and G3 and G4 hold to G2 any unchanged
+  statement the fix's values reach or steer.
+- SECURITY gets a fifth bullet, "The program's own code". GAPS now lists five residuals and says why the every-call rule
+  was not taken. AGENT-GUIDE's `approver:` bullet names this residual. The allow.py docstrings say the same.
+- Test: `test_residual_own_code_rebinding_accepted`, 2 cases: the review's trace (`operator.attrgetter` to reach
+  `builtins`' namespace, then `operator.setitem(ns, 'len', os.system)`) and `timeit.timeit('import builtins, os;
+  builtins.len = os.system')`, each before a changed `print(len(...))`. It asserts `[]`, the stated behaviour. I saw it
+  fail with the guard broken: with `operator` and `timeit` added to `DYNAMIC`, both cases fail. Then I restored the
+  guard.
+- No guard code changed. allow.py differs only in docstrings and a comment (+1 line).
+
+Overrun reason: 628 net lines against 450 (allow.py 518, approve.py 83, approver.md 14, fix.py +6, stats.py +8, template +2, compile.py -3); allow.py's fail-closed branches added at the plan review and review rounds 1 to 4, which the review asked to keep rather than cut; this round adds one docstring line.
+
+Run: `tests/test_repair_allow.py` (79 passed), `tests/test_repair_approver.py` (16 passed, 1 skipped: sandbox),
+`tests/test_repair_verify.py` (29 passed) and `tests/test_gaps_doc.py` (4 passed). `tests/test_repair2.py` was all
+skipped, because bwrap cannot make its namespaces here. Ruff is clean. The unit suite and the four browser files were
+not run here: the factory runs them.
+
+Refused in this round: an `awk` command that printed the conflict hunks. The search and read tools were used instead.
