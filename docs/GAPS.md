@@ -262,6 +262,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Runtime, scale and latency
 
+- **The day's AI budget, P3: runs reserve before they start** (in progress, split into sub-gaps; SPEC §9.9). The
+  parked `factory/run-budget-reserve` built all of it. *Done on `run-budget-ledger`*: `budget: {daily, max-cost}`
+  compiled and bounded (0 < daily ≤ 10000, 0 < max-cost ≤ daily, main file only); which runs are charged, by an
+  allowlist (`costs/budget.py`, `free`); the trailing day's spend folded by run id from 7 days of reserving events
+  and ends, failing closed (no end: the reserve; a missing or malformed cost: the reserve, or `max-cost`); and
+  `ergostat.budget.left`, which raises when no budget is declared or the record cannot be read. *Left*
+  (`run-budget-permit`): the permit under a file lock before each run of `Engine.run_block` and `Dispatcher.take`,
+  `budget.refused`, `--now` saying the refusal, and recovery closing runs left without an end (`budget.closed`).
+  Then `run-budget-trip`, and ergostat's own AI calls under the budget.
 - **Linux: two bugs the dev container found** (done; `linuxfix`, 2026-11-19). (1) The segmented event log
   (`ergostat/segments.py`, `_sync`) noticed new sealed segments by the directory's mtime alone, and Linux timestamps
   are coarse (one jiffy: 50 file creates on tmpfs gave one mtime), so a seal within the same tick was missed and its

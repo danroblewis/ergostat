@@ -441,6 +441,13 @@ blocks:
 - Spend is an auxiliary, not a stock: it is a sum over a moving window, with no memory of its own.
 - `ergostat check` should say both goals are closed by a loop. Without the gate, the budget goal is "missing
   feedback": a number watched, not held.
+- A hard daily limit for the whole model is `budget: {daily: 25, max-cost: 2.5}` in `ergostat.yaml` (SPEC §9.9;
+  never in `ergostat.local.yaml`). `max-cost` is what one run reserves before it starts. It is not a cap on what the
+  run spends. `ergostat.budget.left` is daily less what runs were charged and what runs still going hold, counting
+  a run whose cost is unknown at its reserve. It gives no value, never a guess, when no `budget:` is declared or the
+  record cannot be read. Runs of `ai` blocks and runs whose agent is not declared as a person, decision, program or
+  rule are charged. Nothing is refused yet: runs are not stopped when the budget is spent (`run-budget-permit`), so
+  keep the goal and gate above for that.
 
 ## 3c. Stale readings and estimates
 

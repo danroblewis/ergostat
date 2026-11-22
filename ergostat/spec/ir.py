@@ -240,16 +240,33 @@ UPKEEP_MEASURES = {                # ergostat's own upkeep (SPEC §2a, Upkeep)
 }
 
 
+BUDGET_MEASURES = {                # the day's AI budget (SPEC §9.9, costs/budget.py)
+    "ergostat.budget.left": "dollars of budget.daily left over the trailing 24 h: daily less what ended runs cost and what "
+                            "runs still going reserve; no value when no budget: is declared or the record cannot be read",
+}
+
+
+@dataclass(frozen=True)
+class Budget:
+    """``budget:`` (SPEC §9.9): US dollars the runs may cost over the trailing 24 h, and what one run reserves before it
+    starts (never a cap on what it spends)."""
+
+    daily: float
+    max_cost: float
+
+
 def is_measure(name: str) -> bool:
     """A built-in measure a sensor may read: the model's own (``ergostat.model.*``), trust's (``ergostat.trust.*``,
     with an optional ``@who``), the messages' (``ergostat.messages.*``), a recipe's (``ergostat.context.*``) or the
     intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
     ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``), the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``) or what the runs
-    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), or ergostat's upkeep (``ergostat.upkeep.*``)."""
+    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), ergostat's upkeep (``ergostat.upkeep.*``), or
+    the day's budget left (``ergostat.budget.left``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES or bool(UPKEEP.match(name))
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
-            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES)
+            or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES
+            or name in BUDGET_MEASURES)
 
 
 CHANGE_CLASSES = ("parameter", "equation", "structure", "description", "unit", "rename", "redesign")   # what accept: names (SPEC §12e)
@@ -903,6 +920,7 @@ class Spec:
     template_files: list[Path] = field(default_factory=list)          # the owner's templates it uses: a change reloads it
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
+    budget: Budget | None = None                                       # the day's AI budget (SPEC §9.9); None: none declared
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept

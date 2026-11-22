@@ -2122,6 +2122,7 @@ through a sensor (`builtin:`, §6, §12e):
 | `ergostat.cost.cpu` | CPU seconds of the runs' process trees over the last day (`-hour`) |
 | `ergostat.cost.memory` | The largest peak memory of one run over the last day (`-hour`), in MB |
 | `ergostat.cost.runs` | Runs that ended over the last day (`-hour`) |
+| `ergostat.budget.left` | `budget.daily` less what runs were charged and still reserve over the trailing 24 h (§9.9) |
 
 Each is about every block, or with `@BLOCK` one block, or with `@model:MODEL` the runs whose sessions mostly used that
 model (`@model:haiku` matches `claude-haiku-5-5`). A budget on AI spend is a stock read from one and a goal on it:
@@ -2817,6 +2818,49 @@ runs as a process of its own.
   the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket. Not yet by shard: the
   wires are not carried; a run a block's moving a flow asks for reads that flow's stocks' sensors wherever they are;
   and the calls socket is one per state directory, not one per shard process.
+
+### 9.9 The day's AI budget
+
+```yaml
+budget:
+  daily: 25          # US dollars the runs may cost over the trailing 24 h: more than 0, at most 10000
+  max-cost: 2.5      # what one run reserves before it starts: more than 0, at most daily
+```
+
+`budget:` belongs in the main file only, never in an include or `ergostat.local.yaml`. Both keys are required.
+Each of these is its own compile error: an unknown key, a missing key, a value that is not a number (`true` and
+`"2"` are not), a value out of bounds (0, a negative, NaN, infinity, a `daily` over 10000, a `max-cost` over
+`daily`). `budget:` written empty is two errors (both keys missing), never no budget. With no `budget:`, nothing
+changes. `max-cost` is only what a run reserves before it starts. It is never a cap on what the run spends.
+
+**Which runs are charged.** This is an allowlist (`costs/budget.py`, `free`). A run is free only when its block's
+type is not `ai` and its agent is declared with kind `person`, `decision`, `program` or `rule`. Every other run is
+charged: one with no agent, an agent not declared or with no kind, an `ai` or `narrow-ai` agent, or an `ai` block.
+
+**The spend, folded by run id** (`costs/budget.py`, `fold`). It reads 7 days of reserving events and ends. The
+reserving events are `ergostat.lease.taken` (its `run`) and `agent.started` carrying a `reserve` (its id). The ends
+are `agent.ran` and `agent.failed` (their `causedby`) and `budget.closed` (its `run`). An end is matched to its start
+by run id, never by lease state or time order. So a retaken item's new run is a new run, and the old run keeps its
+own charge. An end's charge counts only while the end is within the last 24 h. A run's charge:
+
+- with no end: its reserve, even after its lease expired or was released;
+- with a known cost (`cost_usd`, or `ai.cost_usd`, finite and at least 0): that cost;
+- with a missing or malformed cost (not a number, NaN, ±infinity, negative): its reserve, or `max-cost` when it has
+  no reserving event in the 7 days read;
+- with several ends: the largest charge.
+
+A lease taken with no `reserve`, or a malformed one, reserves `max-cost`. A run started 3 days ago and ended 2 days
+ago is charged 0. One started 8 days ago and ended an hour ago is charged its cost. An end with no run id is not
+matched to any run and is not charged; the engine's own ends always carry theirs. *Spent* is the sum of ended runs'
+charges, and *reserved* the sum of the reserves of runs not ended.
+
+**`ergostat.budget.left`** is `daily` − spent − reserved, in dollars. It may be negative. With no `budget:` declared,
+or a record that cannot be read, it raises `MeasureError` (`ergostat measure` says why, and the measures listing
+gives no value), never `daily` or 0.
+
+Not yet (`run-budget-permit`): nothing is refused. No run reserves before it starts, no permit is asked under a
+lock, no `budget.refused` is written, and no recovery closes runs left without an end. Until then, the only
+reserving events are leases (each reserving `max-cost`), and `budget.closed` is read but nothing writes it.
 
 ## 10. Agents
 
@@ -3801,6 +3845,7 @@ Everything ergostat owns here is named `ergostat.`, so it never collides with a 
 | `ergostat.model.unidentified-loops` | The goals whose loop closes and whose process the model does not hold (no `process:`, section 8) |
 | `ergostat.model.open-findings` | What `ergostat check` finds, errors aside |
 | `ergostat.cost.usd`, `.tokens`, `.cpu`, `.memory`, `.runs` | What the runs cost over the last day (or `-hour`), every block's or `@BLOCK`'s (section 9.1) |
+| `ergostat.budget.left` | Dollars of `budget.daily` left over the trailing 24 h: daily less spent less reserved. No value when no `budget:` is declared or the record cannot be read (section 9.9) |
 
 A measure's reference is `ergostat.model.NAME`: it reads beside `stock.x`, `flow.x` and `auxiliary.x`, and is
 never one of them (a project's names have no dots). It is read by a sensor, `builtin: ergostat.model.fit`
