@@ -3804,8 +3804,10 @@ where its other end is not on the canvas is it cut: a connector out of a closed 
 open system comes from a shadow variable `<x>` inside the receiving system, and a shadow is an
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
 pipe out ends in a cloud with the part beyond named under it. An
-open system is a sector, a light tint with its name at the top left; a closed one is a module, its
-connection points named on its edge. The view's panels use system dynamics' words only. A flow's
+open system is a sector, framed by its corners (as in every view: no fill, a hairline joining short L
+marks at its corners, its name on the top edge at the top left; modelling's hairline dashed); a closed
+one is a module, its connection points named on its edge, its outline light unless a goal in it is
+off, then full ink and heavier. The view's panels use system dynamics' words only. A flow's
 valve (the bowtie) opens as the **valve**: the rate of the flow, its inputs (the connectors into it,
 each with its sign) and its equation: written (section 7b), drawn in MathML with each parameter's
 value and provenance (its calibrations side by side beneath: each one's estimate ± its standard error,

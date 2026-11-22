@@ -90,6 +90,11 @@ from one point, or into one point, form a net and may share a track.
 
 *Why:* an open system's outline is a claim about what is in it.
 
+A frame is drawn by its corners in every view (L marks joined by a hairline, no fill, its name on the top edge),
+so a line never runs along a frame's edge (Blocks moves such a stretch at least 10px off it): on the hairline it
+would read as part of the frame. The frames read from the page (`tests/layout_geometry.js`) are the hairline
+rectangles, `rect.frame`, as laid out.
+
 ### 8. valve-orientation-mismatch (major, Dynamics)
 
 **A valve faces the way its pipe runs.** No pipe leaves a valve by a stub (under 16px) and then turns at once to

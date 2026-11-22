@@ -647,7 +647,7 @@ function bdAlarm(el, n) {
 
 function bdNode(n, c) {
   const w = c.width, hgt = c.height;
-  const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}${n.remote ? ` bd-remote remote-${n.remote.state}` : ""}`, transform: `translate(${c.x},${c.y})`,
+  const g = s("g", { class: `node bd-node bd-${n.kind} bd-${n.role || n.kind}${n.remote ? ` bd-remote remote-${n.remote.state}` : ""}${n.role === "subsystem" && systemOff(n) ? " sys-off" : ""}`, transform: `translate(${c.x},${c.y})`,
                      "data-id": n.id, "data-fn": bdFnText(n) });
   const fn = n.fn || {};
   if (n.role === "sensor" || n.role === "collector") {
@@ -779,9 +779,10 @@ function bdDraw(svg, g, lay) {
   for (const c of [...lay.containers].sort((a, b) => a.depth - b.depth)) {
     const f = frames[c.id];
     if (!f) continue;
-    const fg = s("g", { class: `sys-hull hull bd-frame bd-frame-${f.frame}`, "data-hull": c.id });
-    fg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height }));
-    const t = bdSym(fg, c.x + 10, c.y + 19, f.fn || {}, { anchor: "start", size: 13 });
+    const mod = f.frame === "system" && g.tree?.[f.label]?.modelling;
+    const fg = s("g", { class: `sys-hull hull bd-frame bd-frame-${f.frame}${mod ? " frame-modelling" : ""}`, "data-hull": c.id });
+    fg.append(...frameMarks(c.x, c.y, c.width, c.height, c.depth > 0));
+    const t = bdSym(fg, c.x + 10, c.y + 5, f.fn || {}, { anchor: "start", size: 13 });   // (its name on the top edge)
     t.append(s("tspan", { class: "bd-frame-name", dx: 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
     fg.append();
     // its top is a handle: dragged, the frame moves with everything in it, and stays there (interact.js, places.js)
@@ -1120,7 +1121,8 @@ function blocksLegend() {
     row(`<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
     row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
     row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
-    row(`<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
+    row(FRAME_GLYPH, "a subsystem open: framed by its corners, its function and name on the top edge (− closes it; modelling's frame dashed)"),
+    row(`<rect x="2" y="2" width="26" height="16" stroke="currentColor" fill="none" stroke-width="1" stroke-dasharray="1.5 2.5"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop (dotted)"),
     h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample"));
 }
 

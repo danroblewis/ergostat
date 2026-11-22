@@ -1,8 +1,8 @@
 /* saving the diagram as a standalone SVG file */
 "use strict";
-const STYLE_PROPS = ["fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap", "stroke-linejoin", "opacity",
+const STYLE_PROPS = ["fill", "stroke", "stroke-width", "stroke-dasharray", "stroke-linecap", "stroke-linejoin", "opacity", "paint-order",
                      "font-family", "font-size", "font-weight", "letter-spacing", "text-transform", "text-anchor"];
-const DEFAULTS = { opacity: "1", "stroke-dasharray": "none", "stroke-linecap": "butt", "stroke-linejoin": "miter", "letter-spacing": "normal",
+const DEFAULTS = { opacity: "1", "stroke-dasharray": "none", "stroke-linecap": "butt", "stroke-linejoin": "miter", "paint-order": "normal", "letter-spacing": "normal",
                    "text-transform": "none", "text-anchor": "start", "font-weight": "400", stroke: "none", "stroke-width": "1px" };
 function standaloneSvg(svg, title) {
   if (!S.layout) return null;

@@ -1949,6 +1949,88 @@ def test_the_dynamics_view_draws_only_system_dynamics_symbols_each_loop_marked_e
         pg.close()
 
 
+PROBE = """(v) => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); e.style.stroke = `var(${v})`;
+  document.querySelector('svg.canvas').append(e); const c = getComputedStyle(e).stroke; e.remove(); return c; }"""
+FRAMES = """() => { const probe = PROBE;
+  return { frame: probe('--frame'), paper: getComputedStyle(document.body).backgroundColor,
+    frames: [...document.querySelectorAll('svg.canvas g.hull')].map((g) => {
+      const r = g.querySelector(':scope > rect.frame'), c = g.querySelector(':scope > path.frame-corners');
+      const rs = r && getComputedStyle(r), cs = c && getComputedStyle(c);
+      return { name: g.dataset.hull || '', modelling: g.classList.contains('frame-modelling'), fill: rs?.fill, stroke: rs?.stroke,
+               dash: rs?.strokeDasharray, rx: r?.getAttribute('rx'), corners: !!c, cornerDash: cs?.strokeDasharray,
+               cornerWidth: cs && parseFloat(cs.strokeWidth) }; }) }; }""".replace("PROBE", PROBE)
+
+
+def luminance(rgb: str) -> float:
+    import re
+    c = [int(x) / 255 for x in re.findall(r"\d+", rgb)[:3]]
+    c = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted([luminance(a), luminance(b)], reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def test_an_open_system_is_framed_by_its_corners_in_every_view_and_both_themes_and_modellings_hairline_is_dashed(browser, tmp_path):
+    """Every open system's frame, in Dynamics, Blocks and Process and in both themes: no fill, a square-cornered
+    hairline in --frame (at least 1.6:1 on the paper) and a path of corner marks; modelling's hairline dashed, its
+    corners solid."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served("software-factory", tmp_path) as url:
+        seed_workflows(Project(mdl.load(tmp_path / "software-factory")), time.time())
+        time.sleep(1.6)
+        for scheme in ("light", "dark"):
+            pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+            for i, view in enumerate(["open=*", "view=blocks&open=*", "view=process"]):
+                if view == "view=process":
+                    pm_served(pg, url, 10 + i)
+                else:
+                    drawn(pg, url, view, i)
+                r = pg.evaluate(FRAMES)
+                assert r["frames"], (scheme, view)
+                assert contrast(r["frame"], r["paper"]) >= 1.6, (scheme, r["frame"], r["paper"])
+                for f in r["frames"]:
+                    assert f["fill"] in ("none", "rgba(0, 0, 0, 0)"), (scheme, view, f)
+                    assert f["stroke"] == r["frame"] and f["rx"] is None, (scheme, view, f)
+                    assert f["corners"] and 1.2 <= f["cornerWidth"] <= 1.4 and f["cornerDash"] == "none", (scheme, view, f)
+                    assert (f["dash"] != "none") == (f["modelling"] or f["name"].startswith("casc:")), (scheme, view, f)
+                if view != "view=process":                     # modelling, open, in Dynamics and Blocks: dashed
+                    assert [f for f in r["frames"] if f["modelling"]], (scheme, view, [f["name"] for f in r["frames"]])
+            pg.close()
+
+
+def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, tmp_path):
+    """A closed system (a module in Dynamics, a subsystem block in Blocks) is outlined in --frame-mark at 1.2 px; with
+    a goal in it off, in full ink at 2 px: darker on the paper and thicker."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
+        drawn(pg, url, "", 0)
+        # (a box drawn by the view's own code, put on the canvas, its outline's computed style read, taken off)
+        put = """const put = (g, sel) => { document.querySelector('svg.canvas #viewport').append(g);
+            const cs = getComputedStyle(g.querySelector(sel)), out = [cs.stroke, parseFloat(cs.strokeWidth)]; g.remove(); return out; };"""
+        sd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.kind === 'system'); PUT
+          const draw = (loops) => put(sdSystem({ ...n, loops }, 220, 120), 'rect.sd-module');
+          return { calm: draw({ holding: 2 }), off: draw({ holding: 1, off: 1 }), mark: (PROBE)('--frame-mark'),
+            drawn: [...document.querySelectorAll('svg.canvas rect.sd-module')].map((r) => [r.classList.contains('sys-off'),
+                                                                                         getComputedStyle(r).stroke]),
+            paper: getComputedStyle(document.body).backgroundColor }; }""".replace("PROBE", PROBE).replace("PUT", put))
+        drawn(pg, url, "view=blocks", 1)
+        bd = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem'); PUT
+          const was = S.status.loops; S.status.loops = { ...was, 'fixture-goal': { status: 'off' }, 'calm-goal': { status: 'holding' } };
+          const draw = (loops) => put(bdNode({ ...n, loops }, { x: 0, y: 0, width: 120, height: 60 }), ':scope > rect.bd-line');
+          const out = { calm: draw(['calm-goal']), off: draw(['calm-goal', 'fixture-goal']) }; S.status.loops = was; return out; }"""
+                         .replace("PUT", put))
+        pg.close()
+    for v in (sd, bd):
+        assert v["calm"][1] == 1.2 and v["off"][1] == 2, v
+        assert contrast(v["off"][0], sd["paper"]) > contrast(v["calm"][0], sd["paper"]) + 2, v
+    assert sd["calm"][0] == sd["mark"], sd
+    assert sd["drawn"] and all(st == (sd["off"][0] if off else sd["calm"][0]) for off, st in sd["drawn"]), sd
+
+
 def test_the_view_switch_says_what_each_view_shows_on_a_wide_screen_and_a_phone(browser, tmp_path):
     want = [("Dynamics", "what is"), ("Blocks", "what is controlled"), ("Process", "what happened")]
     with served("software-factory", tmp_path) as url:
@@ -2016,13 +2098,17 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
                      .length,
                    sizes: [...new Set(sizes)], sum,
                    hullStroke: hull && getComputedStyle(hull).stroke, hullFill: hull && getComputedStyle(hull).fill,
+                   frame: (() => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                                   e.style.stroke = 'var(--frame)'; hull.parentNode.append(e);
+                                   const c = getComputedStyle(e).stroke; e.remove(); return c; })(),
+                   corners: !!hull?.parentNode.querySelector(':scope > path.frame-corners'),
                    side: document.querySelector('#side, .side, aside')?.innerText || '' };
         }""")
         assert r["unknown"] > 0 and r["unknownMarked"] == 0 and r["marked"]
         assert r["sum"].startswith(f"+{r['unknown']} of unknown polarity"), r["sum"]
         assert r["sizes"] == ["11px"], r["sizes"]                               # every marker at full size, never 8.5px
-        assert r["hullStroke"] in ("none", None) or "0)" in r["hullStroke"], r["hullStroke"]   # a sector: a tint, no outline
-        assert r["hullFill"] not in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]
+        assert r["hullFill"] in ("none", "rgba(0, 0, 0, 0)"), r["hullFill"]       # a sector: framed by its corners, no tint
+        assert r["hullStroke"] == r["frame"] and r["corners"], r
         assert not re.search(SD_WORDS, r["side"].split("How to read it")[0], re.I), r["side"][:600]
         # every panel: a loop's, a desired level's, a gap's, a connector's
         for sel in [".loop-marker", '.node[data-id^="desired:"]', '.node[data-id^="gap:"]']:

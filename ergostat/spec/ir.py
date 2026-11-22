@@ -352,6 +352,12 @@ def upkeep_of(spec, x) -> str | None:
     return t if t in OWN_TEMPLATES else None
 
 
+def modelling_systems(spec) -> set[str]:
+    """The systems ``use: modelling`` made, by their instance's name (as state.attention groups their goals): drawn
+    with a dashed frame."""
+    return {i for i, u in (getattr(spec, "uses", None) or {}).items() if isinstance(u, dict) and u.get("template") == "modelling"}
+
+
 def modelling_request_kind() -> ItemKind:
     on = {f"{MODELLING_REQUEST}.raised": "open", f"{MODELLING_REQUEST}.reopened": "open", f"{MODELLING_REQUEST}.proposed": "proposed",
           f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered",
