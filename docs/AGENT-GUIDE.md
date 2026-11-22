@@ -467,6 +467,24 @@ blocks:
 - `ergostat check` should say both goals are closed by a loop. Without the gate, the budget goal is "missing
   feedback": a number watched, not held.
 
+The goal above is a loop the model holds. When the person also wants the model's runs held to a day's budget before
+they start, whatever the wiring, add `budget:` to `ergostat.yaml` (SPEC §9.9). It is a check at each start, not a
+cap on spending: a run can spend more than it reserved, and the judge and ergostat's own AI calls are outside it:
+
+```yaml
+budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charged run reserves $0.50 to start
+```
+
+- Before each charged run starts, ergostat checks that what is left of `daily` (less what ended runs cost and what
+  runs in flight reserved) covers `max-cost`, and refuses the run otherwise (`budget.refused`; `ergostat block NAME
+  --now` says `refused: budget: …`). `max-cost` is what a run reserves to start, not a cap on what it spends: set
+  it near what one run usually costs. A run that ends with an unknown cost is charged its reserve.
+- Free runs reserve nothing: a block that is not `ai` and whose agent is declared `kind: person`, `decision`,
+  `program` or `rule`. Give program blocks an agent of kind `program`, or each of their runs is charged.
+- `ergostat.budget.left` reads what is left (a sensor's `builtin:`, or `ergostat measure`); it is an error, not a number, when no
+  `budget:` is declared or the record cannot be read.
+- It covers the model's own runs only, not ergostat's judge passes or its own internal AI calls (SPEC §9.9).
+
 ## 3c. Stale readings and estimates
 
 A controller acts on the newest reading as if it were now. When a sensor stops (a script failing, an API down, a
