@@ -97,3 +97,23 @@ Unless marked otherwise, all of these are in `tests/test_library_provenance.py`.
 
 - Marks now carry the writer, but nothing stops library text or values from containing the A/B mark characters and forging an owner-command mark. Add a rule that only expand.py makes marks and that any template text or value containing a mark character is refused, plus a test that forges an owner mark and is refused (broken once and seen to fail). Name it under lesson-8 and lesson-3.
 - R2 allows library values after rate and count flags (--every and --limit in LIB_DATA_FLAGS) with no bounds: the duration pattern accepts 0/0ms and integers go up to 15 digits. That bypasses R1's minimum every for library values and contradicts test_library_every_refused (collect's poll can land as --every in the run slot). Lesson-4 is wrongly called not applicable. Either drop rate and count flags from LIB_DATA_FLAGS or give each one a bound in trust.py, with tests that a library '--every 0ms' and an oversized '--limit' are refused.
+
+## Where it stopped
+
+Round 1 stopped before any code: the gap this one depends on is not on main.
+
+- `depends-on: [library-trust-folders]` is not met. The branch was made from `main` (head `6109871b`, the
+  definition; main at `93d433d9`), and main has none of what this gap builds on: no `ergostat/library/trust.py`, no
+  untrusted `library:` folder form (`templates.py` `find_all` still counts every folder as the owner's and lets it
+  shadow built-ins), no held chains, no `library-untrusted` refusal, no `Template.trust`, and no
+  `tests/test_library_trust.py`. No commit on any local ref mentions library-trust-folders. GAPS.md's *Shared
+  libraries* entry still lists the trust gate as *Still needed*.
+- This gap only loosens that gate in two places (R1 and R2), so it has nothing to loosen. Building the gate here
+  would be building library-trust-folders inside this branch, which is outside this definition (and about double
+  its size budget). That is why nothing was built.
+- What is done: nothing in code, docs or tests. This section is the only change.
+- What is left: all of the definition, unchanged. Continue this gap once library-trust-folders has landed on main:
+  merge main in, then build it as defined. The two plan-review notes still need answers when it is built:
+  - refuse any template text or value that holds a mark character, and test that a forged owner mark is refused;
+  - bound or drop `--every` and `--limit` in `LIB_DATA_FLAGS`, and test that a library `--every 0ms` and an
+    oversized `--limit` are refused. That makes lesson-4 apply to this gap.
