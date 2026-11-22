@@ -52,3 +52,15 @@ Built (round 1), net −1 line of code (state.py +15/−14, dynamics.py +1/−4,
   background and was stopped at the time limit there, and a longer background run was refused. Six of its tests
   were run by name and pass; the merge queue must run the whole file. The unit suite and the other browser files
   were not run here (per the brief). main had not moved since the clone, so merging it changed nothing.
+
+Round 2 (net +1 line of code: ergostat/cli/status.py).
+
+- Review finding (blocking), ergostat/cli/status.py:112-114: fixed. The status command adds " · items about it: …"
+  only to a loop's attention entry, not to an entry with level "hint". Before this, a loop's suggestion (now headed
+  `loop NAME` too) got the items as well, in the plain output and in --json `attention`. It is pinned by the new
+  `tests/test_item_about.py::test_status_names_the_items_on_the_loops_attention_line_not_its_suggestion`, which adds
+  a `loop a` hint beside a real off loop. I removed the level check and watched the test fail, then put it back.
+- Review finding (not blocking), suites not run: still not run here. I ran tests/test_item_about.py (17 passed),
+  the acceptance browser test by name (passed, rc 0 under the watchdog) and ruff (clean). The whole of
+  tests/test_diagram_rendering.py, the unit suite and the other browser files are left to the merge queue, as the
+  brief says.
