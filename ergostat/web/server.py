@@ -475,6 +475,20 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "guide":                              # the Guide's frames: tiny models, the same for every project
         from ..guide import frames
         return frames()
+    if head == "export":                             # the model behind the picture, as Markdown (export_api.py)
+        from ..blockdiagram import _Diagram, identified, spec_of
+        from .export_api import export, file_name
+        view = one("view")
+        if view not in ("dynamics", "blocks") or (one("format") or "md") not in ("md", "json"):
+            raise BadSet("export: view=dynamics or view=blocks, and format=md (or json)")
+        g = _answer(live, "graph", {**{k: v for k, v in q.items() if k != "have"}, "view": [view]}, p)
+        flat = _Diagram(spec_of(m), {**snap, "laws": _laws(p, getattr(m, "spec", None)) or {}}) \
+            if view == "blocks" and spec_of(m) is not None else None
+        if flat is not None:
+            flat.build()
+            identified(flat)
+        return {"file": file_name(m.name, view, one("system"), snap["at"]),
+                "markdown": export(m, view, one("system"), snap, g, flat)}
     if head == "graph":
         system = one("system") or None
         around = one("around") or None
@@ -1033,6 +1047,8 @@ def handler(project):
                     return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")
                 if data is None:
                     return self._send(404, b'{"error": "not found"}', "application/json")
+                if u.path == "/api/export" and (q.get("format") or ["md"])[0] == "md":    # the document itself, for curl
+                    return self._send(200, data["markdown"].encode(), "text/markdown; charset=utf-8")
                 return self._send(200, json.dumps(data, default=str).encode(), "application/json", True)
             if u.path == "/file":                          # a file an item names (file:PATH), from inside the project only
                 return self._file((parse_qs(u.query).get("path") or [""])[0])
