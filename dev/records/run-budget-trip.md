@@ -90,3 +90,9 @@ built: an unknown cost counted as the whole reserve in charged runs, nan/inf/neg
 only one of `ERGOSTAT_RUN` or `ERGOSTAT_MAX_COST` is set, the SPEC sentence on a second concurrent session, the
 up-to-2x overshoot of an `ai` block's own claude, the engine's `--max-budget-usd` winning, and no ledger re-created
 after its removal.
+
+## Where it stopped
+
+Parked by the factory (review/run-budget-trip-1, 2026-11-22 00:03).
+
+Done: the definition of done (dev/records/run-budget-trip.md) and a 'Where it stopped' section. No code, no tests, no docs changes. Left: all of points 1-5 (ERGOSTAT_MAX_COST and --max-budget-usd given to runs; the flocked per-run session ledger with path checks; the T1 check and process-group kill in run_block; the narrowed SPEC claims; GAPS/AGENT-GUIDE updates), all ten acceptance tests, and answers to the seven plan-review notes. It stops because every point needs the reserve, charged/free runs and the fold defined by run-budget-reserve, which is not on main. It exists only as origin/factory/run-budget-reserve (8e4f2923), and building on it would ship that unlanded gap with this one. When it resumes, correct the false claim in 'Where it stopped' that no run-budget-reserve branch exists in the clone.
