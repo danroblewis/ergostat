@@ -55,3 +55,9 @@ Built, round 1: 22 net lines in ergostat/ (budget 80).
   worktree of main was refused); the merge queue must judge them on main.
 - Not run: the unit suite, test_page_polling.py, test_page_refresh.py, test_items_page.py, demo_check (no example
   touched). main had nothing new to merge.
+- Build step, fix round 1: `build` failed with rc 5, not on this gap's code. The branch changes no Python module, so
+  scripts/affected_tests.py chose only tests/test_diagram_rendering.py and tests/test_inbox_page.py; the build step
+  has no Playwright, both files skip at import, and pytest returned 5 for no test run. With Playwright here, under the
+  watchdog: the four acceptance tests (11 cases) and tests/test_inbox_page.py pass (rc 0); ruff is clean. No code was
+  changed. The fix (a build step with Playwright, or affected_tests adding a check that runs when only browser files
+  are chosen) is in the factory's scripts, outside this gap (lesson-13).
