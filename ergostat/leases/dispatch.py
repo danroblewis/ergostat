@@ -114,7 +114,7 @@ class Dispatcher:
                     self.due = float("inf")
                     if mono - last >= EVERY:
                         last = mono
-                        if self.spec.operating:              # the trips, once a second (SPEC §9.5, operating states)
+                        if self.spec.operating and self.e.leads():   # the trips, once a second, by the lead alone (§9.5)
                             self.trip()
                         if self.blocks or self.holding:     # (a model with no block that takes: nothing to watch)
                             self.watch()

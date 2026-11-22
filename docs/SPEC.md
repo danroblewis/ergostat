@@ -2798,7 +2798,9 @@ check, the fold's refusal of a `left` caused by a run). A process that writes th
 stopped by it: that is the sandbox's job.
 
 **Trips.** The dispatcher's thread looks at every trip once a second, holding its lock across the read, the
-decision and the write. Each trip `(state, goal)` has a current **spell**, read from the record only:
+decision and the write. Only the lead's dispatcher looks (§9.8: the lead shard's engine, or the one engine of the
+whole model), so engines of several shards never check one trip twice; the others' pool still comes from
+`in_force`. Each trip `(state, goal)` has a current **spell**, read from the record only:
 
 - *crossing*: the goal's newest unvoided `loop.*` event is `loop.off`: the spell `off:<its id>`. The engine restores
   each goal's status from the record when it starts, so a restart records no new `loop.off` for a goal already off.

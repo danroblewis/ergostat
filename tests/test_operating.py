@@ -643,3 +643,20 @@ def test_a_trip_write_that_raises_holds_dispatch(tmp_path, monkeypatch):
         e.dispatch.tick()
         assert held_n(p) == 0, "pool 0 after a trip write raised"
     release(tmp_path, p, e)
+
+
+@pytest.mark.parametrize("lead", [True, False])
+def test_trips_are_checked_by_the_lead_alone(tmp_path, monkeypatch, lead):
+    """With shards every engine runs a dispatcher; only the lead's checks the trips, so a spell is entered once and an
+    owner's leave is not undone by another shard's look (review operating-states-11, lesson-1)."""
+    p, e, _ = setup(tmp_path, UNREAD, n=0)
+    looked: list[bool] = []
+    monkeypatch.setattr(dispatch_mod, "LOOK", 0.0)
+    monkeypatch.setattr(e, "leads", lambda: lead)
+    monkeypatch.setattr(e.dispatch, "trip", lambda now=None: looked.append(True))
+    monkeypatch.setattr(e.dispatch, "tick", lambda *a, **k: e.stop.set())
+    try:
+        e.dispatch.run()                                       # one look: its tick stops the loop
+    finally:
+        e.close()
+    assert looked == ([True] if lead else [])

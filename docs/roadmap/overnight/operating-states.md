@@ -496,3 +496,22 @@ rounds 6, 11 and 12). Tests run after the merge: `tests/test_operating.py`, `tes
 `tests/test_library_trust.py` (100 passed), `tests/test_leases.py` (37 passed), `tests/test_library_untrusted.py` and
 `tests/test_library_untrusted_runs.py` (30 passed); ruff clean. Not run by the implementor: the full unit suite and
 the four browser files. No demo is touched, so `demo_check` is not needed.
+
+Round 14 (the fix round for review operating-states-11). Each finding:
+
+1. **Size: 455 net lines against 450, with no reason in the form the gate reads** (blocking). The reasons were
+   written in rounds 6, 11 and 12, but not on an `Overrun reason:` line. The line is below. No code was removed to
+   make room: each of the five lines answers a review finding or a test main's merge broke.
+2. **lesson-1: `trips.check` ran in every shard's dispatcher** (`dispatch.py` `run`, with `Engine.start_all`
+   starting a dispatcher on every shard). Fixed: the trips are looked at only when `self.e.leads()` (the lead shard's
+   engine, or the one engine of the whole model, which is what `ergostat run` uses today), as the engine already does
+   for its other once-for-the-model work. The other shards' dispatchers still cap their blocks by `in_force`, which
+   reads the record, so a trip the lead records caps them too. 0 net lines (the condition grew). New test
+   `test_trips_are_checked_by_the_lead_alone[True|False]`: it drives one look of `Dispatcher.run` and checks that
+   `trip` is called for the lead and not for another shard. With the `leads()` check removed, the `False` case
+   failed; restored, both pass. SPEC §9.5's *Trips* paragraph says so.
+3. **Not run by that review** (a note). Run this round: `tests/test_operating.py` and `tests/test_cli_fallback.py`
+   (54 passed); ruff clean. Not run by the implementor: the full unit suite and the four browser files (the factory
+   runs them). No demo is touched, so `demo_check` is not needed.
+
+Overrun reason: 455 net lines, 5 over the 450 budget: 3 for the try/except in `Dispatcher.trip` that review operating-states-4 asked for (a trip write that raises holds dispatch at pool 0), 1 for classifying `operating` as refused in `library/trust.py` that main's allowlist test required after its merge, and 1 for moving `take()`'s post-TAKEN re-check inside the `try` that review operating-states-9 asked for; nothing else in the gap could go without dropping a part of the definition.
