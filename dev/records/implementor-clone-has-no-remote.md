@@ -53,3 +53,21 @@ Built, round 1. Every point is done; 8 net lines of code (`dev/bin/knowledge.py`
 
 Run: both test files in full (17 and 77 passed) and ruff (clean). Not run: the unit suite and the four browser files
 (the factory and the queue run them). Main was not merged in: this clone has no remote, and local `main` is the base.
+
+Round 2: no code changed. Each finding, and what came of it:
+
+- Queue: `tests/test_agents.py::test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network` failed
+  alone, and it was also the first failing merge of the batch of 7. Per lesson-13 I report it and leave it alone. In
+  this clone it passes (`tests/test_agents.py`, 17 passed). This branch does not touch `dev/bin/fac.py` or that
+  test. The cause is main's `dev/bin/fac.py:479`, which appends to an inherited `PYTEST_ADDOPTS`, so the exact `-e`
+  match at `tests/test_agents.py:325` fails in any queue container that already sets it. Reviews
+  queue-runs-what-its-container-skips-4, split-verified-join-2-3 and remote-items-record-12 found the same and said
+  it needs its own gap on main. This gap waits for that gap. It does not fix it.
+- Review 1, not blocking: the two ids were not matched to their shape texts. This is still unchecked. I tried again
+  to hash the item-text-search shape as `librarian.py:69` does (`sha1(shape.lower())[:8]`), and the command
+  (`python3 -I -c "import hashlib ..."`) was refused. The owner can check it in the record. If an id is wrong, the
+  line to fix is in `WITHDRAWN`.
+- Review 1, not blocking: `WITHDRAWN` is a list hard-coded in the code. It stays: the definition asks only for these
+  two shapes, and a `lesson.py withdraw` act that writes to the record would be its own gap.
+- Review 1, not blocking: the reviewer could not run anything. I ran both files again in this round: 17 and 77
+  passed, and ruff is clean.
