@@ -201,15 +201,14 @@ for an untrusted template only; a trusted template's output is unchanged:
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
 known types), and everything an untrusted template makes in the model: its system's description, its parts'
 descriptions, prompts, commands, equations and names, however `check`, the diagrams and the MCP model views show
-them. Gating `ask:` and `query`/`source` is not done either (docs/GAPS.md, *Shared libraries*).
+them. A held chain's `ask`, `prompt`, `query` and `sources` are gated by who wrote them instead (R3, below).
 
 *Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
 (an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
 the leases are checked, each limit below that an untrusted part passes is an error, **untrusted-limit**, at its
 `use:` line. The limits are constants (`ergostat/library/bounds.py`), never config. They are a second line behind
-the allowlist below: a held chain may not make a program, ai or judge block or a sensor with `run`, `every`, `cron`
-or `daemon` at all, so today the limits that compile can reach are a sensor's default `every` and the run-time gates;
-the rest bound whatever a later rule admits (docs/GAPS.md, *Shared libraries*):
+the allowlist below: a held chain makes a program, ai or person block, or a sensor's `run`, `query`, `every` or
+`cron`, only as R1 to R3 below allow, and no judge block or `daemon` at all; the limits bound whatever it admits:
 
 | Limit | Value | Applies to |
 |---|---|---|
@@ -327,11 +326,11 @@ in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `
 `goals`, `blocks` and `uses`, and in each only the keys (and shapes of value) listed there; blocks only of the types
 `onoff`, `compare`, `proportional`, `limit`, `delay`, `schedule`, `lookup`, `select`, `expr`, `timer`, `counter` and
 `alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
-names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs below.
-Anything else is refused: any other section, block type or key (a sensor's `query` or `daemon`, a block's
-`on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's `owner`, `inferred` or `formerly`
-anywhere). One refused part refuses the whole
-use at the owner's `use:` line (**library-untrusted**), naming the template, its folder and the first refused path;
+names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs, `program`, `ai`
+and `person` blocks, queries and `sources` entries below. Anything else is refused: any other section, block type or
+key (a sensor's `daemon`, a block's `on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's
+`owner`, `inferred` or `formerly` anywhere). One refused part refuses the whole use at the owner's `use:` line
+(**library-untrusted**, or **untrusted-text** under R3), naming the template, its folder and the first refused path;
 nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
 *Libraries you did not write*).
 
@@ -355,8 +354,8 @@ names (`${lib}`, `${python}`, `${name}`), a value ergostat's template wrote, or 
 `${here}`, a library default for a command), an owner value of another type (a `string`), and a run holding a field
 (`${it.run}`) refuse the chain. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
 template wrote them. A `program` block may say only `goal`, `run`, `every`, `cron`, `timeout` and the common block
-keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, as do
-`ai` and `person` blocks (`prompt`, `ask`).
+keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, each by
+name in trust.py's `MACHINE_TYPES`.
 
 **R2, a library's values as arguments to ergostat's programs.** A value not written by ergostat's template (the
 library's, the owner's of a narrow type, or an owner folder's) may stand in a run only in a built-in template whose
@@ -367,10 +366,33 @@ own text and the text that lands (after `:seconds`, `:hours`) fully match its ty
 newline: name `[a-z][a-z0-9-]{0,63}`; duration `[0-9]{1,9}(\.[0-9]{1,6})?(ms|s|m|h|d|w)?`; number or integer
 `-?[0-9]{1,15}(\.[0-9]{1,9})?`; bool the bare flag (`:arg`), or `true`/`false`. A rate or count flag is also bounded
 (`LIB_BOUNDS`): `--every` `UNTRUSTED_EVERY` (300 s) or more, `--limit` 100 or less, `--stand-in` 3600 an hour or
-less, `--window` 60 s to a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any) reaches a run, and no value
-not ergostat's own reaches the run of a template from the owner's folders (such as `sh -c ${x:quote}`), even though
-that template is trusted: no test can vouch for one. Every option of every program is in exactly one of the two
-lists, and every built-in run slot is scanned against these rules (`tests/test_library_provenance.py`).
+less, `--window` 60 s to a week. No other type (string, strings, url, path, map, list, glob, cron, setpoint, any)
+reaches a run. Every option of every program is in exactly one of the two lists, and every built-in run slot is
+scanned against these rules (`tests/test_library_provenance.py`).
+
+*An owner folder's run takes no library value.* A template from the owner's folders is trusted, but no value not
+ergostat's own reaches its run: not a library's literal through `${x:quote}` (`sh -c ${x:quote}` runs whatever lands
+in it, and nothing can vouch for what follows `sh -c`), and not an unquoted `${x}` of a `string`. Only an owner
+command, passed wholly, does. This stricter rule replaces the parent plan's "a quoted library literal is accepted in
+trusted text": quoting keeps a value one argument, but only the program receiving it decides whether that argument is
+run, and an owner folder's run is any program.
+
+**R3, what a held chain may ask and read.** A `person` block's `ask`, an `ai` block's `prompt`, a sensor's `query`
+(its `source:` and every field) and every value of a `sources` entry stand only when no piece of them, at any depth
+and keys included, was written by the library: each piece is the owner's, an owner command, or a trusted template's
+own words. A piece whose writer can't be told is the library's: text without a mark in an untrusted template, a whole
+value with no writer, the field marker or a mark's character outside a mark, and all of a trusted template's own text
+in these keys when that template puts in a field (`${m.q}`, `${it.name}`), an `each:` element or a key made from a
+value anywhere, or names a part (`block.x`, renamed `block.<instance>-x`) in these keys (expand leaves those
+unmarked). The instance's name holds the library's `uses:` keys, so a trusted template that uses `${name}`, `${here}`
+or `${folder}` anywhere (its text or its defaults) may put only the owner's pieces in these keys, and every value it
+gives a nested use, other than the owner's passed whole, counts as the library's. A whole value given (`query: ${q}`) is its writer's throughout. A
+refusal under R3 is **untrusted-text** instead of **library-untrusted**: the same refusal of the whole use at the
+owner's `use:` line, suggesting no copy into `with:` and quoting no value. An `ai` or `person` block may say only its
+text, `goal`, `until`, `every` and `cron` (these two as R1's rule above), and the common block keys; `model`, `run`,
+`parse`, `context`, `review`, `agent`, `workspace`, `tools`, `timeout` and the rest are refused by name
+(`library-untrusted`). A template cannot write `sources:` today (it is not a template section); the gate judges one
+by R3 all the same. R3 says only who wrote the text; the library still decides that the part asking it exists.
 
 What R1 and R2 let through is still an untrusted part, under the limits of *Untrusted libraries* above: one floor on
 how often, `UNTRUSTED_EVERY`, whoever wrote the `every`. So a held chain's program block needs the owner's `every:`
@@ -1009,6 +1031,59 @@ consumer L, which composes them like any of M's (`stock.m-a-open`, in the system
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
 most); `ergostat remote refresh` asks each again now; `ergostat remote proposals` lists the texts written for
 remotes' owners (above).
+
+**Its items and events in the pages.** The Items page adds, after the local systems, one section per remote,
+framed and marked *remote NAME · URL*: the remote's counts by kind and state and its newest 25 items, each linking
+to `/item/ID?remote=NAME` (its fields, moves and events read there, marked remote, read only: no message box, no
+actions) and to the remote's own page (`URL/item/ID`). A remote item's `file:PATH` value names a file in the
+remote's project, so it is shown as its text, never read from this ergostat's `/file/` or drawn inline. It is asked
+by its own call, so a slow remote never delays the local listing. The Record page's filter bar links to each
+remote's events (`/record?remote=NAME`), listed as local events are, their items linking to the remote's. Nothing
+of them reaches the local record or fold.
+
+| Asked of the page | Answers |
+|---|---|
+| `/api/items?remote=NAME` (`kind`, `state`, `n` 1..500, `offset` 0..100,000) | `remote`, `url`, `ok`, `why`, `read`, `age`, `counts` (from `/remote/v1/counts`), `total`, `items` (each marked `remote`) |
+| `/api/items/ID?remote=NAME` | `remote`, `ok`, `why`, `read`, `age`, `item` (the remote's own detail); 404 *no such item at NAME* on any 404 there, never a local item of the same id |
+| `/api/events?remote=NAME` (`n` ≤ 1,000, `type` a glob) | `remote`, `ok`, `why`, `read`, `age`, `events` from the cursor cache, in `seq` order, each marked `remote` |
+
+Without `remote=` these answer as before; `/api/items` also says `remotes` (each name and url) when the model has
+any. `NAME` must be a key of `remotes:` (else 400 *no remote NAME (this model's: …)*). An item `ID` (such as
+`incident/3`: item kinds' ids hold a `/`) must be at most 200 characters of `/`-separated segments, each fully
+matching `[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*` (so no segment is empty or starts with `.`), and hold no `..`. This is
+checked before anything is sent (else 400), and the id then goes quoted whole as one path segment
+(`items/incident%2F3`), which the remote unquotes after splitting its path. It is an allowlist: an id with `%`, a
+space, `\`, an empty segment or `..` is refused, and such an item is listed but can be opened only on its own page.
+
+- **Bounded.** A remote's period is its `every` clamped to 10 s..10 min. In one period at most **8 requests** go to
+  one remote for its items, counts, listings and details together; the counter goes up before each request, and a
+  request that fails counts. Counts are cached once a period; listings (by `kind`, `state`, `n`, `offset`) and
+  details (by id) up to 32 each a remote, the oldest dropped first; a cached answer younger than the period is
+  served without asking. With the budget spent, a cached answer is served with its `age`; with none, 503 *NAME
+  asked 8 times this period; again in Ts*. Its events are read at most once a period (a status call the first time,
+  then at most five pages of 1,000). `ergostat remote events NAME` reads in its own process, every time it is run,
+  whatever the period; it shares no cache with the page server, so the pages' period is unaffected by it.
+- **One lock a remote.** Each decision (fresh? failed this period? within the budget?), the request, the write and
+  the trim are made under one lock per remote, so many pages polling ask once. Each request has a 3 s timeout on
+  each socket operation (connecting, and each read), not a total deadline, so a remote that answers slowly can hold
+  its lock longer; a caller waits at most 7 s for an items lock (19 s for the events lock, whose holder may make six requests), then
+  is answered with an error saying the remote is busy (503 for items, 502 for events). Events already read are
+  instead shown as they were last read, with their age, `ok: false` and *busy*. A remote that hangs holds only its
+  own callers.
+- **By `seq`.** Only events past the cursor are kept, so a page read twice adds nothing. An answer whose
+  `last_seq` is below the cursor means the remote's record was made again: what was kept is dropped and the read
+  starts again from `last_seq - 1000` (0 at least). A remote remade whose record has already passed the old cursor
+  is not detected (its status carries no identity of its record): its older events stay mixed in until the day's
+  window drops them, and its events up to the old cursor are not read.
+- **Failing closed.** A token file missing, unreadable or empty, a remote that does not answer or answers 401, 403
+  or 5xx, and an answer that is not the expected shape (*unexpected answer*) are failures: what was read before is
+  served with `ok: false`, `why` and its `age`, and with nothing read before the answer is 502 with the reason. A
+  remote that failed is not asked again until its period has passed. The pages then say *NAME does not answer
+  (why); these were read T ago*, never "Nothing recorded yet.". Any 404 on one item, whatever its text (an older
+  remote, a proxy), is 404 *no such item at NAME*: it is that item missing, not the remote failing, so the
+  remote's counts and listings are still asked. An event whose `time` is not a number cannot be windowed: it is
+  left out, and `why` says how many were. `/api/events/ID?remote=NAME` is refused with 400: a remote's events are
+  listed, never opened one by one here.
 
 **Over mutual TLS.** `web: mtls:` (§4d; per machine, so in `ergostat.local.yaml` when the model is shared)
 starts a second listener beside the loopback page that serves only this API, over TLS, to clients whose
@@ -1650,6 +1725,7 @@ The Items page's filters, in its address (`/items?...`) and in `GET /api/items`:
 | `where=FIELD:VALUE` | the field equals the value (repeated: any of the values for one field, all the fields) |
 | `moved=FROM>TO` | moved from one of `FROM` to one of `TO` (states joined by commas); an empty side is any other state, or none (an arrival): `>done` entering done, `briefed>` leaving briefed |
 | `moved_since`, `moved_until` | the span of `moved` (after since, up to until): `2026-11-18T10:00:00Z` (UTC) or seconds since 1970; default the hour before now |
+| `remote=NAME` | a remote's items instead, asked there within its budget (§4c, *Its items and events in the pages*); with it only `kind`, `state`, `n` and `offset` |
 
 The page shows the set as one chip with its count (for moves, the items and the moves), removed with its ×;
 each item's latest matching move is a column. The API answers the set alone, newest first (a move's set by its
@@ -2501,6 +2577,7 @@ through a sensor (`builtin:`, §6, §12e):
 | `ergostat.cost.cpu` | CPU seconds of the runs' process trees over the last day (`-hour`) |
 | `ergostat.cost.memory` | The largest peak memory of one run over the last day (`-hour`), in MB |
 | `ergostat.cost.runs` | Runs that ended over the last day (`-hour`) |
+| `ergostat.budget.left` | `budget.daily` less what runs were charged and still reserve over the trailing 24 h (§9.9) |
 
 Each is about every block, or with `@BLOCK` one block, or with `@model:MODEL` the runs whose sessions mostly used that
 model (`@model:haiku` matches `claude-haiku-5-5`). A budget on AI spend is a stock read from one and a goal on it:
@@ -3171,17 +3248,17 @@ runs as a process of its own.
 - **The same plan.** A model gives the same plan in every process, whatever `PYTHONHASHSEED` is.
 - **An engine of one shard.** `Engine(project, shard=NAME)` works only on what `Plan.of` puts in that shard; with
   `shard=None` (what `ergostat run` uses) it works on everything, as before. A name the plan does not have is a
-  `ValueError` when the engine is made. Its own are: the built-ins, the machine blocks and the goals a pass works out;
-  the clock's timed sensors, sensor crons, timed and cron blocks and judges, and the item-count sensors read when the
-  record moves; the blocks the dispatcher takes items for and the kinds whose leases it watches; the blocks an event
-  starts and the kinds whose joins move a parent; the daemons `Supervisor.sync` starts, with the sensors they serve;
-  and the stocks the observer estimates. A pass reads the newest measurements of its own stocks, flows and auxiliaries
-  and of those in other shards its parts read (a goal's part, a block's inputs, an equation's references, an estimated
-  stock's flows), and no others; an estimate read from another shard is a wire and is not carried yet. The shards of
-  one plan divide each of these between them: none twice, none left out. The plan is worked out once per model, so
-  whatever reads a model reads that model's plan. `swap` works out the new model's plan under the engine's lock; a
-  plan without the engine's shard is refused, and the last model keeps running. A part that moved to another shard
-  leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
+  `ShardError` (a `ValueError`) when the engine is made, naming the shard and the plan's shards. Its own are: the
+  built-ins, the machine blocks and the goals a pass works out; the clock's timed sensors, sensor crons, timed and
+  cron blocks and judges, and the item-count sensors read when the record moves; the blocks the dispatcher takes items
+  for and the kinds whose leases it watches; the blocks an event starts and the kinds whose joins move a parent; the
+  daemons `Supervisor.sync` starts, with the sensors they serve; and the stocks the observer estimates. A pass reads
+  the newest measurements of its own stocks, flows and auxiliaries and of those in other shards its parts read (a
+  goal's part, a block's inputs, an equation's references, an estimated stock's flows), and no others; an estimate
+  read from another shard is a wire and is not carried yet. The shards of one plan divide each of these between them:
+  none twice, none left out. The plan is worked out once per model, so whatever reads a model reads that model's
+  plan. `swap` works out the new model's plan under the engine's lock; a plan without the engine's shard is refused
+  (the same `ShardError`), and the last model keeps running. A part that moved to another shard leaves nothing here: its built-in and output, its goal's signals, status, staleness and setpoint, its stock's
   readings, estimate and observer track, and its daemon (drained). Each owner's ask in the record is followed by
   the one engine whose shard `Plan.of` gives for what it names: an approval, a denial, a breaker reset or a stop by
   the block's (`block.NAME`), a restart by the daemon's, a step test by its goal's (and at start each engine resumes
@@ -3193,9 +3270,29 @@ runs as a process of its own.
   the run would start: an approval judged just before a swap moved its block is refused there, said, and must be
   given again (the new owner judged it not its own). Only the lead does what is done once: the `ergostat.started`
   event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases, actions and notices,
-  the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket. Not yet by shard: the
-  wires are not carried; a run a block's moving a flow asks for reads that flow's stocks' sensors wherever they are;
-  and the calls socket is one per state directory, not one per shard process.
+  the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket.
+- **A shard engine's own files, events and stop.** With `shard=None` each is as it was. A shard engine listens on a
+  socket of its own: `engine.SHARD.sock` in the state directory, or, when that path is too long for a socket, the
+  short folder's file named by a hash of the state directory and the shard (`calls/server.py`'s `path_for(state,
+  shard)`, with its path in `engine.SHARD.sock.path`). Two shard engines in one state directory both answer calls,
+  and each block run's `ERGOSTAT_SOCKET` names its own engine's socket. A run's call takes a socket in its state
+  directory or in the short folder as its state directory's, so a removed state directory still ends the wait. A
+  command run from a shell still finds only the whole engine's socket. The watchdog writes `heartbeat.SHARD.json`
+  (`heartbeat.json` for `None`), and the outer watcher treats the engine as stale when `heartbeat.json`, or any
+  `heartbeat.SHARD.json` whose pid is the running engine's, is older than `STALE`. A shard heartbeat left by another
+  pid is ignored, and a file that cannot be read is no beat. `ergostat.started` (the lead's alone) and
+  `ergostat.stopped` (each engine's own) carry `data.shard`: the name, or `null` for `None`. A shard engine's
+  `close` kills only what it started: each of its machine-block runs (by process group), its daemons and its reading
+  pools. It never calls `kill_all` or sets the process-wide `STOPPING`, and its start never clears it. It waits for
+  the engine's lock at most `lock_wait`, as `shut` does: past a lock held for good it copies its runs without it and
+  still kills them. A run that starts while it closes sees the stop under the lock and kills itself. Its runs are
+  recorded as stopped with ergostat, not as their failure, and another shard's runs and daemons keep going. The
+  engine starts no agent runs of its own (the older runner does), and a sensor's command is bounded by its timeout
+  and is not killed at close, the same with or without a shard.
+- **Not yet by shard.** The wires are not carried, and nothing refuses them yet: that is `shard-wires`, and the
+  shard tests read an estimate across shards on purpose. A run a block's moving a flow asks for reads that flow's
+  stocks' sensors wherever they are. `daemons.json` is still one file per state directory, written by each engine
+  in turn. A swap does not reshard. It clears what moved out, which is what a reshard was to do.
 
 ### 9.9 The day's AI budget: runs reserve before they start
 
@@ -3206,7 +3303,8 @@ budget: {daily: 20, max-cost: 2}     # dollars over the trailing 24 hours; dolla
 `budget:` (main file only; `ergostat.local.yaml` may not set it) takes both keys, each required: `daily`, US dollars
 over the trailing 24 hours (the window of `ergostat.cost.usd`), with 0 < daily ≤ 10000; `max-cost`, with
 0 < max-cost ≤ daily. An unknown key, a missing key, a value that is not a number, and one out of bounds are each an
-error with its own message. Without `budget:` nothing here applies and no run or lease event carries a `reserve`.
+error with its own message. `budget:` written empty is two errors (both keys missing), never no budget. Without
+`budget:` nothing here applies and no run or lease event carries a `reserve`.
 
 `max-cost` is what a charged run **reserves** before it starts, and its cap as it runs (T1, below). A run that
 spends more than its reserve is charged what it spent.
@@ -3249,10 +3347,28 @@ spends more than its reserve is charged what it spent.
   (whatever its `--as`), push, MCP call or trigger may record one, so no run can close itself, or another, at 0.
 - **`ergostat.budget.left`** is daily − spent − reserved. With no `budget:`, or a record that cannot be read, it is
   an error (`MeasureError`), never `daily` or 0: the measures list shows none and the error.
-- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take`, and only
-  those. It does not cover ergostat's own judge passes (`Engine.judge`), the AI calls inside ergostat that keep their
-  own per-call caps (decisions extract, intent verdicts, the redesigner), or models in `ergostat.toml`
-  (`runner.run_agent`), which have no `budget:`; their ends count in spent as ends with no reserving run. A pid
+- **ergostat's own AI calls** through `decisions/ai.call` ask too: `decisions extract`, the intent judge's verdicts
+  (from `Engine.judge` and `ergostat intent judge`) and `improve --architecture`. Each call reserves its own per-call
+  cap (the extractor's per-batch cap, the judge's `max-cost`, the review's $0.25), or `max-cost` when it has none,
+  under the same lock, and is run with `--max-budget-usd` at that reserve whatever `$ERGOSTAT_AI` is. Its reserving
+  event is `budget.call` (item: the call's name, `decisions-extract`, the judge's block, `architecture-review`; data:
+  `reserve`, `pid`, `within`, `included`). It is refused like a run, and also when its reserve is not a finite number
+  above 0 and within `daily`: no process starts and `budget.refused` is written (item: the call's name, at most once a
+  minute). A refused extract stops with a `stopped` note that starts `budget:`. A refused verdict is refused before
+  the work is recorded as asked, so it writes no verdict: the work stays due, the pass stops (`refused`), and the next
+  pass with room judges it. A refused review lists that system and the rest as not reviewed, `why: budget: …`. Every
+  call that started is closed (`budget.closed`, `run`: the call's id) with the cost it reported, or null (charged its
+  reserve) when it raised, timed out, or reported none, or a cost that is NaN, infinite or negative. A call whose
+  process died with it is closed by recovery, like a run.
+- **Counted once.** A call made inside a reserving run belongs to it (`within`): the judge's pass, whose
+  `agent.started` (from `Engine.judge`) now carries `reserve: 0` and its `pid`, and whose end sums its verdicts'
+  costs (`included: true`); or the run that `$ERGOSTAT_RUN` names, when it is a reserving start, whose end does not
+  include the call (`included: false`). The run is charged the larger of its end's charge and the sum of the calls it
+  includes, plus the calls it does not include. A call with no enclosing reserving run is charged on its own.
+- **Limits, stated.** The budget governs the runs started through `Engine.run_block` and `Dispatcher.take` and the
+  calls above, and only those. It does not cover the calls through `numbers/modeller.call` (the redesigner, the
+  modelling reviewer, the `modelling ai` tier), or models in `ergostat.toml` (`runner.run_agent`), which have no
+  `budget:`; their ends count in spent as ends with no reserving run. A pid
   reused by another process keeps a reserve held until that process exits. A run in flight for more than 7 days
   drops out of reserved. Each permit reads 7 days of starts and ends.
 
@@ -3395,7 +3511,9 @@ where the error is 0.
   limits of section 2a, *Untrusted libraries*, at its `use:` line;
 - **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
   `ergostat/library/trust.py` does not allow: at the owner's `use:` line, and nothing of the chain is in the model
-  (section 2a).
+  (section 2a);
+- **untrusted-text**: the same refusal, when a held chain's `ask`, `prompt`, sensor `query` or `sources` entry holds a
+  piece the library wrote, or whose writer can't be told (section 2a, R3).
 
 **Findings** (reported, not errors):
 
@@ -4347,6 +4465,7 @@ Everything ergostat owns here is named `ergostat.`, so it never collides with a 
 | `ergostat.model.unidentified-loops` | The goals whose loop closes and whose process the model does not hold (no `process:`, section 8) |
 | `ergostat.model.open-findings` | What `ergostat check` finds, errors aside |
 | `ergostat.cost.usd`, `.tokens`, `.cpu`, `.memory`, `.runs` | What the runs cost over the last day (or `-hour`), every block's or `@BLOCK`'s (section 9.1) |
+| `ergostat.budget.left` | Dollars of `budget.daily` left over the trailing 24 h: daily less spent less reserved. No value when no `budget:` is declared or the record cannot be read (section 9.9) |
 
 A measure's reference is `ergostat.model.NAME`: it reads beside `stock.x`, `flow.x` and `auxiliary.x`, and is
 never one of them (a project's names have no dots). It is read by a sensor, `builtin: ergostat.model.fit`
@@ -6297,14 +6416,14 @@ What it protects against and what it does not, for people: `docs/SECURITY.md`.
 Programs fail (an API changes shape, a field goes missing); a failure should need no person to find it or to fix it,
 and, once a system's loops are trusted, none to approve the fix. **`use: repair`** (a built-in template, `once: true`)
 is that loop as parts of the model, in a system of its own, drawn in the three views. What it does not do yet (the
-ladder's other rungs) is in `docs/GAPS.md`.
+ladder's lowest rung, a program as approver) is in `docs/GAPS.md`.
 
 ```yaml
 uses:
   repair:
     use: repair
     with:
-      approver: person        # the only one for now
+      approver: person        # (default) or ai: the ladder's second rung, behind the guard below
       model: haiku            # the fixer's (default)
       budget: 0.25            # dollars, one AI call at most
       daily: 2                # dollars, every AI call of the loop in a day
@@ -6423,16 +6542,140 @@ each open failure, leased (section 9.5), and:
 A failure the AI cannot fix, a refused proposal, git refusing, or an AI call not answered within its time is given
 back with why.
 
-**The ladder's first rung only** (invariant 5). `apply-fix` is held for the person, answered from the inbox, the CLI
-or the failure's page; a notification of it (section 12o) always carries the sentence "Approving merges this code into
-your repository; it then runs with your rights, outside the sandbox", whatever the channel's `detail`, so a person
-answering from a phone has read it. What an approved fix then does runs with the owner's rights, as the program it
-replaces did. `approver: ai` is refused by `check` ("not yet: a sound allowlist guard is needed"): an AI approver was
-built and cut, since a guard that denies listed calls is bypassed many ways (`docs/GAPS.md`). **A denial is final**
+**The ladder's first two rungs** (invariant 5). With `approver: person` (the default) `apply-fix` is held for the
+person, answered from the inbox, the CLI or the failure's page; a notification of it (section 12o) always carries the
+sentence "Approving merges this code into your repository; it then runs with your rights, outside the sandbox",
+whatever the channel's `detail`, so a person answering from a phone has read it. What an approved fix then does runs
+with the owner's rights, as the program it replaces did. With `approver: ai` an AI may answer instead, but only about
+a fix a guard in code lets it be asked about (below); everything else stays held for the person. **A denial is final**
 (the kind's `final` states, `spec/items.py`): an approval recorded after an action's denial, whoever wrote it and
 however the two raced, is ignored and listed (`ignored`); the action stays denied, is counted as denied (never as
 evidence for promoting its class to `gate: auto`), and is never run; one that ran anyway, having got through before the
 denial was seen, is shown as **ran despite denial** on the action's page.
+
+**The guard** (`ergostat/repair/allow.py`, `escalate(path, old, new, beside)`) returns the reasons a person must
+decide; an empty list means only that the AI may be asked, nothing more. It reads the program's text before and after
+and the names of the files beside it, nothing else, and is an allowlist: what it cannot parse, align or classify is a
+reason.
+
+- **G0.** A `.py` program; both versions parse; at most 40 lines changed (a run of changed lines counted by its longer
+  side); the test result `passed` (untested and failed fixes are refused); the risk `low` or `medium` (missing counts as
+  high). Nowhere in the new module: `import *`; `__builtins__`; an import of `builtins`, `importlib`, `ctypes`, `gc` or
+  `inspect`; a reference to `globals`, `locals`, `vars`, `setattr`, `delattr`, `getattr`, `exec`, `eval`, `compile`,
+  `__import__` or `breakpoint`; an attribute read starting `__` or named `modules`, `f_globals`, `f_locals` or
+  `f_builtins`; a store to an attribute named like a listed builtin, `print`, `json`, `load`, `loads` or `dumps`. These
+  are the common spellings of rebinding a name the forms below rely on out of the text's sight: a list, not a proof
+  (residual 5).
+- **G1, alignment.** The old and new statement lists are aligned with `difflib.SequenceMatcher`, body by body: a simple
+  statement keyed by its whole `ast.dump`, a compound one by its header (its dump with its bodies emptied); two compound
+  statements with equal keys are aligned in each of their bodies. A new statement that matches nothing is *changed*,
+  and so is everything nested in it; an old one is *removed*, with everything nested in it.
+- **Shaped values**: expressions that can only be JSON-type values, so no operation on them runs code other than the
+  interpreter's. Constants (str, int, float, bool, None), f-strings, list, tuple, dict and set displays, subscripts,
+  operators, comparisons and conditionals of shaped parts; comprehensions with name targets over shaped iterables;
+  shaped names; and calls of four forms only: (a) a builtin of `len int float str bool abs min max round sorted list
+  dict tuple set enumerate zip range isinstance repr any all sum reversed` with shaped arguments and no keywords
+  (`isinstance`'s type argument a listed type name, or a tuple of them); (b) `print` with the keywords `sep`, `end` and
+  `flush` only; (c) `json.loads(shaped)`, and `json.dumps(shaped)` with only `indent`, `sort_keys`, `ensure_ascii`; (d)
+  `get strip lower upper split startswith endswith replace join items keys values` on a shaped receiver, no keywords.
+  A builtin or `print` counts only when its name is bound nowhere in the module (a def, class, assignment of any kind,
+  import, loop, comprehension, except or with target, del, parameter, type parameter or match capture, at any depth);
+  `json` only when bound by one top-level `import json` alone, with no `json.*` beside the program, no other import
+  naming it (`from json import decoder`, `import json.decoder as d`), and `json` read nowhere but as the receiver of a
+  `json.load`, `json.loads` or `json.dumps` call (`j = json` refuses it). `print` and `json` count only when the module
+  stores or deletes no attribute, except `X.stdout = open(<constants>)`: `json.loads` runs `json._default_decoder`, and
+  `print` runs `sys.stdout.write`, so `json._default_decoder = E()`, `sys.stdout = W()` or `out.write = f` (any object,
+  since an alias is not followed) would hand a changed value to the program's own code. A name is shaped
+  when it has a binding and every one, anywhere in the module, assigns a shaped value or `json.load`/`json.loads` of
+  anything (no keywords), or is a loop target over a shaped value: the least fixed point, so `a = b; b = a` is not
+  shaped, and a name never bound (`open`, `exit`) is not either. A binding that reads its own name (`n += 1`,
+  `n = n + 1`) counts as shaped when another binding of it is shaped and the name is no builtin's and no dunder (before
+  its first binding, reading it raises); so `n = 0; n += 1` is shaped, and `n = n` alone or `sum = 0; sum += 1` is not.
+  **Mutation and aliasing.** A shaped binding says what an object was made from, not what the program's unchanged
+  code later puts in it, so the guard follows every read of a name to where its value goes. Names that may hold one
+  object are one group: a name bound to a read of another (`e = d`, `e = d['k']`, `e = d.get('k')`), a loop or
+  comprehension target over it, a value returned from a plain module function to each of its calls. A group is not
+  shaped when a read of any member may reach code that could change or keep the object: a subscript store or delete
+  (`d['k'] = obj`), a method outside (d) (`append`, `update`, `setdefault`, any keyword), a call outside (a) to (d)
+  (`fill(d)`, `Path(p)`), an attribute read or store, a lambda, default, walrus, yield, raise, `with`, a return from a
+  decorated, nested-in-a-class, generator or passed-on function, or a binding in a class body (reached as `C.x`). An
+  operation that meets an object of the group (`obj == d`, `x in obj`, `obj[d]`, `obj + d`, `sep.join(d)`, a form (a)
+  to (d) call given it) must itself be shaped, or the group is not: the other part's code would be given the object.
+  A name the module binds, reached as an attribute (`__main__.paths`, or `m.paths` of any namespace), is read as that
+  name, a function returning a member is not followed when named as an attribute (`m.mk()`), and `import __main__` is
+  refused. So a list the program fills in place, even with shaped values, is not shaped, and a fix reading it goes to
+  the person, except through a call that is given the name only as a string (residual 5).
+  **Iterators.** A generator expression, or a call of `enumerate`, `zip` or `reversed`, holds state that reading it
+  uses up, so one kept by a name would let a changed `list(gen)` empty what unchanged code reads next. It is shaped
+  only where it is used up in the same expression: a `for`'s or comprehension's iterable, the one argument of `list
+  tuple set dict sorted sum any all min max` (`sum` also with a start), an argument of `enumerate` or `zip` that is
+  itself so used, or `join`'s argument. A name, a display, a return, `print` or another call given one is not shaped.
+  No other attribute reads, no lambda, await, yield or walrus; a call of a function the module defines is not a form
+  (it goes to the person).
+- **G2.** Each changed statement is one of: an assignment or augmented assignment of a shaped value to names (never an
+  attribute or a subscript); a (b) `print`; `if` with a shaped test; `for` with name targets over a shaped value;
+  `pass`, `continue`, `break`; `return` of a shaped value or none; `assert` of shaped parts; `raise X(shaped)` with `X`
+  one of `ValueError KeyError TypeError RuntimeError SystemExit`, unbound in the module. Each removed statement must
+  pass the same, read against the old module: removing a `sys.exit()` or a check call goes to the person.
+- **G3, taint.** Names bound by changed, removed or controlled statements are tainted, and so are names bound by any
+  statement that reads a tainted one; calling a module function that holds a changed, removed, controlled or tainted
+  statement reads a tainted value. An unchanged statement that reads one must itself pass G2, except a statement that
+  is only `NAME = f(args)` or `f(args)`, `f` a module function and no argument tainted (`NAME` is then tainted). So
+  `x = f()` after a change inside `f` is let through, and every later reader of `x` is held to G2 (and since `x` is not
+  shaped, even `print(x)` is refused). An attribute is followed by its name (`Cfg.path`, `j.p()` read `path` and
+  `p`, names merged as elsewhere), and a class enclosing such a statement is tainted as a function is. A function or
+  class holding one may be reached only by a call: decorated, or named other than as a callee (stored, passed on, a
+  base, `Cfg.path`), it is refused, since a decorator or a registry could call it where the text does not show. A
+  class holding one, or enclosing a class that does, has no base, keyword or type parameter: a metaclass, or a base's
+  `__init_subclass__`, is given the class's namespace when the class is defined, with no call to follow.
+- **G4, control.** Controlled, and held to G2: the bodies of an unchanged `if`, `for` or `while` whose header reads a
+  tainted name (a `while` itself fails G2); the whole loop after a changed, removed or controlled `continue` or
+  `break`; the rest of the function after such a `return`; the rest of the module after such a `raise` at module
+  level. A changed or removed `raise` inside a function is refused. A `for` that such a `break` (its own loop) or
+  `return` (every loop it leaves, up to the function) ends early keeps loop state that the code after it may read:
+  the target's last value, and how far the iterable was used up. The target's names are tainted (G3), and the
+  iterable must be shaped (a fresh value, so never a shared iterator, a parameter or a call's result), or the fix is
+  refused.
+- **G5, exception paths.** Nothing changed, removed, controlled or tainted may sit lexically inside a `try` or `with`;
+  when any of it is inside a function, the module may hold no `try` or `with` at all: a fix that newly raises could
+  otherwise run a handler, a `finally` or an `__exit__` that never ran before.
+
+What the guard does not see, each pinned by a test in `tests/test_repair_allow.py` (`test_residual_*`): (1) **implicit
+raises**: any subscript or division may raise, so a fix can stop the program earlier, or get further than the failing
+one did (that is what a fix does); either way only the old program's own statements run, G5 covers handlers, and hooks
+the program installs (`sys.excepthook`, `atexit`) are not followed. (2) **Standard output**: `print` writes to a file
+the program opened by a constant name (`sys.stdout = open('out', 'w')`), or wherever its file descriptor points
+(`dup2`); this file cannot give it a `write` of its own (above). Another module can (3), and its code then runs on what
+`print` is given. (3) **One file**: other modules' code is not read: what a module the program imports does when
+imported, and what another module's function does when the program calls it (rebinding a builtin, `json.loads` or
+`sys.stdout` given its name as a string, as `unittest.mock.patch('json.loads', f)` does; code `pickle` deserialises; a
+C extension). (4) **Time and memory**: `"x" * 10**9` and `range(10**12)` pass; the block's timeout bounds them. (5)
+**The program's own unchanged code**: forms (a) to (c) trust that a listed builtin, `print` and `json` mean what Python
+gives them. The text's own bindings of them are refused (above), but an unchanged call whose effect the guard does not
+read can rebind one at run time (`operator.setitem` on a module's namespace reached by `operator.attrgetter`, or code
+run from a string by `timeit.timeit`), and a changed `len(x)` then runs whatever it was bound to. The same calls can
+fill a shaped list or dict whose name appears only as a string (`operator.attrgetter('modules')(sys)['__main__']`, then
+`operator.attrgetter('paths')` of it), and a changed (d) method then runs what was put in it. That trust is placed
+in the owner's committed code, never in the fix: changed and removed statements may call nothing but forms (a) to (d),
+and a listed exception, so a fix cannot add such a call, and G3 and G4 hold any unchanged statement its values reach or steer to G2.
+
+**The AI approver** (`ergostat/repair/approve.py`) runs once a fix's `apply-fix` was just requested, in the fix's own
+run. When the guard gives no reason, the AI (the template's `model`, haiku by default, no tools, the prompt
+`ergostat/repair/approver.md`, inside the loop's ledger and daily cap and a quarter of the timeout, its cost the run's)
+is shown only the program's path, the diff (made from the two texts the guard read) and "passed", never the fixer's explanation or the test's output, and
+answers `{"approve": true or false, "reasons": [...]}`. What it judges is stamped `{action, requested_seq, fix,
+passed_seq}`: seqs and the commit, never times. Under the failure's lock (`repair/<name>.lock`, which the fix also
+holds around recording `passed` and requesting `apply-fix`) it re-reads, and writes `approved` (by `ai approver
+(MODEL)`) only if the action is still `requested`, its latest `requested` event is the stamp's, its key is
+`<name>-<fix>`, the failure is `awaiting-approval` and its latest `passed` is the stamp's, with the same `fix`.
+Anything else is **escalate**: guard reasons, a capped or unreadable ledger, no answer, a timeout, or any answer but
+`"approve": true`. The action stays held for the person, and the fix is not given back. A version that moved since is
+**stale**: nothing approved. Each review is recorded as `ergostat.failure.reviewed` with `approval: {by, model,
+verdict, reasons, guard, action, stamp}`, and every `passed` carries `approval: null`, so a fix made again never shows
+an old approval. The engine's sweep runs an AI approval as it runs any approved action. A person's denial takes no
+lock: the action's fold makes it final whatever the order (before the write there is nothing left to approve; after
+it, the action is denied and never run). The inbox counts the AI's answers as an agent's (`by_agent`), never as a
+person's approvals, and not among the approvals asked of a person in a day.
 
 **Applying** (`python -m ergostat.repair apply`, the approved action, in the model's folder): the failure must be
 awaiting approval with a tested fix; the approved action's `key` must name that fix; the clone's metadata must be what ergostat made and its `HEAD` the tested commit;
@@ -6497,7 +6740,7 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 |---|---|
 | stocks | `open-failures`, `fixing` (leased), `awaiting-approval`, `applied-fixes` (cumulative) |
 | flows | `failures-found`, `fixes-started`, `fixes-proposed`, `fixes-failed` (rework), `fixes-applied`, `fixes-dismissed` |
-| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver) |
+| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver: the person, or the AI) |
 | action | `apply-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
 
 ## 13. Examples

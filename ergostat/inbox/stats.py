@@ -13,6 +13,12 @@ from ..spec.ir import MODELLING_REQUEST
 WEEK, DAY = 7 * 86400.0, 86400.0
 PROMOTE = 5                         # approved this many times, none denied: suggested up the ladder
 BY_AGENT = "owner via mcp"          # who an answer given through the MCP is recorded as
+AI_APPROVER = "ai approver ("       # who the repair loop's AI approver is recorded as (``ai approver (MODEL)``)
+
+
+def by_agent(source) -> bool:
+    """An answer an agent gave, not the owner: through the MCP, or the AI approver (SPEC §12r)."""
+    return source == BY_AGENT or str(source or "").startswith(AI_APPROVER)
 
 
 def by_person(source) -> bool:
@@ -98,7 +104,7 @@ def by_class(p, spec, now: float | None = None) -> dict[str, dict]:
         if x["answered"] is None:
             r["waiting"] += 1
         elif x["verdict"] != "superseded":
-            r["by_agent" if x.get("by") == BY_AGENT else "denied" if x["verdict"] == "denied" else "approved"] += 1
+            r["by_agent" if by_agent(x.get("by")) else "denied" if x["verdict"] == "denied" else "approved"] += 1
             r["times"].append(x["answered"] - x["time"])
     for cls, r in out.items():
         t = sorted(r.pop("times"))
@@ -124,9 +130,11 @@ def suggest(cls: str, r: dict) -> str | None:
 
 
 def asked_today(p, spec, now: float | None = None) -> list[str]:
-    """The class of each thing asked of a person over the last day (ergostat's own notifications left out)."""
+    """The class of each thing asked of a person over the last day (ergostat's own notifications, and what the AI
+    approver answered, left out)."""
     now = time.time() if now is None else now
-    return [x["class"] for x in asked(p, spec, now - DAY, now) if x["class"] != "notify"]
+    return [x["class"] for x in asked(p, spec, now - DAY, now)
+            if x["class"] != "notify" and not str(x.get("by") or "").startswith(AI_APPROVER)]
 
 
 def record_said(r: dict) -> str:

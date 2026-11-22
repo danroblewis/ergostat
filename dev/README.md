@@ -257,8 +257,9 @@ the parent's entry, its coverage, and each sub-gap's definition and last review 
 verdict `short` at once, a point naming each, with no clone, no session and cost 0. `covered` moves the parent to
 `merged` with its verdict, reasons and `judged_at`, but no `merged_at`: no work merged, so it stays out of
 cycle-hours, cost-per-merged and fix-rounds. "Covered" is the planner's coverage mapping plus an AI judgment at the
-join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (the next unused name when that one is
-taken; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
+join, not a proof. `short` requests a new sub-gap `<parent-branch>-join-<n>` (when that one is taken or not safe, the
+next unused safe one of `-join-<n+1>`, …, then `<parent-branch>-rest`, `-rest-2`, …, at most 50 of each before it
+stops with an error; its entry the parent's title and the points not built), adds those points to the coverage file as `(by: that
 name)`, and only then splits the parent again, so the join waits for the new sub-gap. At most `plan.MOST_SHORT` = 1
 short round splits again: the second `short` parks the parent, its "Where it stopped" listing the points not built. A
 verdict that cannot be read or a failed session leaves it in `joined` (the run fails under its lease); a budget
@@ -270,7 +271,8 @@ median, over parents judged covered in 14 days by `judged_at`, of the parent's a
 sub-gap's and its continuation's both, over the median cost of merged unsplit gaps of the children's size class; a
 parent unpriced, with a child unmerged, unsized or unpriced, or with no unsplit gap of its class is left out and
 named), and `splits-covered ≥ 0.7` over at least 5 joins is the condition gap/plan-by-size gates XL auto-split on.
-The plan review is advice, never a gate (`[plan] review`: `sample`, 1 in `sample_every` = 3, `all` or `off`;
+The plan review is advice, never a gate (which plans it reads: *Planning by size* below; `[plan] review = off`
+reads none, and `sample` 1 in `sample_every` = 3, or `all`, now marks only the lint sweep's plans;
 `dev/bin/planreview.py`): in a read-only clone of main with the task graph, it reads a marked gap's definition; its
 findings are appended to the definition as notes the implementor answers, and recorded by class on
 `review/<branch>-plan` for the knowledge loop. "This should not be built" is only asked of you (`park-gap`, in the
@@ -323,6 +325,39 @@ count is left out of the share (never a hit) and named on stderr; with nothing m
 
 **Not covered:** gaps whose definitions you wrote (no planner, no size; a plan that finds your definition already
 there records no size either), and split parents (they merge nothing; a split clears an earlier size).
+
+**Planning by size.** The planner reads the class already on an open gap (`planned_size` with `size_confidence`,
+before it plans) and does as much as the class calls for. Today the only thing that records a class before planning
+is the request itself: `ergostat event --add gap.requested --item gap/NAME --data '{"title": ..., "entry": "its
+text", "planned_size": "S", "size_confidence": "high"}'`. Gaps from `docs/GAPS.md`, and those the coordinator files
+with a definition, carry none. Whether the groomer, the coordinator or a sizing step should record one is still the
+owner's call. A gap with neither field takes main's path: the full planner, marked for the plan review on
+`[plan] review`'s sample, as before. So does every sub-gap of a split, since they carry no class. The planner trusts a
+class only when it is exactly S, M, L or XL and its confidence (low 0.25, medium 0.5, high 0.75) is at least
+`[planning] min_size_confidence`. A class or confidence that is present but not trusted (`"s "`, a missing or unknown
+confidence, one below the bar) takes the full planner and is always marked for review. So is every replan (the gap's
+state `replan`, which the fold sets from the send-back by seq), except an XL one.
+- **S**: no session. The definition is written from the gap's own title and text (its `docs/GAPS.md` entry on main,
+  else a join sub-gap's `entry`; with neither, the gap takes the full path) with the house rules' done
+  criteria and a 50-line budget, created exclusively in `run/defs/` (one already there, or one that lands first, is
+  kept byte for byte and the gap is the coordinator's). `defined_by: size-s`, `planning_cost_usd: 0`. **No AI and no
+  reviewer has looked at this definition**; the implementor names the tests.
+- **M**: one session under `[ai] planner_m_session_usd`, then ready with no plan review (`defined_by:
+  plan-unreviewed`). If it splits, the sub-gaps take main's review sample.
+- **L**: the full planner. A share `[planning] l_review_share` is marked for review, picked from the gap's id alone
+  (a lease retry picks the same); the rest are ready unreviewed, as M is.
+- **XL**: one definition for the gap itself is sent back ("an XL gap must split"). It counts toward the lint's park
+  (the 6th send-back parks), so a planner that keeps answering whole stops costing money.
+Unreviewed means unreviewed: nothing here claims M, unsampled L or S plans are as good as reviewed ones. A cap above
+`planner_session_usd` (or 0), or a share or confidence outside [0, 1], stops the planner run with an error before any
+session. Unset, the cap is the planner's own, every L plan is reviewed and no class is trusted.
+
+Each planner and plan-review session also adds its cost to `planning_cost_usd` (summed, so plan, review and replan
+add up). A session that times out, errors or is cancelled adds its whole reservation, to `ai_cost_usd` too.
+`measure.py planning-cost-share` is planning dollars over AI dollars, of gaps merged in 14 days that carry the field.
+A gap without it is left out, never counted as 0; one with a planning cost negative or above its total is left out
+and named on stderr; with none it has no value (exit 1). It says where the money went, not that less planning is
+safe.
 
 ## The pools: sized by risk, against your tolerance
 
@@ -567,6 +602,14 @@ is held, so a wait for the slot is never a stall. Its third (`STALLS_MOST` in fa
 back: it goes to triage as `queue-failed`, the stalled test as its failed test. In triage, a stalled rerun gets the
 same fields and `stalls`, and its lease is given back the same way until the gap's third stall. Then the failure is
 the branch's: back to fix, or parked by the kill rule.
+
+The factory's own tests run inside these containers too, so a test of the factory must not depend on the queue's
+environment. What the queue sets there (`PYTEST_ADDOPTS`, `UV_PROJECT_ENVIRONMENT`, `PYTHONPYCACHEPREFIX`,
+`RUFF_CACHE_DIR`, `SPLIT_SHOTS`; `QUEUE_ENV` in tests/test_factory.py) is not passed on to the processes started with
+the `Factory` fixture's `env`: it drops `PYTEST_ADDOPTS` and `SPLIT_SHOTS`, and sets the other three itself (the
+running venv, caches under the test's own folder). A test that starts a process with `os.environ` of its own, or runs
+factory code in its own process, must set or clear what it reads (monkeypatch). A new setting the queue gives its
+containers goes into `QUEUE_ENV`: the queue-container test fails until it does.
 
 To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while the queue wait is over its goal,
 `queue-wait-short`), or by hand, from the instance, `python3 dev/bin/pools.py set batch 2 "why"` (it is kept in

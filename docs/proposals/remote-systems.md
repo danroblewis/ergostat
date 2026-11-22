@@ -172,16 +172,17 @@ attention.
 
 **Events in place, with a cursor.** The remote's events are read by `seq` cursor, a page of at most 1,000 at a
 time, at most five pages a refresh, into a cache kept in memory and bounded by the window (one day by default,
-20,000 events at most). The cursor is the last `seq` read. The cache serves `ergostat remote events NAME` (and,
-later, the Record page); the remote's items are read in place through its own `/items` and `/counts`.
+20,000 events at most). The cursor is the last `seq` read. The cache serves `ergostat remote events NAME` and the
+Record page (`/record?remote=NAME`), read at most once a period; the remote's items are read in place through its
+own `/items` and `/counts`, at most 8 requests a remote a period (SPEC §4c).
 
 **What the local fold sees of remote items: nothing.** The local item index is the fold of the local record
 (invariant 10); the remote's items are folded where they live. So:
 
 - local `items:` sensors count local items only; to count the remote's, read the remote stock that counts
   them (its sensor is mirrored), or `query: {source: incidents, ref: stock.open}`;
-- the Items page and `ergostat item` list local items; a remote's items are to be listed through its API,
-  marked remote, linking to its own page (a later slice);
+- the Items page and `ergostat item` list local items; the Items page also shows each remote's counts and newest
+  items, asked through its API, in a section marked remote, each linking to a read-only view and to its own page;
 - the process map draws the remote's own map (from `/remote/v1/process`) beside ours; a line between one of
   our items and one of theirs needs an id both logs carry (a reference in an event's data): a relation naming
   the remote's kind (`blocked_by: incidents-incident`), drawn to the step the remote says the item was last at

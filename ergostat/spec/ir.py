@@ -301,7 +301,8 @@ def is_measure(name: str) -> bool:
     intent judge's (``ergostat.intent.*``, with an optional ``@kind``), the leases' (``ergostat.leases.*``, with an optional
     ``@kind`` or ``@block``), the gated actions' (``ergostat.actions.*``, with an
     optional ``@class``), the workspace pools' (``ergostat.workspaces.*``, with an optional ``@pool``) or what the runs
-    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), or ergostat's upkeep (``ergostat.upkeep.*``)."""
+    cost (``ergostat.cost.*``, with an optional ``-hour`` and ``@block``), ergostat's upkeep (``ergostat.upkeep.*``), or
+    the day's budget left (``ergostat.budget.left``)."""
     return (name in MODEL_MEASURES or bool(TRUST.match(name)) or name in MESSAGE_MEASURES or bool(UPKEEP.match(name))
             or bool(CONTEXT_MEASURE.match(name)) or bool(INTENT.match(name)) or bool(LEASES.match(name))
             or bool(ACTIONS.match(name)) or bool(WORKSPACES.match(name)) or bool(COST.match(name)) or name in INBOX_MEASURES

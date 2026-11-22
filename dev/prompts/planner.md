@@ -45,7 +45,9 @@ lessons below; your plan is where they are prevented.
 3. Decide whether it fits one branch: about 250 net lines of code outside `tests/`, `docs/` and `dev/` at most (see
    "Keep it small"; 600 is only the lint's hard most), one reviewable idea. If not, split it into sub-gaps (at most
    6), each one branch, in the order they must land. Each sub-gap's `## Size budget` must name at most 250 net lines:
-   over 250, or no number, sends the whole split back.
+   over 250, or no number, sends the whole split back. An XL gap (its size class recorded before planning) must
+   split: one definition for the gap itself is sent back with "an XL gap must split" among the findings above, and
+   each time counts toward the lint's park.
 4. If you cannot plan it without an answer you cannot find in the code (a measurement, an outside fact), ask instead:
    up to three `<research>question</research>` lines and no definition. The gap waits for the answers.
 

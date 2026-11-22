@@ -79,13 +79,15 @@ def cmd_intent(args) -> int:
         got = judge.run(p, spec, b, model=args.model, only=rest[0] if rest else None, again=args.again)
         if args.json:
             return out_json(got)
-        if not got["verdicts"]:
+        if got.get("refused"):
+            print(f"refused: {got['refused']}", file=sys.stderr)
+        elif not got["verdicts"]:
             print("nothing waiting to be judged" + (f" ({rest[0]} has not entered its judged state)" if rest else ""))
         for v in got["verdicts"]:
             print(f"{v['work']}: {c(v['verdict'], 'bold')}: {v['why']}  ({v['id']})")
         if got["cost_usd"]:
             print(c(f"spent ${got['cost_usd']:.4f}", "dim"))
-        return 0
+        return 1 if got.get("refused") else 0
     if act:
         got = record.get(p, act)
         if got is None:

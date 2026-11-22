@@ -96,6 +96,10 @@ def every_pass(b: Block) -> bool:
         (b.type == "limit" and p.get("rate") is not None)
 
 
+class ShardError(ValueError):
+    """A shard the model's plan does not have (SPEC §9.8): at construction, or on a swap to such a plan."""
+
+
 class Engine:
     incremental = True                                 # a pass works out only what changed (False: everything, each pass)
     lock_wait = 5.0                                    # seconds ``close`` waits for a lock it stops under, at most
@@ -205,14 +209,14 @@ class Engine:
     # ---- its shard (SPEC §9.8)
 
     def _shard_of(self, spec: Spec):
-        """This engine's ``Shard`` in this model's plan (None: no shard). ValueError when the plan has no such shard:
+        """This engine's ``Shard`` in this model's plan (None: no shard). ShardError when the plan has no such shard:
         it never runs nothing quietly, nor everything."""
         if self.shard is None:
             return None
         from .shards import planned
         got = planned(spec).shards.get(self.shard)
         if got is None:
-            raise ValueError(f"no shard {self.shard!r} in this model (its shards: {', '.join(planned(spec).shards)})")
+            raise ShardError(f"no shard {self.shard!r} in this model (its shards: {', '.join(planned(spec).shards)})")
         return got
 
     @property
@@ -1088,11 +1092,12 @@ class Engine:
                     runrecord.remove(files)
                 else:
                     old.LIVE.add(proc)
-                    if self.stop.is_set():                       # this engine stopping (set before its kill_all): it may
-                        old._kill(proc)                          # have missed this run (not STOPPING: process-wide)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
+                        stopping = self.stop.is_set()            # (set under this lock: close's kill missed this run;
+                    if stopping:                                 # not STOPPING: process-wide)
+                        old._kill(proc)
                     tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
                     try:
                         proc.watch = reap.Watch(proc.pid)            # what it starts, for a lease kill (leases/kill.py)
@@ -1293,8 +1298,9 @@ class Engine:
             from ..numbers import judge as jd
         ev = self.p.events
         spec, version = self.spec, self.version
-        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule", "model": version})
-        started = time.time()
+        begun = ev.add("agent.started", item=b.name, source=SOURCE, data={"trigger": "schedule", "model": version, **(
+            {"reserve": 0.0, "pid": os.getpid()} if spec.budget else {})})   # (its calls reserve, SPEC §9.9)
+        started, within = time.time(), budget.WITHIN.set((begun["id"], True))   # (its end sums its calls' costs)
         try:
             got = jd.run(self.p, spec, by=b.name) if b.judge_mode == "intent" else jd.run(self.p, by=b.name)
         except Exception as e:
@@ -1303,8 +1309,11 @@ class Engine:
             self.say(f"{b.name}: {type(e).__name__}: {e}")
             return
         finally:
+            budget.WITHIN.reset(within)
             with self.lock:
                 self.running.discard(b.name)
+        if got.get("refused"):
+            self.say(f"{b.name}: refused: {got['refused']}")
         if b.judge_mode != "intent":                   # nothing new to judge: it backs off (judge.pause)
             every = bounds.pace(spec, b, b.every or JUDGE_EVERY)
             wait = jd.pause(got, every, self.judge_idle.get(b.name, 0))
@@ -1776,12 +1785,13 @@ class Engine:
         lead = self.leads()                                      # what is done once for the model: by the lead (SPEC §9.8)
         if lead:
             history.note(self.p)
-        old.STOPPING.clear()
+        if self.shard is None:                                   # (process-wide: never a shard's, SPEC §9.8)
+            old.STOPPING.clear()
         self._initial()
         seq = self.p.events.last_seq()
         if lead:
-            self.p.events.add("ergostat.started", source=SOURCE,
-                              data={"blocks": sorted(self.spec.blocks), "pid": os.getpid(), "format": "yaml"})
+            self.p.events.add("ergostat.started", source=SOURCE, data={"blocks": sorted(self.spec.blocks),
+                              "pid": os.getpid(), "format": "yaml", "shard": self.shard})
         try:                                                    # runs whose process is gone hold no reserve open
             budget.recover(self.p, self.spec, every=0)
         except Exception as e:
@@ -1972,7 +1982,23 @@ class Engine:
         for pool in (self.pool, self.alarm_pool):
             if pool is not None:
                 pool.shutdown(wait=False, cancel_futures=True)
-        old.kill_all()
+        if self.shard is None:
+            old.kill_all()
+        else:                                   # a shard's: only its own runs, never STOPPING (SPEC §9.8); a run
+            got = self.lock.acquire(timeout=self.lock_wait)   # started past the stop kills itself (self.stop is
+            try:                                 # set); a lock held for good is waited on at most lock_wait
+                mine = []
+                for _ in range(100):             # (without the lock: a run registering mid-copy, copied again)
+                    try:
+                        mine = list(self.live.values())
+                        break
+                    except RuntimeError:
+                        continue
+            finally:
+                if got:
+                    self.lock.release()
+            for proc in mine:
+                old._kill(proc)
         self.daemons.close()
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
@@ -1981,7 +2007,7 @@ class Engine:
         # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
         # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
         self.dispatch.give_back()                # (and every lease still held here, its run's own end failed)
-        self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid()})
+        self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid(), "shard": self.shard})
 
 
 class Said:
