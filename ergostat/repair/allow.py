@@ -253,8 +253,19 @@ def names_bound_other(n) -> list[str]:
     return []
 
 
+def refs(e) -> set[str]:
+    """The names ``e`` reads, and the attribute names it reads through (``Cfg.path``, ``j.p()``): G3 follows both."""
+    return ({x.id for x in ast.walk(e) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load)}
+            | {x.attr for x in ast.walk(e) if isinstance(x, ast.Attribute)})
+
+
 def loads(n) -> set[str]:
-    return {x.id for x in ast.walk(strip(n)) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load)}
+    return refs(strip(n))
+
+
+def holders(chain) -> set[str]:
+    """The functions and classes enclosing a statement."""
+    return {f.name for f in chain if isinstance(f, (*FUNCS, ast.ClassDef))}
 
 
 def binds(n) -> set[str]:
@@ -314,19 +325,19 @@ class Fix:
         tainted: dict[int, object] = {}
         excused: set[int] = set()
         names: set[str] = set()
-        hot: set[str] = set()                                # functions holding a changed, removed, controlled or
-        raised: set[str] = set()                             # tainted statement
+        hot: set[str] = set()                                # functions and classes holding a changed, removed,
+        raised: set[str] = set()                             # controlled or tainted statement
         n0 = -1
         while n0 != (n0 := len(controlled) + len(tainted) + len(names) + len(hot) + len(raised)):
             for s, inside, owner, lst, i in removed:
                 names |= binds(s)
                 self.control(s, inside, owner, lst, i, controlled, raised, True)
-                hot |= {f.name for f in self.chain(owner) if isinstance(f, FUNCS)}
+                hot |= holders(self.chain(owner))
             for s in list(changed.values()) + list(controlled.values()):
                 names |= binds(s)
                 owner, lst, i = self.at[id(s)]
                 self.control(s, [], owner, lst, i + 1, controlled, raised, id(s) in changed)
-                hot |= {f.name for f in self.chain(owner) if isinstance(f, FUNCS)}
+                hot |= holders(self.chain(owner))
             for k, (owner, lst, i) in list(self.at.items()):
                 s = lst[i]
                 if k in changed or k in controlled or not (loads(s) & (names | hot)):
@@ -334,13 +345,13 @@ class Fix:
                 if k not in tainted:
                     tainted[k] = s
                 names |= binds(s)
-                hot |= {f.name for f in self.chain(owner) if isinstance(f, FUNCS)}
+                hot |= holders(self.chain(owner))
                 if self.excuse(s, funcs, names | hot):
                     excused.add(k)
                 if isinstance(s, (ast.If, ast.For, ast.While)):
                     for x in inner(s):
                         controlled.setdefault(id(x), x)
-        why += sorted(raised)
+        why += sorted(raised) + self.uses(hot)
         for s in changed.values():
             if (w := allowed(s, self.sn)) is not None:
                 why.append(f"changed, line {s.lineno}: {w}")
@@ -387,6 +398,19 @@ class Fix:
             for x in self.rest(owner, lst, i, ()):
                 controlled.setdefault(id(x), x)
 
+    def uses(self, hot) -> list[str]:
+        """A function or class holding the change is reached only by a call G3 follows: never decorated (a decorator
+        may register it), never read other than as a callee (passed on, stored, or a class's attribute or base)."""
+        why = [f"line {n.lineno}: {n.name} holds the change and is decorated" for n in ast.walk(self.new)
+               if isinstance(n, (*FUNCS, ast.ClassDef)) and n.name in hot and n.decorator_list]
+        callees = {id(c.func) for c in ast.walk(self.new) if isinstance(c, ast.Call)}
+        for n in ast.walk(self.new):
+            ref = (n.id if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) else
+                   n.attr if isinstance(n, ast.Attribute) else None)
+            if ref in hot and id(n) not in callees:
+                why.append(f"line {n.lineno}: {ref} holds the change and is used other than by a call")
+        return why
+
     @staticmethod
     def excuse(s, funcs, hot) -> bool:
         """G3's exception: only ``NAME = f(args)`` or ``f(args)``, ``f`` a module function, no argument tainted."""
@@ -394,7 +418,7 @@ class Fix:
                                                                  and isinstance(s.targets[0], ast.Name)) else None
         if not (isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id in funcs):
             return False
-        return not any(isinstance(x, ast.Name) and x.id in hot for a in (*v.args, *v.keywords) for x in ast.walk(a))
+        return not any(refs(a) & hot for a in (*v.args, *v.keywords))
 
     def exceptions(self, stmts, removed) -> list[str]:
         """G5: nothing reached by the change lexically inside a try or with; inside a function, no try or with at all."""

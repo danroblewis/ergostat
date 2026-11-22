@@ -365,3 +365,35 @@ for the real count rather than cuts. Docstrings account for about 60 of the line
 - origin/main is not merged. This clone has no `origin/main` ref, `git fetch` is refused (it reaches the network), and
   the local `main` is already an ancestor of the branch.
 - Ruff is clean.
+
+### Round 2: the review's one finding (G3 followed only bare names)
+
+The finding was that a value could reach unchanged code through an attribute or a registry without being tainted
+(`class Cfg: path`, read by `os.remove(Cfg.path)`; a method `J.p` read by `os.remove(j.p())`; a method steering
+`if not I().keep(it)`; a `@reg` function called back through a registry). It was the only finding, and it was
+blocking. What changed in `allow.py`, each part fail-closed:
+- G3 follows attribute names as well as names. `refs()` counts `x.attr` as a read of `attr`, merged by name as
+  elsewhere, so it can only refuse more. `excuse()` uses the same reads for its "no argument tainted" check.
+- A class enclosing a changed, removed, controlled or tainted statement is hot, as a function is (`holders()`).
+- `Fix.uses()`: a hot function or class is refused if it is decorated, or if its name is read anywhere other than as
+  the callee of a call (stored, passed on, used as a base, `Cfg.path`).
+- Test: `test_taint_through_attributes_and_registries_refused`, 5 cases (the class attribute, the method's return, the
+  method steering an `if`, the decorated registry, `REG.append(h)`). Each case has an accepted twin: the same change,
+  read by nothing.
+- Seen to fail with its code broken. Classes not made hot: the class-attribute case fails. Classes not made hot and
+  attributes not followed: the class-attribute, method-return and method-steering cases fail. `uses()` returning
+  nothing: the decorated-registry case fails, which nothing else refuses. The class-attribute and `REG.append` cases
+  then fail only on their expected reason, since G3 still refuses them. Attributes not followed while classes are
+  hot: nothing fails, because the class name already taints the two method cases. Following attributes is a second
+  layer on top of that, and no test catches it alone.
+- SPEC §12r G3 says how attributes, classes and the callee-only rule are read. SECURITY's sentence ("nothing those
+  changes reach may ...") is unchanged. It now has the attribute and registry tests behind it, within residual 3 (one
+  file).
+- Size: allow.py is now 469 lines (+24 net), so the total is about 579 against 450. The reason is the same as round
+  1: fail-closed branches added at review.
+- Run: `tests/test_repair_allow.py` and `tests/test_repair_approver.py` (74 passed, 1 skipped: sandbox). Ruff is
+  clean. The unit suite, the four browser files and `test_repair2` (bwrap) were not run here. As in round 1, there is
+  no `origin/main` in this clone, and the local `main` is an ancestor of the branch.
+- Refused in this round: a Bash command that wrote a multi-line Python edit script through a heredoc, and one that
+  swapped the round-1 `allow.py` into place with `git show HEAD:... >` and `cp`. Edits and mutations were made with
+  the edit tool instead.

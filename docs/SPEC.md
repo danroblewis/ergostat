@@ -5666,7 +5666,10 @@ reason.
   statement reads a tainted value. An unchanged statement that reads one must itself pass G2, except a statement that
   is only `NAME = f(args)` or `f(args)`, `f` a module function and no argument tainted (`NAME` is then tainted). So
   `x = f()` after a change inside `f` is let through, and every later reader of `x` is held to G2 (and since `x` is not
-  shaped, even `print(x)` is refused).
+  shaped, even `print(x)` is refused). An attribute is followed by its name (`Cfg.path`, `j.p()` read `path` and
+  `p`, names merged as elsewhere), and a class enclosing such a statement is tainted as a function is. A function or
+  class holding one may be reached only by a call: decorated, or named other than as a callee (stored, passed on, a
+  base, `Cfg.path`), it is refused, since a decorator or a registry could call it where the text does not show.
 - **G4, control.** Controlled, and held to G2: the bodies of an unchanged `if`, `for` or `while` whose header reads a
   tainted name (a `while` itself fails G2); the whole loop after a changed, removed or controlled `continue` or
   `break`; the rest of the function after such a `return`; the rest of the module after such a `raise` at module

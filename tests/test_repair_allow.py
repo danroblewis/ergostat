@@ -200,6 +200,29 @@ def test_taint_through_function_return_refused():
     assert change(old.format(last=last), old.format(last=last).replace('"a"', '"b"')) == []
 
 
+CFG = "class Cfg:\n    path = 'a'\n"
+J = "class J:\n    def p(self):\n        return 'a'\n"
+KEEP = "class I:\n    def keep(self, it):\n        return 'a' == 'a'\n"
+REG = "REG = []\ndef reg(f):\n    REG.append(f)\n    return f\n{deco}def h():\n    return 'a'\n"
+
+
+@pytest.mark.parametrize("prog, twin, why", [
+    (CFG + "os.remove(Cfg.path)\n", CFG + "os.remove('a')\n", "Cfg holds the change"),
+    (J + "j = J()\nos.remove(j.p())\n", J + "os.remove('a')\n", "reading what the change made"),
+    (KEEP + "for it in answer:\n    if not I().keep(it):\n        os.remove(it)\n", KEEP + "os.remove('a')\n",
+     "reading what the change made"),
+    (REG.format(deco="@reg\n") + "for g in REG:\n    os.remove(g())\n", REG.format(deco="") + "os.remove('a')\n",
+     "decorated"),
+    (REG.format(deco="") + "REG.append(h)\nfor g in REG:\n    os.remove(g())\n",
+     REG.format(deco="") + "os.remove('a')\n", "used other than by a call"),
+])
+def test_taint_through_attributes_and_registries_refused(prog, twin, why):
+    """A value reaching unchanged code through an attribute (a class attribute, a method's return) or a function
+    reached other than by a call (decorated, stored) is followed: refused. The same change that nothing reads: accepted."""
+    assert change(twin, twin.replace("'a'", "'../x'", 1)) == []
+    assert refused(change(prog, prog.replace("'a'", "'../x'", 1)), why)
+
+
 def test_tainted_for_iterable_body_must_pass():
     loop = "def send():\n    pass\nn = {n}\nfor _ in range(n):\n    send()\n"
     assert refused(change(loop.format(n=2), loop.format(n=3)), "steered by the change")
