@@ -56,8 +56,9 @@ class PooledServer(ThreadingHTTPServer):
         self.jobs: queue.Queue = queue.Queue(self.queue_most)
         self.fast: queue.Queue = queue.Queue(self.queue_most)
         self.local = threading.local()                 # the job a worker is on: when it was queued, when taken
-        self._new: list = []
+        self._new: queue.SimpleQueue = queue.SimpleQueue()   # connections accepted, for the reception
         self._wake, self._waker = socket.socketpair()
+        self._waker.setblocking(False)                 # (a full buffer raises, never blocks serve_forever)
         self._stopping = False
         for q, n, name in ((self.jobs, self.workers, "web"), (self.fast, self.fast_workers, "web-fast")):
             for i in range(n):
@@ -71,7 +72,7 @@ class PooledServer(ThreadingHTTPServer):
             self.process_request_thread(job[0], job[1])
 
     def process_request(self, request, client_address):
-        self._new.append((request, client_address))   # (list.append is atomic; the reception swaps the list)
+        self._new.put((request, client_address))
         try:
             self._waker.send(b"x")
         except OSError:                                # (its buffer full: the reception is already woken)
@@ -92,40 +93,73 @@ class PooledServer(ThreadingHTTPServer):
 
     def _reception(self):
         """Each connection held until its request's bytes arrive, then queued; one closed having sent nothing, or
-        silent for ``held_for``, is closed."""
+        silent for ``held_for``, is closed. A step that raises closes that one connection (logged) and the loop goes on:
+        this thread stands in front of every request."""
         import queue
         import selectors
+        import sys
         import time
         sel = selectors.DefaultSelector()
         sel.register(self._wake, selectors.EVENT_READ)
+
+        def guarded(step, request, *a):
+            try:
+                step(request, *a)
+            except Exception as e:
+                print(f"{time.strftime('%H:%M:%S')} web: reception closed a connection: {e!r}", file=sys.stderr, flush=True)
+                try:
+                    sel.unregister(request)
+                except (KeyError, ValueError, OSError):
+                    pass
+                self.shutdown_request(request)
+
+        def hold(request, addr):
+            if len(sel.get_map()) > self.held_most:
+                self._busy(request)
+            else:
+                sel.register(request, selectors.EVENT_READ, (request, addr, time.monotonic()))
+
+        def route(request, addr):
+            sel.unregister(request)
+            try:
+                head = request.recv(1024, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+            except OSError:
+                head = b""
+            if not head:
+                return self.shutdown_request(request)
+            try:
+                (self.fast if cheap(head) else self.jobs).put_nowait((request, addr, time.monotonic()))
+            except queue.Full:
+                self._busy(request)
+
+        def expire(request):
+            sel.unregister(request)
+            self.shutdown_request(request)
+
         while not self._stopping:
-            for key, _ in sel.select(1.0):
+            try:
+                ready = sel.select(1.0)
+            except Exception as e:              # (never seen; logged, and the loop goes on)
+                print(f"{time.strftime('%H:%M:%S')} web: reception select failed: {e!r}", file=sys.stderr, flush=True)
+                time.sleep(0.1)
+                ready = []
+            for key, _ in ready:
                 if key.fileobj is self._wake:
-                    self._wake.recv(4096)
-                    new, self._new = self._new, []
-                    for request, addr in new:
-                        if len(sel.get_map()) > self.held_most:
-                            self._busy(request)
-                        else:
-                            sel.register(request, selectors.EVENT_READ, (request, addr, time.monotonic()))
+                    try:
+                        self._wake.recv(4096)
+                    except OSError:
+                        pass
+                    while True:
+                        try:
+                            request, addr = self._new.get_nowait()
+                        except queue.Empty:
+                            break
+                        guarded(hold, request, addr)
                     continue
-                sel.unregister(key.fileobj)
-                request, addr, _ = key.data
-                try:
-                    head = request.recv(1024, socket.MSG_PEEK | socket.MSG_DONTWAIT)
-                except OSError:
-                    head = b""
-                if not head:
-                    self.shutdown_request(request)
-                    continue
-                try:
-                    (self.fast if cheap(head) else self.jobs).put_nowait((request, addr, time.monotonic()))
-                except queue.Full:
-                    self._busy(request)
+                guarded(route, key.data[0], key.data[1])
             now = time.monotonic()
             for key in [k for k in sel.get_map().values() if k.data and (self._stopping or now - k.data[2] > self.held_for)]:
-                sel.unregister(key.fileobj)
-                self.shutdown_request(key.data[0])
+                guarded(expire, key.data[0])
         sel.close()
         self._wake.close()
 
@@ -156,7 +190,10 @@ class PooledServer(ThreadingHTTPServer):
             return
         import queue
         self._stopping = True
-        self._waker.send(b"x")
+        try:
+            self._waker.send(b"x")
+        except OSError:                                # (its buffer full: the reception is already woken)
+            pass
         self._waker.close()
         for q, n in ((self.jobs, self.workers), (self.fast, self.fast_workers)):
             try:

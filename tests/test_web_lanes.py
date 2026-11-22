@@ -116,6 +116,69 @@ def test_a_client_that_asked_and_left_while_every_worker_was_busy_is_never_answe
     assert re.search(r"web: dropped GET /api/echo-left: the client left after \d+\.\ds in the queue", capfd.readouterr().err)
 
 
+def _past_1024(sock: socket.socket) -> socket.socket:
+    """The same socket, numbered 1100 (select() refuses any numbered 1024 or more)."""
+    import os
+    fd = os.dup2(sock.fileno(), 1100)
+    sock.close()
+    return socket.socket(fileno=fd)
+
+
+def test_left_works_on_a_socket_numbered_past_1024():
+    a, b = socket.socketpair()
+    a = _past_1024(a)
+    a.settimeout(10)                                   # as the handler's: the peek must not wait for it
+    try:
+        assert a.fileno() >= 1024
+        t0 = time.monotonic()
+        assert not ws.left(a)                          # nothing sent, still there
+        assert time.monotonic() - t0 < 1 and a.gettimeout() == 10
+        b.sendall(b"GET / HTTP/1.1\r\n\r\n")
+        assert not ws.left(a)                          # a pipelined request's bytes are no end
+        a.recv(65536)
+        b.shutdown(socket.SHUT_WR)
+        b.close()
+        assert ws.left(a)                              # FIN: gone
+    finally:
+        a.close()
+    assert not ws.left(a)                              # a check that cannot run (closed) serves the GET
+
+
+def test_a_get_on_a_connection_numbered_past_1024_is_answered(site, monkeypatch):
+    """Under a pile-up the server's sockets pass 1023: the check before _answer must still let the GET through."""
+    import os
+    seen, real = [], ws.left
+    monkeypatch.setattr(ws, "left", lambda conn: (seen.append(conn.fileno()), real(conn))[1])
+    fill = []
+    try:
+        while not fill or fill[-1] < 1060:
+            fill.append(os.open(os.devnull, os.O_RDONLY))
+        for f in [f for f in fill if f > 1024]:        # only numbers past 1024 free: the accepted socket takes one
+            os.close(f)
+        fill = [f for f in fill if f <= 1024]
+        c = ask(site.port, "/api/echo-high")
+        got = answer_of(c)
+        assert seen and seen[0] >= 1024, seen          # the window this test is for
+        assert b'"echo": "echo-high"' in got
+    finally:
+        for f in fill:
+            os.close(f)
+
+
+def test_a_reception_step_that_raises_closes_that_connection_only(site, monkeypatch, capfd):
+    real = web.cheap
+
+    def cheap(head):
+        if b"/api/echo-bad" in head:
+            raise RuntimeError("bad head")
+        return real(head)
+    monkeypatch.setattr(web, "cheap", cheap)
+    assert answer_of(ask(site.port, "/api/echo-bad")) == b""
+    assert b'"echo": "echo-next"' in answer_of(ask(site.port, "/api/echo-next"))
+    assert "web: reception closed a connection: RuntimeError('bad head')" in capfd.readouterr().err
+    assert site.server._waker.getblocking() is False   # a full buffer raises, never blocks serve_forever
+
+
 def test_a_get_that_waited_too_long_is_dropped(site, monkeypatch, capfd):
     held = hold_all(site)
     monkeypatch.setattr(ws, "WAITED_MOST", 0.2)

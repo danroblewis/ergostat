@@ -114,18 +114,24 @@ class WebLog:
 
 
 def left(conn) -> bool:
-    """The client sent its request and then closed (FIN): readable, and a peek finds the end, not bytes (a pipelined
-    request's bytes are no end). Read before the answer is made, so nothing is built for nobody."""
-    import select
+    """The client sent its request and then closed (FIN): a peek that does not wait finds the end, not bytes (a
+    pipelined request's bytes are no end; nothing yet is BlockingIOError). Read before the answer is made, so nothing
+    is built for nobody. No select(): it refuses sockets numbered 1024 and up. The timeout is 0 for the peek (with one
+    set, Python waits for it before any recv, MSG_DONTWAIT or not). A check that cannot run serves the GET."""
     import socket
     try:
-        if not select.select([conn], [], [], 0)[0]:
-            return False
-        return conn.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
+        was = conn.gettimeout()
+        conn.settimeout(0)
+        try:
+            return conn.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
+        finally:
+            conn.settimeout(was)
     except BlockingIOError:
         return False
-    except OSError:                                   # reset: gone
+    except ConnectionError:                           # reset: gone
         return True
+    except Exception:                                 # (cannot tell: answer it)
+        return False
 
 
 def md_page(name: str, text: str) -> bytes:
