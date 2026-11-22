@@ -2615,7 +2615,47 @@ def test_a_closed_systems_panel_charts_its_measures(browser, tmp_path):
                    text: document.querySelector("#detail .strip")?.textContent || "" };
         }""")
         assert got["measures"] > 0 and got["strip"], got
-        assert "…" != got["text"].strip(), got                 # it answered: charts, or "nothing measured"
+        assert got["text"].strip() not in ("…", "being worked out"), got                # it answered: charts, or "nothing measured"
+
+
+LEFTOVER = """() => [...document.querySelectorAll('#detail *')].map((e) => e.textContent.trim())
+  .filter((t) => t === '…' || t.endsWith(' …'))"""
+
+
+def test_no_panel_shows_a_leftover_ellipsis(browser, tmp_path):
+    """The product box, the users stock and marker R2 each open a panel that says its value is being worked out,
+    or what it is, or why not: no element of it reads '…' or ends in ' …', from the click until it settles."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+
+        def watched(what: str) -> list[str]:
+            pg.wait_for_function("() => !document.querySelector('#detail').hidden", timeout=10000)
+            seen = []
+            for _ in range(24):                                # at once, and as each answer comes in (6 s)
+                seen += [f"{what}: {t}" for t in pg.evaluate(LEFTOVER)]
+                pg.wait_for_timeout(250)
+            return seen
+
+        drawn(pg, url, "", 0)                                  # every system closed: product is a box
+        pg.wait_for_timeout(10000)
+        click_part(pg, "system:product")
+        bad = watched("product")
+        assert pg.locator("#detail h2").inner_text() == "product"
+        drawn(pg, url, "open=*", 1)
+        fit(pg)
+        click_part(pg, "stock:users")
+        bad += watched("users")
+        assert pg.locator("#detail h2").inner_text() == "users"
+        r2 = pg.evaluate("() => (S.graph.causalLoops || []).find((c) => c.label === 'R2')?.name")
+        assert r2, "no loop R2 drawn"
+        pg.locator(f'.loop-marker[data-loop="{r2}"]').dispatch_event("click")
+        bad += watched("R2")
+        assert pg.locator("#detail .subtitle").inner_text() == r2
+        assert pg.locator("#detail .strip.dominance").inner_text().strip(), "the loop says nothing of when it drives"
+        assert not bad and not errors, (sorted(set(bad)), errors)
+        pg.close()
 
 
 def test_the_system_panel_names_stocks_to_aggregate(browser, tmp_path, monkeypatch):
