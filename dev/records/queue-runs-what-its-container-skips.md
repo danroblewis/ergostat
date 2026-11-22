@@ -24,3 +24,24 @@ Since the merge queue moved into Docker, its unit suite skips 52 tests that pass
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built; nothing left that I know of. Judgement calls, each taken as the most reversible option:
+- The docs page is dev/README.md ("Which tests run where", under "The suites in the queue"). SPEC is unchanged.
+- `[suites] host` that is absent counts as empty (the step is off), like `""`. Otherwise every test fixture config
+  without the key would need changing. To make an absent key an error instead, change one line in `queue.host_on`.
+- The host step runs after unit and browser and before demo, on its own (no container's load beside it), with
+  `-n 4`. A host failure is never excused as a flake in the queue: its named rerun goes to the container, where those
+  tests skip, so it reads "cannot tell" and the bisect runs in full.
+- `dev/bin/triage.py` was not listed under "Files to touch" but is changed by 3 net lines. Without the change, flake
+  triage reran a host failure's tests in the container, where they skip with rc 0, so a real sandbox failure would have
+  been called a flake (lesson-3). `dev/bin/fac.py` needed no change: `fac.suite` with no `box` already runs on the Mac.
+- "Skipped in both places" compares the host log's `-rs` lines with the same run's unit log by `path:line`. So
+  `[suites] unit` now has `-rs`. When the unit log is missing (an excused run's leftover suites), or counts skips
+  without naming them, every host skip counts as one that ran nowhere (fail closed). A stated external need is an
+  allowlist of reason words (`queue.EXTERNAL`: URL, money, Chromium, playwright, Docker, free ports).
+- Exit 126 or 127 from the host step raises agents.NotStarted, the same path a container that did not start takes:
+  the run fails and is undone, with no gap blamed.
+- The clone has no `origin/main` ref (only local `main`, already an ancestor of the branch) and no network, so there
+  was nothing to merge in.
