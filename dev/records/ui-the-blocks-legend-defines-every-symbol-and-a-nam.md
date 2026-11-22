@@ -56,3 +56,12 @@ under the watchdog: 197 passed, 4 failed, rc 1, none skipped. None of the four f
 This change touches only the Blocks drawing (`bdBody` for subsystems, frame titles) and `blocksLegend`, which these
 four never reach. I did not run them on clean main to compare: that is left to the factory's rerun on main. I did not
 run the other three browser files or the unit suite: they are left to the merge queue, as the brief says.
+
+After the factory's `build` step: it failed with rc 5, and no test failed. `scripts/affected_tests.py` picks only
+`tests/test_diagram_rendering.py` (the one test file the branch changes; `blocks.js` has no `tests/test_<module>.py`).
+The build step runs that file without Playwright, so pytest skips the module at import (`could not import
+'playwright.sync_api'`) and reports that no tests ran. No code was changed for this, because nothing in the branch's
+code fails. The fault is in how the build step handles a branch whose only test file is a browser file, and that fix
+belongs in its own gap. One option is for affected_tests to fall back to `--collect-only` or the unit suite when every
+selected file is a browser file. Another is for the build step to install Playwright. This gap waits for that fix, or
+for the factory to run this file with Playwright, as `[suites] build_browser` does.
