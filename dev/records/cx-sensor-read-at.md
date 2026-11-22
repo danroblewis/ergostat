@@ -33,3 +33,13 @@ Unit suite rc 0, ruff clean.
 10 net lines outside `tests/` and `docs/`.
 
 From the owner's request of 2026-11-22: measure ergostat's code complexity in many forms and slices, as stocks on main, backfilled from git history.
+
+## Where it stopped
+
+Built, round 1. 3 net lines of code (budget 10).
+
+- The refusal is in `record_by_a_person` in `ergostat/cli/parts.py`, not in `read_manual` in `spec_cmds.py` as the Files list names. That is where `sensor --read` is dispatched for both kinds of model: the YAML path (`read_manual`) and the older path (`Recorder`), which also records at now. It runs before the project is opened, so nothing is written. `spec_cmds.py` is unchanged. This is the more reversible choice: one guard, no signature change to `read_manual`, which other callers (tests/test_leases.py) use with no `--at`.
+- No `--backfill` option exists in the parser, so the message stops at "--at views the past and records nothing". The test checks that it does not name `--backfill`.
+- `--at` is refused whether it comes before the topic (global) or after it (the topic's copy). The test is parametrized over both positions.
+- Lesson 9: with the guard turned off, both refusal cases fail (the reading went in at now).
+- Not run here: the unit suite and the browser files. The factory's build step and the merge queue run them. No page changed.

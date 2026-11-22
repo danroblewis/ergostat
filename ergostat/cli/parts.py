@@ -19,6 +19,9 @@ def record_by_a_person(args) -> int | None:
     said = {"valve": ("opened", "amount"), "sensor": ("read", "value"), "controller": ("decided", "decision")}.get(args.topic)
     if not said or getattr(args, said[0], None) is None:
         return None
+    if args.topic == "sensor" and getattr(args, "at", None) is not None:
+        print("--at views the past and records nothing", file=sys.stderr)
+        return 2
     import json
 
     from ..runner import Recorder
