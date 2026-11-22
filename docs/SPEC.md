@@ -2877,8 +2877,10 @@ naming no block, or a block not in the model, is charged.
 **The spend, folded by run id** (`costs/budget.py`, `fold`). It reads 7 days of reserving events and ends. The
 reserving events are `ergostat.lease.taken` (its `run`) and `agent.started` carrying a `reserve` (its id). The ends
 are `agent.ran` and `agent.failed` (their `causedby`) and `budget.closed` (its `run`). A `budget.closed` counts only
-when its source is `ergostat`. One from a block's output, `ergostat record` or a push releases nothing (`agent.*`
-are already ergostat's own types). An end is matched to its start
+when its source is `ergostat`. A source can be given, so that alone is no guard: `budget.*`, like `agent.*`, is one
+of ergostat's own types (`runner.OWN_TYPES`). A block's output, `ergostat event --add` (directly or through the
+running engine's calls socket), the MCP tool and a push are refused it, whatever source they name. This guards
+ergostat's ways in. A process that writes the record's files itself is not stopped by it. An end is matched to its start
 by run id, never by lease state or time order. So a retaken item's new run is a new run, and the old run keeps its
 own charge. An end's charge counts only while the end is within the last 24 h. A run's charge:
 

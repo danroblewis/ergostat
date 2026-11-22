@@ -68,18 +68,31 @@ Round 2 (the review's four findings):
   `intake` releases nothing (added to `test_reserve_held_until_end_with_cost`).
 - Budget compile errors now carry the loader's location (`data.at("budget")`, kept as `Doc.budget_at`). They are
   checked in `test_check_budget_keys`.
-- The merge, as this clone shows it: `refs/heads/main` is at 7c46bc6d, and this branch merged it in 8a542f6b
-  (its second parent is 7c46bc6d, and `git log HEAD..main` lists nothing). The review names 7c46bc6d as origin/main. Here,
-  `git log -1 origin/main` answers "unknown revision" (that is the command's output, not a claim about the factory's
-  clone), so the merge used is of `main` at that same commit. The round-1 paragraph that called main c9d3bab5 was
-  wrong and has been replaced.
+- The merge: origin/main is at 7c46bc6d (as the review gives it), the same commit as `main` here, and this branch
+  merged it in 8a542f6b (its second parent is 7c46bc6d). Nothing on main is missing from the branch.
 - Each new guard was broken by hand and seen to fail its test: the source check dropped, `free` never applied (spec
   None), a block not found counted as free, and the location set to None.
 - Run here: `tests/test_run_budget.py` (8 passed), test_spec_schema, test_spec_structure and test_local_settings
   (41 passed), test_run_costs and test_runner_and_state (57 passed). Ruff is clean. The unit suite and the four
   browser files were not run here: the brief leaves them to the factory and the merge queue.
 
-Overrun reason: 190 net lines against 170. The 20 extra lines are the round-2 review fixes: applying the free-run allowlist in the fold (`_charged` and the block per run), the `budget.closed` source check, and the compile error location.
+Round 3 (the review's three findings):
+- A forged `budget.closed` with source `ergostat` is now refused at every way in. `budget.` is added to
+  `runner.OWN_TYPES`, the list that block output, `ergostat event --add` (and so the engine's calls socket, which
+  records through `intake/envelope.py`), the MCP tool and pushes already refuse. The fold's source check stays.
+  New test: `test_forged_close_as_ergostat_is_refused`, which sends one through `ergostat event --add --as ergostat`
+  and through `envelope.record` with `"source": "ergostat"`, and checks the reserve is still held. With `budget.`
+  removed from the list, the test failed at the cli step, and with that step relaxed it failed at the envelope step.
+- SPEC §9.9, the agent guide §3b and GAPS now say that guard, and only that: it covers ergostat's ways in, not a
+  process writing the record's files itself.
+- The round-2 merge bullet is rewritten as above.
+- The review could not run the tests. Run here in round 3: `tests/test_run_budget.py` (9 passed); test_run_budget,
+  test_intake and test_calls (47 passed); test_runner_and_state, test_triggers2 and test_run_costs (77 passed).
+  Ruff is clean. The unit suite and the four browser files were not run here (left to the factory and merge queue).
+- Not addressed (from the parked `run-budget-reserve` review, outside this gap): `all_of` runs two unbounded 7-day
+  queries for `budget.left` on each measures listing.
+
+Overrun reason: 191 net lines against 170. The 21 extra lines are the review fixes: in round 2, applying the free-run allowlist in the fold (`_charged` and the block per run), the `budget.closed` source check and the compile error location; in round 3, one line for `budget.` in OWN_TYPES.
 
 Choices the definition left open, each the more reversible one and each said in SPEC §9.9:
 - A `ergostat.lease.taken` with no `reserve`, or a malformed one, reserves `max-cost`. No lease carries a reserve

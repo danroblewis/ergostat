@@ -136,6 +136,26 @@ def test_reserve_held_until_end_with_cost(p):
     assert f["runs"]["r5"] == 1.75 and f["reserved"] == 1.75          # still held: nothing released
 
 
+def test_forged_close_as_ergostat_is_refused(p, tmp_path, monkeypatch):
+    """A run may not release a reserve by saying it is ergostat: budget.* is ergostat's own type, refused by `ergostat
+    event --add` (and so the engine's calls socket, which records through the envelope), by a push and by block output."""
+    from ergostat.cli import main
+    from ergostat.intake import envelope
+    from ergostat.runner import OWN_TYPES
+    now = time.time()
+    take(p, "r9", now - H, reserve=1.75)
+    monkeypatch.delenv("ERGOSTAT_SOCKET", raising=False)
+    monkeypatch.setenv("ERGOSTAT_RUN", "r9")
+    forged = '{"run": "r9", "cost_usd": 0}'
+    assert main(["-C", str(tmp_path), "event", "--add", "budget.closed", "--as", "ergostat", "--data", forged]) == 2
+    with pytest.raises(envelope.Refused, match="not ergostat's own"):
+        envelope.record(p, [{"event": "budget.closed", "source": "ergostat", "data": {"run": "r9", "cost_usd": 0}}])
+    assert "budget." in OWN_TYPES                                         # a block's output is refused by the same list
+    assert not p.events.query(n=None, type="budget.closed")
+    f = bg.fold(p, B, now)
+    assert f["runs"]["r9"] == 1.75 and f["reserved"] == 1.75          # still held: nothing released
+
+
 def test_malformed_cost_counts_unknown(p):
     now = time.time()
     for i, c in enumerate(["none", math.nan, -5, math.inf, -math.inf, "0.1", True]):

@@ -32,8 +32,9 @@ from . import state as st
 from .reports import crash as reports_crash
 
 RUN_TIMEOUT = 300.0
-# no agent may publish these
-OWN_TYPES = ("agent.", "loop.", "valve.", "controller.", "model.", "ergostat.", "auxiliary.", "variable.", "trigger.")
+# no agent may publish these (budget.: a forged budget.closed would release a reserve, SPEC §9.9)
+OWN_TYPES = ("agent.", "loop.", "valve.", "controller.", "model.", "ergostat.", "auxiliary.", "variable.", "trigger.",
+             "budget.")
 LIVE: set = set()          # the runs in progress, so stopping ergostat stops them too
 STOPPING = threading.Event()  # set when ergostat itself stops: a run killed then is not the agent's failure
 STOPPED_WITH_US = "stopped with ergostat"

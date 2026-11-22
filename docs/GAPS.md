@@ -284,7 +284,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   compiled and bounded (0 < daily ≤ 10000, 0 < max-cost ≤ daily, main file only); which runs are charged, by an
   allowlist (`costs/budget.py`, `free`, applied in the fold); the trailing day's spend folded by run id from 7 days
   of reserving events and ends, failing closed (no end: the reserve; a missing or malformed cost: the reserve, or
-  `max-cost`; a `budget.closed` not written by ergostat: not counted); and
+  `max-cost`; a `budget.closed` not written by ergostat: not counted, and `budget.*` refused as ergostat's own type
+  to block output, `event --add`, MCP and pushes); and
   `ergostat.budget.left`, which raises when no budget is declared or the record cannot be read. *Left*
   (`run-budget-permit`): the permit under a file lock before each run of `Engine.run_block` and `Dispatcher.take`,
   `budget.refused`, `--now` saying the refusal, and recovery closing runs left without an end (`budget.closed`).
