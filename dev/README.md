@@ -312,6 +312,26 @@ lowers the pools by one at once. Say a merge was reverted on main with
 `ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`. By hand:
 `python3 dev/bin/pools.py set implementor 2 "why"`.
 
+## The simplifier: a gap that removes code
+
+Every 3 days (`simplify-when`, `dev/model/code-health.yaml`), while no simplification gap is open and the day's money
+is not spent, the simplifier (`dev/bin/simplify.py`, a program) picks one module of `ergostat/`, `dev/bin/` or
+`scripts/` by its evidence (`scripts/code_evidence.py`, read from main): net lines over the 75th percentile, commits in
+the last 60 days, duplicate function bodies and dead candidates, weighted in `[code_health]`. A "dead candidate" is
+only a top-level name that nothing else names as a word (strings, tests, YAML `run:` lines and `pyproject.toml`
+counted); a name built at run time is not seen, so it is a candidate, never a finding. A module under the coverage
+floor (`coverage_floor`, or not in the report), touched by a gap in flight, or picked in the last 30 days is passed
+over. Coverage is main's latest report under `run/coverage/`, chosen as `measure.py coverage` chooses it (by seq, on
+main, at most 20 merges old); `[code_health] coverage = "FILE"` names one report instead.
+It asks for `gap/simplify-<module>-<yyyymmdd>` (`source: simplifier`) with a definition from
+`dev/prompts/simplify.md`: remove only, behaviour and tests unchanged, net lines below 0, and one trailer per removal,
+`Removed: <class> <path>[::<name>] <lines>`. The ordinary implementor and reviewer build it. Pool 1 is fixed in the
+code and held under `run/simplify.lock`. A git that fails, a missing coverage report or an in-flight definition it
+cannot read means no pick; the run says why. On each merged simplification, `simplify.py removals` makes one
+`removal/<gap>-<n>` item per trailer, and a class off the allowlist is recorded as `unclassified`. It reads only
+the gap's own merge (found by its subject in the batch's range), never a batch-mate's commits. To see what it
+would pick: `python3 dev/bin/simplify.py pick`.
+
 ## The machine's resources: a cap on the pools
 
 The machine is measured every 30 s (`dev/bin/resources.py`, `dev/model/resources.yaml`): the host's CPU, memory,
