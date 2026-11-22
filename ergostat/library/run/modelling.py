@@ -162,6 +162,17 @@ def _between(kind, lo, hi):
     return one
 
 
+def _model_name(s: str) -> str:
+    """A model's name as claude takes it (``sonnet``, ``claude-sonnet-5-5``), or ``off``: never anything else. ``false``
+    is ``off`` (an unquoted ``review: off`` is YAML 1.1's false, and the template renders it so); ``true`` is no name."""
+    import re
+    if s == "false":
+        return "off"
+    if s == "true" or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,63}", s or ""):
+        raise argparse.ArgumentTypeError(f"not a model name: {s!r}")
+    return s
+
+
 def redesign(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="modelling redesign")
     ap.add_argument("--when", default="auto", choices=("auto", "ask", "off"))
@@ -170,6 +181,8 @@ def redesign(argv: list[str]) -> int:
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--daily", type=float, default=2.0, help="the most dollars the redesigner's runs spend in a day")
     ap.add_argument("--timeout", type=float, default=None, help="the block's timeout, in seconds: its rounds fit in it")
+    ap.add_argument("--review", type=_model_name, default="off",
+                    help="the daily architecture review's model, or off (the template passes sonnet)")
     a = ap.parse_args(argv)
     sys.stdin.read()
     import json
@@ -180,14 +193,24 @@ def redesign(argv: list[str]) -> int:
     if a.when == "off":
         note("redesigner: off")
         return 0
-    from ...numbers import reviewer as rv
     def room() -> float:                          # read again before each call: the reviewer may spend meanwhile
-        # the reviewer's share of the cap is kept for it
-        return round(min(a.daily - rd.spent(p), a.daily * (1 - rv.RESERVE) - rd.spent(p, reviewer=False)), 6)
+        return rd.room(p, a.daily)                # (the reviewer's share of the cap is kept for it)
     left = room()
     if left <= 0:                                # the daily cap, before anything is planned: nothing runs past it
         note(f"redesigner: the day's ${a.daily:.2f} is spent; nothing is reviewed until tomorrow's allowance")
         return 0
+    from ...numbers import archreview as arv
+    timeout = a.timeout
+    if a.when == "auto" and a.review != "off":    # the daily architecture review: it may set the unit taken next
+        limit, rest = arv.timeouts(a.timeout, a.rounds)
+        got = arv.run(p, a.review, a.daily, timeout=limit, on_call=_said)
+        note(got["said"])
+        if got["result"] not in (None, "capped"):  # it called: the rounds get what its share leaves of the timeout
+            timeout = rest
+        left = room()                             # read again: the review spent from the same cap
+        if left <= 0:
+            note(f"redesigner: the day's ${a.daily:.2f} is spent; nothing is redesigned until tomorrow's allowance")
+            return 0
     plan = rd.plan(p, a.when)
     if plan["system"] is None:
         note(f"redesigner: nothing to do ({'; '.join(plan['why'])})")
@@ -201,8 +224,8 @@ def redesign(argv: list[str]) -> int:
     def charged(got: dict) -> None:               # each call charged as it is spent, so a run cut short still counts
         _said(got)
         rd.charge(p, plan["system"], got)
-    out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=min(a.budget, left), rounds=a.rounds, by="redesigner",
-                  timeout=a.timeout, on_call=charged, room=room)
+    out = rdr.run(p, plan["system"], plan["why"], model=a.model, budget=max(0.0, min(a.budget, left)), rounds=a.rounds, by="redesigner",
+                  timeout=timeout, on_call=charged, room=room)
     rd.ran(p, plan["system"], {"by": "redesigner", "result": out.get("result"), "id": out.get("id"), "total": out["cost"],
                                "version": out["version"], "rounds": len(out["rounds"]), "why": plan["why"], "unit_sig": sig,
                                **({"why_not": out["why_not"]} if out.get("why_not") else {})})
@@ -215,7 +238,9 @@ def redesign(argv: list[str]) -> int:
     else:
         rq.move(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")},
                 run)
-    for r in out.get("reports") or []:                        # what ergostat could not express: drafted for the owner
+    if plan.get("review"):                        # the review's request it took up: marked if still the one read
+        note(f"redesigner: {arv.mark(p, plan['review'], out)}")
+    for r in out.get("reports") or []:                       # what ergostat could not express: drafted for the owner
         print(json.dumps({"report": r}), flush=True)
     c = out["cost"]
     note(f"redesigner ({a.model}): {plan['system']}: {out.get('result')}" + (f" ({out.get('why_not')})" if out.get("why_not") else "")

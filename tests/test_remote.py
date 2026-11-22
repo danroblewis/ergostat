@@ -243,7 +243,7 @@ def test_a_stale_or_missing_remote_reading_is_not_taken(tmp_path, monkeypatch):
     now = time.time()
     asked = []
 
-    def fake(url, path, token, params=None, etag=None, timeout=5.0):
+    def fake(url, path, token, params=None, etag=None, timeout=5.0, tls=None):
         asked.append(params)
         return 200, {"now": now, "version": spec.remotes["incidents"]["version"],
                      "series": {"sensor/open.main": {"value": 4, "time": now - 3600}},

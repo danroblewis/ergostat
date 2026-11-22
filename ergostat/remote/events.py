@@ -27,13 +27,14 @@ def follow(spec, name: str) -> tuple[dict | None, str]:
     with _lock:
         kept = _kept.setdefault(key, {"events": [], "cursor": None, "read": None})
     if kept["cursor"] is None:                              # the first read starts at the window, not the beginning
-        code, st, _, why = client.get(r["url"], "status", token)
+        code, st, _, why = client.get(r["url"], "status", token, tls=r.get("tls"))
         if code != 200:
             return (kept if kept["events"] else None), why
         last = int(st.get("last_seq") or 0)
         kept["cursor"] = max(0, last - PAGE)
     for _ in range(PAGES):
-        code, body, _, why = client.get(r["url"], "events", token, {"after": kept["cursor"], "n": PAGE})
+        code, body, _, why = client.get(r["url"], "events", token, {"after": kept["cursor"], "n": PAGE},
+                                        tls=r.get("tls"))
         if code != 200 or not isinstance(body, dict):
             return (kept if kept["events"] else None), why
         with _lock:
