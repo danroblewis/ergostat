@@ -68,3 +68,11 @@ Built (round 1), in `ergostat/web/static/diagram.js` (`openPlan`, `openLevelNote
     other three browser files, the unit suite and a merge of main were not run here (by the rules, the factory and
     the merge queue run them). There is no remote here, so local `main` is the base; the branch was cut from it and
     main has not moved in this clone.
+- Build step, round 1 (rc 5): not a code fault. `[suites] build` (dev/factory.toml:165) runs pytest without
+  Playwright; this branch's only changed test file is tests/test_diagram_rendering.py, so affected_tests.py selects
+  just that file, its module-level importorskip (line 38) skips it whole, and pytest exits 5 ("1 skipped", nothing
+  collected). It would do the same for any gap whose only changed tests are a browser file. No change to diagram.js
+  or style.css can pass it, and changing affected_tests.py or factory.toml (say, to fall back to collection or add
+  `--with playwright==1.63.0`) is outside this gap (lesson 13), so it is left for its own gap or the owner. The
+  most reversible choice was to change nothing. The code and tests are as committed in a4da382b; the browser
+  acceptance tests passed there under Playwright (see above).
