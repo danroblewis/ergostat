@@ -52,8 +52,16 @@ def _issues(j: dict) -> dict:
         title = TITLES[(j["made"] - 1) % len(TITLES)]
         j["issues"][key] = {"key": key, "summary": title, "status": "To Do", "labels": [conf("JIRA_LABEL")],
                             "description": f"{title}.\n\nrepo: {conf('GITHUB_REPO')}", "comments": [],
-                            "created": time.time()}
+                            "created": time.time(), "issuelinks": _links_made(j["made"])}
     return j["issues"]
+
+
+def _links_made(n: int) -> list[dict]:
+    """The second issue waits on the first (a Blocks link, as Jira gives it on the blocked side): a blocked ticket."""
+    if n != 2:
+        return []
+    return [{"type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+             "inwardIssue": {"key": f"{conf('JIRA_PROJECT', 'SCRUM')}-1"}}]
 
 
 def _issue_out(i: dict) -> dict:
@@ -73,6 +81,13 @@ def jira_counts() -> dict[str, int]:
         for i in _issues(j).values():
             out[i["status"]] = out.get(i["status"], 0) + 1
         return out
+
+
+def jira_linked() -> dict[str, dict]:
+    """The labelled issues' raw issuelinks and parent, as Jira's search answers them (jira.links() reads them)."""
+    with _state("jira") as j:
+        return {k: {f: i[f] for f in ("issuelinks", "parent") if f in i}
+                for k, i in _issues(j).items() if conf("JIRA_LABEL") in i["labels"]}
 
 
 def jira_get(key: str) -> dict:
