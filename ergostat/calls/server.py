@@ -25,13 +25,25 @@ MOST = 4 * 1024 * 1024           # the largest request read (bytes)
 LIMIT = 100                      # a socket's path is at most 104 bytes on macOS, 108 on Linux
 
 
-def path_for(state: Path) -> Path:
-    """Where the socket is: in the state directory, or, when that path is too long for a socket, a short one named
-    after it (and written into the state directory, ``engine.sock.path``)."""
-    p = Path(state) / SOCKET
+def short() -> Path:
+    """The folder of the short sockets, for state directories whose path is too long for one."""
+    return Path(tempfile.gettempdir()) / f"ergostat-{os.getuid()}"
+
+
+def path_for(state: Path, shard: str | None = None) -> Path:
+    """Where the socket is: in the state directory (``engine.sock``; a shard's ``engine.SHARD.sock``, SPEC §9.8), or,
+    when that path is too long for a socket, a short one named after the state directory and the shard (and written
+    into the state directory, ``pointer_for``)."""
+    p = Path(state) / (SOCKET if shard is None else f"engine.{shard}.sock")
     if len(str(p)) <= LIMIT:
         return p
-    return Path(tempfile.gettempdir()) / f"ergostat-{os.getuid()}" / f"{sha256(str(state).encode()).hexdigest()[:16]}.sock"
+    key = str(state) if shard is None else f"{state}\0{shard}"
+    return short() / f"{sha256(key.encode()).hexdigest()[:16]}.sock"
+
+
+def pointer_for(shard: str | None = None) -> str:
+    """The file in the state directory naming its socket when it is not there (a shard's: ``engine.SHARD.sock.path``)."""
+    return POINTER if shard is None else f"engine.{shard}.sock.path"
 
 
 class Parked:
@@ -42,7 +54,8 @@ class Parked:
 class Server:
     def __init__(self, eng):
         self.e = eng
-        self.path = path_for(eng.p.dir)
+        shard = getattr(eng, "shard", None)                    # (SPEC §9.8: each shard engine its own socket)
+        self.path, self.pointer = path_for(eng.p.dir, shard), eng.p.dir / pointer_for(shard)
         self.sock: socket.socket | None = None
         self.jobs: queue.Queue = queue.Queue()
         self.parked: list[Parked] = []
@@ -66,7 +79,7 @@ class Server:
             os.umask(old)
         s.listen(512)
         self.sock = s
-        ptr = self.e.p.dir / POINTER
+        ptr = self.pointer
         if self.path.parent != self.e.p.dir:
             ptr.write_text(str(self.path))
         else:
@@ -96,7 +109,7 @@ class Server:
 
     def remove(self) -> None:
         self.path.unlink(missing_ok=True)
-        (self.e.p.dir / POINTER).unlink(missing_ok=True)
+        self.pointer.unlink(missing_ok=True)
 
     def _accept(self) -> None:
         s = self.sock

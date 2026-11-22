@@ -148,6 +148,11 @@ def test_join_moves_parent_to_joined_then_judge_merges(tmp_path):
     gap = f.item(GID)
     assert said == ["gap.merged"] and gap["state"] == "merged" and "merged_at" not in gap["fields"]
     assert [measure(f, m).stdout for m in WORK_MEASURES] == before      # no work merged: none of the three moves
+    unsplit(f)                                                       # split-overhead finds it by judged_at alone
+    f.fold([{"event": "gap.measured", "item": f"gap/alpha-{k}", "data": {"ai_cost_usd": 4, "merged_lines": 55}}
+            for k in ("one", "two")], None)
+    r = measure(f, "split-overhead")
+    assert r.returncode == 0 and r.stdout.strip() and GID not in r.stderr, r.stderr
     assert gap["fields"]["join_verdict"] == "covered" and "in app.py" in gap["fields"]["join_reasons"]
     assert gap["fields"]["judged_at"] > 0 and gap["fields"]["join_verdicts"][0]["verdict"] == "covered"
     assert gap["fields"]["sessions"] == 2 and "merged_lines" not in gap["fields"]   # (the planner's and the judge's)
@@ -264,6 +269,29 @@ def test_join_with_missing_sub_gap_definition_is_not_covered(tmp_path):
             (case, g["join_missing"])
         assert (g.get("ai_cost_usd") or 0, g.get("sessions")) == (cost or 0, sessions), case
         assert not list((f.model / "run" / "briefs").glob("alpha-thing-join_judge-*.md")), case
+    f = judged_instance(tmp_path / "both")                 # one with no definition, the other not in the record
+    (f.model / "run" / "defs" / "alpha-one.md").unlink()
+    db = f.db()
+    del db["items"]["gap/alpha-two"]
+    f.record.write_text(json.dumps(db))
+    cost = f.item(GID)["fields"].get("ai_cost_usd") or 0
+    assert judge_unsessioned(f) == ["gap.requested", "gap.split"]
+    g = f.item(GID)["fields"]
+    assert g["join_verdict"] == "short" and (g.get("ai_cost_usd") or 0) == cost
+    assert len(g["join_missing"]) == 2 and "gap/alpha-one: its definition could not be read" in g["join_missing"][0]
+    assert g["join_missing"][1] == "gap/alpha-two: not in the record as a sub-gap of gap/alpha-thing"
+    assert f.item("gap/alpha-thing-join-1")["fields"]["parent"] == [GID]
+
+
+def test_a_taken_or_unsafe_join_name_takes_the_next(tmp_path):
+    f = Instance(tmp_path)
+    name = "import plan; print(json.dumps(plan.join_name(sys.argv[1], int(sys.argv[2]), set(json.loads(sys.argv[3])))))"
+    assert f.py(name, "a-b", "2", '["gap/a-b-join-2", "gap/a-b-join-3"]') == "a-b-join-4"
+    joins = json.dumps([f"gap/a-b-join-{k}" for k in range(1, 51)])
+    assert f.py(name, "a-b", "1", joins) == "a-b-rest"
+    assert f.py(name, "a-b", "1", json.dumps([*json.loads(joins), "gap/a-b-rest"])) == "a-b-rest-2"
+    unsafe = "import plan\ntry:\n    plan.join_name(sys.argv[1], 1, set())\nexcept RuntimeError as e:\n    print(json.dumps(str(e)))"
+    assert "no unused safe sub-gap name for 'A_b' in 100 tries" in f.py(unsafe, "A_b")   # bounded: then it stops
 
 
 def test_join_judges_a_stopped_sub_gap_by_its_continuation(tmp_path):

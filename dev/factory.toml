@@ -26,6 +26,11 @@ scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "
 review = "sample"                    # sample (1 in sample_every plans), all, or off
 sample_every = 3
 
+[planning]                           # planning by a gap's size class (dev/bin/plan.py; dev/README.md, Planning by size)
+l_review_share = 0.5                 # the share of L plans marked for the plan review, picked by the gap's id (0-1)
+min_size_confidence = 0.5            # a class is trusted at this confidence or above (low 0.25, medium 0.5, high
+                                     # 0.75; 0-1); unset: none is, and every gap takes the full, reviewed planner
+
 [git]
 base = "main"                        # what a gap's branch starts from, and what the queue merges into
 remote = "origin"
@@ -39,6 +44,7 @@ reviewer_session_usd = 5.0
 suite_fix_rounds = 2                 # sessions the implementor gets to make its failing fast suites pass
 planner_model = "opus"               # the planner: a gap's definition of done, or its split (dev/bin/plan.py)
 planner_session_usd = 5.0
+planner_m_session_usd = 2.0          # an M gap's one planner session (above 0, at most planner_session_usd)
 plan_reviewer_model = "opus"         # the plan review: the plan against main's code and the task graph
 plan_reviewer_session_usd = 3.0
 join_judge_model = "opus"            # the join judge (plan.py join): the plan reviewer's model and session cap
@@ -149,8 +155,14 @@ slot = ""                            # a command that holds a machine-wide suite
                                      # queue's (whose lock is its slot): set it in factory.local.toml, e.g. the
                                      # coordinator's suite-slot.sh
 ruff = "uv run ruff check ergostat tests scripts"
-unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -n 8 --dist worksteal"
-build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_tests.py -- uv run python -m pytest -q -n 8 --dist worksteal"
+unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rfEs -n 8 --dist worksteal"
+                                     # (-rfEs: each skip named, for the host step's check; f and E keep the FAILED
+                                     # and ERROR lines fac.failed_tests reads, since -r replaces pytest's default fE)
+host = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rfEs -n 4 --dist worksteal tests/test_repair2.py tests/test_sandbox_attacks.py tests/test_notify.py"
+                                     # the queue's tests its container skips (bwrap, kqueue): on the Mac, never in a
+                                     # container, after unit and browser, a required step; "" turns it off. A test it
+                                     # skips that the unit run skipped too fails it (queue.nowhere)
+build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_tests.py -- uv run python -m pytest -q -rfEs -n 8 --dist worksteal"
                                      # the implementor's test step (onmain.py): the tests the branch changed and those
                                      # of the modules it changed (affected_tests.py). Comment it out or leave it ""
                                      # and the step runs the full unit suite, as before. The merge queue never reads
