@@ -19,8 +19,9 @@ def remote_parts(spec) -> set[str]:
     (SPEC §4c). Its stocks are given, never integrated, in the replay and the projection (``simulate.plan``, unless
     asked for by name); they are left out of the fit's total (``fit.compare``: listed under ``remote``), the
     residuals (``residuals.unread``/``examinable``), what the record has not exercised (``exercised.quiet``), and the
-    state's account of each stock's change and of what its loops ask of the owner (``state.py``). Its flows keep their equations: the estimate and the equation
-    finder still use them for texts for its owner (``numbers/remote_text.py``)."""
+    state's account of each stock's change and of what its loops ask of the owner (``state.py``). Its flows keep
+    their equations: the estimate and the equation finder still use them for texts for its owner
+    (``numbers/remote_text.py``)."""
     return {p for r in (getattr(spec, "remotes", None) or {}).values() for p in (r.get("parts") or {})}
 
 
