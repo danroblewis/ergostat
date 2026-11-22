@@ -84,3 +84,12 @@ Built (round 1), in `ergostat/web/static/diagram.js` (`openPlan`, `openLevelNote
   passed). It is a test file outside the Files list and adds no code lines. Not run here: the build command itself
   (suite_watch over affected_tests over pytest -n 8) was refused in this shell; tests/test_style_tokens.py run by
   name passes (6) and ruff is clean.
+- Merge of main 9bfce815 (round 2, commit 3a2a891f): the conflicts were three pairs of new code side by side, with
+  nothing changed on both sides. In diagram.js, main's `captionText` went in next to the branch's `openPlan` and
+  `openLevelNote`. In test_diagram_rendering.py, main's readers' pages tests went in next to the two acceptance tests.
+  In test_style_tokens.py, main's two tests went in next to the note's test. Both sides were kept whole. After the
+  merge: the two acceptance tests pass under Playwright and the watchdog (2 passed, 15 s, rc 0);
+  tests/test_style_tokens.py passes (9); ruff is clean. Not run: the whole of tests/test_diagram_rendering.py after
+  the merge (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+  tests/test_diagram_rendering.py`, started in the background, was refused) and `node --check` (refused). The
+  page-load tests passing shows the merged script parses.
