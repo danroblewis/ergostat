@@ -45,3 +45,16 @@ The measurements store takes a time (`Measurements.add(at=)`, `add_many`; late r
 150 net lines outside `tests/` and `docs/`.
 
 From the owner's request of 2026-11-22: measure ergostat's code complexity in many forms and slices, as stocks on main, backfilled from git history.
+
+## Where it stopped
+
+Built, round 1: every item of the definition and every named acceptance test; 150 net lines outside tests, docs and dev.
+Choices taken without asking (each the more reversible one):
+- The ledger's tables (`backfills`, `backfilled`) are in `measurements.db` for `sqlite`; for `victoriametrics` they are in a SQLite file, `measurements.backfilled.db`, beside `measurements.forgotten.json` (a JSON file would have to be rewritten whole, with no lock held between its read and its write). The ledger is read and written in one `begin immediate` transaction that also writes the readings (lesson 1).
+- Every backfill call is a row in the ledger, one that wrote nothing too (count 0), as "per backfill call" says.
+- An `at` exactly equal to a live reading's is not in the ledger, so a backfilled reading is still written there.
+- At most 200,000 readings a backfill (lesson 4), so VictoriaMetrics takes them in one import.
+- Outside "Files to touch": `ergostat/cli/parts.py` (two lines: `cmd_part` hands `--backfill`/`--backfilled` to `spec_cmds.backfill`), `ergostat/goodmodel.py` (`--backfill` classified as an act and `backfill` as a write for the read-only fallback, `--backfilled` and `--from` as reads; tests/test_cli_fallback.py checks that every flag is classified) and `ergostat/victoria.py` (the server backend's module the definition names).
+- `docs/SPEC.md` has no CLI table, so the two commands are a table of their own in §6 (Sensors), with a line in §4b about where the ledger lives.
+- `Measurements.range` changed by one condition: after a roll, a series' oldest reading came back once per tier (the 1h and 10m tiers' first buckets begin before the 1m tier's, and each was read for the gap). A bucket whose last reading lies past its part of the span is now read where that part ends. This was there on main for any rolled series, and `test_twice_after_the_roll_writes_nothing_new` ("the range holds each once") needs it. The same overlap still makes `count` (and maybe `first`) count that reading more than once for a span reaching back to the series' start. Not changed here: it is outside this gap.
+Not run: the VictoriaMetrics case of the conformance suite (no server in the container: `ERGOSTAT_TEST_VM_URL` unset), the whole unit suite (left to the factory's build step).
