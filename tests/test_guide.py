@@ -141,6 +141,16 @@ def test_the_page_and_a_snapshot_carry_the_frames(tmp_path, monkeypatch):
     assert '"guide": {"parts"' in html and "pageGuide" in html
 
 
+def test_each_section_is_one_run_of_frames_so_its_name_links_to_one_first_frame():
+    """The section names in the Guide's step row (guide.js) link to their section's first frame, and the dots are
+    named 'Step n of 13': that holds only while each section's frames sit together, in PARTS order."""
+    got = frames()
+    order = [f["part"] for f in got["frames"]]
+    runs = [p for k, p in enumerate(order) if k == 0 or order[k - 1] != p]
+    assert runs == list(got["parts"])                                   # each section once, in order, no gaps
+    assert order.index("control") == 7 and got["parts"]["control"] == "Control: what we control"
+
+
 def test_the_guides_drawings_hide_the_rings_and_its_last_frame_says_it_is_drawing():
     """Without a browser: the rule that hides the correspondence rings (clones of each box's outline, black by SVG's
     default fill) covers the Guide's canvas too, and the last frame puts its waiting line on the stage until drawn.
