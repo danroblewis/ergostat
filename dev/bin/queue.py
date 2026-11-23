@@ -16,8 +16,8 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    others stay `approved` until the run settles them, and the run's start is kept in run/queue.json (`running`), so a
    run killed part way (SIGKILL, a crash) strands nothing: the next run puts main back where it began and takes them
    again;
-4. merge each into a clean main of the checkout in turn (`--no-ff`), the tree dry-merged; a conflict (a re-merge
-   after bisecting) is undone and sent back;
+4. merge each onto main as a commit of its own (`git merge-tree`, the checkout untouched), the tree the one
+   dry-merged; one that conflicts on a new base goes back to `approved` uncounted;
 5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py (the first
    to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
    tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
@@ -39,12 +39,14 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    of class queue names main and the tests (a pipeline situation), and no batch is taken until they pass alone on
    main's head, are quarantined or gone there, or the coordinator remedies it (main_red()); failing, then passing,
    each is a flake seen. Else (they pass on main, a test main lacks, a run that cannot tell, a failure naming no
-   test) it is bisected to the first failing merge (land(), on the failing tests alone when
-   the run named any), which goes on to flake triage with what failed (`queue-failed`) and the rest lands, each merge
-   only on a full green run; a later merge whose `stacked_on` reaches the failing one (at any depth), or one whose
-   merge (again) was sent back, is given back to `approved` uncounted, never merged without it (it holds its
-   commits). Past its time allowance (allowance()) a
-   run starts no suite run: the proven prefix lands, the rest back uncounted; a run that settled none of its batch
+   test) it goes by the first of two paths (land()). When its named tests (at most NAMED_MOST, from a run that did
+   not crash, crashed()) fail alone on its tree, they run on every prefix at once: the first failing prefix's last merge
+   goes on to flake triage (`queue-failed`), and one full run lands the survivors. Else the batch is split in two halves,
+   stacks kept whole, each run in full at once on its own tree from the current base and its own half of the CPUs
+   (halves.py): a green half lands and is the new base, and a red part takes the same two paths again.A
+   merge whose `stacked_on` reaches the failing one (at any depth), or one given back, is given back to
+   `approved` uncounted, never merged without it (it holds its commits). Past its time allowance (allowance()) a
+   run starts no suite run or round: what was proven has landed, the rest goes back uncounted; a run that settled none of its batch
    halves the next run's batch (run/queue.json `cap`, cleared once one is). On any error or stop, main is undone with
    `git reset --keep`. The push is asked under the run's own gap's lease, and is not fenced by it (`fenced: false`:
    it pushes only that commit, only as a fast-forward), so it runs once approved
@@ -71,10 +73,13 @@ import subprocess
 import sys
 import threading  # never concurrent.futures: this file is named queue.py, which shadows the stdlib queue it imports
 import time
+from contextlib import nullcontext
 
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
+import flakes  # noqa: E402
+import halves  # noqa: E402
 import pools  # noqa: E402
 import review  # noqa: E402
 
@@ -101,35 +106,54 @@ def up_to_date(cfg: dict, repo) -> str | None:
     return None
 
 
-def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | None = None) -> dict:
+HOST = threading.Lock()                                 # the host step runs on the Mac itself: one half at a time
+NAMED_MOST = 10                                         # more failing tests than this: not a failure to chase by name
+CRASH = re.compile(r"^INTERNALERROR>|\[Errno 28\]|No space left on device|worker '\w+' crashed", re.M)
+
+
+def crashed(rc: int, text: str) -> str:
+    """Why a pytest run's failures are the run's and not its tests' (exit 3: pytest's internal error, or suite_watch
+    stopping it; INTERNALERROR; a full disk; a lost xdist worker), or "". Such a run names no test: the tests it
+    reports failed are whatever was running."""
+    if rc == 3:
+        return "exit 3: an internal error, or the suite's watchdog stopped it"
+    return m.group(0) if rc and (m := CRASH.search(text)) else ""
+
+
+def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | None = None, cover: bool = True) -> dict:
     """ruff; then unit and browser at once; then host (when set); then demo (under the other two's load its pages drew
     nothing). The first to fail is the one reported; it stops its sibling (killed, `stopped_by` it, its own failure
     unsaid) and the later steps. With `[suites] queue_coverage`, the
     unit run is traced into run/coverage/<tag> and scored with ``pre``'s script (coverage_kept). The quarantine is
     main's (``pre``), never the batch's: a branch's own line in tests/quarantine.txt holds nothing back in its run.
-    ``only``: just those suites (the rest of a run whose failures were excused, excused())."""
-    held = fac.quarantine(repo, pre)
+    ``only``: just those suites (the rest of a run whose failures were excused, excused()). ``cover`` False: no coverage
+    (a half's run, beside another: coverage_kept prunes one shared folder). A failure stops this call's suites only
+    (``mine``), never another half's."""
+    held, mine = fac.quarantine(repo, pre), set()
 
     def one(name: str) -> dict:
         log = logs / f"{tag}-{name}.txt"
         cov = fac.run_dir(cfg, "coverage") / tag \
-            if name == "unit" and cfg["suites"].get("queue_coverage") is True else None
+            if cover and name == "unit" and cfg["suites"].get("queue_coverage") is True else None
         cmd = fac.deselected(name, f"ERGOSTAT_COVERAGE={shlex.quote(str(cov))} {cfg['suites']['unit']}", held) \
             if cov else None
-        rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held,
-                             box="host" if name == "host" else "queue")  # (lock: slot; host: limited, on the Mac)
+        with HOST if name == "host" else nullcontext():
+            rc, secs = fac.suite(cfg, name, repo, log, slot=False, command=cmd, quarantined=held, group=mine,
+                                 box="host" if name == "host" else "queue")  # (lock: slot; host: limited, on the Mac)
         text = log.read_text()
         if name == "host" and rc in (126, 127):      # (lesson-3: a step that could not start is never its result)
             raise agents.NotStarted(f"the host suite did not start (exit {rc}): {text[-400:].strip()}")
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         lost = nowhere(text, logs / f"{tag}-unit.txt") if name == "host" else []
         got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {}),
-               **({"nowhere": lost} if lost else {})}
+               **({"nowhere": lost} if lost else {}), **({"counts": fac.counts(text) or "unknown"} if name in PYTEST else {})}
         if cov:
             got["coverage"] = coverage_kept(cfg, repo, cov, rc, pre)
         if rc or skipped or lost:
-            got["failure"] = {"failed": name, "tests": fac.failed_tests(text), "log": str(log),
-                              "tail": text[-2000:] + "".join(f"\nran nowhere: {x}" for x in lost)}
+            crash = crashed(rc, text) if name in PYTEST else ""
+            got["failure"] = {"failed": name, "tests": [] if crash else fac.failed_tests(text), "log": str(log),
+                              "tail": text[-2000:] + "".join(f"\nran nowhere: {x}" for x in lost),
+                              **({"crashed": crash} if crash else {})}
         return got
 
     def together(names: tuple) -> dict:
@@ -142,7 +166,8 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
                     r = e
                 with said:                             # (which failed first, decided and kept in one hold)
                     if isinstance(r, dict) and r.get("failure") and first:
-                        r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]}
+                        r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]} \
+                            | ({"counts": "unknown"} if n in PYTEST else {})      # (killed: its counts unsaid)
                     elif isinstance(r, BaseException) or r.get("failure"):   # (a container that did not start:
                         first.append(n)                                          # its sibling is stopped too)
                     got[n] = r
@@ -153,9 +178,9 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
                 for t in ts:
                     t.join(0.5)
                 if first:                              # again each pass: a sibling's suite started after the failure
-                    fac.stop_suites()
+                    fac.stop_suites(mine)
         except BaseException:                          # stopped: the suites' process groups go with the queue
-            fac.stop_suites()
+            fac.stop_suites(mine)
             raise
         for n in names:
             if isinstance(got[n], BaseException):
@@ -182,15 +207,29 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
     return out
 
 
+def present(repo, head: str, tests: list[str]) -> list[str]:
+    """The named tests that exist at ``head``: a test a later merge adds is not on the prefixes before it."""
+    keep, files = [], {}
+    for t in tests:
+        path, *rest = t.split("::")
+        if path not in files:
+            r = subprocess.run(["git", "-C", str(repo), "show", f"{head}:{path}"], capture_output=True, text=True)
+            files[path] = r.stdout if r.returncode == 0 else ""
+        if rest and re.search(rf"\bdef {re.escape(rest[-1].split('[')[0])}\b", files[path]):
+            keep.append(t)
+    return keep
+
+
 def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
-    """Only the tests a red run named, on the checkout as it is (`[suites] rerun`, serial, `-rA`), for bisecting. Red
-    when one of them fails (said as the suite that named them); green only when the run passed and said PASSED for
-    every one; else (a test not on this prefix, a run that could not start) None, and that step runs every suite. It
-    never counts as the green run anything lands on (land())."""
+    """Only the tests a red run named, on the checkout as it is (`[suites] rerun`, serial, `-rA`). Red when one of them
+    fails (said as the suite that named them); green only when the run passed and said PASSED for every one asked; else
+    (a test not found, a run that could not start or crashed) None. It never counts as the green run anything lands on (land())."""
     tests = failed["tests"]
     log = logs / f"{tag}-named.txt"
     rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box="queue", tests=[*tests, "-rA"])
     text = log.read_text()
+    if crashed(rc, text):                                # (what it reports failed is whatever was running)
+        return None
     said = fac.outcomes(text, tests)
     got = {"named": {"suite": failed["failed"], "tests": len(tests), "rc": rc, "seconds": round(secs)}}
     if bad := sorted(t for t, r in said.items() if r == "fail"):
@@ -201,6 +240,7 @@ def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
 EXCUSE_MOST = 3                                         # more failed tests than this in one run is not a flake
 NEVER_EXCUSED = ("tests/test_page_polling.py",)         # (dynamics-open-dom-growth: is it a leak?)
 SUITES = ("ruff", "unit", "browser", "host", "demo")
+PYTEST = ("unit", "browser", "host")                    # the suites whose pytest counts are kept (ruff, demo: none)
 SKIP = re.compile(r"^SKIPPED \[\d+\] (\S+:\d+): (.*)$", re.M)     # pytest -rs: one line a skip's place and reason
 EXTERNAL = re.compile(r"\bERGOSTAT_\w+_URL\b|^spends money\b|^no Chromium to drive\b|^could not import 'playwright\b"
                       r"|^needs Docker and the agent image\b|^no \d+ free ports in\b")  # the stated external needs in use
@@ -227,6 +267,16 @@ def nowhere(host: str, unit_log) -> list[str]:
                   if COUNTED.search(host) and not SKIP.search(host) else [])
 
 
+def summed(got: dict) -> dict:
+    """A landed run's pytest counts, summed over the pytest suites that ran (``suites``, by name); "unknown" if any of
+    them is or says none. A suite not run by rule (counts "not_run") or not in the run at all is neither."""
+    ran = [n for n in PYTEST if isinstance(got.get(n), dict) and got[n].get("counts") != "not_run"]
+    each = [got[n].get("counts") for n in ran]
+    if not all(isinstance(c, dict) for c in each):
+        return {"counts": "unknown", "suites": ran}
+    return {"counts": {k: sum(c.get(k, 0) for c in each) for k in fac.COUNTS}, "suites": ran}
+
+
 def excusable(red: dict) -> bool:
     """A red run whose failures may be flakes: it named 1 to EXCUSE_MOST tests, none of NEVER_EXCUSED, and its
     failed suite skipped none (a skipped page test is a failure, never excused)."""
@@ -251,8 +301,8 @@ def excused(red: dict, more: dict, tag: str, gaps: list[str]) -> dict:
     if more.get("failed"):
         return more
     for t in red["tests"]:
-        fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=gaps, times=1, seen_at=time.time(), run=tag,
-                suite=red["failed"], passed_alone=2, log=red["log"])
+        flakes.say("flake.seen", t, gaps=gaps, times=1, seen_at=time.time(), run=tag, suite=red["failed"],
+                   passed_alone=2, log=red["log"])
     keep = {k: v for k, v in red.items() if k not in ("failed", "tests", "tail", "log", "named")}
     return keep | more | {"excused": {"suite": red["failed"], "tests": red["tests"], "log": red["log"]}}
 
@@ -664,16 +714,6 @@ def waited_hours(g: dict, began: float) -> float:
     return round((began - float(g["fields"].get("approved_at") or began)) / 3600, 3)
 
 
-def merge(cfg: dict, repo, g: dict, sha: str, began: float) -> bool:
-    """One gap's reviewed commit merged onto the checkout's HEAD; a conflict is undone, and is a failed gate."""
-    if fac.git_ok(repo, "merge", "-q", "--no-ff", sha, "-m", message(g)):
-        return True
-    files = fac.conflicted(repo)
-    fac.git(repo, "merge", "--abort", check=False)
-    refuse(cfg, g, files, began)
-    return False
-
-
 def refuse(cfg: dict, g: dict, files: list[str], began: float, findings: list[str] | None = None) -> None:
     """A gap whose merge conflicts (or ``findings``: why else): sent back, a failed gate (the kill rule's last parks
     it)."""
@@ -712,112 +752,280 @@ class Late(Exception):
     """The run's time allowance is used: no more suite runs (land())."""
 
 
+class Part:
+    """Merges still to settle, in batch order. ``red``: the full run that proved exactly them red, on ``on``; ``tried``:
+    its named tests could not find the merge. (A plain class: a dataclass needs its module in sys.modules, and this
+    file is also loaded by path.)"""
+
+    def __init__(self, merges: list, red: dict | None = None, on: str = ""):
+        self.merges, self.red, self.on, self.tried = merges, red, on, False
+
+
+class Tree:
+    """``merges`` merged on a base as commits of their own (``head``; ``heads``, after each), net lines in ``lines``."""
+
+    def __init__(self, merges: list, heads: list[str], lines_of: dict):
+        self.merges, self.heads, self.head, self.lines = merges, heads, heads[-1], lines_of
+
+
 def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float, waited: float,
          dried: str = "", until: float | None = None) -> tuple[list, str, list]:
-    """Merge the batch onto main in turn and run the suites once. Green: every merge lands. Red: bisected (run again on
-    the first half of the merges, then on half of what is left, ...) to the first merge whose prefix fails; that gap
-    goes to flake triage with its failures and the commit it was merged onto (its `pre`). A red run that named failing
-    tests is bisected on those tests alone (named()) only when they fail alone on the whole red tree too; else (they
-    pass there, or it cannot tell), and when it named none, with every suite. A prefix green on every suite
-    lands, and the merges after the failing one are merged again onto it and tried as a batch of their own; a prefix
-    green on the named tests only lands nothing yet: it is merged again with those after the failing merge, and they
-    all land only on a full green run of that tree (the failing gap's `pre` then main's head, `base`, as no commit of
-    that prefix lands). Each failing merge found costs at most 2 + 2 ceil(log2 m) runs (m: the merges left; the red
-    run, the named tests on its tree, and each step, two when a named run cannot tell). No suite run starts past
-    ``until`` (began + allowance() unset): the bisecting stops there, the prefix a full green run proved lands, and the
-    gaps not settled yet are given back, never landed (the third of what it returns), as are the merges after a failing
-    one whose `stacked_on` reaches it, or reaches a merge (again) sent back (reaches()). Returns (each gap landing
-    with its timing, main's head, the gaps given back, each with why), the checkout's main left at that head. Gaps
-    sent on are said so
-    here; those landing and those given back, by the caller, once main is settled. A red run whose failed tests may be
-    flakes (excusable()) and each pass alone on its tree twice is green once the suites it did not finish pass too: it
-    lands with no bisect, each test a flake seen."""
-    base, todo, landed, runs, tag = pre, batch, [], [0], fac.run_tag(fac.branch_of(batch[0][0]), began)
+    """The batch merged onto main and the full suites run once. Green: all of it lands. Red, on the first path that
+    applies, and again for every part still red:
+
+    1. By name: the run named at most NAMED_MOST tests, did not crash (crashed()), and they fail alone on its tree. Those
+       tests run on every prefix at once, a round of minutes. The first failing prefix's last merge is sent on
+       (`gap.queue-failed`); while a later prefix fails a test it did not, another round finds the next. The survivors
+       then get one full run. So one failing merge of m costs 2 full runs. A prefix that cannot tell before the first
+       failing one ends the path: never a pass (lesson-3).
+    2. By halves: anything else (no test named, a crash, failures that pass alone, too many). Two halves (halves.split():
+       a stack is never cut while another stack can be), each from the current base, run in full at the same time, each
+       on its own half of the CPUs (halves.share()). The first green half lands and is the new base; a red one is split
+       again on it. One stack alone: its lower half is tried, as the rest cannot run without it.
+
+    Only a tree a full run passed lands, and as that very commit: a named run never lands anything. When both halves
+    pass, the first lands and the other is tested on it; a tree already proven red is not run again. A merge that
+    conflicts on a new base goes back to `approved` uncounted, with its descendants. A single merge proven red is sent
+    on, its descendants given back. A crash is never a merge's proven failure: both halves crashing, or one merge alone
+    crashing, is the run's stall (stalled(): uncounted, counted only when alone), or, once something is settled, those
+    merges go back. A half that cannot tell (a stall, a container that did not start) lands nothing, the same way.
+
+    The main-red check (on_main()) runs until something is settled, on tests not yet checked. Flakes are excused on each
+    tree as on the whole batch. No run starts past ``until`` (began + allowance() unset): what is unproven is given
+    back. Each landing or failing gap says the rounds so far on `suites_queue` (`batch_rounds`, `rounds`). Returns (the
+    gaps landing with their timing, main's head, the gaps given back with why), the checkout's main left at that head;
+    those failed are said here."""
+    base, landed, back, tag = pre, [], [], fac.run_tag(fac.branch_of(batch[0][0]), began)
     logs, until = fac.run_dir(cfg, "queue"), began + allowance(cfg) if until is None else until
+    runs, rounds, gone, checked, reds, counting = [0], [], {}, set(), {}, threading.Lock()
+    tree_of = lambda c: fac.git(repo, "rev-parse", f"{c}^{{tree}}")                 # noqa: E731
+    linked = lambda x, y: reaches(x[0], y[0]["id"], batch) or reaches(y[0], x[0]["id"], batch)   # noqa: E731
 
     def go():
         if time.time() > until:
             raise Late
 
-    def run(failed: dict | None = None, every: bool = True, only: tuple | None = None) -> dict | None:
+    def counted() -> None:
         go()
-        runs[0] += 1
-        t = tag + (f"-{runs[0]}" if runs[0] > 1 else "")
-        got = named(cfg, repo, t, logs, failed) if failed and failed.get("tests") else None
-        if got is not None or not every:
-            return got
-        go()
-        runs[0] += bool(failed and failed.get("tests"))   # (a named run that could not tell, then every suite: two)
-        return suites(cfg, repo, t, logs, pre, only)
+        with counting:
+            runs[0] += 1
+
+    def ask(failed: dict, work=None, t: str = "", conf: dict | None = None) -> dict | None:
+        counted()
+        return named(conf or cfg, work or repo, t or f"{tag}-{runs[0]}", logs, failed)
+
+    def full(work, t: str, ids: list[str], cover: bool, conf: dict | None = None) -> dict:
+        """The full suites on ``work``. A red run whose named tests each pass alone twice there is excused; one whose
+        tests fail alone says which (`reproduced`), for the path by name."""
+        conf = conf or cfg
+        counted()
+        red = suites(conf, work, t, logs, pre, cover=cover)
+        tests = red.get("tests") or []
+        if red.get("crashed") or not tests or len(tests) > NAMED_MOST or (len(ids) == 1 and not excusable(red)):
+            return red
+        alone = ask(red, work, f"{t}-alone", conf)
+        if excusable(red) and passed(alone):
+            alone = ask(red, work, f"{t}-again", conf)
+            if passed(alone):
+                counted()
+                return excused(red, suites(conf, work, t, logs, pre, only=rest(red), cover=cover), t, ids)
+        return red | ({"reproduced": alone["tests"]} if alone and alone.get("failed") else {})
 
     def timing(g: dict, got: dict) -> dict:
         return dict(queue_wait_hours=waited_hours(g, began), queue_minutes=round((time.time() - began) / 60, 1),
-                    lock_and_load_wait_s=round(waited), suites_queue=got, batch_size=len(batch), batch_id=tag,
-                    batch_runs=runs[0])
-    counted, back, blamed, out = {}, [], [], []     # counted: each gap's own merge, main before it to it (its last
-    #                                                  try); out: the gaps whose merge was sent back (merge())
-    try:
-        while todo:
-            fac.git(repo, "reset", "-q", "--keep", base)
-            kept, heads, lo, green = [], [], 0, {}         # heads[i]: main with the first i + 1 merges
-            for g, sha in todo:
-                if lost := next((x for x in out if reaches(g, x, batch)), None):    # its base was not merged: never
-                    back.append((g, f"its base {lost} could not be merged in the queue"))   # merged without it
-                    continue
-                before = fac.git(repo, "rev-parse", "HEAD")
-                if merge(cfg, repo, g, sha, began):
-                    kept.append((g, sha))
-                    heads.append(fac.git(repo, "rev-parse", "HEAD"))
-                    counted[g["id"]] = lines(repo, before, heads[-1])
-                else:
-                    out.append(g["id"])
-            tree = lambda c: fac.git(repo, "rev-parse", f"{c}^{{tree}}")          # noqa: E731
-            if dried and kept == batch and tree("HEAD") != tree(dried):         # the tree tested is the one dry-merged
-                raise RuntimeError(f"the batch's merges differ from its dry merge ({dried[:12]})")
-            todo, dried = kept, ""
-            if not todo:
+                    lock_and_load_wait_s=round(waited), batch_size=len(batch), batch_id=tag, batch_runs=runs[0],
+                    suites_queue=got | {"batch_rounds": len(rounds), "rounds": list(rounds)})
+
+    def lose(g: dict, why: str, mark: str) -> None:
+        back.append((g, why))
+        gone[g["id"]] = mark
+
+    def build(merges: list) -> Tree | None:
+        """``merges`` on the current base; one that conflicts goes back, with what stacks on it. None when none is left."""
+        kept, heads, top, lines_of = [], [], base, {}
+        for m in merges:
+            g, sha = m
+            if lost := next((x for x in gone if reaches(g, x, batch)), None):
+                lose(g, f"its base {lost} {gone[lost]}", "could not be merged in the queue")
+                continue
+            made, files = dry(repo, top, sha, message(g))
+            if not made:
+                lose(g, f"it conflicts with what landed before it: {' '.join(files)}", "could not be merged in the queue")
+                continue
+            lines_of[g["id"]], top = lines(repo, top, made), made
+            kept.append(m)
+            heads.append(made)
+        return Tree(kept, heads, lines_of) if kept else None
+
+    def settle_green(t: Tree, got: dict) -> None:
+        nonlocal base
+        landed.extend((g, timing(g, got) | t.lines[g["id"]]) for g, _ in t.merges)
+        base = t.head
+
+    def held(red: dict, ids: list[str]) -> None:
+        """Main's own failure is ruled out before any gap is blamed, once for each test, while nothing has settled."""
+        if red.get("tests") and not landed and not gone and not set(red["tests"]) <= checked:
+            checked.update(red["tests"])
+            on_main(repo, pre, red, ask, tag, ids)
+
+    def blame(part: Part) -> None:
+        g, red = part.merges[0][0], part.red
+        gone[g["id"]] = "failed in the queue"
+        tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=part.on,
+             findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
+             + ([f"the failing merge of a batch of {len(batch)}, found in {len(rounds)} "
+                 f"round{'s' * (len(rounds) != 1)}"] if len(batch) > 1 else []), **timing(g, red))
+
+    def one(part: Part) -> None:
+        """A single merge proven red is sent on. Crashed, it is proven nothing: the run's stall, or back."""
+        red = part.red
+        if not red.get("crashed"):
+            blame(part)
+        elif not (landed or gone or back):
+            raise fac.Stalled(red["failed"], f"it crashed: {red['crashed']}", red.get("tail", ""))
+        else:
+            lose(part.merges[0][0], f"its run crashed in the queue: {red['crashed']}", "was given back")
+
+    def by_name(part: Part) -> None:
+        """Path 1: the tests that fail alone, on every prefix at once, until no later prefix fails another. The survivors
+        are left unproven, for one full run. Nothing found: ``part`` stays red, for its halves."""
+        part.tried = True
+        red, tests, found = part.red, part.red["reproduced"], False
+        while len(part.merges) > 1 and tests:
+            go()
+            t = build(part.merges)
+            if not t or len(t.merges) != len(part.merges):   # (one went back: not the tree that was proven red)
+                part.merges, part.red, part.tried = t.merges if t else [], None, False
+                return
+            here = [present(repo, h, tests) for h in t.heads]
+            unseen = [x for x in tests if not any(x in y for y in here)]    # (not a plain `def`: asked of every prefix)
+            here = [[*x, *unseen] for x in here]
+            n = len(rounds) + 1
+            rounds.append({"round": n, "kind": "named", "base": base[:12], "prefixes": len(t.heads), "tests": len(tests)})
+            with counting:
+                runs[0] += sum(map(bool, here))
+            def check(i: int, wt, n: int = n, here: list = here) -> dict | None:
+                return named(cfg, wt, f"{tag}-n{n}-{i}", logs, {"failed": red["failed"], "tests": here[i]}) if here[i] else {}
+            got = halves.run_all(cfg, repo, t.heads, check, tag, halves.NAMED_AT_ONCE)
+            said = ["unknown" if r is None or isinstance(r, BaseException) else "fail" if r.get("failed") else "pass"
+                    for r in got]
+            k = next((i for i, x in enumerate(said) if x != "pass"), None)
+            if k is None or said[k] != "fail":
                 break
-            red = run()
-            if excusable(red):                             # each named test alone on the whole red tree, twice
-                alone = run(red, every=False)
-                if passed(alone) and passed(alone := run(red, every=False)):
-                    red = excused(red, run(only=rest(red)), tag, [g["id"] for g, _ in todo])
+            bad, m = got[k], part.merges[k]
+            blame(Part([m], {"failed": red["failed"], "tests": bad["tests"], "tail": bad["tail"], "log": bad["log"]}, base))
+            part.merges, part.red, found = [x for x in part.merges if x is not m], None, True
+            tests = sorted({x for i in range(k + 1, len(got)) if said[i] == "fail" for x in got[i]["tests"]} - set(bad["tests"]))
+        if found:
+            part.red, part.tried = None, False               # (the survivors: one full run, and the same two paths)
+
+    def whole(part: Part) -> None:
+        """A part not known red on this base, run whole in the checkout: it lands, or is known red."""
+        nonlocal dried
+        t = build(part.merges)
+        part.merges = t.merges if t else []
+        if not t:
+            return
+        if dried and t.merges == batch and tree_of(t.head) != tree_of(dried):   # the tree tested is the one dry-merged
+            raise RuntimeError(f"the batch's merges differ from its dry merge ({dried[:12]})")
+        dried = ""
+        if known := reds.get(tree_of(t.head)):               # (this very tree was red: never run twice)
+            part.red, part.on = known, base
+            return
+        fac.git(repo, "reset", "-q", "--keep", t.head)
+        ids = [g["id"] for g, _ in t.merges]
+        try:
+            got = full(repo, tag if not runs[0] else f"{tag}-{runs[0] + 1}", ids, True)
+        except (fac.Stalled, agents.NotStarted) as e:        # (what is settled stands; with nothing, the run's stall)
+            if not (landed or gone or back):
+                raise
+            for g, _ in t.merges:
+                lose(g, f"its run could not be told in the queue ({type(e).__name__})", "was given back")
+            part.merges = []
+            return
+        if not got.get("failed"):
+            settle_green(t, got)
+            part.merges = []
+            return
+        held(got, ids)
+        if not got.get("crashed"):                           # (a crash proves no tree red)
+            reds[tree_of(t.head)] = got
+        part.red, part.on = got, base
+
+    def round_of(part: Part) -> None:
+        """One round on a red part: its halves at once, the first green one landing. ``parts`` holds what is left."""
+        go()
+        first, second, apart = halves.split(part.merges, linked)
+        built = [t for t in (build(first), build(second) if apart else None) if t]
+        wait = [Part(second)] if not apart else []
+        if not built:
+            parts[:1] = wait
+            return
+        n, on = len(rounds) + 1, base
+        ids = [[g["id"] for g, _ in t.merges] for t in built]
+        said = {"round": n, "kind": "halves", "base": on[:12], "halves": [{"gaps": x, "result": "unknown"} for x in ids]}
+        rounds.append(said)
+        confs = [halves.share(cfg, i) for i in range(2)] if len(built) == 2 else [cfg]
+        got = halves.run_all(cfg, repo, [t.head for t in built],
+                             lambda i, wt: full(wt, f"{tag}-r{n}-{i}", ids[i], False, confs[i]), tag)
+        if len(got) == 2 and all(isinstance(r, dict) and r.get("crashed") for r in got):   # (the machine, not a merge)
+            got = [fac.Stalled(r["failed"], f"both halves crashed: {r['crashed']}", r.get("tail", "")) for r in got]
+        told = [i for i, r in enumerate(got) if not isinstance(r, BaseException)]
+        green = next((i for i in told if not got[i].get("failed")), None)
+        if green is not None:                                # (first: a proven half is never lost to what follows)
+            settle_green(built[green], got[green])
+        left, reds_now, errors = [], [], []
+        for i, (t, r) in enumerate(zip(built, got, strict=True)):
+            if isinstance(r, BaseException):
+                said["halves"][i]["why"] = f"{type(r).__name__}: {r}"[:300]
+                errors.append((t, r))
+            elif r.get("failed"):
+                said["halves"][i]["result"] = "crashed" if r.get("crashed") else "red"
+                if not r.get("crashed"):
+                    reds[tree_of(t.head)] = r
+                left.append(Part(t.merges, r, on))
+                reds_now.append((r, ids[i]))
             else:
-                alone = run(red, every=False) if len(todo) > 1 and red.get("tests") else None   # on the whole red tree
-            if not red.get("failed"):
-                landed += [(g, timing(g, red) | counted[g["id"]]) for g, _ in todo]
-                base = heads[-1]
-                break
-            if red.get("tests") and not blamed:      # main itself first, before any gap is blamed (on_main())
-                on_main(repo, pre, red, run, tag, [g["id"] for g, _ in todo])
-            full = alone if alone and alone.get("failed") else None  # they fail there alone: bisect on them; else full
-            hi = len(todo)                           # the first lo merges ran green (or none); the first hi red
-            while hi - lo > 1:
-                mid = (lo + hi) // 2
-                fac.git(repo, "reset", "-q", "--keep", heads[mid - 1])
-                got = run(full)
-                lo, hi, red, green = (lo, mid, got, green) if got.get("failed") else (mid, hi, red, got)
-            g, onto = todo[hi - 1][0], heads[hi - 2] if hi > 1 else base
-            if "named" in green:                     # (that commit is merged again, never landed: main's own is told)
-                onto = base
-            blamed.append(g["id"])
-            gone = [t for t in todo[hi:] if reaches(t[0], g["id"], batch)]   # its descendants: never merged again
-            back += [(x, f"its base {g['id']} failed in the queue") for x, _ in gone]
-            tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=onto,
-                 findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
-                 + ([f"the first failing merge of a batch of {len(todo)}, found by bisecting"] if len(todo) > 1 else []),
-                 **timing(g, red))
-            # (hi - 1 == lo: that prefix's run was green)
-            if "named" in green:                     # green on the named tests only: merged again with the rest, so it
-                todo = todo[:hi - 1] + [t for t in todo[hi:] if t not in gone]   # lands only on a full green
-                continue                             # run of the tree it lands as
-            landed += [(x, timing(x, green) | counted[x["id"]]) for x, _ in todo[:hi - 1]]
-            base, todo = onto, [t for t in todo[hi:] if t not in gone]
-    except Late:                                     # out of time: only a prefix a full green run proved lands
-        if lo and green and "named" not in green:
-            landed += [(x, timing(x, green) | counted[x["id"]]) for x, _ in todo[:lo]]
-            base, todo = heads[lo - 1], todo[lo:]
-        back += [(g, "its run's time allowance was used before it was proven") for g, _ in todo]
+                said["halves"][i]["result"] = "green"
+                if i != green:
+                    left.append(Part(t.merges))          # (green on the old base: not proven on the new one)
+        late = any(isinstance(r, Late) for _, r in errors)
+        if errors and not late and not (landed or gone or back or left):
+            raise errors[0][1]                               # nothing settled: as for a whole run (stalled(), ...)
+        for t, r in errors:
+            if late:
+                left.append(Part(t.merges))                  # (given back with the rest, by the caller)
+            else:
+                for g, _ in t.merges:
+                    lose(g, f"its half could not be told in the queue ({type(r).__name__})", "was given back")
+        parts[:1] = [*left, *wait]
+        if late:
+            raise Late
+        for r, x in reds_now:
+            held(r, x)                                       # (before a blame; raises MainRed, or Late)
+
+    parts = [Part(list(batch))]
+    try:
+        while parts:
+            part = parts[0]
+            for m in list(part.merges):                      # what stacks on a merge that failed or went back
+                if lost := next((x for x in gone if reaches(m[0], x, batch)), None):
+                    part.merges.remove(m)
+                    part.red = None                          # (proven red with it: not without it)
+                    lose(m[0], f"its base {lost} {gone[lost]}", "could not be merged in the queue")
+            if not part.merges:
+                parts.pop(0)
+            elif part.red and len(part.merges) == 1:
+                one(part)
+                parts.pop(0)
+            elif not part.red:
+                whole(part)
+            elif part.red.get("reproduced") and not part.tried:
+                by_name(part)
+            else:
+                round_of(part)
+    except Late:                                             # out of time: only what a full run proved has landed
+        back += [(g, "its run's time allowance was used before it was proven") for p in parts for g, _ in p.merges]
     fac.git(repo, "reset", "-q", "--keep", base)
     return landed, base, back
 
@@ -826,19 +1034,19 @@ class MainRed(Exception):
     """The batch's failing tests fail on main (``pre``) alone, twice: main's failure, no gap's (on_main())."""
 
 
-def on_main(repo, pre: str, red: dict, run, tag: str, gaps: list[str]) -> None:
+def on_main(repo, pre: str, red: dict, ask, tag: str, gaps: list[str]) -> None:
     """A red run's named tests on main (``pre``) alone, in the same container and settings (named()). Failing there and
     again on a re-run (or a re-run that cannot tell): MainRed. Failing, then passing: each a flake seen, not main's.
-    Passing, or not told (a test main lacks, a run that could not start): bisected as before."""
+    Passing, or not told (a test main lacks, a run that could not start): split as usual."""
     fac.git(repo, "reset", "-q", "--keep", pre)
-    first = run(red, every=False)
+    first = ask(red)
     if not (first and first.get("failed")):
         return
-    again = run(first, every=False)
+    again = ask(first)
     bad = first["tests"] if again is None else again["tests"] if again.get("failed") else []
     for t in sorted(set(first["tests"]) - set(bad)):
-        fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=gaps, times=1, seen_at=time.time(), run=tag,
-                suite=red["failed"], failed_on_main=pre, log=first["log"])
+        flakes.say("flake.seen", t, gaps=gaps, times=1, seen_at=time.time(), run=tag, suite=red["failed"],
+                   failed_on_main=pre, log=first["log"])
     if bad:
         raise MainRed({"pre": pre, "suite": red["failed"], "tests": bad})
 
@@ -886,7 +1094,7 @@ def held_by_main(cfg: dict, r: dict) -> None:
     iid = r["intervention"] = f"intervention/queue-main-red-{r['pre'][:12]}-{time.strftime('%Y%m%d-%H%M%S')}"  # (new)
     save(cfg, {**state(cfg), "main_red": r})
     for t in r["tests"]:
-        fac.say("flake.main-broken", f"flake/{fac.slug(t, 80)}", test=t, main=r["pre"], main_broken_at=time.time())
+        flakes.say("flake.main-broken", t, main=r["pre"], main_broken_at=time.time())
     fac.say("intervention.recorded", iid, recorded_at=time.time(), main=r["pre"], tests=r["tests"], **{"class": "queue"},
             reason=f"main {r['pre'][:12]} fails {', '.join(r['tests'][:5])} alone in the queue's container: the queue "
                    "takes no batch until they pass on main or are quarantined")
@@ -994,6 +1202,11 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             except MainRed as e:                           # (main undone below; no gap blamed for it)
                 held_by_main(cfg, e.args[0])
                 return 0
+            except Exception as e:                         # Docker or the AI service unreachable: an outage, no
+                if not (why := fac._outage().of(e)):       # gap blamed, nothing counted (outage.py); main undone
+                    raise
+                fac.nack(f"queue: outage: {why}", after=fac._outage().AFTER, count=False)
+                return 0
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
                 HELD["said"] = []
@@ -1004,7 +1217,8 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             ids = [g["id"] for g, _ in landed]
             save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": ids, "at": began, "landing": ids}})
             run = {"run": fac.run_tag(fac.branch_of(gap), began), "minutes": round((time.time() - began) / 60, 1),
-                   "at": time.time(), "tried": len(batch), "landed": len(landed), "given_back": len(back)}
+                   "at": time.time(), "tried": len(batch), "landed": len(landed), "given_back": len(back),
+                   **(summed(landed[-1][1]["suites_queue"]) if landed else {})}   # (the green run main ends at)
             # (the whole run, on each of its gaps, for merges-per-hour; given_back: sent back to approved, uncounted)
             extra = lambda g: {} if g["id"] == gap["id"] else {"queued_at": began, "queue_attempts": 1}  # noqa: E731
             for g, timing in landed:

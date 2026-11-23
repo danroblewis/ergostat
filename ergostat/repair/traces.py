@@ -1,15 +1,16 @@
-"""Tracebacks read from a run's output (SPEC §12r, *Triage*): Python's, Node's, Java's and Go's. ``last`` gives the one
-whose header line comes last, with its frames innermost first, each marked whether it is the project's own code."""
+"""Tracebacks read from a run's output (SPEC §12r, *Triage*): Python's, Node's, Java's, Go's and Ruby's.
+``last`` gives the one whose header line comes last, with its frames innermost first, each marked whether it is the project's own code."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
 
 WALK = 5000                                          # entries a Java walk of the model's folder reads at most
 SKIP = ("site-packages", "node_modules", ".venv", "venv", "vendor")
-RUNTIME = ("node:", "<frozen", "<string>")
+RUNTIME = ("node:", "<frozen", "<string>", "<internal:")
 LIBRARY = ("site-packages", "/lib/python", "<frozen", "<string>")     # Python's signature frame skips these (unchanged)
 
 PY_FRAME = re.compile(r'^\s*File "(?P<file>[^"]+)", line (?P<line>\d+), in (?P<function>.+)$')
@@ -22,6 +23,13 @@ JAVA_AT = re.compile(r"^\tat (?:[\w.$@-]+/)*(?P<cls>[\w$.]+)\.(?P<function>[\w$<
 GO_HEAD = re.compile(r"^panic: (?P<message>.*)$")
 GO_ROUTINE = re.compile(r"^goroutine \d+ \[running\]:$")
 GO_AT = re.compile(r"^\t(?P<file>\S+\.go):(?P<line>\d+)(?: \+0x[0-9a-f]+)?$")
+RB_AT = r"(?P<file>\S.*?):(?P<line>\d+):in [`'](?P<function>[^`']*)'"
+RB_HEAD = re.compile(rf"^{RB_AT}: (?P<message>.*) \((?P<type>[A-Z][\w:]*)\)$")
+RB_FROM = re.compile(rf"^\tfrom {RB_AT}$")
+PY_END = re.compile(r"^(?:[A-Za-z_]\w*\.)*[A-Z]\w*(?:: .*)?$")       # a Python exception line: `pkg.Type: message`
+PY_LOG = re.compile(r"^(?P<level>ERROR|CRITICAL):(?P<logger>[^:\s]*):(?P<message>.*)$")   # logging's default form
+LOG_LEVELS = ("error", "critical", "fatal")
+LOG_LINE = 8000                                      # a log line longer than this is not read
 
 
 def project(file: str | None, root: Path) -> bool:
@@ -170,8 +178,71 @@ def _go(lines: list[str], root: Path) -> tuple[int, dict] | None:
     return None
 
 
+def _ruby(lines: list[str], root: Path) -> tuple[int, dict] | None:
+    """``path:N:in 'meth': message (Type)`` directly followed by ``\\tfrom path:N:in ...`` lines, innermost first;
+    a frame under ``vendor`` or ``gems`` is a library's."""
+    for i in range(len(lines) - 1, -1, -1):
+        if not (h := RB_HEAD.match(lines[i])):
+            continue
+        frames = []
+        for m in [h, *map(RB_FROM.match, lines[i + 1:])]:
+            if not m:
+                break
+            f = _frame(m["file"], int(m["line"]), m["function"], root)
+            frames.append({**f, "project": f["project"] and "gems" not in Path(f["file"]).parts})
+        return i, _signed("ruby", h["type"], h["message"], frames)
+    return None
+
+
+def python_to_end(text: str, root: Path) -> dict | None:
+    """The last Python traceback in ``text`` when its exception line is the text's last line (it runs to the end)."""
+    lines = [s for s in text.splitlines() if s.strip()]
+    got = _python(lines, root)
+    if got is None:
+        return None
+    rest = [j for j in range(got[0] + 1, len(lines)) if not lines[j][:1].isspace()]
+    return got[1] if rest == [len(lines) - 1] else None
+
+
+def ends_in_python_exception(text: str) -> bool:
+    """No Python header in ``text``, and its last line reads as a Python exception line."""
+    lines = [s for s in text.splitlines() if s.strip()]
+    return bool(lines) and bool(PY_END.match(lines[-1])) and not any(
+        s.startswith("Traceback (most recent call last)") for s in lines)
+
+
 def last(text: str, root: Path) -> dict | None:
     """The trace whose header line comes last in ``text``, of any language read; None when no header is there."""
     lines = text.splitlines()
-    got = [t for parse in (_python, _node, _java, _go) if (t := parse(lines, root)) is not None]
+    got = [t for parse in (_python, _node, _java, _go, _ruby) if (t := parse(lines, root)) is not None]
     return max(got, key=lambda t: t[0])[1] if got else None
+
+
+def _json_log(s: str) -> dict | None:
+    try:
+        d = json.loads(s) if s.startswith("{") else None
+    except ValueError:
+        return None
+    if not isinstance(d, dict):
+        return None
+    level = next((v for k in ("level", "levelname", "severity") if isinstance(v := d.get(k), str)), "")
+    logger = next((v for k in ("logger", "name") if isinstance(v := d.get(k), str)), None)
+    message = next((v for k in ("message", "msg") if isinstance(v := d.get(k), str)), None)
+    if level.lower() not in LOG_LEVELS or logger is None or message is None:
+        return None
+    return {"level": level.upper(), "logger": logger, "message": message}
+
+
+def log_event(text: str) -> dict | None:
+    """The last error-level log line in ``text``: Python logging's default ``ERROR:logger:message`` (or ``CRITICAL``),
+    or a JSON line whose ``level``/``levelname``/``severity`` is error, critical or fatal (any case), with
+    ``logger``/``name`` and ``message``/``msg``. No other form is read; a line over ``LOG_LINE`` characters is skipped."""
+    for s in reversed(text.splitlines()):
+        s = s.strip()
+        if len(s) > LOG_LINE:
+            continue
+        if m := PY_LOG.match(s):
+            return {"level": m["level"], "logger": m["logger"], "message": m["message"]}
+        if got := _json_log(s):
+            return got
+    return None

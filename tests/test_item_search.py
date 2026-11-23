@@ -200,3 +200,84 @@ def test_search_with_at_refused(tmp_path, capsys):
     assert "--at" in capsys.readouterr().err
     assert main(["-C", str(d), "item", "--search", "  "]) == 2
     assert "1 to 8 words" in capsys.readouterr().err
+
+
+def _many(p, n: int, done_every: int = 3) -> None:
+    """``n`` tickets, ticket/0 the oldest, each with a cost (``n - i``: the oldest costs most) and every
+    ``done_every``-th finished."""
+    evs = [{"type": "ticket.opened", "item": f"ticket/{i}", "data": {"title": f"t{i}", "cost": n - i}, "at": T0 + i}
+           for i in range(n)]
+    evs += [{"type": "ticket.done", "item": f"ticket/{i}", "at": T0 + i + 0.5} for i in range(0, n, done_every)]
+    p.events.add_many(evs, new=True)
+
+
+def test_a_kinds_page_reaches_every_item_and_its_search_every_match(tmp_path):
+    p = _project(tmp_path)
+    _many(p, 1200)
+    page = lambda **k: its.kind_page(p.events, p.model.spec, "ticket", **k)   # noqa: E731
+    seen, off = [], 0
+    while True:                                                  # Next, to the end: every item, newest first
+        got = page(n=25, offset=off)
+        assert got["total"] == 1200 and got["offset"] == off
+        seen += [i.id for i in got["items"]]
+        if off + 25 >= got["total"]:
+            break
+        off += 25
+    assert seen == [f"ticket/{i}" for i in range(1199, -1, -1)]  # the last page's last row is the oldest
+    assert page(n=25, offset=99_999)["offset"] == 1175           # past the end: the last page
+    hit = page(n=25, q="ticket/200")                             # the 1,000th newest (unfinished: 200 % 3 = 2)
+    assert [i.id for i in hit["items"]] == ["ticket/200"] and hit["total"] == 1 and hit["finished"] == 0
+    old = page(n=25, q="ticket/3")                               # ticket/3, 30-39, 300-399: 111, a third finished
+    assert old["total"] == 111 and old["finished"] == sum(1 for i in [3, *range(30, 40), *range(300, 400)] if i % 3 == 0)
+    assert [i.id for i in page(n=300, q="ticket/3")["items"]][-1] == "ticket/3"   # the oldest of them, finished
+    assert page(q="t1199")["total"] == 1 and page(q="t1199", state="done")["total"] == 0   # a word of its fields
+    assert [i.id for i in page(q="ticket/0", state="done")["items"]] == ["ticket/0"]
+
+
+def test_a_kinds_sort_runs_over_the_whole_set_and_says_its_cut_past_5000(tmp_path):
+    p = _project(tmp_path)
+    _many(p, 1200)
+    top = its.kind_page(p.events, p.model.spec, "ticket", n=25, sort="-cost")
+    assert top["items"][0].id == "ticket/0" and top["items"][0].fields["cost"] == 1200 and top["cut"] is None
+    assert [i.fields["cost"] for i in its.kind_page(p.events, p.model.spec, "ticket", n=3, sort="cost")["items"]] == [1, 2, 3]
+    assert its.kind_page(p.events, p.model.spec, "ticket", n=25, offset=10_000, sort="cost")["items"][-1].id == "ticket/0"
+    big = tmp_path / "big"
+    big.mkdir()
+    p2 = _project(big)
+    _many(p2, 6000)
+    got = its.kind_page(p2.events, p2.model.spec, "ticket", n=25, sort="-cost")
+    assert got["total"] == 6000 and got["cut"] == its.SORTED_MOST     # sorted among the newest 5,000 only, and said
+    assert got["items"][0].id == "ticket/1000" and got["items"][0].fields["cost"] == 5000
+    assert its.kind_page(p2.events, p2.model.spec, "ticket", n=25, offset=99_999, sort="-cost")["offset"] == 4975
+
+
+def test_the_api_pages_searches_and_sorts_one_kind(tmp_path):
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.web.server import handler
+    p = _project(tmp_path)
+    _many(p, 120)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(p))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/api/items?kind=ticket&finished=show"   # every item, the finished too
+
+    def get(q, base=url):
+        with urllib.request.urlopen(base + q, timeout=10) as r:
+            return json.loads(r.read())
+    try:
+        plain = get("&n=200", url.replace("&finished=show", ""))               # by default the finished are left out
+        ticket = next(k for k in plain["kinds"] if k["name"] == "ticket")
+        assert plain["total"] == 80 and len(plain["items"]) == 80 and ticket["hidden"] == {"done": 40}
+        assert all(i["state"] != "done" for i in plain["items"])
+        assert get("&n=25&q=ticket/3", url.replace("&finished=show", ""))["total"] == 11   # 3, 30-39: a search hides nothing
+        got = get("&n=25&offset=100")
+        assert got["total"] == 120 and got["offset"] == 100 and [i["id"] for i in got["items"]][-1] == "ticket/0"
+        assert len(got["items"]) == 20 and {"ticket", "note"} <= {k["name"] for k in got["kinds"]}
+        assert get("&n=25&offset=500")["offset"] == 100                         # past the end: the last page
+        s = get("&n=25&q=ticket/1")                                             # 1, 10-19, 100-119: 31 of them
+        assert s["total"] == 31 and s["finished"] == sum(1 for i in [1, *range(10, 20), *range(100, 120)] if i % 3 == 0)
+        assert get("&n=5&sort=-cost")["items"][0]["id"] == "ticket/0"           # the most, of all 120, on page 1
+        assert get("&n=5&sort=cost&offset=5")["items"][0]["fields"]["cost"] == 6
+    finally:
+        srv.shutdown()
+        srv.server_close()
