@@ -160,14 +160,19 @@ def query(src, text: str, w) -> list:
                       "timeout": f"{w.seconds:g}s"}, w.seconds)
     if data.get("resultType") != "matrix" or not isinstance(data.get("result"), list):
         raise SourceError("refused", f"source {src.name!r} answered {data.get('resultType')!r}, not a range of series")
-    out = []
+    out, metrics = [], []
     for s in data["result"]:
         pts = s.get("values") if isinstance(s, dict) else None
         if not isinstance(pts, list):
             raise SourceError("refused", f"source {src.name!r} answered a series with no values")
-        out.append((_name(s.get("metric") or {}, text),
+        metrics.append(s.get("metric") if isinstance(s.get("metric"), dict) else {})
+        out.append((_name(metrics[-1], text),
                     [(t, _number(v)) for p in pts if isinstance(p, list) and len(p) == 2
                      for t, v in [p] if isinstance(t, int | float)]))
+    if metrics and all("le" in m for m in metrics):    # a histogram's buckets: a distribution (_frames.py)
+        name = str(metrics[0].get("__name__", "")).removesuffix("_bucket")
+        return {"shape": "distribution", "name": name, "buckets": [
+            {"labels": m, "time": [t for t, _ in pts], "values": [v for _, v in pts]} for m, (_, pts) in zip(metrics, out, strict=True)]}
     return out
 
 
