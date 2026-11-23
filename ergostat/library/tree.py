@@ -1,4 +1,5 @@
-"""A library's copy: ``extract`` reads a tar stream into a new folder, keeping it all inside; ``digest`` hashes a copy.
+"""A library's copy (SPEC §2a): ``extract`` reads a tar stream into a new folder, keeping it all inside; ``read`` and
+``digest`` list a copy (``files.tree``, the one walker fetch and load share) and hash it (``hashed``, the one hash).
 A link's target is walked step by step from its folder, names case- and NFC-folded, and refused if a ``..`` leaves the
 copy or a step lands on any link; walked as it arrives and again once all links exist (so member order does not
 matter), then each link's realpath is checked."""
@@ -20,15 +21,26 @@ _DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 _NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
-def digest(root, max_entries: int = ENTRIES, max_bytes: int = BYTES) -> str:
-    """The sha256 of the copy at ``root`` (``files.tree``): for each path in byte order, the path, its kind (``dir``,
-    ``file``, ``exec``, ``link``), then its bytes or link target, each length-prefixed."""
-    h, walked = hashlib.sha256(), files.tree(root, max_entries, max_bytes)
+def hashed(walked: dict) -> str:
+    """The sha256 of a listing (``files.tree``): for each path in byte order, the path, its kind (``dir``, ``file``,
+    ``exec``, ``link``), then its bytes or link target, each length-prefixed."""
+    h = hashlib.sha256()
     for p in sorted(walked, key=os.fsencode):
         kind, body = walked[p]
         for b in (os.fsencode(p), kind.encode(), body if isinstance(body, bytes) else os.fsencode(body or "")):
             h.update(len(b).to_bytes(8, "big") + b)
-    return h.hexdigest()
+    return "sha256:" + h.hexdigest()
+
+
+def digest(root, max_entries: int | None = None, max_bytes: int | None = None) -> str:
+    """The ``sha256:`` hash of the copy at ``root``, under the caps (as they are now, when not given)."""
+    return hashed(files.tree(root, max_entries or ENTRIES, max_bytes or BYTES))
+
+
+def read(root) -> tuple[dict, str]:
+    """The copy's listing (noted at load) and its ``sha256:`` hash, under the caps as they are now."""
+    got = files.tree(root, ENTRIES, BYTES)
+    return got, hashed(got)
 
 
 def _fold(s: str) -> str:
@@ -39,13 +51,14 @@ def _declared(m: tarfile.TarInfo) -> int:
     return m.size
 
 
-def extract(stream, dest, max_entries: int = ENTRIES, max_bytes: int = BYTES) -> None:
+def extract(stream, dest, max_entries: int | None = None, max_bytes: int | None = None) -> None:
     """Read the tar ``stream`` into ``dest``, made here. Refused (TreeError, ``dest`` removed): any kind but folder,
     file and link; an absolute name or a ``.``/``..``/empty step; two names folding the same; a member under a link or
-    file; a link leaving the copy or passing through a link; past either cap, by bytes declared or written."""
+    file; a link leaving the copy or passing through a link; past either cap (as they are now, when not given), by
+    bytes declared or written."""
     os.mkdir(dest, 0o700)
     try:
-        links = _extract(stream, dest, max_entries, max_bytes)
+        links = _extract(stream, dest, max_entries or ENTRIES, max_bytes or BYTES)
         for at, target in links.items():
             _inside(at, target, links)
         top = os.path.realpath(dest)

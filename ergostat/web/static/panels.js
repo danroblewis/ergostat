@@ -41,7 +41,9 @@
   const plotForms = () => Object.fromEntries(FORM_REGISTRY);
   const choice = (key, label, choices, when) => ({ key, label, type: "choice", choices, default: choices[0], ...(when ? { when } : {}) });
   const stackedOn = (c) => (c.options?.stack || "none") !== "none";
-  registerPlotForm("line", { label: "Line", group: "time", needs: { x: ["time", "query", "field", "bins"], text: "a measure over time, or against any X" }, options: [
+  /* `shapes`: what each family takes of each result shape (frames.js); `reshape`: how to get there, said when it cannot */
+  registerPlotForm("line", { label: "Line", group: "time", needs: { x: ["time", "query", "field", "bins"], text: "a measure over time, or against any X" },
+    shapes: { series: {}, table: { dims: 1, dim: "number" }, points: {} }, reshape: "ask for values over time, or plot them against a number", options: [
     choice("style", "Line style", ["linear", "smooth", "step-after", "step-before", "step-middle"]),
     choice("fill", "Fill", ["none", "area", "gradient"]),
     choice("stack", "Stacking", ["none", "stacked", "percent"]),
@@ -49,20 +51,23 @@
     { key: "width", label: "Line width", type: "number", min: 1, max: 4, step: 1, default: 1.5 },
     choice("nulls", "Missing values", ["gap", "connect", "zero"]),
   ] });
-  registerPlotForm("bar", { label: "Bar", group: "comparison", needs: { x: ["category", "time", "bins", "query", "field"], text: "values to compare" }, options: [
+  registerPlotForm("bar", { label: "Bar", group: "comparison", needs: { x: ["category", "time", "bins", "query", "field"], text: "values to compare" },
+    shapes: { series: {}, table: { dims: 1 }, distribution: { form: ["bins"] } }, reshape: "ask for values over time or by category", options: [
     choice("orientation", "Orientation", ["vertical", "horizontal"]),
     choice("stack", "Stacking", ["none", "stacked", "percent"]),
     choice("grouping", "Several series", ["grouped", "overlaid"], (c) => !stackedOn(c)),
     choice("sort", "Sort", ["none", "value-desc", "value-asc"]),
     choice("values", "Value labels", ["off", "on"]),
   ] });
-  registerPlotForm("stat", { label: "Stat", group: "single value", needs: { x: ["time"], text: "a measure over time" }, options: [
+  registerPlotForm("stat", { label: "Stat", group: "single value", needs: { x: ["time"], text: "a measure over time" },
+    shapes: { series: { roles: "none" }, table: { dims: 1, rows: 1 } }, reshape: "ask for one measure over time", options: [
     choice("value", "Value", ["last", "avg", "min", "max", "sum"]),
     choice("sparkline", "Sparkline", ["on", "off"]),
     choice("delta", "Change", ["on", "off"]),
     choice("color", "Colour", ["none", "thresholds"]),
   ] });
-  registerPlotForm("table", { label: "Table", group: "single value", needs: { x: ["time"], text: "a measure over time" }, options: [
+  registerPlotForm("table", { label: "Table", group: "single value", needs: { x: ["time"], text: "a measure over time" },
+    shapes: { series: { roles: "none" }, table: { dims: 1 } }, reshape: "ask for values over time, or a table", options: [
     { key: "columns", label: "Columns", type: "choice", multiple: true, choices: ["last", "avg", "min", "max"], default: ["last", "avg", "max"] },
     choice("sort", "Sort", ["none", "name", "last", "avg", "min", "max"]),
     choice("bars_in_cells", "Bars in cells", ["off", "on"]),
@@ -687,7 +692,7 @@
     const hasPoints = (r) => (r.frequency ? (r.frequency.hz || []).length > 0
       : r.series.some((x) => (x.close || x.values || []).some((v) => v != null)) || !!(r.poles?.length || r.zeros?.length));
     function drawForm(def) {
-      const { results, meta } = st.last;
+      const results = st.shown, { meta } = st.last;
       const on = new Set(shownQueries(st.cfg).map((q) => q.id));
       const drawn = (results || []).filter((r) => on.has(r.id));
       const good = drawn.filter((r) => !r.error), failed = drawn.filter((r) => r.error);
@@ -700,7 +705,7 @@
       const result = mergedResult(good);
       const accepted = def.needs?.source === "frequency" ? ["frequency"] : def.needs?.x;
       const why = !good.length ? "This panel has no query yet."
-        : accepted && !accepted.includes(result.shape) ? `${def.label || st.form} needs ${def.needs?.text || `an X axis of ${accepted.join(" or ")}`}; this query has ${result.shape}.`
+        : accepted && !good.some((r) => r.shape) && !accepted.includes(result.shape) ? `${def.label || st.form} needs ${def.needs?.text || `an X axis of ${accepted.join(" or ")}`}; this query has ${result.shape}.`
         : def.check?.(result, st.cfg) || (hasPoints(result) ? "" : `Nothing recorded for ${shownQueries(st.cfg).map(queryWord).join(", ") || "this query"}.`);
       if (why) { dropView(); setState("empty", why); return; }
       if (st.mount) dropPlot();
@@ -924,22 +929,26 @@
     function draw() {
       st.dirty = false;
       if (!st.last) return;
-      const { results, meta } = st.last;
-      sayNotes(results || []);
+      const { meta } = st.last;
+      /* the answer reshaped as the panel asks (never asked again for it), and each table laid out as this family reads it */
+      const results = st.shown = resultFrames.reshaped(st.cfg.reshape, st.last.results || []).map((r) => resultFrames.drawable(r, st.form));
+      sayNotes(results);
       if (st.form !== "stat" && st.form !== "table" && !FORM_REGISTRY.has(st.form)) {
         dropView();
         setState("error", `This panel asks for a chart form that is not available: ${st.form}.`);
         return;
       }
-      if (st.form !== "box" && (results || []).some((r) => r.x?.distribution)) {   // each category's spread is a box plot's answer
+      const misfit = resultFrames.mismatch(FORM_REGISTRY.get(st.form), results);   // the shape decides which charts apply
+      if (misfit) { dropView(); setState("empty", misfit); return; }
+      if (st.form !== "box" && results.some((r) => r.x?.distribution && !r.shape)) {   // each category's spread is a box plot's answer
         dropView();
         setState("empty", "Aggregation none on a category is for a box plot: choose an aggregation for this chart.");
         return;
       }
-      const byForm = drawnBy(results || []);
+      const byForm = drawnBy(results);
       if (byForm) { drawForm(byForm); return; }
       if (st.view) { dropView(); host.replaceChildren(); }
-      const answer = readAnswer(st.cfg, results || [], st.slots);
+      const answer = readAnswer(st.cfg, results, st.slots);
       const span = (meta?.until ?? 0) - (meta?.since ?? 0);
       if (answer.failed.length && !answer.items.length) {
         st.hasData = st.hasData && st.items.length > 0;
@@ -1074,6 +1083,11 @@
     let text = "";
     for (const b of bytes) text += String.fromCharCode(b);
     return btoa(text).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  /* the queries a panel shows, as its family asks for them: two families that ask alike draw one answer */
+  function askedOf(asIs) {
+    const cfg = normalizeForm(asIs), def = FORM_REGISTRY.get(cfg.form), options = def ? formOptions(cfg) : {};
+    return shownQueries(cfg).map((q) => (def?.ask ? def.ask(q, options) : q));
   }
   /* every panel's queries in one request: an identical query is asked once, and each id is made unique and mapped back */
   async function queryPanels(configs, { since = 86400, until = null, points = 120, signal } = {}) {
@@ -1266,5 +1280,5 @@
   }
 
   window.panelNumbers = { parseUnit, chipOf, formatValue, axisLabels, durationSteps: DURATION_STEPS };
-  Object.assign(window, { chartPanel, queryPanels, queryFields, pagePanels, registerPlotForm, plotForms, normalizeForm });
+  Object.assign(window, { chartPanel, queryPanels, queryFields, pagePanels, registerPlotForm, plotForms, normalizeForm, askedOf });
 })();

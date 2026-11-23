@@ -102,6 +102,8 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
     chained(spec, say)
     from .equation_checks import findings as numbers
     numbers(spec, say)
+    from .waits import findings as waits  # a kind whose waiting `why` cannot explain (SPEC §5a)
+    waits(spec, say)
     from .architecture import findings as architecture  # how it is divided into systems: notes (SPEC §12)
     architecture(spec, lambda code, msg, where, about: out.append(Problem("note", msg, where, code, about)))
     from .craft import notes as craft  # the craft of a model (docs/MODELLING-WELL.md): notes

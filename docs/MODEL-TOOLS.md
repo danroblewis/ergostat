@@ -23,7 +23,7 @@ the panel says why in one line and what would change that (for example "33 readi
 | [What should I change?](#what-should-i-change) | the review queue, calibration, parameter, equation and structural proposals, not exercised by the record, fit history | Model page, a valve's or auxiliary's panel |
 | [What will happen?](#what-will-happen) | replay, projection with the loops running or held, sensitivity fan, what-if, risk, leverage, loop dominance | a part's panel in the Dynamics view, a goal's panel, a block's panel, a feedback loop's panel, a proposal's effect, `ergostat project` |
 | [How we know the improver works](#how-we-know-the-improver-works) | the pipeline tests, the judge's error rates, the recovery benchmark, the prediction check, the loop's own measures | `ergostat bench`, `ergostat verify`, the test suite |
-| [How do my loops behave, and how should they be tuned?](#how-do-my-loops-behave-and-how-should-they-be-tuned) | identification, process step response and Bode, margins, closed-loop step and Bode, monitoring, SIMC tuning, detuning, step tests | Blocks view: the process block, the controller, the summing junction; Loops page |
+| [How do my loops behave, and how should they be tuned?](#how-do-my-loops-behave-and-how-should-they-be-tuned) | identification, process step response and Bode, margins, closed-loop step and Bode, monitoring, SIMC tuning, detuning, step tests | Blocks view: the process block, the controller, the summing junction; Goals page |
 
 Whether the blocks' own reports can be believed (what each said it did, checked against the record, and its
 trust) is in [CLAIMS.md](CLAIMS.md), "Claims and trust".
@@ -417,7 +417,7 @@ and never proposals (they change the world, not the model):
 
 - an input's rate: a valve from outside (an arrival) → **What if it came at**: a rate an hour, or `x2` for
   twice its mean over the window (`flow.NAME`);
-- a setpoint: a goal's panel (Loops page, or a loop's scope) → **What if it held at** (`goal.NAME`);
+- a setpoint: a goal's panel (Goals page, or a goal's scope) → **What if it held at** (`goal.NAME`);
 - a pool: the causes strip → **Each block's identified model** → beside a block that takes items, **what if its
   pool were** (`block.NAME.pool`).
 
@@ -438,7 +438,7 @@ valid counts as off, and the line says how many were. For each part, the half an
 the strip's fan, drawn when it is ready (nothing is drawn in its place till then).
 
 **Where.** The causes strip with the loops running: the fan, and a line for each goal on the part. A goal's
-panel (Loops page → a goal) → **Ahead, with the loops running**. Command line:
+panel (Goals page → a goal) → **Ahead, with the loops running**. Command line:
 `ergostat project --risk` (`--runs`, `--seed`, `--budget`).
 
 **Needs.** Controllers in the model. Bounded: at most 400 runs and 4,000 steps a run; it stops at 8 seconds on
@@ -504,7 +504,7 @@ what every other control tool needs.
 controller **C**): first a table of the loop (law, process ± σ, held-out NRMSE fit for estimation and
 validation, time off, settling, saturation), then → **The loop NAME, from u to y**: the process in MathML, gain K, time constant τ, dead time θ, fit, what it
 leaves of the record held out, where it came from, the whiteness and independence of its errors, and y
-against the model's own simulation ŷ. Loops page → click a loop → the same, with the controller's.
+against the model's own simulation ŷ. Goals page → click a goal → the same, with the controller's.
 Model page → **What's available** → a loop's **process** link opens it.
 
 **Needs.** u stepped three times or more in the part fitted (or a step test), forty readings fitted
@@ -571,7 +571,7 @@ tests and starts are left out.
 recovery.
 
 **Where.** Diagram → **Blocks** → click the loop's summing junction **Σ**, its controller or its output
-y → the scope (y with r, u, e) → **How it is doing**. Loops page: a word per loop (or what it lacks:
+y → the scope (y with r, u, e) → **How it is doing**. Goals page: a word per goal (or what it lacks:
 "needs θ", "too little record"), and the whole of it in a loop's panel. Model page → **What's
 available** → **scope**.
 
