@@ -150,3 +150,17 @@ not on main, and done item 4 is not measured on :8796.
 Tests run after the merge: tests/test_dashboards.py (32 passed), tests/test_why.py and tests/test_graph_cli_web.py
 (77 passed), tests/test_items_overview.py (7 passed), ruff clean. Not run: the unit suite, the browser files,
 demo_check.
+
+## Where it stopped
+
+Implementor, 2026-11-23 (continued, round 6). The one finding was conflicts with main in docs/AGENT-GUIDE.md,
+docs/SPEC.md, ergostat/spec/ir.py, ergostat/spec/load.py and schema/ergostat.schema.json. They are resolved in the
+merge of main (7a905955): the model keeps both main's `outlive_engine` and the branch's `dashboards`; `TOP` and the
+schema keep both `runs` and `dashboards`. Main had also taken SPEC §4e (the query API) and AGENT-GUIDE §3k (asking
+for numbers over time), so main's numbers are kept and the dashboards sections are now SPEC §4f and AGENT-GUIDE §3l,
+with every reference to them in code comments, the schema, the demos and the tests changed to match (comment text
+only, no line moved in a demo). No other code changed this round. Still as round 1 says: change 5 (the page) is not
+built, because dashboard-page-v1 is not on main, and done item 4 is not measured on :8796.
+Tests run after the merge: tests/test_dashboards.py, test_spec_schema.py and test_spec_compile.py (97 passed),
+test_runs_outlive_engine.py, test_spec_structure.py and test_query_engine.py (74 passed), test_graph_cli_web.py and
+test_compute_keeper.py (52 passed), ruff clean. Not run: the unit suite, the browser files, demo_check.
