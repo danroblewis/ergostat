@@ -1,0 +1,48 @@
+list: discovery
+description: the discovery algorithms ergostat runs, each on a seeded simulation (conformance-stock.md section 6)
+cases:
+  prometheus-draft:
+    description: a fake Prometheus on 127.0.0.1 with a gauge and two counters of one stem; the draft has a stock and a flow in and out
+    from: ergostat/spec/discover.py:60
+    check: python3 dev/conformance/checks/discovery.py prometheus-draft
+  unwritten-loop:
+    description: an outflow following its stock 270s later; discover loops finds it unwritten, its delay within 180s, and proposes a goal and an external block
+    from: ergostat/spec/discover.py:154
+    check: python3 dev/conformance/checks/discovery.py unwritten-loop
+  process-fopdt:
+    description: a first-order process with dead time, identified as fopdt with K within 5% and tau within 15%
+    from: ergostat/control/ident.py:310
+    check: python3 dev/conformance/checks/discovery.py process-fopdt
+  process-integrating:
+    description: an integrator with dead time, identified as integrating with k within 10%
+    from: ergostat/control/ident.py:310
+    check: python3 dev/conformance/checks/discovery.py process-integrating
+  law-onoff:
+    description: an alert rule with hysteresis; the law kept is on-off
+    from: ergostat/numbers/extlaw.py:29
+    check: python3 dev/conformance/checks/discovery.py law-onoff
+  law-proportional:
+    description: a proportional controller with a delay; the law kept is proportional
+    from: ergostat/numbers/extlaw.py:29
+    check: python3 dev/conformance/checks/discovery.py law-proportional
+  law-pi:
+    description: a PI controller in velocity form with a deadband; the law kept is PI
+    from: ergostat/numbers/extlaw.py:29
+    check: python3 dev/conformance/checks/discovery.py law-pi
+  law-stepper:
+    description: an HPA-like three-position stepper; the law kept is the stepper
+    from: ergostat/numbers/extlaw.py:29
+    check: python3 dev/conformance/checks/discovery.py law-stepper
+  law-changed:
+    description: a controller retuned halfway is said changed, with at most 1 false alarm over 30 unchanged seeds
+    from: docs/GAPS.md:99-102
+    check: python3 dev/conformance/checks/discovery.py law-changed
+  law-kubernetes-hpa:
+    description: "law: kubernetes-hpa accepted, and the HPA's rule fitted to its simulated record as the ratio family, target within 10%"
+    from: docs/GAPS.md:102-103
+    check: python3 dev/conformance/checks/discovery.py law-kubernetes-hpa
+  structure-from-residuals:
+    description: a chain missing its stock in transit; the residuals propose that stock
+    from: ergostat/numbers/structural.py:833
+    check: python3 dev/conformance/checks/discovery.py structure-from-residuals
+    timeout: 5m

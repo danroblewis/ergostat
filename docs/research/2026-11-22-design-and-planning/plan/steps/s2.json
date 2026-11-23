@@ -1,0 +1,5 @@
+[
+ {"goto": "http://127.0.0.1:8794/diagram?view=dynamics"}, {"wait": 6000},
+ {"shot": "plan-ks-road-dyn.png"},
+ {"text": "css=svg"}
+]

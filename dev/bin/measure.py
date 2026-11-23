@@ -1,5 +1,5 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
-when nothing in the window to measure, but for the nine named at the end, which have no value then
+when nothing in the window to measure, but for the eleven named at the end, which have no value then
 (they exit 1, as ergostat's own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
@@ -12,7 +12,8 @@ when nothing in the window to measure, but for the nine named at the end, which 
   suite-minutes       median minutes of the queue's suites (unit, browser, demo) on the runs that passed
   first-pass-yield    the share of first reviews whose verdict was merge
   fix-rounds          mean rounds sent back to the implementor per merged gap
-  flake-rate          flaky retries per queue run
+  flake-rate          flakes per queue run: triage's retries plus the runs the queue excused as flakes (a landed gap's
+                      suites_queue.excused, each run once by batch_id), over the queue runs, as merges-per-hour counts them
   cost-per-merged     dollars of AI sessions per merged gap (every round, implementor and reviewer)
   tool-denials        tool calls refused to the AI sessions (sessions.py), over the sessions that said; one with no
                       result (a timeout, a crash) or a result silent on them is left out and counted on stderr, and
@@ -54,7 +55,7 @@ when nothing in the window to measure, but for the nine named at the end, which 
                       summed over the gaps merged in the window that carry planning_cost_usd. A gap without it is left
                       out, never counted as 0; one whose planning cost is negative, not a number or above its total is
                       left out too, and named on stderr. It says where the money went, not that less planning is safe.
-First-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
+Flake-rate, first-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
 split-overhead, the two size measures and planning-cost-share have no value with nothing to measure.
 
   coverage-below-floor  the modules whose share of statements the unit suite on main ran is under [code_health]
@@ -159,9 +160,9 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         return round(statistics.mean(f("fix_rounds")), 3) if merged else 0.0
     if name == "cost-per-merged":
         return round(sum(f("ai_cost_usd")) / len(merged), 2) if merged else 0.0
-    if name == "merges-per-hour":                       # every run that ended in the window, its whole length once
-        runs = {r["run"]: float(r.get("minutes") or 0) for g in gaps for r in g["fields"].get("queue_runs") or []
-                if float(r.get("at") or 0) >= since}
+    runs = {r["run"]: float(r.get("minutes") or 0) for g in gaps for r in g["fields"].get("queue_runs") or []
+            if float(r.get("at") or 0) >= since}        # every queue run that ended in the window, each once
+    if name == "merges-per-hour":                       # its whole length once
         hours = sum(runs.values()) / 60
         return round(len(merged) / hours, 3) if hours else 0.0
     queued = [g["fields"] for g in recent(gaps, "queued_at", since)]
@@ -171,9 +172,12 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
         runs = [g.get("suites_queue") or {} for g in merged]
         return median([sum(float((r.get(s) or {}).get("seconds") or 0) for s in ("unit", "browser", "demo")) / 60
                        for r in runs if r])
-    if name == "flake-rate":
-        runs = sum(int(g.get("queue_attempts") or 0) for g in queued)
-        return round(sum(int(g.get("retries") or 0) for g in queued) / runs, 3) if runs else 0.0
+    if name == "flake-rate":                            # triage's retries and the queue's excused runs, per run
+        if not runs:
+            raise SystemExit("flake-rate: no value (no queue run in the window)")   # not 0: unknown
+        excused = {g.get("batch_id") or g.get("main_sha") or id(g) for g in merged
+                   if isinstance(g.get("suites_queue"), dict) and g["suites_queue"].get("excused")}
+        return round((sum(int(g.get("retries") or 0) for g in queued) + len(excused)) / len(runs), 3)
     raise SystemExit(f"measure.py: no measure {name!r}")
 
 
@@ -302,9 +306,15 @@ def knowledge_reading(name: str, since: float) -> float:
                       if g["fields"].get("parent")], name)
     first = [r for r in recent(fac.items("review"), "written_at", since) if r["fields"].get("round") == 1]
     if name == "first-pass-with-lessons":
-        return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(r["fields"].get("gap"))], name)
-    risks = {r["id"]: set(gaps.get(r["fields"].get("gap"), {}).get("fields", {}).get("risks") or []) for r in first}
+        return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(review_gap(r))], name)
+    risks = {r["id"]: set(gaps.get(review_gap(r), {}).get("fields", {}).get("risks") or []) for r in first}
     return share([not (risks[r["id"]] & set(r["fields"].get("classes") or [])) for r in first if risks[r["id"]]], name)
+
+
+def review_gap(review: dict) -> str | None:
+    """The gap a review is of: its ``gap`` field is a relation, which the record may hold as a list of one."""
+    got = review["fields"].get("gap")
+    return (got[0] if got else None) if isinstance(got, list) else got
 
 
 STALE = 20                                              # main's merges after which a coverage report says nothing
