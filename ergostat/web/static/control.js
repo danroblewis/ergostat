@@ -286,7 +286,8 @@ function performanceRows(d) {
     : os.crossings != null ? "no" : null;
   const cn = pf.constraint;
   const nl = d.predicted?.nonlinear?.length ? "; linear, the dead band and the setting's steps left out (the controller's panel says what they do)" : "";
-  return [["Harris index", harris], ["past its bound", cn ? ofRecorded(`${Math.round(cn.share * 100)}% of the time (${Math.round(cn.share_off * 100)}% past its tolerance), by ${fmt(cn.mean)} typically, ${fmt(cn.worst)} at worst`) : null],
+  return [["Harris index", harris], ["past its bound", cn ? ofRecorded(`${shareText(cn.share)} of the time (${shareText(cn.share_off)} past its tolerance), by ${fmt(cn.mean)} typically, ${fmt(cn.worst)} at worst; `) +
+      "past its bound is y beyond the bound by any amount, where time off counts only from going off (past its tolerance) to holding again" : null],
     ["oscillating", osc],
     ["settles", ex.count ? `in ${secs(ex.settling)}, typically (slowest ${secs(ex.slowest)}, ${ex.count} times)` : null],
     ["overshoot", ex.overshoot != null ? `${Math.round(ex.overshoot * 100)}% past the setpoint, typically` : null],
@@ -319,8 +320,8 @@ function performanceWord(d) {
   if (d.why) return "no one process";
   const pf = d.performance || {};
   if (pf.oscillation?.oscillating) return `oscillates, ${secs(pf.oscillation.period)}`;
-  if (pf.saturation != null && pf.saturation > 0.2) return `saturated ${Math.round(pf.saturation * 100)}%`;
-  if (pf.constraint) return pf.constraint.share ? `past its bound ${Math.round(pf.constraint.share * 100)}%` : "within its bound";
+  if (pf.saturation != null && pf.saturation > 0.2) return "saturated";      // the row shows one share: its time off
+  if (pf.constraint) return pf.constraint.share ? "past its bound" : "within its bound";
   if (pf.harris?.index != null) return `Harris ${fmt(pf.harris.index)}`;
   if (pf.harris?.short) return "too little record";
   if (pf.harris?.needs_theta) return "needs θ";

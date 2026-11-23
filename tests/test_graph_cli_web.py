@@ -292,6 +292,25 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_the_loops_row_writes_shares_through_share_text_and_names_flapping_at_twenty():
+    """Without a browser (the build's suite has none): the Loops row's time off goes through shareText, which writes
+    '<1%' for a share that rounds to 0, no literal "0%" remains there, and flapping is named from FLAP_AT = 20 through
+    the hysteresis (steadyWord). The behaviour itself is checked in the browser by
+    tests/test_diagram_rendering.py::test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named."""
+    import re
+
+    from ergostat.web.server import STATIC
+    util, pages = (STATIC / "util.js").read_text(), (STATIC / "pages.js").read_text()
+    assert re.search(r'const shareText = .*x > 0 && x < 0\.005 \? "<1%"', util), "shareText no longer writes '<1%'"
+    assert re.search(r"const FLAP_AT = 20;", util), "the flapping count is not 20"
+    loops = pages[pages.index("async function pageLoops"):]
+    loops = loops[:loops.index("\nasync function ", 1)]
+    row = (STATIC / "goalrow.js").read_text()   # the Loops row is drawn by goalRow
+    assert "shareText(g.off_share)" in row and '"0%"' not in row + loops, "time off is not written through shareText"
+    assert "behaviour: word(g.name, g)" in loops and "g.behaviour ??" in row, "the row's behaviour skips the hysteresis"
+    assert re.search(r"lp\.times_off >= FLAP_AT \? steadyWord\(n, `flapping \(", loops), "flapping not named in the row"
+
+
 def test_only_the_record_folds_runs_of_identical_events():
     """Without a browser (the page test is tests/test_items_page.py::test_the_record_folds_runs_of_identical_events):
     a run's key is the event's type, source, item and shown data, and only the Record (local and remote) asks for
