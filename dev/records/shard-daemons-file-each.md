@@ -33,3 +33,20 @@ depends-on: []
 ## Size budget
 35 net lines
 size: S (confidence: medium)
+
+## Where it stopped
+Built, 34 net lines in `ergostat/daemons/supervise.py`. Nothing left inside this gap.
+- Decision (no one to ask, the more reversible reading): the dead-writer check applies to the shard files
+  (`daemons.NAME.json`) only. `daemons.json` is read as before, pid or not, because done item 1 says a directory
+  holding only that file gives the same answer as today (and the Agents page fixture writes it with no pid). Adding
+  the check there later is a one-word change.
+- A shard file with no pid, or one that is not an int, counts as a dead writer (its daemons are `stopped`). A file
+  whose JSON is not a mapping, or whose `daemons` is not a mapping, adds nothing.
+- Two non-stopped entries for one name (both running): the first file by name wins, the same as when both are stopped.
+- Mutations seen to fail the new tests: write always to `daemons.json`; no dead-pid check; a later non-stopped entry
+  overriding an earlier one; no sort (with glob order reversed); `search` in place of `fullmatch`; `OSError` not
+  caught.
+- `tests/test_agents_page.py::test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` fails when the whole
+  file runs here (the panel still reads "Loading…" when the test reads it) and passes alone. It fails the same way
+  with main's `read_status` put back, and its fixture writes `daemons.json` by hand, so it is not this change. It is
+  left alone (lesson 13).
