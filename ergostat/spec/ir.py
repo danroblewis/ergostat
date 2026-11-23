@@ -526,6 +526,25 @@ class WorkspacePool:
 
 
 @dataclass
+class ComputePool:
+    """A pool of nodes runs may execute on (``compute:``, SPEC §12k): each node an SSH ``Host`` name (``ssh``) or a
+    command whose standard input and output reach a worker (``connect``); ``slots`` runs at once on each; ``limits``
+    each run's (bytes, seconds, ``network``); ``repos`` name → path here, ``secrets`` name → the file it is read from
+    (never read at compile), ``labels`` what a node must say it has. Declared only: nothing runs on one yet."""
+    name: str
+    nodes: list[dict] = field(default_factory=list)      # each {"ssh": HOST} or {"connect": [argv]}
+    backend: str = "process"
+    image: str | None = None
+    slots: int = 1
+    limits: dict = field(default_factory=dict)            # cpus, memory, pids, disk, wall, network, log
+    repos: dict[str, str] = field(default_factory=dict)
+    secrets: dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
+    description: str = ""
+    where: Where | None = None
+
+
+@dataclass
 class Sensor:
     name: str
     of: Ref                    # the stock or flow it measures
@@ -972,6 +991,7 @@ class Spec:
     actions: dict[str, Action] = field(default_factory=dict)           # the gated actions sessions may ask for (SPEC §12k)
     notify: object = None                   # inbox.config.Notify: where what waits on a person is sent (SPEC §12o)
     workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)
+    compute: dict[str, ComputePool] = field(default_factory=dict)      # where runs may execute (SPEC §12k)
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
     daemons: dict[str, Daemon] = field(default_factory=dict)           # the long-lived runners (SPEC §9.7)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)

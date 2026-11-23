@@ -178,6 +178,25 @@ def test_each_kind_is_answered_from_the_api(tmp_path):
     assert kinds(p) == ["steptest"]
 
 
+def test_a_request_answered_leaves_the_attention_list_the_side_list_keys_by_what(tmp_path):
+    """The side list (diagram.js) keys each request's row by its ``what`` and, while the reader is in it, marks a row
+    "no longer waiting" when that ``what`` drops out of the graph answer's attention: so each request must be there
+    under its own ``what`` with its verbs, and an answered one gone while the others stay, in their order (the browser
+    half of this check is tests/test_inbox_page.py)."""
+    from ergostat.web.server import Live
+    p, _ = project(tmp_path)
+    shorts = [record.short(gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None})["id"])
+              for _ in range(3)]
+
+    def waiting() -> list[str]:
+        return [a["what"] for a in st.attention(st.snapshot(p), False, p.model) if a.get("answer")]
+    before = waiting()
+    assert sorted(w for w in before if w.startswith("action/")) == sorted(f"action/{s}" for s in shorts), before
+    code, x = actions_api.answer(Live(p), f"inbox/action%2F{shorts[1]}/deny", {"note": ["not now"]})
+    assert code == 200 and x["id"] == f"action/{shorts[1]}"
+    assert waiting() == [w for w in before if w != f"action/{shorts[1]}"]
+
+
 def test_the_mcp_lists_and_answers(tmp_path):
     from ergostat.mcp import Server
     p, snap = project(tmp_path)
