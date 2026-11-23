@@ -53,3 +53,15 @@ and main (5411f137) is merged in. Run here, serially: the three acceptance tests
 tests/test_factory.py (193 passed, 2 skipped for want of Docker, rc 0, 502 s). ruff is clean. The -n 8 build was not
 run here, so it is not shown whether round 2's sys.modules fix ends the one F of the second failed build. No code
 changed.
+
+Round 3, after the failed build. The one named failure is
+test_an_approved_switch_drains_and_switches_through_the_engine: a switcher run (dev/bin/drain.py, in its own process)
+was still running at the test's 120 s deadline. The branch changes none of the code it runs: drain.py, fac.items and
+fac.ergostat, the engine, and live.py are unchanged. In ergostat.yaml it adds only comment lines. Run serially here it
+passed alone (143.8 s for the whole test). It passed again run right after the refusal and release tests (3 passed,
+162.2 s). Not proven: each drain.py run makes many `ergostat item` subprocess calls (fac.items lists each kind's states
+one at a time, for gap, research and situation), each loading the whole model. Under -n 8 that can pass 120 s. That
+would be a load-dependent bound (lesson-10), outside this gap (lesson-13). No code was changed, and the test's bound
+is left as it is. Not run: main's own timing of this test (`git worktree add -q /tmp/mainwt main` was refused in this
+session), and a timed `ergostat item` call (refused as well), so neither the cause nor that main fails it too was
+reproduced.
