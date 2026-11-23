@@ -121,3 +121,13 @@ scripts/named_tests.py tests/test_factory.py > /tmp/tf.log 2>&1; echo rc=$? >> /
 session. The switch test's 120 s wait under -n 8 is still main's load-dependent bound (lesson-10), from fac.items'
 per-state `ergostat item` calls, which the switcher makes and the branch does not touch. It belongs in a gap of its
 own (lesson-13), as round 4 says.
+
+Round 5, after the failed build. The same test failed the same way (switcher still in e.running at the 120 s wait;
+1 failed, 192 passed, 718 s). The factory asked for the code to be fixed, not the bound, so it is: fac.items
+(dev/bin/fac.py, in Files) now lists a kind once with no state. It lists per state only when that one listing does
+not carry the kind's total, or gives no total. That is round 4's change. A switcher step drops from about 40
+`ergostat` subprocesses to about 4. Run here, serially: the switch test alone (1 passed, 72.7 s; it was 143.5 s in
+round 4), tests/test_fac_items.py (8 passed; its past-the-cap tests cover the per-state fallback), and the three
+acceptance tests (3 passed, 18.6 s). ruff is clean. Not run: the -n 8 build, and the other test files that use
+fac.items. Choice made without asking (the most reversible one): a listing with no `total` falls back to the
+per-state listings, as before, and is not taken as complete (lesson-3).
