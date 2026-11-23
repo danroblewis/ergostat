@@ -7,6 +7,7 @@ written, and SIGTERM then SIGKILL to its group only while its leader is shown to
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -19,6 +20,7 @@ import keeper
 LINUX = sys.platform.startswith("linux")
 GRACE = 2.0                 # seconds from the worker's SIGTERM to its SIGKILL for an unknown run
 HOUR = 3600.0
+BOOT_ID = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")    # a per-boot UUID, nothing else
 
 
 class Unread(Exception):
@@ -62,17 +64,18 @@ def start_of(pid: int) -> str | None:
 
 
 def boot() -> str:
-    """This boot's id (``/proc/sys/kernel/random/boot_id``; ``sysctl kern.boottime`` elsewhere); Unread when not read."""
+    """This boot's id, a UUID made at each boot (``/proc/sys/kernel/random/boot_id``; ``sysctl kern.bootsessionuuid``
+    elsewhere, never ``kern.boottime``, a time of day the clock moves); Unread when not read or not of that form."""
     try:
         if LINUX:
             with open("/proc/sys/kernel/random/boot_id", encoding="utf-8") as f:
                 got = f.read().strip()
         else:
-            out = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True, text=True, timeout=5)
+            out = subprocess.run(["sysctl", "-n", "kern.bootsessionuuid"], capture_output=True, text=True, timeout=5)
             got = out.stdout.strip() if out.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError) as e:
         raise Unread(str(e)) from None
-    if not got:
+    if not BOOT_ID.match(got):
         raise Unread("no boot id")
     return got
 
@@ -136,7 +139,8 @@ def _proc(d: str) -> dict | None:
     """The keeper's ``proc`` record, None when missing or not of its shape."""
     rec = _read(os.path.join(d, "proc"), json.loads)
     ok = (isinstance(rec, dict) and _pid(rec.get("pid")) and _pid(rec.get("keeper"))
-          and all(isinstance(rec.get(k), str) for k in ("start", "keeper_start", "boot")))
+          and all(isinstance(rec.get(k), str) for k in ("start", "keeper_start", "boot"))
+          and BOOT_ID.match(rec["boot"]))
     return rec if ok else None
 
 
@@ -159,7 +163,7 @@ def state(d: str, table: list) -> dict:
         return {"state": "unknown", "why": "record unreadable"}
     try:
         if rec["boot"] != boot():
-            return _ended(d, "rebooted")                          # (every process of that boot has ended)
+            return _ended(d, "rebooted")                          # (two boot UUIDs differ: that boot has ended)
         run_start = start_of(rec["pid"])
         keeper_alive = start_of(rec["keeper"]) == rec["keeper_start"]
     except Unread:

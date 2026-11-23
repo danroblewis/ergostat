@@ -7718,8 +7718,9 @@ standard input, or killing its session, leaves every run going.
 
 **The keeper** forks the run, then writes `runs/RUN/proc` `{"pid", "start", "keeper", "keeper_start", "boot"}` (the
 run's pid and start time, its own pid and start time, as the system gives them: `/proc/PID/stat` field 22 on Linux,
-`ps -o lstart=` elsewhere; and the boot, `/proc/sys/kernel/random/boot_id` on Linux, `sysctl -n kern.boottime`
-elsewhere; best effort: without it the run reads `unknown`, section 12s.6). The child takes its own process group (the keeper sets it too, so a stop never
+`ps -o lstart=` elsewhere; and the boot, a UUID made at each boot, `/proc/sys/kernel/random/boot_id` on Linux,
+`sysctl -n kern.bootsessionuuid` elsewhere, never `kern.boottime`, a time of day that moves with the clock; a reading
+not of a UUID's form is no reading; best effort: without it the run reads `unknown`, section 12s.6). The child takes its own process group (the keeper sets it too, so a stop never
 precedes it), writes `runs/RUN/pgid` before anything else, sets `RLIMIT_AS` to `memory`, `RLIMIT_NPROC` to `pids`
 and `RLIMIT_CPU` to `cpus × wall` (rounded up) when given, and on Linux `PR_SET_PDEATHSIG = SIGKILL` (by `ctypes`;
 the run is not started if that fails or the keeper has already gone) and `oom_score_adj` 500 (best effort: it
@@ -7890,7 +7891,7 @@ three states. **Gone** needs a reading made, one of an allowlist:
 
 - `running`: its `proc` pid is alive with the start time recorded, and so is its keeper's;
 - `gone`, with `code` and `how`: its keeper's `exit` is written (an unreadable one reads `code` 127, never 0); or its
-  `proc` names another boot than this one (every process of that boot has ended); or its pid is another process
+  `proc` names another boot UUID than this one's, both read as UUIDs (every process of that boot has ended); or its pid is another process
   (another start time): the run leads its own group (its pgid is its pid) and the kernel does not give a pid number
   again while any process has it as its pid or its group, so the run's group is empty and any process now in a group
   of that number is a stranger's; or its pid is absent or a zombie *and* the group of that number is read as having
@@ -7898,8 +7899,8 @@ three states. **Gone** needs a reading made, one of an allowlist:
   still alive, `code` and `how` are null (the keeper writes the exit within a quarter second); when its keeper is
   gone too, the worker writes the exit itself, `{"code": null, "how": "keeper gone"}` (`"rebooted"` for another
   boot; `code` reads 127), and the folder is left for the engine's `done` and the sweep;
-- `unknown`, with `why`: anything else: `record unreadable` (no `proc`, or not of that shape), `ps failed` (a start
-  time or the boot not read), `group not read`, `group not empty` (its pid absent while a group of that number still
+- `unknown`, with `why`: anything else: `record unreadable` (no `proc`, or not of that shape, its boot
+  not a UUID among them), `ps failed` (a start time or this boot's UUID not read), `group not read`, `group not empty` (its pid absent while a group of that number still
   has a process), `keeper gone` (the run alive, its keeper not), `not read` (an unexpected fault, said on standard
   error). Unknown is never gone and never fine: the worker stops it by name at once by writing its `stop` (so a
   keeper still there acts on it as for a `kill`), and itself sends SIGTERM to the run's group, then SIGKILL 2 seconds

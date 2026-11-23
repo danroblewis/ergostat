@@ -139,8 +139,8 @@ def test_reused_pid_stranger_survives(tmp_path, st, monkeypatch):
         dead, boot, its = _ended_pid(), st.boot(), st.start_of(p.pid)
         reused = _folder(tmp_path, {"pid": p.pid, "start": "1", "keeper": dead, "keeper_start": "1", "boot": boot},
                          p.pid)
-        before = _folder(tmp_path, {"pid": p.pid, "start": its, "keeper": dead, "keeper_start": "1", "boot": "old"},
-                         p.pid)
+        before = _folder(tmp_path, {"pid": p.pid, "start": its, "keeper": dead, "keeper_start": "1",
+                                    "boot": str(uuid.uuid4())}, p.pid)
         found = st.States(str(tmp_path))
         assert listed({"runs": found.hello()}, reused) == {"run": reused, "state": "gone", "code": 127,
                                                            "how": "keeper gone"}
@@ -148,6 +148,24 @@ def test_reused_pid_stranger_survives(tmp_path, st, monkeypatch):
                                                            "how": "rebooted"}
         assert found.look()[reused]["state"] == "gone" and sent == [] and p.poll() is None
         assert not any((tmp_path / "runs" / r / "stop").exists() for r in (reused, before))
+
+        # Off Linux the boot is kern.bootsessionuuid; a time of day (kern.boottime's form) or a recorded boot that is
+        # not a UUID is no boot reading, so never "rebooted".
+        odd = _folder(tmp_path, {"pid": p.pid, "start": its, "keeper": dead, "keeper_start": "1", "boot": "old"},
+                      p.pid)
+        assert st.state(str(tmp_path / "runs" / odd), [None]) == {"state": "unknown", "why": "record unreadable"}
+        asked, said = [], [str(uuid.uuid4()).upper()]
+        monkeypatch.setattr(st, "LINUX", False)
+        monkeypatch.setattr(st.subprocess, "run", lambda argv, **kw: asked.append(argv) or
+                            subprocess.CompletedProcess(argv, 0, said[0] + "\n", ""))
+        assert st.boot() == said[0] and asked == [["sysctl", "-n", "kern.bootsessionuuid"]]
+        said[0] = "{ sec = 1763900000, usec = 0 } Sun Nov 23 10:00:00 2026"
+        live = _folder(tmp_path, {"pid": p.pid, "start": its, "keeper": p.pid, "keeper_start": its,
+                                  "boot": str(uuid.uuid4())}, p.pid)
+        with pytest.raises(st.Unread):
+            st.boot()
+        assert st.state(str(tmp_path / "runs" / live), [None]) == {"state": "unknown", "why": "ps failed"}
+        assert not (tmp_path / "runs" / live / "exit").exists() and sent == []
     finally:
         p.kill()                                             # (os.killpg is the stand-in here)
         p.wait()

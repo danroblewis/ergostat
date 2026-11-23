@@ -67,3 +67,24 @@ the SIGKILL sent without reading again), answered as the review asked, all three
   Not tested: the macOS `sysctl`/`ps` paths, the hourly sweep's timer.
 
 Overrun reason: about 290 net lines against 200 (round 1's reasons, plus the boot record and reading, and the reading again of the leader before each signal that the review's fix requires).
+
+Round 3: the one review finding (states.py:68-72 with :164-165: off Linux the boot read as `kern.boottime`, a time
+of day the clock moves, so a clock step read every live run as `rebooted`, a false exit written), answered both
+ways the review offered, together:
+
+- **A real per-boot id off Linux:** `sysctl -n kern.bootsessionuuid`, a UUID made at each boot.
+- **A boot reading is a UUID or no reading.** `boot()` accepts only the UUID form (8-4-4-4-12 hex), else Unread, so
+  the run is `unknown` "ps failed", never gone, and nothing is signalled (`shown` is false). A recorded `proc` whose
+  boot is not a UUID is `record unreadable`. So `rebooted` is said only when two UUIDs, each read, differ. If
+  `kern.bootsessionuuid` is absent or of another form on some macOS, runs read `unknown` there (the reversible side:
+  a run left going and listed, never a false exit).
+- SPEC §12s.3 (the keeper's `proc`) and §12s.6 (gone, unknown) say so.
+- **Test:** `test_reused_pid_stranger_survives` (still six tests) now also stubs the macOS path: `boot()` asks
+  `sysctl -n kern.bootsessionuuid` and takes its UUID; a `kern.boottime`-form answer raises Unread and a live run's
+  record of another boot reads `unknown` "ps failed", no exit written, nothing signalled; a recorded boot "old" reads
+  `record unreadable`. Each break was seen to fail it: `boot()` accepting any non-empty reading; `_proc` not checking
+  the recorded boot's form.
+- Not tested: a real macOS (this container is Linux; `kern.bootsessionuuid` is taken on knowledge, not checked
+  here), the hourly sweep's timer.
+
+Overrun reason: about 295 net lines against 200 (round 2's reasons, plus the UUID form check on both boot readings that round 3's finding needs).
