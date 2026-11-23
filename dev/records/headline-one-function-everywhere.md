@@ -184,3 +184,8 @@ Seen to fail with the old `st.goals_off(snap)` (9 against 1).
 
 Runs: ruff is clean. tests/test_graph_cli_web.py passed whole (50 passed), and so did
 tests/test_items_page.py::test_every_surface_prints_the_servers_one_count_of_goals_off under the watchdog.
+tests/test_diagram_rendering.py was started whole under the watchdog, but it was stopped at the 600 s limit on
+background commands before it ended, so it has no result. A restart with a longer limit was refused here
+(`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+tests/test_diagram_rendering.py > /tmp/diagram-r7.log 2>&1`). tests/test_page_refresh.py and the whole of
+tests/test_items_page.py were not run this round.
