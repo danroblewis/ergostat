@@ -1325,6 +1325,29 @@ reads the event log.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
   is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
+- **Result shapes.** Every answer says which of five shapes it is (`shape`), so a chart is chosen by what the data is and
+  not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn
+  against the other, as an X of another query gives; `open`, `high`, `low`, `close` for candles), `table` (`dims`,
+  `measures` and `rows`: a category X, or bins of an aggregate other than `count`), `points` (a field X; `order: "time"`
+  when the order is the content), `distribution` (`form` `bins` for a count in bins, `samples` for aggregation `none`
+  by category) and `response` (`has` `frequency`, and `system` from a model). Each answer also carries `meta`: its
+  `source`, its `query` (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the
+  record, `declared` for a model's) and `verdict` (`ok`, `warn` with what the answer says of itself, or `refuse` with the
+  error). A data source's type may answer with a typed frame instead of a list of series: `series` (with roles), a
+  `table` or `points`, each checked and bounded (5,000 rows or points), and refused with `error` when it is not what it
+  says. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+- **Which charts apply.** Each chart family declares the shapes it takes (`shapes` in its registration): line takes
+  series, a table over one numeric dimension, and points; bar series, a one-dimension table and bins; stat plain series and a
+  one-row table; table plain series and a one-dimension table; scatter two signals, a table of two measures, and points;
+  phase two signals and points in time order; histogram plain series, bins and samples; box samples and quartiles;
+  heatmap points; candlestick candles; Bode and Nyquist a response with its frequency; pole-zero a model's response.
+  A chart that cannot show an answer is disabled in the panel editor, and a panel saved with it draws nothing and says
+  in one sentence what it needs and how to reshape the data. Switching among the charts that apply asks the server
+  nothing: the editor asks again only when what a chart would send differs.
+- **Reshaping.** A panel may reshape a table on the page, where no query language does it: `reshape`, one step a line,
+  `pivot DIM` (a dimension's values become measures), `join DIM` (tables of one dimension joined on its value, only the
+  rows in all kept) and `group DIM` (the rows summed by one dimension). A step that cannot apply is the result's error.
+  Reshaping never asks the server again.
 
 ## 4f. Dashboards: shared, named, and checked
 
