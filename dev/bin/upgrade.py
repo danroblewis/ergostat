@@ -1,5 +1,6 @@
 """upgrader. `upgrade.py watch` (a collector): opens an upgrade (upgrade/<sha12>, available) for each new commit on
-the remote's pushed main (origin/main, fetched into the checkout), never for a merge not pushed.
+the remote's pushed main (origin/main, fetched into the checkout), never for a merge not pushed; then records the
+reverts pushed to main since its last read as escapes (dev/bin/escapes.py; a failure there stops that step alone).
 
 `upgrade.py` takes an upgrade (upgrade/<sha12>, available) under a lease, installs it into
 <live>/<sha> with its own environment (live.py install), checks the model with its own code, and asks for the gated
@@ -13,6 +14,7 @@ An upgrade older than the version running, or than a newer one waiting, is super
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 import time
 
@@ -38,6 +40,11 @@ def watch() -> int:
     running = live.target(live.live(cfg) / "current")
     if sha not in known and sha != running:
         fac.say("upgrade.opened", f"upgrade/{sha[:12]}", sha=sha, available_at=time.time(), source=f"{remote}/{base}")
+    try:                                                # reverts on the pushed main, escapes (dev/bin/escapes.py)
+        import escapes
+        escapes.watch(cfg, repo, sha)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as e:      # (this step alone stops)
+        print(f"escapes: {e}", file=sys.stderr)
     return 0
 
 

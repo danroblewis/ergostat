@@ -6,9 +6,10 @@ import sys
 
 
 def main(argv: list[str]) -> int:
-    from . import collect, each, modelling, ping, report, standin, upkeep
+    from . import collect, each, modelling, ping, report, standin, todo, upkeep
     progs = {"collect": collect.main, "each": each.main, "ping": ping.main, "due": report.due, "report": report.report,
-             "summary": report.summary, "modelling": modelling.main, "upkeep": upkeep.main, "standin": None}
+             "summary": report.summary, "modelling": modelling.main, "upkeep": upkeep.main, "todo": todo.main,
+             "standin": None}
     if not argv or argv[0] not in progs:
         print(f"usage: python -m ergostat.library.run {{{','.join(progs)}}} ...", file=sys.stderr)
         return 2
