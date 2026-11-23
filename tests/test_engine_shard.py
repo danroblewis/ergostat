@@ -456,3 +456,80 @@ def test_run_registered_after_close_copied_kills_itself(two, monkeypatch):
     monkeypatch.setattr(eng.runrecord, "write", late)
     assert a.start(p.model.spec.blocks["a-work"], "approved")
     assert until(lambda: ran(p, "a-work"), 10)["data"].get("note") == runner.STOPPED_WITH_US
+
+
+# ---- a moved flow's stocks read at once by the shard that owns each (shard-moved-flow-read-by-owner)
+
+MOVE = """
+name: mv
+systems:
+  a: {description: one}
+  b: {description: two}
+stocks:
+  a-s: {unit: things, system: a, sensor: {run: echo 1, every: 1h}}
+  b-s: {unit: things, system: b, sensor: {run: echo 2, every: 1h}}
+flows:
+  carry: {from: a-s, to: b-s, system: a}
+blocks:
+  a-move:
+    type: program
+    run: >-
+      echo '{"out": "flow.carry", "moved": 3}'
+    out: flow.carry
+    system: a
+"""
+
+
+def moving(tmp_path, monkeypatch):
+    """The whole engine and shard engines a and b, each read_soon recorded as (engine, stock, its cause then)."""
+    p = project(tmp_path, MOVE)
+    plan = shards.plan(p.model.spec)
+    assert (plan.of("stock.a-s"), plan.of("stock.b-s"), plan.of("block.a-move")) == ("a", "b", "a")
+    by = {n: Engine(p, say=lambda s: None, shard=n) for n in ("a", "b")}
+    by["whole"] = Engine(p, say=lambda s: None)
+    reads: list[tuple[str, str, str | None]] = []
+    for n, e in by.items():
+        monkeypatch.setattr(e, "read_soon", lambda s, n=n, e=e: reads.append((n, s.of.name, e.read_cause.get(s.series))))
+    return p, by, reads
+
+
+def test_moved_flow_read_by_owner(tmp_path, monkeypatch):
+    p, by, reads = moving(tmp_path, monkeypatch)
+    seq = p.events.last_seq()
+    by["whole"]._run(p.model.spec.blocks["a-move"], "test")              # no shard: both stocks, at once, caused by it
+    run = by["whole"].last_run["a-move"]
+    assert sorted(reads) == [("whole", "a-s", run), ("whole", "b-s", run)]
+    assert by["whole"]._follow_once(seq) == p.events.last_seq() and len(reads) == 2, "the whole engine follows no run"
+    reads.clear()
+    seq = p.events.last_seq()
+    by["a"]._run(p.model.spec.blocks["a-move"], "test")
+    run = by["a"].last_run["a-move"]
+    assert reads == [("a", "a-s", run)], "a reads its own stock, never b's"
+    for n in ("a", "b"):
+        by[n]._follow_once(seq)
+    assert reads == [("a", "a-s", run), ("b", "b-s", run)], "b reads its stock at once, caused by a's run"
+
+
+def test_moved_flow_read_once_each(tmp_path, monkeypatch):
+    p, by, reads = moving(tmp_path, monkeypatch)
+    seq = p.events.last_seq()
+    by["a"]._run(p.model.spec.blocks["a-move"], "test")
+    run = by["a"].last_run["a-move"]
+    got = {n: by[n]._follow_once(seq) for n in ("a", "b")}
+    p.events.add("agent.failed", item="a-move", source="test", causedby="later", data={"moved": {"carry": -2}})
+    for n in ("a", "b"):                                                   # followed again: only the newer event
+        by[n]._follow_once(got[n])
+    assert reads == [("a", "a-s", run), ("b", "b-s", run), ("b", "b-s", "later")], reads
+
+
+def test_moved_flow_unknown_reads_nothing(tmp_path, monkeypatch):
+    p, by, reads = moving(tmp_path, monkeypatch)
+    b, asked = by["b"], []
+    monkeypatch.setattr(b, "_ask", lambda e: asked.append(e["type"]))
+    seq = p.events.last_seq()
+    for data in ({"moved": {"nope": 3}}, {"moved": {"carry": 0}}, {"moved": {"carry": "3"}}, {"moved": {"carry": True}},
+                 {"moved": {"carry": float("nan")}}, {"moved": ["carry"]}, {"moved": "carry"}, {"exit": 0}, None):
+        p.events.add("agent.ran", item="a-move", source="test", causedby="r", data=data)
+    p.events.add("block.stop.requested", item="a-move", source="test")
+    assert b._follow_once(seq) == p.events.last_seq()
+    assert reads == [] and asked == ["block.stop.requested"], "nothing read, the owner's ask still answered"

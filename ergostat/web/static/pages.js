@@ -12,8 +12,9 @@ const windowNote = () => {
   const st = S.status, recorded = recordedShort();       // the header's own measure of it
   return st?.window ? (recorded != null ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
 };
-const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("table", { class: cls },
-  h("tr", {}, head.map((x) => (Array.isArray(x) ? h("th", { class: x[1] }, x[0]) : h("th", {}, x)))), rows));
+const table = (head, rows, cls = "", caption = head.filter((x) => typeof x === "string").join(", ")) => h("div", { class: "table-wrap" },
+  h("table", { class: cls }, h("caption", { class: "sr-only" }, caption),
+    headRow(head.map((x) => (Array.isArray(x) ? h("th", { class: x[1] }, x[0]) : h("th", {}, x)))), h("tbody", {}, rows)));
 /* a part of a page known by what it is, wherever a refresh puts it (patch() matches by it) */
 const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el; };
 
@@ -43,7 +44,7 @@ async function pageLoops(main) {
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
           (lp.points || []).length > 1 ? sparkSvg(lp.points, 120, 24, setpointOf(lp.setpoint)) : ""),
         h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, word(lp.perf)),
-        h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
+        h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no")))), "", "Loops"));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -71,14 +72,14 @@ async function pageAgents(main) {
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
     const use = (a) => a.use || {};
-    const table = h("div", { class: "table-wrap" }, h("table", {},
-      h("tr", {}, h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
+    const table = h("div", { class: "table-wrap" }, h("table", {}, h("caption", { class: "sr-only" }, "Agents, by rung"),
+      headRow(h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
         h("th", { class: "num", title: "What its AI sessions cost in the window, in USD" }, "cost"),
         h("th", { class: "num", title: "Tokens its AI sessions used in the window: input, output, cache reads and writes" }, "tokens"),
         h("th", { class: "num", title: "CPU time of its runs' processes in the window, user and system" }, "CPU"),
         h("th", { class: "num", title: "The most memory one of its runs held (its processes together)" }, "peak memory")),
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
-        h("tr", {}, h("th", { colspan: 9, "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
+        h("tr", {}, h("th", { colspan: 9, scope: "colgroup", "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
           h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
         xs.map(([name, a]) => h("tr", { class: "click", key: name, "data-row": name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
@@ -100,16 +101,16 @@ async function pageAgents(main) {
     const ds = Object.entries(daemons || {});
     patch(dbox, ...(ds.length ? [h("h3", {}, "Daemons"), h("p", { class: "note" }, "Long-lived processes the blocks' runs and the " +
       "sensors' readings are handed to. Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
-      h("div", { class: "table-wrap" }, h("table", { "data-daemons": "" },
-        h("tr", {}, ["daemon", "state", "serves", "restarts", "last line", "in flight", "CPU", "memory"].map((c, i) => h("th", i > 2 ? { class: "num" } : {}, c))),
-        ds.map(([n, d]) => h("tr", { key: n, "data-daemon": n },
+      h("div", { class: "table-wrap" }, h("table", { "data-daemons": "" }, h("caption", { class: "sr-only" }, "Daemons"),
+        headRow(["daemon", "state", "serves", "restarts", "last line", "in flight", "CPU", "memory"].map((c, i) => h("th", i > 2 ? { class: "num" } : {}, c))),
+        h("tbody", {}, ds.map(([n, d]) => h("tr", { key: n, "data-daemon": n },
           h("td", { class: "nowrap", title: d.run || "" }, h("b", {}, n)),
           h("td", { title: d.why || "" }, h("span", { class: d.state === "running" ? "s-holding" : "s-off" }, d.state), d.alarm ? h("span", { class: "s-off", title: d.alarm.why }, " alarm") : null),
           h("td", { class: "muted" }, (d.users || []).length > 3 ? `${d.users.length} parts` : (d.users || []).join(", ")),
           h("td", { class: "num", title: `${d.restarts_total} in all` }, String(d.restarts)),
           h("td", { class: "num nowrap" }, d.last_line ? ago(d.last_line) : "–"),
           h("td", { class: "num" }, `${d.in_flight} of ${d.concurrency}`),
-          h("td", { class: "num" }, cpuText(d.cpu)), h("td", { class: "num" }, bytesText(d.memory))))))] : []));
+          h("td", { class: "num" }, cpuText(d.cpu)), h("td", { class: "num" }, bytesText(d.memory)))))))] : []));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -192,7 +193,7 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
     if (v.length && v.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
       const shown = v.slice(-LIST_SHOWN), cols = [...new Set(shown.flatMap((x) => Object.keys(x)))];
       return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
-        h("table", { class: "sub" }, h("tr", {}, cols.map((c) => h("th", {}, c))),
+        h("table", { class: "sub" }, tableCaption(cols.join(", ")), headRow(cols.map((c) => h("th", {}, c))),
           shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1, null, there)))))));
     }
     return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1, null, there)]) : h("span", { class: "muted" }, "none");
@@ -676,7 +677,7 @@ async function pageItems(main, q) {
     if (!p.isConnected) return;
     if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
-      h("button", { class: on ? "on" : "", title, onclick: fn }, text)));
+      h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
     const check = (on, text, title, fn) => h("label", { class: "rg-check", title }, h("input", { type: "checkbox", ...(on ? { checked: "" } : {}), onchange: fn }), text);
     patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
                                 [view === "graph", "Graph", "The items and their relations: what each waits on, the critical path", () => { view = "graph"; go(); }],
@@ -697,7 +698,7 @@ async function pageItems(main, q) {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
         k.title || k.name, h("span", { class: "mono" }, k.title ? k.name : k.id));
       const fl = flows[k.name];
-      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
+      if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
           h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k));
       const chosen = kind === k.name ? state : null;
@@ -724,8 +725,10 @@ async function pageItems(main, q) {
         its = [...its].sort((a, b) => (v(a) == null) - (v(b) == null) || (v(a) == null ? 0
           : down * (nums.has(by) ? v(a) - v(b) : String(val(v(a))).localeCompare(String(val(v(b)))))));
       }
-      const head = (f) => h("button", { class: "ghost sort", title: `Sort by ${f}`, "aria-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none",
-        onclick: () => { sort = by !== f ? f : down > 0 ? `-${f}` : ""; go(); } }, f, by === f ? (down > 0 ? " \u25b4" : " \u25be") : "");
+      const sortName = (f) => `Sort by ${f === "by" ? "author" : f}`;    // (a field named by: not 'Sort by by')
+      const head = (f) => h("button", { class: "ghost sort", title: sortName(f), "aria-label": sortName(f),
+        "data-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none", onclick: () => { sort = by !== f ? f : down > 0 ? `-${f}` : ""; go(); } },
+        f, by === f ? h("span", { "aria-hidden": "true" }, down > 0 ? " \u25b4" : " \u25be") : "");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [head(f), "num"] : head(f))),
         ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
@@ -736,7 +739,7 @@ async function pageItems(main, q) {
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
           ...(etaCol ? [etaCell(i.eta)] : []),
           h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
-          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items");
+          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items", `${its[0]?.kind || "No kind"} items`);
     };
     const tables = async (names) => {                    // one table per kind, each with its own columns
       const parts = [];
@@ -841,6 +844,15 @@ function leaseView(l, state) {
 
 /* a field's history: each change, oldest first, with the event that made it (a click opens it) */
 const when = (t) => new Date(t * 1000).toLocaleString([], { hour12: false });
+// why an unfinished item is not done (/api/why: SPEC §5a): the summary, who acts and how, the evidence linked
+function whyBox(w) {
+  if (!w || !w.known || w.done) return null;
+  const r = w.root;
+  return h("div", { class: "note why", "data-why": r ? r.kind : "unknown" }, h("b", {}, "Why isn't this done? "), w.summary,
+    r && r.command ? h("p", {}, h("span", { class: "muted" }, `${r.owner}: `), h("code", {}, r.command)) : null,
+    (w.evidence || []).length ? h("ul", { class: "small" }, w.evidence.slice(0, 6).map((e) =>
+      h("li", { key: `${e.says}|${e.link}` }, e.link ? h("a", { href: e.link }, e.says) : e.says))) : null);
+}
 function eventLink(eid, type, d) {
   return h("a", { href: "#", class: "plain", title: `event ${eid}`, onclick: async (ev) => {
     ev.preventDefault();
@@ -915,6 +927,7 @@ async function pageItem(main, id, q) {
   let full = null;                                   // its full history, once asked for: kept across refreshes
   let impact = null;                                 // a failure's or a change's impact (review.js): worked out once
   const ans = answers();
+  let whySig = null;                                 // what the why answer said when last drawn
   // a refresh asks for its answers first; if none changed (each a 304), nothing on the page is touched (its files
   // are still asked for: a transcript may grow before its events are recorded); else only what differs is
   async function tick(force = true) {
@@ -926,8 +939,16 @@ async function pageItem(main, id, q) {
     const ms = !k?.name?.startsWith("ergostat.") ? await ans.api("messages", { item: id }).catch(() => null) : null;
     const as = !k?.name?.startsWith("ergostat.") || k?.name === "ergostat.workspace" || /^session\//.test(id)
       ? await ans.api("actions", { item: id }).catch(() => null) : null;
+    // why it is not done (of now only, and of an unfinished item): its answer carries its time and live durations, so
+    // it is never a 304; what it says (its cause, owner, step and evidence) is what counts as a change, and the words'
+    // durations are redrawn with the rest of the page
+    const w = !S.at && !(k?.final || []).includes(d.state) ? await api("why", { item: id }).catch(() => null) : null;
+    const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
+      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
     if (!p.isConnected) return;
-    if (!force && !ans.changed) { refreshFiles(); return; }
+    const same = wsig === whySig;
+    whySig = wsig;
+    if (!force && !ans.changed && same) { refreshFiles(); return; }
     const pair = (label, value) => h("span", {}, h("span", {}, label), value);
     const head = h("div", { class: "meta" },
       pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
@@ -941,7 +962,7 @@ async function pageItem(main, id, q) {
     const path = d.moves.map((m) => m.to).filter((s, i, a) => s && s !== a[i - 1]);
     if (d.state && path[path.length - 1] !== d.state) path.push(d.state);
     const ended = fin.has(d.state), rest = (k?.states || []).filter((s) => !path.includes(s) && (!ended || fin.has(s)));
-    const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null, box(st)]),
+    const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
@@ -984,7 +1005,7 @@ async function pageItem(main, id, q) {
     const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
     const why = d.eta?.why ? h("p", { class: "note eta-why" }, h("b", {}, d.eta.waits_in ? `Waiting in ${d.eta.waits_in}` + (d.eta.position ? `, ${ordinal(d.eta.position)} in its queue` : "") + ": " : ""),
       d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: `/items?kind=${encodeURIComponent(k?.name || "")}&view=timeline` }, "the timeline"), ")")) : null;
-    patch(body, head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    patch(body, whyBox(w), head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true));
   }
@@ -1053,18 +1074,18 @@ async function pageModel(main) {
       ...(d.modelling?.says ? [h("p", { class: "muted" }, h("b", {}, "Modelling: "), d.modelling.says)] : []),
       ...(d.invalid?.length ? [h("p", { class: "s-off" }, `The replay is not valid: ${d.invalid.join("; ")}.`)] : []),
       h("h3", {}, "Model fit", h("span", { class: "muted" }, ` the stocks an equation moves, over the last ${span} of record`)),
-      d.stocks.length ? table(fitHead(d.words, "stock"), fitRows(d.stocks, d.total), "fit")
+      d.stocks.length ? table(fitHead(d.words, "stock"), fitRows(d.stocks, d.total), "fit", "Model fit")
         : h("p", { class: "muted" }, "No stock is moved by an equation: nothing here tests the model's equations yet."));
     const judged = Object.entries(d.judged_by_stock || {});
     patch(eqBox, ...(d.partial.length || d.equations.length || judged.length ? [
       h("h3", {}, "Equations, inputs as measured", h("span", { class: "muted" }, " the partial-model test")),
-      d.partial.length ? table(fitHead(d.words, "worked out"), fitRows(d.partial, null), "fit") : h("p", { class: "muted" }, "No equation's part is measured."),
+      d.partial.length ? table(fitHead(d.words, "worked out"), fitRows(d.partial, null), "fit", "Equations, inputs as measured") : h("p", { class: "muted" }, "No equation's part is measured."),
       ...(d.equations.length ? [h("h3", {}, "Equations, replayed", h("span", { class: "muted" }, " every stock integrated")),
-        table(fitHead(d.words, "worked out"), fitRows(d.equations, null), "fit")] : []),
+        table(fitHead(d.words, "worked out"), fitRows(d.equations, null), "fit", "Equations, replayed")] : []),
       ...judged.map(([r, st]) => h("p", { class: "muted small" }, `${r.split(".").slice(1).join(".")} is measured from its stock's changes: judged by ${st ? st.split(".").slice(1).join(".") : "its stock"}'s replay, above.`)),
     ] : []));
     patch(accBox, ...(d.accounting.length ? [h("h3", {}, "Accounting", h("span", { class: "muted" }, " stocks moved only by measured flows")),
-      table(fitHead(d.words, "stock"), fitRows(d.accounting, null), "fit")] : []));
+      table(fitHead(d.words, "stock"), fitRows(d.accounting, null), "fit", "Accounting")] : []));
     patch(notes, ...d.notes.map((n) => h("p", { class: "muted small" }, n)));
     const why = Object.entries(d.not_proposed || {});
     const q = d.queue || [];

@@ -4,7 +4,7 @@ Common-sense rules for how ergostat lays out its three diagrams: the stock-and-f
 diagram (Blocks) and the process map (Process). Each rule is stated plainly, with why it matters and a measurable
 form. Each also has a detector in `tests/layout_rules.py`, which reads the drawn geometry off the page
 (`tests/layout_geometry.js`: every part's box, every line's points, every word as drawn, the loop markers, the
-open systems' frames).
+open systems' frames, and in Blocks the take-off dots, the hops and the vectors' slashes).
 
 The rules are ordered by how bad a violation looks, worst first. A **critical** violation is one a reader notices
 at once and reads wrongly: a flow that seems to go somewhere it does not, or a part hidden under another. A
@@ -186,6 +186,52 @@ structure.
 
 **A drawing that does not fit the screen at zoom 0.7 is at most 4 times longer one way than the other.** Beyond
 that, it runs off the screen one way while the screen is empty the other.
+
+The three Blocks rules below came later. Two of them are critical, and they are numbered last so that the numbers
+above, which the rest of this document cites, stay the same.
+
+### 21. crossing-without-hop (critical, Blocks)
+
+**Two lines that cross are drawn as a crossing.** A crossing is a level stretch of one line and an upright stretch of
+another, each passing through the point (a line that ends on another is a take-off, not a crossing). The level
+line has a small half-circle hop over the other line there, and there is no dot. Where the crossing is under the level
+line's arrowhead (within 12px of its end), the upright line hops sideways instead. Where two crossings fall at one
+place, or within a hop of each other, one hop covers them, and the line is never drawn back along itself beneath it.
+
+*Why:* in a block diagram a plain cross reads as a connection, and a dot at it says so outright. A control engineer
+has to be able to tell a junction from two signals that pass each other.
+
+*Measured:* one instance for each crossing with no hop within 2px on the line that should carry it, or with a dot
+within 4px; and one for each place a line's drawn path turns back along the move before it (a plain cross drawn
+again under a hop). The line's last move back to its arrowhead's base, 10px or less, is not counted: it is under the
+head.
+
+### 22. dot-not-at-takeoff (critical, Blocks)
+
+**A dot is drawn only where one signal's lines part.** A take-off is a point of one net's lines (all the lines from
+one output port) that is a bend of one of them, or the port itself, where three ways meet. The port's block counts
+as one of the three. Two lines of one signal that only pass through each other are a crossing, and get a hop.
+
+*Why:* a dot says "this is one signal, taken off here". At any other point it is a connection that does not exist.
+
+*Measured:* one instance for each dot more than 2px from every take-off.
+
+### 23. slash-on-crossing (major, Blocks)
+
+**A vector's slash and count stay clear of crossings.** The slash goes in the middle of the line's longest stretch
+that has no crossing or bend in it, so it is at least half that stretch's length from either end. The rule asks for
+12px.
+
+*Why:* a slash at a crossing reads as a mark on the other line, or as the hop itself.
+
+*Measured:* one instance for each slash within 12px of a crossing (the score is how much nearer it is).
+
+All three are checked in every Blocks view of every example
+(`test_the_control_view_draws_every_example_cleanly_as_a_block_diagram`), and again after a block is dragged and in
+the exported SVG (`test_blocks_crossings_hop_dots_only_at_takeoffs_slashes_clear_and_a_drag_and_the_export_keep_them`).
+The two critical rules also gate the generated models' Blocks views. While a part is being dragged, only the lines
+being dragged are drawn again, so the hops on the other lines are not updated until the part is let go and every
+line is redrawn.
 
 ## What the layout does about them
 

@@ -1110,3 +1110,13 @@ def test_a_query_still_busy_after_the_retries_says_so(browser):
         assert "busy" in got and len(calls) == 4, "bounded: the first and three more"
     finally:
         s.close()
+
+
+def test_a_phase_portrait_marks_desired_levels_on_either_axis_and_every_form_is_named(site):
+    cfg = config("phase", display={"thresholds": [{"value": 5, "label": "desired rate"}], "x": {"thresholds": [{"value": 45}]}})
+    site.mount(cfg)
+    assert site.model()["levels"] == {"x": 1, "y": 1}
+    legend = site.page.locator(".panel-legend").inner_text()
+    assert "desired rate" in legend and "desired X" in legend
+    assert site.page.locator(".plot-base").get_attribute("role") == "img"
+    assert site.page.locator(".plot-base").get_attribute("aria-label") == "Phase portrait: phase chart"

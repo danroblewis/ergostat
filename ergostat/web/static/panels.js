@@ -721,7 +721,7 @@
         host.replaceChildren();
         st.viewMount = h("div", { class: "panel-mount" });
         host.append(st.viewMount);
-        st.view = def.draw(st.viewMount, result, st.cfg, { options: st.options, unit: st.unit, legend: place === "hidden" ? null : legend,
+        st.view = def.draw(st.viewMount, result, st.cfg, { label: `${def.label || st.form}: ${st.cfg.title || "Untitled"}`, options: st.options, unit: st.unit, legend: place === "hidden" ? null : legend,
                                                          readout: (text) => { readout.textContent = text; } });
         st.viewKey = key;
       }

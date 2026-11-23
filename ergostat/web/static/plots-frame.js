@@ -216,6 +216,9 @@ const plotFrame = (() => {
       pick: (x, y) => built.pick?.(x, y),
       readout: opts.readout,
     });
+    frame.base.setAttribute("role", "img");
+    if (opts.label) frame.base.setAttribute("aria-label", opts.label);
+    frame.over.setAttribute("aria-hidden", "true");
     const rebuild = () => {
       built = build(result, off);
       legend(opts.legend, built.entries || [], built.notes || [], built.entries?.length > 1 ? (key) => {

@@ -247,8 +247,12 @@
         if (one.times) idx.sort((a, b) => one.times[a] - one.times[b]);
         return { one, order: idx };
       });
-      const xr = F.range(shown.flatMap((x) => x.xs), d.x), yr = F.range(shown.flatMap((x) => x.values), d.y);
-      const model = { order: ordered.map((x) => x.order), marks: 0, start: null, end: null };
+      /* a desired level on either axis, dashed: the Y's are the panel's thresholds, the X's its display.x.thresholds */
+      const level = (list) => (list || []).filter((t) => Number.isFinite(t?.value));
+      const xLevels = level(d.x?.thresholds), yLevels = level(d.thresholds);
+      const xr = F.range([...shown.flatMap((x) => x.xs), ...xLevels.map((t) => t.value)], d.x);
+      const yr = F.range([...shown.flatMap((x) => x.values), ...yLevels.map((t) => t.value)], d.y);
+      const model = { order: ordered.map((x) => x.order), marks: 0, start: null, end: null, levels: { x: xLevels.length, y: yLevels.length } };
       let hits = [];
       const paint = (ctx, w, ht) => {
         const plot = F.cartesian(ctx, w, ht, { xr, yr, xUnit: n.xUnit, yUnit: opts.unit, xTitle: n.xTitle, yTitle: n.yTitle });
@@ -256,6 +260,10 @@
         hits = [];
         model.marks = 0;
         F.clipTo(ctx, box, () => {
+          ctx.strokeStyle = F.ink("--ink-2"); ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+          for (const t of xLevels) if (!X.log || t.value > 0) F.line(ctx, Math.round(X.at(t.value)) + 0.5, box.top, Math.round(X.at(t.value)) + 0.5, box.bottom);
+          for (const t of yLevels) if (!Y.log || t.value > 0) F.line(ctx, box.left, Math.round(Y.at(t.value)) + 0.5, box.right, Math.round(Y.at(t.value)) + 0.5);
+          ctx.setLineDash([]);
           for (const { one, order } of ordered) {
             const pts = order.map((i) => (one.xs[i] == null || one.values[i] == null || (X.log && one.xs[i] <= 0) || (Y.log && one.values[i] <= 0)
               ? null : { px: X.at(one.xs[i]), py: Y.at(one.values[i]), x: one.xs[i], y: one.values[i], t: one.times?.[i], one }));
@@ -300,6 +308,9 @@
       } else if (o.markers !== "off") notes.push({ mark: F.svgDot({ fill: "none" }), text: "open: start, filled: end" });
       if (o.direction !== "off") notes.push({ mark: (m) => m.append(s("path", { d: "M5 1 L11 5 L5 9", fill: "none", stroke: "currentColor", "stroke-width": 1.5 })), text: "direction of time" });
       if (o.fade !== "off") notes.push({ mark: F.svgLine({}), text: "stronger is more recent" });
+      for (const [word, unit, list] of [["X", n.xUnit, xLevels], ["Y", opts.unit, yLevels]]) {
+        for (const t of list) notes.push({ mark: F.svgLine({ "stroke-dasharray": "4 2" }), text: `${t.label || `desired ${word}`} ${N().formatValue(t.value, unit)}` });
+      }
       return { paint, pick, model, notes, entries: result.series.map((x) => ({ key: x.key, name: x.name, colour: x.colour, off: off.has(x.key) })) };
     });
   }
