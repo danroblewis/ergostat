@@ -309,6 +309,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                           "flows": lp.flows, "controller": c.name, "last_read": last_read,
                           "last_decision": decisions[-1] if decisions else None, "last_opening": last_open,
                           "observed": cycled, "off_share": round(off_share, 3), "open_loop": lp.open_loop,
+                          "off_since": off_from, "off_before_window": off_from is not None and off_from <= start,
                           "answers_in": answers[len(answers) // 2] if answers else None,
                           "back_in": recoveries[len(recoveries) // 2] if recoveries else None,
                           "back_in_slowest": recoveries[-1] if recoveries else None, "times_off": len(recoveries),
@@ -318,6 +319,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                                   **({"setpoint": f"{g.hold.op} {r:g}"} if r is not None else {}))
         loops[lp.name]["off_by_words"] = off_by_words(loops[lp.name]["setpoint"], error, c.tolerance,
                                                       getattr(m.stocks.get(c.holds), "unit", ""), status == "off")
+        loops[lp.name].update(goal_row(loops[lp.name], getattr(m.stocks.get(c.holds), "unit", "")))
 
     contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
@@ -331,6 +333,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         begun = project.events.query(n=1, item=a.name, type="agent.started", until=now)
         running_since = begun[-1]["time"] if begun and (last_any is None or begun[-1]["seq"] > last_any["seq"]) else None
         roles = m.roles_of(a.name)
+        b_ = getattr(getattr(m, "spec", None), "blocks", {}).get(a.name)
+        keeps = b_.goal if b_ is not None and b_.implied and b_.goal in m.controllers else None   # keep-GOAL: it decides for GOAL
         stale = []
         if a.every or a.cron:                             # a reading older than a few of its runs is stale
             for r in roles:
@@ -342,7 +346,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         goal = b.goal if b is not None else None
         agents[a.name] = {"kind": a.kind, "rung": a.rung, "leased": bool(b is not None and b.takes),
                           "roles": [{"kind": r.kind, "name": r.name, **({"goal": goal} if goal and r.kind == "valve" else {})}
-                                    for r in roles],
+                                    for r in roles] + (
+                              [{"kind": "controller", "name": keeps}] if keeps and all(r.name != keeps for r in roles) else []),
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
@@ -368,6 +373,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 pass
     snap["leases"] = lease_attention(project, now)
     snap["cycles"] = relation_cycles(project)
+    snap["findings"] = findings(project)
     snap["reports"] = [{"id": r["id"], "title": r.get("title") or ""} for r in reports_drafted(project)]   # SPEC §12m
     snap["alarms"] = alarms(project, now)
     if getattr(getattr(project.model, "spec", None), "daemons", None):   # the long-lived runners, as the engine last saw them
@@ -408,6 +414,39 @@ def relation_cycles(project) -> list[list[str]]:
     _CYCLES.clear()
     _CYCLES[key] = got
     return got
+
+
+_FINDINGS: dict = {}
+
+
+def findings(project) -> list[dict]:
+    """For each kind with ``attention: FIELD`` (SPEC §5a): its latest item (by its latest event, then its id) whose
+    FIELD has words, and those words. Worked out again only when the record changes. A kind that cannot be read is
+    said as unread, never left out."""
+    spec = getattr(project.model, "spec", None)
+    kinds = [k for k in (spec.items.values() if spec is not None else ()) if k.attention]
+    if not kinds:
+        return []
+    ev = project.events
+    key = (id(spec), ev.last_seq() if hasattr(ev, "last_seq") else None)
+    if key in _FINDINGS:
+        return _FINDINGS[key]
+    from .spec import items as its
+    out = []
+    for k in kinds:
+        try:
+            got = [i for i in its.project(ev, spec, k.name, transcript=False)
+                   if isinstance(i.fields.get(k.attention), str) and i.fields[k.attention].strip()]
+        except Exception as e:
+            out.append({"kind": k.name, "item": None, "field": k.attention, "says": None,
+                        "error": f"{type(e).__name__}: {e}"[:200]})
+            continue
+        if got:
+            i = max(got, key=lambda x: (x.last, x.id))
+            out.append({"kind": k.name, "item": i.id, "field": k.attention, "says": i.fields[k.attention].strip()})
+    _FINDINGS.clear()
+    _FINDINGS[key] = out
+    return out
 
 
 def inbox(project, now: float, live: bool) -> list[dict]:
@@ -534,8 +573,10 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         c = m.controllers[name]
         a = m.agents.get(c.agent or "")
         stock = c.holds
-        mine = set(lp["flows"])
-        drains = any(m.flows[f].source == stock for f in mine)
+        acts = [v for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves]   # the long way: where it acts
+        mine = {m.valves[v].flow for v in acts}           # what its own valves move, not the far flow it closes through
+        acted = any((snap["agents"].get(m.valves[v].agent or "") or {}).get("runs") for v in acts)
+        drains = any(m.flows[f].source == stock for f in lp["flows"])
         ours = sum(snap["flows"][f]["rate"] or 0 for f in mine)
         load = sum((snap["flows"][f.name]["rate"] or 0) for f in m.flows_of(stock)
                    if f.name not in mine and (f.target == stock if drains else f.source == stock))
@@ -560,7 +601,11 @@ def ladder_hints(project, snap: dict) -> list[dict]:
                 not limits and len(amounts) >= 3 and len(set(amounts)) == 1 and (amounts[0] or 0) > 0)
             # the cause, in words no view rewrites, so every page says it alike (dynamics.words)
             cause = "saturated, moving its most each run" if at_limit else "falling behind the load"
-            says = (f"loop {name} was off {off}% of the time: {cause}. Its valve moved {fmt(ours)}/h {way[0]} while "
+            did = "it acts but moves nothing" if acted else "nothing ran to move any"
+            says = (f"loop {name} was off {off}% of the time: {cause}: {did} {way[0]} of {stock} "
+                    f"while {fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "")
+                    if not ours else
+                    f"loop {name} was off {off}% of the time: {cause}. Its valve moved {fmt(ours)}/h {way[0]} while "
                     f"{fmt(load)}/h came {way[1]}" + (f", and {stock} grew by {fmt(grew)}" if grew and grew > 0 else "") + ". "
                     + ((f"Its openings ran at its max of {fmt(limits[0])}" if limits else f"Every opening moved {fmt(amounts[0])}")
                    + ": it needs more per run, or less load" if at_limit else
@@ -615,6 +660,17 @@ LEVELS = {"bad": 0, "warn": 1, "hint": 2}
 UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
 
 
+WORDS = ("holding", "off", "open", "unknown", "stale")     # the words a reader sees for a goal's state
+
+
+def goal_row(lp: dict, unit: str = "") -> dict:
+    """A goal's one word and its row's columns, said once here for every surface that lists it (goalrow.js draws
+    them). The word is its status for now; trend and expected are filled by later work, never by a page."""
+    return {"word": lp["status"] if lp["status"] in WORDS else "unknown",
+            "row": {"measure": lp["stock"], "value": lp["value"], "unit": unit,
+                    "bound_words": f"{lp['setpoint']}{lp.get('band') or ''}", "trend": None, "expected": None}}
+
+
 def off_by_words(setpoint: str, error, tolerance: float = 0.0, unit: str = "", off: bool = False) -> str | None:
     """How far a goal is from its bound, the one phrase every surface outside Blocks prints (Blocks says
     e = r − y with its sign): ``off by 36 tickets`` past a <= or >= bound, ``28 short of 180`` below a
@@ -649,6 +705,29 @@ def goals_off(snap: dict, names: bool = False) -> dict:
             out[{"off": "system"}.get(s, s)].append(name)
     return out if names else {**{k: len(out[k]) for k in ("system", "unknown", "open")},
                               "own": {t: len(v) for t, v in out["own"].items()}}
+
+
+def goals_said(g: dict) -> str:
+    """``goals_off``'s counts as the CLI says them (``ergostat`` and ``ergostat projects`` alike), as the header does."""
+    return " · ".join([f"{g['system']} goal{'' if g['system'] == 1 else 's'} off"] + [f"{g[k]} {k}" for k in ("open", "unknown") if g[k]]
+                      + ([f"model upkeep {sum(g['own'].values())}"] if sum(g["own"].values()) else []))
+
+
+def quiet(project, snap: dict, system: str) -> str | None:
+    """A quiet system's sentence: every goal of ``system`` or of a system within it (as its closed box folds them in;
+    the goals in ``snap["loops"]``, as /api/loops has them) holding, and how many items their blocks hold leases on
+    now; None when one is off, open, stale or unknown, or it has none (SPEC §8, a quiet system)."""
+    spec = getattr(project.model, "spec", None)
+    inside = (lambda s: system in spec.chain(s)) if spec is not None else (lambda s: s == system)
+    said = [lp["status"] for lp in snap["loops"].values() if lp.get("system") and inside(lp["system"])]
+    if not said or any(s != "holding" for s in said):
+        return None
+    from .spec import items as its
+    from .spec.ir import LEASED
+    n = sum(its.in_states(project.events, spec, b.takes.kind, [LEASED], {"lease.block": b.name}, until=snap["at"])[0]
+            for b in (spec.blocks.values() if spec is not None else ()) if b.takes and b.system and inside(b.system))
+    return (f"all {len(said)} goal{'s' * (len(said) != 1)} holding, "
+            + (f"{n} item{'s' * (n != 1)} being worked" if n else "nothing being worked"))
 
 
 def setpoint_text(lp: dict) -> str:
@@ -757,6 +836,13 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         out.append({"level": "warn", "what": f"item {c[0]}", "item": c[0],
                     "says": f"a cycle of precedence relations: {said} each wait on another, so none can be ready. "
                     f"Take one of the links away"})
+    for x in snap.get("findings", []):               # a kind's latest finding (its `attention:` field, SPEC §5a)
+        if x.get("error"):
+            out.append({"level": "warn", "what": f"items {x['kind']}", "says": f"its latest {x['field']} could not be "
+                        f"read ({x['error']})"})
+        else:
+            text = x["says"] if len(x["says"]) <= 400 else x["says"][:397] + "..."
+            out.append({"level": "warn", "what": f"item {x['item']}", "item": x["item"], "says": text})
     for w in snap.get("quarantined", []):
         out.append({"level": "warn", "what": f"workspace {w['pool']}-{w['slot']}",
                     "says": f"quarantined ({w.get('why') or 'dirty or broken'}): never reused until freed, ergostat "
@@ -776,7 +862,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
     from .inbox import entries as en
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
+             **{k: e[k] for k in ("fold", "about", "system") if e.get(k)},
              "object": e.get("action") or e.get("block") or "",                         # what the answer is about
+             **{k: e[k] for k in ("flow", "unit") if k in e},                    # what a number answered means
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
              + (f". runs: {e['run']}" if e.get("run") else "") + (f". {en.command(e)}" if e["verbs"] else ""),

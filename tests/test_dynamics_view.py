@@ -201,11 +201,35 @@ def test_the_attention_cards_speak_system_dynamics():
            {"level": "hint", "what": "loop a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
     out = attention(att, snap)
     assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"
+    # a controlled goal is called a goal ('loop' is for R and B loops): never 'loop backlog-clear'
+    assert [a["what"] for a in out] == ["goal backlog-clear", "goal backlog-clear", "goal x", "goal a"]
     assert out[1]["says"].startswith("was off 60% of the time: saturated, moving its most each run. Its flow moved")
+    assert "(what serves it can read x)" in out[3]["says"], out[3]["says"]
     import re
     for a in out:
-        text = a["what"] + " " + a["says"]
-        assert not re.search(r"controller|setpoint|\brule|\bgoal|valve|<=|>=", text), text
+        text = re.sub(r"\bgoal (backlog-clear|x|a)\b", "", a["what"] + " " + a["says"])
+        assert not re.search(r"controller|setpoint|\brule|\bgoal|\bloop |valve|<=|>=", text), text
+
+
+def test_a_goal_s_suggestion_says_what_serves_it():
+    from ergostat.dynamics import attention
+    att = [{"level": "hint", "what": "controller fixes", "says": "loop fixes was off 70% of the time though its valve keeps "
+            "up on average: it answers too late; its controller (fixer, every 1m) is the slowest stage"}]
+    out = attention(att, {"loops": {}})
+    assert out[0]["says"] == ("goal fixes was off 70% of the time though its flow keeps up on average: it answers too late; "
+                              "what serves it (fixer, every 1m) is the slowest stage"), out[0]["says"]
+    assert attention([{"level": "warn", "what": "stock q", "says": "a feedback loop q-x"}], {"loops": {"q": {}}})[0]["says"] \
+        == "a feedback loop q-x"                                                # (a name only where it is a goal's, whole)
+
+
+def test_the_dynamics_wording_keeps_codes_ids_and_tiers_as_they_are():
+    from ergostat.dynamics import words
+    said = words("modelling holds queue-goal-tolerance on goal.ci-upgrade-planned, waiting 3h (why: a goal's setpoint "
+                 "and tolerance are what decides: the owner's to change). ergostat inbox request/80fe1e93e1 --deny")
+    assert said == ("modelling holds queue-goal-tolerance on goal.ci-upgrade-planned, waiting 3h (why: a desired level "
+                    "and tolerance are what decides: the owner's to change). ergostat inbox request/80fe1e93e1 --deny")
+    assert words("the rule tier has no certain change for it: a rule reads goal.x") == \
+        "the rule tier has no certain change for it: a fixed decision reads goal.x"
 
 
 def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):

@@ -63,6 +63,25 @@ def test_state_a_loop_is_unknown_holding_or_off(project):
     assert lp["status"] == "off" and lp["error"] == -3
 
 
+def test_each_goal_says_its_word_and_its_row_once(repo):
+    """state.snapshot gives every goal the one word a reader sees and its row's columns (goalrow.js draws them)."""
+    from ergostat import model
+    from ergostat.store import Project
+    from tests.conftest import FOUR_GOALS
+    (repo.path / "ergostat.toml").write_text(FOUR_GOALS)
+    project = Project(model.load(repo.path))
+    project.measurements.add("sensor/disk-usage", 70)
+    loops = state.snapshot(project)["loops"]
+    words = {n: lp["word"] for n, lp in loops.items()}
+    assert words == {"disk-under-80": "holding", "disk-under-50": "off", "disk-cleaned-nightly": "open",
+                     "inodes-under-90": "unknown"}, words
+    assert all(lp["word"] == lp["status"] for lp in loops.values())
+    assert loops["disk-under-80"]["row"] == {"measure": "disk-used", "value": 70, "unit": "%", "bound_words": "<= 80 (+2)",
+                                             "trend": None, "expected": None}
+    assert loops["inodes-under-90"]["row"]["value"] is None and loops["disk-under-50"]["row"]["bound_words"] == "<= 50"
+    assert state.goal_row({"status": "something new", "stock": "s", "value": 1, "setpoint": "<= 2"})["word"] == "unknown"
+
+
 def test_an_estimated_disturbance_explains_what_the_valve_does_not(project):
     t = time.time() - 600
     project.measurements.add("sensor/disk-usage", 60, at=t)
@@ -249,6 +268,21 @@ def test_a_suggestion_waits_for_its_verdict_and_names_its_goal_once(project):
     snap["loops"]["disk-under-80"].pop("diagnosis_in")
     (hint,) = [a for a in state.attention(snap, True, project.model) if a["level"] == "hint"]
     assert (hint["what"], hint["says"]) == ("loop disk-under-80", "was off 90% of the time: x")
+
+
+def test_a_loop_whose_valve_moves_nothing_acts_but_moves_nothing_not_more_per_run(project):
+    t = time.time() - 1200
+    project.events.add("ergostat.started", source="ergostat", at=t)
+    for i, v in enumerate([60, 70, 80, 90, 100]):               # the stock climbs; its controller decides, its valve never opens
+        project.measurements.add("sensor/disk-usage", v, at=t + 10 + i * 290)
+        project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 20 + i * 290, data={"decision": "free 2"})
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 30, data={})
+    (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
+    assert "nothing ran to move any" in hint["says"] and "per run" not in hint["says"].lower()   # its cleaner never ran
+    for i in range(4):
+        project.events.add("agent.ran", item="cleaner", source="ergostat", at=t + 25 + i * 290, data={"exit": 0, "seconds": 1})
+    (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
+    assert "acts but moves nothing" in hint["says"] and "per run" not in hint["says"].lower()    # it ran, and moved nothing
 
 
 def test_a_disturbance_that_would_run_backwards_is_not_hidden(project):
@@ -593,6 +627,21 @@ def test_an_answer_counts_only_an_opening_while_off_and_a_spell_begun_in_the_win
     project.events.add("valve.opened", item="delete-old-files", source="cleaner", at=t + 2000, data={"amount": 1})
     lp = state.snapshot(project, window=3600)["loops"]["disk-under-80"]
     assert lp["answers_in"] is None and lp["back_in"] == 100
+
+
+def test_a_loop_off_now_says_since_when_and_whether_the_spell_began_before_the_window(project):
+    t = time.time() - 3000
+    project.events.add("ergostat.started", source="ergostat", at=t - 2000)
+    project.measurements.add("sensor/disk-usage", 90, at=t)
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 2000, data={})
+    lp = state.snapshot(project, window=3600)["loops"]["disk-under-80"]
+    assert abs(lp["off_since"] - (t + 2000)) < 1 and lp["off_before_window"] is False
+    project.events.add("loop.holding", item="disk-under-80", source="ergostat", at=t + 2100, data={})
+    lp = state.snapshot(project, window=3600)["loops"]["disk-under-80"]
+    assert lp["off_since"] is None and lp["off_before_window"] is False
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 2200, data={})
+    lp = state.snapshot(project, window=600)["loops"]["disk-under-80"]          # the spell began before this window
+    assert lp["off_before_window"] is True and lp["off_since"] <= time.time() - 599
 
 
 def test_parse_leaves_json_lines_to_json_and_a_failed_run_takes_nothing(repo):

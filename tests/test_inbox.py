@@ -109,6 +109,27 @@ def test_the_inbox_aggregates_every_kind(tmp_path):
     assert measures.measure(p, "ergostat.inbox.waiting") == 5.0 and measures.measure(p, "inbox.asked") == 5.0
 
 
+def test_a_persons_entry_says_what_its_number_moves(tmp_path):
+    p, snap = project(tmp_path)
+    seed(p, snap)
+    e = next(e for e in entries.entries(p) if e["kind"] == "person")
+    assert (e["flow"], e["unit"]) == ("reviewed", "jobs") and "yes_no" not in e      # the stock's unit, from: queue
+    att = next(a for a in st.attention(st.snapshot(p), False, p.model) if a["what"] == e["id"])
+    assert (att["flow"], att["unit"]) == ("reviewed", "jobs")                         # passed on to the side list
+
+
+def test_the_jobs_two_ended_person_asks_keep_their_number_along_the_flow_it_moves():
+    """the-job's approve-ramps (approved / rejected) and declare-incident (declared / dismissed): the number moves the
+    first flow only, so the entry names that flow and its stock's unit, and nothing makes either a yes or no."""
+    from pathlib import Path
+
+    from ergostat.spec import load
+    spec = load(Path(__file__).resolve().parent.parent / "examples" / "the-job" / "ergostat.yaml")
+    got = {n: entries._done_in(spec, spec.blocks[n]) for n in ("approve-ramps", "declare-incident")}
+    assert got == {"approve-ramps": {"flow": "ramps-approved", "unit": "ramps"},
+                   "declare-incident": {"flow": "outages-declared", "unit": "outages"}}, got
+
+
 def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):
     p, _ = project(tmp_path, MODEL.replace("blocks:", "items:\n  failure:\n    id: failure/*\n    states: [open]\n"
                                                    "    on: {failure.seen: open}\nblocks:", 1))
@@ -178,6 +199,13 @@ def test_each_kind_is_answered_from_the_api(tmp_path):
     assert actions_api.answer(live, "inbox/steptest%2Fst123456/approve", {})[0] == 400   # nothing runs a test: refused
     assert actions_api.answer(live, "inbox/nothing/approve", {})[0] == 400
     assert kinds(p) == ["steptest"]
+
+
+def test_an_answered_action_says_the_item_it_is_for(tmp_path):
+    p, _ = project(tmp_path)
+    a = gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "ticket/SCRUM-2"})
+    x = answer.answer(p, p.model.spec, f"action/{record.short(a['id'])}", "deny", note="not now")
+    assert (x["said"], x["item"]) == ("denied", "ticket/SCRUM-2") and "link" in x
 
 
 def test_a_request_answered_leaves_the_attention_list_the_side_list_keys_by_what(tmp_path):
@@ -675,6 +703,21 @@ def test_the_status_and_notifications_say_how_a_request_is_denied(tmp_path):
     assert any(a["says"].endswith(entries.command(e)) for a in att if a["what"] == eid)
     n = type("N", (), {"wait_at_most": 3600.0})()
     assert entries.command(e) in deliver.message(n, [{**e, "age": 60.0}], False, "")[1]
+
+
+def test_a_held_request_carries_its_fold_part_and_system_to_the_side_list(tmp_path):
+    """The page folds alike held requests by (code, asker): the entry and its attention row carry both, and the part's
+    system (dev/records/ui-requests-that-are-alike-fold-into-one-with-a-cou.md)."""
+    from ergostat.spec.ir import Ref
+    p, r, eid = held_request(tmp_path)
+    spec = p.model.spec
+    e = next(e for e in entries.entries(p) if e["id"] == eid)
+    assert e["fold"] == f"{r['code']}|{r['source']}" and r["code"] and r["source"]
+    assert e["about"] == r["about"] and e["system"] == spec.owner(Ref.parse(r["about"]))
+    a = next(a for a in st.attention(st.snapshot(p), False, p.model) if a["what"] == eid)
+    assert a["fold"] == e["fold"] and a["about"] == e["about"] and a.get("system") == e["system"]
+    assert not any("fold" in x for x in st.attention(st.snapshot(p), False, p.model) if x["what"] != eid
+                   and not x["what"].startswith("request/"))         # only held requests fold
 
 
 def test_every_inbox_entry_kind_has_a_verb(tmp_path):

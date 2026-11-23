@@ -443,25 +443,43 @@ def shadows(g: dict) -> dict:
 # the control words the attention cards use, in system dynamics' (the regulator is the flow's valve)
 _WORDS = [
     (r"\bits valve\b", "its flow"), (r"\bthe valve\b", "the flow"), (r"\bvalves?\b", "flow"),
-    (r"\bits controller\b", "its decision"), (r"\bcontrollers?\b", "decision"),
+    (r"\bits controller\b", "what serves it"), (r"\bcontrollers?\b", "decision"),
+    (r"\ba goal's setpoint\b", "a desired level"),
     (r"\bsetpoints?\b", "desired level"), (r"\ba rule\b", "a fixed decision"), (r"\brules?\b", "decision"),
     (r"\bgoals?\b", "desired level"), (r"<=", "≤"), (r">=", "≥"), (r"==", "="),
 ]
 
 
+# what is not the sentence's own words, so never translated: codes, ids and part names (a word joined to the next by
+# . - / or :, like queue-goal-tolerance, goal.ci-upgrade-planned, request/80fe1e93e1) and a modelling tier, named
+# as its request names it
+_KEPT = r"\w+(?:[.\-/:]\w+)+|\b(?:rule|ai|owner) tier\b"
+
+
 def words(text: str) -> str:
-    """A card's text in system dynamics' words: no controller, setpoint, rule, goal or valve."""
+    """A card's text in system dynamics' words: no controller, setpoint, rule, goal or valve in its own words; its
+    codes, ids, part names and tiers kept as they are."""
     import re
+    kept: list[str] = []
+
+    def keep(m) -> str:
+        kept.append(m.group(0))
+        return f"\x00{len(kept) - 1}\x00"
+    text = re.sub(_KEPT, keep, text)
     for a, b in _WORDS:
         text = re.sub(a, b, text)
-    return text
+    return re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
 
 
 def attention(att: list[dict], snap: dict) -> list[dict]:
     """The attention cards as the dynamics view says them: a loop off its goal as a gap (``backlog is
     4, desired backlog = 0: off by 4``), the rest in system dynamics' words."""
+    import re
     out = []
     loops = snap.get("loops") or {}
+    # 'loop' is kept for R and B loops here: a controlled goal is called a goal
+    goals = set(loops) | {w.split(" ", 1)[1] for w in (a.get("what", "") for a in att) if w.startswith(("loop ", "controller "))}
+    pat = re.compile(r"\bloop (" + "|".join(map(re.escape, sorted(goals, key=len, reverse=True))) + r")(?![\w-])") if goals else None
     for a in att:
         a = dict(a)
         what = a.get("what", "")
@@ -474,8 +492,13 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
             a["says"] = words(a.get("says", ""))
+        if pat:
+            a["says"] = pat.sub(r"goal \1", a["says"])
+        for k in ("first", "more"):                   # an entry waiting on a person, as its card draws it
+            if a.get(k):
+                a[k] = words(a[k])
         if name:
-            a["what"] = f"loop {name}"
+            a["what"] = f"goal {name}"
         else:
             a["what"] = words(what)
         out.append(a)

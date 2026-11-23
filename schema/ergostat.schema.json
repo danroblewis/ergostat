@@ -39,6 +39,26 @@
         "max-cost": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
       }
     },
+    "operating": {
+      "description": "The operating state's settings (SPEC 12k): away-after, how long with no event from the owner before they read as away (default 2h, from 5m to 7d). Main file only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"away-after": {"$ref": "#/$defs/duration"}}
+    },
+    "dashboards": {
+      "description": "Shared, named dashboards (SPEC section 4f); in a file whose defaults: set a system, each is named SYSTEM.NAME.",
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/name", "not": {"const": "default"}},
+      "additionalProperties": {"$ref": "#/$defs/dashboard"}
+    },
+    "runs": {
+      "description": "How a machine block's run is held (SPEC 9.1). Main file or ergostat.local.yaml only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outlive_engine": {"type": "boolean", "description": "true: each run is kept by a detached keeper and writes its own journal, so stopping ergostat (or a crash) leaves it going; default false"}
+      }
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -603,6 +623,53 @@
     "name": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "dashboard": {
+      "description": "A shared, named dashboard (SPEC section 4f): one window for all its panels; display only.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["panels"],
+      "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "window": {"$ref": "#/$defs/duration"},
+        "panels": {"type": "array", "minItems": 1, "maxItems": 24, "items": {"$ref": "#/$defs/panel"}}
+      }
+    },
+    "panel": {
+      "description": "One panel: its kind, its words, and exactly the parameters its endpoint takes (SPEC section 4f).",
+      "type": "object",
+      "required": ["panel"],
+      "properties": {
+        "panel": {"enum": ["note", "goals", "chart", "items", "states", "cycle-time", "scope", "items-graph", "timeline"]},
+        "title": {"type": "string"},
+        "size": {"enum": ["s", "m", "l", "full", "s-tall", "m-tall", "l-tall", "full-tall"]},
+        "note": {"type": "string"},
+        "text": {"type": "string"},
+        "refs": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^(stock|flow|auxiliary)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$"}}]},
+        "goals": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/name"}}]},
+        "goal": {"$ref": "#/$defs/name"},
+        "kind": {"type": "string", "minLength": 1},
+        "kinds": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
+        "state": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
+        "where": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
+        "system": {"$ref": "#/$defs/name"},
+        "points": {"type": "integer", "minimum": 2, "maximum": 1000},
+        "n": {"type": "integer", "minimum": 1, "maximum": 500},
+        "replay": {"type": "boolean"},
+        "fan": {"type": "boolean"},
+        "moved": {"type": "string"}, "moved_since": {"type": "string"}, "moved_until": {"type": "string"},
+        "through": {"type": "string"}, "followed": {"type": "string"}, "search": {"type": "string"}
+      },
+      "allOf": [
+        {"if": {"properties": {"panel": {"const": "note"}}}, "then": {"required": ["text"], "propertyNames": {"enum": ["panel", "title", "size", "note", "text"]}}},
+        {"if": {"properties": {"panel": {"const": "goals"}}}, "then": {"propertyNames": {"enum": ["panel", "title", "size", "note", "goals"]}}},
+        {"if": {"properties": {"panel": {"const": "chart"}}}, "then": {"required": ["refs"], "propertyNames": {"enum": ["panel", "title", "size", "note", "refs", "points", "replay", "fan"]}}},
+        {"if": {"properties": {"panel": {"const": "items"}}}, "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "title", "size", "note", "kind", "state", "where", "moved", "moved_since", "moved_until", "through", "followed", "search", "n"]}}},
+        {"if": {"properties": {"panel": {"enum": ["states", "cycle-time"]}}}, "then": {"required": ["kind"], "propertyNames": {"enum": ["panel", "title", "size", "note", "kind", "points"]}}},
+        {"if": {"properties": {"panel": {"const": "scope"}}}, "then": {"required": ["goal"], "propertyNames": {"enum": ["panel", "title", "size", "note", "goal", "points"]}}},
+        {"if": {"properties": {"panel": {"enum": ["items-graph", "timeline"]}}}, "then": {"propertyNames": {"enum": ["panel", "title", "size", "note", "kinds", "system"]}}}
+      ]
     },
     "duration": {
       "oneOf": [
@@ -1631,6 +1698,11 @@
         },
         "lease": {
           "$ref": "#/$defs/lease_terms"
+        },
+        "runs-on": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "A program block: the compute pool its runs are for (a name under compute:), or local (here, as with none). Refused on an ai, person or daemon's block, on a command that calls ergostat, and for a pool whose blocks are in two shards (SPEC §12k)"
         }
       },
       "additionalProperties": false,
@@ -2035,6 +2107,10 @@
           "type": "string",
           "description": "The field that names the parts of the model each item is about (goal.x, stock.y, flow.z, auxiliary.w, block.v), folded by replace (SPEC section 5a, About). explain, check and status point at the open items about a part"
         },
+        "attention": {
+          "type": "string",
+          "description": "The field whose words, on the latest item of the kind that has them (by its latest event), are shown on the attention list: a finding that needs the owner, said where it is seen (SPEC section 5a)"
+        },
         "final": {
           "type": "array",
           "items": {
@@ -2107,6 +2183,20 @@
                       }
                     ],
                     "description": "A precedence relation's target states (neither finished nor paused) at which it no longer blocks: the item is unblocked, and takes: {unblocked: true} may take it. The critical path and the schedule stay finish-to-start"
+                  },
+                  "done_when": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "minProperties": 1,
+                      "additionalProperties": {
+                        "oneOf": [
+                          {"type": ["string", "number", "boolean", "null"]},
+                          {"type": "array", "items": {"type": ["string", "number", "boolean", "null"]}}
+                        ]
+                      }
+                    },
+                    "description": "A group's: for a finished state of the item's, the fields it counts as done work in ({closed: {end: done}}); an item in that state not matching them leaves its group's total in the progress per group"
                   },
                   "description": {
                     "type": "string"
@@ -2822,6 +2912,19 @@
         "unblocked": {
           "type": "boolean",
           "description": "Only items whose precedence relations name only finished items, the critical first (SPEC section 5a, Relations)"
+        },
+        "faults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["healthy"],
+          "description": "The queue's shared environment (SPEC section 9.5): while healthy reads unhealthy or unknown the block takes nothing new, and a run failing through the outage is given back uncounted",
+          "properties": {
+            "healthy": {
+              "type": "string",
+              "pattern": "^(sensor|stock|flow|auxiliary|variable|goal|block)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+              "description": "A sensor (sensor.NAME, the part it reads), a stock, flow or auxiliary (healthy above 0), a goal (healthy while it holds) or a block's output"
+            }
+          }
         }
       }
     },
