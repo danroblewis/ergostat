@@ -63,6 +63,25 @@ def test_state_a_loop_is_unknown_holding_or_off(project):
     assert lp["status"] == "off" and lp["error"] == -3
 
 
+def test_each_goal_says_its_word_and_its_row_once(repo):
+    """state.snapshot gives every goal the one word a reader sees and its row's columns (goalrow.js draws them)."""
+    from ergostat import model
+    from ergostat.store import Project
+    from tests.conftest import FOUR_GOALS
+    (repo.path / "ergostat.toml").write_text(FOUR_GOALS)
+    project = Project(model.load(repo.path))
+    project.measurements.add("sensor/disk-usage", 70)
+    loops = state.snapshot(project)["loops"]
+    words = {n: lp["word"] for n, lp in loops.items()}
+    assert words == {"disk-under-80": "holding", "disk-under-50": "off", "disk-cleaned-nightly": "open",
+                     "inodes-under-90": "unknown"}, words
+    assert all(lp["word"] == lp["status"] for lp in loops.values())
+    assert loops["disk-under-80"]["row"] == {"measure": "disk-used", "value": 70, "unit": "%", "bound_words": "<= 80 (+2)",
+                                             "trend": None, "expected": None}
+    assert loops["inodes-under-90"]["row"]["value"] is None and loops["disk-under-50"]["row"]["bound_words"] == "<= 50"
+    assert state.goal_row({"status": "something new", "stock": "s", "value": 1, "setpoint": "<= 2"})["word"] == "unknown"
+
+
 def test_an_estimated_disturbance_explains_what_the_valve_does_not(project):
     t = time.time() - 600
     project.measurements.add("sensor/disk-usage", 60, at=t)

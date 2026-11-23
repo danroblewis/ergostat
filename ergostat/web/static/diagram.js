@@ -509,7 +509,7 @@ function systemSize(n) {
 function loopsText(n) {
   const l = n.loops || {}, total = Object.values(l).reduce((a, b) => a + b, 0);
   if (!total) return "no loops";
-  return `${total} loop${total > 1 ? "s" : ""}: ` + ["holding", "off", "stale", "open", "unknown"].filter((k) => l[k]).map((k) => `${l[k]} ${k}`).join(", ");
+  return `${total} loop${total > 1 ? "s" : ""}: ` + GOAL_WORDS.filter((k) => l[k]).map((k) => `${l[k]} ${k}`).join(", ");
 }
 function drawSystem(n, w, hgt) {
   const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[n.status] || "var(--unknown)";
@@ -1064,7 +1064,7 @@ function captionText(st, view) {
   // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
   if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
     const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
-    const off = names.filter((x) => st.loops[x]?.status === "off").length;
+    const off = names.filter((x) => st.loops[x] && goalWord(st.loops[x]) === "off").length;
     parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
   }
   return parts.join(" · ");
@@ -1501,7 +1501,7 @@ function renderSide(side, g, view) {
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside
     // (the moment drawn, not now; and once the reader opens or closes them, as they left them)
-    const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");
+    const anyOff = Object.values(g.loops || {}).some((l) => goalWord(l) === "off");
     const open = S.suggestOpen ?? anyOff;
     const d = h("details", { class: "suggest", open: open ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
@@ -1518,13 +1518,12 @@ function renderSide(side, g, view) {
   else if (view === "control" || view === "blocks") {
     side.append(h("h3", {}, "Loops", h("span", { class: "muted" }, ` ${loops.length}`)));
     if (!loops.length) side.append(h("div", { class: "muted" }, "No loops in view."));
-    const rank = { off: 0, open: 1, unknown: 2, holding: 3 };       // the ones that need someone first
-    for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {
+    for (const [name, lp] of loops.sort((a, b) => goalRank(a[1]) - goalRank(b[1]))) {       // the ones that need someone first
       side.append(h("button", { class: "looprow", "data-loop": name,
                               onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
                               onclick: () => { choose(g.corr?.loops?.[name] || []); openLoop(name); } },
-        h("b", {}, name), exceptional(lp.status) ? statusEl(lp.status) : h("span"),
-        h("div", { class: "sub" }, `${lp.stock} ${fmt(lp.value)}, setpoint ${op(lp.setpoint)}${lp.band || ""}`)));
+        h("b", {}, name), exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : h("span"),
+        h("div", { class: "sub" }, goalLine(lp))));
     }
   } else if (view === "process") pmSide(side, g);          // (process.js)
   if (st.changes?.length) {

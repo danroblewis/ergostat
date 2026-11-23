@@ -1433,8 +1433,8 @@ def diagram(model, snap: dict | None = None, open_: set[str] | None = None, focu
     for name, lp in (snap or {}).get("loops", {}).items():
         if name in spec.goals:
             gl = spec.goals[name]
-            loops[name] = {"status": lp.get("status"), "stock": gl.of.name, "setpoint": _hold(gl), "value": lp.get("value"),
-                           "error": lp.get("error"), "band": lp.get("band", ""),
+            loops[name] = {"status": lp.get("status"), "word": lp.get("word"), "stock": gl.of.name, "setpoint": _hold(gl),
+                           "value": lp.get("value"), "error": lp.get("error"), "band": lp.get("band", ""),
                            "nodes": sorted(n["id"] for n in g["nodes"] if name in n.get("loops", []))}
     g["loops"] = loops
     return g
