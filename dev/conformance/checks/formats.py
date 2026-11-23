@@ -21,7 +21,6 @@ sys.path.insert(0, str(ROOT))
 SQUEEZE = "examples/image-squeeze/ergostat.yaml"
 SMALL = Path(__file__).resolve().parent / "fixtures" / "small.xmile"
 NS = "{http://docs.oasis-open.org/xmile/ns/XMILE/v1.0}"
-EXPORTS = ("export", "to_xmile", "write")                     # the export gap's module is ergostat/xmile.py
 IMPORTS = (("ergostat.xmile", ("draft", "from_xmile")), ("ergostat.spec.discover", ("from_xmile",)))
 
 
@@ -102,12 +101,16 @@ def norm(name: str) -> str:
 def xmile_export(root: Path) -> None:
     if importlib.util.find_spec("ergostat.xmile") is None:
         raise Unmet("no XMILE export: ergostat/xmile.py does not exist")
-    mod = importlib.import_module("ergostat.xmile")
-    fn = next((getattr(mod, n) for n in EXPORTS if callable(getattr(mod, n, None))), None)
-    if fn is None:                                   # the module is there, the check does not know its call
-        raise RuntimeError(f"ergostat.xmile has none of {EXPORTS}: update this check")
+    fn = getattr(importlib.import_module("ergostat.xmile"), "export", None)
+    if not callable(fn):                             # the module is there, the check does not know its call
+        raise RuntimeError("ergostat.xmile has no export(p, snap, system=None): update this check")
+    from ergostat import model as mdl
+    from ergostat import state as st
+    from ergostat.store import Project
     spec = compiled(root)
-    out = fn(spec)
+    with tempfile.TemporaryDirectory() as tmp:       # called as the export gap built it: a project and its snapshot
+        p = Project(mdl.load((root / SQUEEZE).parent), Path(tmp), note=False)
+        out = fn(p, st.snapshot(p), None)
     top = out if isinstance(out, ET.Element) else ET.fromstring(out)
     if top.tag != f"{NS}xmile":
         raise Unmet(f"the root is {top.tag}, not XMILE 1.0's {NS}xmile")

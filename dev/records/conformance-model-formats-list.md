@@ -124,3 +124,25 @@ Choices the definition left open, each taken the more reversible way:
   time is too much.
 
 Overrun reason: the budget of 170 lines counts dev/, and the three files under dev/conformance/ come to 218 lines (formats.py 180, the list 25, the fixture 13), about 50 of them blank lines and docstrings. The five checks, the broken-copy ROOT argument and the stricter met/unmet/broken split need them. The factory's own net-line count (fac.net_lines) leaves dev/ out, which gives 0.
+
+## Where it stopped
+
+Round 2 (implementor, 2026-11-23). The only finding, which was blocking (formats.py:105-106, lesson-9 and lesson-8):
+the check called the export as `fn(spec)`, but the export gap's built branch defines `ergostat/xmile.py`
+`export(p, snap: dict, system=None) -> str`. When that gap merged, the case would have been broken, not met.
+- **Changed:** `xmile_export` now calls `ergostat.xmile.export` the way it is built: `p` is a `store.Project` over
+  `examples/image-squeeze` (`model.load`), with its store in a temp dir (`note=False`, so nothing is written to the
+  repository or to `ERGOSTAT_HOME`), `snap` is `state.snapshot(p)`, and `system` is `None` (the whole model). The
+  answer is read as text, bytes or an `Element`, as before. The guessed list of names (`EXPORTS`: `export`,
+  `to_xmile`, `write`) is gone. If the module is there but has no `export`, the case is still broken (exit 2,
+  "update this check").
+- **Tests:** the stand-ins in `test_xmile_export_check_reads_structure_not_bytes` now have the real signature
+  (`export(p, snap, system=None)`). They read `p.model.spec`, assert that `snap` is a snapshot dict and `system` is
+  `None`, and record that the project is image-squeeze. I put the old call `fn(spec)` back to confirm the test can
+  fail: it failed, with "broken: TypeError: ... missing 1 required positional argument: 'snap'". Then I reverted it.
+- **Not done:** the real module is not on `main` or in this clone, so the check has not been run against it. The
+  signature comes from the review's reading of that branch. If the export gap changes it before it merges, this
+  call has to change with it. The served route (`/api/export?view=dynamics&format=xmile`) was not used: its answer's
+  shape is not on `main` either, and the module call is the narrower dependency.
+
+Overrun reason: the budget of 170 lines counts dev/, and the three files under dev/conformance/ come to 221 lines (formats.py 183, the list 25, the fixture 13), about 50 of them blank lines and docstrings; round 2 adds 3 net lines to call the export with a project and a snapshot. The factory's own net-line count (fac.net_lines) leaves dev/ out, which gives 0.

@@ -113,21 +113,36 @@ def xmile(spec, eqn: str = "1", ns: str = NS, extra: str = "", reverse: bool = F
     return f'<xmile xmlns="{ns}" version="1.0">{extra}<model><variables>{"".join(parts)}</variables></model></xmile>'
 
 
+def exporter(**layout):
+    """A stand-in with the export gap's own signature, ``export(p, snap, system=None) -> str`` (it reads p.model
+    and a snapshot), so the check is tested calling the export the way it is built."""
+    seen = []
+
+    def export(p, snap: dict, system=None):
+        assert isinstance(snap, dict) and "stocks" in snap and system is None
+        seen.append(p.model.name)
+        return xmile(p.model.spec, **layout)
+    return export, seen
+
+
 def test_xmile_export_check_reads_structure_not_bytes(formats, monkeypatch):
     """Definition item 4: any layout passes; a wrong namespace, a missing flow or ergostat syntax in an eqn does not."""
     for layout in ({}, {"reverse": True, "extra": '<header><vendor>x</vendor></header><isee:prefs xmlns:isee="i"/>'}):
-        fake(monkeypatch, "ergostat.xmile", export=lambda spec, layout=layout: xmile(spec, **layout))
+        export, seen = exporter(**layout)
+        fake(monkeypatch, "ergostat.xmile", export=export)
         assert formats.main(["xmile-export"]) == 0, layout
-    fake(monkeypatch, "ergostat.xmile", to_xmile=lambda spec: ET.fromstring(xmile(spec, eqn="MAX(0, 2) * 3")))
+        assert seen == ["image-squeeze"]
+    fake(monkeypatch, "ergostat.xmile",
+         export=lambda p, snap, system=None: ET.fromstring(xmile(p.model.spec, eqn="MAX(0, 2) * 3")))
     assert formats.main(["xmile-export"]) == 0
     for wrong in ({"ns": "http://example.org/not-xmile"}, {"eqn": "stock.quality * 2"}, {"eqn": "window-time / 2"},
                   {"eqn": "${rate}"}):
-        fake(monkeypatch, "ergostat.xmile", export=lambda spec, wrong=wrong: xmile(spec, **wrong))
+        fake(monkeypatch, "ergostat.xmile", export=exporter(**wrong)[0])
         assert formats.main(["xmile-export"]) == 1, wrong
-    fake(monkeypatch, "ergostat.xmile", export=lambda spec: xmile(spec).replace("<flow ", "<aux ", 1)
-         .replace("</flow>", "</aux>", 1))
+    fake(monkeypatch, "ergostat.xmile", export=lambda p, snap, system=None: xmile(p.model.spec)
+         .replace("<flow ", "<aux ", 1).replace("</flow>", "</aux>", 1))
     assert formats.main(["xmile-export"]) == 1
-    fake(monkeypatch, "ergostat.xmile", something_else=lambda spec: "")
+    fake(monkeypatch, "ergostat.xmile", something_else=lambda p, snap, system=None: "")
     assert formats.main(["xmile-export"]) == 2                     # the module is there, its call unknown: broken
 
 
