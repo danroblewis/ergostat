@@ -28,10 +28,12 @@ flows:
   flakes-fixed:
     from: flakes-open
     description: flakes fixed (flake.fixed, flake.main-fixed), by green runs, by hand or by main-mend
+    driven-by: [-stock.quarantined]   # a quarantined seen flake counts no green runs (flakes.py green)
     sensor: {items: flake, entering: fixed, over: 1d}
   flakes-open-hours-rise:
     to: flakes-open-hours
     description: the oldest seen flake's hours growing while it stays seen, each rise of the age over a day
+    driven-by: [+stock.flakes-open]   # the age grows while a flake is open
     sensor: {changes: rises, over: 1d}
   flakes-open-hours-fall:
     from: flakes-open-hours

@@ -111,4 +111,20 @@ is a YAML edit to undo:
   `test_main_green_goes_off_and_holds_again` and the quarantine-small test all passed, and ruff on
   `ergostat tests scripts` is clean.
 
-Overrun reason: only under the definition's "outside tests/" reading: 173 net lines (guarantees-flakes.yaml 99, flakes.py 50, dev/README.md 17, guarantees.yaml 7), the extra over round 1 being the flows, block, loops and parameter check's six findings needed; the factory's rule counts none of it (all under dev/).
+Answering check's `system-splits system.guarantees` (implementor, 2026-11-23; no `allows-findings` line, none
+written). The new parts took guarantees from 11 parts to 23, past architecture.py's SMALL of 20. They fell into three
+clusters with no link between them: main's chain with `flakes-open`; the age (`flakes-open-hours`, its rise and fall,
+`flake-fix-hours`, `flakes-few`, `oldest-flake-fix`); and the quarantine. Two causes join them, both in
+guarantees-flakes.yaml, and each is a YAML line to undo:
+- `flakes-open-hours-rise` is `driven-by: [+stock.flakes-open]`: the age grows while a flake is open.
+- `flakes-fixed` is `driven-by: [-stock.quarantined]`: a quarantined seen flake counts no green runs (flakes.py
+  `green`), so it is not fixed by them.
+Neither closes a new loop. Neither is a flow cause on a `changes:` flow (`measured-not-caused`). Neither adds
+`no-equation`, because both flows have one end in a cloud. Worked by hand from architecture.py: every weight-1 bridge
+leaves one side with fewer than 10 links inside, so the tie rule joins the two sides. Two sides with 20 links inside
+each would be needed to split at a weight-2 cut, and there are 30 links in all. So one cluster, and no finding.
+`test_flakes_few_names_the_oldest` now asserts no `system-splits` on `system.guarantees`.
+Not run: every Bash command was refused in this session (`uv run ergostat check`, the tests, ruff, `git commit`), so
+none of this was checked by running it, and these edits are not committed.
+
+Overrun reason: only under the definition's "outside tests/" reading: 175 net lines (guarantees-flakes.yaml 101, the last 2 the causes that answer system-splits, flakes.py 50, dev/README.md 17, guarantees.yaml 7), the extra over round 1 being the flows, block, loops and parameter check's six findings needed; the factory's rule counts none of it (all under dev/).

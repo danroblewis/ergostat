@@ -1388,6 +1388,7 @@ def test_flakes_few_names_the_oldest(tmp_path):
             "flow.main-tests-broken", "parameter.time-to-main-broken", "block.fix-main"}
     got = [f"{p.code} {p.level} {p}" for p in problems if p.about in mine]      # no finding on any of them
     assert not got, "\n".join(got)
+    assert not [p for p in problems if p.code == "system-splits" and p.about == "system.guarantees"]
     assert mine - {"items.flake"} <= {f"{k}.{n}" for k, d in (("stock", spec.stocks), ("flow", spec.flows),
                                       ("auxiliary", spec.auxiliaries), ("parameter", spec.parameters),
                                       ("goal", spec.goals), ("block", spec.blocks)) for n in d}
