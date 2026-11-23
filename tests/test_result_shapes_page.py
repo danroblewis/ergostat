@@ -207,6 +207,23 @@ def test_switching_among_applicable_charts_never_asks_again(browser, tmp_path, q
         e.context.close()
 
 
+def test_the_editors_reshaping_opens_the_charts_it_makes_fit_without_asking_again(browser, tmp_path):
+    got = samples(tmp_path)
+    e = Editor(browser, {"SELECT kind, state, n": got["table-two-dims"]})
+    try:
+        e.page.evaluate("() => openPanelEditor({ id: 'p', title: 'Kinds', form: 'bar', queries: [{ id: 'a', source: 'warehouse',"
+                        " text: 'SELECT kind, state, n' }], display: {} }, { onChange: (c) => { window.__last = c; } })")
+        e.page.wait_for_function("() => document.querySelector('.pe-form[data-form=bar] input')?.disabled", timeout=15000)
+        assert "Reshape: pivot state" in e.page.locator(".pe-form-guide").inner_text()
+        e.page.locator('textarea[data-slot="reshape"]').fill("pivot state")
+        e.page.wait_for_function("() => document.querySelector('.pe-preview .panel')?.dataset.state === 'drawn'", timeout=5000)
+        assert not e.page.locator('.pe-form[data-form="bar"] input').is_disabled()
+        assert e.page.evaluate("() => window.__last.reshape") == "pivot state" and len(e.asked) == 1
+        assert e.errors == []
+    finally:
+        e.context.close()
+
+
 def test_pivot_join_and_group_reshape_a_table_on_the_page(browser, tmp_path):
     got = samples(tmp_path)
     two = got["table-two-dims"]
