@@ -1242,6 +1242,7 @@ async function pageDiagram(main, q) {
     wrap.querySelector(".loading")?.remove();
     shell.classList.remove("opening");
     S.graph = g;
+    if (typeof quietRefresh === "function") quietRefresh(g);   // an open system's panel: its quiet sentence (details.js)
     setText(caption, captionText(S.status, view));
     caption.title = caption.textContent;
     proposedBanner(wrap, g, proposal, go);

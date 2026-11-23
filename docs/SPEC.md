@@ -2489,6 +2489,12 @@ repair or interventions), `upkeep: <template>`: the modelling system's own work,
 and not among them. `/api/status` carries `goals_off` (`system` off, `open`, `unknown`, and `own: {modelling: n}`,
 upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off`.
 
+**A quiet system.** When every goal whose `system` is a system's or one within it (the `loops` filtered by it and
+its subsystems, as its closed box folds them in) is holding, the system says so: `all N goals holding, nothing being
+worked`, or `..., 3 items being worked` while its blocks, or its subsystems', hold leases on items (§9.5). A goal off, open, stale or unknown, or no goal at all, and it says nothing: an unread goal is never
+called holding. `/api/systems` carries it as `quiet` (null otherwise), and so does each closed system's node in the
+graph; the Loops page prints it per system and a system's panel on the diagram at its top.
+
 **Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
 
 ```yaml
