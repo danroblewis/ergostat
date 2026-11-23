@@ -10,7 +10,9 @@ With ``RUNCOST_SHOTS=DIR`` it leaves screenshots of the page and the panel there
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -21,8 +23,6 @@ from pathlib import Path
 import pytest
 
 from tests.ports import free_port
-
-playwright = pytest.importorskip("playwright.sync_api")
 
 MODEL = """
 name: agents-costs
@@ -198,6 +198,7 @@ def leased(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def browser():
+    playwright = pytest.importorskip("playwright.sync_api")   # (here, not at import: the API test needs no browser)
     with playwright.sync_playwright() as p:
         try:
             b = p.chromium.launch()
@@ -261,6 +262,199 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     pg.close()
 
 
+STANDOUT = """
+name: agents-standout
+stocks:
+  changes:
+    unit: changes
+flows:
+  made:
+    to: changes
+  judged:
+    from: changes
+  tidied:
+    from: changes
+blocks:
+  improver:
+    type: program
+    run: ./improve.sh
+    every: 3m
+    out: flow.made
+  judge:
+    type: judge
+    every: 30s
+    in:
+      waiting: +stock.changes
+  tidy:
+    type: program
+    run: ./tidy.sh
+    every: 1h
+    out: flow.tidied
+"""
+
+STANDOUT_HISTORY = """
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(DIR)))
+now = time.time()
+p.events.add("note", item="start", source="test", at=now - 3700, data={})      # the record began over an hour ago
+for i in range(10):                                   # ten runs of the judge in the hour, where ~120 were asked for
+    p.events.add("agent.ran", item="judge", source="ergostat", at=now - 3000 + i * 300, data={"exit": 0, "seconds": 1})
+p.events.add("agent.failed", item="tidy", source="ergostat", at=now - 600, data={"exit": 2, "note": "tidy.sh exited 2"})
+"""
+
+
+@pytest.fixture(scope="module")
+def standout(tmp_path_factory):
+    d = tmp_path_factory.mktemp("standout") / "agents-standout"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(textwrap.dedent(STANDOUT))
+    home = d.parent / "home"
+    env = {**os.environ, "ERGOSTAT_HOME": str(home)}
+    subprocess.run([sys.executable, "-c", STANDOUT_HISTORY.replace("DIR", repr(str(d)))], env=env, check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never answered")
+    yield {"url": url, "dir": d}
+    proc.terminate()
+    proc.wait(10)
+
+
+REQUESTS = """
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.runner import log_path
+from ergostat.store import Project
+p = Project(mdl.load(Path(DIR)))
+now = time.time()
+for i in range(34):                                   # the rule tier commanded every minute, each run moving nothing
+    t = now - 2100 + i * 60
+    begun = p.events.add("agent.started", item="fixer", source="ergostat", at=t, data={})
+    p.events.add("block.commanded", item="fixer", source="ergostat", causedby=begun["id"], at=t,
+                 data={"amount": 1, "from": "keep-requests-handled"})
+    p.events.add("agent.ran", item="fixer", source="ergostat", causedby=begun["id"], at=t + 1,
+                 data={"exit": 0, "seconds": 1, "why": "commanded", "commanded": 1})
+    if i < MADE:                                      # and in the other site its first runs each made a change
+        p.events.add("ergostat.model-change.made", item=f"ergostat.model-change/fix-{i}", source="fixer", at=t + 1,
+                     causedby=begun["id"], data={"kind": "unit", "title": f"unit {i}", "made_by": "fixer"})
+p.measurements.add("sensor/unanswered-requests.main", 36, at=now - 2)   # its sensor read, by no agent of the model's
+p.events.add("loop.off", item="requests-handled", source="ergostat", at=now - 2100, data={})   # off all the window
+p.events.add("controller.decided", item="requests-handled", source="ergostat", at=now - 60, data={"decision": "on"})
+for t in (now - 1800, now - 600, now - 5):            # requests came in at 2/h; the fixer's changes came at MADE/h
+    p.measurements.add("sensor/requests-raised.main", 2, at=t)
+    p.measurements.add("sensor/changes-made-by-fixer.main", MADE, at=t)
+log_path(p, "fixer").write_text("--- 2026-11-22 10:00:00 run 0a1b2c3d (commanded)\\nno open request the rule tier answers\\n")
+"""
+
+
+@pytest.fixture(scope="module", params=[0, 3], ids=["moved-nothing", "made-changes"])
+def requests_site(tmp_path_factory, request):
+    """The modelling template's requests loop (as image-squeeze's): its goal closes the long way, through the judge.
+    Its fixer made no change in one site, and 3 in the other (`request.param`)."""
+    d = tmp_path_factory.mktemp("requests") / "requests"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text("name: requests\nuses:\n  modelling:\n    use: modelling\n")
+    env = {**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")}
+    subprocess.run([sys.executable, "-c", REQUESTS.replace("DIR", repr(str(d))).replace("MADE", str(request.param))],
+                   env=env, check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never answered")
+    yield url, request.param
+    proc.terminate()
+    proc.wait(10)
+
+
+def test_an_agent_that_never_ran_is_behind_or_last_failed_stands_out(standout, browser):
+    """improver never ran, judge ran 10 of ~120 asked for, tidy last failed: each row says so in the alarm colour with
+    a reason under it, the top line counts them, and judge's runs cell is its panel's count."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{standout['url']}/agents")
+    pg.wait_for_selector("tr.click:has(b:text-is('judge'))")
+    row = lambda n: f"tr.click:has(b:text-is('{n}'))"                       # noqa: E731
+    word = lambda n: pg.inner_text(f"{row(n)} .exception").strip()          # noqa: E731
+    assert word("improver") == "never ran"
+    assert word("judge") == "behind: 10 of ~120"
+    assert word("tidy") == "last run failed"
+    assert pg.eval_on_selector(f"{row('judge')} .exception", "el => getComputedStyle(el).color") == \
+        pg.eval_on_selector("body", "() => { const s = document.createElement('span'); s.className = 's-off'; document.body.append(s); "
+                                    "const c = getComputedStyle(s).color; s.remove(); return c; }")   # the alarm colour
+    why = lambda n: pg.eval_on_selector(row(n), "tr => tr.nextElementSibling.matches('tr.exception-why') "  # noqa: E731
+                                                "? tr.nextElementSibling.innerText : ''")
+    assert "no run of it is in the record" in why("improver")
+    assert "about 120 runs" in why("judge") and "10 are recorded" in why("judge")
+    assert "tidy.sh exited 2" in why("tidy")
+    assert pg.eval_on_selector_all("tr.exception-why", "trs => trs.length") == 3      # (and no other row stands out)
+    top = pg.inner_text(".ladder-line")
+    assert "1 never ran" in top and "1 behind schedule" in top and "1 last run failed" in top
+    runs = pg.eval_on_selector(row("judge"), "tr => tr.children[2].textContent")
+    pg.click(row("judge"))
+    pg.wait_for_selector("#detail h2:text-is('judge')")
+    pg.wait_for_selector("#detail .panel-loading", state="detached")      # (its heading is drawn before it is read)
+    said = re.search(r"(\d+) runs: \d+ done", pg.inner_text("#detail"))
+    assert said and runs == said.group(1) == "10"                         # the list and the panel: one count
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_evidence_says_in_one_line_whether_the_actor_was_commanded_ran_and_moved_anything(requests_site, browser):
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    url, made = requests_site
+    pg.goto(f"{url}/agents")
+    pg.wait_for_selector("tr.click:has(b:text-is('fixer'))")
+    runs = pg.inner_text("tr.click:has(b:text-is('fixer')) td.num")
+    assert runs == "34"
+    keep = pg.inner_text("tr.click:has(b:text-is('keep-requests-handled'))")
+    assert "controller requests-handled" in keep and "no roles" not in keep    # the implied rule fills its controller
+    pg.goto(f"{url}/loops")
+    pg.click("tr.click:has-text('requests-handled')")
+    pg.wait_for_selector("#detail .actor-line")
+    line = pg.inner_text("#detail .actor-line")
+    moved = f"moved {made}" if made else "moved nothing"           # its changes, counted from the record
+    assert line == f"fixer: commanded {runs} times, ran {runs}, {moved} (its log: no open request the rule tier answers)"
+    pg.wait_for_selector("#detail .chart-val")                  # its scope drawn: the u chart's word is there too
+    evidence = pg.inner_text("#detail")
+    assert not ("never opened" in evidence and re.search(r"moves\s+requests-answered", evidence, re.I))
+    moves = pg.locator("#detail dl", has_text="cycled").inner_text()   # the loop's own rows
+    assert "requests-answered" not in moves and "changes-made-by-fixer" in moves   # what its own valve moves
+    hint = pg.inner_text("#detail p:has(b:text-is('Suggestion:'))")
+    if made:                                                     # 3/h made against 2/h raised: it keeps up
+        assert "keeps up on average" in hint and "moves nothing" not in hint
+    else:                                                        # it ran 34 times and moved nothing
+        assert "acts but moves nothing" in hint and "per run" not in hint.lower()
+    sensor = pg.inner_text("#detail table.parts tr:has(td:text-is('sensor'))")
+    assert ": 36" in sensor and "unfilled" not in sensor            # a sensor that reads is not unfilled
+    assert not errors, errors
+    pg.close()
+
+
 @pytest.mark.slow
 def test_the_agents_table_holds_still_while_the_pointer_is_on_a_row(site, browser):
     """Each answer of /api/agents comes in the other order (as rows re-sort when runs end): hovering a row for 20 s
@@ -295,6 +489,16 @@ def test_the_agents_table_holds_still_while_the_pointer_is_on_a_row(site, browse
     pg.close()
 
 
+def test_the_agents_listing_sends_each_agents_runs_and_the_runs_asked_for(standout):
+    """No browser: /api/agents gives each agent the window's run count (the one source of the list's runs cell and the
+    panel's) and the runs its every: asks for over the hour of record, so judge reads 10 of 120."""
+    with urllib.request.urlopen(standout["url"] + "/api/agents", timeout=10) as r:
+        got = json.load(r)
+    assert (got["judge"]["runs"], got["judge"]["expected"]) == (10, 120)
+    assert (got["improver"]["runs"], got["improver"]["expected"]) == (0, 20)
+    assert got["tidy"]["expected"] == 1
+
+
 def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_and_fit_the_panel(site, browser):
     pg = browser.new_page(viewport={"width": 1440, "height": 900})
     errors: list[str] = []
@@ -318,11 +522,11 @@ def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_a
     assert not pg.is_visible("#detail th:text-is('CPU')")                     # behind 'resources' until opened
     pg.click("details.runs-resources summary")
     assert pg.is_visible("#detail th:text-is('CPU')")
-    pg.goto(f"{site['url']}/items?kind=ergostat.action")
+    pg.goto(f"{site['url']}/items?kind=ergostat.action&finished=show")        # (the approved are finished: shown)
     pg.wait_for_selector("table.items tr.click, table tr.click")
-    heads = pg.eval_on_selector_all("table:has(th button[title='Sort by by']) th", "ths => ths.map((t) => t.textContent.trim())")
+    heads = pg.eval_on_selector_all("table:has(th button[title='Sort by author']) th", "ths => ths.map((t) => t.textContent.trim())")
     by, ok = heads.index("by"), heads.index("approved by")
-    cells = pg.eval_on_selector_all("table:has(th button[title='Sort by by']) tr.click",
+    cells = pg.eval_on_selector_all("table:has(th button[title='Sort by author']) tr.click",
                                     f"trs => trs.map((tr) => [tr.cells[{by}].textContent, tr.cells[{ok}].textContent])")
     assert len(cells) == 5 and all(c[0] not in ("", "–") for c in cells), cells
     assert sorted(c[0] for c in cells) == ["session/w1"] + ["writer"] * 4
