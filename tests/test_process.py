@@ -93,6 +93,10 @@ def test_states_count_the_moves_with_their_median_times_start_end_and_rework(p):
     assert e["median"] == pytest.approx(1.5 * H, abs=5)             # 1h, 2h, 3h, and the rework's 100s
     back = edge(g, "flag", "researched", "researching")
     assert back["count"] == 1 and back["rework"] and not edge(g, "flag", "asked", "researching")["rework"]
+    # deliberate (fix-process-rework-flag): rework is a repeated step, so flag 3's second move into researched is a
+    # return too, though the line runs forward; the other three passages along it are not
+    assert e["rework"] and e["returns"] == 1 and back["returns"] == 1
+    assert next(k for k in g["kinds"] if k["name"] == "flag")["returns"] == 2
     assert edge(g, "flag", "asked", "researching")["median"] == pytest.approx(600, abs=1)
     assert edge(g, "flag", "^", "asked")["count"] == 3 and edge(g, "flag", "shipped", "$")["count"] == 2
     # the noted events move nothing: states leave them out
@@ -298,3 +302,105 @@ def test_relations_between_the_items_drawn_are_lines_between_their_activities(tm
     assert shipped["source"] == "p:facet:done" and shipped["target"] == "p:flag:shipped" and shipped["relation"] == "parent"
     assert (shipped["count"], shipped["items"], shipped["targets"]) == (4, 4, 2)             # flags 1 and 2 shipped
     assert (researched["count"], researched["targets"]) == (2, 1) and len(rel) == 2
+
+
+# ---- rework is a repeated step on one item (fix-process-rework-flag)
+
+JOBS = """
+name: jobs
+systems:
+  work: {description: the jobs}
+items:
+  job:
+    id: job/*
+    system: work
+    states: [new, a, b, c, d]
+    on: {job.a: a, job.b: b, job.c: c, job.d: d}
+"""
+
+
+def jobs_project(where) -> Project:
+    where.mkdir(exist_ok=True)
+    (where / "ergostat.yaml").write_text(textwrap.dedent(JOBS))
+    return Project(mdl.load(where))
+
+
+def run(p: Project, item: str, steps: list[str], t: float, gap: float = 60.0) -> None:
+    for i, s in enumerate(steps):
+        p.events.add(f"job.{s}", item=item, at=t + i * gap)
+
+
+def returns(g) -> dict[str, int]:
+    """Each line with a return: how many (and they add up to the kind's total)."""
+    got = {e["id"]: e["returns"] for e in g["edges"] if e["kind"] == "follows" and e["rework"]}
+    assert all(n > 0 for n in got.values())
+    assert not any(e["rework"] for e in g["edges"] if e["kind"] != "follows")
+    assert sum(got.values()) == next(k for k in g["kinds"] if k["name"] == "job")["returns"]
+    return got
+
+
+@pytest.mark.parametrize("by", ["states", "events"])
+def test_two_items_in_opposite_orders_show_no_rework(tmp_path, by):
+    """Done 1: one item doing a, b and another b, a repeat nothing: no line is rework."""
+    p, now = jobs_project(tmp_path), time.time()
+    run(p, "job/1", ["a", "b"], now - 3 * H)
+    run(p, "job/2", ["b", "a"], now - 3 * H + 10)
+    g = pm.process(p.events, p.model.spec, ["job"], now - 24 * H, now, by)
+    x = "job." if by == "events" else ""
+    assert edge(g, "job", f"{x}a", f"{x}b")["count"] == 1 and edge(g, "job", f"{x}b", f"{x}a")["count"] == 1
+    assert returns(g) == {}
+
+
+@pytest.mark.parametrize("by", ["states", "events"])
+def test_one_item_coming_back_to_a_step_is_one_return(tmp_path, by):
+    """Done 2: one item doing a, b, a: the line b → a is rework, with one return; a → b is not."""
+    p, now = jobs_project(tmp_path), time.time()
+    run(p, "job/1", ["a", "b", "a"], now - 3 * H)
+    g = pm.process(p.events, p.model.spec, ["job"], now - 24 * H, now, by)
+    x = "job." if by == "events" else ""
+    assert returns(g) == {f"f:job:{x}b>{x}a": 1}
+
+
+def test_a_state_entered_before_the_window_counts_as_done(tmp_path):
+    """By States, the item's moves before the window count: a, b before it, then a in it, is a return."""
+    p, now = jobs_project(tmp_path), time.time()
+    run(p, "job/1", ["a", "b"], now - 30 * H)
+    run(p, "job/1", ["a"], now - H)
+    g = pm.process(p.events, p.model.spec, ["job"], now - 24 * H, now, "states")
+    assert returns(g) == {"f:job:b>a": 1}
+
+
+def concurrent_log(p: Project, now: float, items: int, redo: dict[int, int]) -> dict[str, int]:
+    """``items`` jobs, each taking the four steps once in an order of its own, all interleaved in the same hours
+    (concurrency); job i in ``redo`` then goes back to the step at that index of its order. The returns this
+    plants, by line."""
+    import random
+    rnd = random.Random(7)
+    want: dict[str, int] = {}
+    for i in range(items):
+        order = rnd.sample(["a", "b", "c", "d"], 4)
+        start, gap = now - 6 * H + rnd.uniform(0, 600), rnd.uniform(30, 900)
+        if i in redo:
+            again = order[redo[i]]
+            want[f"{order[-1]}>{again}"] = want.get(f"{order[-1]}>{again}", 0) + 1
+            order.append(again)
+        run(p, f"job/{i}", order, start, gap=gap)
+    return want
+
+
+@pytest.mark.parametrize("by", ["states", "events"])
+def test_a_concurrent_log_with_no_repeated_step_shows_no_rework_and_its_planted_returns_exactly(tmp_path, by):
+    """Done 3: many items, each in its own order and all at once, repeat nothing: zero rework, though lines
+    between two steps are taken both ways; the same log with some items sent back shows exactly those returns."""
+    now = time.time()
+    x = "job." if by == "events" else ""
+    p = jobs_project(tmp_path / "once")
+    assert concurrent_log(p, now, 120, {}) == {}
+    g = pm.process(p.events, p.model.spec, ["job"], now - 24 * H, now, by)
+    assert edge(g, "job", f"{x}d", f"{x}a")["count"] > 0 and edge(g, "job", f"{x}a", f"{x}d")["count"] > 0
+    assert returns(g) == {}
+    p2 = jobs_project(tmp_path / "again")
+    want = concurrent_log(p2, now, 120, {i: i % 3 for i in range(0, 120, 7)})
+    assert sum(want.values()) == 18
+    g2 = pm.process(p2.events, p2.model.spec, ["job"], now - 24 * H, now, by)
+    assert returns(g2) == {f"f:job:{x}{k.replace('>', '>' + x)}": n for k, n in want.items()}

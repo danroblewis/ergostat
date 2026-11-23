@@ -97,6 +97,18 @@ order. A reset time that cannot be read (no time, an unknown zone, a date that d
 or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit again or
 not. A switch's drain nacks are uncounted too (`count: false`), whether a run gives its item back or the switcher does.
 
+**An outage is a pause, not a failure** (`dev/bin/outage.py`). A run that fails because Docker or the AI service cannot
+be reached gives its item back uncounted, put off 10 minutes, and is taken again after it, as often as the outage
+lasts: no attempt, nothing toward the kill rule, never parked or a dead letter. Docker's is told by its words naming
+Docker (a container that did not start, exit 125, `docker ...`), confirmed by `docker info` failing or not answering in
+30 s (a factory with no `docker` installed has no Docker outage); a queue suite whose container fails while `docker info`
+fails is one too, never a red suite. The AI service's is told by a connection error in what the session said (refused,
+no route, a name not resolved, a request timed out); an answer of the API's (a 4xx, a 5xx) is the service reached.
+This covers the implementor and the reviewer (`fac.guarded`) and the merge queue's batch (main undone, no gap blamed).
+The engine gives back a lease whose run's process is gone, uncounted too (SPEC §9.5, *A run gone*), and a kind's
+`attention:` field puts the pipeline manager's latest finding (`finding`, on its handled situation) on the page's
+attention list.
+
 ## Submit a gap
 
 A GAPS.md entry is taken in by itself (`gap.found`, open). It is **ready** once it has a definition of done:
@@ -224,8 +236,20 @@ Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) g
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
-the gaps and times said, `main_fixed_at`, `fixed_by` and `green_passes` removed). An item it cannot read is written as
-said, the failure on stderr.
+the gaps and times said, `main_fixed_at`, `fixed_by`, `green_passes` and `passed_on` removed). An item it cannot read
+is written as said, the failure on stderr.
+
+**Out of main-broken: main-mend.** The block `main-mend` (dev/model/landing.yaml; every 30 minutes, pool 1, a lease,
+timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
+quiet machine (`fac.wait_quiet`), and takes the `main-broken` tests not tried since they broke, oldest
+first (by `main_broken_at`), then the least lately tried (`run/mend/tried.json`), at most `[gates] mend_most` (default
+5, held to 1-20), so tests that stay unknown run after run give up their place to those behind them. It runs them alone twice on that commit (together; after a run that died, killed by its timeout with one of them picked, one at a time, each counted tried as it starts, so a hanging test goes behind the others), in `<worktrees>/.mend` and a
+suite container (`[suites] alone` with `-rA`; a test of a browser suite file with `rerun`, which has Playwright), and
+reads each result from the whole log (`fac.outcomes`). A test passing both runs is `flake.main-fixed` (state `fixed`;
+`passed_on`, `main_fixed_at`, `fixed_by: main-mend`). Failed, skipped, not collected, quarantined at that commit, or a
+run that stalled or left no log: unknown, and it stays main-broken. The write is decided under `run/flakes.lock` on the
+item read there, only when its `main` is the commit run on or an ancestor of it, and is a patch whose first op tests
+that `main`: a newer break written in between refuses the whole event, and a refused patch moves no state (SPEC §5a).
 
 ## The backlog: ranked, groomed
 
