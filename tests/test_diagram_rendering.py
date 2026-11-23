@@ -1710,7 +1710,8 @@ def test_items_links_each_kind_to_its_process_map_whose_states_say_how_many_are_
         assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
         pg.get_by_role("button", name="Fit").click()
         assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
-        assert pg.is_visible("#panhint") and pg.inner_text("#panhint").startswith("More beyond the edge "), pg.inner_text("#panhint")
+        assert pg.is_visible("#panhint") and re.match(r"More to the (left|right|above|below)", pg.inner_text("#panhint")), \
+            pg.inner_text("#panhint")
         pg.close()
     assert not errors, errors
 
