@@ -83,3 +83,17 @@ Round 3: the merge of main (ead497d1) conflicted in details.js and pages.js.
   test_the_headers_tooltip_names_the_goals_its_count_counts (all passed, rc 0). The whole suites are left to the factory.
 - A heredoc append to this file with `cat >>` followed by a commit, given as one Bash command, was refused in this
   session; this section was written with the editor instead.
+
+Round 4: the merge of main (5411f137) conflicted in diagram.js and pages.js.
+- pages.js: main gave the Loops table its caption ("Loops"); pageLoops keeps goalRow's rows and passes main's caption.
+- diagram.js: main closed the suggestions by default (no longer open when a loop is off) and folded the side list's
+  loops into `details.loops`. Both are kept as main has them. The branch's goalRank order and goalWord/goalLine lines
+  now sit inside the fold. The round-1 note that the suggestions' open-when-off reads goalWord no longer applies:
+  main removed that rule.
+- Ran: ruff (clean); the three unit acceptance tests (passed); in the browser, under the watchdog (rc 0), the
+  goals-page acceptance test, test_the_headers_tooltip_names_the_goals_its_count_counts,
+  test_the_side_panel_with_nothing_waiting_opens_on_the_legend_and_folds_the_rest,
+  test_a_suggestion_appears_when_it_has_a_verdict and test_a_one_sided_limit_is_drawn_and_named_as_a_limit (all
+  passed). The whole suites are left to the factory.
+- Refused in this session: a `git diff $(git merge-base HEAD MERGE_HEAD) MERGE_HEAD ... | head; cat goalrow.js`
+  compound, and the browser run when given with `| tail -8; echo rc=$?` (it was run again without them).
