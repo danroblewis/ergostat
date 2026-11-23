@@ -256,3 +256,20 @@ arguments. No net lines added. No review findings were open.
 
 Run: the three behaviour tests (3 passed, rc 0, under the watchdog); `tests/test_graph_cli_web.py` (43 passed); ruff
 clean. Not run: the whole unit suite and the four browser files in full (left to the factory and the merge queue).
+
+## Where it stopped (continued, round 6)
+
+The merge of main (e43046dc) conflicted in three files. All are resolved, and both sides are kept:
+- `charts.js`: main keys the scope's off stretch with `offKey()` (no 'Red: off'). The branch writes time off through
+  `shareText`. Both are kept.
+- `pages.js`: main also asks `/api/systems` for its quiet lines. The branch's `word(n, lp)` (hysteresis and
+  flapping) is kept. Both are kept: main's two asks, then the branch's `st`/`win` and `word`.
+- `tests/test_diagram_rendering.py`: the branch's three behaviour tests and main's `OFF_PIXELS`, `CONTRAST` and
+  hatched-off test are each kept whole. Each test has its own server set-up and `finally`.
+No net lines added. No review findings were open (the queue's one finding was this conflict).
+
+Run: the three behaviour tests (3 passed, rc 0, under the watchdog); main's
+`test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_both_themes` and
+`tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (2 passed, rc 0, under the watchdog);
+`tests/test_graph_cli_web.py` (45 passed); ruff clean. Not run: the whole unit suite and the four browser files in
+full (left to the factory and the merge queue).
