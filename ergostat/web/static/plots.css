@@ -1,0 +1,18 @@
+/* the drawn chart forms (plots-*.js): design tokens only. The canvases fill the plot's box; the legend is beside it */
+.plot-frame { position: absolute; inset: 0; overflow: hidden; }
+.plot-base, .plot-cursor { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.plot-cursor { cursor: crosshair; touch-action: pan-y; }
+.plot-legend { display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0; color: var(--ink-2); font-size: var(--canvas-sm); }
+.plot-legend-row { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; line-height: var(--leading); }
+.plot-legend-row.off { color: var(--muted); }
+.plot-legend-row.off .panel-swatch { background: transparent; box-shadow: inset 0 0 0 var(--hair) var(--line-strong); }
+.plot-legend-row.off .panel-series-name { text-decoration: line-through; }
+.plot-legend-row .panel-series-name { flex: 1 1 auto; }
+.plot-legend-value { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.plot-legend-note { display: flex; align-items: flex-start; gap: var(--sp-1); color: var(--muted); line-height: var(--leading); }
+.plot-legend-note span { min-width: 0; overflow-wrap: anywhere; }
+.plot-legend-mark { flex: none; width: var(--sp-4); height: calc(var(--text-sm) * var(--leading)); overflow: visible; }
+.panel-stat-num.is-bad { color: var(--bad); }
+.panel-stat-num.is-warn { color: var(--warn); }
+.panel-cell-bar { position: relative; z-index: 0; }
+.panel-cell-bar::before { content: ""; position: absolute; inset: var(--sp-0) 0; z-index: -1; width: var(--cell, 0%); background: var(--accent-wash); border-radius: var(--sp-0); }

@@ -10,11 +10,12 @@
      red meaning a failure here. Past eight a hue comes again dashed; "other" is always the muted ink */
   const SERIES_ORDER = [0, 1, 5, 9, 4, 2, 6, 7];
   const LATE_AFTER_TICKS = 1, GIVE_UP_TICKS = 4;
-  const LOG_FORMS = new Set(["line", "area"]);
-  const PLOT_FORMS = new Set(["line", "area", "stacked", "bars"]);
+  const LOG_FORMS = new Set(["line"]);
+  const PLOT_FORMS = new Set(["line", "bar"]);
   const DEFAULT_COLUMNS = ["last", "avg", "max"];
   const COLUMN_WORD = { last: "Last", avg: "Avg", min: "Min", max: "Max" };
   const DASH = "–", MINUS = "−";
+  const PERCENT_UNIT = { raw: "%", per: null, kind: "percent", mult: 1, label: "%" };
 
   const inks = new Map();
   const ink = (name) => { if (!inks.has(name)) inks.set(name, tok(name)); return inks.get(name); };
@@ -31,6 +32,66 @@
     return item.slot < SERIES_ORDER.length ? hue : mixed(hue, ink("--ink"), 0.62);
   }
   const washed = (hex, alpha) => `${hex}${alpha}`;
+
+  /* ------------------------------------------------ the chart families and their options */
+
+  /* a form is a family; its variants are options, declared here so the editor can offer them knowing no chart */
+  const FORM_REGISTRY = new Map();
+  function registerPlotForm(name, def) { FORM_REGISTRY.set(name, { name, ...FORM_REGISTRY.get(name), ...def }); }
+  const plotForms = () => Object.fromEntries(FORM_REGISTRY);
+  const choice = (key, label, choices, when) => ({ key, label, type: "choice", choices, default: choices[0], ...(when ? { when } : {}) });
+  const stackedOn = (c) => (c.options?.stack || "none") !== "none";
+  registerPlotForm("line", { label: "Line", group: "time", needs: { x: ["time", "query", "field", "bins"], text: "a measure over time, or against any X" }, options: [
+    choice("style", "Line style", ["linear", "smooth", "step-after", "step-before", "step-middle"]),
+    choice("fill", "Fill", ["none", "area", "gradient"]),
+    choice("stack", "Stacking", ["none", "stacked", "percent"]),
+    choice("points", "Points", ["auto", "always", "never"]),
+    { key: "width", label: "Line width", type: "number", min: 1, max: 4, step: 1, default: 1.5 },
+    choice("nulls", "Missing values", ["gap", "connect", "zero"]),
+  ] });
+  registerPlotForm("bar", { label: "Bar", group: "comparison", needs: { x: ["category", "time", "bins", "query", "field"], text: "values to compare" }, options: [
+    choice("orientation", "Orientation", ["vertical", "horizontal"]),
+    choice("stack", "Stacking", ["none", "stacked", "percent"]),
+    choice("grouping", "Several series", ["grouped", "overlaid"], (c) => !stackedOn(c)),
+    choice("sort", "Sort", ["none", "value-desc", "value-asc"]),
+    choice("values", "Value labels", ["off", "on"]),
+  ] });
+  registerPlotForm("stat", { label: "Stat", group: "single value", needs: { x: ["time"], text: "a measure over time" }, options: [
+    choice("value", "Value", ["last", "avg", "min", "max", "sum"]),
+    choice("sparkline", "Sparkline", ["on", "off"]),
+    choice("delta", "Change", ["on", "off"]),
+    choice("color", "Colour", ["none", "thresholds"]),
+  ] });
+  registerPlotForm("table", { label: "Table", group: "single value", needs: { x: ["time"], text: "a measure over time" }, options: [
+    { key: "columns", label: "Columns", type: "choice", multiple: true, choices: ["last", "avg", "min", "max"], default: ["last", "avg", "max"] },
+    choice("sort", "Sort", ["none", "name", "last", "avg", "min", "max"]),
+    choice("bars_in_cells", "Bars in cells", ["off", "on"]),
+  ] });
+
+  /* the names panels were saved under before families. Old bars were stacked unless they said otherwise, and keep that */
+  function normalizeForm(config) {
+    const form = config?.form;
+    const stack = config?.display?.stack;
+    const old = form === "area" ? { form: "line", options: { fill: "area", ...(stack === true ? { stack: "stacked" } : {}) } }
+      : form === "stacked" ? { form: "line", options: { fill: "area", stack: "stacked" } }
+      : form === "step" ? { form: "line", options: { style: "step-after" } }
+      : form === "bars" ? { form: "bar", options: { stack: stack === false ? "none" : "stacked" } }
+      : form === "hbar" ? { form: "bar", options: { orientation: "horizontal" } }
+      : null;
+    return old ? { ...config, form: old.form, options: { ...old.options, ...(config.options || {}) } } : config;
+  }
+  /* each declared option at its asked value, or its default when unset or no longer one of the choices */
+  function formOptions(config) {
+    const asked = config.options || {}, out = { ...asked };
+    for (const o of FORM_REGISTRY.get(config.form)?.options || []) {
+      const v = asked[o.key];
+      if (o.auto && v === "auto") { out[o.key] = "auto"; continue; }
+      const fine = v != null && (o.type !== "choice" || o.multiple || o.free || o.choices.includes(v))
+        && (o.type !== "number" || (Number.isFinite(+v) && (o.min == null || +v >= o.min) && (o.max == null || +v <= o.max)));
+      out[o.key] = fine ? (o.type === "number" ? +v : v) : o.default;
+    }
+    return out;
+  }
 
   /* ------------------------------------------------ units and numbers */
 
@@ -154,7 +215,16 @@
   const queryWord = (q) => q.label || q.field || q.series || q.measure || q.type || q.source || q.id;
   const OTHER = "other";
 
-  const shownQueries = (cfg) => (cfg.queries || []).filter((q) => !q.hidden);
+  /* the ids a shown query reads from: as its X, or as a frequency response's input or output */
+  const readsFrom = (q) => [q.x?.query, q.input, q.output].filter((r) => typeof r === "string" || typeof r === "number").map(String);
+  /* what is drawn: a query that only feeds another is that query's axis, not a series of its own. If every shown query
+     feeds another (a cycle) they are all kept, so the answer's words about it reach the panel */
+  function shownQueries(cfg) {
+    const on = (cfg.queries || []).filter((q) => !q.hidden);
+    const fed = new Set(on.flatMap((q) => readsFrom(q).filter((r) => r !== String(q.id))));
+    const drawn = on.filter((q) => !fed.has(String(q.id)));
+    return drawn.length ? drawn : on;
+  }
   const allHidden = (cfg) => (cfg.queries || []).length > 0 && !shownQueries(cfg).length;
   const ALL_HIDDEN = "All of this panel's queries are hidden";
 
@@ -176,8 +246,8 @@
     return { times, at: new Map(times.map((t, i) => [t, i])) };
   }
   function readAnswer(cfg, results, slots) {
-    const off = new Set((cfg.queries || []).filter((q) => q.hidden).map((q) => q.id));
-    const drawn = results.filter((r) => !off.has(r.id));
+    const on = new Set(shownQueries(cfg).map((q) => q.id));
+    const drawn = results.filter((r) => on.has(r.id));
     const good = drawn.filter((r) => !r.error && r.series);
     const failed = drawn.filter((r) => r.error);
     const { times, at } = good.length ? alignedTimes(good) : { times: [], at: null };
@@ -216,13 +286,19 @@
     }));
   }
   /* bars over each bucket, side by side or stacked, with the paper showing between them */
+  function sharesOf(rows, off) {
+    const n = rows[0]?.length || 0;
+    const totals = new Array(n).fill(0);
+    rows.forEach((r, k) => { if (!off(k)) r.forEach((v, i) => { if (v != null) totals[i] += Math.abs(v); }); });
+    return rows.map((r) => r.map((v, i) => (v == null ? null : totals[i] ? v / totals[i] * 100 : 0)));
+  }
   function barPaths(st) {
     return (u, si, i0, i1) => {
       const path = new Path2D(), dpr = devicePixelRatio;
       const shown = st.items.map((it, i) => (st.off.has(it.key) ? -1 : i)).filter((i) => i >= 0);
       const lane = shown.indexOf(si - 1);
       if (lane < 0) return { stroke: path, fill: path, clip: null, band: null, gaps: null };
-      const lanes = st.stacked ? 1 : shown.length;
+      const lanes = st.stacked || st.overlaid ? 1 : shown.length;
       const base0 = u.valToPos(0, "y", true);
       for (let i = i0; i <= i1; i++) {
         const v = u.data[si][i];
@@ -230,7 +306,7 @@
         const t = u.data[0][i];
         const left = u.valToPos(t, "x", true), right = u.valToPos(t + st.step, "x", true);
         const full = right - left, gap = Math.min(2 * dpr, full * 0.2), w = Math.max(dpr, (full - gap) / lanes);
-        const x = left + gap / 2 + (st.stacked ? 0 : lane * w);
+        const x = left + gap / 2 + (st.stacked || st.overlaid ? 0 : lane * w);
         const prev = st.stacked && lane > 0 ? u.data[shown[lane - 1] + 1][i] : null;
         const y0 = prev == null ? base0 : u.valToPos(prev, "y", true);
         const y1 = u.valToPos(v, "y", true);
@@ -247,7 +323,7 @@
   function thresholdLines(st) {
     return (u) => {
       const lines = st.display.thresholds || [];
-      if (!lines.length) return;
+      if (!lines.length || st.percent) return;
       const ctx = u.ctx, { left, top, width, height } = u.bbox;
       ctx.save();
       ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
@@ -263,6 +339,7 @@
   }
   function yRangeOf(st) {
     return (u, lo, hi) => {
+      if (st.percent) return [0, 100];
       const asked = st.display.y || {};
       const y = { min: asked.min == null ? null : asked.min * st.factor, max: asked.max == null ? null : asked.max * st.factor };
       const levels = (st.display.thresholds || []).map((x) => x.value * st.factor).filter(Number.isFinite);
@@ -276,35 +353,54 @@
       }
       let a = Math.min(lo ?? Infinity, ...levels), b = Math.max(hi ?? -Infinity, ...levels);
       if (!Number.isFinite(a) || !Number.isFinite(b)) { a = 0; b = 1; }
-      if (st.form !== "line" && a > 0) a = 0;
+      if ((st.form !== "line" || st.filled) && a > 0) a = 0;
       if (a === b) { const d = Math.abs(a) * 0.1 || 1; a -= a === 0 ? 0 : d; b += d; }
       const nice = uPlot.rangeNum(a, b, { min: { pad: a === 0 ? 0 : 0.06, soft: 0, mode: 2 }, max: { pad: 0.08, soft: 0, mode: 2 } });
       return [y.min ?? (a === 0 ? 0 : nice[0]), y.max ?? nice[1]];
     };
   }
-  const dashOf = (st, it) => (!st.stacked && st.form !== "bars" && (it?.slot ?? 0) >= SERIES_ORDER.length ? [6, 3] : undefined);
+  const dashOf = (st, it) => (!st.stacked && st.form !== "bar" && (it?.slot ?? 0) >= SERIES_ORDER.length ? [6, 3] : undefined);
+  function linePaths(style) {
+    if (style === "step-after") return uPlot.paths.stepped({ align: 1 });
+    if (style === "step-before") return uPlot.paths.stepped({ align: -1 });
+    if (style === "smooth" && uPlot.paths.spline) return uPlot.paths.spline();
+    return undefined;
+  }
+  function gradientFill(u, colour) {
+    const { top, height } = u.bbox, g = u.ctx.createLinearGradient(0, top, 0, top + height);
+    g.addColorStop(0, washed(colour, "8c"));
+    g.addColorStop(1, washed(colour, "0a"));
+    return g;
+  }
   function seriesOptions(st, index) {
     const item = () => st.items[index] || st.items[0];
     const colour = () => { const it = item(); return !it || st.off.has(it.key) ? "transparent" : seriesInk(it); };
-    const opts = { label: item()?.name || "", width: st.form === "bars" ? 0 : 1.5, stroke: colour, spanGaps: false,
+    const isBar = st.form === "bar", o = st.options;
+    const wanted = (si) => (o.points === "always" ? true : o.points === "never" ? false : (st.items[si - 1]?.stats.n ?? 0) <= 2);
+    const opts = { label: item()?.name || "", width: isBar ? 0 : o.width ?? 1.5, stroke: colour, spanGaps: !isBar && o.nulls === "connect",
                    dash: dashOf(st, st.items[index]),
-                   points: { show: (u, si) => st.form !== "bars" && (st.items[si - 1]?.stats.n ?? 0) <= 2, size: 5, stroke: colour, fill: colour } };
-    if (st.form === "bars") { opts.paths = barPaths(st); opts.fill = colour; }
-    else if (st.stacked) {
-      opts.width = 1.25;
-      if (index === 0) { opts.fill = () => (colour() === "transparent" ? colour() : washed(colour(), "a6")); opts.fillTo = () => 0; }
-    } else if (st.form === "area") {
-      opts.fill = () => (colour() === "transparent" ? colour() : washed(colour(), "2e"));
+                   points: { show: (u, si) => !isBar && wanted(si), size: 5, stroke: colour, fill: colour } };
+    if (isBar) { opts.paths = barPaths(st); opts.fill = st.overlaid ? () => (colour() === "transparent" ? colour() : washed(colour(), "8c")) : colour; return opts; }
+    const paths = linePaths(o.style);
+    if (paths) opts.paths = paths;
+    const fillOf = (u, alpha) => { const c = colour(); return c === "transparent" ? c : o.fill === "gradient" ? gradientFill(u, c) : washed(c, alpha); };
+    if (st.stacked) {
+      if (st.filled && index === 0) { opts.fill = (u) => fillOf(u, "a6"); opts.fillTo = () => 0; }
+    } else if (st.filled) {
+      opts.fill = (u) => fillOf(u, "2e");
       opts.fillTo = st.logScale ? undefined : () => 0;
     }
     return opts;
   }
   function setBands(st, plot) {
     while (plot.bands?.length) plot.delBand(0);
-    if (!st.stacked || st.form === "bars") return;
+    if (!st.stacked || st.form === "bar" || !st.filled) return;
     for (let i = 1; i < st.items.length; i++) {
       const it = () => st.items[i];
-      plot.addBand({ series: [i + 1, i], fill: () => (!it() || st.off.has(it().key) ? "transparent" : washed(seriesInk(it()), "a6")) });
+      plot.addBand({ series: [i + 1, i], fill: (u) => {
+        if (!it() || st.off.has(it().key)) return "transparent";
+        return st.options.fill === "gradient" ? gradientFill(u, seriesInk(it())) : washed(seriesInk(it()), "a6");
+      } });
     }
   }
   function cursorMark(u, si) {
@@ -340,7 +436,7 @@
   };
 
   function chartPanel(config, { group = null } = {}) {
-    const st = { cfg: null, display: {}, form: "line", stacked: false, logScale: false, items: [], times: [], step: 60, x0: 0, x1: 1,
+    const st = { cfg: null, display: {}, options: {}, form: "line", filled: false, percent: false, overlaid: false, view: null, viewKey: "", stacked: false, logScale: false, items: [], times: [], step: 60, x0: 0, x1: 1,
                  unit: parseUnit(""), factor: 1, off: new Set(), slots: new Map(), hasData: false, visible: true, dirty: false,
                  last: null, state: "loading", sort: null, draws: 0, columns: [] };
     const cursorGroup = group || sharedGroup();
@@ -376,7 +472,7 @@
       yAxis.stroke = axisInk;
       yAxis.grid = { ...yAxis.grid, stroke: gridInk };
       yAxis.space = 30;
-      yAxis.values = (u, vals) => axisLabels(vals, st.unit, st.logScale);
+      yAxis.values = (u, vals) => axisLabels(vals, st.percent ? PERCENT_UNIT : st.unit, st.logScale);
       if (st.logScale) yAxis.splits = logSplits;
       else yAxis.incrs = (st.unit.kind === "dur" ? DURATION_STEPS.map((x) => x / st.unit.mult) : DECIMAL_STEPS);
       yAxis.size = (u, vals) => {
@@ -396,8 +492,10 @@
       return plot;
     }
     function plotData() {
+      const filledIn = (v) => (v == null && st.form === "line" && st.options.nulls === "zero" ? 0 : v);
       const shownValue = (v) => (st.logScale && v != null && v <= 0 ? null : v == null ? null : v * st.factor);
-      const scaled = st.items.map((it) => it.values.map(shownValue));
+      let scaled = st.items.map((it) => it.values.map((v) => shownValue(filledIn(v))));
+      if (st.percent) scaled = sharesOf(scaled, (k) => st.off.has(st.items[k].key));
       if (st.stacked) {
         const shadow = st.items.map((it, i) => ({ ...it, values: scaled[i] }));
         return [st.times, ...stackedValues(st.times, shadow, st.off)];
@@ -420,7 +518,7 @@
       st.mount = null;
     }
     function drawPlot() {
-      if (!PLOT_FORMS.has(st.form)) return;
+      if (!PLOT_FORMS.has(st.form) || st.view) return;
       if (st.mount?.plot && !livePlot()) dropPlot();     // the page took it away and let it go (charts.js sweeps)
       if (!st.mount) mountChart();
       const plot = livePlot();
@@ -534,6 +632,95 @@
       });
       for (const row of have.values()) row.remove();
     }
+    /* a form drawn on its own canvas (plots-*.js), or a line or bar the time plot cannot draw */
+    const shapeOf = (r) => (r.frequency ? "frequency" : r.x?.type || "time");
+    function drawnBy(results) {
+      const def = FORM_REGISTRY.get(st.form);
+      if (!def?.draw) return null;
+      if (!PLOT_FORMS.has(st.form)) return def;
+      const r = results.find((x) => !x.error);
+      if (r && shapeOf(r) !== "time") return def;
+      const o = st.options;
+      if (st.form === "line") return o.style === "step-middle" || (o.style === "smooth" && !uPlot.paths.spline) ? def : null;
+      return o.orientation === "horizontal" || o.sort !== "none" || o.values === "on" ? def : null;
+    }
+    function dropView() {
+      st.view?.destroy();
+      st.view = null;
+      st.viewKey = "";
+      st.viewMount?.remove();
+      st.viewMount = null;
+    }
+    function mergedResult(good) {
+      const queries = shownQueries(st.cfg), many = queries.length > 1, series = [];
+      for (const r of good) {
+        const q = queries.find((x) => x.id === r.id) || { id: r.id };
+        for (const one of r.series || []) {
+          const word = queryWord(q);
+          const key = `${r.id}\u0000${one.name ?? ""}`, other = one.name === OTHER;
+          if (!other && !st.slots.has(key)) st.slots.set(key, st.slots.size);
+          const times = one.times || r.times || null;
+          const item = { key, other, slot: other ? 0 : st.slots.get(key) };
+          series.push({ ...one, key, other, slot: item.slot, colour: seriesInk(item), times,
+                        name: one.name && one.name !== "y" ? (many ? `${word}: ${one.name}` : one.name) : word,
+                        xs: one.xs || r.times || [], values: one.values || [] });
+        }
+      }
+      const first = good[0] || {};
+      return { ...first, shape: shapeOf(first), x: first.x || { type: "time" }, series, capped: good.reduce((n, r) => n + (r.capped || 0), 0) };
+    }
+    const hasPoints = (r) => (r.frequency ? (r.frequency.hz || []).length > 0
+      : r.series.some((x) => (x.close || x.values || []).some((v) => v != null)) || !!(r.poles?.length || r.zeros?.length));
+    function drawForm(def) {
+      const { results, meta } = st.last;
+      const on = new Set(shownQueries(st.cfg).map((q) => q.id));
+      const drawn = (results || []).filter((r) => on.has(r.id));
+      const good = drawn.filter((r) => !r.error), failed = drawn.filter((r) => r.error);
+      if (failed.length && !good.length) {
+        st.hasData = st.hasData && !!st.view;
+        setState("error", failed.map((r) => r.error).join("; "));
+        return;
+      }
+      if (allHidden(st.cfg)) { dropView(); setState("empty", ALL_HIDDEN); return; }
+      const result = mergedResult(good);
+      const accepted = def.needs?.source === "frequency" ? ["frequency"] : def.needs?.x;
+      const why = !good.length ? "This panel has no query yet."
+        : accepted && !accepted.includes(result.shape) ? `${def.label || st.form} needs ${def.needs?.text || `an X axis of ${accepted.join(" or ")}`}; this query has ${result.shape}.`
+        : def.check?.(result, st.cfg) || (hasPoints(result) ? "" : `Nothing recorded for ${shownQueries(st.cfg).map(queryWord).join(", ") || "this query"}.`);
+      if (why) { dropView(); setState("empty", why); return; }
+      if (st.mount) dropPlot();
+      const chosen = st.display.unit && st.display.unit !== "auto";
+      st.unit = parseUnit(chosen ? st.display.unit : result.unit);
+      st.factor = 1;
+      st.hasData = true;
+      chip.textContent = chipOf(st.unit);
+      chip.hidden = !chip.textContent;
+      setState("drawn");
+      setBody("chart");
+      const place = legendPlace();
+      el.dataset.legend = place;
+      legend.hidden = place === "hidden";
+      if (place === "hidden") legend.replaceChildren();
+      const failedSaid = failed.length ? `${failed.length} of ${drawn.length} queries failed: ${failed.map((r) => r.error).join("; ")}` : "";
+      if (failedSaid) { flag.classList.add("is-error"); flag.textContent = "Partial"; flag.title = failedSaid; }
+      keys.replaceChildren();
+      const said = [...(result.capped ? [`${result.capped} more not drawn`] : []), ...good.flatMap((r) => r.notes || (r.note ? [r.note] : []))];
+      if (said.length) keys.append(h("span", { class: "panel-key panel-key-note" }, said.join("; ")));
+      keys.hidden = !keys.childElementCount;
+      result.meta = meta;
+      const key = JSON.stringify([st.form, st.options, st.display, result.shape]);
+      if (st.view && st.viewKey === key) st.view.update(result);
+      else {
+        dropView();
+        host.replaceChildren();
+        st.viewMount = h("div", { class: "panel-mount" });
+        host.append(st.viewMount);
+        st.view = def.draw(st.viewMount, result, st.cfg, { options: st.options, unit: st.unit, legend: place === "hidden" ? null : legend,
+                                                         readout: (text) => { readout.textContent = text; } });
+        st.viewKey = key;
+      }
+      st.draws++;
+    }
     function toggle(key) {
       if (st.off.has(key)) st.off.delete(key); else st.off.add(key);
       drawLegend();
@@ -565,8 +752,17 @@
         tile.__nameEl.hidden = st.items.length === 1;
         tile.__nameEl.lastChild.textContent = it.name;
         tile.__nameEl.firstChild.style.setProperty("--swatch", seriesInk(it));
-        tile.__num.textContent = formatValue(it.stats.last == null ? null : it.stats.last * st.factor, st.unit, st.places, true);
-        tile.__change.textContent = changeSaid(it.values);
+        const o = st.options;
+        const known = it.values.filter((v) => v != null && Number.isFinite(v));
+        const shown = o.value === "sum" ? (known.length ? known.reduce((a, b) => a + b, 0) : null) : it.stats[o.value || "last"];
+        tile.__num.textContent = formatValue(shown == null ? null : shown * st.factor, st.unit, st.places, true);
+        const passed = o.color === "thresholds" && shown != null ? (st.display.thresholds || []).filter((x) => x.value != null && shown >= x.value).length : 0;
+        const levels = (st.display.thresholds || []).filter((x) => x.value != null).length;
+        tile.__num.classList.toggle("is-bad", passed > 0 && passed === levels);
+        tile.__num.classList.toggle("is-warn", passed > 0 && passed < levels);
+        tile.__change.hidden = o.delta === "off";
+        tile.__change.textContent = o.delta === "off" ? "" : changeSaid(it.values);
+        tile.__spark.style.display = o.sparkline === "off" ? "none" : "";
         tile.__spark.setValues(it.values, st.items.length === 1 ? ink("--g0") : seriesInk(it));
       });
       for (const tile of have.values()) tile.remove();
@@ -583,9 +779,10 @@
 
     /* a table: a row for each series */
     function drawTable() {
-      const asked = st.display.legend_values;
+      const asked = Array.isArray(st.cfg.options?.columns) ? st.cfg.options.columns : st.display.legend_values;
       const columns = Array.isArray(asked) && asked.some((c) => COLUMN_WORD[c]) ? asked.filter((c) => COLUMN_WORD[c]) : DEFAULT_COLUMNS;
       const sig = JSON.stringify(columns);
+      if (!st.sort && st.options.sort && st.options.sort !== "none") st.sort = { key: st.options.sort, down: st.options.sort !== "name" };
       let table = tableBox.firstElementChild;
       if (!table || table.__sig !== sig) {
         const header = (word, key, cls) => {
@@ -630,7 +827,13 @@
         if (tbody.rows[index] !== row) tbody.insertBefore(row, tbody.rows[index] || null);
         row.__swatch.style.setProperty("--swatch", seriesInk(it));
         if (row.__name.textContent !== it.name) row.__name.textContent = it.name;
-        columns.forEach((c, k) => { row.cells[k + 1].textContent = formatValue(it.stats[c] == null ? null : it.stats[c] * st.factor, st.unit, st.places); });
+        columns.forEach((c, k) => {
+          const cell = row.cells[k + 1], v = it.stats[c];
+          cell.textContent = formatValue(v == null ? null : v * st.factor, st.unit, st.places);
+          const top = st.options.bars_in_cells === "on" ? Math.max(0, ...st.items.map((x) => Math.abs(x.stats[c] ?? 0))) : 0;
+          cell.classList.toggle("panel-cell-bar", top > 0);
+          if (top > 0) cell.style.setProperty("--cell", `${Math.abs(v ?? 0) / top * 100}%`); else cell.style.removeProperty("--cell");
+        });
         row.__spark.setValues(it.values, seriesInk(it));
       });
       for (const row of have.values()) row.remove();
@@ -679,6 +882,14 @@
       st.dirty = false;
       if (!st.last) return;
       const { results, meta } = st.last;
+      if (st.form !== "stat" && st.form !== "table" && !FORM_REGISTRY.has(st.form)) {
+        dropView();
+        setState("error", `This panel asks for a chart form that is not available: ${st.form}.`);
+        return;
+      }
+      const byForm = drawnBy(results || []);
+      if (byForm) { drawForm(byForm); return; }
+      if (st.view) { dropView(); host.replaceChildren(); }
       const answer = readAnswer(st.cfg, results || [], st.slots);
       const span = (meta?.until ?? 0) - (meta?.since ?? 0);
       if (answer.failed.length && !answer.items.length) {
@@ -700,7 +911,7 @@
       st.step = meta?.step || (answer.times.length > 1 ? answer.times[1] - answer.times[0] : 60);
       st.x0 = meta?.since ?? answer.times[0];
       st.x1 = meta?.until ?? answer.times[answer.times.length - 1];
-      if (st.form === "bars") st.x1 = Math.max(st.x1, answer.times[answer.times.length - 1] + st.step);
+      if (st.form === "bar") st.x1 = Math.max(st.x1, answer.times[answer.times.length - 1] + st.step);
       if (st.x1 <= st.x0) st.x1 = st.x0 + st.step;
       const chosen = st.display.unit && st.display.unit !== "auto";
       const base = parseUnit(chosen ? st.display.unit : answer.items.find((it) => it.unit)?.unit);
@@ -727,21 +938,28 @@
       else if (st.form === "table") drawTable();
       else { drawLegend(); drawPlot(); restReadout(); }
     }
-    const applyConfig = (cfg) => {
+    const applyConfig = (asked) => {
       const before = st.cfg;
+      const cfg = normalizeForm({ ...asked, form: asked.form || "line" });
       st.cfg = cfg;
       st.display = cfg.display || {};
-      st.form = cfg.form || "line";
-      const stack = st.display.stack;
-      st.stacked = st.form === "stacked" || (st.form === "bars" && stack !== false) || (st.form === "area" && stack === true);
+      st.form = cfg.form;
+      const sortBefore = st.options.sort;
+      st.options = formOptions(cfg);
+      if (st.form === "table" && sortBefore !== st.options.sort) st.sort = null;
+      const stack = PLOT_FORMS.has(st.form) ? st.options.stack : "none";
+      st.stacked = stack === "stacked" || stack === "percent";
+      st.percent = stack === "percent";
+      st.filled = st.form === "line" && st.options.fill !== "none";
+      st.overlaid = st.form === "bar" && !st.stacked && st.options.grouping === "overlaid";
       st.logScale = !!st.display.y?.log && LOG_FORMS.has(st.form) && !st.stacked;
       el.className = `panel panel-${cfg.size || "m"} panel-form-${st.form}${cfg.tall ? " panel-tall" : ""}`;
       el.dataset.panelId = cfg.id ?? "";
       title.textContent = cfg.title || "Untitled";
       note.textContent = cfg.note || "";
       note.hidden = !cfg.note;
-      const shape = (c) => c && JSON.stringify([c.form, !!c.display?.y?.log, c.display?.stack]);
-      if (before && shape(before) !== shape(cfg)) dropPlot();
+      const shape = (c) => c && JSON.stringify([c.form, !!c.display?.y?.log, formOptions(c)]);
+      if (before && shape(before) !== shape(cfg)) { dropPlot(); dropView(); }
     };
 
     el.update = (results, meta) => {
@@ -765,12 +983,15 @@
       seen.disconnect();
       heightWatch.disconnect();
       dropPlot();
+      dropView();
       el.remove();
     };
     Object.defineProperty(el, "draws", { get: () => st.draws });
+    Object.defineProperty(el, "plotView", { get: () => st.view });
     const api_ = { retheme() {
       const p = livePlot();
       if (p) p.redraw(true, true);
+      if (st.view) { st.viewKey = ""; if (st.last) draw(); return; }
       if (st.hasData) { if (st.form === "stat") drawStats(); else if (st.form === "table") drawTable(); else drawLegend(); }
     } };
     LIVE.add(api_);
@@ -801,13 +1022,36 @@
   /* every panel's queries in one request: an identical query is asked once, and each id is made unique and mapped back */
   async function queryPanels(configs, { since = 86400, until = null, points = 120, signal } = {}) {
     const asked = new Map(), wanted = [];
-    configs.forEach((cfg) => {
+    const plain = ({ id, label, hidden, ...rest }) => rest;
+    /* one query as it is sent: what it reads from is sent too, under the name that query gets. A reference that leads
+       nowhere, or back to itself, keeps a name no other query has, so the answer says so for this query alone */
+    function send(q, byId, path) {
+      const rest = plain(q);
+      const follow = (ref) => {
+        const other = byId.get(String(ref));
+        return other && !path.has(other) ? send(other, byId, new Set([...path, other])) : `unknown:${ref}`;
+      };
+      if (typeof rest.x?.query === "string" || typeof rest.x?.query === "number") rest.x = { ...rest.x, query: follow(rest.x.query) };
+      else if (rest.x?.query && typeof rest.x.query === "object") rest.x = { ...rest.x, query: plain(rest.x.query) };
+      for (const side of ["input", "output"]) {
+        const part = rest[side];
+        if (typeof part === "string" || typeof part === "number") {
+          const other = byId.get(String(part));
+          rest[side] = other && !path.has(other) ? plain(other) : { source: `unknown:${part}` };
+        } else if (part && typeof part === "object") rest[side] = plain(part);
+      }
+      const shape = JSON.stringify(rest);
+      if (!asked.has(shape)) asked.set(shape, { ...rest, id: `q${asked.size}` });
+      return asked.get(shape).id;
+    }
+    configs.forEach((asIs) => {
+      const cfg = normalizeForm(asIs), def = FORM_REGISTRY.get(cfg.form), options = def ? formOptions(cfg) : {};
+      const byId = new Map((cfg.queries || []).filter((q) => q.id != null).map((q) => [String(q.id), q]));
+      const shown = new Set(shownQueries(cfg));
       (cfg.queries || []).forEach((q, n) => {
-        if (q.hidden) return;
-        const { id, label, hidden, ...rest } = q;
-        const shape = JSON.stringify(rest);
-        if (!asked.has(shape)) asked.set(shape, { ...rest, id: `q${asked.size}` });
-        wanted.push({ panel: cfg.id, id: id ?? String(n), as: asked.get(shape).id });
+        if (!shown.has(q)) return;
+        const fitted = def?.ask ? def.ask(q, options) : q;
+        wanted.push({ panel: cfg.id, id: q.id ?? String(n), as: send(fitted, byId, new Set([q])) });
       });
     });
     const out = new Map(configs.map((c) => [c.id, { results: [], meta: null }]));
@@ -909,5 +1153,6 @@
     };
   }
 
-  Object.assign(window, { chartPanel, queryPanels, queryFields, pagePanels });
+  window.panelNumbers = { parseUnit, chipOf, formatValue, axisLabels, durationSteps: DURATION_STEPS };
+  Object.assign(window, { chartPanel, queryPanels, queryFields, pagePanels, registerPlotForm, plotForms, normalizeForm });
 })();
