@@ -639,6 +639,7 @@
       if (!def?.draw) return null;
       if (!PLOT_FORMS.has(st.form)) return def;
       const r = results.find((x) => !x.error);
+      if (!r && st.view) return def;                     // a failed refresh leaves what is drawn, and says so in the head
       if (r && shapeOf(r) !== "time") return def;
       const o = st.options;
       if (st.form === "line") return o.style === "step-middle" || (o.style === "smooth" && !uPlot.paths.spline) ? def : null;

@@ -83,7 +83,7 @@
           })();
         frameBox = box;
         const V = horizontal ? F.scale(vr.min, vr.max, box.left, box.right) : F.scale(vr.min, vr.max, box.bottom, box.top);
-        const vt = F.ticksOf(V, "number", horizontal ? box.width : box.height, unit, horizontal ? 76 : 34);
+        const vt = F.ticksOf(V, "number", horizontal ? box.width : box.height, unit, horizontal ? 56 : 34);
         const along = (horizontal ? box.height : box.width) / Math.max(1, order.length);
         const place = new Map(order.map((i, r) => [i, r]));
         F.grid(ctx, box, horizontal ? V : null, horizontal ? null : V, horizontal ? vt : null, horizontal ? null : vt);
@@ -122,7 +122,7 @@
           F.line(ctx, box.left, Math.round(box.bottom) + 0.5, box.right, Math.round(box.bottom) + 0.5);
           ctx.textAlign = "center"; ctx.textBaseline = "top";
           const widest = Math.max(...t.cats.map((c) => ctx.measureText(c).width));
-          const every = Math.max(1, Math.ceil((Math.min(widest, 90) + 8) / along));
+          const every = along >= 30 || widest + 8 <= along ? 1 : Math.ceil(30 / along);   // a category is cut short before it is left out
           order.forEach((i, r) => { if (r % every === 0) ctx.fillText(fit(t.cats[i], along * every - 4), box.left + (r + 0.5) * along, box.bottom + 4); });
           if (cTitle) ctx.fillText(cTitle, (box.left + box.right) / 2, box.bottom + 18, box.width);
           if (showValues) {
