@@ -36,3 +36,52 @@ depends-on: []
 ## Size budget
 110 net lines
 size: M (confidence: medium)
+
+## Where it stopped
+Built, round 1. About 40 net lines in `avoid.js`, within budget. SPEC's sentence is in §4a "Drawn as parts", the
+main diagram's paragraph (SPEC has no diagram section of its own).
+
+How it works: `avoidStart` posts `route` with `refine: true`. The worker answers `routed` from a pass with
+`spec.fast` (crossing penalty 0 in every group). It then queues a `careful` job behind whatever arrives meanwhile,
+and answers it `refined`. The job is skipped when a route or a move was asked in the same batch or is queued
+before it. The careful pass is `core.route(spec, true)`: no first pass, on the spec the fast pass already slid and
+turned, so it brings no slides or turns. The page also never applies slides or turns from a careful answer.
+The page draws the careful answer only when all three hold: `lay === S.layout`, `lay.routeSeq === seq` (no newer
+route of this layout) and `lay.moves` unchanged (counted in `avoidMove`/`avoidMoveMany`). Otherwise it drops it.
+`lay.routing` turns false, and `whenRouted` resolves, only on the careful answer (drawn or dropped), and only
+for the layout's latest route. Blocks and Process post no `refine`, and page mode is unchanged: one routing each.
+
+Choices taken without asking (the most reversible):
+- "Toggled to a new layout" in the second test is `S.relayout()`: a new layout object, drawn.
+- "The current drawing's lines do not change" is checked as the layout's sections, `AV.raw` and `AV.routed`.
+  Every real toggle also asks a newer route.
+- "No newer route" is per layout (`lay.routeSeq`), not the global `AV.seq`.
+- The fifth test also checks a route with a move queued behind it, and the busy route's own careful pass.
+
+Each acceptance test was seen to fail on a break in the code:
+- test_fast_routes_drawn_before_careful: the fast answer not applied (`done(m)` only when skipped); timed out
+  waiting for the fast lines.
+- test_careful_routes_of_replaced_layout_not_drawn: `lay === S.layout` removed; AV.raw changed to the old routes.
+- test_careful_routes_dropped_after_a_drag: the `lay.moves` check removed; 5 line ends left at the old place.
+- test_valve_slides_applied_once_across_stages: the careful pass with its first pass and the page applying its
+  slides and turns; deps' flow:update-opened slid twice (y 334.7 to 363.7).
+- test_queued_careful_pass_skipped_for_newer_route: the move-queued skip (`todo.length > 1`) removed; the
+  in-queue skip (`asked`) removed; both together with the wholesale `refined` skip removed. Each failed.
+
+Suites: ruff is clean. The five acceptance tests pass. `tests/test_diagram_rendering.py` was run whole on this
+branch: 34 failed and 293 passed, none skipped. All 34 also fail with the page switched to single-stage routing
+(main's behaviour), and those reruns all failed for the same reasons:
+- 21 `test_sensors_are_blocks…[*]`: a `<title>` tooltip from `dynamics.js:467`, a file this branch leaves alone.
+- `every_view…[image-squeeze, coordinator]`: routing over ROUTED_BOUND_MS on this machine (21.8 s and 20.3 s
+  single-stage).
+- `every_view…[autoscaler, the-job, ticket-factory]`: layout-rule ceilings.
+- The rest are Blocks-view, keyboard, PNG, panel and Model-page tests.
+The factory runs these again on clean main.
+Not run by me, as the rules say: the unit suite, the other three browser files, demo_check (no example touched).
+main (a08e4b3e) was already merged into the branch before the work, and nothing newer is on main.
+
+Cost of the change, said plainly: `whenRouted` now waits for both passes. On image-squeeze open=* (this machine,
+loaded) the fast pass took about 4.8 s of worker time and the careful pass about 21 s. TIMED rose from 21.8 s
+(single-stage) to 26.4 s, while the first routed lines come at about 5 s instead of about 22 s. Where a view
+routes close to ROUTED_BOUND_MS on main, this branch can push it over. The bound was not raised. A cheaper fast
+pass, or a bound on the fast stage, would be a gap of its own.
