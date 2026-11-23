@@ -37,6 +37,7 @@ from ..library import bounds
 from ..spec import items as its
 from ..spec.ir import DEAD, LEASED, own_kind
 from . import ENDED, EXPIRED, RENEWED, TAKEN, faults, poolnow
+from . import gone as run_gone
 from .fold import held
 from .kill import kill
 from .ready import Ready, ordered, unblocked
@@ -72,6 +73,8 @@ class Dispatcher:
         self.going: dict[str, dict[str, dict]] = {}   # block → item → {run, fence, block}: the runs going here
         self.ours: set[str] = set()                   # the runs this engine took whose leases have not ended
         self.holding = False                          # whether the last watch found a lease held (one outlives its block)
+        self.me = run_gone.me(self)                   # the engine its leases name (gone.py)
+        self.watched = False                         # whether a watch has read every lease (the engine's start behind it)
         self.lock = threading.RLock()
         self.ends = threading.Lock()                  # finish's read and its write of lease.ended, as one
         self.seq = 0
@@ -165,6 +168,10 @@ class Dispatcher:
 
     def going_items(self) -> set[str]:
         return {i for g in self.going.values() for i in g}
+
+    def going_runs(self) -> list[dict]:
+        with self.lock:
+            return [g for runs in self.going.values() for g in runs.values()]
 
     @property
     def failing(self) -> tuple[str, float] | None:
@@ -290,7 +297,7 @@ class Dispatcher:
             bounds.hold(self.e, key, b)
             self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
         data = {"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
-                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1}
+                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1, "engine": self.me}
         spec = self.spec
         try:
             def write(more: dict | None = None) -> dict:
@@ -447,6 +454,8 @@ class Dispatcher:
                                                                                      if nack.get(k) is not None}})
         elif moved_on(b, it):                    # (its lines moved it on as it ran: stopped after, the work stands)
             data["how"] = "ack"
+        elif out.get("gone"):                    # its run's process gone with the engine that held it (gone.py)
+            data.update({"how": "nack", "why": out["gone"], "count": False})
         elif stopping:
             data.update({"how": "nack", "why": "stopped with ergostat", "count": False})
         else:
@@ -499,16 +508,36 @@ class Dispatcher:
                     holding = holding or lease is not None
                     looked.add(it.id)
                     holders |= {lease["holder"]} if lease else set()
-                    if not lease or now <= float(lease.get("expires") or 0):
+                    if not lease:
                         continue
-                    try:
-                        self.look(it, lease, now, mono, overdue)
+                    try:                                   # (its run's process gone: released now, whatever its TTL)
+                        if run_gone.released(self, it, lease, first=not self.watched):
+                            continue
+                        if now > float(lease.get("expires") or 0):
+                            self.look(it, lease, now, mono, overdue)
                     except Exception as e:                 # (one item's trouble stops no other's look)
                         self.e.say(f"leases: the lease on {it.id}: {type(e).__name__}: {e}")
             self.let_go(set(self.dropped) - holders)     # (a whole pass read: ended or expired, here or elsewhere)
+            self.watched = True                            # (a pass read whole: the engine's start is behind it)
         finally:                                           # (the first looks kept, of the items not reached too)
             self.overdue = {**{k: v for k, v in self.overdue.items() if k[0] not in looked}, **overdue}
         self.holding = holding
+
+    def release(self, b, it, lease: dict, why: str) -> bool:
+        """End a lease whose run is gone (gone.py), uncounted: under the ends' lock, the item read again there, so an
+        end written meanwhile (the run's own, an expiry) wins and nothing is written twice. Whether it was ended."""
+        if not self.ends.acquire(timeout=self.e.lock_wait):
+            return False                                   # (the next pass tries again)
+        try:
+            fresh = its.one(self.p.events, self.spec, it.id)
+            ev = self._finish(b, fresh, it.id, lease["fence"], lease["holder"], {"gone": why}) if fresh else None
+        finally:
+            self.ends.release()
+        if ev is None:
+            return False
+        self.resources(ev)
+        self.e.say(f"{b.name}: gave {it.id} back: {why}")
+        return True
 
     def let_go(self, runs: set[str]) -> None:
         """These runs' given-up ends hold no lease now: each stays in ``failing`` for ``HOLD`` more."""

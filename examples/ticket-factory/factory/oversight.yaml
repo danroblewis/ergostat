@@ -174,3 +174,16 @@ blocks:
     run: python3 bin/report.py
     every: 30s
     out: flow.reports-written
+
+# A shared dashboard (SPEC §4f), added by the Supervisor: in oversight's file, so named oversight.hours.
+dashboards:
+  hours:
+    title: Where a ticket's hour goes
+    description: the approvals queue, cycle time and the tickets stopped
+    window: 1d
+    panels:
+      - {panel: goals, goals: [nothing-awaits-approval, none-stopped], size: full}
+      - {panel: cycle-time, kind: ticket, size: m}
+      - {panel: chart, refs: [stock.actions-waiting, flow.approvals, auxiliary.cycle-hours], replay: true, size: m}
+      - {panel: timeline, kinds: ticket, size: m}
+      - {panel: items, kind: ticket, state: stopped, size: m}

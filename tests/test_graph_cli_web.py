@@ -292,6 +292,25 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_the_loops_row_writes_shares_through_share_text_and_names_flapping_at_twenty():
+    """Without a browser (the build's suite has none): the Loops row's time off goes through shareText, which writes
+    '<1%' for a share that rounds to 0, no literal "0%" remains there, and flapping is named from FLAP_AT = 20 through
+    the hysteresis (steadyWord). The behaviour itself is checked in the browser by
+    tests/test_diagram_rendering.py::test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named."""
+    import re
+
+    from ergostat.web.server import STATIC
+    util, pages = (STATIC / "util.js").read_text(), (STATIC / "pages.js").read_text()
+    assert re.search(r'const shareText = .*x > 0 && x < 0\.005 \? "<1%"', util), "shareText no longer writes '<1%'"
+    assert re.search(r"const FLAP_AT = 20;", util), "the flapping count is not 20"
+    loops = pages[pages.index("async function pageLoops"):]
+    loops = loops[:loops.index("\nasync function ", 1)]
+    row = (STATIC / "goalrow.js").read_text()   # the Loops row is drawn by goalRow
+    assert "shareText(g.off_share)" in row and '"0%"' not in row + loops, "time off is not written through shareText"
+    assert "behaviour: word(g.name, g)" in loops and "g.behaviour ??" in row, "the row's behaviour skips the hysteresis"
+    assert re.search(r"lp\.times_off >= FLAP_AT \? steadyWord\(n, `flapping \(", loops), "flapping not named in the row"
+
+
 def test_only_the_record_folds_runs_of_identical_events():
     """Without a browser (the page test is tests/test_items_page.py::test_the_record_folds_runs_of_identical_events):
     a run's key is the event's type, source, item and shown data, and only the Record (local and remote) asks for
@@ -323,6 +342,81 @@ def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_pat
     got = body["goals_off"]
     assert got["own"] == {"modelling": 2} and got["system"] >= 1 and got == state.goals_off(state.snapshot(p))
     assert body["loops"]["model-fits"]["upkeep"] == "modelling" and "upkeep" not in body["loops"]["queue-short"]
+
+
+OPEN_GOAL = '  queue-watched: {stock: queue, hold: "<= 5", system: shop}\n'      # no block holds it: open
+
+
+def test_status_and_projects_print_the_one_count_api_status_gives(tmp_path, monkeypatch, capsys):
+    """A system goal off, the modelling upkeep goals off and a goal open: `ergostat`, `ergostat projects` and
+    /api/status say the same numbers, state.goals_off's, and the open goal is not counted off."""
+    from types import SimpleNamespace
+
+    from ergostat.web import serve
+    from tests.test_goal_upkeep import MODEL, seeded
+    monkeypatch.setattr("tests.test_goal_upkeep.MODEL", MODEL.replace("goals:\n", "goals:\n" + OPEN_GOAL))
+    p = seeded(tmp_path, monkeypatch)
+    server, url = serve(p, free_port())
+    try:
+        with urllib.request.urlopen(url + "/api/status", timeout=10) as r:
+            body = json.loads(r.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+    g = body["goals_off"]
+    assert body["loops"]["queue-watched"]["status"] == "open" and body["loops"]["queue-short"]["status"] == "off"
+    assert g["system"] >= 1 and g["open"] >= 1 and g["own"] == {"modelling": 2}, g
+    said = state.goals_said(g)
+    assert said.startswith(f"{g['system']} goal") and f"{g['open']} open" in said and "model upkeep 2" in said, said
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), capsys=capsys)
+    assert rc == 0 and said in out.splitlines(), out
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), "projects", capsys=capsys)
+    assert rc == 0 and said in out, out
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), "--json", capsys=capsys)
+    assert json.loads(out)["goals_off"] == g
+
+
+def test_status_of_one_system_counts_only_that_systems_goals(tmp_path, monkeypatch, capsys):
+    """`ergostat --system shop` lists shop's goals, and its goals line and --json `goals_off` count those and no
+    other system's (the modelling and upkeep goals off stay out), the one count over the narrowed map."""
+    from types import SimpleNamespace
+
+    from tests.test_goal_upkeep import MODEL, seeded
+    monkeypatch.setattr("tests.test_goal_upkeep.MODEL", MODEL.replace("goals:\n", "goals:\n" + OPEN_GOAL))
+    seeded(tmp_path, monkeypatch)
+    ns = SimpleNamespace(path=tmp_path / "repo")
+    rc, out = run_cli(ns, "--json", capsys=capsys)
+    whole = json.loads(out)["goals_off"]
+    rc, out = run_cli(ns, "--json", "--system", "shop", capsys=capsys)
+    got = json.loads(out)
+    assert set(got["loops"]) == {"queue-short", "queue-watched"}, sorted(got["loops"])
+    assert got["goals_off"] == state.goals_off({"loops": got["loops"]}), got["goals_off"]
+    assert got["goals_off"]["system"] == 1 and got["goals_off"]["open"] == 1 and not sum(got["goals_off"]["own"].values())
+    assert whole["system"] > 1 and whole["own"] == {"modelling": 2}, whole     # the whole project's differs: a real narrowing
+    rc, out = run_cli(ns, "--system", "shop", capsys=capsys)
+    assert rc == 0 and "1 goal off · 1 open" in out.splitlines(), out
+
+
+def test_no_page_code_counts_goals_by_their_status():
+    """The page prints the server's count (state.goals_off) and never makes its own: every comparison of a goal's
+    status or state with 'off' in util.js, pages.js and diagram.js is one of the allowed lines (row grouping or styling),
+    and no filter by 'off' is counted (.length, reduce)."""
+    import re
+    from pathlib import Path
+    static = Path(__file__).resolve().parent.parent / "ergostat" / "web" / "static"
+    allowed = {                                          # the line, as it is; why it is not a count
+        'const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);',  # rows grouped
+        'const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");',  # whether suggestions start open
+        ': Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)'
+        '   // the goals the count counts',                  # the header's tooltip: the names, not a count
+    }
+    seen = []
+    for f in ("util.js", "pages.js", "diagram.js"):
+        for line in (static / f).read_text().splitlines():
+            if re.search(r"""[=!]==?\s*["']off["']|["']off["']\s*[=!]==?|\[[^\]]*["']off["'][^\]]*\]\.includes""", line):
+                seen.append(line.strip())
+            assert not re.search(r"""filter\([^;]*["']off["'][^;]*\)\s*\.length""", line), (f, line)
+    assert set(seen) <= allowed, set(seen) - allowed
 
 
 def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_it_under(project):
@@ -358,6 +452,45 @@ def test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_
     assert f'const MAY_DO = "{said}";' in pages and said not in diagram
     assert '"aria-describedby": "may-do"' in diagram and 'key: "may-do" }, MAY_DO)' in diagram
     assert "Nothing waits for you. Looking never changes the system." in diagram
+
+
+def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
+    """A controller's and a process's panel start with loopTable (control.js): rows law, process, held-out fit, time
+    off, settling, saturation, the fit naming its measure. The image-squeeze tuner's loop answer holds every field
+    those rows read, and a fit is a signed share, never clamped at 0 (the browser half of this check is
+    tests/test_diagram_rendering.py::test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_inside)."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.control import loop
+    from ergostat.store import Project
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "ergostat" / "web" / "static" / "control.js").read_text()
+    table = js[js.index("function loopTable"):js.index("/* ---- what is known of the process")]
+    assert re.findall(r'\["([a-z -]+)", ', table) == ["law", "process", "held-out fit", "time off", "settling", "saturation"]
+    assert 'const FIT = "NRMSE fit, 100% is perfect, below 0 is worse than the mean"' in js and "(${FIT})" in table
+    rows = js[js.index("function identRows"):]
+    assert "not identified: needs a step of u" in table and "Math.max(0" not in rows[:rows.index("\n}\n")]
+    proc = js[js.index("function processSection"):]
+    proc = proc[:proc.index("\n}\n")]
+    assert not re.search(r"Math\.max\(0, Math\.round\([^)]*fit", proc) and "NRMSE fit ${pcFit(o.fit_val)} held out (${FIT})" in proc
+    # a controller's tables are its own loops' only (as controlBox's), not a loop whose path merely runs through it
+    blocks = (root / "ergostat" / "web" / "static" / "blocks.js").read_text()
+    assert "d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4))" in blocks
+    assert "held.filter(own).map(loopTableBox)" in blocks
+    # the table is drawn again when a proposal of its loop is answered (a browser test accepts one and sees it change)
+    assert 'dispatchEvent(new CustomEvent("loop-answered", { detail: goal }))' in js and '"loop-answered", again' in js
+    # each loop settled on its own; a process's identification (procs) right after its tables, before its words
+    assert "mine.map((l) => loopControl(l).catch(" in blocks and "Promise.all(mine.map((l) => loopControl(l)))" not in blocks
+    assert 'h("h2", {}, title), top, ...(n.role === "process" ? [procs] : [])]' in blocks and "kids.push(procs)" not in blocks
+    shutil.copytree(root / "examples" / "image-squeeze", tmp_path / "x", ignore=shutil.ignore_patterns("run", "__pycache__"))
+    d = loop.analyse(Project(model.load(tmp_path / "x")), "quality-held")
+    assert d and not d.get("why"), d
+    assert {"says", "law", "block"} <= set(d["controller"]) and d["controller"]["block"] == "tuner", d["controller"]
+    assert "found" in d["identified"] and {"excursions", "saturation"} <= set(d["performance"]), d["performance"]
+    assert {"count", "settling"} <= set(d["performance"]["excursions"]) and d["how"] in ("setting", "valve")
 
 
 def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
@@ -919,8 +1052,9 @@ def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monk
     for path, params in want:
         k = key(path, params)
         assert k in data, k
+        every = {"finished": ["show"]} if path == "items" else {}   # a snapshot holds the finished too (SPEC §5a)
         assert _timeless(data[k]) == _timeless(json.loads(json.dumps(
-            api(live, path, {"since": ["1h"], **{a: [b] for a, b in params.items()}}), default=str))), k
+            api(live, path, {"since": ["1h"], **every, **{a: [b] for a, b in params.items()}}), default=str))), k
     ids = lambda k: sorted(i["id"] for i in data[k]["items"])                       # noqa: E731
     assert ids("items?kind=ticket") == ["ticket/a", "ticket/b"]
     assert ids("items?kind=ticket&state=doing") == ["ticket/a"]                     # ticket.started: doing
@@ -931,7 +1065,8 @@ def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monk
 def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_path, monkeypatch):
     from ergostat.web import snapshot
     real = snapshot.api
-    broken = [("items", {"kind": "ticket"}), ("items", {"kind": "epic", "state": "underway"}),
+    every = {"finished": "show"}                                   # each items answer is asked with the finished too
+    broken = [("items", {"kind": "ticket", **every}), ("items", {"kind": "epic", "state": "underway", **every}),
               ("items-graph", {"kinds": "note"})]
 
     seen = []
@@ -946,8 +1081,9 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     data = _snapshot_data(related_project(tmp_path))
     for path, params in broken:
         assert (path, params) in seen, (path, params)                     # asked, so its absence is the failure's
+        params = {k: v for k, v in params.items() if k != "finished"}                # held under the page's own key
         assert snapshot.key(path, params) not in data                                # absent, not empty
-    assert ("items", {"kind": "ticket", "state": "doing"}) not in seen   # no states asked without the kind's own answer
+    assert ("items", {"kind": "ticket", "state": "doing", **every}) not in seen   # no states asked without the kind's own answer
     assert not any(k.startswith("items?kind=ticket") for k in data)    # its states, from its own answer: none to be had
     assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
             "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)
