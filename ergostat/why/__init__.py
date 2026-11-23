@@ -210,6 +210,10 @@ def answer(p, iid: str, now: float | None = None, engine: dict | None = None) ->
         out["done"] = True
         out["summary"] = summary(out)
         return out
+    if info is not None and info["lives_on"]:            # (a pool is held, never done: nothing to follow)
+        out["missing"].append(f"its kind, {it.kind}, has no finished state (it lives on), so it is never done")
+        out["summary"] = summary(out)
+        return out
     roots, cut = walk(ctx, it, iid)
     out["missing"] += cut
     out["roots"] = roots

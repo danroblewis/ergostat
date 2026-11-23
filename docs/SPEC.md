@@ -1425,7 +1425,8 @@ while the item is unfinished. The answer:
   Blocks view); **missing**: what the record cannot tell, never guessed.
 - **summary**: one paragraph to paste to someone else.
 
-The engine is read from its run lock and `heartbeat.json` (running: the lock held and the last pass within the
+A finished item says it is done; an item of a kind that lives on says it is never done; an id never recorded says
+so; none of them has a cause. The engine is read from its run lock and `heartbeat.json` (running: the lock held and the last pass within the
 watcher's limit). An item's own state is never folded from its events; only the evidence is looked up, a few events
 at most per item. On a record of 3,000 items it answers in under 100 ms (`tests/test_why.py`).
 

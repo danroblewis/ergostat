@@ -15,3 +15,24 @@ Definition of done:
 2. Replays of this factory's real stalls of 2026-11-22 as fixtures: a dependency chain; a queue held by a lease whose process died; every build refused by the budget guard; a gap waiting on a parked gap. Each names the true cause.
 3. A cycle, a missing dependency or an unreadable field gives a clear answer rather than an error.
 4. It answers in under 100 ms on a factory-size record, with no event-log scan for an item's current state.
+
+## Where it stopped
+
+Built in round 1: `ergostat/why/` (the walk, the blocks' causes, the words), `ergostat why ITEM [--json]`,
+`GET /api/why?item=`, MCP `why`, the *Why isn't this done?* block first on an unfinished item's page, SPEC §5a and the
+agent guide. Tests: `tests/test_why.py` (30) and
+`tests/test_items_page.py::test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top`. About 587 net lines of
+code outside tests, docs and dev.
+
+What is narrower than the definition, and the choices made with nobody to ask (each the most reversible):
+
+- Item 2: the clone holds no record of 2026-11-22, so the four stalls are fixtures rebuilt in their shape on a
+  factory-like gap kind (`test_stall_*`), not replays of the real events.
+- Item 4: measured on a synthetic record of 3,000 gaps and about 12,000 events, not on the factory's own record.
+- A person as a root: the model refuses a person block (or an advised one) that takes items or gates a block that
+  does (`check`), so a person holds an item here only through a gated action about it awaiting the owner, or a gate
+  input read by a manual sensor. Both are tested.
+- `ergostat why` with no item prints how to name one and exits 1 (the read topics' fallback contract), not a list.
+- A gate is analysed by its top-level product of factors (`a * b * (1 - c)`); any other expression is named whole.
+- `tests/test_agents.py::test_a_rerun_is_timed_by_the_suite_that_failed` fails here with `ModuleNotFoundError:
+  flakes` (imported by `dev/bin/onmain.py`): unrelated to this change, left alone.

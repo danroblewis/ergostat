@@ -49,6 +49,10 @@ items:
     id: note/*
     states: [open, shut]
     on: {note.opened: open, note.shut: shut}
+  slot:
+    id: slot/*
+    states: [held]
+    on: {slot.made: held}
 messages:
   done: {ticket: [done], note: [shut]}
   paused: {ticket: [held]}
@@ -314,6 +318,9 @@ def test_done_and_unknown_items(tmp_path):
     assert a["done"] is True and a["root"] is None and "it is done" in a["summary"]
     a = why(p, "ticket/nope")
     assert a["known"] is False and "nothing is recorded about ticket/nope" in a["missing"]
+    p.events.add("slot.made", item="slot/1", at=NOW - 50)
+    a = why(p, "slot/1")
+    assert a["root"] is None and not a["done"] and "lives on" in a["summary"], a["summary"]
 
 
 def test_time_in_state_against_its_kinds_stays(tmp_path):

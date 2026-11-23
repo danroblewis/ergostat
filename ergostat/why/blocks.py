@@ -109,8 +109,8 @@ def taken(ctx, it, info) -> dict:
     if got:
         return got[0]
     names = ", ".join(b.name for b in bs)
-    return root("unknown", it.id, f"nothing in the record holds it: {names} may take it from {it.state}, its gate is "
-                "open, its pool has room and no refusal is recorded; it should be taken at the next look", "the engine",
+    return root("unknown", it.id, f"nothing in the record holds it: {names} may take it from {it.state}, and no closed "
+                "gate, full pool, refusal or failing run is recorded for it", "the engine",
                 "look at the engine's log if it is not taken within a minute", "ergostat lease",
                 [ev(f"{b.name}: takes it, room now", _blink(b.name)) for b in bs], since=it.entered)
 
