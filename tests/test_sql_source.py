@@ -157,6 +157,16 @@ def raw(p, text: str) -> tuple[list[str], list[tuple]]:
         return [d[0] for d in cur.description], cur.fetchall()
 
 
+def test_a_query_s_connection_holds_its_memory_and_attaches_nothing(p):
+    ix, finished = sql._index(p, p.model.spec)
+    with _itemviews.opened(ix, p.model.spec, finished, time.monotonic() + 10) as (c, _):
+        assert c.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) == 16 * 2**20 and c.getlimit(sqlite3.SQLITE_LIMIT_ATTACHED) == 0
+        c.set_authorizer(None)                                     # (only to read what was set)
+        got = [c.execute(f"pragma {q}").fetchone()[0] for q in ("cache_size", "temp.cache_size", "temp_store",
+                                                                "query_only")]
+        assert got == [-8000, -8000, 1, 1]
+
+
 def view_answers(p) -> dict:
     return {v: raw(p, f"select * from {v} order by " + ", ".join(f'"{c}"' for c in cols))
             for v, cols in _itemviews.views(p.model.spec).items()}
@@ -219,6 +229,8 @@ def test_exact_medians_and_percentiles_match_the_hand_worked_record(p):
                    "where state = 'doing' and reason is not null group by id)") == [["1", 40.0]]
     assert rows(p, "select reason, median(t) as m from (select id, reason, max(entered) - min(entered) as t "
                    "from item_spans where reason = 'done' group by id) group by reason") == [["done", 60.0]]
+    assert rows(p, "select median(x) as m from (select 1 as x union all select null union all select 4)") == [["1", 2.5]]
+    assert rows(p, "select median(x) as m from (select null as x)") == [["1", None]]
     r = ask(p, "select median(id) as m from item_spans")
     assert r.get("error_kind") == "refused" and "takes numbers" in r["error"], r
     r = ask(p, "select percentile(entry, 101) as m from item_spans")
