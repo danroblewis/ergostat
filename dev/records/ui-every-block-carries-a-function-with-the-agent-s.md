@@ -50,3 +50,17 @@ Built, round 1. Net +9 lines outside tests/docs (blocks.js +8, blockdiagram.py +
     refused in this session.
   - test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page ('Nothing waiting.'): earlier
     reviews already reported this failure on other branches.
+
+Round 2: main (639982382da9) merged in. The only finding was the conflict in blocks.js. Main had added an upkeep
+block's dashed outline and its 'upkeep' line under its function. Both are kept, and the caption band stays this
+branch's (name · tier). Against main the branch is still only blockdiagram.py and blocks.js, +23 −14 lines.
+
+- The acceptance test passes after the merge, and ruff is clean.
+- test_modelling_is_drawn_last_set_apart_and_labelled (the upkeep drawing main added) and
+  test_the_control_view_draws_every_example_cleanly_as_a_block_diagram pass.
+- test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip fails for 20 examples, all at `view=dynamics`.
+  The failure is the `<title>` "Drawn alike here with …" that dynamics.js:457 puts on loop markers. dynamics.js is
+  the same as main's, so the failure comes from main and is not this change, which touches only `?view=blocks`.
+  It was not fixed here (lesson 13).
+- The whole of test_diagram_rendering.py was not run to the end. The first run was stopped at the 10-minute background
+  limit. The rerun with a longer limit and output to /tmp/dr.log was refused.
