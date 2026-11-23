@@ -231,6 +231,7 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .coherence .att .note { margin: var(--sp-1) 0 0; }
 .att > div > b:first-child { font-weight: 600; }
 .att .more, .att .none { color: var(--muted); }
+.may-do { color: var(--muted); margin: 0; overflow-wrap: anywhere; }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
 .att .inbox-act .ask-in { flex: 1 1 100%; display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0; overflow-wrap: anywhere; }
 .att .inbox-act input { width: 100%; box-sizing: border-box; }

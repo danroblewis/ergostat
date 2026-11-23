@@ -495,6 +495,7 @@ function messageView(d, refresh) {
    work item's page the actions asked for about it, with Approve and Deny on each one held; on an action's own page,
    its command, where it runs, its answer and its output */
 const ACTION_KIND = "ergostat.action";
+const MAY_DO = "You can look at everything. Approving or denying these is the only thing that changes the system.";
 const actionSays = (f) => `${f.description || f.action}${Object.keys(f.args || {}).length ? ` (${Object.entries(f.args).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`;
 const commandBox = (c) => h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, c || ""));
 function actionAnswer(a, done) {
@@ -646,7 +647,8 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
-  p.append(notes, h("div", { class: "filters" }, search, found, showFin, viewBar, chip), loading, compose, box, rbox);
+  const mayDo = h("p", { class: "may-do", hidden: true }, MAY_DO);   // on the gated actions: what a person may do
+  p.append(notes, h("div", { class: "filters" }, search, found, showFin, viewBar, chip), mayDo, loading, compose, box, rbox);
   let rbusy = false;
   const remoteTick = async (rs) => {
     if (rbusy || SNAP || !rs.length) return;
@@ -710,6 +712,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   };
   async function tick(force = true, signal = null) {
     if (compose.hidden !== (kind !== MESSAGE_KIND || !!SNAP)) compose.hidden = !compose.hidden;
+    if (mayDo.hidden !== (kind !== ACTION_KIND)) mayDo.hidden = !mayDo.hidden;
     ans.begin();
     const gone = () => signal?.aborted || !p.isConnected;   // a newer click asked again: this answer is let go
     // the list as the page shows it: the newest of each kind (all a chosen kind's, up to 300), matched to the

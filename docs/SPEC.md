@@ -7206,7 +7206,11 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   meanwhile stays in its place and says so in its row until then. Held modelling requests that are alike (one code,
   one asker: the entry's `fold`) are one entry, folded: their count, their code and the systems of their parts, with
   one why and *Deny all* (each denied in turn); opened, each with its own answer. The Model page's *Changes to review*
-  counts them as waiting.
+  counts them as waiting. The list opens with one muted sentence saying what a person may do: "You can look at
+  everything. Approving or denying these is the only thing that changes the system." The list is a group described by
+  that sentence (`aria-describedby`), so a screen reader reads it once on entering the list, not on each poll. With
+  nothing waiting, the same place says "Nothing waits for you. Looking never changes the system." The gated actions'
+  own page (`/items/ergostat.action`, and `/items?kind=ergostat.action`) opens with the first sentence.
 
 **The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
 you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
