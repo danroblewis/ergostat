@@ -47,3 +47,9 @@ bound to another fac. The new tests also left their own copies there for the tes
 sets all five for the test's duration only (monkeypatch.setitem) and asserts manage uses the test's own flakes and
 fac. Run serially: the three acceptance tests, also after the triage test and the fac-replacing test. All passed. No
 code outside tests/ changed.
+
+Round 3. There was no new finding to answer. The review's one finding (the manager's call) was answered in round 2,
+and main (5411f137) is merged in. Run here, serially: the three acceptance tests (3 passed), and the whole of
+tests/test_factory.py (193 passed, 2 skipped for want of Docker, rc 0, 502 s). ruff is clean. The -n 8 build was not
+run here, so it is not shown whether round 2's sys.modules fix ends the one F of the second failed build. No code
+changed.
