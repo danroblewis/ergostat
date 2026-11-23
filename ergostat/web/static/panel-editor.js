@@ -366,7 +366,11 @@
       if (!cfg.queries.length) {
         seq++; inFlight = false; lastSig = null; lastAnswer = null;
         chart.setConfig(cfg);
-        chart.setState("empty", draft.queries.some(q => q.hidden) ? "Every query is hidden" : "Choose what to show in a query below");
+        const f = draft.queries.find(q => q.source === "frequency" && !q.hidden && !q.model);
+        const part = f && (!f.input?.source ? "input" : !f.output?.source ? "output" : null);
+        chart.setState("empty", part ? `Choose the response's ${part} in the query below`
+          : draft.queries.some(q => q.source && !q.hidden) ? "Finish the query below to see it"
+          : draft.queries.some(q => q.hidden) ? "Every query is hidden" : "Choose what to show in a query below");
         return;
       }
       const sig = JSON.stringify([cfg.form, cfg.options || {}, cfg.queries]);   // (a family may ask for its data its own way)

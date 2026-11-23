@@ -81,7 +81,7 @@ class Work:
         if not self.gate.acquire(blocking=False):
             raise Unanswerable("busy: the event log is being read for other charts; try again shortly")
         try:
-            got = self.read[key] = p.events.query(n=n, type=type_, since=since, until=until, skip=skip)
+            got = self.read[key] = p.events.moments(n=n, type=type_, since=since, until=until, skip=skip)
         finally:
             self.gate.release()
         return got

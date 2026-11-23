@@ -31,7 +31,7 @@ function dashFlowExamples(k, goals) {
   const stay = dashStayStates(k)[0];
   const out = [{ title: `${k.name}: items per state now`, form: "table", note: "Current count of each open state",
                  queries: [{ ...dashCount(k, "a", k.open, "items"), group_by: "state" }], display: { unit: "items", decimals: 0 } },
-               ...(stay ? [{ title: `${k.name}: time in ${stay}, open to close`, form: "candlestick",
+               ...(stay ? [{ title: `${k.name}: time in ${stay}, open to close`, form: "candlestick", options: { up_is: "bad" },     // a longer wait is the bad direction
                              note: "Each bar: first, highest, lowest and last wait in that period",
                              queries: [dashStay(k, "a", stay, "ohlc")], display: { unit: "s" } }] : [])];
   if (k.waiting.length && k.working.length)

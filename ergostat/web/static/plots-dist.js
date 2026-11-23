@@ -21,20 +21,21 @@
     const o = opts.options, d = config.display || {};
     return F.view(target, first, opts, (result, off) => {
       const { edges, rows } = binned(result, o, off);
-      const shaped = rows.map((r) => M.shapeCounts(r.counts, edges, { normalize: o.normalize, cumulative: o.cumulative === "on" }));
-      const stacked = o.stack === "stacked";
+      const stacked = o.stack === "stacked" && rows.length > 1;
+      const how = { normalize: o.normalize, cumulative: o.cumulative === "on" };
+      const shaped = stacked ? M.shapeStacked(rows.map((r) => r.counts), edges, how) : rows.map((r) => M.shapeCounts(r.counts, edges, how));
       const lows = shaped.map((r) => r.map(() => 0));
       const tops = shaped.map((r) => r.slice());
       if (stacked) for (let k = 1; k < shaped.length; k++) shaped[k].forEach((v, i) => { lows[k][i] = tops[k - 1][i]; tops[k][i] = lows[k][i] + v; });
       const word = o.cumulative === "on"
-        ? (o.normalize === "percent" ? "Cumulative share (%)" : o.normalize === "density" ? "Cumulative proportion" : "Cumulative count")
-        : (o.normalize === "percent" ? "Share (%)" : o.normalize === "density" ? "Density" : "Count");
+        ? (o.normalize === "percent" ? (stacked ? "Share of the running total (%)" : "Cumulative share (%)") : o.normalize === "density" ? "Cumulative proportion" : "Cumulative count")
+        : (o.normalize === "percent" ? (stacked ? "Share of each bin (%)" : "Share (%)") : o.normalize === "density" ? "Density" : "Count");
       const xUnit = result.shape === "bins" ? N().parseUnit(result.x?.unit || "") : opts.unit;
       const q = (config.queries || []).find((c) => !c.hidden) || {};
       const xWord = d.x?.label || result.x?.label || q.label || q.field || q.series || "Value";
       const xTitle = F.titled(xWord, xUnit), plain = N().parseUnit("");
       const xr = F.range(edges, { ...d.x, log: false }, { pad: 0 });
-      const yr = F.range(tops.flat(), { ...d.y, log: false }, { zero: true, pad: 0.06 });
+      const yr = stacked && o.normalize === "percent" ? { min: 0, max: 100, log: false } : F.range(tops.flat(), { ...d.y, log: false }, { zero: true, pad: 0.06 });
       let hits = [];
       const paint = (ctx, w, ht) => {
         const plot = F.cartesian(ctx, w, ht, { xr, yr, xUnit, yUnit: plain, xTitle, yTitle: word });

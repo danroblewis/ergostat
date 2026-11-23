@@ -418,6 +418,23 @@ class Events:
                 rows = c.execute(sql + " order by seq desc limit ?", [*args, n]).fetchall()[::-1]
         return [self._row(r) for r in rows]
 
+    def moments(self, *, n: int, type: str | None = None, since: float | None = None, until: float | None = None,
+                skip: tuple[str, ...] = ()) -> list[tuple[float, str]]:
+        """(time, type) of the newest ``n`` matching events, oldest first, no event's data read: what a chart of events needs."""
+        where, args = [], []
+        _skipping(skip, where, args)
+        if type:
+            where.append(_types(type, args))
+        if since is not None:
+            where.append("time >= ?")
+            args.append(since)
+        if until is not None:
+            where.append("time <= ?")
+            args.append(until)
+        sql = "select time, type from events" + (" where " + " and ".join(where) if where else "") + " order by seq desc limit ?"
+        with self._c() as c:
+            return [(r[0], r[1]) for r in c.execute(sql, [*args, n]).fetchall()[::-1]]
+
     def get(self, id: str) -> dict | None:
         with self._c() as c:
             r = c.execute("select * from events where id = ?", (id,)).fetchone() or (id and c.execute(

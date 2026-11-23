@@ -80,8 +80,8 @@ def p(tmp_path):
 
 def _counting(p, monkeypatch):
     calls = []
-    real = p.events.query
-    monkeypatch.setattr(p.events, "query", lambda **k: calls.append(k) or real(**k))
+    real = p.events.moments
+    monkeypatch.setattr(p.events, "moments", lambda **k: calls.append(k) or real(**k))
     return calls
 
 
@@ -121,7 +121,7 @@ def test_an_events_window_is_bounded_in_words(p):
 
 def test_the_gate_is_released_after_a_failed_read(p, monkeypatch):
     live = Live(p)
-    monkeypatch.setattr(p.events, "query", lambda **k: (_ for _ in ()).throw(OSError("gone")))
+    monkeypatch.setattr(p.events, "moments", lambda **k: (_ for _ in ()).throw(OSError("gone")))
     assert "could not be read" in api(live, "query", {"q": [_q({"source": "events"})]})["results"][0]["error"]
     gate = engine._kept(live).log_gate
     assert all(gate.acquire(blocking=False) for _ in range(engine.LOG_AT_ONCE))
@@ -130,13 +130,13 @@ def test_the_gate_is_released_after_a_failed_read(p, monkeypatch):
 def test_abandoned_requests_cannot_hold_more_than_the_gate(p, monkeypatch):
     live = Live(p)
     hold, inside = threading.Event(), []
-    real = p.events.query
+    real = p.events.moments
 
     def slow(**k):
         inside.append(1)
         hold.wait(5)
         return real(**k)
-    monkeypatch.setattr(p.events, "query", slow)
+    monkeypatch.setattr(p.events, "moments", slow)
     out: list = []
     ts = [threading.Thread(target=lambda i=i: out.append(api(live, "query", {"q": [_q({"source": "events", "bucket": 200 + i})]})))
           for i in range(10)]

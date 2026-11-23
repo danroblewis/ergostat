@@ -93,6 +93,22 @@ const plotMath = (() => {
     });
   }
 
+  /* several series stacked in each bin: a percent is each one's share of its bin, so a stack reads 100; a density is
+     over all the values, so the stack's area is 1; a count is a count. Cumulative counts run first, and are then shared */
+  function shapeStacked(rows, edges, { normalize = "count", cumulative = false } = {}) {
+    const running = rows.map((counts) => { let run = 0; return counts.map((c) => { run += c; return run; }); });
+    const used = cumulative ? running : rows;
+    const grand = rows.reduce((a, r) => a + r.reduce((x, y) => x + y, 0), 0) || 1;
+    return used.map((counts) => counts.map((c, i) => {
+      if (normalize === "percent") {
+        const bin = used.reduce((a, r) => a + r[i], 0);
+        return bin ? c / bin * 100 : 0;
+      }
+      if (normalize === "density") return cumulative ? c / grand : c / (grand * (edges[i + 1] - edges[i]));
+      return c;
+    }));
+  }
+
   function linearFit(xs, ys) {
     let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0;
     xs.forEach((x, i) => {
@@ -160,6 +176,6 @@ const plotMath = (() => {
     return { major, minor };
   }
 
-  return { finite, ascending, quantile, boxStats, boxFrom, autoBins, edgesOver, countInto, edgesFromX, shapeCounts, linearFit, density,
+  return { finite, ascending, quantile, boxStats, boxFrom, autoBins, edgesOver, countInto, edgesFromX, shapeCounts, shapeStacked, linearFit, density,
            unwrapPhase, wrapPhase, niceStep, linearTicks, logTicks };
 })();

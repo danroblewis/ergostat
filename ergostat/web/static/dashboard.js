@@ -487,8 +487,9 @@ function dashAsk(panels, ctrl) {
   const gaveUp = new Promise((_, no) => ctrl.signal.addEventListener("abort", () => no(new DOMException("gave up", "AbortError")), { once: true }));
   return Promise.race([queryPanels(dashWithWhole(panels), { since: WINDOWS[S.since], until: S.at || null, signal: ctrl.signal }), gaveUp]);
 }
-function dashSayLate(words) {
-  for (const c of DASH.cells.values()) c.panel.setState?.(c.drawn ? "late" : "error", words);
+/* an answer still to come is late (a panel with nothing drawn yet says it is still loading); only one that failed is an error */
+function dashSayLate(words, failed = false) {
+  for (const c of DASH.cells.values()) c.panel.setState?.(failed && !c.drawn ? "error" : "late", words);
 }
 async function dashRefresh() {
   const d = DASH.draft, n = ++DASH.asked;
@@ -515,7 +516,7 @@ async function dashRefresh() {
   } catch (e) {
     if (n !== DASH.asked) return;
     const timedOut = e?.name === "AbortError";
-    dashSayLate(timedOut ? `no answer in ${dur(DASH_GIVE_UP / 1000)}; asking again` : "The server did not answer");
+    dashSayLate(timedOut ? `no answer in ${dur(DASH_GIVE_UP / 1000)}; asking again` : "The server did not answer", !timedOut);
     if (DASH.said) DASH.said.textContent = timedOut ? "No answer; asking again" : "Could not refresh; asking again";
     if (!DASH.timer) DASH.retry = setTimeout(() => { if (DASH.grid?.isConnected && !document.hidden) dashRefresh(); }, DASH_RETRY);
   } finally {

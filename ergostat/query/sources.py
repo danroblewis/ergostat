@@ -288,15 +288,15 @@ def events(p, spec, q: Query, g: Grid, read=None) -> Read:
     skip = () if q.type else (its.TRANSCRIPT_TYPES,)
     if g.until - g.since > EVENTS_WINDOW:
         raise Unanswerable(f"events are read from the log, over at most {int(EVENTS_WINDOW // 86400)} days: ask for a shorter window")
-    ask = read or (lambda n, type, since, until, skip: p.events.query(n=n, type=type, since=since, until=until, skip=skip))
-    got = ask(EVENTS_MOST + 1, q.type, g.since, g.until, skip)
+    ask = read or (lambda n, type, since, until, skip: p.events.moments(n=n, type=type, since=since, until=until, skip=skip))
+    got = ask(EVENTS_MOST + 1, q.type, g.since, g.until, skip)        # (time, type): a count reads no event's data
     cut = len(got) > EVENTS_MOST
     out: dict[str, list] = {}
-    for e in got[-EVENTS_MOST:]:
-        out.setdefault(e["type"] if q.group_by else (q.type or ANY), []).append((e["time"], 1.0, 1.0))
+    for t, ty in got[-EVENTS_MOST:]:
+        out.setdefault(ty if q.group_by else (q.type or ANY), []).append((t, 1.0, 1.0))
     note = f"only the latest {EVENTS_MOST} events in the window were read: earlier buckets are empty, not zero" if cut else None
     return Read(rows=out, unit="events", truncated=cut, read_log=True, note=note,
-                read_from=got[-EVENTS_MOST]["time"] if cut else None)
+                read_from=got[-EVENTS_MOST][0] if cut else None)
 
 
 READERS = {"items": items, "moves": moves, "counts": counts, "series": series, "events": events}

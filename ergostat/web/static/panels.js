@@ -214,6 +214,14 @@
 
   const queryWord = (q) => q.label || q.field || q.series || q.measure || q.type || q.source || q.id;
   const OTHER = "other";
+  const ZERO_FILLED = new Set(["sum", "count"]);       // an empty bucket of these answers 0, which says nothing happened in it
+  /* the different units a panel's queries answer in, when it chose none: one axis cannot be read in one of them */
+  const unitsApart = (cfg, results) => {
+    if (cfg.display?.unit && cfg.display.unit !== "auto") return [];
+    const on = new Set(shownQueries(cfg).map((q) => q.id));
+    const units = [...new Set(results.filter((r) => on.has(r.id) && !r.error && r.unit).map((r) => r.unit))];
+    return units.length > 1 ? units : [];
+  };
 
   /* the ids a shown query reads from: as its X, or as a frequency response's input or output */
   const readsFrom = (q) => [q.x?.query, q.input, q.output].filter((r) => typeof r === "string" || typeof r === "number").map(String);
@@ -270,7 +278,7 @@
         }
         const other = one.name === OTHER;
         if (!other && !slots.has(key)) slots.set(key, slots.size);
-        items.push({ key, name, values, other, slot: other ? 0 : slots.get(key), unit: r.unit });
+        items.push({ key, name, values, other, slot: other ? 0 : slots.get(key), unit: r.unit, tally: ZERO_FILLED.has(q.agg) && q.source !== "counts" });
       }
     }
     return { times, items, failed, mixed: !!at, capped: good.reduce((sum, r) => sum + (r.capped || 0), 0) };
@@ -697,7 +705,9 @@
       if (why) { dropView(); setState("empty", why); return; }
       if (st.mount) dropPlot();
       const chosen = st.display.unit && st.display.unit !== "auto";
-      st.unit = parseUnit(chosen ? st.display.unit : result.unit);
+      const apart = unitsApart(st.cfg, good);
+      if (apart.length) said(`These queries are in different units (${apart.join(", ")}) on one axis: compare their shapes, not their heights.`);
+      st.unit = parseUnit(chosen ? st.display.unit : apart.length ? "" : result.unit);
       st.factor = 1;
       st.hasData = true;
       chip.textContent = chipOf(st.unit);
@@ -760,14 +770,18 @@
         tile.__nameEl.firstChild.style.setProperty("--swatch", seriesInk(it));
         const o = st.options;
         const known = it.values.filter((v) => v != null && Number.isFinite(v));
-        const shown = o.value === "sum" ? (known.length ? known.reduce((a, b) => a + b, 0) : null) : it.stats[o.value || "last"];
+        /* the last bucket of a sum or a count is 0 when nothing has happened in it yet: the last that held something is read */
+        const lastHeld = (o.value || "last") === "last" && it.tally && it.stats.last === 0 ? it.values.findLastIndex((v) => v != null && v !== 0) : -1;
+        const shown = lastHeld >= 0 ? it.values[lastHeld]
+          : o.value === "sum" ? (known.length ? known.reduce((a, b) => a + b, 0) : null) : it.stats[o.value || "last"];
         tile.__num.textContent = formatValue(shown == null ? null : shown * st.factor, st.unit, st.places, true);
         const passed = o.color === "thresholds" && shown != null ? (st.display.thresholds || []).filter((x) => x.value != null && shown >= x.value).length : 0;
         const levels = (st.display.thresholds || []).filter((x) => x.value != null).length;
         tile.__num.classList.toggle("is-bad", passed > 0 && passed === levels);
         tile.__num.classList.toggle("is-warn", passed > 0 && passed < levels);
         tile.__change.hidden = o.delta === "off";
-        tile.__change.textContent = o.delta === "off" ? "" : changeSaid(it.values);
+        tile.__change.textContent = lastHeld >= 0 && st.times[lastHeld] != null ? `at ${timeText(st.times[lastHeld], st.x1 - st.x0)}, none since`
+          : o.delta === "off" ? "" : changeSaid(it.values);
         tile.__spark.style.display = o.sparkline === "off" ? "none" : "";
         tile.__spark.setValues(it.values, st.items.length === 1 ? ink("--g0") : seriesInk(it));
       });
@@ -855,7 +869,10 @@
     }
     const dataBody = () => (st.form === "stat" ? "stat" : st.form === "table" ? "table" : "chart");
     const WORDS = { empty: "No data", late: "Late", error: "Could not load" };
-    function setState(state, reason = "") {
+    function setState(asked, reason = "") {
+      /* late with nothing yet to show is a first load still under way: it is never said as a failure */
+      const state = asked === "late" && !st.hasData ? "loading" : asked;
+      if (asked === "late" && state === "loading") reason = `Still loading: ${reason || "waiting for the answer"}`;
       st.state = state;
       el.dataset.state = state;
       flag.className = "panel-flag";
@@ -951,7 +968,9 @@
       if (st.form === "bar") st.x1 = Math.max(st.x1, answer.times[answer.times.length - 1] + st.step);
       if (st.x1 <= st.x0) st.x1 = st.x0 + st.step;
       const chosen = st.display.unit && st.display.unit !== "auto";
-      const base = parseUnit(chosen ? st.display.unit : answer.items.find((it) => it.unit)?.unit);
+      const apart = unitsApart(st.cfg, results || []);
+      if (apart.length) said(`These queries are in different units (${apart.join(", ")}) on one axis: compare their shapes, not their heights.`);
+      const base = parseUnit(chosen ? st.display.unit : apart.length ? "" : answer.items.find((it) => it.unit)?.unit);
       const largest = Math.max(0, ...answer.items.map((it) => Math.max(Math.abs(it.stats.max ?? 0), Math.abs(it.stats.min ?? 0))));
       const read = chosen ? { unit: base, factor: 1 } : readableRate(base, largest);
       st.unit = read.unit;
@@ -1093,14 +1112,24 @@
     });
     const out = new Map(configs.map((c) => [c.id, { results: [], meta: null }]));
     if (!asked.size) return out;
-    const q = encodeQuery({ since, until, points, queries: [...asked.values()] });
+    const batches = batched([...asked.values()]);
+    const q = encodeQuery({ since, until, points, queries: batches[0] });
     let answer;
     if (typeof SNAP !== "undefined" && SNAP) answer = await api("query", { q });
     else {
       const r = await fetch(`/api/query?q=${q}`, { signal });
       if (!r.ok) throw new Error(`the query answered ${r.status}`);
       answer = await r.json();
-      await askAgainWhenBusy(answer, [...asked.values()], points, signal);
+      await askAgainWhenBusy(answer, batches[0], points, signal);
+      for (const more of batches.slice(1)) {             // the same window, so every panel reads the same moment
+        const part = encodeQuery({ since: answer.until - answer.since, until: answer.until, points, queries: more });
+        const r2 = await fetch(`/api/query?q=${part}`, { signal });
+        if (!r2.ok) throw new Error(`the query answered ${r2.status}`);
+        const next = await r2.json();
+        await askAgainWhenBusy(next, more, points, signal);
+        const have = new Set(answer.results.map((x) => x.id));
+        answer.results.push(...next.results.filter((x) => !have.has(x.id)));
+      }
     }
     const meta = { now: answer.now, since: answer.since, until: answer.until, step: answer.step };
     const byId = new Map((answer.results || []).map((r) => [r.id, r]));
@@ -1108,6 +1137,20 @@
     for (const w of wanted) {
       const r = byId.get(w.as);
       out.get(w.panel).results.push(r ? { ...r, id: w.id } : { id: w.id, error: "the answer left this query out" });
+    }
+    return out;
+  }
+  /* at most what one request may hold, a query always beside the one it reads its X from */
+  const MOST_IN_REQUEST = 64;
+  function batched(queries) {
+    const byId = new Map(queries.map((x) => [x.id, x])), out = [[]];
+    for (const x of queries) {
+      const feeds = typeof x.x?.query === "string" ? byId.get(x.x.query) : null;
+      let now = out[out.length - 1];
+      const need = 1 + (feeds && !now.includes(feeds) ? 1 : 0);
+      if (now.length + need > MOST_IN_REQUEST) out.push(now = []);
+      if (feeds && !now.includes(feeds)) now.push(feeds);
+      if (!now.includes(x)) now.push(x);
     }
     return out;
   }
@@ -1188,8 +1231,9 @@
       }).catch((e) => {
         if (mine !== seq || stopped) return;
         flight = null;
-        const words = e?.name === "AbortError" ? `no answer in ${dur((every * GIVE_UP_TICKS) / 1000)}` : e?.message || "the query failed";
-        for (const el of panels.values()) el.setState("error", words);
+        const gaveUp = e?.name === "AbortError";         // the next tick asks again: late, or a first load still loading
+        const words = gaveUp ? `no answer in ${dur((every * GIVE_UP_TICKS) / 1000)}` : e?.message || "the query failed";
+        for (const el of panels.values()) el.setState(gaveUp ? "late" : "error", words);
       });
     }
     function tick() {

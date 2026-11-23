@@ -196,6 +196,8 @@ def category(a: Asking, q: Query) -> dict:
         raise Unanswerable(f"this query groups by {q.group_by} and takes its X from {by}: use one of them")
     if q.agg == NO_AGG:
         return category_spread(a, q)
+    if q.source == "items" and not (q.transform == "rate" and q.agg == "sum"):
+        return _category_of_items(a, q)               # (a sum's rate is what moved in the window, so it reads the changes)
     g = grid(a.since, a.until, a.points)
     wanted = replace(q, x=None, group_by=by)
     read = a.read(wanted, g)
@@ -218,9 +220,13 @@ def category(a: Asking, q: Query) -> dict:
     at = {n: i for i, n in enumerate(read.order)}
     order = sorted(values, key=lambda n: (n == OTHER, at.get(n, len(at)), -(values[n] or 0.0), n)) if at else \
         sorted(values, key=lambda n: (n == OTHER, -(values[n] or 0.0), n))
-    row = [values[n] for n in order]
-    unit = read.unit
-    notes = [read.note] if read.note else []
+    got = _category_row(a, q, order, [values[n] for n in order], read.unit, len(rest), read.read_log, [read.note] if read.note else [])
+    if read.truncated:
+        got["truncated"] = True
+    return got
+
+
+def _category_row(a: Asking, q: Query, order: list, row: list, unit: str, capped: int, read_log: bool, notes: list[str]) -> dict:
     if q.transform == "rate":
         window = a.until - a.since
         rates = [None if v is None else v / window for v in row]
@@ -229,11 +235,24 @@ def category(a: Asking, q: Query) -> dict:
         unit = f"{unit}/{tf.SHORT[per]}" if unit else f"/{tf.SHORT[per]}"
     elif q.transform != "none":
         notes.append(f"transform {q.transform} does not apply to categories")
-    got = _base(q, _x_meta("category", by, "", "category"), [{"name": label(q), "xs": order, "values": row, "ids": None}],
-                unit, len(rest), read.read_log, notes)
-    if read.truncated:
-        got["truncated"] = True
-    return got
+    return _base(q, _x_meta("category", q.x.by, "", "category"), [{"name": label(q), "xs": order, "values": row, "ids": None}],
+                 unit, capped, read_log, notes)
+
+
+def _category_of_items(a: Asking, q: Query) -> dict:
+    """One value per item, whatever the aggregation: each item's value at the window's end, for the items changed in it.
+    Its field's updates are not items: an item updated nine times counts once and weighs once in an average."""
+    from ..spec.itemnumbers import unit_of
+    by = q.x.by
+    groups, left = _item_points(a, replace(q, group_by=by), q.field, None, points.MOST_BINNED)
+    groups, folded = _capped(groups)
+    values = {n: aggregate(q.agg, [r.x for r in pts if axes.finite(r.x)]) for n, pts in groups.items()}
+    states = [s for k in sources.kinds(a.spec, q) for s in k.states] if by == "state" else []
+    at = {s: i for i, s in reversed(list(enumerate(states)))}
+    order = sorted(values, key=lambda n: (n == OTHER, at.get(n, len(at)), -(values[n] or 0.0), n))
+    notes = [f"only the {points.MOST_BINNED} items changed latest are counted"] if left else []
+    return _category_row(a, q, order, [values[n] for n in order], "items" if q.agg == "count" else unit_of(q.field),
+                         left + folded, False, notes)
 
 
 def category_spread(a: Asking, q: Query) -> dict:

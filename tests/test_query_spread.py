@@ -73,3 +73,30 @@ def test_a_set_alone_needs_no_snapshot_and_counts_past_its_page(p, monkeypatch):
     monkeypatch.setattr(live, "snapshot", lambda *a, **k: pytest.fail("the whole state was worked out"))
     got = api(live, "items", {"kind": ["ticket"], "state": ["doing"], "alone": ["1"], "n": ["2"]})
     assert got["total"] == 5 and len(got["items"]) == 2 and got["kinds"] == []
+
+
+@pytest.mark.parametrize("agg,doing,done", [("count", 5, 1), ("sum", 110, 3.5), ("avg", 22, 3.5), ("max", 100, 3.5), ("min", 1, 3.5),
+                                            ("p50", 3, 3.5)])
+def test_a_category_is_of_items_not_of_their_updates(p, agg, doing, done):
+    # doing: b 4, d 1, e 2, f 3, g 100. done: a, updated three times (1, 2, 0.5), now 3.5: one item, weighing once
+    r = _ask(p, {**COST, "agg": agg})[0]
+    got = dict(zip(r["series"][0]["xs"], r["series"][0]["values"], strict=True))
+    assert got == {"doing": doing, "done": done}
+    assert r["unit"] == ("items" if agg == "count" else "usd") and r["read_log"] is False
+
+
+@pytest.mark.parametrize("backend", ["segments", "sqlite"])
+def test_the_moments_of_events_are_those_events_without_reading_them(tmp_path, monkeypatch, backend):
+    from ergostat.segments import Segments
+    from ergostat.store import Events
+
+    ev = Segments(tmp_path / "log", seal=4) if backend == "segments" else Events(tmp_path)
+    for i in range(11):
+        ev.add("claude.line" if i % 5 == 0 else f"t.{i % 2}", item=f"x/{i}", data={"big": "x" * 100}, at=1000.0 + i)
+    for kw in ({"n": 100}, {"n": 3}, {"n": 100, "type": "t.1"}, {"n": 100, "skip": ("claude.*",)},
+               {"n": 4, "since": 1002.0, "until": 1008.0, "skip": ("claude.*",)}):
+        want = [(e["time"], e["type"]) for e in ev.query(**kw)]
+        assert ev.moments(**kw) == want, kw
+    if backend == "segments":
+        monkeypatch.setattr(ev, "_event", lambda *a: pytest.fail("an event was unpacked"))
+        assert len(ev.moments(n=100)) == 11

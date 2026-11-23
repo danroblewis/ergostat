@@ -812,7 +812,7 @@ def test_the_four_states(browser, family):
         state = "document.querySelector('.panel').dataset.state"
         assert s.page.evaluate(state) == "loading"
         s.page.evaluate("() => last.setState('late', 'waiting')")
-        assert "Late" in s.page.locator(".panel-message").inner_text()
+        assert "Still loading" in s.page.locator(".panel-message").inner_text(), "a first load is never said as a failure"
         s.page.evaluate("() => last.update([{ id: 'a', error: 'no field named x' }], {})")
         assert s.page.evaluate(state) == "error" and "no field named x" in s.page.locator(".panel-message").inner_text()
         s.page.evaluate("([r, m]) => last.update([r], m)", [DATA[family](), meta_for(family)])
@@ -1120,3 +1120,91 @@ def test_a_phase_portrait_marks_desired_levels_on_either_axis_and_every_form_is_
     assert "desired rate" in legend and "desired X" in legend
     assert site.page.locator(".plot-base").get_attribute("role") == "img"
     assert site.page.locator(".plot-base").get_attribute("aria-label") == "Phase portrait: phase chart"
+
+
+def test_a_stacked_percent_histogram_is_each_series_share_of_its_bin(site):
+    edges = [0.0, 1.0, 2.0]
+    x = {"type": "bins", "label": "v", "unit": "", "scale": "number", "edges": edges}
+    two = {"id": "a", "x": x, "unit": "",
+           "series": [{"name": "a", "xs": [0.5, 1.5], "values": [1, 6]}, {"name": "b", "xs": [0.5, 1.5], "values": [3, 2]}]}
+    site.mount(config("histogram", {"normalize": "percent", "stack": "stacked"}), two)
+    m = site.model()
+    assert m["shaped"] == [[25, 75], [75, 25]] and m["tops"][1] == [100, 100]      # 1 of 4, 3 of 4; 6 of 8, 2 of 8
+    site.clear()
+    site.mount(config("histogram", {"normalize": "percent", "stack": "stacked", "cumulative": "on"}), two)
+    m = site.model()                                                                # running: a 1, 7; b 3, 5
+    assert m["shaped"][0] == pytest.approx([25, 58.3333], abs=1e-3) and m["tops"][1] == pytest.approx([100, 100])
+    site.clear()
+    site.mount(config("histogram", {"normalize": "density", "stack": "stacked"}), two)
+    assert site.model()["tops"][1] == pytest.approx([1 / 3, 2 / 3]), "the stack's area is 1: 4 of 12 and 8 of 12"
+
+
+def test_a_percent_bar_of_a_time_query_is_each_ones_share_of_the_whole(site):
+    series = [{"name": n, "values": [9, v]} for n, v in (("ready", 10), ("review", 30), ("merged", 60))]
+    answer = {"id": "a", "times": TIMES[:2], "unit": "items", "series": series}
+    site.mount(config("bar", {"sort": "value-desc", "stack": "percent"}), answer)
+    m = site.model()
+    assert m["order"] == ["merged", "review", "ready"]
+    assert [b["to"] for b in m["bars"]] == pytest.approx([60, 30, 10])
+
+
+def test_a_percent_bar_of_one_series_of_categories_shares_the_whole(site):
+    r = {"id": "a", "x": {"type": "category", "label": "state", "scale": "category"}, "unit": "usd",
+         "series": [{"name": "c", "xs": ["a", "b"], "values": [1, 3]}]}
+    site.mount(config("bar", {"stack": "percent"}), r)
+    assert [b["to"] for b in site.model()["bars"]] == pytest.approx([25, 75])
+
+
+def test_a_page_past_the_requests_limit_is_asked_in_several_on_one_window(site):
+    panels = [{"id": f"p{i}", "form": "phase", "queries": [
+        {"id": "a", "source": "series", "series": f"y{i}", "x": {"type": "query", "query": "b"}},
+        {"id": "b", "source": "series", "series": f"x{i}"}]} for i in range(40)]
+    asking = "async (c) => [...(await queryPanels(c, {})).values()].map((v) => v.results.map((r) => r.error || r.id))"
+    got = site.page.evaluate(asking, panels)
+    assert got == [["a"]] * 40
+    assert len(site.asked) == 2 and all(len(b["queries"]) <= 64 for b in site.asked)
+    assert site.asked[1]["until"] == META["until"], "the second part reads the same moment"
+    for b in site.asked:
+        ids = {q["id"] for q in b["queries"]}
+        assert all(q["x"]["query"] in ids for q in b["queries"] if "x" in q), "each query is sent with its X"
+
+
+def test_queries_in_different_units_say_so_and_claim_no_one_unit(site):
+    cfg = {**config("line"), "queries": [{"id": "a", "source": "series", "series": "c"}, {"id": "b", "source": "series", "series": "n"}]}
+    one = {"id": "a", "times": TIMES[:3], "unit": "usd", "series": [{"name": "c", "values": [1, 2, 3]}]}
+    two = {"id": "b", "times": TIMES[:3], "unit": "items", "series": [{"name": "n", "values": [4, 5, 6]}]}
+    mount_two(site, cfg, one, two)
+    assert "different units (usd, items)" in site.page.locator(".panel-warning").inner_text()
+    assert site.page.locator(".panel-unit").inner_text() == ""
+
+
+def test_a_stat_of_a_sum_does_not_read_an_empty_last_bucket_as_zero(site):
+    cfg = {**config("stat"), "queries": [{"id": "a", "source": "items", "kind": "k", "field": "cost", "agg": "sum"}]}
+    r = {"id": "a", "times": TIMES[:4], "unit": "usd", "series": [{"name": "c", "values": [2.5, 7.25, 0, 0]}]}
+    site.mount(cfg, r)
+    assert site.page.locator(".panel-stat-num").inner_text() == "$7.25"
+    assert "none since" in site.page.locator(".panel-stat-change").inner_text()
+    site.clear()
+    level = {**cfg, "id": "q", "queries": [{"id": "a", "source": "series", "series": "x", "agg": "last"}]}
+    site.mount(level, r)
+    assert site.page.locator(".panel-stat-num").inner_text() == "$0.00", "a level that reads 0 is 0"
+
+
+def test_a_frequency_query_with_no_output_says_to_choose_it(site):
+    fields = {"sources": {"series": {"series": [{"name": "x", "unit": ""}]}}, "aggregations": ["avg"], "transforms": ["none"]}
+    site.page.route("**/api/query/fields", lambda r: r.fulfill(json=fields))
+    site.page.add_script_tag(url="/static/panel-editor.js")
+    site.page.evaluate("""() => { window.ed = openPanelEditor({ id: 'e', title: 'B', form: 'bode', display: {}, queries: [
+      { id: 'a', source: 'series', series: 'x', hidden: true },
+      { id: 'b', source: 'frequency', input: { source: 'series', series: 'x' }, output: {} }] }, {}); }""")
+    site.page.wait_for_timeout(900)
+    words = site.page.evaluate("[...document.querySelectorAll('.panel-message')].map((m) => m.textContent).join(' | ')")
+    assert "output" in words and "hidden" not in words, words
+
+
+def test_a_slow_first_answer_says_loading_and_a_failed_one_says_so(site):
+    mounting = "(c) => { window.last = chartPanel(c); document.getElementById('page').append(last); last.setState('late', 'waiting 8s'); }"
+    site.page.evaluate(mounting, config("line"))
+    assert site.page.locator(".panel").get_attribute("data-state") == "loading"
+    words = site.page.locator(".panel-message").inner_text()
+    assert "Still loading" in words and "Could not" not in words

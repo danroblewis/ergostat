@@ -45,7 +45,9 @@
       const shareOf = (k, i) => {
         const v = t.rows[k][i];
         if (v == null || !percent) return v;
-        const all = live.reduce((a, l) => a + Math.abs(t.rows[l.k][i] ?? 0), 0);
+        /* one series: each bar's share of the whole. Several: each one's share of its category */
+        const all = live.length === 1 ? t.rows[k].reduce((a, x) => a + Math.abs(x ?? 0), 0)
+          : live.reduce((a, l) => a + Math.abs(t.rows[l.k][i] ?? 0), 0);
         return all ? v / all * 100 : 0;
       };
       const bars = [], extent = [0];
