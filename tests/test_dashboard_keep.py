@@ -99,12 +99,31 @@ def test_a_change_touching_anything_but_dashboards_is_refused_as_display(tmp_pat
     with pytest.raises(im.ProposeError, match="not a display change: it changes ergostat.yaml: goals"):
         rest = MODEL.split('    hold: "< 5"\n')[1].rstrip("\n")
         im.validate(p, p.model.spec, "tester", _raw(p, '    hold: "< 5"\n' + rest, '    hold: "< 6"\n' + rest.replace(one, more)))
+    same = '    hold: "<5"\n' + rest.replace(one, more)                # the same goal, compiled, but written otherwise
+    assert im.kind_of(p.model.spec, display.tr.spec_after(p, im.edits(p.model.spec, _raw(p, '    hold: "< 5"\n' + rest, same)["edit"])),
+                      "display") == "display"
+    with pytest.raises(im.ProposeError, match="not a display change: it changes ergostat.yaml: goals"):
+        im.validate(p, p.model.spec, "tester", _raw(p, '    hold: "< 5"\n' + rest, same))
     with pytest.raises(im.ProposeError, match="proposed as kind: display"):
         im.validate(p, p.model.spec, "tester", _raw(p, one, more, kind="structure"))
     assert im.validate(p, p.model.spec, "tester", _raw(p, one, more))["kind"] == "display"
     texts = {str(p.model.path): MODEL.replace("description: where tickets wait\n    show", "description: x\n    show")}
     assert display.beside(texts) == ["ergostat.yaml: systems"]
     assert display.beside({str(p.model.path): MODEL.replace(one, more)}) == []
+
+
+def test_keep_refuses_an_edit_that_reaches_past_dashboards(tmp_path, monkeypatch):
+    p = project(tmp_path)
+    made = display._edit
+
+    def wider(p, spec, name, lines):                       # the entry, and a goal's words written otherwise
+        e = made(p, spec, name, lines)
+        at = next(i for i, x in enumerate(p.model.path.read_text().split("\n"), 1) if 'hold: "< 5"' in x)
+        return display.ye.Edit(e.file, [*e.hunks, display.ye.Hunk(at, ['    hold: "< 5"'], ['    hold: "<5"'])])
+    monkeypatch.setattr(display, "_edit", wider)
+    with pytest.raises(pr.ProposalError, match="not a display change: it changes ergostat.yaml: goals"):
+        display.keep(p, DRAFT)
+    assert not pr.pending(p)
 
 
 def test_an_unreadable_file_counts_as_changed(tmp_path):
