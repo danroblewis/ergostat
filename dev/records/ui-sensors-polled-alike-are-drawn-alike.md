@@ -45,3 +45,13 @@ Its runs failed past their attempts (a dead letter):
 - attempt 10: nack exited 1
 - attempt 11: nack exited 1
 - attempt 12: nack a switch drains the runs under way (run/drain.json): taken again after it
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 19:08).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 10: nack exited 1
+- attempt 11: nack exited 1
+- attempt 12: nack a switch drains the runs under way (run/drain.json): taken again after it
+- attempt 13: nack budget: $2995.61 spent in the last day; a session of up to $15.00 would pass the $3000 cap
