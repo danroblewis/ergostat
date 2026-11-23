@@ -3973,7 +3973,7 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
             drawn(pg, url, view, 1)
             if boxed:
                 assert not pg.evaluate(f"() => !!document.querySelector('svg.canvas [data-id=\"{ring}\"]')"), "drawn closed first"
-            pg.locator(".side .att button.name", has_text="loop short-backlog").click()
+            pg.locator(".side .att button.name", has_text=f"{'loop' if view else 'goal'} short-backlog").click()
             pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
             # (the closed box holding it is ringed until it is drawn open)
             pg.wait_for_function(f"(r) => JSON.stringify(({RINGED})()) === JSON.stringify([r])", arg=ring, timeout=60000)
@@ -5809,6 +5809,44 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+SIDE_WORDS = """() => ({
+  side: [...document.querySelectorAll('.side .att b, .side .suggest .hint b')].map((b) => b.textContent),
+  says: [...document.querySelectorAll('.side .suggest .hint')].map((d) => d.textContent.replace(/^\\S+ \\S+ /, '')),
+  heads: [...document.querySelectorAll('.side h3, .side details.loops > summary')].map((x) => x.firstChild.textContent),
+  serves: [...document.querySelectorAll('.side .looprow .sub')].map((x) => x.textContent).filter((t) => /serves goals? \\S/.test(t)),
+  goals: (S.graph.causalLoops || []).filter((c) => c.nodes.some((n) => n.startsWith('gap:'))).length })"""
+
+
+def test_in_dynamics_a_goal_is_called_a_goal_and_loop_means_an_r_or_b_loop(browser, tmp_path, monkeypatch):
+    """Dynamics' side list called a controlled goal 'loop requests-handled' right above 'Feedback loops 18: R2, R3 …'.
+    There it is 'goal requests-handled'; an R or B loop that closes a goal says 'serves goal …'; Blocks lists its
+    'Control loops'. (A suggestion's words are the unit tests' in test_dynamics_view.py: none is seeded here.)"""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+
+    def off(d):                                           # a reading of backlog above its goal: backlog-clear is off
+        monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+        p = Project(mdl.load(d))
+        p.measurements.add(next(iter(p.model.spec.stocks["backlog"].sensors.values())).series, 5.0, at=time.time() - 5)
+    with served("software-factory", tmp_path, off) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics&open=*", 0)
+        pg.wait_for_function("() => document.querySelector('.side .looprow')", timeout=20000)
+        got = pg.evaluate(SIDE_WORDS)
+        assert not [w for w in got["side"] + got["says"] if w.startswith("loop ")], got
+        assert any(w.startswith("goal ") for w in got["side"]), got           # (so a card about a goal was seen)
+        assert "Feedback loops" in got["heads"] and "Control loops" not in got["heads"], got
+        assert got["goals"] and len(got["serves"]) == got["goals"], got       # each loop through a goal names it
+        drawn(pg, url, "view=blocks&open=*", 1)
+        pg.wait_for_function("() => document.querySelector('.side details.loops > summary')", timeout=20000)
+        got = pg.evaluate(SIDE_WORDS)
+        assert "Control loops" in got["heads"] and "Loops" not in got["heads"], got
+        pg.close()
+        assert not errors, errors
+
+
 def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
     """A loop chosen on the Loops page, and the window chosen, are in the address (?select=, ?window=): the address
     opened in a new tab shows the same panel and window. Changing the window leaves the panel open and says
@@ -6575,9 +6613,10 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
             held = [r for r in house["rows"] if r.startswith("request · ")]   # each read as its sentence
             assert len(held) == 2 and all("Modelling cannot decide it" in r for r in held), house
-            assert off["rows"][0].startswith("off · loop short-backlog"), off          # the system's first,
+            word = "loop" if view else "goal"                   # (Dynamics calls a controlled goal a goal)
+            assert off["rows"][0].startswith(f"off · {word} short-backlog"), off       # the system's first,
             assert off["rows"][1] == "---", off                                         # a rule,
-            assert off["rows"][2].startswith("off · loop requests-handled"), off       # then modelling's
+            assert off["rows"][2].startswith(f"off · {word} requests-handled"), off    # then modelling's
             assert not house["open"] or "fault · " in house["words"], house            # folded, unless a fault is in it
             for g in groups:                                    # a state or kind word first, never colour alone
                 assert all(re.fullmatch(r"[a-z]+ · ", w) for w in g["words"]), g
