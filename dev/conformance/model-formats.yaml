@@ -1,0 +1,25 @@
+list: model-formats
+description: the model formats ergostat reads, writes and serves (docs/proposals/conformance-stock.md, section 6)
+cases:
+  ergostat-yaml:
+    description: ergostat check passes on every example's ergostat.yaml
+    from: ergostat/spec/load.py:171
+    check: python3 dev/conformance/checks/formats.py ergostat-yaml
+    timeout: 5m
+  ergostat-toml:
+    description: ergostat convert writes a model that compiles, for every old TOML example
+    from: ergostat/spec/convert.py:1-9
+    check: python3 dev/conformance/checks/formats.py ergostat-toml
+    timeout: 3m
+  served-model:
+    description: the remote API's model answer says ergostat-model/1 and holds every stock of image-squeeze
+    from: ergostat/remote/serve.py:12
+    check: python3 dev/conformance/checks/formats.py served-model
+  xmile-export:
+    description: image-squeeze exports as XMILE 1.0, one stock per stock, one flow per flow, equations in XMILE's syntax
+    from: docs/DISCIPLINES.md:21
+    check: python3 dev/conformance/checks/formats.py xmile-export
+  xmile-import:
+    description: a small XMILE model becomes a draft model whose stocks, flows and causes' signs match
+    from: docs/research/sre-control-systems.md:1281-1282
+    check: python3 dev/conformance/checks/formats.py xmile-import

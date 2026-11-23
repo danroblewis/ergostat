@@ -1848,6 +1848,36 @@ def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browse
     assert not problems, f"{name}: " + "\n".join(problems)
 
 
+# each block as drawn: its main label (what is written inside it, but its caption) and its caption, the band at its top
+BLOCK_LABELS = """() => [...document.querySelectorAll('svg.canvas g.node.bd-block')].map((g) => {
+  const box = g.querySelector('.hit').getBoundingClientRect(), cap = g.querySelector(':scope > text.bd-tier');
+  const inside = [...g.querySelectorAll('text')].filter((t) => t !== cap && t.getBoundingClientRect().top >= box.top);
+  return { id: g.dataset.id, main: inside.map((t) => t.textContent).join(' | '), cap: cap ? cap.textContent : null,
+           capAtTop: cap ? cap.getBoundingClientRect().bottom <= box.top + 16 : null };
+})"""
+
+
+def test_every_block_carries_a_function_with_the_agents_name_as_its_caption(browser, tmp_path):
+    # Blocks, the ticket factory's making: open-pr (a program) and work (an AI agent) state no law, so each says
+    # f(·), its name and kind the caption in its top band; a counting sensor says H = 1 and how often
+    with served("ticket-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=blocks&system=making", 0)
+        got = pg.evaluate(BLOCK_LABELS)
+        pg.close()
+    assert len(got) >= 4, got
+    bad = [b for b in got if not re.search(r"=|\(s\)|\(z\)|f\(·\)", b["main"])]
+    assert not bad, f"a block whose main label is no function: {bad}"
+    named = [b for b in got if re.search(r"(?<![\w-])(open-pr|work)(?![\w-])", b["main"])]
+    assert not named, f"a block's name written as its main label: {named}"
+    caps = {b["id"]: b for b in got}
+    for bid, cap in (("blk:open-pr", "open-pr · program"), ("blk:work", "work · AI agent")):
+        assert caps[bid]["cap"] == cap and caps[bid]["capAtTop"], caps.get(bid)
+        assert "f(·), law not stated" in caps[bid]["main"], caps[bid]
+    assert any(re.search(r"H = 1, every 3 s", b["main"]) for b in got if b["id"].startswith("sen:")), \
+        [b for b in got if b["id"].startswith("sen:")]
+
+
 def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
     from tests.test_spec_systems import MODEL
     d = tmp_path / "cascade"
@@ -3614,6 +3644,79 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         pg.close()
 
 
+def seed_product_calibrations(d: Path) -> None:
+    """The software factory's copy with a calibration kept of two of the product's parameters: churn-per-failing-op
+    0.404 ± 0.116 against its declared 2 (the record's short-record note), fixes-per-ticket 0.01 ± 0.5."""
+    from ergostat import model as mdl
+    from ergostat.numbers import estimate as es
+    from ergostat.numbers import version as ver
+    from ergostat.store import Project
+    old = os.environ.get("ERGOSTAT_HOME")
+    os.environ["ERGOSTAT_HOME"] = str(d.parent / "home")                # where served() points the page's server
+    try:
+        p = Project(mdl.load(d))
+        p.measurements.add("sensor/users.main", 120.0, at=time.time() - 33 * 60)    # a record begun 33 minutes ago
+        short =("held, inconclusive: too little record to identify it (40 points fitted, under 60). Nothing says the "
+                 "value written is wrong: it needs about 20m more record (as the record has gone so far)")
+        f = es.path(p, ver.structure(p.model.spec), "parts")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({
+            "churn-per-failing-op": {"parameter": "churn-per-failing-op", "scope": "parts", "value": 0.404, "se": 0.116,
+                                     "n": 40, "refused": short},
+            "fixes-per-ticket": {"parameter": "fixes-per-ticket", "scope": "parts", "value": 0.01, "se": 0.5, "n": 40,
+                                 "refused": short}}))
+    finally:
+        if old is None:
+            os.environ.pop("ERGOSTAT_HOME", None)
+        else:
+            os.environ["ERGOSTAT_HOME"] = old
+
+
+VALVE_OF = "((n, f) => ['valve', 'disturbance'].includes(n.kind) && (n.flow || n.label) === f)"
+
+
+def test_a_flow_with_no_value_says_why_and_an_estimate_with_no_basis_says_so(browser, tmp_path):
+    """On the product's Dynamics view no flow's label is a bare '–' (one not measured says so, one that did not move
+    says 0, and its panel how long nothing moved); the churn panel does not say 'Nothing says the value written is
+    wrong' while the declared 2 lies outside 0.404 ± 3σ, and no interval more than ten times its estimate is printed."""
+    with served("software-factory", tmp_path, seed_product_calibrations) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        labels = pg.evaluate("""() => Object.fromEntries(S.graph.nodes.filter((n) => n.kind === 'valve' || n.kind === 'disturbance')
+          .map((n) => [n.flow || n.label, [...document.querySelectorAll(`svg.canvas g.node[data-id="${n.id}"] text.sd-value`)]
+                                            .map((t) => t.textContent.trim())]))""")
+        assert {"regressions", "fixes", "shipped", "asks", "churn"} <= set(labels), labels
+        assert not [f for f, t in labels.items() if "–" in t or not t], labels
+        assert labels["regressions"] == ["not measured"], labels
+        zero = [f for f, t in labels.items() if t and t[0].startswith("0")]
+        assert zero, labels                                     # (the market's flows: its block has moved nothing yet)
+        for flow in zero[:1] + ["regressions"]:
+            pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), flow)
+            pg.wait_for_function("(f) => new RegExp('the rate of ' + f).test(document.querySelector('#detail').textContent)", arg=flow,
+                                 timeout=5000)
+            pg.wait_for_timeout(300)
+            rate = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')]
+                                            .find((d) => d.textContent === 'rate, over the window');
+                                          return dt ? dt.nextElementSibling.textContent : null; }""")
+            assert rate == "not measured" if flow == "regressions" else re.match(r"^0 .*: no movement in 3[34]m$", rate or ""), (flow, rate)
+        pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), "churn")
+        pg.wait_for_function("() => document.querySelector('#detail table.calibrations')", timeout=10000)
+        text, cal = pg.locator("#detail").inner_text(), pg.locator("#detail table.calibrations").inner_text()
+        assert "Nothing says the value written is wrong" not in text, cal
+        assert "the record so far rejects 2 but cannot yet settle a value" in cal.lower(), cal
+        assert "0.404 ± 0.116" in cal, cal
+        pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), "fixes")
+        pg.wait_for_function("() => /fixes-per-ticket/.test(document.querySelector('#detail table.calibrations')?.textContent || '')",
+                             timeout=10000)
+        cal = pg.locator("#detail table.calibrations").inner_text()
+        assert "not enough record yet" in cal and "± 0.5" not in cal, cal
+        assert "Nothing says the value written is wrong" in cal, cal     # 0.4 lies within 0.01 ± 3σ: the note stays
+        assert not errors, errors
+        pg.close()
+
+
 # ---- two views at once: one selection of model parts, lit in both (correspond.py, interact.js, split.js)
 
 # (beside the checkout; where that cannot be written, as for a clone at /work in a container, the temporary folder)
@@ -4788,6 +4891,40 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+def test_a_one_sided_limit_is_drawn_and_named_as_a_limit(browser, tmp_path):
+    """ticket-factory's worked-opened holds worked ≤ 0: its reference is drawn 'r ≤ 0' and its panel calls it a limit,
+    never a setpoint; the on-off controller serving it switches on and off at one threshold, so it is an ideal relay,
+    drawn with one step, and nothing says hysteresis. The controller panel and the Loops page say 'limit ≤ 0'."""
+    with served("ticket-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.set_default_timeout(60000)
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&system=making", 0)
+        ref = pg.locator('svg.canvas g.node[data-id="ref:worked-opened"]')
+        assert "≤ 0" in ref.text_content(), ref.text_content()
+        fit(pg)
+        click_part(pg, "ref:worked-opened")
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'reference input'")
+        text = pg.locator("#detail").inner_text()
+        assert "limit" in text and "setpoint" not in text, text
+        relay = pg.locator('svg.canvas g.node[data-id="blk:keep-worked-opened"]')
+        assert relay.locator(".bd-sketch .bd-curve").get_attribute("d") == "M2,18 H14 V5 H26"   # one step: no loop
+        click_part(pg, "blk:keep-worked-opened")
+        pg.wait_for_function("() => document.querySelector('#detail h2')?.textContent === 'keep-worked-opened'")
+        text = pg.locator("#detail").inner_text()
+        assert "ideal relay" in text and "hysteresis" not in text, text
+        pg.evaluate("() => openLoop('worked-opened', true)")
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Controller'")
+        pg.wait_for_function("() => [...document.querySelectorAll('#detail dd')].some((d) => d.textContent === 'worked, limit ≤ 0')")
+        pg.goto(url + "/loops")
+        row = pg.locator("tr", has_text="worked-opened")
+        row.wait_for()
+        assert "limit ≤ 0" in row.inner_text(), row.inner_text()
+        assert not errors, errors
+        pg.close()
 
 
 NO_UNIT = """() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node')].filter((g) => g.querySelector('.sd-stock'))
