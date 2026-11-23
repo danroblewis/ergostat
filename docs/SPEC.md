@@ -1238,6 +1238,7 @@ items:
 | `relations` | map of name → kind(s) | none | Its typed relations to other items, each a field holding the ids it names (*Relations*, below) |
 | `join` | a rule, or a list | none | When its children move it on (*Join*, below) |
 | `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
+| `attention` | a field name | none | A finding said where it is seen: the words of this field on the kind's latest item that has them (by its latest event, then its id; blank words are none) are a warning on the page's attention list, naming the item, cut at 400 characters; a kind that cannot be read says so there instead. Only the latest: a newer finding replaces it. A relation's field is refused (`bad-attention`) |
 | `final` | list of its states | none | States no event moves an item out of: a later move is ignored and said (the item's `refused`, form `final`) |
 | `system`, `description` | | | |
 
@@ -2548,7 +2549,8 @@ follows (looking again within 50 ms when nothing is new), so no pipe ties the ru
 mid-run leaves the run going, and a small `sh` wrapper writes its exit code to `runs/RUN.exit` when it ends.
 `runs/RUN.json` is its record: pid, the process's start time (a pid reused by another process has another start
 time), run id, lease and block. The files are removed once the engine has read the run to its end. (Taking up a run
-left behind by a stopped engine is not built yet.) A run has ended when its process has and nothing it started is
+left behind by a stopped engine is not built yet; once its process is gone its lease is given back uncounted, section
+9.5, *A run gone*, and its files are left as they are.) A run has ended when its process has and nothing it started is
 left in its process group, or 2 s after its process ended, whichever is first. **Its exit code is the wrapper's**,
 and `sh` reports a command killed by signal N and one that exits with 128+N alike, so the wrapper chooses: for HUP,
 INT, PIPE, ALRM, TERM, USR1, USR2 and KILL it ends itself by the same signal, and the run's exit reads -N (as a
@@ -3065,6 +3067,23 @@ that could not be given back (the write failed, or ergostat was killed, or resta
 next engine's watchdog on its TTL, so after a restart no item stays leased by a run that never ran; that expiry counts
 no attempt (`count: false`), since its holder was not a run this engine process took (the dispatcher keeps, in
 memory, the runs it took whose leases have not ended). A lease that expired is not ended again when its run ends.
+
+**A run gone** (`leases/gone.py`; the owner, 2026-11-22). The watchdog does not wait for that TTL when the run is
+known to be gone. On every pass (once a second), each lease held by a run this engine is not following (not one it
+took, nor one going here) on a block this engine runs whose runs have a run record (a machine block, not a daemon's)
+is looked at in that record (`runs/RUN.json`, section 9.1): when no process has its pid, the one there is a zombie, or
+the pid is another process's now (its start time differs), the run is gone and its lease is **ended** at once, a nack
+uncounted (`count: false`; its why says the run's process is gone), its item back where it was taken from and taken
+again on the same pass's dispatch. On the engine's first pass, a lease whose run has no record at all is ended so too
+(the run no longer exists: its end was read and its files removed, or it never started). Left alone, to its TTL: a
+live run (pid and start time both match), a record that cannot be read or has no start time, a pid that is not one
+(unknown is never gone), a run with no record after the first pass, a daemon's run, and a lease on a block this
+engine does not run (remote, or no longer in the model). The end is written under the ends' lock with the item read
+again there, so the run's own end or an expiry written meanwhile wins and nothing is ended twice. A run this engine
+follows ends as any run does, so one killed under it (a signal from outside) is a counted nack (`exited -9`): only a
+run whose engine is gone is given back uncounted, the cause being outside its item. Start times are read in clock
+ticks on Linux and to the second elsewhere, so a pid freed and reused within the same tick (or second) is not told
+apart.
 
 **Ends wait their turn.** Every end of a lease this engine writes (a run's own, or close's give-back) is checked and
 written under one lock, so two ends of one lease never both write. Its item is read before, outside the lock, and read

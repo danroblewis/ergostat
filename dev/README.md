@@ -97,6 +97,18 @@ order. A reset time that cannot be read (no time, an unknown zone, a date that d
 or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit again or
 not. A switch's drain nacks are uncounted too (`count: false`), whether a run gives its item back or the switcher does.
 
+**An outage is a pause, not a failure** (`dev/bin/outage.py`). A run that fails because Docker or the AI service cannot
+be reached gives its item back uncounted, put off 10 minutes, and is taken again after it, as often as the outage
+lasts: no attempt, nothing toward the kill rule, never parked or a dead letter. Docker's is told by its words naming
+Docker (a container that did not start, exit 125, `docker ...`), confirmed by `docker info` failing or not answering in
+30 s (a factory with no `docker` installed has no Docker outage); a queue suite whose container fails while `docker info`
+fails is one too, never a red suite. The AI service's is told by a connection error in what the session said (refused,
+no route, a name not resolved, a request timed out); an answer of the API's (a 4xx, a 5xx) is the service reached.
+This covers the implementor and the reviewer (`fac.guarded`) and the merge queue's batch (main undone, no gap blamed).
+The engine gives back a lease whose run's process is gone, uncounted too (SPEC §9.5, *A run gone*), and a kind's
+`attention:` field puts the pipeline manager's latest finding (`finding`, on its handled situation) on the page's
+attention list.
+
 ## Submit a gap
 
 A GAPS.md entry is taken in by itself (`gap.found`, open). It is **ready** once it has a definition of done:

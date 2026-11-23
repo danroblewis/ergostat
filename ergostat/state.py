@@ -368,6 +368,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 pass
     snap["leases"] = lease_attention(project, now)
     snap["cycles"] = relation_cycles(project)
+    snap["findings"] = findings(project)
     snap["reports"] = [{"id": r["id"], "title": r.get("title") or ""} for r in reports_drafted(project)]   # SPEC §12m
     snap["alarms"] = alarms(project, now)
     if getattr(getattr(project.model, "spec", None), "daemons", None):   # the long-lived runners, as the engine last saw them
@@ -408,6 +409,39 @@ def relation_cycles(project) -> list[list[str]]:
     _CYCLES.clear()
     _CYCLES[key] = got
     return got
+
+
+_FINDINGS: dict = {}
+
+
+def findings(project) -> list[dict]:
+    """For each kind with ``attention: FIELD`` (SPEC §5a): its latest item (by its latest event, then its id) whose
+    FIELD has words, and those words. Worked out again only when the record changes. A kind that cannot be read is
+    said as unread, never left out."""
+    spec = getattr(project.model, "spec", None)
+    kinds = [k for k in (spec.items.values() if spec is not None else ()) if k.attention]
+    if not kinds:
+        return []
+    ev = project.events
+    key = (id(spec), ev.last_seq() if hasattr(ev, "last_seq") else None)
+    if key in _FINDINGS:
+        return _FINDINGS[key]
+    from .spec import items as its
+    out = []
+    for k in kinds:
+        try:
+            got = [i for i in its.project(ev, spec, k.name, transcript=False)
+                   if isinstance(i.fields.get(k.attention), str) and i.fields[k.attention].strip()]
+        except Exception as e:
+            out.append({"kind": k.name, "item": None, "field": k.attention, "says": None,
+                        "error": f"{type(e).__name__}: {e}"[:200]})
+            continue
+        if got:
+            i = max(got, key=lambda x: (x.last, x.id))
+            out.append({"kind": k.name, "item": i.id, "field": k.attention, "says": i.fields[k.attention].strip()})
+    _FINDINGS.clear()
+    _FINDINGS[key] = out
+    return out
 
 
 def inbox(project, now: float, live: bool) -> list[dict]:
@@ -757,6 +791,13 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         out.append({"level": "warn", "what": f"item {c[0]}", "item": c[0],
                     "says": f"a cycle of precedence relations: {said} each wait on another, so none can be ready. "
                     f"Take one of the links away"})
+    for x in snap.get("findings", []):               # a kind's latest finding (its `attention:` field, SPEC §5a)
+        if x.get("error"):
+            out.append({"level": "warn", "what": f"items {x['kind']}", "says": f"its latest {x['field']} could not be "
+                        f"read ({x['error']})"})
+        else:
+            text = x["says"] if len(x["says"]) <= 400 else x["says"][:397] + "..."
+            out.append({"level": "warn", "what": f"item {x['item']}", "item": x["item"], "says": text})
     for w in snap.get("quarantined", []):
         out.append({"level": "warn", "what": f"workspace {w['pool']}-{w['slot']}",
                     "says": f"quarantined ({w.get('why') or 'dirty or broken'}): never reused until freed, ergostat "
