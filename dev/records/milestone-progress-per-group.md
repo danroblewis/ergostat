@@ -17,3 +17,37 @@ Definition of done.
 4. A dashboard panel can chart gaps by milestone, stacked by state group, with no custom code.
 
 Files: dev/bin/milestones.py, ergostat's items pages and query fields, tests.
+
+## Where it stopped
+
+Built, round 1. About 285 net lines outside tests, docs and dev (within 600).
+
+- The counts: `ergostat/spec/grouptally.py`, generic (ergostat knows no gap or milestone): any group relation whose
+  field folds by `replace` gets per-group counts from the item index (the folded items and their moves), as
+  `/api/items-groups?kind=K&by=REL`, `ergostat item --kind K --groups REL [--json]`, and `progress` on each kind in
+  the Items listing. `milestones.py status` prints each milestone's line, and one for the gaps in none, from
+  `ergostat item --groups`. When that call cannot be read it prints "progress: not read (why)" once, never zeros.
+- How "closed as a duplicate or abandoned" is known: a new relation key, `done_when` (SPEC §5a). ergostat.yaml
+  declares `milestone: {..., done_when: {closed: {end: done}}}`. It is an allowlist: a closed gap counts as done only
+  with `end: done`. A duplicate, any other end, or a close with no `end` field leaves the total and is counted as
+  `left`. Decision taken alone (the reversible one): a close with no end said is not known to be done work, so it
+  leaves the total rather than counting as done.
+- A split gap (one another gap names as `parent`) is left out of the total and counted as `summaries`; its parts
+  count wherever their own `milestone` puts them. A part with no milestone of its own is in the "no milestone" row:
+  membership is the gap's own field only, so a row's link (`where=milestone:ID`; none: `milestone:null` and
+  `milestone:`) is exactly what it counts. A gap whose `milestone` holds a list is in no row and is named.
+- The page: a compact row per group under the kind's chart, on the overview and on the kind's own page. The active
+  ones and the "no milestone" row are shown; the rest fold behind one button ("22 more (17 waiting, 5 completed)").
+  A row's click sets the set's `where`, and the Graph and Timeline now narrow to a `where` on a relation (client
+  side, in `rgModel`: those items and what they wait on). No new page.
+- Done item 4, narrowed: ergostat has no Dashboard page yet (owner item 18 is not built), so "a dashboard panel"
+  here means a panel that takes only query parameters. `/api/items-groups` answers with rows as categories, `stacks`
+  (done, in progress, waiting, stopped) as the series, and each row's `done` over `times` for completion over time.
+  The same call serves any model's group relation (tested on a ticket/epic model). Drawing the chart is that page's
+  work.
+- Completion over time reads membership and `done_when` as they are now, not as they were then (said in SPEC).
+
+Tests: tests/test_group_progress.py (done items 1, 2, 4 and the status lines), tests/test_items_page.py
+`test_twenty_five_milestones_fit_on_the_gap_card_without_pushing_the_kinds_below_the_fold` (item 3) and
+`test_a_milestones_row_opens_exactly_its_gaps_in_the_list_graph_and_timeline` (item 2 on the page). Each was seen
+to fail with its code broken: the split rule, the `done_when` rule, the Graph's `where` filter, and the fold.

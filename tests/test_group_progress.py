@@ -159,6 +159,15 @@ def test_what_is_not_one_is_refused(rec):
             gt.progress(rec.events, rec.model.spec, "gap", "milestone", T0, T0 - 1, bad)
 
 
+def test_past_its_bound_it_is_refused_never_cut(rec, monkeypatch):
+    """More gaps than it reads: refused, never counts from part of them; as many as it reads, answered."""
+    monkeypatch.setattr(gt, "MOST", len(GAPS))
+    assert answer(rec, since=T0 - 50)["rows"]
+    monkeypatch.setattr(gt, "MOST", len(GAPS) - 1)
+    with pytest.raises(BadSet, match="gap: more than"):
+        answer(rec, since=T0 - 60)                                               # (another window: not the cached one)
+
+
 def test_done_when_is_a_groups_map_of_its_states(tmp_path):
     base = """
     items:
