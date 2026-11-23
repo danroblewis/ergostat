@@ -198,7 +198,7 @@ def test_events_are_bounded_and_say_so(p, monkeypatch):
     monkeypatch.setattr(sources, "EVENTS_MOST", 2)
     r = _ask(p, {"source": "events", "type": "ticket.*"})[0]
     assert r["truncated"] is True and "latest 2" in r["note"]
-    assert sum(_series(r)["ticket.*"]) == 2
+    assert _series(r)["ticket.*"] == [None, None, None, 1.0]    # read from 250: the bucket from 240 is part read, so unknown
 
 
 @pytest.mark.parametrize("transform,want", [("delta", [None, -3.0, -2.0, 0.5]), ("cumulative", [5.0, 7.0, 7.0, 7.5]),

@@ -31,6 +31,7 @@ class Read:
     truncated: bool = False
     read_log: bool = False
     note: str | None = None
+    read_from: float | None = None                # only what happened from here on was read: earlier buckets are unknown
 
 
 def kinds(spec, q: Query) -> list:
@@ -248,8 +249,9 @@ def events(p, spec, q: Query, g: Grid) -> Read:
     out: dict[str, list] = {}
     for e in got[-EVENTS_MOST:]:
         out.setdefault(e["type"] if q.group_by else (q.type or ANY), []).append((e["time"], 1.0, 1.0))
-    note = f"only the latest {EVENTS_MOST} events in the window were read" if cut else None
-    return Read(rows=out, unit="events", truncated=cut, read_log=True, note=note)
+    note = f"only the latest {EVENTS_MOST} events in the window were read: earlier buckets are empty, not zero" if cut else None
+    return Read(rows=out, unit="events", truncated=cut, read_log=True, note=note,
+                read_from=got[-EVENTS_MOST]["time"] if cut else None)
 
 
 READERS = {"items": items, "moves": moves, "counts": counts, "series": series, "events": events}

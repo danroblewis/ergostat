@@ -119,6 +119,8 @@ def _result(q: Query, read: Read, g: Grid, first: float | None) -> dict:
             values = [0.0 if v is None else v for v in values]
         if zero_fills or q.source == "counts":
             values = _before_record(values, g, first)
+        if read.read_from is not None:                # a bucket not wholly read is unknown, never a zero
+            values = [None if g.start + i * g.step < read.read_from else v for i, v in enumerate(values)]
         out.append((n, _transformed(q, read, values, g)))
     unit = read.unit
     if q.transform == "rate":
