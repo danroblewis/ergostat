@@ -5599,6 +5599,21 @@ def test_browser_daily_green_records_main(tmp_path):
     assert daily_green(f)[0] == 1
 
 
+def test_browser_daily_goal_closes_in_landing():
+    """check's missing-feedback says nothing of goal.browser-main-green: the daily run reads it (read, not commanded)
+    and sets its auxiliary, so the loop closes inside landing with no link across a boundary; it keeps its own
+    schedule (nothing commands it), and no other block reads the goal."""
+    spec, problems = read(ROOT / "ergostat.yaml", extremes=False)
+    assert [p for p in problems if p.level == "error"] == []
+    assert [f"{p.code}@{p.about}" for p in problems if p.about in ("goal.browser-main-green", "block.browser-daily",
+                                                                    "auxiliary.browser-main-green")] == []
+    assert spec.loop("browser-main-green").actuators == ["browser-daily"]
+    readers = [b.name for b in spec.blocks.values() if any(r.kind == "goal" and r.name == "browser-main-green"
+                                                            for r in b.reads())]
+    assert readers == ["browser-daily"]
+    assert spec.blocks["browser-daily"].every and not spec.commanders_of("browser-daily")
+
+
 def test_browser_daily_flake_is_recorded_not_raised(tmp_path):
     f = browser_daily(tmp_path)
     (tmp_path / "red").write_text(f"FAILED {DAILY_A} - boom\n1 failed, 2 passed in 1.00s\n")

@@ -370,6 +370,9 @@ blocks:
     run: python3 dev/bin/browserday.py
     every: 24h
     timeout: 3h
+    # read, not commanded: a goal: here would take it off its schedule (schedule-removed); the last green it reads
+    # names the suspects, and each day's run measures main again
+    in: [goal.browser-main-green]
     out: auxiliary.browser-main-green
 
   main-watch:

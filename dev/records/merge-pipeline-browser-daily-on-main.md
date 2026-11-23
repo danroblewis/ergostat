@@ -60,3 +60,26 @@ tests/test_factory.py::test_ergostat_check_on_the_factory_model_reports_no_new_f
 ::test_the_factory_model_loads pass with the new parts in the model, but neither compares the model against one
 without them, so the "no new finding" claim is unverified. The unit suite and the four browser files were not run
 (the factory's steps).
+
+## Where it stopped
+
+Check finding `missing-feedback goal.browser-main-green` (sent back before the suites), answered by a model change
+in dev/model/landing.yaml alone. The block browser-daily now reads the goal as a list (`in: [goal.browser-main-green]`).
+That is read, not commanded, as pipeline-watch reads its goals, so the `every: 24h` schedule stays. It already sets
+the auxiliary, so the loop closes inside landing. The program ignores the input, so its behaviour is unchanged. This
+is the smallest change and the easiest to undo. The loop it draws is thin: the run measures main again each day, and
+what actually turns main green is a fix merged after the intervention. The model already shows that through the
+auxiliary's `driven-by: +flow.gaps-merged`.
+- Tried and dropped: pipeline-watch reading the goal, with `+flow.situations-handled` driving the auxiliary. That
+  closes the loop through the manager but adds the finding `interface@system.managing` (10 information links, a
+  wide interface), which `test_the_time_goals_have_no_check_findings` caught.
+- Rejected without trying: an external `fix-main` block setting the auxiliary (a `two-actuators` compile error beside
+  browser-daily, seen); browser-daily moving `flow.interventions-recorded` (an open loop, `acting-on-its-own`); a block
+  commanding browser-daily (a commanded block loses its `every:` schedule, engine.py's timed blocks).
+- New test `test_browser_daily_goal_closes_in_landing`: no compile error, no finding on the goal, the block or the
+  auxiliary, browser-daily the loop's actuator and the goal's only reader, still on its schedule, nothing commanding
+  it. It failed with the `in:` line removed (`missing-feedback@goal.browser-main-green`).
+- `ergostat check` itself was refused in this session, so findings were not compared in full against main. The
+  factory-model tests that pass: test_ergostat_check_on_the_factory_model_reports_no_new_finding and
+  test_the_time_goals_have_no_check_findings. tests/test_factory_manager.py passed (35 tests) while the manager
+  variant was still in place. It was not run again after the revert, which put manager.yaml back as it is on main.

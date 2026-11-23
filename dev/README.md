@@ -709,7 +709,9 @@ main's sha, and the first-parent commits since the last green sha as `suspects` 
 or it is no ancestor of main). A red run that names no test (a crash, a skip, a stall) raises one with the log's
 tail. It holds no batch back: the queue's own check on main (`main_red`) is unchanged. The auxiliary
 `browser-main-green` reads the file (1 green, 0 red; no reading when it is missing or cannot be read), and the goal
-of that name shows it on the Dynamics diagram.
+of that name shows it on the Dynamics diagram. The daily run reads the goal (read, not commanded, so it keeps its
+schedule) and sets the auxiliary, so the goal's loop closes inside landing. What makes main green again is a fix
+merged, by way of the intervention.
 
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
