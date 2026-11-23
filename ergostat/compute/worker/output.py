@@ -30,6 +30,8 @@ class Run:
     def __init__(self, d: str, cap: int, at: dict):
         self.d, self.cap, self.ended = d, cap, False
         self.s = {k: Stream(at.get(k, 0)) for k in STREAMS}
+        self.final: dict = {}                   # each file's size once the exit was seen: nothing past it is sent
+        self.said: set = set()                  # the streams whose fault was said (once, until they read again)
 
 
 class Output:
@@ -75,7 +77,7 @@ class Output:
                 wait = FIRST if any(moved) else min(SLOW, wait * 2)
                 stop.wait(wait)
         except (OSError, ValueError):
-            stop.set()                          # (the session is gone: nothing more can be said)
+            stop.set()                          # (a send failed, the session gone: a file's fault is caught per run)
         except Exception:
             traceback.print_exc(file=sys.stderr)
             stop.set()
@@ -90,14 +92,25 @@ class Output:
         for name, s in r.s.items():
             path = os.path.join(r.d, name)
             try:
-                size = os.path.getsize(path)
-            except FileNotFoundError:
-                size = 0
-            if size > r.cap and not ended:
-                self._over(r)
-            end = min(size, r.cap)
-            if s.pos < end and AHEAD - self._ahead() >= LINE:
-                moved |= self._send(run, name, s, path, end, ended)
+                try:
+                    size = os.path.getsize(path)
+                except FileNotFoundError:
+                    size = 0
+                if size > r.cap and not ended:
+                    self._over(r)
+                if ended:
+                    r.final.setdefault(name, size)  # (what a process left behind writes after it: never sent)
+                end = min(size, r.cap, r.final.get(name, size))
+                if s.pos < end and AHEAD - self._ahead() >= LINE:
+                    moved |= self._send(run, name, s, path, end, ended)
+            except OSError as e:                # (this run's file: said once, the other runs followed still)
+                left = True
+                if name not in r.said:
+                    r.said.add(name)
+                    self.w.send("error", id=None, run=run, stream=name,
+                                why=f"{name} can't be followed: {e.strerror or type(e).__name__}")
+                continue
+            r.said.discard(name)
             left |= s.pos < end
         if ended and not left and not r.ended and (how := self._how(r)) is not None:
             self.w.send("ended", run=run, **how)

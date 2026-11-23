@@ -56,3 +56,20 @@ Where the definition was silent, the most reversible option, taken and said in S
   imports. `compute_pipe.Taken` is the engine's drop-below-taken rule as a test helper, as the plan asks.
 
 Left: nothing in this definition. The engine's own use of the frames comes with compute-remote-backend.
+
+## Where it stopped
+
+Round 2 (2026-11-23): both blocking findings of review round 1 fixed; there were no other findings.
+- `out` after `ended`: each stream's size the first time the follower sees the exit is now where its output ends
+  (`Run.final`). What a process left behind writes after that is never sent and no longer holds `ended` back.
+  Test: `test_ended_after_last_out` leaves `(while :; do echo late; done) &` writing and checks that no `out` for
+  the run comes after its `ended`. With the freeze removed, the test fails: `ended` never comes.
+- A file error stopping every run: an OSError reading, sizing or writing the cap's `stop` for one run's stream is
+  now caught inside `_step`. It is said once as `error {id: null, run, stream, why}` and tried again each pass, and
+  that run's `ended` waits for it. Only a failed send stops the follower. Test: `test_lines_by_offset_once` has a
+  run `chmod 0 ../out`, sees the one `error`, then a second run's output and `ended`, and a beat. After the mode is
+  restored, every byte comes once, then `ended`. With the catch made to re-raise, the test fails.
+Both checks were added to the existing tests, so there are still the six the definition names. SPEC §12s.3 says
+both. 218 net lines.
+
+Left: nothing in this definition.

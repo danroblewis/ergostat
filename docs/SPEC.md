@@ -7107,8 +7107,14 @@ line rejoins by offset. Its files are looked at again soon after output and at m
 - **`ended`** `{"run", "code", "how"}` is sent once the run's `exit` is written and every byte of both files up to
   it (or its cap) has been sent: after the run's last `out`. `code` and `how` are the exit's, `how` being `log
   over its cap` when the worker's cap stop ended it (TERM or KILL). The exit is looked at before the files' sizes,
-  so nothing written before it is missed; what a process left behind writes after the exit is not sent. An
-  unreadable exit is waited for, never read as an end. A run attached again sends `ended` again after its resend.
+  so nothing written before it is missed, and each file's size the first time the follower sees the exit is where
+  its output ends: what a process left behind writes after that is never sent (the test leaves a loop writing),
+  and does not hold back `ended`. An unreadable exit is waited for, never read as an end. A run attached again
+  sends `ended` again after its resend (its end sizes taken when that follower first sees the exit).
+- **A file that can't be followed** (`out` or `err` unreadable, or the cap's `stop` not writable: a run may
+  `chmod 0 ../out`) is said once as `error` `{"id": null, "run", "stream", "why"}` and tried again each pass; the
+  run's `ended` waits for it, and every other run, the beats and the session go on. Only a failed send (the
+  session gone) stops the follower.
 - **`done`** `{"run"}` writes `runs/RUN/done` and stops following the run, unanswered (`refused` `no such run`
   when it has no folder); the keeper then removes the folder.
 

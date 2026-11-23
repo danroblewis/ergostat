@@ -91,6 +91,16 @@ def test_lines_by_offset_once(node):
     assert until(lambda: (node.hear("beat")["runs"].get(run) == {"out": len(data), "err": 5}), 5)
     assert node.ask("ack", run=uuid.uuid4().hex, out=0, err=0)["why"] == "no such run"
     assert node.ask("ack", run=run, out="7", err=0)["type"] == "error"
+    shut, _ = node.start("echo a; chmod 0 ../out; echo b; while [ ! -e go ]; do sleep 0.05; done; chmod 600 ../out")
+    said = node.hear("error", run=shut, timeout=10)     # an unreadable file: said for its run, the others go on
+    assert said["stream"] == "out" and said["id"] is None and not _ended(node, shut)
+    other, _ = node.start("echo other")
+    assert node.hear("ended", run=other)["how"] == "exit" and _joined(_outs(node, other, "out")) == b"other\n"
+    node.hear("beat")
+    (node.dir(shut) / "cwd" / "go").touch()
+    ended = node.hear("ended", run=shut)
+    assert _joined(_outs(node, shut, "out")) == b"a\nb\n" and ended["how"] == "exit"   # (each byte once, then ended)
+    assert len([f for f in node.heard if f["type"] == "error"]) == 1
 
 
 def test_attach_resumes_from_offset(node):
@@ -181,6 +191,14 @@ def test_ended_after_last_out(node):
     out, err, ended = _outs(node, run, "out"), _outs(node, run, "err"), _ended(node, run)[0]
     assert _end(out) == size and _joined(err) == b"last\n" and ended["how"] == "exit"
     assert node.heard.index(ended) > max(node.heard.index(f) for f in out + err)
+    node.tell("ack", run=run, out=_end(out), err=_end(err))
+    left, _ = node.start("(while :; do echo late; done) & echo x")   # a process left behind, writing fast
+    _acking(node, left)
+    ended = _ended(node, left)[0]
+    _drain(node, 0.5, 2)
+    assert ended["how"] == "exit" and "x\n" in [f["text"] for f in _outs(node, left, "out")]
+    assert not [f for f in node.heard[node.heard.index(ended):] if f["type"] == "out" and f["run"] == left]
+    assert (node.dir(left) / "out").stat().st_size > _end(_outs(node, left, "out"))   # (it went on writing)
     killed, got = node.start("echo before; echo also >&2; sleep 30")
     node.hear("out", run=killed, stream="err")
     assert node.ask("kill", run=killed, grace=5)["type"] == "stopping"
