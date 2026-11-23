@@ -21,3 +21,9 @@ The six acceptance tests can't start a run without that gap's `start`.
 The most reversible option, taken: build nothing rather than guess at that gap's folder layout, stop file and
 `ended`. A guess would conflict with it, or fix its interfaces from outside it (lesson-13). What is left: the whole
 definition above, unchanged, once compute-worker-keeper is on main. Start this branch again from that main.
+
+## Where it stopped
+
+Parked by the factory (review/compute-worker-output-1, 2026-11-22 18:05).
+
+Nothing built: only the definition of done and its 'Where it stopped' are committed (dev/records/compute-worker-output.md). On main, ergostat/compute/worker/serve.py:32 registers only `ping`, there is no keeper.py, no start/kill handler, no runs/RUN/ folder, and docs/SPEC.md §12s.3 is still 'To be filled'. Every part of this gap acts on a run made by compute-worker-keeper: the follower's out/err files, limits.log from `start`, the stop for 'log over its cap', and `ended` after the last out. Left: the whole definition (output.py, serve.py registrations, tests/compute_pipe.py, the six tests in tests/test_compute_output.py, SPEC text). Restart the branch from main once compute-worker-keeper has landed.
