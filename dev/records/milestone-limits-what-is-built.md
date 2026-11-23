@@ -57,3 +57,12 @@ there to ask, so each open question went the more reversible way; each is listed
   belong to other gaps' tests and are left alone (lesson 13).
   If the build stops the same way again, look at the slot or the container's limits. Nothing these tests do points
   there, but nothing in them hangs either.
+- **Round 2: no code changed.** No review findings came with this round, so I only checked the branch again. main
+  (ead497d1) is still its merge base, so there was nothing to merge. Ruff is clean. tests/test_milestones.py passes
+  39 in 125 s (serially), and the changed test
+  `test_factory_knowledge.py::test_the_planner_never_takes_a_continued_gap` passes in 63 s. I could not look into
+  why the round-1 build stopped. The build's suite container has `--cpus 4 --memory 12g` (dev/bin/agents.py LIMITS)
+  and runs `-n 8`. To measure a whole-model `read()`'s time and RSS outside pytest, I tried
+  `timeout 300 uv run python /tmp/rd.py`, and this session refused that command. So whether the container's memory
+  limit is reached is still unmeasured. If the build stops again with no FAILED line and no suite_watch line, look at
+  that container's OOM kills (`docker inspect` OOMKilled, or the VM's kernel log) first.
