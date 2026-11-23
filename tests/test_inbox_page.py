@@ -1,4 +1,4 @@
-"""Acceptance: the inbox on the page (SPEC §12o). *Needs attention* lists what waits on the owner first, each with its
+"""Acceptance: the inbox on the page (SPEC §12o). *Waiting for you* lists what waits on the owner first, each with its
 answer inline: Approve on a held action approves it (an event from the owner) and the entry leaves the panel; a
 person's request takes a number and Done.
 
@@ -135,6 +135,14 @@ def off(pg) -> None:
     pg.mouse.move(max(5, side["x"] - 120), side["y"] + 120)
 
 
+def unfold(pg) -> None:
+    """More than 3 waiting sit in one closed line, "N wait for you": the reader opens it, then moves off it."""
+    pg.wait_for_selector(".side details.waiting-fold", state="attached", timeout=20000)
+    if not pg.evaluate("() => document.querySelector('.side details.waiting-fold').open"):
+        pg.locator(".side details.waiting-fold > summary").click()
+    off(pg)
+
+
 def shot(pg, name: str) -> None:
     d = os.environ.get("ERGOSTAT_SHOTS")
     if d:
@@ -172,6 +180,36 @@ def test_approve_in_the_side_panel(site):
         pg.wait_for_function("""() => !document.querySelector('[data-inbox^="person/reviewer@"]')""", timeout=20000)
         assert p.events.query(n=1, type="agent.ran", item="reviewer")[-1]["data"]["done"] == 2.0
         shot(pg, "side-panel-answered.png")
+        assert not errors, errors
+        b.close()
+
+
+def test_a_list_the_reader_is_in_is_not_folded_away_when_a_fourth_comes(site):
+    """Two waiting, the pointer on the first: alarms that wait come, past 3, and the list stays unfolded and in place
+    under the pointer; left, the 4 and more fold into one line, "N wait for you"."""
+    from ergostat.actions import record
+    url, p, a = site
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        row = pg.locator(f'[data-inbox="action/{record.short(a["id"])}"]')
+        row.wait_for(timeout=20000)
+        n = alarms_coming(pg, set())
+        row.hover()
+        top = row.bounding_box()["y"]
+        for _ in range(30):                                                    # 3 alarms more than the 2: past 3
+            if n[0] >= 4:
+                break
+            pg.wait_for_timeout(1000)
+        assert n[0] >= 4 and "updates waiting" in pg.inner_text(".needs > .waiting"), n
+        assert row.is_visible() and row.bounding_box()["y"] == top
+        assert not pg.locator(".side details.waiting-fold").count()
+        leave(pg)
+        pg.wait_for_selector(".side details.waiting-fold:not([open])", state="attached", timeout=20000)
+        assert not row.is_visible()
         assert not errors, errors
         b.close()
 
@@ -241,6 +279,7 @@ def test_a_typed_reason_stays_with_its_entry_when_one_above_is_answered(site):
         pg.goto(f"{url}/diagram?view=blocks")
         pg.wait_for_function("""() => document.querySelectorAll('.att [data-inbox^="action/"]').length === 3""",
                              timeout=20000)
+        unfold(pg)                                  # (4 waiting: folded in one line)
         top, mid, low = pg.eval_on_selector_all('.att [data-inbox^="action/"]', "rs => rs.map((r) => r.dataset.inbox)")
         row = lambda what: pg.locator(f'[data-inbox="{what}"]')   # noqa: E731
         waiting = record.get(p, ids[low])["state"]
@@ -299,6 +338,8 @@ def test_the_side_list_holds_still_while_the_reader_is_in_it_and_a_request_stays
         gone: set = set()
         n = alarms_coming(pg, gone)
         pg.goto(f"{url}/diagram?view=blocks")
+        pg.locator('[data-inbox^="action/"]').nth(2).wait_for(state="attached", timeout=20000)
+        unfold(pg)                                                             # (4 and more: folded in one line)
         pg.locator('[data-inbox^="action/"]').nth(2).wait_for(timeout=20000)
         pg.wait_for_selector('[data-row="alarm new-1"]', timeout=20000)           # the alarms are coming
         what = pg.locator("[data-inbox]").nth(2).get_attribute("data-inbox")
@@ -357,6 +398,8 @@ def test_a_reason_typed_for_one_request_does_not_stay_for_the_request_below_it(t
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(f"{url}/diagram?view=blocks")
+        pg.locator('[data-inbox^="action/"]').nth(2).wait_for(state="attached", timeout=20000)
+        unfold(pg)                                                             # (4 waiting: folded in one line)
         pg.locator('[data-inbox^="action/"]').nth(2).wait_for(timeout=20000)
         first = pg.locator('[data-inbox^="action/"]').nth(0).get_attribute("data-inbox")
         row = pg.locator(f'[data-inbox="{first}"]')
@@ -444,6 +487,7 @@ def test_a_request_answered_from_the_keyboard_holds_the_list_with_the_pointer_of
         off(pg)
         # several refreshes patched in first (the reader not in the list): the row's nodes kept, the handlers handed over
         pg.wait_for_function("() => document.querySelector('[data-row=\"alarm new-3\"]')", timeout=30000)
+        unfold(pg)                                                             # (past 3 waiting: folded in one line)
         row.locator('input[aria-label^="Why"]').focus()
         pg.keyboard.type("not this week")
         pg.keyboard.press("Tab")                                             # past Approve to Deny, from the keyboard

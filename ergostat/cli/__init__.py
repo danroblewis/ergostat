@@ -17,7 +17,7 @@ from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
-from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual
+from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual, cmd_why
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
@@ -69,6 +69,7 @@ see it
   loop           The feedback loops: what each holds, how far off, each part along it
   item           The items (ticket/12): each one's kind, state and fields, folded from its events; --search WORDS
                  (ID --near [N], ID --path B, ID --about: what its relations and mentions reach, 2,000 items at most)
+  why            Why an item is not done (why ticket/12): the cause followed to its root, who must act, the evidence
   lease          The leases on items: who holds what, until when, and the dead letters (ITEM --redrive)
   decisions      The owner's decisions: extract them from transcripts, confirm, dismiss, supersede
   corrections    The owner's corrections: confirm, dismiss, retire; scan the record for them
@@ -219,6 +220,8 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N hops (1-4, default 1)")
     i.add_argument("--path", dest="path_to", metavar="B", help="with an item: a shortest chain of relations to B, either way")
     i.add_argument("--about", dest="about_item", action="store_true", help="with an item: what relates to it or names its id")
+    topic("why", cmd_why, "Why an item is not done: its state for how long, the cause followed to its root, who must "
+                          "act and how, the evidence")
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")
     ls.add_argument("--redrive", action="store_true", help="with ITEM: give a dead letter another go (its attempts from nothing)")
     ls.add_argument("--to", metavar="STATE", help="with --redrive: the state it goes back to (default: where it was taken from)")
