@@ -155,10 +155,13 @@ def let_go(f: dict, proc) -> None:
 
 # ---- a run taken up
 
-def alive(rec: dict | None) -> bool | None:
+CHECK = 1.0          # s: a run taken up has its start time read at most this often (``ps`` on macOS: a process each)
+
+
+def alive(rec: dict | None, start: bool = True) -> bool | None:
     """Whether the run's process is the one its record names: False when its pid is gone or held by another process
     (another start time); None when that cannot be read (its start never read, or not readable now: never taken
-    for gone)."""
+    for gone). ``start`` False: only whether its pid is there (True), its start time not read."""
     pid = rec.get("pid") if isinstance(rec, dict) else None
     if type(pid) is not int or pid <= 0:
         return False
@@ -168,6 +171,8 @@ def alive(rec: dict | None) -> bool | None:
         return False
     except OSError:                                     # (another user's: there all the same)
         pass
+    if not start:
+        return True
     now = runrecord.start_time(pid) if rec.get("start") else None
     return None if now is None else now == rec["start"]
 
@@ -180,11 +185,21 @@ class Adopted(keeper.Kept):
         pid = rec.get("pid") if isinstance(rec, dict) else None
         super().__init__(d, None, pid if type(pid) is int and pid > 0 else None)
         self.rec, self.gone = rec, None
+        self.seen: tuple[float, bool | None] | None = None   # (when its start time was last read, what that said)
+
+    def alive(self) -> bool | None:
+        """``alive``, its start time read at most once a ``CHECK`` (between, its pid's presence and the last reading;
+        a pid once found held by another process stays gone)."""
+        t = time.monotonic()
+        if self.seen is not None and (self.seen[1] is False or t - self.seen[0] < CHECK):
+            return False if self.seen[1] is False else (alive(self.rec, start=False) and self.seen[1])
+        self.seen = (t, alive(self.rec))
+        return self.seen[1]
 
     def poll(self) -> int | None:
         if self.returncode is None:
             got = keeper.ended(self.dir)
-            if got is None and alive(self.rec) is False:
+            if got is None and self.alive() is False:
                 self.gone = self.gone or time.monotonic()
                 if time.monotonic() - self.gone >= WAIT:
                     got = keeper.ended(self.dir)

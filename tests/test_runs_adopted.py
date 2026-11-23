@@ -322,6 +322,36 @@ def test_a_pid_reused_by_another_process_is_not_taken_for_the_run(tmp_path, keep
     assert noted(p) == [1] and [x["data"]["how"] for x in lease_ends(p)] == ["nack"]
 
 
+def test_a_run_taken_up_has_its_start_time_read_at_most_once_a_second(tmp_path, monkeypatch):
+    """Polled as often as a quiet journal is (every 0.05 s), a run taken up has its start time read (``ps`` on
+    macOS, a process each) at most once a ``CHECK``; between, a pid gone is still seen at once, and a pid found held
+    by another process stays gone."""
+    other = subprocess.Popen(["sleep", "60"])
+    try:
+        real, calls = runrecord.start_time, []
+        monkeypatch.setattr(runrecord, "start_time", lambda pid: calls.append(pid) or real(pid))
+        d = tmp_path / "run"
+        d.mkdir()
+        proc = adopt.Adopted(str(d), {"pid": other.pid, "start": real(other.pid)})
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 3.0:
+            assert proc.poll() is None
+            time.sleep(0.05)
+        assert 3 <= len(calls) <= 5, calls                    # (about 60 polls: one reading a second)
+        n = len(calls) + 1
+        reused = adopt.Adopted(str(d), {"pid": other.pid, "start": "not its start"})
+        assert reused.alive() is False and len(calls) == n
+        time.sleep(adopt.CHECK)
+        assert reused.alive() is False and len(calls) == n, "a pid held by another process taken for the run again"
+        proc.seen = (time.monotonic(), True)
+        other.kill()
+        other.wait()
+        assert proc.alive() is False and len(calls) == n, "a pid gone not seen until its start time was read"
+    finally:
+        other.kill()
+        other.wait()
+
+
 def test_a_run_whose_lease_was_taken_over_cannot_move_the_item(tmp_path, keepers):
     """Done 5: while no engine was up its lease ended and the item was leased again (a newer fence): taken up, the
     run's lines about it are refused (fencing), its lease is not renewed nor ended by it, and the item stays."""

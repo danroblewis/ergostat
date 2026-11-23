@@ -116,3 +116,18 @@ test_runs_adopted.py (20), test_runs_outlive_engine.py, test_compute_keeper.py, 
 test_runner_and_state.py, test_repair_traces.py, test_repair_log_events.py, test_leases.py, test_lease_kill.py,
 test_leased_workspaces.py, test_streamed_output.py, test_store_conformance.py (12 skipped: VictoriaMetrics). ruff is
 clean. Local `main` has nothing the branch lacks.
+
+### Round 3
+
+547 net lines outside tests, docs and dev (budget 600). The one finding, and what changed:
+- `Adopted.poll()` read the run's start time (`runrecord.start_time`, a `ps` each call on macOS) on every poll,
+  about 20 times a second for a quiet journal, for the run's whole life. Now `Adopted.alive()` reads it at most once
+  every `adopt.CHECK` (1 s). Between readings it checks only that the pid is there (`os.kill(pid, 0)`), so a run
+  that has gone is still seen at once. A pid once found to be another process's stays gone without being read
+  again. Test: `test_a_run_taken_up_has_its_start_time_read_at_most_once_a_second`. It polls every 0.05 s for 3 s
+  and allows 3 to 5 readings. It checks that a reused pid is not read again and stays gone, and that a killed pid
+  is seen before the next reading. It failed with poll calling `alive(rec)` directly (60 readings), and with the
+  "stays gone" rule removed. SPEC 9.1 says this.
+
+Not run here: the unit suite and the four browser files (the factory runs them). Run one file at a time, all pass:
+test_runs_adopted.py (21), test_runs_outlive_engine.py (11). ruff is clean. Local `main` has nothing the branch lacks.

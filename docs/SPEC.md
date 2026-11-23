@@ -2799,7 +2799,9 @@ sample). Its exit code is the wrapper's, as above.
   loop or its leases' first look, takes up each run in `runs/` with a keeper's folder or a journal left (a run of a
   block no longer in the model, or with no `agent.started` in the record, is left as it is, said):
   - **Still going**, by its record: its pid, and that process's start time (a pid now another process's, whose
-    start time differs, is gone; a start time that cannot be read is not taken for gone). A run whose record was
+    start time differs, is gone; a start time that cannot be read is not taken for gone). The start time is read at
+    most once a second (on macOS each reading is a `ps`); between readings, only whether the pid is still there is
+    checked, and a pid once found to be another process's stays gone. A run whose record was
     never written (an engine killed just after its keeper started it) is known by its keeper's group id alone: it is
     waited for while that pid is there, and never signalled by the engine (`run --stop --runs` still stops it). It is
     followed from its saved offset, and, with its record, is this engine's: `block NAME --stop` and a lease's kill
