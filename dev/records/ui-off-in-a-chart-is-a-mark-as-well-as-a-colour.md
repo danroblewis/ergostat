@@ -42,3 +42,17 @@ The `build` step failed with rc 5, and the cause is not this branch's code. `aff
 ### After the factory's build step, again (round 1)
 
 The build step's only test file was `tests/test_diagram_rendering.py`, which skips as a whole without Playwright, so pytest ran nothing (rc 5). The arrow and Guide-dot contrast part of the acceptance is a stylesheet fact, so it now also has a unit test that needs no browser: `tests/test_style_tokens.py::test_the_arrows_and_guide_dot_borders_stand_3_to_1_on_the_paper_in_both_themes`. It reads the `.arrow` colour token and the `.g-dot` border token and checks each against `--bg` in the light and dark token blocks. The build step now selects this file too, so it runs real tests. I broke each part on its own and saw the test fail: `.arrow` back to `--line-strong` (light 1.63, dark 1.75), and the `.g-dot` border back to `--line-strong` (the same ratios). `tests/test_style_tokens.py`: 6 passed. Ruff is clean. No code outside `tests/` changed in this step. The browser test still runs only where Playwright is present.
+
+### Round 2: main merged (ead497d1)
+
+The merge conflicted in three files. All three are resolved, keeping both sides:
+
+- `style.css`: main moved the Guide dot into a 24px target and now draws the 12px dot as `.g-dot::before`, bordered with `--line-strong` (1.63:1). The branch kept main's structure and changed only that border to `--muted`. The `.arrow` line is unchanged. Net code is still 33 lines (charts.js +32, style.css +1).
+- `tests/test_style_tokens.py`: main's three new tests are kept. The branch's contrast test now reads the `.g-dot::before` border.
+- `tests/test_diagram_rendering.py`: main's `off_for`, `goal_named` and suggestion tests are kept beside the branch's test. The branch's test now reads the dot's computed border from `::before`.
+
+Break check: I set `.g-dot::before` back to `--line-strong`, and both tests failed. The unit test reported light 1.63 and dark 1.75. The browser test failed on light (1.63). I then restored the line.
+
+Run after the merge: ruff clean. `tests/test_style_tokens.py`: 11 passed. With Playwright under the watchdog, these passed: `test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_both_themes` and `test_the_guide_draws_every_frame_live_and_in_a_snapshot`. `tests/test_items_page.py` had 32 passed and 1 failed.
+
+The failure is `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out at line 1453 and fails the same way alone. That line waits for the other project's entry in the header's `#project` switcher. This branch does not touch that test, the header or the switcher (its diff is `charts.js`, two lines of `style.css` and tests), so I think it is unrelated. It is reported, not fixed (lesson 13). I could not run it on clean main: `git worktree add --detach /tmp/mainwt main` was refused.
