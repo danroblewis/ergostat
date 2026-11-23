@@ -73,12 +73,12 @@ function exportLegend(x, y, ink, muted, design = false, width = 1e9) {
     [`<circle cx="10" cy="-3" r="7" style="fill:${css("--sensor")};stroke:${css("--sensor-line")};stroke-width:1.6"/>`, "sensor"],
     [`<rect x="0" y="-9" width="20" height="12" rx="3" style="fill:${css("--ctl")};stroke:${css("--ctl-line")};stroke-width:1.6"/>`, "controller"],
     [`<path d="M0,-3 H20" style="stroke:${css("--ink-2-line")};stroke-width:1.2"/>`, "a lighter line: information, not material"],
-    [`<path d="M0,-3 H20" style="stroke:${css("--ok")};stroke-width:2"/>`, "loop holding"],
+    [`<path d="M0,-3 H20" style="stroke:${css("--ok")};stroke-width:2"/>`, "goal holding"],
     [`<path d="M0,-3 H20" style="stroke:${css("--bad")};stroke-width:2"/>`, "off"],
     ["", "agents: " + RUNG_NAMES.map((k, i) => `${RUNG_LETTER[i]} ${k}`).join(" · ")],
   ];
   let cx = x, cy = y;
-  for (const [icon, text] of items.filter(([, t]) => !design || !["loop holding", "off"].includes(t))) {
+  for (const [icon, text] of items.filter(([, t]) => !design || !["goal holding", "off"].includes(t))) {
     const need = (icon ? 26 : 0) + text.length * 6.2;
     if (cx > x && cx + need > x + width) { cx = x; cy += 20; }         // the next row
     if (icon) { const ic = s("g", { transform: `translate(${cx},${cy})` }); ic.innerHTML = icon; g.append(ic); cx += 26; }

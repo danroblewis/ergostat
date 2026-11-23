@@ -93,6 +93,7 @@ class _Run:
         self.no_ws = [[] for _ in self.blocks]          # queued, waiting for a workspace: back in the queue when one frees
         self.open = sum(1 for x in inp.items.values() if not x.unscheduled)   # (those that cannot move: not run)
         self.n_new = 0
+        self.loading = False
 
     def push(self, t, *ev):
         self.seq += 1
@@ -129,7 +130,8 @@ class _Run:
                 key = (*take_key(bl.order, bl.at, state, x.fields if x else {}, -(x.level if x and bl.unblocked else 0)),
                        t if queued is None else queued, self.seq)
                 heapq.heappush(self.queue[b], (key, i, it[4]))
-            self.wake(t)
+            if not self.loading:                       # (at the start, taken once every item is queued: in order)
+                self.wake(t)
             return
         stay = self.stay(k, state, age)
         if self.record:
@@ -271,6 +273,7 @@ class _Run:
         """The run, to every tracked item's finish or the horizon; False when it ran past ``deadline`` (cut short)."""
         inp, t0 = self.inp, self.inp.at
         names = {b.name: j for j, b in enumerate(self.blocks)}
+        self.loading = True
         for x in sorted(inp.items.values(), key=lambda x: (x.queued, x.id)):
             self.items[x.id] = [x.kind, x.state, x.entered, x.attempts, 0]
             if x.unscheduled:
@@ -285,6 +288,7 @@ class _Run:
                 if x.state != inp.kinds[x.kind].states[0] or x.lease:
                     self.start[x.id] = t0
                 self.enter(x.id, x.state, t0, max(0.0, t0 - x.entered), x.queued)
+        self.loading = False
         if self.f.arrivals:
             for k in inp.kinds.values():
                 if k.arrivals > 0 and k.arrive_at:
@@ -416,7 +420,7 @@ def reasons(inp: Inputs, pools: dict | None = None) -> dict[str, dict]:
             put = f"; put off until it is due in {human(x.not_before - inp.at)}" if x.not_before > inp.at else ""
             w = b.workspace
             if w and w not in x.holds and sum(1 for y in inp.items.values() if w in y.holds) >= inp.workspaces[w]:
-                put += f"; every workspace of {w} is held ({inp.workspaces[w]}): it waits for one, holding nothing"
+                put += f"; every workspace of {w} is in use ({inp.workspaces[w]}): it waits for one, holding nothing"
             med = b.run.quantile(0.5) if b.run else None
             if all(o.off for o in inp.blocks if o.kind == x.kind and x.state in o.at):
                 out[x.id] = {"waits_in": b.name, "position": None, "capacity": cap, "off": True,

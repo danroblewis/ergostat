@@ -1158,7 +1158,7 @@ function openBlock(n) {
       `${lp.stock} was read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}`));
   }
   const loops = n.loops || [];
-  if (loops.length) kids.push(h("h3", {}, `In the loop${loops.length > 1 ? "s" : ""} of`),
+  if (loops.length) kids.push(h("h3", {}, `In the control loop${loops.length > 1 ? "s" : ""} of`),
     h("p", {}, ...loops.flatMap((l, i) => [i ? ", " : "", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openLoop(l); } }, l)])));
   if (n.remote) kids.push(remoteNote(n.remote));
   const sysName = n.role === "subsystem" ? n.label : n.kind === "frame" && n.frame === "system" ? n.label : null;

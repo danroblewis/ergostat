@@ -50,7 +50,7 @@ everything, hides the loop markers, shows the flows only (the pipes, their stock
 **Items** lists what moves through the system (each review, alert, PR) with its states and history.
 In the-job, **Items → day** holds each morning's brief and each evening's ledger, rendered.
 
-**Loops** lists every goal, holding or off. **Model** says what the model can do with the record
+**Goals** lists every goal, holding or off. **Model** says what the model can do with the record
 (test it, improve it, project it, identify and tune its loops) and what each tool still needs.
 **Check** says what is missing from the model.
 **Guide** is a two-minute illustrated introduction to both disciplines.
