@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- xmile-import's model (formats.py): work moves backlog to done, faster with more backlog, slower as more is done -->
+<xmile version="1.0" xmlns="http://docs.oasis-open.org/xmile/ns/XMILE/v1.0">
+  <header><name>small</name><vendor>ergostat conformance</vendor><product version="1.0">by hand</product></header>
+  <sim_specs method="Euler" time_units="hours"><start>0</start><stop>24</stop><dt>0.25</dt></sim_specs>
+  <model>
+    <variables>
+      <stock name="backlog"><eqn>40</eqn><outflow>work</outflow><non_negative/></stock>
+      <stock name="done"><eqn>0</eqn><inflow>work</inflow></stock>
+      <flow name="work"><eqn>backlog * 0.25 - done * 0.05</eqn><non_negative/></flow>
+    </variables>
+  </model>
+</xmile>

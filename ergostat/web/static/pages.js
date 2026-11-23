@@ -30,7 +30,7 @@ async function pageLoops(main) {
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
     const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted"];
-    patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
+    patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => openLoop(g.name) }, goalRow(g, { columns })))));
   }
   await tick();
@@ -132,7 +132,7 @@ async function pageRecord(main, q) {
     if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
       const d = await remoteApi("events", { remote, n: 80, ...(filt.value ? { type: filt.value } : {}) });
       if (!p.isConnected) return;
-      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
+      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false, true) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
       patch(box, ...[remoteSaid(remote, d), list].filter(Boolean));
       return;
     }
@@ -143,7 +143,7 @@ async function pageRecord(main, q) {
       evs = await ans.api("events", { n: 80, ...asked });
     } catch (err) { patch(box, h("p", { class: "muted" }, String(err.message || err))); return; }
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
-    patch(box, evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
+    patch(box, evs.length ? eventsTable(evs, false, true) : h("p", { class: "muted" }, "Nothing recorded yet."));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
