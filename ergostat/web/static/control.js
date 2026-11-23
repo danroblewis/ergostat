@@ -165,10 +165,40 @@ function controlProposal(x, goal, onDone) {
   const kind = { process: "Proposed process", tuning: "Proposed tuning", "step-test": "Proposed step test" }[x.kind] || "Proposed";
   return h("div", { class: "proposal" },
     h("div", { class: "proposal-title" }, h("span", { class: "muted small" }, kind), h("div", {}, x.title)),
-    h("p", { class: "muted small" }, x.reason),
+    test ? h("details", {}, h("summary", { class: "small" }, "how it is sized"), h("p", { class: "muted small" }, x.reason))
+      : h("p", { class: "muted small" }, x.reason),
     x.edit?.diff ? h("pre", { class: "diff" }, x.edit.diff.split("\n").map((l) => h("div", { class: l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "muted" }, l))) : null,
     SNAP ? h("p", { class: "muted small" }, "Answered where the model is, not in a snapshot.") : h("div", { class: "actions" }, accept, dismiss),
     said);
+}
+
+/* ---- the loop at a glance, first in its controller's and process's panels: the law, the process with ±σ, its fit
+   on the record fitted (estimation) and held out (validation), and how the loop is doing */
+const FIT = "NRMSE fit, 100% is perfect, below 0 is worse than the mean";
+const pcFit = (x) => (x == null ? "–" : `${Math.round(x)}%`);
+function loopTable(d) {
+  const c = d.controller || {}, r = d.identified || {}, se = r.found ? r.se || {} : {}, p = r.found ? r : d.process;
+  const pf = d.performance || {}, ex = pf.excursions || {}, off = S.status?.loops?.[d.goal]?.off_share;
+  const law = `${c.block ? c.block + ": " : ""}${c.says || "not known"}${c.law?.form === "I" ? `, gain ${fmt(c.law.g)} a step`
+    : c.law?.form === "PI" ? `, K_c ${fmt(c.law.Kc)}, τ_I ${secs(c.law.Ti)}` : ""}`;
+  const proc = p ? `K ${pmText(p.K, se.K)}, ${p.form === "integrating" ? "an integrator" : `τ ${pmText(p.tau, se.tau)} s`}, θ ${pmText(p.theta, se.theta)} s`
+    : "not identified: needs a step of u";
+  const rows = [["law", law], ["process", proc],
+    ["held-out fit", h("span", {}, `estimation ${pcFit(r.fit_est)}, validation ${pcFit(r.fit_val)} `, h("span", { class: "muted" }, `(${FIT})`))],
+    ["time off", off != null ? pcFit(off * 100) : "–"], ["settling", ex.count ? `${secs(ex.settling)}, typically` : "–"],
+    ["saturation", pf.saturation != null ? `${pcFit(pf.saturation * 100)} of the ${d.how === "valve" ? "openings" : "time"}` : "–"]];
+  return h("table", { class: "loop-table" }, h("caption", {}, `The loop ${d.goal}`), rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))));
+}
+/* the table, drawn again from a fresh answer when a proposal of its loop is answered (controlBox's done) */
+function loopTableBox(d) {
+  const box = h("div", {}, loopTable(d));
+  const again = (e) => {
+    if (!box.isConnected) return document.removeEventListener("loop-answered", again);
+    if (e.detail === d.goal) loopControl(d.goal).then((x) => box.replaceChildren(x ? loopTable(x) : ""))
+      .catch((err) => box.replaceChildren(h("p", { class: "muted small" }, String(err.message || err))));
+  };
+  document.addEventListener("loop-answered", again);
+  return box;
 }
 
 /* ---- what is known of the process, in words */
@@ -178,7 +208,7 @@ function identRows(d) {
   if (!r.found) return [];
   return [["gain K", pmText(r.K, se.K)], ["time constant τ", r.form === "integrating" ? "none: an integrator" : `${pmText(r.tau, se.tau)} s`],
     ["dead time θ", `${pmText(r.theta, se.theta)} s`],
-    ["fit", r.fit_val != null ? `${Math.max(0, Math.round(r.fit_val))}% of the record held out, of the ${Math.max(0, Math.round(r.fit_best ?? 0))}% its noise allows; ${Math.max(0, Math.round(r.fit_est ?? 0))}% of what it was fitted to` : null],
+    ["fit", r.fit_val != null ? `NRMSE fit ${Math.round(r.fit_val)}% held out (${FIT})${r.fit_best != null ? `, of at most ${Math.round(r.fit_best)}% its noise allows` : ""}; ${pcFit(r.fit_est)} on what it was fitted to` : null],
     ["left", r.rms_val != null && r.noise ? `${fmt(r.rms_val / r.noise)} × the noise, of the record held out` : null],
     ["from", `${(r.tests_used || []).length > 1 ? `${r.tests_used.length} step tests, fitted together (open loop)` : r.test ? "a step test (open loop)" : "the loop working (closed loop)"}, ${dur(r.span)}, ${r.n_est} readings fitted, ${r.n_val} held out${r.moves ? `, u stepped ${r.moves} time${r.moves === 1 ? "" : "s"}` : ""}`],
     ["errors held out", r.whiteness ? `${r.whiteness.white ? "white" : "not white"} (Ljung–Box Q ${fmt(r.whiteness.q)} against ${fmt(r.whiteness.limit)}, ${r.whiteness.lags} lags)` : null],
@@ -204,7 +234,7 @@ function processSection(d, done) {
     if (!r.proposable) kids.push(h("p", { class: "muted small" }, `Not proposed: ${(r.why || []).join("; ")}.`));
     const o = r.instead_of;
     if (o) kids.push(h("p", { class: "muted small" }, `From ${o.from} instead: K ${fmt(o.K)}${o.tau != null ? `, τ ${fmt(o.tau)} s` : ""}, θ ${fmt(o.theta)} s` +
-      (o.fit_val != null ? `, ${Math.max(0, Math.round(o.fit_val))}% of its record held out` : "") + "."));
+      (o.fit_val != null ? `, NRMSE fit ${pcFit(o.fit_val)} held out (${FIT})` : "") + "."));
     const v = validationChart(d);
     if (v) kids.push(v);
   } else if (!d.known) {
@@ -280,12 +310,14 @@ function robustText(rb) {
 function performanceRows(d) {
   const pf = d.performance || {};
   const hr = pf.harris || {}, os = pf.oscillation || {}, ex = pf.excursions || {};
-  const harris = hr.index != null ? `${fmt(hr.index)}; at 1 it leaves no more variance than the best controller could, given the dead time` : hr.why;
+  const harris = hr.index != null ? `${fmt(hr.index)}; at 1 it leaves no more variance than the best controller could, given the dead time`
+    : hr.needs_theta ? "needs the loop's dead time" : hr.why;          // what is missing, not where to write it
   const osc = os.oscillating ? `yes: every ${secs(os.period)}, ±${fmt(os.amplitude)} (regularity ${fmt(os.regularity)})`
     : os.crossings != null ? "no" : null;
   const cn = pf.constraint;
   const nl = d.predicted?.nonlinear?.length ? "; linear, the dead band and the setting's steps left out (the controller's panel says what they do)" : "";
-  return [["Harris index", harris], ["past its bound", cn ? `${Math.round(cn.share * 100)}% of the time (${Math.round(cn.share_off * 100)}% past its tolerance), by ${fmt(cn.mean)} typically, ${fmt(cn.worst)} at worst` : null],
+  return [["Harris index", harris], ["past its bound", cn ? ofRecorded(`${shareText(cn.share)} of the time (${shareText(cn.share_off)} past its tolerance), by ${fmt(cn.mean)} typically, ${fmt(cn.worst)} at worst; `) +
+      "past its bound is y beyond the bound by any amount, where time off counts only from going off (past its tolerance) to holding again" : null],
     ["oscillating", osc],
     ["settles", ex.count ? `in ${secs(ex.settling)}, typically (slowest ${secs(ex.slowest)}, ${ex.count} times)` : null],
     ["overshoot", ex.overshoot != null ? `${Math.round(ex.overshoot * 100)}% past the setpoint, typically` : null],
@@ -301,7 +333,7 @@ function controlBox(goal, part, { block = null } = {}) {
   const draw = () => loopControl(goal).then((d) => {
     if (!d) return box.replaceChildren();
     if (part === "controller" && block && d.controller?.block !== block && !(d.controllers || []).includes(block)) return box.replaceChildren();
-    const done = () => { CTL.delete(goal); draw(); };
+    const done = () => { CTL.delete(goal); draw(); document.dispatchEvent(new CustomEvent("loop-answered", { detail: goal })); };
     const kids = part === "process" ? processSection(d, done) : part === "controller" ? controllerSection(d, done)
       : part === "scope" ? [h("h3", {}, "How it is doing"), performanceRows(d).some(([, v]) => v != null && v !== "") ? dl(performanceRows(d))
           : h("p", { class: "muted small" }, d.why ? "Not worked out: it has no one process." : "Not worked out yet: too little record since the loop started (its first ten controller periods, two minutes at least, are left out).")]
@@ -318,8 +350,8 @@ function performanceWord(d) {
   if (d.why) return "no one process";
   const pf = d.performance || {};
   if (pf.oscillation?.oscillating) return `oscillates, ${secs(pf.oscillation.period)}`;
-  if (pf.saturation != null && pf.saturation > 0.2) return `saturated ${Math.round(pf.saturation * 100)}%`;
-  if (pf.constraint) return pf.constraint.share ? `past its bound ${Math.round(pf.constraint.share * 100)}%` : "within its bound";
+  if (pf.saturation != null && pf.saturation > 0.2) return "saturated";      // the row shows one share: its time off
+  if (pf.constraint) return pf.constraint.share ? "past its bound" : "within its bound";
   if (pf.harris?.index != null) return `Harris ${fmt(pf.harris.index)}`;
   if (pf.harris?.short) return "too little record";
   if (pf.harris?.needs_theta) return "needs θ";

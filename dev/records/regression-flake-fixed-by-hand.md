@@ -1,0 +1,147 @@
+# regression-flake-fixed-by-hand: A person can say a flake is fixed, and the quarantine's release is one event
+
+depends-on: [regression-flake-writes-hold-state]
+
+Problem: a test that was deleted or renamed stays seen or main-broken forever, and so does every goal on those stocks; manage.py has a `flake` command that writes flake.seen (dev/bin/manage.py:228-233) and no way out. The quarantine's release is a bare flake.measured with quarantined: false (dev/bin/fac.py:594-598, on main today), so the record cannot tell a release from any measurement. Change: `manage.py flake-fixed TEST --why W` writes flake.fixed from seen or main-broken with fixed_by (the person) and why, and records an intervention with intervene("flake-fixed", ...) (manage.py:56); an item in neither state is refused with a message. fac.beside's release writes flake.released (quarantined: false, released_at), declared as a no-state event in the kind's comment; quarantined folds as before. Done: the command moves an item from either state to fixed and records one intervention; it refuses an unknown test or one already fixed; a release is one flake.released event after which quarantined is false; dev/README.md 'Record an intervention' lists the command. Files: dev/bin/manage.py, dev/bin/fac.py, ergostat.yaml, dev/README.md, tests/test_factory.py (three tests). Budget: 50 net lines.
+
+Area: regression. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built (round 1). The tests are test_flake_fixed_moves_a_seen_or_main_broken_flake_to_fixed_with_one_intervention,
+test_flake_fixed_refuses_an_unknown_test_or_one_already_fixed and test_a_quarantine_release_is_one_flake_released.
+The refusal test also puts a second flake-fixed in the gap between the first one's read and its write (lesson-1).
+Each test was seen to fail with its code broken: the lock removed, the fixed state let through, the release written
+back as flake.measured. Choices made without asking (the most reversible ones):
+- flake-fixed reads, decides and writes under flakes.held() (run/flakes.lock), the lock every flake writer takes. It
+  refuses an item it cannot read, and one whose `test` field is not the test given (two tests whose slugs collide).
+  flakes.py is left as it is (it is not in Files).
+- The intervention's class is `flake`, the same as `manage.py flake`.
+- A fixed flake seen again is remade by flakes.py, which drops fixed_by. The `why` from the fix is not dropped: it is
+  overwritten by the next `why` said, and stays if a writer says none. Dropping it means touching flakes.py's
+  REMAKE_CLEARS, which would also drop the `why` that `manage.py flake` writes, so it is left alone.
+- tests/test_factory.py: the flake fixture's model now includes the intervention kind. `.released` is added to the
+  fixture fold's no-state suffixes, which test_a_branch_cannot_quarantine_its_own_failing_test needs.
+
+Round 2. The review's one finding: the pipeline manager could call flake-fixed itself. That is now refused unless
+the caller is the coordinator (BY[0], which is `pipeline-manager` in the manager's run as watch.py sets it). The
+command is removed from manage.__doc__, the tool list manager.py hands the manager, and from dev/README.md's list of
+its direct tools. dev/README.md 'Record an intervention' says the manager's call is refused. The refusal test now
+also calls flake-fixed as `pipeline-manager` on a seen flake: refused, no intervention, the flake still seen, and
+flake-fixed absent from manage.__doc__. With the guard broken, that test failed. Choice made without asking (the
+most reversible one): refused outright rather than routed through the inbox. The definition says a person says it,
+and refusing adds no inbox action or approved-command path. Kept at three tests, as the definition names three.
+
+Round 2, after the failed build. The build's tail ends partway through the dots, with no FAILED line and no summary,
+so it shows no failing test: the run was cut off, not failed by a test. tests/test_factory.py was then run serially
+(scripts/named_tests.py). One whole-file run reached 201 passed and 2 skipped (Docker) before the session's own
+900 s timeout stopped it in test_a_defect_park_is_never_resumed_by_the_program. That test and every test after it
+were then run three at a time: all passed. The factory's -n 8 build command itself was refused in this session, so
+the xdist run was not reproduced. No code was changed: nothing was found to fix.
+
+Round 2, after the second failed build. This tail shows one F (no name), so a test did fail under -n 8. The likely
+cause, found by reading and not reproduced (the xdist run was not run here): the tests' manage_record loaded
+manage.py, which imports fac, flakes, agents, onmain and runs from sys.modules. A worker that ran the triage test
+(which leaves flakes and agents there) or the test that replaces sys.modules["fac"] first gave manage a stale flakes
+bound to another fac. The new tests also left their own copies there for the tests after them. manage_record now
+sets all five for the test's duration only (monkeypatch.setitem) and asserts manage uses the test's own flakes and
+fac. Run serially: the three acceptance tests, also after the triage test and the fac-replacing test. All passed. No
+code outside tests/ changed.
+
+Round 3. There was no new finding to answer. The review's one finding (the manager's call) was answered in round 2,
+and main (5411f137) is merged in. Run here, serially: the three acceptance tests (3 passed), and the whole of
+tests/test_factory.py (193 passed, 2 skipped for want of Docker, rc 0, 502 s). ruff is clean. The -n 8 build was not
+run here, so it is not shown whether round 2's sys.modules fix ends the one F of the second failed build. No code
+changed.
+
+Round 3, after the failed build. The one named failure is
+test_an_approved_switch_drains_and_switches_through_the_engine: a switcher run (dev/bin/drain.py, in its own process)
+was still running at the test's 120 s deadline. The branch changes none of the code it runs: drain.py, fac.items and
+fac.ergostat, the engine, and live.py are unchanged. In ergostat.yaml it adds only comment lines. Run serially here it
+passed alone (143.8 s for the whole test). It passed again run right after the refusal and release tests (3 passed,
+162.2 s). Not proven: each drain.py run makes many `ergostat item` subprocess calls (fac.items lists each kind's states
+one at a time, for gap, research and situation), each loading the whole model. Under -n 8 that can pass 120 s. That
+would be a load-dependent bound (lesson-10), outside this gap (lesson-13). No code was changed, and the test's bound
+is left as it is. Not run: main's own timing of this test (`git worktree add -q /tmp/mainwt main` was refused in this
+session), and a timed `ergostat item` call (refused as well), so neither the cause nor that main fails it too was
+reproduced.
+
+Round 3, after the second failed build. The same test failed the same way: a switcher run still in e.running at
+the test's 120 s deadline (1 failed, 192 passed, 610 s). The diff against main was read again: on this test's path
+(dev/bin/drain.py, live.py, fac.items, fac.ergostat, the engine, dev/model/landing.yaml) the branch changes nothing.
+fac.py's one change is in beside(), which drain.py never calls; manage.py is not run by the switcher; ergostat.yaml
+gains comment lines only. Run serially here it passed (1 passed, 145.5 s; 141 s of it CPU, so the test is CPU-bound
+and slows with the machine's load). One thing found by reading: the switcher block's own timeout is 5m
+(dev/model/landing.yaml:387), and the test waits 120 s for each of its runs. So a run the engine still counts as
+healthy can outlast the test's wait when the machine is loaded. That bound is main's (lesson-10). Changing drain.py
+or the test is outside this gap's Files (lesson-13), and the test's bound is not to be raised, so no code was changed.
+It is left for the factory's rerun on clean main. Not run: this test on main's tree (`git archive main | tar -x -C
+/tmp/mainsrc` and running it there was refused in this session), so it is not shown that main fails it under the
+same load.
+
+Round 4. There was no new review finding. main (7a44d730) is already merged into the branch (a2b6d673), and local
+main is not ahead of it. Run here, serially, after the merge: the three acceptance tests (3 passed, 22.4 s), and
+test_an_approved_switch_drains_and_switches_through_the_engine alone (1 passed, 116.0 s). ruff is clean. No code
+changed. Not run: the whole of tests/test_factory.py, because the background command `timeout 1500 uv run python
+scripts/named_tests.py tests/test_factory.py > /tmp/tf.log 2>&1` was refused in this session. The switch test's
+120 s wait under -n 8 is still main's load-dependent bound (lesson-10) and outside this gap (lesson-13), as round 3
+says.
+
+Round 4, after the failed build. The same test failed the same way (switcher still in e.running at the 120 s wait;
+1 failed, 192 passed, 829 s). Run alone here it passed (1 passed, 143.5 s; 139 s of it user CPU). Counted by reading
+drain.py's step against ergostat.yaml's kinds: each step lists `upgrade` (fac.items: one head call and one per
+state, 1 + 10) and under_way() lists gap (1 + 17), research (1 + 4) and situation (1 + 4), so about 40 `ergostat`
+subprocesses a step, each loading the whole factory model the test copies from ergostat.yaml: about 1.75 CPU-s a
+call, about 70 s a step when the machine is idle. With the machine loaded, a step goes past the test's 120 s.
+Nothing on that path is the branch's. Its ergostat.yaml change is comment lines only, and its fac.py change is in
+beside(), which the switcher never calls. The fix belongs in a gap of its own (lesson-13), not here. One way: in
+fac.items, list a kind once with no state, and list it per state only when that one listing does not carry the
+kind's total. That gives the same items from 3 + 1 calls a step instead of about 40. It changes a reader every
+factory block shares, so it is not made in this branch, and the test's bound is left as it is. No code changed.
+Not run: a timed single `ergostat item` call and an instrumented fac.ergostat (both refused in this session), so the
+per-call cost above is the CPU total divided by the counted calls, not measured one by one.
+
+Round 4, after the second failed build. The same test failed the same way (switcher still in e.running at the 120 s
+wait; 1 failed, 192 passed, 707 s). Every Bash command was refused in this session (`git log --oneline -6 && ...` and
+`git -C /work status --short`), so nothing was run and nothing could be committed: this paragraph is an uncommitted
+edit to the worktree. Read again: fac.items (dev/bin/fac.py:157-180) is main's code, unchanged by the branch, and the
+branch's one fac.py change is in beside() (fac.py:697-719), which the switcher never calls. The fac.items change
+round 4 describes (one listing with no state, per state only past ergostat's 500-item LISTED cap) was not made.
+fac.py is in this gap's Files, but the change is to a reader every factory block shares and has nothing to do with
+flakes (lesson-13). With no way to run its tests, an unverified change there is the less reversible choice, so it is
+left for a gap of its own. No code changed. The test's bound is left as it is.
+
+Round 5. There was no new review finding: the one finding (the manager's call) was answered in round 2. main
+(f086f76e) is merged into the branch (cd991a2a), and local main is not ahead of it. The diff against main was read
+again: fac.py's one change is still in beside(), and manage.py, ergostat.yaml (comment lines) and dev/README.md change
+only as the definition asks. Run here, serially: ruff (clean), the three acceptance tests (3 passed, 29.2 s), and
+test_an_approved_switch_drains_and_switches_through_the_engine alone (1 passed, 153.6 s). No code changed. Not run:
+the whole of tests/test_factory.py, because the background command `timeout 1500 uv run python
+scripts/named_tests.py tests/test_factory.py > /tmp/tf.log 2>&1; echo rc=$? >> /tmp/tf.log` was refused in this
+session. The switch test's 120 s wait under -n 8 is still main's load-dependent bound (lesson-10), from fac.items'
+per-state `ergostat item` calls, which the switcher makes and the branch does not touch. It belongs in a gap of its
+own (lesson-13), as round 4 says.
+
+Round 5, after the failed build. The same test failed the same way (switcher still in e.running at the 120 s wait;
+1 failed, 192 passed, 718 s). The factory asked for the code to be fixed, not the bound, so it is: fac.items
+(dev/bin/fac.py, in Files) now lists a kind once with no state. It lists per state only when that one listing does
+not carry the kind's total, or gives no total. That is round 4's change. A switcher step drops from about 40
+`ergostat` subprocesses to about 4. Run here, serially: the switch test alone (1 passed, 72.7 s; it was 143.5 s in
+round 4), tests/test_fac_items.py (8 passed; its past-the-cap tests cover the per-state fallback), and the three
+acceptance tests (3 passed, 18.6 s). ruff is clean. Not run: the -n 8 build, and the other test files that use
+fac.items. Choice made without asking (the most reversible one): a listing with no `total` falls back to the
+per-state listings, as before, and is not taken as complete (lesson-3).
+
+Round 6. main (a171d119) is merged in (4d5eb16c). The conflicts were in dev/README.md, dev/bin/fac.py, ergostat.yaml
+and tests/test_factory.py. Each keeps main's text (main-mend, `passed_on`) and the branch's own lines (flake-fixed,
+flake.released, the three acceptance tests). The review's one finding (round 5's fac.items rewrite is outside the
+gap, lesson-13) is answered: the branch's fac.items hunk is reverted. fac.items is now main's code byte for byte.
+main now does its own one-listing read of a kind, so the branch has no change to fac.items left (`git diff main --
+dev/bin/fac.py` shows only beside()'s flake.released). The switch test's 120 s wait under -n 8 is main's
+load-dependent bound (lesson-10) on a path the branch does not touch (lesson-13). Any change to fac.items' order or
+contents belongs in a gap of its own, with tests. Run here, serially, after the merge: ruff (clean), the three
+acceptance tests (3 passed, 19.7 s), tests/test_fac_items.py (9 passed), main's
+test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed and
+test_main_mend_clears_only_a_test_passing_twice_on_the_pushed_main with test_a_fixed_flake_seen_again_is_made_anew
+(3 passed), and test_an_approved_switch_drains_and_switches_through_the_engine (1 passed, 72.7 s, on main's
+fac.items). Not run: the whole of tests/test_factory.py and the -n 8 build.

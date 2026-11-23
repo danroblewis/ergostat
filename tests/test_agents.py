@@ -32,8 +32,9 @@ def test_implementor_environment_has_a_browser():
     assert "PLAYWRIGHT_BROWSERS_PATH" not in agent_image                       # (and finds its browsers where it put them)
     assert f"--with {PIN} " in cfg["browser_ready"] and f"--with {PIN} " in cfg["browser"]
     assert f"--with {PIN} " in cfg["rerun"]
-    # each browser run prints its skips (-rs: one SKIPPED line per reason), as well as pytest's summary count
-    assert all(" -rs " in cfg[n] for n in ("browser", "rerun"))
+    # each browser run prints its skips (-rfEs: one SKIPPED line per reason, and the FAILED and ERROR lines
+    # fac.failed_tests reads; the browser suite PASSED too, for flakes.green), as well as pytest's summary count
+    assert " -rpfEs " in cfg["browser"] and " -rfEs " in cfg["rerun"]
     # the session may run a named browser file under the watchdog, with the suite's own Playwright, and never the suite
     sys.modules.setdefault("fac", module("fac"))
     assert may(f"{PAGE} tests/test_items_page.py") and not may(cfg["browser"])
@@ -86,6 +87,15 @@ def test_the_whole_suite_watch_command_is_not_the_implementors():
     assert not any(t.startswith(("Bash(uv run python scripts/suite_watch.py:", "Bash(uv run python -m pytest"))
                    for t in module("agents").TOOLS["implementor"])        # (the broad prefixes of before are gone)
     assert not [r for r in ("reviewer", "planner", "librarian") if may(f"{NAMED} tests/test_agents.py", r)]
+
+
+def test_the_implementor_may_write_the_graph_fixtures_and_the_reviewer_may_not():
+    """`python -m tests.graph_fixtures` writes tests/fixtures/graphs/<model>-<view>.json from ergostat's own model,
+    offline; the implementor may run it, a read-only role may not."""
+    fixtures = "uv run python -m tests.graph_fixtures"
+    assert may(fixtures) and may(f"{fixtures} --model x")
+    assert not [r for r in ("reviewer", "planner", "groomer") if may(fixtures, r)]
+    assert not may("uv run python -m tests.graph_fixtures_other") and not may("uv run python -m tests")
 
 
 def test_named_tests_runs_named_files_only(tmp_path, monkeypatch):
@@ -212,12 +222,30 @@ def test_missing_browser_stops_the_round_rather_than_skipping(tmp_path):
     assert fast["failed"] == "browser" and fast["browser"]["rc"] == 0 and fast["browser"]["skipped"] == 1
 
 
-def test_a_rerun_is_timed_by_the_suite_that_failed():
-    sys.modules.setdefault("fac", module("fac"))
-    sys.modules.setdefault("agents", module("agents"))
-    room, soon = module("onmain").room, time.time() + 200
+def test_a_rerun_is_timed_by_the_suite_that_failed(monkeypatch):
+    # onmain imports agents, fac and flakes from beside it: each given fresh here (undone after the test), so no
+    # module an earlier test in this worker left in sys.modules (a stub, a patched fac.git) or on sys.path decides it
+    for name in ("fac", "agents", "flakes"):                 # (fac first: agents and flakes import it)
+        monkeypatch.setitem(sys.modules, name, module(name))
+    onmain = module("onmain")
+    assert onmain.fac is sys.modules["fac"] and onmain.flakes.fac is onmain.fac and callable(onmain.agents.clone)
+    room, soon = onmain.room, time.time() + 200
     took = {"unit": {"seconds": 10}, "browser": {"seconds": 400}}
     assert not room({**took, "failed": "browser"}, soon) and room({**took, "failed": "unit"}, soon)
+
+
+def test_room_holds_after_another_test_left_a_stub_fac(monkeypatch):
+    """An earlier test in the worker left stand-ins: a fac and an agents lacking what onmain uses, no flakes module,
+    and dev/bin not on sys.path. The rerun test still loads onmain on its own fresh modules, and leaves the stubs."""
+    import types
+    stub_fac, stub_agents = types.ModuleType("fac"), types.ModuleType("agents")
+    monkeypatch.setitem(sys.modules, "fac", stub_fac)
+    monkeypatch.setitem(sys.modules, "agents", stub_agents)
+    monkeypatch.delitem(sys.modules, "flakes", raising=False)
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if Path(p or ".").resolve() != BIN.resolve()])
+    with pytest.MonkeyPatch.context() as inner:
+        test_a_rerun_is_timed_by_the_suite_that_failed(inner)
+    assert sys.modules["fac"] is stub_fac and sys.modules["agents"] is stub_agents and "flakes" not in sys.modules
 
 
 @pytest.mark.slow
@@ -237,10 +265,12 @@ def test_a_browser_failure_that_skips_alone_is_not_a_flake(tmp_path):
 
 # ---- the merge queue's suites in containers (dev/records/merge-queue-in-docker.md)
 
-# A stand-in `docker` on PATH: `run` logs its arguments and runs its `sh -c` command in the folder mounted at /work, a
+# A stand-in `docker` on PATH: `run` logs its arguments and runs its command (after the image) in the folder mounted
+# at /work, or with none in a new empty STATE/copies/<name> (given its stdin with -i, as a copy is piped in), a
 # process group of its own (as a container outlives its killed client), listed in STATE/running/<name> while it runs;
 # `kill`/`rm` kill that group by name; `ps --filter name=X` lists those running. STATE/fails: `run` fails as Docker's
-# own error does (exit 125), before any command.
+# own error does (exit 125), before any command. STATE/down: Docker unreachable, every command failing as with no
+# daemon.
 FAKE_DOCKER = """\
 import json, os, signal, subprocess, sys
 from pathlib import Path
@@ -248,11 +278,20 @@ state, args = Path(STATE), sys.argv[1:]
 with open(state / "calls.jsonl", "a") as f:
     f.write(json.dumps(args) + "\\n")
 running = state / "running"
+if (state / "down").exists():                       # (an outage: no daemon answers any command)
+    print("Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+          file=sys.stderr)
+    sys.exit(125 if args[0] == "run" else 1)
 if args[0] == "run":
     if (state / "fails").exists():
         sys.exit(print("docker: Error response from daemon: no such image", file=sys.stderr) or 125)
-    name, work = args[args.index("--name") + 1], next(a[:-len(":/work")] for a in args if a.endswith(":/work"))
-    p = subprocess.Popen(["sh", "-c", args[-1]], cwd=work, start_new_session=True)
+    name = args[args.index("--name") + 1]
+    work = next((a[:-len(":/work")] for a in args if a.endswith(":/work")), None)   # a bind mount, or a new /work
+    if work is None:
+        work = state / "copies" / name
+        work.mkdir(parents=True)
+    p = subprocess.Popen(args[args.index("the-agent-image") + 1:], cwd=work, start_new_session=True,
+                         stdin=None if "-i" in args else subprocess.DEVNULL)
     (running / name).write_text(str(p.pid))
     rc = p.wait()
     (running / name).unlink(missing_ok=True)
@@ -319,14 +358,14 @@ def test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_networ
     got = {a[-1]: a for a in runs_of(state)}
     cfg = tomllib.loads(f.config.read_text())["suites"]
     assert sorted(got) == sorted(cfg[n] for n in ("ruff", "unit", "browser", "demo"))
-    checkout = f.checkout.resolve()
     for a in got.values():
         assert flag(a, "--network") == ["none"] and flag(a, "--cpuset-cpus") == ["12-23"] and "--init" in a
         assert "PYTEST_ADDOPTS=-o faulthandler_timeout=300" in flag(a, "-e")   # half the 10 min stall limit
-        assert f"{checkout}:/work" in flag(a, "-v") and f"{checkout / '.git'}:/work/.git:ro" in flag(a, "-v")
+        cov = (f.model / "run" / "coverage").resolve()
+        assert flag(a, "-v") == [f"{cov}:{cov}"] and "-i" in a             # the checkout a copy (piped in), not a mount
         assert "UV_PROJECT_ENVIRONMENT=/opt/venv" in flag(a, "-e")               # never the checkout's .venv
         assert {e.split("=")[0] for e in flag(a, "-e")} <= set(QUEUE_ENV)       # each one Factory.env never inherits
-        assert a[-4:-1] == ["the-agent-image", "sh", "-c"] and flag(a, "--name")[0].startswith(
+        assert a[-6:-3] == ["the-agent-image", "sh", "-c"] and flag(a, "--name")[0].startswith(
             "ergostat-factory-suite-queue-")                                   # (counted by the load interlock)
     assert flag(got[cfg["unit"]], "--cpus") == ["8"] and flag(got[cfg["browser"]], "--cpus") == ["4"]
     assert not list((state / "running").iterdir())                    # each removed by name once it ended
@@ -340,6 +379,50 @@ def test_the_queue_container_test_passes_inside_the_queues_own_container(tmp_pat
                         ("SPLIT_SHOTS", "/tmp/split-shots")):
         monkeypatch.setenv(name, value)
     test_each_queue_suite_runs_in_a_container_on_the_queue_cpuset_with_no_network(tmp_path)
+
+
+@pytest.mark.slow
+def test_a_queue_suite_reads_a_copy_of_the_checkout_never_the_macs_folder(tmp_path):
+    """dev/records/suites-copy-their-checkout-into-the-container.md, 1: the checkout (and its git directory, inside it)
+    is tarred into the container's stdin and unpacked at /work; nothing of it is bind-mounted (Docker Desktop's file
+    sharing keeps a handle on every file read through one); what the suite writes in /work stays in the copy, and
+    run/coverage/ is still mounted, so what it writes there reaches run/."""
+    seen, cov = tmp_path / "seen", (tmp_path / "instance" / "run" / "coverage")
+    unit = (f"ls -A > {seen}; git rev-parse HEAD >> {seen}; cat app.py >> {seen}; touch made-in-the-copy; "
+            f"touch {cov}/from-the-suite; echo run >> {tmp_path / 'runs'}")
+    f, state = boxed(tmp_path, unit=unit)
+    (f.checkout / ".venv").mkdir()
+    (f.checkout / ".venv" / "big").write_text("the Mac's own environment")
+    (f.checkout / "untracked.txt").write_text("as the Mac left it")
+    approved_gaps(f, {"a": 1})
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and suite_runs(f) == 1
+    got = seen.read_text().split()
+    assert {"app.py", ".git", "docs", "untracked.txt"} <= set(got) and ".venv" not in got   # all but its .venv
+    assert "print('hello')" in seen.read_text() and len(got[got.index("print('hello')") - 1]) == 40  # git works
+    assert not (f.checkout / "made-in-the-copy").exists() and (cov / "from-the-suite").exists()
+    copies = list((state / "copies").iterdir())
+    assert len(copies) == 4 and [c.name for c in copies if (c / "made-in-the-copy").exists()]   # one per suite
+    checkout = str(f.checkout.resolve())
+    for a in runs_of(state):                                            # no folder of the checkout's mounted, in any
+        assert not [v for v in flag(a, "-v") if v.split(":")[0].startswith(checkout)], a
+
+
+def test_a_triage_worktree_is_copied_and_only_its_shared_git_directory_mounted(tmp_path, monkeypatch):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())
+    cfg["paths"]["run"] = str(tmp_path / "run")
+    work, common = tmp_path / "wt" / ".triage", tmp_path / "checkout" / ".git"
+    work.mkdir(parents=True)
+    monkeypatch.setattr(agents.fac, "git", lambda *a: str(common))
+    copy, run = agents.queued(cfg, "rerun", "echo again", work, "triage")[1].split(" | ")
+    assert shlex.split(copy) == ["COPYFILE_DISABLE=1", "tar", "-C", str(work.resolve()), "--exclude", "./.venv",
+                                 "--no-xattrs", "--no-acls", "-cf", "-", "."]
+    a = shlex.split(run)
+    cov = (tmp_path / "run" / "coverage").resolve()
+    assert flag(a, "-v") == [f"{cov}:{cov}", f"{common.resolve()}:{common.resolve()}:ro"] and "-i" in a
+    assert a[-3:] == ['tar -xf - || exit 125; exec sh -c "$1"', "sh", "echo again"]   # unpacked, or not started
 
 
 @pytest.mark.slow
@@ -460,3 +543,135 @@ def test_the_implementor_is_told_its_clone_has_no_remote(tmp_path):
     assert "Your clone is not the implementor's" in reviewer
     assert "A ref visible to you does not disprove what the implementor says of its own clone" in reviewer
     assert "such a statement is not a finding" in reviewer
+
+
+# ---- research-design-queues-sessions-see-a-demo: a designer, and an implementor, may start a demo and walk it
+
+DEMO_UP, WALK = "uv run python scripts/demo_up.py", f"uv run --with {PIN} python scripts/walk.py"
+REVIEWER = ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
+
+
+class Kept:                       # (a sessions.Session's names, as run_args reads them)
+    HOME, stem, sid = "/home/dev/.claude/projects", "alpha-thing-designer-1", "0" * 36
+
+    def __init__(self, raw):
+        self.raw = raw
+
+
+def factory_cfg(tmp_path, **agents_set) -> dict:
+    cfg = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())
+    cfg["paths"]["run"] = str(tmp_path / "run")
+    cfg["agents"].update(agents_set)
+    return cfg
+
+
+def mounts(args: list[str]) -> list[str]:
+    return flag(args, "-v")
+
+
+def test_designer_session_argv_mounts_shots_and_readonly_work(tmp_path, monkeypatch):
+    import contextlib
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg, keep = factory_cfg(tmp_path), Kept(tmp_path / "raw")
+    designer = agents.run_args(cfg, "designer", Path("/w"), "n", keep)
+    reviewer = agents.run_args(cfg, "reviewer", Path("/w"), "n", keep)
+    shots = f"{(tmp_path / 'run' / 'shots' / keep.stem).resolve()}:/shots"
+    assert "/w:/work:ro" in mounts(designer)
+    assert sorted(mounts(designer)) == sorted(mounts(reviewer) + [shots])          # one mount new, and no other
+    cut = lambda a: a[:a.index(cfg["agents"]["image"])]  # noqa: E731              # (docker's part, before the image)
+    d, r = cut(designer), cut(reviewer)
+    i = d.index(shots)
+    d = d[:i - 1] + d[i + 1:]                                                       # its "-v" and the mount taken out
+    assert len(d) == len(r) and [(x, y) for x, y in zip(d, r, strict=True) if x != y] == [("3", "1.5")]   # only --cpus
+    # without a kept session, the container's name names the folder; a name that is not one is refused
+    named = f"{(tmp_path / 'run' / 'shots' / 'n').resolve()}:/shots"
+    assert named in mounts(agents.run_args(cfg, "designer", Path("/w"), "n"))
+    for bad in ("..", "a/b", "", "A"):
+        with pytest.raises(agents.Refused, match="pictures folder"):
+            agents.run_args(cfg, "designer", Path("/w"), bad)
+    # the session itself: the folder made on the host, the brief told to pass --shots /shots, the argv as above
+    ran = []
+    monkeypatch.setattr(agents, "token", lambda cfg: "tok-123")
+    monkeypatch.setattr(agents, "sweep", lambda cfg: [])
+    monkeypatch.setattr(agents, "egress", lambda cfg: None)
+    monkeypatch.setattr(agents, "killed", lambda name: agents.RUNNING.discard(name))
+    res = type(sys)("resources")
+    res.sampled = lambda *a: contextlib.nullcontext({})
+    monkeypatch.setitem(sys.modules, "resources", res)
+    monkeypatch.setattr(agents.subprocess, "run", lambda argv, **k: ran.append((argv, k["input"])) or
+                        subprocess.CompletedProcess(argv, 0, '{"type": "result"}', ""))
+    keep.copy = type("C", (), {"follow": lambda self: None})()
+    assert agents.session(cfg, "designer", "look at the Items tab", Path("/w"), keep=keep)["type"] == "result"
+    (argv, brief), = ran
+    assert (tmp_path / "run" / "shots" / keep.stem).is_dir() and shots in mounts(argv) and "/w:/work:ro" in mounts(argv)
+    assert brief.startswith("look at the Items tab") and "--shots /shots" in brief
+    # a bad designer_cpus: refused with its reason before any container is run
+    with pytest.raises(agents.Refused, match="designer_cpus"):
+        agents.session(factory_cfg(tmp_path, designer_cpus=9), "designer", "b", Path("/w"), keep=keep)
+    assert len(ran) == 1 and not agents.RUNNING
+    assert agents.TIMEOUTS["designer"] == 3600 and module("fac").STANDIN["designer"]
+    assert (cfg["ai"]["designer_model"], cfg["ai"]["designer_session_usd"]) == ("opus", 2.0)
+
+
+def test_designer_and_implementor_may_run_demo_and_walk():
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    for role in ("designer", "implementor"):
+        assert may(f"{DEMO_UP} start ops --port 8801", role) and may(f"{DEMO_UP} stop ops", role), role
+        assert may(f"{WALK} steps.json --shots /shots", role) and may(f"{WALK} - --shots /shots", role), role
+        assert not may("uv run python scripts/walk.py x", role) and not may("uv run python scripts/demo_check.py", role)
+        assert not may(f"{DEMO_UP}x start ops", role) and not may("curl http://127.0.0.1:8801", role)
+    assert agents.TOOLS["designer"] == REVIEWER + agents.SEE                  # exactly the reviewer's and the two
+    assert agents.SEE == [f"Bash({DEMO_UP}:*)", f"Bash({WALK}:*)"]
+    assert set(agents.SEE) <= set(agents.TOOLS["implementor"])
+    others = ("reviewer", "planner", "groomer", "researcher", "librarian")
+    assert not [r for r in others if may(f"{DEMO_UP} start ops", r) or may(f"{WALK} x", r)]
+    cfg = {"ai": {"designer_model": "opus", "designer_session_usd": 2.0}}
+    args = agents.claude_args(cfg, "designer")
+    assert args[args.index("--allowedTools") + 1].split(",") == agents.TOOLS["designer"]
+    assert args[args.index("--tools") + 1] == "Bash,Glob,Grep,Read"             # (no Edit, no Write)
+
+
+def test_designer_cpus_bounds(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cpus = lambda cfg, role, brief="": flag(agents.run_args(cfg, role, Path("/w"), "n", brief=brief), "--cpus")  # noqa: E731
+    web = "## Files to touch\n\n- ergostat/web/items.js\n"
+    cfg = factory_cfg(tmp_path)
+    assert cfg["agents"]["designer_cpus"] == 3
+    assert cpus(cfg, "designer") == ["3"] and cpus(cfg, "implementor", web) == ["3"]
+    assert cpus(cfg, "implementor", "ergostat/spec/x.py") == ["1.5"] and cpus(cfg, "reviewer", web) == ["1.5"]
+    absent = factory_cfg(tmp_path)
+    absent["agents"].pop("designer_cpus")
+    assert cpus(absent, "designer") == ["3"]                                       # its default
+    for ok in (4, 0.5, "2"):
+        assert cpus(factory_cfg(tmp_path, designer_cpus=ok), "designer") == [f"{float(ok):g}"]
+    for bad in (0, -1, 4.5, 64, "lots", "nan", "inf"):                            # (a ceiling: lesson-4)
+        cfg = factory_cfg(tmp_path, designer_cpus=bad)
+        for role, brief in (("designer", ""), ("implementor", web)):
+            with pytest.raises(agents.Refused, match=r"\[agents\] designer_cpus = .*at most 4"):
+                cpus(cfg, role, brief)
+        assert cpus(cfg, "implementor", "no web here") == ["1.5"]                  # not its setting: not refused
+        assert cpus(cfg, "reviewer") == ["1.5"]
+
+
+def test_no_proxy_names_loopback(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg = factory_cfg(tmp_path)
+    for role in ("implementor", "reviewer", "designer", "planner"):
+        env = flag(agents.run_args(cfg, role, Path("/w"), "n"), "-e")
+        assert "NO_PROXY=127.0.0.1,localhost" in env and "no_proxy=127.0.0.1,localhost" in env, role
+        assert not [e for e in env if e.lower().startswith("no_proxy=") and not e.endswith("=127.0.0.1,localhost")]
+
+
+def test_reviewer_tools_unchanged(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    assert agents.TOOLS["reviewer"] == REVIEWER                                   # the reviewer gains nothing
+    for role in ("planner", "plan_reviewer", "join_judge", "pipeline_manager", "groomer"):
+        assert agents.TOOLS[role] == REVIEWER, role
+    assert agents.TOOLS["researcher"] == REVIEWER + ["WebSearch"]
+    args = agents.run_args(factory_cfg(tmp_path), "reviewer", Path("/w"), "n")
+    assert not [m for m in mounts(args) if m.endswith(":/shots")] and "/w:/work:ro" in mounts(args)
