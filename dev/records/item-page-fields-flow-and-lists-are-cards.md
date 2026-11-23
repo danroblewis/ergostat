@@ -139,3 +139,15 @@ test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart fails alone
 A second whole-file run to name the failure was refused, so I take it to be that one. Main's new timeline test and
 the branch's item-page tests pass. tests/test_page_refresh.py: 8 passed, 2 failed, the same count as rounds 2 and 3.
 Not named because I could not rerun it. Both are unrelated for the reasons given in round 2.
+
+## Where it stopped
+
+Continued, round 5 (2026-11-23): main (dc8ad98d) merged in. Its one conflict, tests/test_items_page.py, was both sides
+adding tests at one place (the branch's CARDS, item_site, item_page and the cards test; main's WIDE_TICKETS, FITS and
+test_the_items_table_fits_at_1440_px); both kept. No code changed after the merge.
+Runs after the merge: ruff clean; tests/test_spec_items.py 8 passed; tests/test_items_page.py 74 passed, 1 failed (a
+Page.wait_for_function timeout). A second whole-file run to name the failure was refused. Run alone,
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart fails with the same timeout, as it has in every
+round since round 1, so I take it to be the one. It is unrelated for the reasons given in round 2. Run alone, the
+branch's three acceptance tests (3 passed) and main's new test_the_items_table_fits_at_1440_px (1 passed) pass.
+tests/test_page_refresh.py was not run this round.
