@@ -39,6 +39,10 @@ Not run here: the whole of tests/test_diagram_rendering.py. A serial run was sto
 command limit before it reported, and a longer background run was refused. Only the new test and
 test_what_waits_for_you_is_one_step_from_every_page were run (2 passed, rc 0). The rest of that file and the other
 three browser files are left to the factory's runs.
+Fast-suite fix: the build step ran only the browser file, which skips with no Playwright (rc 5, nothing run). A
+unit half is added, tests/test_graph_cli_web.py::test_the_count_of_what_waits_sits_in_one_polite_live_region (the
+link inside the polite, atomic region; its text written through setText, which writes only a changed text). It was
+seen to fail with aria-live removed. That file passes whole (43 passed).
 
 Choices made with nobody to ask (each easy to reverse):
 - The words announced are the visible "N wait for you", the header's own words (Q43). No separate
