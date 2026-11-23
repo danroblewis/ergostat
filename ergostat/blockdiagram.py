@@ -347,15 +347,17 @@ class _Diagram:
             # it enters where it is compared: its summing junction, or the controller that reads the measurement itself
             readers = sorted(self.reads_y.get(g.name, ())) if g.name not in self.error_read else []
             where = self.s.blocks[readers[0]].system if readers else self.comparator_system(g)
-            one_sided = g.hold.op != "=="
+            one_sided = g.hold.op != "=="                # a limit (r ≤ 0), not a setpoint (r = 0.93): drawn and named so
             self.node(nid, kind="input", role="reference", system=where, label=f"r {g.name}",
-                      fn={"sym": "r", "sub": g.name, "value": f"= {_num(g.hold.value)}"}, loops=[g.name],
-                      math=[eq(sym("r", g.name), mn(g.hold.value))],
-                      says=f"the reference input of {g.name}: r = {_num(g.hold.value)}" +
+                      fn={"sym": "r", "sub": g.name, "value": _hold(g)}, loops=[g.name],
+                      math=[row(sym("r", g.name), mo(OPS.get(g.hold.op, "=")), mn(g.hold.value))],
+                      says=f"the reference input of {g.name}, {'a limit' if one_sided else 'a setpoint'}: r {_hold(g)}" +
                            (f", held within ±{_num(g.tolerance)}" if g.tolerance else "") +
-                           (f". The goal is one-sided ({g.of.name} {_hold(g)}): the error counts only past r, and an "
-                            "on-off controller serving it says in its own panel when it switches" if one_sided else "") + ".",
-                      rows=[["goal", g.name], ["holds", f"y_{g.of.name} {_hold(g)}"], ["description", g.description]])
+                           (f". {g.of.name} holds while it is within it, and the error e = r − y counts only past it: "
+                            "0 inside the limit. An on-off controller serving it says in its own panel when it switches"
+                            if one_sided else "") + ".",
+                      rows=[["goal", g.name], ["limit" if one_sided else "holds", f"y_{g.of.name} {_hold(g)}"],
+                            ["description", g.description]])
             self.produce(key, nid)
             return self.prod[key]
         if not key.startswith(("goal.", "meas.", "cmd.")) and self.disturbance(key):
@@ -651,7 +653,8 @@ class _Diagram:
                         f"({sensing.every_words(loop_T)}): a reading is up to T old, T/2 on average, so the feedback path is "
                         "drawn as a sampler, a delay of up to T.")
             else:
-                fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True}
+                fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True,
+                      **({"every": sensing.every_words(ex.every)} if ex.every and not (ex.manual or ex.cron) else {})}
                 math = [eq(sym("H", name), mn(1)), eq(sym("y", f"m,{name}"), sym("y", name))]
                 says = (f"the sensor on y_{name}: it reads {reads}. What it reads goes back to the loop as it is (H = 1): "
                         "the model gives it no dynamics" + (f", and its period ({Tw}"
@@ -1108,15 +1111,18 @@ class _Diagram:
                 rows.insert(0, ["threshold", f"{g.of.name} {_hold(g)}: on above it" if g.hold.op in ("<=", "<") else
                                 f"{g.of.name} {_hold(g)}: on below it" if g.hold.op in (">=", ">") else
                                 f"{g.of.name} {_hold(g)}: on away from it"])
-                if until:
-                    rows.insert(1, ["releases at", f"{g.of.name} {back} (hysteresis)"])
-            return {"role": role, "fn": {"sym": None, "sub": None, "name": n, "sketch": "relay",
+            # on past its tolerance, or off only at its until: a band (hysteresis); on and off at one threshold: an ideal relay
+            band = bool(until) and (not g or back != _hold(g)) or bool(g and g.tolerance)
+            if g and band:
+                rows.insert(1, ["releases at", f"{g.of.name} {back} (hysteresis)"])
+            return {"role": role, "fn": {"sym": None, "sub": None, "name": n, "sketch": "relay" if band else "ideal-relay",
                     "kind": "relay" if b.type == "onoff" else b.type, "linear": False},
-                    "says": f"an on-off controller (a relay with hysteresis): u = 1 {on}, u = 0 {off}.",
+                    "says": f"an on-off controller ({'a relay with hysteresis' if band else 'an ideal relay'}): "
+                            f"u = 1 {on}, u = 0 {off}.",
                     "math": [eq(mi("u"), row(mo("{"), ["mtable", {"columnalign": "left"},
                                                          ["mtr", ["mtd", mn(1)], ["mtd", mt(on)]],
                                                          ["mtr", ["mtd", mn(0)], ["mtd", mt(off)]]])),
-                             mt("a static nonlinearity with memory: no transfer function")], "rows": rows}
+                             mt(f"a static nonlinearity{' with memory' if band else ''}: no transfer function")], "rows": rows}
         if b.type == "limit":
             return {"role": role, "fn": {"name": n, "sketch": "saturation", "kind": "limit", "linear": False},
                     "says": "a saturation: its input, clamped.", "math": [eq(mi("u"), row(mt("sat"), mo("("), mi("x"),
