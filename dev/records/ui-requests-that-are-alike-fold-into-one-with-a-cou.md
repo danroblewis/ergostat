@@ -202,3 +202,28 @@ Its runs failed past their attempts (a dead letter):
 - attempt 24: nack exited 1
 - attempt 25: nack the run ended with gap/ui-requests-that-are-alike-fold-into-one-with-a-cou still parked
 - attempt 26: nack the implementor pool is full (run/pools.json): waits its turn
+
+## Where it stopped
+
+Continued, round 1: the factory's merge of main (63998238) finished (a2ea5b34), and the tests updated to match
+what main changed.
+
+- **Merge:** `entries.py`: main's new request summary (a sentence saying what Approve and Deny do, `why` empty) kept,
+  with the branch's `fold`/`about`/`system` added to it. `diagram.js`: main's `list` now keys each row, holds the list
+  still while the reader is in it (`hold`), and draws an inbox entry with `inboxBody`. All three are kept: the branch's
+  shared `row` is now main's keyed row (`inboxBody` included), and main's `list(xs, none, cls)` runs `folded` and
+  `foldRow` as before. `SPEC.md` §12o: main's paragraph on lists holding still, then the branch's sentences on folding.
+  `tests/test_diagram_rendering.py`: both sides only added tests, and all are kept.
+- **Tests changed, because of main's changes:** each fold member now holds main's "the command" `<details>`, so the
+  acceptance test reads the fold's own summary (`> details.fold > summary`) and its members (`> details.fold >
+  [data-inbox]`). Main's lists hold still while the pointer or focus is in them, so after typing and after Deny all
+  both fold tests step out of the list (`leave_list`: pointer away, focus blurred) before they wait for a refresh or
+  for the fold to go. They wait for "N denied" first. Checked again by hand: with folding off, the acceptance test
+  fails (no fold entry); with the fold's key removed, the two-fold test fails (B's field reads ''). Both put back.
+- **Runs:** ruff clean. `tests/test_inbox.py`: 34 passed. `tests/test_inbox_page.py`: 7 passed, rc 0. The acceptance
+  test and `test_two_folds_each_keep_their_own_reason_across_a_refresh`: 2 passed, rc 0.
+  `test_needs_attention_is_three_headed_groups_in_a_fixed_order` still fails, on the header's `/loops? off/`, as
+  reported in round 4 (main's header, not this branch; lesson-13).
+- **Refused:** a `python3 - <<EOF` script to resolve `diagram.js` (done with edits instead), and one `cat >> ... && git
+  commit` command (done as an edit and a separate commit).
+- **Not run:** the rest of `tests/test_diagram_rendering.py`, the other browser files, the unit suite.

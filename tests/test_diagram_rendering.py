@@ -4646,6 +4646,12 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+def leave_list(pg) -> None:
+    """The reader leaves the side list (pointer and focus), so it no longer holds still and a refresh is applied."""
+    pg.mouse.move(2, 400)
+    pg.evaluate("() => document.activeElement?.blur()")
+
+
 FOLD_SYSTEMS = ["api", "billing", "build", "data", "support", "web"]
 FOLD_ROW = '.side .att > [data-fold^="no-unit|"]'
 IN_VIEW = """() => {
@@ -4706,13 +4712,13 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
             house.locator(":scope > summary").click()
         pg.locator(FOLD_ROW).wait_for(timeout=20000)
         assert pg.locator(".side .att > [data-fold]").count() == 1
-        summary = pg.locator(f"{FOLD_ROW} summary").inner_text()
+        summary = pg.locator(f"{FOLD_ROW} > details.fold > summary").inner_text()
         assert "24" in summary and "no unit" in summary and "(api, billing, build, data, support, web)" in summary, summary
         assert pg.locator('.side .att > [data-inbox^="request/"]').count() == 0     # no member left as a row of its own
         got = pg.evaluate(IN_VIEW)
         assert got == {"scrolled": 0, "out": []}, got
-        pg.locator(f"{FOLD_ROW} summary").click()
-        members = pg.locator(f'{FOLD_ROW} details [data-inbox^="request/"]')
+        pg.locator(f"{FOLD_ROW} > details.fold > summary").click()
+        members = pg.locator(f'{FOLD_ROW} > details.fold > [data-inbox^="request/"]')
         assert members.count() == 24
         assert all(members.nth(i).locator('button[data-verb="deny"]').count() == 1 for i in range(24))
         model = browser.new_page(viewport={"width": 1440, "height": 900})
@@ -4723,11 +4729,15 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
         model.close()
         pg.locator(f"{FOLD_ROW} > .inbox-act input").fill("units are not this model's concern")
         # as a person types: the side list is rebuilt and patched in between (a poll asked after the first one's
-        # answer was drawn), so Deny all must read the reason from the row on the page, not from an earlier build
+        # answer was drawn), so Deny all must read the reason from the row on the page, not from an earlier build;
+        # the reader steps out of the list meanwhile, as it holds still while they are in it
+        leave_list(pg)
         for _ in range(2):
             with pg.expect_response(lambda r: "/api/graph" in r.url, timeout=60000):
                 pass
         pg.locator(f'{FOLD_ROW} button[data-verb="deny-all"]').click()
+        pg.locator(f"{FOLD_ROW} > .inbox-act .note").filter(has_text="24 denied").wait_for(timeout=60000)
+        leave_list(pg)
         pg.wait_for_function(f"() => !document.querySelector('{FOLD_ROW}')", timeout=60000)
         assert {r["state"] for r in rq.stored(p).values() if r["code"] == "no-unit"} == {"dismissed"}
         assert pg.locator('.side .att [data-inbox^="action/"]').count() == 1            # the alarm still waits
@@ -4791,12 +4801,15 @@ def test_two_folds_each_keep_their_own_reason_across_a_refresh(browser, tmp_path
         row(a).locator('button[data-verb="deny-all"]').click()
         pg.wait_for_function("() => window.__foldDone", timeout=60000)
         assert pg.evaluate("() => window.__foldDone") == [" 3 denied", ""]          # the reason goes with its fold
+        leave_list(pg)                                        # the list holds still while the reader is in it
         pg.wait_for_function(f"() => !document.querySelector('.side .att > [data-fold=\"{a}\"]')", timeout=60000)
         for _ in range(2):                                    # a refresh after A went: B now stands where A stood
             with pg.expect_response(lambda r: "/api/graph" in r.url, timeout=60000):
                 pass
         assert row(b).locator(":scope > .inbox-act input").input_value() == "reason B"   # its own, not A's nodes
         row(b).locator('button[data-verb="deny-all"]').click()
+        row(b).locator(":scope > .inbox-act .note").filter(has_text="3 denied").wait_for(timeout=60000)
+        leave_list(pg)
         pg.wait_for_function(f"() => !document.querySelector('.side .att > [data-fold=\"{b}\"]')", timeout=60000)
         notes = {r["about"]: (r["code"], r["state"], r.get("note")) for r in rq.stored(p).values() if r["about"] in mine}
         want = {x: (c, "dismissed", "reason A" if c == a.split("|")[0] else "reason B") for x, c in mine.items()}
