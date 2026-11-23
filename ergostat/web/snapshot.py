@@ -108,6 +108,10 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             data[key(path, params)] = got
     for path, params in _requests(project):
         ask(path, params)
+    if isinstance(data.get("loops"), dict):     # the Loops page's one answer: each goal's summary from its analysis above
+        from .control_api import summary
+        data[key("loops", {"perf": 1})] = {n: {**lp, "perf": summary(data[c]) if (c := key("loop-control", {"goal": n})) in data
+                                               else None} for n, lp in data["loops"].items()}
     for k in (data.get("items") or {}).get("kinds") or []:      # a kind chosen, and each of its states
         ask("items", {"kind": k["name"]})
         for st in _states(data.get(key("items", {"kind": k["name"]})) or {}, k["name"]):
