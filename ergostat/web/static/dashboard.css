@@ -13,6 +13,7 @@
 .dash-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .dash-body > * { flex: 1; min-width: 0; min-height: 0; }
 .dash-tools, .dash-foot { display: none; }
+.dash-cell.is-stat .panel-unit, .dash-cell.dash-no-change .panel-stat-change { display: none; }   /* the number says its unit */
 .dash-grid.editing .dash-cell { background: var(--bg); box-shadow: 0 0 0 var(--hair) var(--line-strong); }
 .dash-grid.editing .dash-cell:focus { outline: var(--sp-0) solid var(--accent); outline-offset: var(--hair); }
 .dash-grid.editing .dash-tools { display: flex; align-items: center; gap: var(--sp-0); flex: none; min-width: 0; padding: var(--sp-0) var(--sp-1);
