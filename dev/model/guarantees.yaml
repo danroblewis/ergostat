@@ -14,11 +14,8 @@ stocks:
 
 flows:
   main-tests-broken:
-    from: flakes-open                 # a flake arrives once, seen (guarantees-flakes.yaml; kind-enters-many-times)
     to: main-failing-tests
     description: a test found failing on clean main too (flake.main-broken)
-    driven-by: [+stock.flakes-open]
-    equation: stock.flakes-open / time-to-main-broken
     sensor: {items: flake, entering: main-broken, over: 1d}
   main-tests-fixed:
     from: main-failing-tests
@@ -32,10 +29,6 @@ parameters:
     value: 1d
     estimate: true
     description: how long a test failing on main takes to be fixed and seen passing by main-mend
-  time-to-main-broken:
-    value: 30d
-    estimate: true
-    description: how long a seen flake takes, on average, to be found failing on clean main too (a guess, fitted from the record)
 
 goals:
   main-green:

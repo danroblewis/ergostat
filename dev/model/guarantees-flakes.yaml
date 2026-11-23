@@ -4,9 +4,7 @@
 # main-repair-hours and flake-fix-hours are dev/bin/flakes.py's readings, from the flakes' moves in the record's order:
 # the median, over the stays ended fixed in the last 14 days, from the move into main-broken (or seen) to the move to
 # fixed; a repeat break keeps the clock, a flake made again from fixed starts a new stay, and with no stay ended there
-# is no value. The age moves by its rises and falls (complexity.yaml's pattern for a stock read whole); its sensor's
-# `where: {fixed_by: null}` (every seen flake: a remake clears fixed_by) keeps it beside the flake chain, as check asks
-# of an age (chain-stock-not-a-count). Each goal asks the coordinator (oldest-flake-fix, main-repair-hasten).
+# is no value. Nothing here acts: the goals are unserved until regression-guarantees-wired.
 defaults:
   system: guarantees
 
@@ -18,7 +16,7 @@ stocks:
   flakes-open-hours:
     unit: hours
     description: hours the oldest seen flake has been seen; flakes-few holds each seen flake by its own
-    sensor: {items: flake, state: seen, where: {fixed_by: null}, measure: oldest, every: 1m}
+    sensor: {items: flake, state: seen, measure: oldest, every: 1m}
 
 flows:
   flakes-seen:
@@ -27,20 +25,9 @@ flows:
     sensor: {items: flake, entering: seen, over: 1d}
   flakes-fixed:
     from: flakes-open
-    description: flakes fixed (flake.fixed, flake.main-fixed), by green runs, by hand or by main-mend
-    driven-by: [+stock.flakes-open, -stock.quarantined]   # only open flakes are fixed; a quarantined one counts no green runs (flakes.py green)
-    sensor: {items: flake, entering: fixed, over: 1d}
-  flakes-open-hours-rise:
-    to: flakes-open-hours
-    description: the oldest seen flake's hours growing while it stays seen, each rise of the age over a day
-    driven-by: [+stock.flakes-open]   # the age grows while a flake is open
-    sensor: {changes: rises, over: 1d}
-  flakes-open-hours-fall:
-    from: flakes-open-hours
-    description: the age falling as the oldest seen flakes are fixed, each fall of the age over a day
-    driven-by: [+stock.flakes-open-hours]
-    equation: MAX(stock.flakes-open-hours - flake-hours-most, 0) / flake-fix-time
-    sensor: {changes: falls, over: 1d}
+    description: flakes leaving seen, each fixed (by green runs or by hand) or found failing on main too (main-broken)
+    driven-by: [+stock.flakes-open]
+    sensor: {items: flake, leaving: seen, over: 1d}   # every move out of seen, so the two flows add up to flakes-open
 
 auxiliaries:
   main-repair-hours:
@@ -57,11 +44,10 @@ auxiliaries:
 parameters:
   flake-hours-most:
     value: 3
-    description: the most hours a flake stays seen before flakes-few names it (the definition's 3, read in hours, the unit per item holds)
-  flake-fix-time:
-    value: 1d
-    estimate: true
-    description: how long a flake past flake-hours-most takes to be fixed once asked (a guess, for projecting only)
+    description: the most hours a flake stays seen before flakes-few names it (the definition's 3, read in hours, the unit per item holds; the owner's to set)
+  main-repair-hours-most:
+    value: 24
+    description: the most hours main stays broken a break, the median over 14 days, before main-repaired-fast is off
 
 goals:
   flakes-few:
@@ -72,30 +58,6 @@ goals:
     description: no flake stays seen past flake-hours-most; off names the oldest
   main-repaired-fast:
     auxiliary: main-repair-hours
-    hold: "<= 24"                     # hours; a setpoint no equation reads, so no parameter of its own
+    hold: "<= 24"                     # main-repair-hours-most
     on-stale: "off"                   # no reading (none ended, or unreadable) is counted as off
     description: main is repaired within 24 hours a break, the median over 14 days
-
-blocks:
-  oldest-flake-fix:                   # inside the system, as fix-main is
-    type: person
-    agent: coordinator
-    description: the coordinator has the oldest seen flakes fixed, so none stays seen past flake-hours-most
-    ask: "Flakes have stayed seen past flake-hours-most (ergostat item --kind flake --state seen; the goal names the oldest): have them fixed, or ask the owner to raise flake-hours-most."
-    in: goal.flakes-few.off
-    out: flow.flakes-open-hours-fall
-  main-repair-hasten:                 # commands fix-main, the one block moving main-tests-fixed (two-actuators)
-    type: person
-    agent: coordinator
-    description: the coordinator has main's failing tests fixed sooner, so main's median repair is back within 24 hours
-    ask: "Main has stayed broken past 24 hours a break, the median over 14 days (python3 dev/bin/flakes.py main-repair-hours): have main's failing tests (ergostat item --kind flake --state main-broken) fixed sooner."
-    in: goal.main-repaired-fast.off
-    out: block.fix-main
-
-loops:
-  oldest-flakes:
-    goal: flakes-few
-    description: a flake seen past flake-hours-most asks the coordinator for its fix (oldest-flake-fix)
-  main-repair-speed:
-    goal: main-repaired-fast
-    description: main's median repair past 24 hours asks the coordinator to fix main sooner (main-repair-hasten)

@@ -143,3 +143,35 @@ Refused: `uv run ergostat check` (Bash denied). The findings were read through `
 (no errors, nothing on this gap's parts, no `system-splits`). Not run: the whole unit suite and the four browser files
 (the factory's). The size is unchanged from the line above (175 net under the "outside tests/" reading, 0 under the
 factory's rule).
+
+Round 3, answering the review (implementor, 2026-11-23). Both blocking findings, and nothing else changed:
+
+allows-findings: [missing-feedback goal.flakes-few: unserved until regression-guarantees-wired as the definition says, missing-feedback goal.main-repaired-fast: unserved until regression-guarantees-wired as the definition says, parameter-unused parameter.flake-hours-most: a goal's setpoint that no equation reads (the definition's setpoints are parameters), parameter-unused parameter.main-repair-hours-most: a goal's setpoint that no equation reads (the definition's setpoints are parameters), stock-without-flows stock.flakes-open-hours: an age held per item and not a count so nothing flows in or out of it, kind-enters-many-times items.flake: dev/bin/onmain.py makes a flake main-broken without seen first so flakes arrive in both states, system-splits system.guarantees: flakes-open and its two flows share no cause with main's chain until regression-guarantees-wired joins them]
+
+- The flows of `flakes-open` now add up to it. `flakes-fixed` counts every move out of `seen`
+  (`leaving: seen`, no `where`), so a flake that went `seen` to `main-broken` leaves once, and a remake or a direct
+  break into `main-broken` (never in `seen`) is not taken out. A `where` on `fixed_by` would not do: the sensor reads
+  the fields as they stand now, not at the move, and a hand fix from `seen` and one from `main-broken` both carry
+  `fixed_by: coordinator`. The cost: the flow's name says fixed, and it also counts the moves to `main-broken`
+  (its description says so). Renaming it is a YAML edit, if the owner prefers. `test_flakes_few_names_the_oldest` now
+  counts both flows' own sensors over a record with a `seen`, `main-broken`, `fixed` flake and a `main-broken`,
+  `fixed` one: 5 in, 2 out, 3 seen. The old sensor (`entering: fixed`) counts 3 out there, so the test fails on it.
+- Out of scope, taken out: the person blocks `oldest-flake-fix` and `main-repair-hasten`, the loops `oldest-flakes`
+  and `main-repair-speed`, the age's rise and fall flows with `flake-fix-time`, the `where` on the age's sensor (it
+  was only there for the flows), the two causes added for system-splits (`-stock.quarantined` and the age's rise), and
+  the whole guarantees.yaml change (`from: flakes-open`, its equation and `time-to-main-broken`). guarantees.yaml is
+  back to main's, and so is `guarantees_project` in the test. Nothing reads either goal. `main-repair-hours-most`
+  (24) is back, so both setpoints are parameters as the definition says. check's findings that this leaves stand under
+  the `allows-findings` line above, and the test allows exactly that line (read with `fac.allowances`, as the gate
+  reads it).
+- For the owner: `flakes-few` is still held `per: item` on the age `flakes-open-hours` at `flake-hours-most` 3,
+  read as hours, because check refuses `per: item` on a count and done item 4 asks that it names its oldest. With
+  fixes after 5 green runs, 3 hours means it is off whenever a flake is open. It asks nobody now. The owner chooses:
+  a real number of hours, or a count goal (`<= 3` on `flakes-open`) that names its oldest items, which is an engine
+  change and its own gap.
+- Not run: every Bash command was refused in this session, starting with `git checkout main --
+  dev/model/guarantees.yaml` (the edits were then made with the file tools). So none of this round was run: not the
+  four acceptance tests, not `ergostat check`, not ruff, and the allows-findings list is what I expect check to find,
+  not what it was seen to find. The commit was refused too, so this round's edits are not committed.
+
+Overrun reason: only under the definition's "outside tests/" reading: about 124 net lines (guarantees-flakes.yaml 61, flakes.py 50, dev/README.md 13, guarantees.yaml 0), each the parts the Change lists with their descriptions; the factory's rule counts none of it (all under dev/).

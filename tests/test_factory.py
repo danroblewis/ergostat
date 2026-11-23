@@ -1118,8 +1118,6 @@ def guarantees_project(tmp_path, every: str):
     from ergostat import model as mdl
     from ergostat.store import Project
     parts = yaml.safe_load((ROOT / "dev" / "model" / "guarantees.yaml").read_text())
-    flakes = yaml.safe_load((ROOT / "dev" / "model" / "guarantees-flakes.yaml").read_text())
-    parts["stocks"]["flakes-open"] = flakes["stocks"]["flakes-open"]    # (main-tests-broken drains it)
     for table in ("stocks", "flows"):
         for p in parts[table].values():
             p["sensor"]["every"] = every
@@ -1371,32 +1369,37 @@ def test_no_ended_stay_has_no_value(tmp_path, monkeypatch, capsys):
 
 
 def test_flakes_few_names_the_oldest(tmp_path):
-    """check finds nothing on the parts, the flake kind or the flows re-pointed (a flake arrives once, seen); each goal
-    has its loop; flakes-few's setpoint is its parameter; and flakes-few, on the real model's parts
-    and flake kind, goes off naming the seen flakes past it, oldest first (a fixed or main-broken one never)."""
+    """check finds no error, and on the parts and the flake kind only the findings the definition's allows-findings
+    line allows; nothing reads either goal (unserved until regression-guarantees-wired); the setpoints are the
+    parameters; flakes-open's two flows add up to it (in at seen, out at every move out of seen); and flakes-few, on
+    the real model's parts and flake kind, goes off naming the seen flakes past it, oldest first (a fixed or
+    main-broken one never)."""
     import yaml
 
     from ergostat import model as mdl
     from ergostat.spec.goal_per import worst
+    from ergostat.spec.items import in_states
+    from ergostat.spec.items import moved as moves_of
     from ergostat.store import Project
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []
     mine = {"stock.flakes-open", "stock.flakes-open-hours", "flow.flakes-seen", "flow.flakes-fixed",
-            "flow.flakes-open-hours-rise", "flow.flakes-open-hours-fall", "auxiliary.main-repair-hours",
-            "auxiliary.flake-fix-hours", "parameter.flake-hours-most", "parameter.flake-fix-time", "goal.flakes-few",
-            "goal.main-repaired-fast", "block.oldest-flake-fix", "block.main-repair-hasten", "items.flake",
-            "flow.main-tests-broken", "parameter.time-to-main-broken", "block.fix-main"}
-    got = [f"{p.code} {p.level} {p}" for p in problems if p.about in mine]      # no finding on any of them
+            "auxiliary.main-repair-hours", "auxiliary.flake-fix-hours", "parameter.flake-hours-most",
+            "parameter.main-repair-hours-most", "goal.flakes-few", "goal.main-repaired-fast", "items.flake",
+            "system.guarantees"}
+    allowed = module("fac").allowances((ROOT / "dev" / "records" / "regression-flake-measures.md").read_text())
+    got = [f"{p.code} {p.about}: {p}" for p in problems if p.about in mine and f"{p.code} {p.about}" not in allowed]
     assert not got, "\n".join(got)
-    assert not [p for p in problems if p.code == "system-splits" and p.about == "system.guarantees"]
-    assert mine - {"items.flake"} <= {f"{k}.{n}" for k, d in (("stock", spec.stocks), ("flow", spec.flows),
-                                      ("auxiliary", spec.auxiliaries), ("parameter", spec.parameters),
-                                      ("goal", spec.goals), ("block", spec.blocks)) for n in d}
+    assert mine - {"items.flake", "system.guarantees"} <= {f"{k}.{n}" for k, d in (
+        ("stock", spec.stocks), ("flow", spec.flows), ("auxiliary", spec.auxiliaries), ("parameter", spec.parameters),
+        ("goal", spec.goals)) for n in d}
+    gone = {"oldest-flake-fix", "main-repair-hasten", "time-to-main-broken", "flake-fix-time"}
+    assert not gone & {*spec.blocks, *spec.parameters}                          # (no person block asks on them)
+    assert spec.flows["main-tests-broken"].source is None                       # (main's chain as main has it)
     few, fast = spec.goals["flakes-few"], spec.goals["main-repaired-fast"]
     assert (few.per, few.on_stale, fast.on_stale, fast.of.name) == ("item", "off", "off", "main-repair-hours")
-    assert few.hold.value == spec.parameters["flake-hours-most"].value and fast.hold.value == 24
-    assert spec.loop("flakes-few").actuators == ["oldest-flake-fix"]
-    assert spec.loop("main-repaired-fast").through[-1] == "auxiliary.main-repair-hours"
+    assert few.hold.value == spec.parameters["flake-hours-most"].value
+    assert fast.hold.value == spec.parameters["main-repair-hours-most"].value == 24
     parts = yaml.safe_load((ROOT / "dev" / "model" / "guarantees-flakes.yaml").read_text())
     text = (ROOT / "ergostat.yaml").read_text()                      # (the kind as text: YAML 1.1 reads `on:` as true)
     (tmp_path / "ergostat.yaml").write_text("name: f\nitems:" + text[text.index("\n  flake:\n"):
@@ -1409,8 +1412,18 @@ def test_flakes_few_names_the_oldest(tmp_path):
                                         ("flake.main-broken", 90), ("flake.seen", 20)), 1):
         p.events.add(event, item=f"flake/t{n}", data={"test": f"t{n}"}, at=now - hours * 3600)
     p.events.add("flake.fixed", item="flake/t5", at=now - 3600)
+    for event, hours in (("flake.seen", 30), ("flake.main-broken", 20), ("flake.main-fixed", 2)):   # seen, main's, fixed
+        p.events.add(event, item="flake/t6", data={"test": "t6"}, at=now - hours * 3600)
+    p.events.add("flake.fixed", item="flake/t4", at=now - 5 * 3600)          # main-broken to fixed: never seen
     value, breaking, n = worst(p.model.spec, p.model.spec.goals["flakes-few"], None, p.events, now)
     assert [b["item"] for b in breaking] == ["flake/t3", "flake/t1"] and n == 2 and round(value) == 80
+    counted = {}
+    for name in ("flakes-seen", "flakes-fixed"):          # each flow's own sensor, as the model writes it, over it all
+        q = next(iter(spec.flows[name].sensors.values())).items
+        key, state = ("to", q["entering"]) if q.get("entering") else ("from", q["leaving"])
+        counted[name] = len(moves_of(p.events, p.model.spec, "flake", key, state, 0.0, now + 1, q.get("where")))
+    assert counted == {"flakes-seen": 5, "flakes-fixed": 2}                   # t6 left seen once; t4 was never in
+    assert in_states(p.events, p.model.spec, "flake", ["seen"], until=now + 1)[0] == 5 - 2
 
 
 def pools_module():
