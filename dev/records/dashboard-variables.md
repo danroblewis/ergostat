@@ -193,3 +193,43 @@ Run here:
 
 Refused here: `for f in tests/test_dashboard_page.py tests/test_dashboard_layout.py; do uv run python
 scripts/suite_watch.py -- ... $f 2>&1 | tail -2; done`. Each file was then run as its own command, with no pipe.
+
+### Round 5
+
+Built. The review had one finding, and it was blocking: when a parent variable changed, a dependent's earlier choice
+stayed in `DASH.sel` even though the new listing did not offer it. It is fixed. About 419 net lines of code outside
+tests and docs (477 added, 58 removed, measured against main; budget 600).
+
+- `dashboard.js` `dashLoadOptions`: when a variable's newest listing is stored, any chosen value that listing does not
+  offer is dropped. If no chosen value is left, the choice is removed and the variable takes its default again (its
+  first value, or every value when it takes several). Because the dependent's choice is updated before the variables
+  that name it are listed, `$leaf` is listed from the new `$sub`, and its own stale choice is then dropped as well.
+  The call reports whether it dropped anything. `dashSetVar` then writes the address again, and so does the first
+  load, which puts right an address whose `var-sub` its `var-kind` does not offer.
+- Choices taken without asking, the most reversible:
+  - When some of the chosen values are still offered, they are kept (a multi-value choice is cut down, not reset).
+  - A listing that fails offers nothing, so any choice of that variable is dropped (fail closed, lesson 3).
+  - An empty multi-value choice stays empty, as before.
+  - A custom list's choice is not checked against its list. The finding concerned listings only.
+- New test, `tests/test_dashboard_variables_page.py::test_a_dependent_choice_not_in_its_new_listing_is_let_go_when_its_parent_changes`
+  (browser). `$sub` is chosen as `z-2` and `$leaf` as `z-2-2` through the `<select>`s, then `$kind` is set to `b`.
+  The test checks that `$sub` and `$leaf` show and take `b-1` and `b-1-1`, that only `b`'s values are offered, that the
+  address holds neither old value, and that the panel is asked with `{sub: [b-1], leaf: [b-1-1]}`. A second page is
+  then opened with `var-kind=b&var-sub=a-2&var-leaf=a-2-1`. It takes `b-1` and `b-1-1`, its address is put right, and
+  no ask ever carries a `sub` from `a`.
+- Seen to fail when the code it guards was broken:
+  - No dropping in `dashLoadOptions`: the new test failed, because `$leaf` was listed from `z-2` and never from `b-1`.
+  - No address rewrite in `dashSetVar`: the new test failed, because the address kept `var-sub=z-2` and
+    `var-leaf=z-2-2`.
+- SPEC §4e now says that a choice the newest listing does not offer is dropped.
+
+Run here:
+- ruff is clean.
+- Under the watchdog, one file at a time, all with rc 0 and none skipped:
+  - test_dashboard_variables_page: 5 passed.
+  - test_dashboard_page: 35 passed.
+  - test_dashboard_layout: 26 passed.
+- `main` (2f08c24e) is already an ancestor of HEAD, so there was nothing new to merge.
+- Not run: the whole unit suite and the four browser files (the factory's job). No Python or example was touched.
+
+Refused here: the watchdog command with `; echo rc=$?` appended. It was run again without that.

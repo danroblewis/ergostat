@@ -510,9 +510,11 @@ function dashBind(queries, pick) {
 }
 /* each variable's values listed by its query, in order (a query may name the variables before it, and one listed
    again lists again those that name it). Each listing is numbered (DASH.listVer, from one counter never reset) and only
-   a variable's newest is kept, so an earlier listing answering later never overwrites it */
+   a variable's newest is kept, so an earlier listing answering later never overwrites it. A choice the new listing
+   does not offer is let go (all of it gone: the variable takes its default again). Answers whether a choice was let go */
 async function dashLoadOptions(changed = null) {
   const d = DASH.draft, page = DASH.page, moved = new Set(changed ? [changed] : []);
+  let dropped = false;
   for (const [n, raw] of Object.entries(d?.vars || {})) {
     const v = dashVarDef(raw);
     if (v.type !== "query" || (changed && ![...dashUses(v.text)].some((u) => moved.has(u)))) continue;
@@ -524,18 +526,28 @@ async function dashLoadOptions(changed = null) {
       const r = await fetch(`/api/query/values?q=${dashEncode({ source: v.source, text: v.text, since: WINDOWS[S.since], until: S.at || null, vars })}`);
       got = r.ok ? await r.json() : { error: `the values answered ${r.status}` };
     } catch (e) { got = { error: "the server did not answer" }; }
-    if (page !== DASH.page || DASH.draft !== d) return;
+    if (page !== DASH.page || DASH.draft !== d) return false;
     if (DASH.listVer.get(n) !== seq) continue;         // a later listing was asked: it, and its own call, list on
-    DASH.options.set(n, Array.isArray(got?.values) ? got.values.slice(0, DASH_VAR_VALUES) : []);
+    const offered = Array.isArray(got?.values) ? got.values.slice(0, DASH_VAR_VALUES) : [];
+    DASH.options.set(n, offered);
     DASH.varSaid.set(n, got?.error ? String(got.error) : "");
+    const was = DASH.sel.get(n), kept = was?.filter((x) => offered.includes(x));
+    if (was && kept.length !== was.length) {
+      dropped = true;
+      if (kept.length) DASH.sel.set(n, kept); else DASH.sel.delete(n);
+    }
     moved.add(n);
   }
+  return dropped;
 }
 /* a variable set: the address keeps it, and only the panels whose queries then change are asked again */
 async function dashSetVar(name, values) {
+  const page = DASH.page;
   DASH.sel.set(name, values.slice(0, DASH_VAR_VALUES));
   if (parseRoute().path === "/dashboard") replaceRoute(dashAddress(DASH.draft, S.since));
-  await dashLoadOptions(name);
+  if (await dashLoadOptions(name) && page === DASH.page && parseRoute().path === "/dashboard") {
+    replaceRoute(dashAddress(DASH.draft, S.since));    // a dependent's choice let go leaves the address too
+  }
   dashVarsBar();
   dashDraw();
   dashAnnounce(`$${name}: ${values.join(", ") || "nothing chosen"}`);
@@ -1440,8 +1452,9 @@ async function pageDashboard(main, q) {
   DASH.narrow = matchMedia(DASH_NARROW);
   DASH.narrow.addEventListener("change", dashDraw);
   dashHead();
-  await dashLoadOptions();                             // a panel is first asked with its variables' values known
+  const dropped = await dashLoadOptions();             // a panel is first asked with its variables' values known
   if (n !== DASH.page) return;
+  if (dropped) replaceRoute(dashAddress(DASH.kept ? d : null, since));   // an address's choice no longer offered
   dashVarsBar();
   if (!d.panels.length && !d.rows?.length) {
     DASH.grid.append(h("p", { class: "note dash-empty" }, "Nothing is recorded to chart yet. Panels appear here once the model has items or series."));

@@ -1323,6 +1323,9 @@ reads the event log.
   variable not chosen takes its first value, or every value when it takes several. A query variable's text may name
   the variables before it; when one of them changes it is listed again, and so are those that name it in turn. Each
   listing is numbered, and a variable keeps only its newest, so an earlier listing answering later is dropped. A
+  choice its newest listing does not offer is let go, from the choice and the address (when none is left, the
+  variable takes its default again), so a dependent never keeps a value of a parent value no longer chosen; this is
+  also so of an address opened with such a choice, and of a listing that fails (it offers nothing). A
   query's values are asked of
   `GET /api/query/values?q=` (base64url of `{source, text, since, until, vars}`), answered `{"values": [...]}`: at
   most 200, each at most 200 characters, else refused (`error_kind: limit`), and refused to a public reader as any

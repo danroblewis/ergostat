@@ -175,6 +175,61 @@ def test_a_chained_variable_keeps_its_newest_listing_when_an_earlier_one_answers
     ctx.close()
 
 
+CHAIN = {"title": "Chain", "vars": {
+    "kind": {"type": "custom", "values": ["z", "a", "b"]},
+    "sub": {"type": "query", "source": "prom", "text": 'label_values(ergostat_items{kind="$kind"}, sub)'},
+    "leaf": {"type": "query", "source": "prom", "text": 'label_values(ergostat_items{sub="$sub"}, leaf)'}},
+    "panels": [text_panel(1, 'sum(ergostat_items{sub="$sub", leaf="$leaf"})')]}
+
+
+def chained_values(ctx):
+    def values(route):
+        text = route.request.url.split("q=")[1].split("&")[0]
+        asked = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+        by = asked["vars"].get("sub" if "leaf" in asked["text"] else "kind", ["?"])[0]
+        route.fulfill(json={"values": [f"{by}-1", f"{by}-2"]})
+    ctx.route("**/api/query/values?*", values)
+
+
+def test_a_dependent_choice_not_in_its_new_listing_is_let_go_when_its_parent_changes(browser, site):  # noqa: F811
+    """$sub and $leaf are chosen by hand (z-2, z-2-2), then $kind is set to b. Neither old choice is in its new
+    listing, so each is let go: $sub shows and takes b-1, $leaf is listed from b-1 and takes b-1-1, the address keeps
+    neither old value, and the panel is asked with b's values only. An address naming a $sub its $kind does not
+    offer opens the same way, and the address is put right."""
+    ctx = context(browser, 1440, 1000)
+    asks, _ = recorded(ctx)
+    chained_values(ctx)
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded(CHAIN)}")
+    settle(pg, asks, 1)
+    pg.select_option('[data-var="sub"]', "z-2")
+    pg.wait_for_function("() => DASH.options.get('leaf')?.[0] === 'z-2-1'")
+    settle(pg, asks, 2)
+    pg.select_option('[data-var="leaf"]', "z-2-2")
+    settle(pg, asks, 3)
+    assert asks[2][0]["vars"] == {"sub": ["z-2"], "leaf": ["z-2-2"]}
+    assert parse_qs(urlparse(pg.url).query)["var-sub"] == ["z-2"]
+
+    pg.select_option('[data-var="kind"]', "b")
+    pg.wait_for_function("() => DASH.options.get('leaf')?.[0] === 'b-1-1'")
+    settle(pg, asks, 4)
+    assert asks[3][0]["vars"] == {"sub": ["b-1"], "leaf": ["b-1-1"]}
+    assert chosen(pg, "sub") == ["b-1"] and chosen(pg, "leaf") == ["b-1-1"]
+    assert pg.locator('[data-var="sub"] option').all_inner_texts() == ["b-1", "b-2"]
+    assert pg.locator('[data-var="leaf"] option').all_inner_texts() == ["b-1-1", "b-1-2"]
+    address = parse_qs(urlparse(pg.url).query)
+    assert address["var-kind"] == ["b"] and "var-sub" not in address and "var-leaf" not in address
+
+    pg2 = opened_plain(ctx, f"{site}/dashboard?draft={encoded(CHAIN)}&var-kind=b&var-sub=a-2&var-leaf=a-2-1")
+    pg2.wait_for_function("() => !DASH.flights.size && DASH.got")
+    assert chosen(pg2, "sub") == ["b-1"] and chosen(pg2, "leaf") == ["b-1-1"]
+    assert asks[-1][0]["vars"] == {"sub": ["b-1"], "leaf": ["b-1-1"]}
+    address = parse_qs(urlparse(pg2.url).query)
+    assert address["var-kind"] == ["b"] and "var-sub" not in address and "var-leaf" not in address
+    assert all(q["vars"]["sub"][0][0] != "a" for a in asks for q in a)
+    assert pg.errors == [] and pg2.errors == []
+    ctx.close()
+
+
 def test_a_panel_repeated_by_a_variable_follows_its_chosen_values(browser, site):  # noqa: F811
     """Done 3: one panel for each value chosen, each asking with its own value; a value let go takes its panel away and
     asks nothing; a value chosen adds its panel, asked alone; the panels kept are not asked again."""
