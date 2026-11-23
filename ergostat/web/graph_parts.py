@@ -4,10 +4,12 @@
 - **Drawable.** The items of the kinds asked (``asked`` on the answer's kinds), what they wait on through a
   precedence relation however far back, and the parents of those. An item the answer holds only because a relation
   of another kind names it (a review of a gap) is not drawable. With no kind marked asked, every item is.
-- **Parts.** The drawable items joined by precedence and parent links, as connected components (union-find). Each
-  drawable item's ``part`` is its component's rank: those holding active work first, then queued, unblocked, and so
-  on (the Graph's status order), then the earliest start, then the least id. A Graph past its bound keeps whole
-  parts in that order, so the cut never separates a dependency it draws."""
+- **Parts.** The drawable items joined by precedence links, as connected components (union-find). A parent link
+  joins nothing (an epic over unrelated work would make one part of it all): a parent is in its own part, or in its
+  own dependencies'. Each drawable item's ``part`` is its component's rank: those holding active work first, then
+  queued, unblocked, and so on (the Graph's status order), then the earliest start, then the least id. A Graph past
+  its bound keeps whole parts in that order, each with its parents, and cuts inside only the first part that does
+  not fit whole, its items by status; the Graph's note counts each line that cut leaves out."""
 
 from __future__ import annotations
 
@@ -43,8 +45,7 @@ def mark(ans: dict) -> dict:
             a = up[a]
         return a
     for a in seen:
-        links = [p for p in preds.get(a, []) if p in seen] + ([by[a]["group"]] if by[a].get("group") in seen else [])
-        for b in links:
+        for b in [p for p in preds.get(a, []) if p in seen]:      # precedence only: a parent joins nothing
             ra, rb = root(a), root(b)
             if ra != rb:
                 up[max(ra, rb)] = min(ra, rb)

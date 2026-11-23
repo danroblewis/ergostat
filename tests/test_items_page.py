@@ -716,9 +716,11 @@ RG_MODEL = """([d, o]) => { const m = rgModel(d, o);
 
 def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadmap):
     """The page's own rgModel on an answer of the factory's shape (tests/test_graph_parts.py): every unfinished gap
-    and every line into one drawn, no review; past the bound, whole groups, and every line left out counted."""
+    and every line into one drawn, no review; past the bound (a chained record, one group bigger than the bound, an
+    epic over more than the bound), exactly what the unit tests' rule draws, and every line left out counted."""
     from ergostat.web import graph_parts
-    from tests.test_graph_parts import factory_answer
+    from tests.test_graph_parts import drawn as rule
+    from tests.test_graph_parts import epic_answer, factory_answer, fan_answer, unreported
     pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
     ans = graph_parts.mark(factory_answer())
     by = {x["id"]: x for x in ans["items"]}
@@ -732,14 +734,13 @@ def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadma
     got = pg.evaluate(RG_MODEL, [ans, {**o, "collapse": True}])                  # the finished collapsed: theirs go
     assert set(got["nodes"]) == unfinished
     assert {tuple(e) for e in got["edges"]} == {(a, b) for a, b in into if a in unfinished}
-    big = graph_parts.mark(factory_answer(n_open=1200, seed=11))                # past the bound
-    got = pg.evaluate(RG_MODEL, [big, o])
-    keep = set(got["nodes"])
-    preds = [(e["from"], e["to"]) for e in big["edges"] if e["kind"] == "precedence"]
-    assert got["capped"] > 600 >= len(keep) > 0
-    assert all((a in keep) == (b in keep) for a, b in preds)                    # no line cut in half
-    assert got["lost"] == sum(1 for a, b in preds if b not in keep) > 0         # each left out, counted
-    assert {f"gap/o{i}" for i in range(15)} <= keep                             # the groups with active work, first
+    for big in (factory_answer(n_open=1200, seed=11), fan_answer(), epic_answer()):   # past the bound
+        big = graph_parts.mark(big)
+        got = pg.evaluate(RG_MODEL, [big, o])
+        scope, keep, lost = rule(big)                                        # the rule, as the unit tests hold it
+        assert got["capped"] == len(scope) > 600 and set(got["nodes"]) == keep and got["lost"] == lost
+        assert unreported(big, scope, keep, got["lost"]) == 0                   # each line left out, counted
+        assert not any(a.startswith("gap/p") for a in keep)                     # never paused work before active
     assert not errors, errors
     pg.close()
 

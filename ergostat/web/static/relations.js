@@ -15,7 +15,8 @@
 
    Both are kept across refreshes: drawn again only when what they show changed, in place, with the reader's pan
    and zoom kept. Bounded: RG.NODES cards, RG.BARS rows; a note says when that was reached. The Graph draws the kinds
-   asked, what they wait on and their parents; past its bound it keeps whole connected groups, never half a chain. */
+   asked, what they wait on and their parents; past its bound it keeps whole connected groups, and cuts inside only the
+   first that does not fit (its items by status), counting the lines it leaves out. */
 "use strict";
 
 const RG = { W: 210, H: 46, HUB_W: 190, HUB_H: 40, NODES: 600, BARS: 200, ROW: 24, BAR: 12, LABEL: 250, AXIS: 26 };
@@ -68,14 +69,21 @@ function rgModel(d, o) {
   const every = [...scope].filter((id) => !collapsed.has(id));
   let ids = every;
   const capped = every.length > RG.NODES ? every.length : 0;
-  if (capped) {               // past the bound: whole connected groups (each item's part, graph_parts.py), in their order
-    const part = (id) => byId[id].part ?? id, size = new Map();
-    for (const id of every) size.set(part(id), (size.get(part(id)) || 0) + 1);
-    const keep = new Set();
+  if (capped) {   // past the bound: whole connected groups (each item's part, graph_parts.py) in their order, each with
+    // its parents; the first group that does not fit whole is cut inside, its items by status, and the rest left out
+    const part = (id) => byId[id].part ?? id, groups = new Map(), ev = new Set(every), keep = new Set();
+    for (const id of every) { const g = groups.get(part(id)); if (g) g.push(id); else groups.set(part(id), [id]); }    const up = (id) => { const out = []; for (let a = id; a && ev.has(a) && !keep.has(a) && !out.includes(a); a = byId[a].group) out.push(a); return out; };
+    const rank = (x) => [RG_STATUS.includes(x.status) ? RG_STATUS.indexOf(x.status) : RG_STATUS.length, x.es || x.first || 0];
+    const byStatus = (a, b) => { const p = rank(byId[a]), q = rank(byId[b]); return p[0] - q[0] || p[1] - q[1] || (a < b ? -1 : 1); };
+    const num = (p) => (typeof p === "number" ? p : Infinity);
     let room = RG.NODES;
-    for (const p of [...size.keys()].sort((a, b) => (typeof a === "number" ? a : Infinity) - (typeof b === "number" ? b : Infinity)))
-      if (size.get(p) <= room) { keep.add(p); room -= size.get(p); }
-    ids = every.filter((id) => keep.has(part(id)));
+    for (const p of [...groups.keys()].sort((a, b) => num(a) - num(b))) {
+      const need = new Set(groups.get(p).flatMap(up));
+      if (need.size <= room) { need.forEach((a) => keep.add(a)); room -= need.size; continue; }
+      for (const id of groups.get(p).sort(byStatus)) { const n = up(id); if (n.length <= room) { n.forEach((a) => keep.add(a)); room -= n.length; } }
+      break;
+    }
+    ids = every.filter((id) => keep.has(id));
   }
   const drawn = new Set(ids);
   const crit = new Set(d.edges.filter((e) => e.critical).map((e) => e.from + "\n" + e.to));
@@ -229,7 +237,7 @@ function relGraph(open) {
     if (!view.moved) fit(); else apply();
     const left = m.capped - m.nodes.length;
     setText(note, m.capped ? `${m.nodes.length} of ${m.capped} items drawn: ${left} item${left === 1 ? "" : "s"} and ${m.lost} dependency line${m.lost === 1 ? "" : "s"} not drawn `
-      + `(whole connected groups left out, those with active or unblocked work kept first). Narrow it with the search, or choose a kind.` : "");
+      + `(connected groups kept whole, those with active or unblocked work first; only the first that does not fit is cut, by status). Narrow it with the search, or choose a kind.` : "");
     el.dataset.drawn = String(mine);
   };
   return el;

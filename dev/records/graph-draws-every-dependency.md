@@ -87,3 +87,39 @@ Round 2 (after the Docker restart that parked round 1; no review findings to ans
 - **Run here.** Ruff is clean. `tests/test_graph_parts.py`, `test_relations.py` and `test_graph_cli_web.py` pass (73). In `tests/test_items_page.py` under the watchdog, 28 of 29 pass, `test_the_graph_draws_every_dependency_of_the_unfinished_work` included, with no test skipped (rc 1, peak 271 threads).
 - The same one fails as in round 1: `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out in `wait_for_function` on the header's project switcher, which reads the projects under `ERGOSTAT_HOME` through `/api/status`. This branch touches neither. I could not run it on main: `git worktree add --detach /tmp/mainwt main` was refused in this session. Under lesson 13 it is reported here, not fixed.
 - Not run here: the whole unit suite, the other three browser files, `demo_check` (no example was touched), and the real factory record. ELK's layout time at 600 cards is still not measured.
+
+## Where it stopped
+
+Round 3, answering the round-2 review's one finding (a group bigger than the bound dropped whole, active work and all; groups joined over parent links; no test of a group bigger than 600). About 98 net lines of code on main in all (`graph_parts.py`, `relations_api.py`, `relations.js`), inside the 600-line budget.
+
+- **Groups join over precedence links only** (`graph_parts.mark`). A parent link joins nothing: a parent is in its own group, or in its own dependencies' group. It is still drawable, as before.
+- **The cut** (`rgModel`). Past `RG.NODES` (600) it walks the groups in rank order:
+  - Each group that fits whole is kept, together with its items' parents that are not yet drawn, and those parents count against the room.
+  - The first group that does not fit whole is cut inside it. Its items are taken by status, then earliest start, then id, each with its parents, while they fit. The groups after it are left out.
+  - So 600 active tickets under one epic, plus 3 paused tickets, draws the epic and 599 tickets, and none of the paused ones. A group of 701 draws its 600 most active.
+  - The note now says groups are kept whole and only the first that does not fit is cut, by status.
+- **What this gives up from the definition, said plainly.** The definition says "the cut never separates a dependency". The review asked for a cut inside a group that does not fit, and I followed the review. So two things can now leave a line half drawn:
+  - the one group cut inside;
+  - a parent drawn for its child while the parent's own group is left out.
+
+  Every such line is counted in the note's "dependency lines not drawn". SPEC (§5a, *Relations*) now says this, not "no line is cut in half". The choice is easy to undo: it is the two lines after `need` in `rgModel`.
+- **Left as it was.** Groups are still worked out over every drawable item, finished ones included, whatever Frontier and Collapse are set to. So with Collapse on, two chains joined only through a hidden finished item count as one group. Since a group too big no longer drops its active work, the cost is only a coarser cut.
+- **Tests.**
+  - In `tests/test_graph_parts.py`, the Python mirror `drawn()` follows the new rule.
+  - New: `test_a_group_bigger_than_the_bound_is_cut_by_status_not_dropped`. One group of 701 with a paused root is drawn as its 600 most active items, none of the 3 paused gaps, and all 700 lines counted lost.
+  - New: `test_an_epic_over_more_than_the_bound_draws_its_active_work`. 604 parts, so the parent joins nothing. The paused epic is drawn with 599 active children, and no paused gap.
+  - Changed: the 1,200-gap cut test. At most one group is cut, the other lines are whole, every line not drawn is counted, and the groups left out rank below every kept one.
+  - Changed: the two `part` tests, since parents are now their own part.
+  - The browser test now checks the page's own `rgModel` against `drawn()` on all three answers past the bound: the same items drawn, the same `lost`, and no line unreported.
+- **Each break seen to fail** (lesson 9), then restored:
+  - the in-group cut removed (the old drop-whole rule): the browser test fails;
+  - parent links joined again in `mark`: 3 unit tests fail;
+  - parents not pulled in with their children: the browser test fails on the epic answer;
+  - `lost` not counting a drawn item's undrawn dependency: the browser test fails on the fan answer. Before the fan's root was made paused, this break passed, which is why the root is paused.
+- **Run here.**
+  - Ruff is clean.
+  - `tests/test_graph_parts.py`, `test_relations.py` and `test_graph_cli_web.py` pass (75).
+  - In `tests/test_items_page.py` under the watchdog: 28 of 29 pass, none skipped (rc 1, peak 274 threads).
+  - One fails: `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, the same as in rounds 1 and 2. It times out in `wait_for_function` on the header's project switcher. Run alone it fails the same way. This branch does not touch the header or `/api/status` (lesson 13).
+  - `sed -i` on `relations.js` was refused in this session. The same edits were made with the editor instead.
+- **Not run here:** the whole unit suite, the other three browser files, `demo_check` (no example touched), the real factory record, and ELK's layout time at 600 cards. `main` is the base as of the clone, already merged.

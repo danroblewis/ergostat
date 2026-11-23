@@ -1602,8 +1602,11 @@ the window, 400 more reached by relations (six links away at most), 600 cards an
 any was reached. Both draw the items of the kinds asked; another kind's item only when one of them waits on it
 (a precedence relation, however far back) or as the parent of one drawn, so a record that only names an item (a
 review of a gap) is in the answer, for the counts, but not drawn. Past its 600 cards the Graph keeps whole connected
-groups (precedence and parent links; `web/graph_parts.py`), those holding active, then queued, then unblocked work
-first, so no dependency line is cut in half; its note says how many items and dependency lines are not drawn. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
+groups (precedence links only; `web/graph_parts.py`), each with its parents, in order of the best status each holds
+(active, then queued, then unblocked, …); the first group that does not fit whole is cut inside, its most active
+items kept, and the groups after it are left out. Only that cut, and a parent drawn for its child while its own
+group is left out, can leave a dependency line half drawn; its note says how many items and dependency lines are
+not drawn, those included. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
 is read by id and its own status counts (one that cannot be read counts as unfinished, and is named). In a snapshot
 they are not drawn.
 
