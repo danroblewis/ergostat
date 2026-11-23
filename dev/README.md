@@ -225,7 +225,7 @@ reads the item again under `run/flakes.lock` and records at once (`ergostat even
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
 the gaps and times said, `main_fixed_at`, `fixed_by` and `green_passes` removed). An item it cannot read is written as
-said, the failure on stderr.
+said, the failure on stderr. A flake is said fixed by hand with `manage.py flake-fixed TEST --why W` (below).
 
 ## The backlog: ranked, groomed
 
@@ -568,8 +568,8 @@ it.) After each unit run (and each triage rerun) the quarantined tests run once 
 implementor: `[suites] alone`; triage: `rerun`), never blocking. Each result is said on `flake/<test>`
 (`flake.measured`: `quarantined`, `last_run`, `last_run_log`), read from that run's whole log: `pass` only on the
 test's own PASSED line with no FAILED or ERROR line, `fail` on either, `unknown` otherwise (skipped, not collected, a
-run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
-released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
+run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is
+released at the next such run: one `flake.released` (`quarantined: false`, `released_at`), not a measurement. When a queue failure names only quarantined tests, triage
 sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
 a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.
 
@@ -760,6 +760,12 @@ ergostat event --add intervention.recorded --item intervention/2026-11-20-unstic
 ergostat event --add intervention.remedied --item intervention/2026-11-20-unstick-alpha --data '{"remedy": "gap/..."}'
 ```
 
+A flake that cannot pass again (its test deleted or renamed) would stay `seen` or `main-broken`, and every goal on those
+stocks with it. Say it is fixed:
+`python3 dev/bin/manage.py flake-fixed tests/test_x.py::test_y --why "renamed to test_z"`. That writes `flake.fixed`
+(`fixed_by`: you, `why`) under `run/flakes.lock` and records the intervention (`flake-fixed`, class `flake`). It
+refuses a test with no flake item, or one that is already `fixed`.
+
 ## The pipeline manager
 
 What the coordinator did by hand and recorded as interventions (a gap parked on main's own failures continued, a gap
@@ -804,7 +810,7 @@ situation's id ends in a random suffix, so two raised in one second are two item
 **The tools** (`dev/bin/manage.py`, at most `most_actions` (8, held to 1..12) calls a session, each through its own checks). Directly:
 `continue GAP`, `reapprove GAP --why` (the failed tests run again on main where they failed, the checkout for the
 queue's or a container for the fast suites', browser tests with Playwright (`rerun`, a skip not a pass), and must fail
-there too), `flake TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
+there too), `flake TEST`, `flake-fixed TEST`, `file-gap`, `remedy INTERVENTION` (a queue one only once main is clean and pushed), `propose`, `ask`. Asked
 in the inbox: `close GAP`, `park GAP`, `pool ROLE N`, `change --what` (dev/model, the settings, anything touching
 origin). Every call is an `intervention.recorded` with a class and `by: pipeline-manager`. By hand, as the coordinator:
 `python3 dev/bin/manage.py continue gap/NAME --why ...`. Pause it with `[manager] open = 0` in `factory.local.toml`.

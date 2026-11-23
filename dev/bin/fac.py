@@ -660,11 +660,12 @@ def counts(text: str) -> dict[str, int] | None:
 def beside(tests: list[str], log: Path, run) -> dict[str, str]:
     """The quarantined ``tests`` run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each
     result said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown. A
-    flake item still marked quarantined whose test is no longer listed is marked released (`quarantined: false`)."""
+    flake item still marked quarantined whose test is no longer listed is released: one flake.released
+    (`quarantined: false`, `released_at`), so the record tells a release from a measurement."""
     try:
         for it in items("flake"):
             if it["fields"].get("quarantined") and it["fields"].get("test") not in tests:
-                say("flake.measured", it["id"], quarantined=False)
+                say("flake.released", it["id"], quarantined=False, released_at=time.time())
     except Exception:  # noqa: BLE001 - a record that cannot be read leaves the marks as they were, never the suite
         pass
     if not tests:
