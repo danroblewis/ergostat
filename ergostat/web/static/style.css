@@ -729,7 +729,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .bar { gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3) 0; }
   #when { margin-left: auto; }
   .where { flex-wrap: wrap; column-gap: var(--sp-2); }
-  .where .waits { order: -1; flex: 1 0 100%; }          /* what waits for the reader: first, on a line of its own */
+  .where .waits-said:has(.waits:not([hidden])) { order: -1; flex: 1 0 100%; }   /* what waits for the reader: first, on a line of its own */
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
   .canvas-wrap { display: flex; flex-direction: column; }
