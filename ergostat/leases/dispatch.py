@@ -24,7 +24,10 @@
   Just before it writes the expiry, it reads the lease again from the record, and writes nothing when it was renewed
   past the expiry it judged. The expiry names the ``expires`` it judged, so a renewal recorded in the moment between
   that read and the write still wins (the fold refuses it); what reads expiries raw leaves those out
-  (``fold.refused_expiries``)."""
+  (``fold.refused_expiries``).
+- **Runs their keepers hold** (``runs: outlive_engine``, SPEC §9.1): as ergostat stops, their leases are not given
+  back (``keeping``); a run taken up by the next engine (``adopt``, ``spec/adopt.py``) has its lease renewed as it is
+  taken up and, while its keeper says it lives, by the watchdog instead of expired."""
 
 from __future__ import annotations
 

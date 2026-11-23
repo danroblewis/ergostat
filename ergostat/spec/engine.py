@@ -1868,7 +1868,8 @@ class Engine:
             self.say(f"budget: recovery: {type(e).__name__}: {e}")
         from ..control import steptest
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
-        self._listen()
+        self.adopted = adopt.scan(self)                          # runs the engine before left going: taken up, their
+        self._listen()                                           # leases kept, before any run starts or lease is looked at
         self.daemons.sync(self.spec)                             # (after the socket: its path is in their environment)
         self.looping = True                                      # readings go to the loop from now (no thread each)
         threading.Thread(target=self._schedule, name="ergostat-loop", daemon=True).start()
@@ -1876,8 +1877,7 @@ class Engine:
         self.following = True                                    # it runs the actions programs ask for (SPEC §12k)
         if lead:
             threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
-        self.adopted = adopt.scan(self)                          # runs left going by the engine before: taken up, their
-        self.dispatch.holding = True                             # leases kept (before any look); the rest watched at once
+        self.dispatch.holding = True                             # leases held when it last stopped are watched at once
         threading.Thread(target=self.dispatch.run, daemon=True).start()   # blocks that take items, their leases (SPEC §9.5)
         threading.Thread(target=self._record_follow, name="ergostat-record", daemon=True).start()
         self._ingest()

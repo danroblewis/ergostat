@@ -37,11 +37,18 @@ items:
     id: ticket/*
     states: [ready, done]
     on: {ticket.done: done}
+stocks:
+  handled:
+    unit: tickets
+flows:
+  did:
+    to: handled
 blocks:
   worker:
     type: program
     run: RUN
     takes: {kind: ticket, at: ready}
+    out: flow.did
 """
 
 # Three lines, each after its go file (``go1``, ``go2``), the last moving the item on; a line that is not JSON too.
@@ -59,6 +66,8 @@ say({"event": "ticket.noted", "data": {"n": 1}})
 until(sys.argv[1] + "1")
 say({"event": "ticket.noted", "data": {"n": 2}})
 print("plain words", flush=True)
+say({"out": "flow.did", "moved": 1})
+say({"event": "Not A Type", "item": "elsewhere"})
 until(sys.argv[1] + "2")
 say({"event": "ticket.noted", "data": {"n": 3}})
 say({"event": "ticket.done"})
@@ -175,9 +184,12 @@ def ended_once(p, run: str) -> dict:
     """Each line once, one end, the item moved on and its lease acked with no attempt counted, its files gone."""
     assert noted(p) == [1, 2, 3], "every line in the record exactly once"
     assert len(p.events.query(n=None, type="ticket.done")) == 1
+    assert len(p.events.query(n=None, type="valve.opened")) == 1, "its valve opening once"
+    assert len(p.events.query(n=None, type="agent.refused")) == 1, "its refused line once"
     got = ends(p)
     assert len(got) == 1 and got[0]["type"] == "agent.ran" and got[0]["causedby"] == run, got
     assert got[0]["data"]["exit"] == 0 and "note" not in got[0]["data"] and got[0]["data"]["events"] == 4
+    assert got[0]["data"]["moved"] == {"did": 1} and got[0]["data"]["openings"] == 1 and got[0]["data"]["refused"] == 1
     it = item(p)
     assert it.state == "done" and it.fields["lease"]["holder"] is None and it.fields["lease"]["attempts"] == 0
     assert [x["data"]["how"] for x in lease_ends(p)] == ["ack"], "its lease ended once, an ack"
@@ -325,9 +337,54 @@ def test_a_run_whose_lease_was_taken_over_cannot_move_the_item(tmp_path, keepers
     it = item(p)
     assert it.state == "leased" and it.fields["lease"]["holder"] == "other" and it.fields["lease"]["fence"] == 2
     refused = p.events.query(n=None, type="agent.refused", item="worker")
-    assert len(refused) == 3 and all("fencing" in x["data"]["why"] for x in refused), refused
+    assert len(refused) == 4 and sum("fencing" in x["data"]["why"] for x in refused) == 3, refused
     assert not [x for x in p.events.query(n=None, type=RENEWED) if x["data"]["run"] == run]
     assert not lease_ends(p) and len(ends(p)) == 1
+
+
+def test_a_run_taken_up_is_stopped_by_its_block_s_stop(tmp_path, keepers):
+    """``ergostat block NAME --stop`` reaches a run taken up (it is the engine's own now): its whole group stopped,
+    recorded as the owner's stop, its lease given back uncounted."""
+    p = project(tmp_path)
+    keepers(p)
+    _, run = left_by_a_stop(p, tmp_path)
+    e, threads = take_up(p)
+    pid = e.live[run].pid
+    assert e.stop_run("worker")
+    joined(threads)
+    assert wait_for(lambda: runrecord.start_time(pid) is None, 5), "the run outlived its stop"
+    got = ends(p)
+    assert len(got) == 1 and got[0]["type"] == "agent.ran" and got[0]["data"]["note"] == "stopped as the owner asked"
+    assert [(x["data"]["how"], x["data"].get("count")) for x in lease_ends(p)] == [("nack", False)]
+
+
+def test_a_lease_its_keeper_holds_is_never_given_back_as_the_engine_stops(tmp_path, monkeypatch):
+    """However late the run's own thread is to say it was left going, ``give_back`` passes a run its keeper holds."""
+    p = project(tmp_path)
+    e = Engine(p, say=lambda s: None)
+    b, given = e.spec.blocks["worker"], []
+    monkeypatch.setattr(e.dispatch, "finish", lambda *a, **k: given.append(a[3]))
+    e.dispatch.mine.update({"kept": (b, "ticket/1", 1), "plain": (b, "ticket/2", 1)})
+    e.dispatch.keeping.add("kept")
+    e.dispatch.give_back()
+    assert given == ["plain"]
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "segments"])
+def test_a_journal_line_s_events_are_kept_once_in_either_record(tmp_path, backend):
+    """The ids a line's events are given (``store.line_id``): the same for the same line read again, so either kind
+    of record keeps one; outside a line, a fresh id each time."""
+    from ergostat import segments, store
+    ev = store.Events(tmp_path) if backend == "sqlite" else segments.Segments(tmp_path)
+    for _ in range(2):
+        token = store.LINE.set(["run:120", 0])
+        try:
+            ev.add("thing.said", source="w")
+            ev.add("thing.also", source="w")
+        finally:
+            store.LINE.reset(token)
+    ev.add("thing.said", source="w")
+    assert sorted(e["type"] for e in ev.query(n=None)) == ["thing.also", "thing.said", "thing.said"]
 
 
 @pytest.mark.slow
