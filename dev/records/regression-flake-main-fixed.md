@@ -147,5 +147,15 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   tests/test_factory_manager.py (34), and the switcher test. Ruff (`ergostat tests scripts`, dev/bin/fac.py,
   dev/bin/mend.py) is clean. Not run: tests/test_factory.py whole, or under `-n 8`. The test's 120 s wait under load
   is still main's cost. This shortens it but does not prove it fits under every load.
+- Round 6, answering the one finding (mend.py `remember` ran only after every suite run, so a run killed by its
+  timeout or lease, e.g. by a hanging test, wrote no try, and the same items held the front for ever). `main()` now
+  calls `remember(cfg, picked, broken, set())` right after the pick, before the fetch, the wait and any suite, and
+  again at the end, less the items fixed. A run stopped anywhere after the pick has tried what it picked (lesson-3:
+  an interrupted run counts as a try, so it gives up its place; it can never clear an item). New test
+  `test_a_main_mend_run_killed_after_the_pick_still_counts_its_items_tried` (a seventh): with mend_most 2, the first
+  run's suite raises SystemExit(143) (what fac.stop_on_term's SIGTERM handler does), and the next run takes the
+  untried item behind first and clears it. Seen to fail with the early `remember` taken out. Passed: all seven
+  main-mend tests. Ruff (`ergostat tests scripts`, dev/bin/mend.py) is clean. Not run: tests/test_factory.py whole
+  (about 943 s serially; the build step runs it).
 
-Overrun reason: 200 net lines against 150 (168 in mend.py, 24 in landing.yaml, 3 in fac.py, 5 elsewhere); the stock, flow and parameter the block's in/out must name (about 10), the round-5 rotation of the pick (tried.json, about 37, asked by review) and fac.items' one listing (3, asked by the build) were not in the definition's estimate.
+Overrun reason: 202 net lines against 150 (170 in mend.py, 24 in landing.yaml, 3 in fac.py, 5 elsewhere); the stock, flow and parameter the block's in/out must name (about 10), the round-5 rotation of the pick (tried.json, about 37, asked by review), its round-6 write before the suites run (2, asked by review) and fac.items' one listing (3, asked by the build) were not in the definition's estimate.

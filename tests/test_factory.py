@@ -859,6 +859,27 @@ def test_main_mend_items_left_unknown_give_up_their_place(tmp_path, monkeypatch)
     assert mend.main() == 0 and ran[-1][1] == (bad[0], bad[1])     # (tried last run, but untried since this break)
 
 
+def test_a_main_mend_run_killed_after_the_pick_still_counts_its_items_tried(tmp_path, monkeypatch):
+    """lesson-3: a run stopped in its suite (a hanging test past the block's timeout or lease: SIGTERM is
+    sys.exit(143)) has tried what it picked, so the next run takes the untried item behind them and clears it."""
+    hang, new = ["tests/test_a.py::test_0", "tests/test_a.py::test_1"], "tests/test_a.py::test_2"
+    says = {**{t: ["FAILED"] * 4 for t in hang}, new: ["PASSED"] * 4}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, most=2)
+    for n, t in enumerate([*hang, new]):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0 + n)
+    played = mend.fac.suite
+
+    def killed(cfg, name, cwd, log, box="", tests=(), **_):
+        ran.append((name, tuple(t for t in tests if t != "-rA"), box))
+        raise SystemExit(143)
+    monkeypatch.setattr(mend.fac, "suite", killed)
+    with pytest.raises(SystemExit):
+        mend.main()
+    assert ran == [("alone", tuple(hang), "mend")]
+    monkeypatch.setattr(mend.fac, "suite", played)
+    assert mend.main() == 0 and ran[-1][1][0] == new and flake_now(flakes, new)["state"] == "fixed"
+
+
 def test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed():
     spec, problems = read(ROOT / "ergostat.yaml")
     assert not [p for p in problems if p.level == "error"]

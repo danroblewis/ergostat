@@ -77,7 +77,8 @@ def oldest(cfg: dict) -> list[dict]:
 
 def remember(cfg: dict, picked: list[dict], broken: set[str], fixed: set[str]) -> None:
     """This run's try of each picked item not fixed; kept only for items main-broken now (main-mend runs one at a
-    time, pool 1 and a lease, so nothing else writes the file)."""
+    time, pool 1 and a lease, so nothing else writes the file). Written on the pick, before anything runs, so a run
+    killed by its timeout or lease (a hanging test) still counts as a try, and again at the end, less the fixed."""
     was = {**tried(cfg), **{i["id"]: [time.time(), broke(i)] for i in picked}}
     f = fac.run_dir(cfg, "mend") / "tried.json"
     f.with_suffix(".tmp").write_text(json.dumps({k: v for k, v in was.items() if k in broken and k not in fixed}))
@@ -147,6 +148,7 @@ def main() -> int:
     if not picked:
         print("main-mend: no main-broken test", file=sys.stderr)
         return 0
+    remember(cfg, picked, broken, set())                # (first: a run killed past here has tried these)
     repo, sha = fac.path(cfg, "checkout"), pushed(cfg)
     fac.wait_quiet(cfg)
     held = set(fac.quarantine(repo, sha))
