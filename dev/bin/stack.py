@@ -4,8 +4,8 @@ A gap with `stacked_on` (implement.py), approved or built, is stale when a base 
 reviewed head or has landed; `stack.py stale` counts them (the sensor stale-stacks). `stack.py` is one pass under the
 queue's lock (only if free), the stale gaps bottom-up: leased, building, in-review and fix ones never touched, each moved
 base's head merged in `--no-ff` in a scratch clone of the drop, the drop's branch moved from the tip read only; a
-conflict aborted and the gap sent back to fix, uncounted. A `stacked_on` that cannot be read counts as stale and is
-never moved (lesson-3). dev/README.md, Stacked gaps, says the rest."""
+conflict aborted and the gap sent back to fix, uncounted; its refs/stack/ base moved with it (restack). A
+`stacked_on` that cannot be read counts as stale and is never moved (lesson-3). dev/README.md, Stacked gaps, says the rest."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ import sys
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
+import implement  # noqa: E402
 
 MOVES = ("approved", "built")   # merged forward; leased, building, in-review never; fix: its next round does it
 LANDED = ("merged", "closed")
@@ -82,6 +83,17 @@ def merged(cfg: dict, g: dict, tip: str, bases: list[dict]) -> tuple[str, list[s
         shutil.rmtree(home, ignore_errors=True)
 
 
+def restack(cfg: dict, g: dict, new: list[dict]) -> tuple[list[dict], str]:
+    """For a built ``g`` (its review to come), the base its reviewer judges it against (refs/stack/factory/<branch>,
+    implement.stack) moved first: the moved bases merged into it, and that base merged into ``g`` in their place, so it
+    stays below the head and the review diff and net lines stay its own: (what to merge into ``g``, the old base).
+    Missing, or in conflict: the bases merged as they are, and the reviewer fails closed (review.stacked_base)."""
+    at = fac.git(agents.drop(cfg), "rev-parse", "--verify", "-q", f"refs/stack/{fac.git_branch(fac.branch_of(g))}",
+                 check=False)
+    to = implement.stack(cfg, fac.branch_of(g), at, new)[0] if g["state"] == "built" and SHA.fullmatch(at) else ""
+    return ([{"gap": ", ".join(e["gap"] for e in new), "sha": to}] if to else new), at if to else ""
+
+
 def one(cfg: dict, gaps: dict, g: dict) -> str:
     """``g`` merged forward (when stale and in MOVES); what was done."""
     f, want = g["fields"], wanted(g, gaps)
@@ -92,7 +104,13 @@ def one(cfg: dict, gaps: dict, g: dict) -> str:
     if not SHA.fullmatch(tip) or g["state"] == "approved" and tip != f.get("reviewed_head"):
         return f"its branch ({tip[:12] or 'none'}) is not its reviewed head: left"
     new = [e for e in want if not fac.git_ok(d, "merge-base", "--is-ancestor", e["sha"], tip)]
-    head, clash = merged(cfg, g, tip, new) if new else (tip, [])
+    into, was = restack(cfg, g, new) if new else ([], "")
+    try:
+        head, clash = merged(cfg, g, tip, into) if new else (tip, [])
+    except RuntimeError:                             # (the branch left as it was: so is its base)
+        if was:
+            fac.git(d, "update-ref", f"refs/stack/{ref}", was)
+        raise
     if clash:
         fac.say("gap.sent-back", g["id"], sent_back_by="stack-forward", stack_conflict=clash, findings=[
             f"merging its base {', '.join(e['gap'] for e in new)} forward conflicts in: {', '.join(clash)}"])

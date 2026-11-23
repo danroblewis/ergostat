@@ -50,3 +50,23 @@ reviewed already.
 Size: 0 net lines of core code (fac.net_lines). Counting dev/bin, dev/model and ergostat.yaml, 40 net lines
 (deps.py 11, review.py 22, building.yaml 5, ergostat.yaml 2), under the 60-line budget. dev/README.md adds 20 lines of
 prose on top of that.
+
+### Round 2
+
+The known limit above is fixed, as round 1's review asked: it is no longer a limit. When stack-forward
+(dev/bin/stack.py `restack`) moves a *built* stacked gap, it first merges the moved bases into
+refs/stack/factory/<branch> (implement.stack, over the old ref), then merges that ref into the gap in their place. The
+ref stays an ancestor of the head, and `ref...HEAD` holds only the gap's own commits. If the merge forward is refused,
+the old ref is put back. Approved descendants are merged as before, since their review is done. review.py
+`stacked_base` also fails closed: when the ref does not hold every `stacked_on` sha, that is a blocking finding and the
+gap is judged against main. The round-1 test grew two cases (base approved again with 30 new lines, stack.py, review:
+net lines 2, base2.py not in the diff; ref left stale: "does not hold them all"). Each case was seen to fail with its
+code switched off (net lines 32 without the check). dev/README.md and review.py's docstring now say how the ref moves.
+
+dev/bin/stack.py is not in Files to touch. The finding names it as the cause (stack.py:102), and it is the program
+that moves the head, so the ref moves there too. The other way, rebuilding the ref inside the reviewer, would have
+the reviewer write to the drop.
+
+Size: still 0 net lines of core code. Counting dev/bin, dev/model and ergostat.yaml, 62 net lines (deps.py 11,
+review.py 26, stack.py 18, building.yaml 5, ergostat.yaml 2).
+Overrun reason: counted with dev/bin, the round-2 fix for the review's blocking finding (stack.py restack and the fail-closed check in review.py, 22 lines) brings 40 to 62, 2 over 60; the size gate's own count (outside tests/, docs/ and dev/) is 0.

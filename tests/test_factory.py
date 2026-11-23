@@ -5607,6 +5607,34 @@ def test_a_stacked_gap_is_reviewed_against_its_base(tmp_path):
     assert g.item(rid)["fields"]["net_lines"] == 52                # the worst case: its base's 50 lines counted too
     assert any(x.startswith("size: 52 net lines") for x in found), (g.item(rid)["fields"], found)
 
+    h = Factory(tmp_path / "three")                 # its base approved again and merged forward while it is built: the
+    gid = built(h)                                  # base it is judged against moves with it, so its diff stays its own
+    drop, before = h.tmp / "live" / "drop.git", git(h.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
+    new = commit_on(h, "beta-base", {"base2.py": "".join(f"y{i} = {i}\n" for i in range(30))})
+    said, _ = h.run("stack.py")
+    assert said == ["gap.measured"] and h.item(gid)["state"] == "built" and holds(drop, new, h.item(gid)["fields"]["head"])
+    ref = git(drop, "rev-parse", "refs/stack/factory/alpha-thing")
+    assert ref != before and parents(h, ref) == [before, new]              # its base moved first, by the base's head
+    assert parents(h, h.item(gid)["fields"]["head"])[1] == ref             # and merged into it in the base's place
+    said, _ = h.run("review.py", gid)
+    assert said[-1] == "gap.approved", h.item(gid)["fields"].get("findings")
+    (rid,) = [i for i in h.db()["items"] if i.startswith("review/alpha-thing-")]
+    assert h.item(rid)["fields"]["net_lines"] == h.item(gid)["fields"]["net_lines"] == 2
+    text = (h.tmp / "instance" / "run" / "briefs" / "alpha-thing-reviewer-1.md").read_text()
+    diff = text.split("```diff", 1)[1].split("```", 1)[0]
+    assert "own.py" in diff and "base2.py" not in diff and "y29 = 29" not in diff
+
+    k = Factory(tmp_path / "four")                  # merged forward but its base not moved with it: fails closed
+    gid = built(k)
+    stale = git(k.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
+    commit_on(k, "beta-base", {"base2.py": "".join(f"y{i} = {i}\n" for i in range(30))})
+    said, _ = k.run("stack.py")
+    git(k.tmp / "live" / "drop.git", "update-ref", "refs/stack/factory/alpha-thing", stale)
+    said, _ = k.run("review.py", gid)
+    assert said[-1] == "gap.sent-back"
+    found = k.item(gid)["fields"]["findings"]
+    assert any("does not hold them all: judged against main" in x for x in found), found
+
 
 # ---- merge-pipeline-stacks-merged-forward: a moved base merged forward into the gaps stacked on it (dev/bin/stack.py)
 

@@ -806,8 +806,11 @@ dependency is reviewed (approved) or further along, and it is not yet on main.
   net lines, strays and check findings are measured against that base.
 - **Reviewed.** The reviewer judges it against the same base, never main (review.py `stacked_base`), so its diff, its
   net lines (the same number its implementor counted) and gate 1 cover only its own commits. The brief says it is
-  stacked and names its bases. A head that does not hold that base is a blocking finding, and the gap is judged
-  against main, its bases' lines included.
+  stacked and names its bases. When stack-forward brings a base's new head into a built gap, it merges that head
+  into `refs/stack/factory/<branch>` first and then that ref into the gap (stack.py `restack`), so the ref stays
+  below the head and the base's fix commits stay out of the gap's diff. A
+  head that does not hold that base, or a base that does not hold every `stacked_on` sha (one stack-forward could not
+  move), is a blocking finding, and the gap is judged against main, its bases' lines included.
 - **Landed.** The queue lands a stack bottom-up, all of it or none (queue.py).
 - **Said.** Its `blocked_reason` on the Items page reads `stacked on gap/x (approved)` rather than "waits on". The
   auxiliary `gaps-stacked` (`deps.py stacked`: the gaps with a `stacked_on`, or one that cannot be read, and not
