@@ -202,20 +202,95 @@ def define(cfg: dict, gid: str, branch: str, body: str, by: str, notes: list[str
            **data) -> None:
     """A lint-clean plan made the gap's definition (run/defs/<branch>.md, created exclusively: never over one the
     coordinator wrote meanwhile, which is kept) and the gap ready; ``notes``: appended for the implementor to answer;
-    ``review``: whether it is marked for the plan review (None: review_wanted, the sweep's)."""
+    ``review``: whether it is marked for the plan review (None: review_wanted, the sweep's). Its done items it cannot
+    build (env_needs) are marked in it: an owner need parks it here, in the same event (never ready, so never leased,
+    before the owner answers: gap.need-met, then parks.py readies it); a measure need is recorded as the measure-runs
+    request its acceptance tests satisfy (measure_runs_wanted), and it is ready."""
     target = fac.run_dir(cfg, "defs") / f"{branch}.md"
-    text = body + ("\n## Notes from the plan review (answer each)\n\n" + "".join(f"- {n}\n" for n in notes)
-                   if notes else "")
+    needs = env_needs(body)
+    text = marked(body, needs) + ("\n## Notes from the plan review (answer each)\n\n" + "".join(
+        f"- {n}\n" for n in notes) if notes else "")
     try:
         with target.open("x") as fh:
             fh.write(text)
     except FileExistsError:                              # the coordinator's definition: not the planner's size
-        by = "coordinator"
+        by, needs = "coordinator", env_needs(target.read_text())     # (its own items, unmarked: the file is kept)
         data |= {"planned_size": None, "size_confidence": None} if "planned_size" in data else {}
-    fac.say("gap.defined", gid, definition=fac.rel(target), ready_at=time.time(), branch=branch, defined_by=by,
-            plan_sha=sha(body), risks=sorted(set(re.findall(r"\blesson-\d+\b", body))),
-            plan_review="wanted" if by != "coordinator" and (review_wanted(cfg, gid) if review is None else
-                                                             wanted(cfg, review)) else None, **data)
+    tests = sorted(set(TEST.findall(brief.section(body, "Acceptance tests") or "")))
+    owner, now = [x for x in needs if x["needs"] == "owner"], time.time()
+    data |= dict(definition=fac.rel(target), branch=branch, defined_by=by, plan_sha=sha(body), env_needs=needs or None,
+                 measure_runs_wanted={"tests": tests, "items": [x["item"] for x in needs]} if needs and not owner
+                 else None, risks=sorted(set(re.findall(r"\blesson-\d+\b", body))),
+                 plan_review="wanted" if by != "coordinator" and (review_wanted(cfg, gid) if review is None else
+                                                                  wanted(cfg, review)) else None)
+    if not owner:
+        fac.say("gap.defined", gid, ready_at=now, **data)
+        return
+    why = "Done items it cannot build here, for the owner before it is built:\n" + "".join(
+        f"- done item {x['item']}: {x['why']}\n" for x in owner)
+    fac.say("gap.parked", gid, parked_at=now, where_it_stopped=why, parked_by=ENV_PARK, parked_in="plan",
+            parked_for="needs", parked_until={"action": why[:300], "who": "owner"}, resumed_as=None, resumed_at=None,
+            need_met=None, env_parked_at=now, **data)
+
+
+ENV_PARK = "plan-env"                                    # parked_by of a park at plan time for a done item's needs
+NEEDS = (    # what a done item names that an implementor's container cannot do: (needs, why, pattern)
+    ("measure", "a server on a port", re.compile(r"\bport \d{2,5}\b|\b(?:localhost|127\.0\.0\.1):\d+|\bon a port\b",
+                                                 re.I)),
+    ("measure", "an environment variable on a command", re.compile(r"\b[A-Z][A-Z0-9_]{2,}=\S")),
+    ("owner", "screenshots looked at by a person", re.compile(
+        r"\bscreenshots?\b.*\b(?:look|looked|seen|judged|by eye|a person|the owner)\b|\bby eye\b", re.I)),
+    ("owner", "Docker --sandbox or macOS", re.compile(r"--sandbox\b|\bmacOS\b|\bdocker\b|\bseatbelt\b", re.I)),
+    ("owner", "input files not in the repository", re.compile(
+        r"(?:^|[\s`(\"'])(?:~/|/Users/|/home/|\$HOME\b)|\b(?:outside|not in) the repo(?:sitory)?\b", re.I)))
+ENV = r"(?:[A-Z][A-Z0-9_]*=\S+\s+)*"
+COMMAND = re.compile(ENV + r"(?:uv|python3?|pytest|ruff|git|ergostat|npm|npx|node|docker|make|bash|sh|curl|open|brew|"
+                     r"playwright|claude|sandbox-exec|osascript)(?:\s|$)|" + ENV + r"\S+\.(?:py|sh|js)\s+\S")
+RUNS = ("git", "ruff", "pytest", "scripts/named_tests.py", "scripts/demo_check.py")    # what a session runs: the allowlist
+WRAP = re.compile(ENV + r"(?:uv run(?: --with \S+)*|python3?(?: -m)?|scripts/suite_watch\.py(?: \S+)*? --)\s+")
+
+
+def allowed(command: str) -> bool:
+    """A command an implementor session can run: once its wrappers (uv run, python -m, suite_watch -- ...) are taken
+    off, git, ruff, pytest, scripts/named_tests.py or scripts/demo_check.py; anything else is not."""
+    while m := WRAP.match(command):
+        command = command[m.end():]
+    words = re.sub("^" + ENV, "", command).split()
+    return bool(words) and words[0] in RUNS
+
+
+def done_items(body: str) -> list[str]:
+    """The items of a definition's `## Definition of done`: each numbered or bulleted point with its continuation lines,
+    or each paragraph of prose."""
+    items, cur = [], []
+    for line in (brief.section(body, "Definition of done") or "").splitlines():
+        if not line.strip() or re.match(r"\s{0,3}(?:\d+[.)]|[-*])\s", line):
+            items, cur = items + [" ".join(cur)], []
+        cur += [line.strip()] if line.strip() else []
+    return [x for x in items + [" ".join(cur)] if x]
+
+
+def env_needs(body: str) -> list[dict]:
+    """Each done item outside what a session can run, as {item (1-based), needs: owner|measure, why}. A command (a
+    backticked span COMMAND reads as one) is checked against the allowlist; the item's text against NEEDS. A measure
+    need is the owner's when the definition names no acceptance test that a measure-runs request could run."""
+    tested, out = bool(TEST.search(brief.section(body, "Acceptance tests") or "")), []
+    for n, item in enumerate(done_items(body), 1):
+        found = [(k, why) for k, why, p in NEEDS if p.search(item)]
+        found += [("measure", f"`{c}` is not among what a session runs (pytest under suite_watch, ruff, demo_check, "
+                   "git)") for c in re.findall(r"`([^`\n]+)`", item) if COMMAND.match(c) and not allowed(c)]
+        found = [(k if tested or k == "owner" else "owner", why if tested or k == "owner" else
+                  f"{why}, and no acceptance test a measure-runs request could run") for k, why in found]
+        if found:
+            out.append({"item": n, "needs": "owner" if any(k == "owner" for k, _ in found) else "measure",
+                        "why": "; ".join(dict.fromkeys(w for _, w in found))})
+    return out
+
+
+def marked(body: str, needs: list[dict]) -> str:
+    """The definition with its `## Needs before building` section: each item it cannot build, `needs: owner|measure`."""
+    return body + ("\n## Needs before building\n\n" + "".join(
+        f"- done item {x['item']}: `needs: {x['needs']}`, {x['why']}\n" for x in needs) if needs else "")
 
 
 def lint(cfg: dict, body: str, siblings: tuple[str, ...] = ()) -> list[str]:
