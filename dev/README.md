@@ -331,6 +331,19 @@ programs already there.
   number of days since the oldest `when`. No goal is on it until the owner says how long a test may stay. A list, a
   line or a date held.py cannot read gives no value (exit 1), never 0. A listed test with no flake item marked
   `quarantined`, or such an item whose test is not listed, is named on stderr.
+- **flakes-few, main-repaired-fast** (dev/model/guarantees-flakes.yaml). The stock
+  `flakes-open` counts the flakes `seen`, filled by `flakes-seen` and drained by `flakes-fixed`, which counts every move
+  out of `seen`: fixed by green runs or by hand, or to `main-broken`. So the two flows add up to the stock. `flakes-few` holds each seen flake by its hours in `seen` (`per: item`, on the stock
+  `flakes-open-hours`, `measure: oldest` over the same items) at or under `flake-hours-most` (3). Off, it names the
+  oldest first. check refuses `per: item` on a count (goal-per), so the definition's "at most 3, the oldest named" is
+  one goal on the age, not on the count. Whether it should be the count instead is the owner's question.
+  `main-repaired-fast` holds `main-repair-hours` at or under `main-repair-hours-most` (24). The two
+  readings are `flakes.py main-repair-hours` and `flakes.py flake-fix-hours`. Each is the median, over the stays that
+  ended `fixed` in the last 14 days, from the move into `main-broken` (or `seen`) to the move to `fixed`. The moves are
+  read in the record's order, never by comparing stamps. A repeat break keeps the clock, and a flake made again from
+  `fixed` starts a new stay. A `seen` stay that went to `main-broken` ended unfixed. At most 500 flakes are read, by
+  id, and more is said on stderr. With no stay ended, or a flake that cannot be read, there is no value (exit 1). Both
+  goals are `on-stale: off`. Nothing reads either goal yet: they are unserved until regression-guarantees-wired.
 - **lessons-hold.** The auxiliary `lessons-recurring` (dev/model/guarantees-lessons.yaml, `measure.py
   lessons-recurring`) counts, over 14 days of reviews (every round), the librarian's classes found that the gap's
   first implementor brief carried. A review whose classes are not recorded, or whose gap has no first brief, is left
