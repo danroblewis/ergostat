@@ -10,12 +10,24 @@
   const TRANSFORMS = { none: "None", rate: "Rate", delta: "Change per step", cumulative: "Running total", moving_avg: "Moving average" };
   const RATES = [["second", "per second", "/s"], ["minute", "per minute", "/min"], ["hour", "per hour", "/h"], ["day", "per day", "/d"]];
   const WINDOWS = [2, 3, 5, 10, 20, 60];
-  const FORMS = [["line", "Line"], ["area", "Area"], ["stacked", "Stacked"], ["bars", "Bars"], ["stat", "Stat"], ["table", "Table"]];
+  const FORM_GROUPS = [["time", "Time series"], ["comparison", "Comparison"], ["distribution", "Distribution"], ["dynamics", "Dynamics and control"]];
+  /* decoration only, for the families known today: what a form can do is read from its registration, and a new one takes ``icon`` or the plain mark */
+  const ICONS = {
+    line: "M1 13 7 7l5 3 5-7 6 4", bar: "M3 15V8h4v7zM10 15V3h4v12zM17 15v-5h4v5z", scatter: "M4 12h1M8 6h1M12 10h1M16 4h1M19 9h1",
+    heatmap: "M2 2h6v6H2zM9 9h6v6H9zM16 2h6v6h-6z", candlestick: "M6 1v14M4 5h4v6H4zM16 2v13M14 4h4v5h-4z", histogram: "M2 15v-3h4V7h4V2h4v6h4v4h4v3z",
+    box: "M12 1v4M12 11v4M7 5h10v6H7zM7 8h10", stat: "M4 12V4l-2 2M10 4h5v4h-5v4h5M19 4v8", table: "M2 2h20v12H2zM2 6h20M2 10h20M9 2v12",
+    phase: "M12 8c3-3 7 0 5 3s-9 3-11-1 3-9 9-8", bode: "M1 4h10c4 0 6 3 12 4M1 12h10c4 0 6 2 12 3", nyquist: "M3 8a9 7 0 0 1 18 0M3 8a9 7 0 0 0 18 0M12 1v14M1 8h22",
+    "pole-zero": "M5 3l4 4M9 3 5 7M17 11a2 2 0 1 0 .01 0M1 8h22M12 1v14",
+  };
+  const PLAIN_ICON = "M2 14h20M2 14V2";
+  const X_TYPES = { time: "Time", query: "Another query", field: "An item field", category: "A category", bins: "Bins of values" };
+  const SEGMENTS = [2, 3, 4, 6, 8, 12];
+  const PART_NAMES = { input: "Input", output: "Output" };
   const SIZES = [["s", "Third"], ["m", "Half"], ["l", "Two thirds"], ["full", "Full"]];
   const LEGENDS = [["", "Automatic"], ["right", "Right"], ["bottom", "Below"], ["hidden", "Hidden"]];
   const LEGEND_VALUES = [["last", "Last"], ["min", "Min"], ["max", "Max"], ["avg", "Average"]];
   const UNITS = ["items", "items/h", "events", "usd", "usd/h", "s", "%", "bytes", "tokens"];
-  const ORDER = ["source", "kind", "field", "measure", "state", "series", "type", "where", "group_by", "agg", "transform", "rate_per", "window"];
+  const ORDER = ["source", "kind", "field", "measure", "state", "series", "type", "where", "group_by", "agg", "transform", "rate_per", "window", "segments"];
   const FOCUSABLE = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
   const clone = v => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
   const pairs = names => names.map(n => [n, n]);
@@ -28,21 +40,29 @@
   function aggNames(q, F) {
     const offered = F?.aggregations || [];
     const only = list => list.filter(a => offered.includes(a));
+    if (q.agg === "ohlc") return ["ohlc"];                 // (the candlestick's: set by the form, undone by leaving it)
+    if (q.x?.type === "bins") return only(["count", ...offered.filter(a => a !== "count")]);
     if (q.source === "events" || (q.source === "moves" && q.measure !== "time_in_state")) return only(["count"]);
     if (q.source === "moves") return only(["avg", "min", "max", "p50", "p90", "p95", "p99"]);
     if (q.source === "series") return offered.filter(a => a !== "count");
     return offered;
   }
   function transformNames(q, F) {
+    if (q.agg === "ohlc") return (F?.transforms || []).filter(t => t === "none");
     const accumulates = q.source !== "counts" && (["count", "sum"].includes(q.agg) || (q.source === "series" && q.agg === "last"));
     return (F?.transforms || []).filter(t => accumulates || !["rate", "cumulative"].includes(t));
   }
 
   /* what this query can be asked, in order, given what it has chosen so far */
-  function slotsOf(q, F) {
+  function slotsOf(q, F, nested = false) {
     if (!F) return [{ key: "source", label: "Source", options: SOURCES, required: true, locked: true }];   // (until the fields are read)
     const offered = SOURCES.filter(([n]) => F.sources?.[n]);
+    if (!nested) offered.push(["frequency", "Frequency response"]);
     const out = [{ key: "source", label: "Source", options: offered, required: true }];
+    if (q.source === "frequency") {
+      if (!q.model) out.push({ key: "segments", label: "Segments", options: SEGMENTS.map(n => [n, String(n)]), required: true });
+      return out;
+    }
     const src = F?.sources?.[q.source];
     if (!src) return out;
     if (KINDED.has(q.source)) out.push({ key: "kind", label: "Kind", options: pairs(kindsOf(src)), required: true });
@@ -62,7 +82,9 @@
     } else if (q.source === "events") {
       out.push({ key: "type", label: "Event type", options: pairs(src.types || []), required: true });
     }
+    if (q.x?.type === "field") return out;                 // (one point per item: nothing is aggregated)
     if (q.source !== "counts") out.push({ key: "agg", label: "Aggregation", options: aggNames(q, F).map(a => [a, AGGS[a] || a]), required: true });
+    if (q.x?.type === "bins") return out;
     out.push({ key: "transform", label: "Transform", options: transformNames(q, F).map(t => [t, TRANSFORMS[t] || t]), required: true });
     if (q.transform === "rate") out.push({ key: "rate_per", label: "Rate unit", options: RATES.map(r => [r[0], r[1]]), required: true });
     if (q.transform === "moving_avg") out.push({ key: "window", label: "Window (steps)", options: WINDOWS.map(n => [n, String(n)]), required: true });
@@ -74,16 +96,20 @@
     if (key === "transform") return hasOption(slot, "none") ? "none" : slot.options[0]?.[0];
     if (key === "rate_per") return "hour";
     if (key === "window") return 5;
+    if (key === "segments") return 4;
     return slot.required && slot.options.length === 1 ? slot.options[0][0] : undefined;
   }
   /* a choice was made at ``key``: everything after it that no longer applies goes, and what has one answer takes it */
-  function choose(q, key, value, F) {
-    if (value === "" || value == null) delete q[key]; else q[key] = key === "window" ? Number(value) : value;
-    if (key === "source") delete q.where;
+  function choose(q, key, value, F, nested = false) {
+    if (value === "" || value == null) delete q[key]; else q[key] = key === "window" || key === "segments" ? Number(value) : value;
+    if (key === "source") {
+      delete q.where;
+      if (value === "frequency") { delete q.x; q.input ||= {}; q.output ||= {}; } else { delete q.input; delete q.output; delete q.model; }
+    }
     const dropped = [];
     for (const k of ORDER.slice(ORDER.indexOf(key) + 1)) {
-      const slot = slotsOf(q, F).find(x => x.key === k);
-      if (!slot) { if (q[k] != null) dropped.push(k); delete q[k]; continue; }
+      const slot = slotsOf(q, F, nested).find(x => x.key === k);
+      if (!slot) { if (q[k] != null && !(k === "agg" && q[k] === "none")) dropped.push(k); delete q[k]; continue; }
       if (k === "where") {
         if (q.where?.state) {
           q.where.state = q.where.state.filter(v => hasOption(slot, v));
@@ -95,13 +121,24 @@
       if (q[k] != null && !hasOption(slot, q[k])) { dropped.push(k); delete q[k]; }
       if (q[k] == null) { const d = defaultFor(k, q, slot); if (d != null) q[k] = d; }
     }
+    if (q.x?.type === "field") q.agg = "none";
     return dropped;
   }
   /* what is wrong with a query: a value the model no longer has, or a choice not made yet */
-  function problemsOf(q, F) {
+  function problemsOf(q, F, nested = false) {
     const missing = [], incomplete = [];
     if (!F) return { missing, incomplete };
-    for (const slot of slotsOf(q, F)) {
+    if (q.source === "frequency" && !q.model) {
+      for (const part of ["input", "output"]) {
+        const sub = q[part] || {};
+        if (!sub.source) incomplete.push({ key: "source", part, label: `${PART_NAMES[part]} source` });
+        const got = problemsOf(sub, F, true);
+        for (const [slot, v] of got.missing) missing.push([{ ...slot, part, label: `${PART_NAMES[part]} ${slot.label.toLowerCase()}` }, v]);
+        for (const slot of got.incomplete) incomplete.push({ ...slot, part, label: `${PART_NAMES[part]} ${slot.label.toLowerCase()}` });
+      }
+    }
+    if (q.x?.type === "query" && !q.x.query) incomplete.push({ key: "x_query", label: "X query" });
+    for (const slot of slotsOf(q, F, nested)) {
       if (slot.checks) { for (const v of q.where?.state || []) if (!hasOption(slot, v)) missing.push([slot, v]); continue; }
       if (q[slot.key] == null) { if (slot.required) incomplete.push(slot); } else if (!hasOption(slot, q[slot.key])) missing.push([slot, q[slot.key]]);
     }
@@ -117,6 +154,125 @@
     if (!base) return null;
     return q.transform === "rate" ? base + (RATES.find(r => r[0] === q.rate_per)?.[2] || "") : base;
   }
+  /* the X axes this query's source can answer, from the fields the model has */
+  function numericFields(q, F) { return q.source === "items" ? (kindOf(q, F)?.fields || []).map(nameOf) : []; }
+  function categoriesOf(q, F) {
+    if (q.source === "items") return kindOf(q, F)?.group_by || [];
+    return q.source === "counts" && statesFor(q, F).length ? ["state"] : [];
+  }
+  function xTypesOf(q, F) {
+    if (!q.source || q.source === "frequency") return [];
+    const out = ["time", "query"];
+    if (q.source === "items" && !q.kind) return out;
+    if (numericFields(q, F).length >= 2) out.push("field");
+    if (categoriesOf(q, F).length) out.push("category");
+    out.push("bins");
+    return out;
+  }
+  const canBeX = (o, q) => o !== q && o.source !== "frequency" && !(o.x?.type === "query" && o.x.query === q.id);
+  function describe(q) { return [q.field || q.series || q.type || q.measure, q.state, q.kind].filter(Boolean).join(" · ") || q.source || "not chosen yet"; }
+  function xSlots(q, F, queries) {
+    const types = xTypesOf(q, F);
+    if (!types.length) return [];
+    const x = q.x || { type: "time" };
+    const out = [{ key: "x_type", label: "X axis", options: types.map(t => [t, X_TYPES[t]]), value: x.type, required: true }];
+    if (x.type === "query") out.push({ key: "x_query", label: "X query", value: x.query, required: true, options: queries.filter(o => canBeX(o, q)).map(o => [o.id, `${o.id.toUpperCase()}: ${describe(o)}`]) });
+    if (x.type === "field") out.push({ key: "x_field", label: "X field", value: x.field, required: true, options: pairs(numericFields(q, F).filter(n => n !== q.field)) });
+    if (x.type === "category") out.push({ key: "x_by", label: "Category", value: x.by, required: true, options: pairs(categoriesOf(q, F)) });
+    if (x.type === "bins") {
+      if (q.source === "items") out.push({ key: "x_bin_field", label: "Field to bin", value: x.field, required: true, options: pairs(numericFields(q, F)) });
+      out.push({ key: "x_bins", label: "Bins", value: x.bins, required: true, options: [5, 10, 20, 30, 50, 100].map(n => [n, String(n)]) });
+    }
+    return out;
+  }
+  /* the registry of chart families, as plotForms() gives it: the editor knows no family but by what it registered */
+  function formsRegistered() {
+    const r = typeof plotForms === "function" ? plotForms() : null;
+    const list = r instanceof Map ? [...r] : Array.isArray(r) ? r.map(f => [f.name, f]) : Object.entries(r || {});
+    return new Map(list);
+  }
+  const choiceOf = c => (Array.isArray(c) ? c : c && typeof c === "object" ? [c.value, c.label ?? String(c.value)] : [c, words(c)]);
+  const words = v => { const t = String(v).replace(/[-_]/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); };
+  function applies(option, config) { try { return !option.when || !!option.when(config); } catch { return false; } }
+  function formIcon(reg, name) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 16"); svg.setAttribute("class", "pe-form-icon"); svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", reg.icon || ICONS[name] || PLAIN_ICON);
+    svg.append(path);
+    return svg;
+  }
+  /* what a form asks of the data, in words, and why the current queries cannot be drawn by it (null when they can) */
+  function needWords(reg) {
+    const n = reg.needs || {};
+    if (n.text) return n.text;
+    if (n.source) return `a ${n.source} query`;
+    if (n.agg) return `${n.agg} values`;
+    if (n.x?.length) return `X: ${n.x.join(", ")}`;
+    return "any query";
+  }
+  /* the same reason, short enough for a tile; the whole of it is in the tile's description and under the gallery */
+  function shortProblem(reg, why) {
+    if (!why) return `Needs ${needWords(reg)}`;
+    return why.startsWith("Cannot") ? "Not for a frequency response" : `Needs ${needWords(reg)}`;
+  }
+  function formProblem(reg, queries, answer) {
+    const n = reg.needs || {}, shown = queries.filter(q => q.source && !q.hidden);
+    if (n.source && !shown.some(q => q.source === n.source)) return `Needs ${n.text || `a ${n.source} query`}.`;
+    if (!n.source && shown.some(q => q.source === "frequency")) return "Cannot draw a frequency response.";
+    if (n.x?.length) {
+      const usedAsX = new Set(shown.filter(q => q.x?.type === "query").map(q => q.x.query));     // (an X is drawn as the other's axis)
+      const off = shown.find(q => q.source !== "frequency" && !usedAsX.has(q.id) && !n.x.includes(q.x?.type || "time"));
+      if (off) return `Needs an X axis of ${n.x.map(t => (X_TYPES[t] || t).toLowerCase()).join(" or ")}; query ${off.id.toUpperCase()} has ${(X_TYPES[off.x?.type || "time"]).toLowerCase()}.`;
+    }
+    if (n.data && !(answer?.results || []).some(r => r[n.data] != null || r.frequency?.[n.data] != null)) return `Needs ${n.text || n.data}, which this data does not supply.`;
+    return null;
+  }
+  /* complete queries for the quick starts, from whatever this model has; null when it lacks the part */
+  function measures(F) {
+    const out = [];
+    for (const s of F?.sources?.series?.series || []) out.push({ source: "series", series: nameOf(s), agg: "avg", transform: "none" });
+    for (const k of kindsOf(F?.sources?.counts)) out.push({ source: "counts", kind: k, transform: "none" });
+    return out;
+  }
+  function flowQuery(F) {
+    const s = (F?.sources?.series?.series || []).map(nameOf).find(n => /flow|rate/i.test(n));
+    if (s) return { source: "series", series: s, agg: "avg", transform: "none" };
+    for (const [k, v] of Object.entries(F?.sources?.moves?.kinds || {})) if (v.states?.length) return { source: "moves", kind: k, measure: "entries", state: v.states[0], agg: "count", transform: "rate", rate_per: "hour" };
+    return null;
+  }
+  function stockQuery(F) {
+    const s = (F?.sources?.series?.series || []).map(nameOf).find(n => /stock|level|backlog/i.test(n));
+    if (s) return { source: "series", series: s, agg: "avg", transform: "none" };
+    const k = kindsOf(F?.sources?.counts)[0];
+    return k ? { source: "counts", kind: k, transform: "none" } : null;
+  }
+  const QUICK_STARTS = [
+    { name: "Phase portrait of two measures", form: "phase", needs: "two measures", build(F) {
+      const m = measures(F);
+      return m.length < 2 ? null : { title: "Phase portrait", queries: [{ ...m[0], id: "a", x: { type: "query", query: "b" } }, { ...m[1], id: "b" }] };
+    } },
+    { name: "Bode plot of a flow against a stock", form: "bode", needs: "a flow and a stock", build(F) {
+      const input = flowQuery(F), output = stockQuery(F);
+      return input && output ? { title: "Frequency response", queries: [{ id: "a", source: "frequency", input, output, segments: 4 }] } : null;
+    } },
+    { name: "Cost against size by item", form: "scatter", needs: "a kind with two numeric fields", build(F) {
+      for (const [k, v] of Object.entries(F?.sources?.items?.kinds || {})) {
+        const names = (v.fields || []).map(nameOf);
+        if (names.length < 2) continue;
+        const y = names.find(n => /cost/i.test(n)) || names[0];
+        const x = names.find(n => n !== y && /size|lines|tokens/i.test(n)) || names.find(n => n !== y);
+        return { title: `${y} against ${x}`, queries: [{ id: "a", source: "items", kind: k, field: y, agg: "none", x: { type: "field", field: x } }] };
+      }
+      return null;
+    } },
+    { name: "Distribution of cycle time", form: "histogram", needs: "a kind with states", build(F) {
+      for (const [k, v] of Object.entries(F?.sources?.moves?.kinds || {})) {
+        if (v.states?.length) return { title: `Time in ${v.states[0]}`, queries: [{ id: "a", source: "moves", kind: k, measure: "time_in_state", state: v.states[0], agg: "count", x: { type: "bins", bins: 20 } }] };
+      }
+      return null;
+    } },
+  ];
   function nextId(queries) {
     const used = new Set(queries.map(q => q.id));
     for (const c of "abcdefghijklmnopqrstuvwxyz") if (!used.has(c)) return c;
@@ -162,6 +318,7 @@
     openEditor?.cancel();
     const original = clone(config) || {};
     const draft = clone(config) || {};
+    if (typeof normalizeForm === "function") Object.assign(draft, normalizeForm(draft) || {});   // (the old form names still load)
     draft.form ||= "line";
     draft.size ||= "m";
     draft.display ||= {};
@@ -170,7 +327,8 @@
     const uid = "pe" + Date.now().toString(36);
     const opener = document.activeElement;
     let F = null, closed = false, timer = null, seq = 0, inFlight = false, lastSig = null, lastAnswer = null;
-    const errors = new Map(), cards = new Map();
+    const errors = new Map(), cards = new Map(), forms = formsRegistered();
+    let undoQuick = null, pointerPick = false;
 
     const live = h("div", { class: "pe-live", "aria-live": "polite" });
     const say = text => { live.textContent = text; };
@@ -180,11 +338,16 @@
     const fieldsMsg = h("div", { class: "pe-fields-msg", role: "alert", hidden: true });
 
     function previewConfig() {
-      const queries = draft.queries.filter(q => {
+      let ready = draft.queries.filter(q => {
         if (!q.source || q.hidden) return false;
         const p = problemsOf(q, F);
         return !p.missing.length && !p.incomplete.length;
-      }).map(q => { const c = clone(q); delete c.hidden; return c; });
+      });
+      for (let before = -1; before !== ready.length;) {        // a query plotted against one that cannot be asked waits for it
+        before = ready.length;
+        ready = ready.filter(q => q.x?.type !== "query" || ready.some(o => o.id === q.x.query));
+      }
+      const queries = ready.map(q => { const c = clone(q); delete c.hidden; return c; });
       return { ...clone(draft), id: draft.id || "editor-preview", queries };
     }
     const chart = chartPanel(previewConfig());
@@ -261,17 +424,12 @@
         card.msg.replaceChildren(...lines);
       }
       renderUnit();
+      renderGallery();
+      renderOptions();
     }
 
-    function renderCard(card) {
-      const q = card.q, slots = slotsOf(q, F), seen = new Set();
-      card.tag.textContent = q.id.toUpperCase();
-      card.root.classList.toggle("pe-q-hidden", !!q.hidden);
-      card.hide.textContent = q.hidden ? "Show" : "Hide";
-      card.hide.setAttribute("aria-pressed", q.hidden ? "true" : "false");
-      card.hide.setAttribute("aria-label", `${q.hidden ? "Show" : "Hide"} query ${q.id.toUpperCase()}`);
-      card.dup.setAttribute("aria-label", `Duplicate query ${q.id.toUpperCase()}`);
-      card.del.setAttribute("aria-label", `Remove query ${q.id.toUpperCase()}`);
+    function renderSlots(card) {
+      const slots = slotsOf(card.q, F, !!card.parent), seen = new Set();
       for (const slot of slots) {
         seen.add(slot.key);
         let c = card.slots.get(slot.key);
@@ -283,6 +441,71 @@
         card.grid.append(c.el);          // (in slot order; append moves a node without rebuilding it)
       }
       for (const [k, c] of card.slots) if (!seen.has(k)) { c.el.remove(); card.slots.delete(k); }
+    }
+    function renderX(card) {
+      const q = card.q, slots = F ? xSlots(q, F, draft.queries) : [], seen = new Set();
+      card.xBox.hidden = !slots.length;
+      for (const slot of slots) {
+        seen.add(slot.key);
+        let c = card.xControls.get(slot.key);
+        if (!c) {
+          const sel = h("select", { "data-slot": slot.key, onchange: () => pickX(card, slot.key, sel.value) });
+          c = { sel, el: field(slot.label, sel) };
+          card.xControls.set(slot.key, c);
+        }
+        fillSelect(c.sel, slot, slot.value);
+        card.xBox.append(c.el);
+      }
+      for (const [k, c] of card.xControls) if (!seen.has(k)) { c.el.remove(); card.xControls.delete(k); }
+    }
+    function renderParts(card) {
+      const q = card.q, on = q.source === "frequency" && !q.model;
+      card.partsBox.hidden = !on;
+      if (!on) { card.partsBox.replaceChildren(); card.parts = null; return; }
+      if (!card.parts || card.parts.input.q !== q.input || card.parts.output.q !== q.output) {
+        card.parts = { input: makePart(card, "input"), output: makePart(card, "output") };
+        card.partsBox.replaceChildren(card.parts.input.root, card.parts.output.root);
+      }
+      for (const part of Object.values(card.parts)) {
+        renderSlots(part);
+        const from = draft.queries.filter(o => o !== q && o.source && o.source !== "frequency");
+        fillSelect(part.from, { options: from.map(o => [o.id, `${o.id.toUpperCase()}: ${describe(o)}`]), none: "Copy from a query…" }, "");
+        part.fromField.hidden = !from.length;
+      }
+    }
+    function makePart(card, name) {
+      const grid = h("div", { class: "pe-q-grid" });
+      const from = h("select", { "data-slot": "from", onchange: () => {
+        const other = draft.queries.find(o => o.id === from.value);
+        if (!other) return;
+        const { id, hidden, x, ...rest } = clone(other);
+        for (const k of Object.keys(part.q)) delete part.q[k];
+        Object.assign(part.q, rest);
+        renderCard(card);
+        say(`${PART_NAMES[name]} copied from query ${other.id.toUpperCase()}`);
+        changed();
+      } });
+      const fromField = field(`Fill ${name} from`, from);
+      const root = h("fieldset", { class: "pe-group pe-part", "data-part": name }, h("legend", { class: "pe-l" }, PART_NAMES[name]), fromField, grid);
+      const part = { q: card.q[name], parent: card, root, grid, from, fromField, slots: new Map() };
+      return part;
+    }
+
+    function renderCard(card) {
+      const q = card.q;
+      card.tag.textContent = q.id.toUpperCase();
+      card.root.classList.toggle("pe-q-hidden", !!q.hidden);
+      card.hide.textContent = q.hidden ? "Show" : "Hide";
+      card.hide.setAttribute("aria-pressed", q.hidden ? "true" : "false");
+      card.hide.setAttribute("aria-label", `${q.hidden ? "Show" : "Hide"} query ${q.id.toUpperCase()}`);
+      card.dup.setAttribute("aria-label", `Duplicate query ${q.id.toUpperCase()}`);
+      card.del.setAttribute("aria-label", `Remove query ${q.id.toUpperCase()}`);
+      const usedAsX = draft.queries.some(o => o.x?.type === "query" && o.x.query === q.id);
+      card.hide.disabled = usedAsX && !q.hidden;           // (a hidden query is not asked, and the X of another must be)
+      card.hide.title = card.hide.disabled ? "Another query uses this one as its X axis" : "";
+      renderSlots(card);
+      renderX(card);
+      renderParts(card);
     }
     function selectControl(card, slot) {
       const sel = h("select", { "data-slot": slot.key, onchange: () => pick(card, slot.key, sel.value) });
@@ -317,13 +540,67 @@
       q.where ||= {};
       if (list.size) q.where.state = [...list]; else delete q.where.state;
       if (!Object.keys(q.where).length) delete q.where;
-      renderCard(card);
+      renderCard(card.parent || card);
+      changed();
+    }
+    /* the X the query has stops being one its source can answer: back to time, and said */
+    function repairX(q) {
+      if (!q.x) return;
+      const type = q.x.type, bad = !xTypesOf(q, F).includes(type)
+        || (type === "field" && !numericFields(q, F).filter(n => n !== q.field).includes(q.x.field))
+        || (type === "category" && !categoriesOf(q, F).includes(q.x.by))
+        || (type === "bins" && q.source === "items" && !numericFields(q, F).includes(q.x.field));
+      if (!bad) return;
+      delete q.x;
+      settleAgg(q);
+      say("The X axis went back to time: this source has no such axis");
+    }
+    /* what the X asks of the aggregation: none for one point per item, a count for bins, and back to the source's own */
+    function settleAgg(q) {
+      const type = q.x?.type || "time";
+      if (q.agg === "ohlc" && type !== "time") delete q.agg;
+      if (type === "field") { q.agg = "none"; delete q.transform; delete q.rate_per; delete q.window; return; }
+      if (type === "bins") { q.agg = "count"; delete q.transform; delete q.rate_per; delete q.window; return; }
+      if (q.agg === "none") delete q.agg;
+      for (const key of ["agg", "transform"]) {
+        const slot = slotsOf(q, F).find(x => x.key === key);
+        if (slot && (q[key] == null || !hasOption(slot, q[key]))) { const d = defaultFor(key, q, slot); if (d != null) q[key] = d; else delete q[key]; }
+      }
+    }
+    function setXType(q, type) {
+      if (type === "time") delete q.x;
+      else if (type === "query") {
+        const other = draft.queries.find(o => canBeX(o, q) && o.source);
+        q.x = { type, ...(other ? { query: other.id } : {}) };
+      } else if (type === "field") q.x = { type, field: numericFields(q, F).find(n => n !== q.field) };
+      else if (type === "category") { const c = categoriesOf(q, F); q.x = { type, by: c.includes("state") ? "state" : c[0] }; }
+      else q.x = { type, bins: 20, ...(q.source === "items" ? { field: q.field || numericFields(q, F)[0] } : {}) };
+      settleAgg(q);
+    }
+    function pickX(card, key, value) {
+      const q = card.q;
+      if (key === "x_type") {
+        setXType(q, value);
+        if (value === "query" && !q.x.query) {           // nothing to plot it against yet: a new query, to fill in
+          const b = { id: nextId(draft.queries) };
+          draft.queries.push(b);
+          q.x.query = b.id;
+          renderAll();
+          cards.get(b).root.querySelector("select")?.focus();
+          say(`Choose what goes on the X axis in query ${b.id.toUpperCase()}`);
+          changed();
+          return;
+        }
+      } else if (key === "x_bins") q.x.bins = Number(value);
+      else q.x[{ x_query: "query", x_field: "field", x_by: "by", x_bin_field: "field" }[key]] = value || undefined;
+      renderAll();
       changed();
     }
     function pick(card, key, value) {
-      const dropped = choose(card.q, key, value, F);
+      const dropped = choose(card.q, key, value, F, !!card.parent);
       if (key === "source" || key === "kind") errors.delete(card.q.id);
-      renderCard(card);
+      if (!card.parent) { repairX(card.q); meetForm(card.q); }
+      renderAll();
       if (dropped.length) say(`Reset what no longer applies: ${dropped.join(", ")}`);
       changed();
     }
@@ -335,9 +612,11 @@
       const del = h("button", { type: "button", class: "ghost", onclick: () => removeQuery(q) }, "Remove");
       const grid = h("div", { class: "pe-q-grid" });
       const msg = h("div", { class: "pe-q-msg", role: "status" });
+      const xBox = h("div", { class: "pe-q-grid pe-x", role: "group", "aria-label": "X axis" });
+      const partsBox = h("div", { class: "pe-parts" });
       const root = h("section", { class: "pe-q", "data-query": q.id },
-        h("div", { class: "pe-q-head" }, tag, h("span", { class: "pe-q-title" }, "Query"), h("span", { class: "pe-q-tools" }, hide, dup, del)), grid, msg);
-      const card = { q, root, tag, hide, dup, del, grid, msg, slots: new Map(), showIncomplete: false };
+        h("div", { class: "pe-q-head" }, tag, h("span", { class: "pe-q-title" }, "Query"), h("span", { class: "pe-q-tools" }, hide, dup, del)), grid, partsBox, xBox, msg);
+      const card = { q, root, tag, hide, dup, del, grid, msg, xBox, partsBox, xControls: new Map(), parts: null, slots: new Map(), showIncomplete: false };
       cards.set(q, card);
       renderCard(card);
       return card;
@@ -361,6 +640,7 @@
     }
     function duplicate(q) {
       const copy = { ...clone(q), id: nextId(draft.queries) };
+      if (copy.x?.type === "query" && copy.x.query === copy.id) delete copy.x;
       draft.queries.splice(draft.queries.indexOf(q) + 1, 0, copy);
       renderAll();
       cards.get(copy).dup.focus();
@@ -371,6 +651,7 @@
       const at = draft.queries.indexOf(q);
       draft.queries.splice(at, 1);
       errors.delete(q.id);
+      for (const o of draft.queries) if (o.x?.type === "query" && o.x.query === q.id) { delete o.x; settleAgg(o); }
       if (!draft.queries.length) draft.queries.push({ id: nextId([]) });
       renderAll();
       const next = draft.queries[Math.min(at, draft.queries.length - 1)];
@@ -426,6 +707,240 @@
       changed();
     }
 
+    const xd = draft.display.x || {};
+    const xMin = h("input", { type: "number", step: "any", value: xd.min ?? "", oninput: () => applyXDisplay() });
+    const xMax = h("input", { type: "number", step: "any", value: xd.max ?? "", oninput: () => applyXDisplay() });
+    const xLog = h("input", { type: "checkbox", onchange: () => applyXDisplay() });
+    xLog.checked = !!xd.log;
+    const xLabel = h("input", { type: "text", value: xd.label || "", oninput: () => applyXDisplay() });
+    const xMsg = h("div", { class: "pe-msg-bad", role: "status" });
+    function xProblem() {
+      const lo = numberOf(xMin), hi = numberOf(xMax);
+      if (lo != null && hi != null && lo >= hi) return ["The X axis must start below where it ends.", xMin];
+      if (xLog.checked && lo != null && lo <= 0) return ["A log X axis must start above 0.", xMin];
+      if (xLog.checked && hi != null && hi <= 0) return ["A log X axis must end above 0.", xMax];
+      return null;
+    }
+    function applyXDisplay() {
+      const bad = xProblem();
+      xMsg.textContent = bad ? bad[0] : "";
+      for (const i of [xMin, xMax]) i.removeAttribute("aria-invalid");
+      if (bad) { bad[1].setAttribute("aria-invalid", "true"); return; }
+      const lo = numberOf(xMin), hi = numberOf(xMax), label = xLabel.value.trim();
+      if (lo == null && hi == null && !xLog.checked && !label) delete draft.display.x;
+      else draft.display.x = { min: lo, max: hi, log: xLog.checked, ...(label ? { label } : {}) };
+      changed();
+    }
+
+    /* the gallery of chart families, grouped as they registered; each says what it needs and why it cannot draw this */
+    const formTiles = new Map();
+    const formGuide = h("div", { class: "pe-form-guide", role: "status" });
+    const guideText = h("span", {});
+    const guideBtn = h("button", { type: "button", onclick: () => setUpForm(true) }, "Set it up");
+    formGuide.append(guideText, guideBtn);
+    function makeGallery() {
+      const groups = [...FORM_GROUPS];
+      for (const reg of forms.values()) if (reg.group && !groups.some(g => g[0] === reg.group)) groups.push([reg.group, words(reg.group)]);
+      const known = new Set(groups.map(g => g[0]));
+      const sections = [];
+      for (const [group, title] of [...groups, [null, "Other"]]) {
+        const members = [...forms].filter(([, reg]) => (group === null ? !known.has(reg.group) : reg.group === group));
+        if (!members.length) continue;
+        const tiles = members.map(([name, reg]) => {
+          const input = h("input", { type: "radio", name: uid + "-form", value: name, onchange: () => pickForm(name) });
+          input.checked = name === draft.form;
+          const need = h("span", { class: "pe-form-need", id: `${uid}-need-${name}` });
+          input.setAttribute("aria-describedby", need.id);
+          const tile = h("label", { class: "pe-seg pe-form", "data-form": name, onpointerdown: () => { pointerPick = true; } },
+            input, formIcon(reg, name), h("span", { class: "pe-form-name" }, reg.label || words(name)), need);
+          formTiles.set(name, { tile, input, need, reg });
+          return tile;
+        });
+        sections.push(h("div", { class: "pe-form-group" }, h("div", { class: "pe-l" }, title), h("div", { class: "pe-segs pe-gallery" }, tiles)));
+      }
+      return h("fieldset", { class: "pe-group", onkeydown: ev => {
+        pointerPick = false;
+        if (ev.key === "Enter" && ev.target.type === "radio") { ev.preventDefault(); setUpForm(true); }
+      }, "aria-label": "Chart" }, sections);
+    }
+    function renderGallery() {
+      for (const [name, t] of formTiles) {
+        const why = formProblem(t.reg, draft.queries, lastAnswer);
+        t.input.checked = name === draft.form;
+        t.tile.classList.toggle("pe-form-blocked", !!why);
+        t.need.textContent = shortProblem(t.reg, why);
+        t.need.title = why || "";
+        t.input.setAttribute("aria-description", why || "");
+        t.tile.title = why || "";
+      }
+      const now = formTiles.get(draft.form);
+      const why = now ? formProblem(now.reg, draft.queries, lastAnswer) : null;
+      formGuide.hidden = !why;
+      guideText.textContent = why || "";
+      guideBtn.hidden = !why || !canSetUp(now?.reg);
+    }
+    function canSetUp(reg) { const n = reg?.needs || {}; return !!(n.source === "frequency" || n.x?.length); }
+    function pickForm(name) {
+      const next = forms.get(name);
+      draft.form = name;
+      const schema = new Map((next?.options || []).map(o => [o.key, o]));
+      for (const [key, value] of Object.entries(draft.options || {})) {   // what still applies stays, the rest goes
+        const o = schema.get(key);
+        const fits = o && (o.type !== "choice" || (o.choices || []).some(c => String(choiceOf(c)[0]) === String(value)));
+        if (!fits) delete draft.options[key];
+      }
+      if (draft.options && !Object.keys(draft.options).length) delete draft.options;
+      const wants = next?.needs?.agg || (name === "candlestick" ? "ohlc" : null);
+      for (const q of draft.queries) {
+        if (!q.source || q.source === "frequency") continue;
+        if (wants) { if ((q.x?.type || "time") === "time" && (q.source === "items" || q.source === "series")) { q.agg = wants; q.transform = "none"; delete q.rate_per; delete q.window; } }
+        else if (q.agg === "ohlc") { delete q.agg; settleAgg(q); }
+      }
+      if (pointerPick) setUpForm(false);                // (by arrow keys a form is only passed over: Enter or the button sets it up)
+      pointerPick = false;
+      renderAll();
+      changed();
+    }
+    /* make the data fit the chosen form, as far as the form says how, and put the person where the rest is chosen */
+    function setUpForm(render) {
+      const reg = forms.get(draft.form), n = reg?.needs || {};
+      const empty = !draft.queries.some(q => q.source);
+      if (!formProblem(reg || {}, draft.queries, lastAnswer) && !(empty && n.x?.length && !n.x.includes("time"))) return;
+      let focusOn = null;
+      if (n.source === "frequency") focusOn = setUpFrequency();
+      else if (n.x?.length) {
+        let q = draft.queries.find(o => o.source !== "frequency" && !o.hidden);
+        if (!q) { q = { id: nextId(draft.queries) }; draft.queries.push(q); }   // (a frequency query has no X to change: it stays)
+        focusOn = setUpX(q, n.x);
+      }
+      if (render) { renderAll(); changed(); }
+      if (focusOn) { renderAll(); setTimeout(() => { if (!closed) focusOn(); }); }   // (after the click has finished placing focus)
+    }
+    function setUpX(q, types) {
+      const type = types.find(t => !q.source || xTypesOf(q, F).includes(t));
+      if (!type) return null;
+      if (!q.source && type !== "query") { say("Choose a source for this query, and its X axis follows"); return () => cards.get(q).root.querySelector("select")?.focus(); }
+      setXType(q, type);
+      if (type !== "query" || q.x.query) return null;
+      const b = { id: nextId(draft.queries) };
+      draft.queries.push(b);
+      q.x.query = b.id;
+      say(`Choose what goes on the X axis in query ${b.id.toUpperCase()}`);
+      return () => cards.get(b).root.querySelector("select")?.focus();
+    }
+    function setUpFrequency() {
+      const done = draft.queries.filter(q => q.source && q.source !== "frequency" && !q.hidden);
+      const copy = q => { if (!q) return {}; const { id, hidden, x, ...rest } = clone(q); return rest; };
+      const blank = draft.queries.find(q => !q.source);
+      const f = blank || { id: nextId(draft.queries) };
+      Object.assign(f, { source: "frequency", input: copy(done[0]), output: copy(done[1]), segments: 4 });
+      if (!blank) draft.queries.push(f);
+      for (const q of done) q.hidden = true;           // what it was built from stays, hidden, to go back to
+      for (const q of done) for (const o of draft.queries) if (o.x?.query === q.id) { delete o.x; settleAgg(o); }
+      say("Frequency response: choose the input and the output");
+      return () => {
+        const part = !f.input.source ? "input" : !f.output.source ? "output" : null;
+        (part ? cards.get(f).root.querySelector(`[data-part=${part}] select[data-slot=source]`) : cards.get(f).root.querySelector("select"))?.focus();
+      };
+    }
+    /* a query just got its source: if the chosen form asks for an X it can take without a question, it takes it */
+    function meetForm(q) {
+      const n = forms.get(draft.form)?.needs || {};
+      if (!q.source || q.source === "frequency" || draft.queries.some(o => o.x?.type === "query" && o.x.query === q.id)) return;
+      if (n.agg && (q.x?.type || "time") === "time" && (q.source === "items" || q.source === "series") && !q.agg) q.agg = n.agg;
+      if (!n.x?.length || n.x.includes(q.x?.type || "time")) return;
+      const type = n.x.find(t => t !== "query" && xTypesOf(q, F).includes(t));
+      if (type && (type !== "bins" || q.source !== "items" || q.field)) setXType(q, type);
+    }
+
+    /* the options of the chosen family, drawn from what it registered: a new family needs nothing here */
+    const optionsBox = h("div", { class: "pe-options" });
+    const optionsHead = h("h3", {}, "Chart options");
+    const optionControls = new Map();
+    const optionValue = o => draft.options?.[o.key] ?? o.default;
+    function setOption(o, value) {
+      draft.options ||= {};
+      if (value == null || value === "" || value === o.default) delete draft.options[o.key]; else draft.options[o.key] = value;
+      if (!Object.keys(draft.options).length) delete draft.options;
+      changed();
+    }
+    function fieldChoices(o) {
+      const names = new Set();
+      for (const q of draft.queries) for (const n of numericFields(q, F)) names.add(n);
+      const out = (o.choices || []).map(choiceOf);
+      if (o.default != null && !out.some(([v]) => String(v) === String(o.default))) out.unshift([o.default, words(o.default)]);
+      for (const n of names) if (!out.some(([v]) => String(v) === n)) out.push([n, n]);
+      return out;
+    }
+    function optionControl(o) {
+      if (o.type === "bool") {
+        const input = h("input", { type: "checkbox", "data-option": o.key, onchange: () => setOption(o, input.checked) });
+        return { el: h("label", { class: "check" }, input, o.label || words(o.key)), sync() { input.checked = !!optionValue(o); } };
+      }
+      if (o.type === "number") {
+        const input = h("input", { type: "number", step: o.step ?? "any", "data-option": o.key, placeholder: o.default == null ? "Auto" : String(o.default),
+          ...(o.min != null ? { min: o.min } : {}), ...(o.max != null ? { max: o.max } : {}), oninput: () => {
+            const v = input.value.trim() === "" ? null : Number(input.value);
+            const bad = v != null && (!Number.isFinite(v) || (o.min != null && v < o.min) || (o.max != null && v > o.max));
+            if (bad) { input.setAttribute("aria-invalid", "true"); return; }
+            input.removeAttribute("aria-invalid");
+            setOption(o, v);
+          } });
+        return { el: field(o.label || words(o.key), input), sync() { if (document.activeElement !== input) input.value = draft.options?.[o.key] ?? ""; } };
+      }
+      const sel = h("select", { "data-option": o.key, onchange: () => {
+        const found = current().find(([v]) => String(v) === sel.value);
+        setOption(o, found ? found[0] : sel.value);
+      } });
+      const current = () => (o.type === "field" ? fieldChoices(o) : (o.choices || []).map(choiceOf));
+      return { el: field(o.label || words(o.key), sel), sync() { fillSelect(sel, { options: current(), required: true }, optionValue(o)); } };
+    }
+    function renderOptions() {
+      const list = (forms.get(draft.form)?.options || []).filter(o => applies(o, draft));
+      const wanted = new Set(list.map(o => `${draft.form}/${o.key}`));
+      for (const [k, c] of optionControls) if (!wanted.has(k)) { c.el.remove(); optionControls.delete(k); }
+      for (const o of list) {
+        const k = `${draft.form}/${o.key}`;
+        let c = optionControls.get(k);
+        if (!c) { c = optionControl(o); optionControls.set(k, c); }
+        c.sync();
+        optionsBox.append(c.el);
+      }
+      optionsHead.hidden = optionsBox.hidden = !list.length;
+    }
+
+    /* the common analyses: each fills in a complete panel to adjust, and can be taken back */
+    const quickBox = h("div", { class: "pe-quick" });
+    const quickUndo = h("button", { type: "button", class: "ghost", hidden: true, onclick: () => {
+      if (!undoQuick) return;
+      Object.assign(draft, undoQuick);
+      if (!undoQuick.options) delete draft.options;
+      undoQuick = null;
+      quickUndo.hidden = true;
+      titleIn.value = draft.title || "";
+      renderAll();
+      say("Put back as it was");
+      changed();
+    } }, "Undo quick start");
+    function renderQuick() {
+      quickBox.replaceChildren(...QUICK_STARTS.map(start => {
+        const built = F && forms.has(start.form) ? start.build(F) : null;
+        const b = h("button", { type: "button", class: "pe-quick-btn", disabled: !built, title: built ? "" : `Needs ${start.needs}`, onclick: () => {
+          undoQuick = { queries: clone(draft.queries), form: draft.form, options: clone(draft.options), title: draft.title };
+          draft.queries = start.build(F).queries;
+          draft.form = start.form;
+          delete draft.options;
+          if (!draft.title) { draft.title = start.build(F).title; titleIn.value = draft.title; }
+          quickUndo.hidden = false;
+          renderAll();
+          say(`${start.name}: filled in, ready to adjust`);
+          changed();
+          quickUndo.focus();
+        } }, formIcon(forms.get(start.form) || {}, start.form), h("span", {}, start.name));
+        return b;
+      }));
+    }
+
     const thresholdRows = (draft.display.thresholds || []).map(t => ({ ...t }));
     const thresholdsBox = h("div", { class: "pe-thresholds" });
     function applyThresholds() {
@@ -459,12 +974,18 @@
     const side = h("div", { class: "pe-side" },
       h("h3", {}, "Panel"),
       field("Title", titleIn), field("Note", noteIn),
-      radios(uid + "-form", "Chart", FORMS, draft.form, v => { draft.form = v; changed(); }),
+      h("h3", {}, "Quick starts"), quickBox, quickUndo,
+      h("h3", {}, "Chart"), makeGallery(), formGuide,
+      optionsHead, optionsBox,
       h("h3", {}, "Values"),
       h("div", { class: "pe-two" }, field("Unit", unitSel), field("Decimals", decSel)),
       h("h3", {}, "Legend"),
       field("Position", legendSel),
       h("fieldset", { class: "pe-group" }, h("legend", { class: "pe-l" }, "Values shown"), legendValues),
+      h("h3", {}, "X axis"),
+      h("div", { class: "pe-two" }, field("X from", xMin), field("X to", xMax)),
+      field("X label", xLabel),
+      h("label", { class: "check" }, xLog, "Log X axis"), xMsg,
       h("h3", {}, "Y axis"),
       h("div", { class: "pe-two" }, field("Minimum", yMin), field("Maximum", yMax)),
       h("label", { class: "check" }, yLog, "Log scale"), yMsg,
@@ -512,6 +1033,16 @@
       saveMsg.textContent = "";
       const bad = yProblem();
       if (bad) { saveMsg.textContent = bad[0]; bad[1].focus(); return; }
+      const badX = xProblem();
+      if (badX) { saveMsg.textContent = badX[0]; badX[1].focus(); return; }
+      for (const q of draft.queries) {
+        const target = q.x?.type === "query" ? draft.queries.find(o => o.id === q.x.query) : null;
+        if (q.source && q.x?.type === "query" && q.x.query && !target?.source) {
+          saveMsg.textContent = `Query ${q.id.toUpperCase()}: choose what goes on its X axis in query ${q.x.query.toUpperCase()}.`;
+          (target ? cards.get(target).root.querySelector("select") : cards.get(q).root.querySelector("[data-slot=x_query]"))?.focus();
+          return;
+        }
+      }
       for (const q of draft.queries) {
         const card = cards.get(q);
         card.showIncomplete = !!q.source;
@@ -519,12 +1050,15 @@
         if (gap) {
           renderMessages();
           saveMsg.textContent = `Query ${q.id.toUpperCase()}: choose ${gap.label.toLowerCase()}.`;
-          card.grid.querySelector(`[data-slot="${gap.key}"]`)?.focus();
+          card.root.querySelector(`${gap.part ? `[data-part=${gap.part}] ` : ""}[data-slot="${gap.key}"]`)?.focus();
           return;
         }
       }
       const out = clone(draft);
       out.queries = out.queries.filter(q => q.source);       // a query nothing was chosen in is not part of the panel
+      const schema = forms.get(out.form)?.options || [];
+      for (const o of schema) if (out.options?.[o.key] !== undefined && !applies(o, out)) delete out.options[o.key];
+      if (out.options && !Object.keys(out.options).length) delete out.options;
       close();
       onSave?.(out);
     }
@@ -540,6 +1074,7 @@
         return;
       }
       if (closed) return;
+      renderQuick();
       renderAll();
       runPreview();
       if (!root.contains(document.activeElement) || (document.activeElement === titleIn && !titleIn.value)) initialFocus();

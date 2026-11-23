@@ -73,6 +73,36 @@ function chartPanel(config) {
   el.destroy = () => { __log.destroyed++; };
   return el;
 }
+const STACK = {key: 'stack', label: 'Stacking', type: 'choice', choices: ['none', 'stacked', 'percent'], default: 'none'};
+const FORMS_STUB = {
+  line: {label: 'Line', group: 'time', needs: {x: ['time', 'query', 'bins']}, options: [
+    {key: 'style', label: 'Line style', type: 'choice', choices: ['linear', 'smooth', 'step-after'], default: 'linear'},
+    {key: 'fill', label: 'Fill', type: 'choice', choices: ['none', 'area', 'gradient'], default: 'none'}, STACK,
+    {key: 'width', label: 'Line width', type: 'number', min: 1, max: 4, default: 1},
+    {key: 'gradient_top', label: 'Gradient strength', type: 'number', when: c => c.options?.fill === 'gradient'}]},
+  bar: {label: 'Bar', group: 'comparison', needs: {x: ['time', 'category', 'bins']}, options: [STACK,
+    {key: 'orientation', label: 'Orientation', type: 'choice', choices: ['vertical', 'horizontal'], default: 'vertical'}]},
+  scatter: {label: 'Scatter', group: 'comparison', needs: {x: ['query', 'field']}, options: [
+    {key: 'size', label: 'Point size', type: 'field', default: 3},
+    {key: 'trend', label: 'Trend line', type: 'bool', default: false}]},
+  candlestick: {label: 'Candlestick', group: 'time', needs: {x: ['time'], agg: 'ohlc'}, options: [
+    {key: 'style', label: 'Candle style', type: 'choice', choices: ['candle', 'ohlc-bar', 'hollow'], default: 'candle'}]},
+  histogram: {label: 'Histogram', group: 'distribution', needs: {x: ['bins']}, options: []},
+  phase: {label: 'Phase', group: 'dynamics', needs: {x: ['query']}, options: [
+    {key: 'direction', label: 'Direction marks', type: 'choice', choices: ['on', 'off'], default: 'on'}]},
+  bode: {label: 'Bode', group: 'dynamics', needs: {source: 'frequency'}, options: [
+    {key: 'coherence', label: 'Low coherence', type: 'choice', choices: ['shade', 'hide-low', 'off'], default: 'shade'}]},
+  nyquist: {label: 'Nyquist', group: 'dynamics', needs: {source: 'frequency'}, options: []},
+  'pole-zero': {label: 'Pole-zero', group: 'dynamics', needs: {source: 'frequency', data: 'poles', text: 'a model with poles and zeros'},
+    options: []},
+  newchart: {label: 'Brand new', group: 'novel', options: [{key: 'zing', label: 'Zing', type: 'bool', default: false}]},
+};
+function plotForms() { return FORMS_STUB; }
+function normalizeForm(c) {
+  const old = {area: ['line', {fill: 'area'}], stacked: ['line', {fill: 'area', stack: 'stacked'}], step: ['line', {style: 'step-after'}],
+               bars: ['bar', {}], hbar: ['bar', {orientation: 'horizontal'}]}[c.form];
+  return old ? {...c, form: old[0], options: {...old[1], ...(c.options || {})}} : c;
+}
 async function queryFields() { return (await fetch('/api/query/fields')).json(); }
 async function queryPanels(configs, {since} = {}) {
   const queries = configs.flatMap(c => c.queries);
@@ -193,7 +223,8 @@ def shot(page, name, tmp_path):
 
 def check_built(saved):
     assert saved["title"] == "AI cost per hour by state"
-    assert saved["form"] == "stacked"
+    assert saved["form"] == "line"
+    assert saved["options"] == {"fill": "area", "stack": "stacked"}
     assert len(saved["queries"]) == 1
     q = saved["queries"][0]
     assert {k: q.get(k) for k in HOUR_COST} == HOUR_COST
@@ -209,10 +240,11 @@ def test_builds_cost_per_hour_by_state_stacked_by_mouse(ed, tmp_path):
     choose(ed, "agg", "sum")
     choose(ed, "transform", "rate")
     assert card(ed).locator("select[data-slot=rate_per]").input_value() == "hour"
-    ed.locator(".pe-seg", has_text="Stacked").click()
+    ed.get_by_label("Fill", exact=True).select_option("area")
+    ed.get_by_label("Stacking").select_option("stacked")
     wait_drawn(ed)
-    ed.wait_for_function("__log.configs.at(-1)?.form === 'stacked'")
-    assert "Auto (usd/h)" in ed.locator(".pe-side select").first.inner_text()
+    ed.wait_for_function("__log.configs.at(-1)?.options?.stack === 'stacked'")
+    assert "Auto (usd/h)" in ed.get_by_label("Unit", exact=True).inner_text()
     shot(ed, "desktop-built", tmp_path)
     ed.get_by_role("button", name="Save", exact=True).click()
     check_built(result(ed)["saved"])
@@ -245,10 +277,11 @@ def test_builds_cost_per_hour_by_state_stacked_by_keyboard_alone(ed):
     assert card(ed).locator("select[data-slot=transform]").input_value() == "rate"
     tab_to(ed, "e.labels?.[0]?.textContent === 'Title'")
     ed.keyboard.type("AI cost per hour by state")
-    tab_to(ed, "e.type === 'radio' && e.value === 'line'")
-    ed.keyboard.press("ArrowRight")
-    ed.keyboard.press("ArrowRight")
-    assert ed.evaluate("document.activeElement.value") == "stacked"
+    tab_to(ed, "e.dataset.option === 'fill'")
+    ed.keyboard.type("Area", delay=20)
+    tab_to(ed, "e.dataset.option === 'stack'")
+    ed.keyboard.type("Stacked", delay=20)
+    assert ed.evaluate("__editor.config.options") == {"fill": "area", "stack": "stacked"}
     tab_to(ed, "e.textContent === 'Save'")
     ed.keyboard.press("Enter")
     check_built(result(ed)["saved"])
@@ -339,7 +372,7 @@ def test_display_changes_redraw_without_asking_again(ed):
     ed.get_by_label("Minimum").fill("0")
     ed.get_by_label("Maximum").fill("50")
     ed.get_by_label("Log scale").check()
-    assert "above 0" in ed.locator(".pe-side [role=status]").inner_text()
+    assert ed.locator(".pe-side [role=status]", has_text="above 0").count() == 1
     ed.get_by_label("Minimum").fill("1")
     ed.get_by_label("Position").select_option("bottom")
     ed.get_by_label("Decimals").select_option("3")
@@ -471,3 +504,230 @@ def test_at_phone_width_it_stacks_with_no_sideways_scroll(ed, scheme, tmp_path):
     assert ed.evaluate("""Math.abs(document.querySelector('.pe-preview').getBoundingClientRect().top
         - document.querySelector('.pe-body').getBoundingClientRect().top) < 1"""), "the preview stays in sight"
     shot(ed, f"phone-{scheme}-options", tmp_path)
+
+
+def tile(page, form):
+    return page.locator(f".pe-form[data-form='{form}']")
+
+
+def part(page, name, slot):
+    return card(page).locator(f"[data-part={name}] select[data-slot={slot}]")
+
+
+def test_the_gallery_is_the_registry_grouped_and_says_what_each_needs(ed, tmp_path):
+    opened(ed, {"id": "p1", "queries": [{**HOUR_COST, "id": "a"}]})
+    wait_drawn(ed)
+    names = ed.locator(".pe-form").evaluate_all("els => els.map(e => e.dataset.form)")
+    assert set(names) == set(ed.evaluate("Object.keys(plotForms())")), "every family, and only what registered"
+    assert "pe-form-blocked" in tile(ed, "phase").get_attribute("class"), "marked, not hidden"
+    assert tile(ed, "phase").locator(".pe-form-need").inner_text() == "Needs X: query"
+    assert "X axis" in tile(ed, "phase").get_attribute("title"), "the whole reason is there too"
+    assert "model with poles" in tile(ed, "pole-zero").locator(".pe-form-need").inner_text()
+    assert "pe-form-blocked" not in tile(ed, "line").get_attribute("class")
+    shot(ed, "desktop-gallery", tmp_path)
+
+
+def test_options_come_from_the_schema_and_a_new_family_needs_no_editor_code(ed):
+    opened(ed, {"id": "p1", "form": "newchart", "queries": [{**HOUR_COST, "id": "a"}]})
+    ed.get_by_label("Zing").check()
+    assert ed.evaluate("__editor.config.options") == {"zing": True}
+    tile(ed, "line").click()
+    assert ed.evaluate("__editor.config.options ?? null") is None, "what the new family lacks goes"
+    assert ed.get_by_label("Gradient strength").count() == 0, "shown only when its condition holds"
+    ed.get_by_label("Fill", exact=True).select_option("gradient")
+    ed.get_by_label("Gradient strength").fill("2")
+    ed.get_by_label("Fill", exact=True).select_option("area")
+    assert ed.get_by_label("Gradient strength").count() == 0
+    ed.get_by_role("button", name="Save", exact=True).click()
+    assert result(ed)["saved"]["options"] == {"fill": "area"}, "an option that no longer applies is not saved"
+
+
+def test_changing_family_keeps_what_still_applies(ed):
+    opened(ed, {"id": "p1", "form": "line", "options": {"stack": "percent", "fill": "area"},
+                "queries": [{**HOUR_COST, "id": "a"}]})
+    tile(ed, "bar").click()
+    assert ed.evaluate("__editor.config.options") == {"stack": "percent"}
+    assert ed.get_by_label("Stacking").input_value() == "percent"
+
+
+def test_old_form_names_load_as_families(ed):
+    opened(ed, {"id": "p1", "form": "hbar", "queries": [{**HOUR_COST, "id": "a"}]})
+    assert ed.evaluate("__editor.config.form") == "bar"
+    assert ed.get_by_label("Orientation").input_value() == "horizontal"
+    assert tile(ed, "bar").locator("input").is_checked()
+
+
+def test_candlestick_sets_ohlc_and_leaving_it_restores_an_aggregation(ed):
+    opened(ed, {"id": "p1", "queries": [{**HOUR_COST, "id": "a"}]})
+    tile(ed, "candlestick").click()
+    q = ed.evaluate("__editor.config.queries[0]")
+    assert q["agg"] == "ohlc" and q["transform"] == "none" and "rate_per" not in q
+    assert options(ed, "agg") == ["ohlc"]
+    tile(ed, "line").click()
+    assert ed.evaluate("__editor.config.queries[0].agg") == "sum"
+
+
+def test_x_axis_offers_only_what_the_source_supports(ed):
+    opened(ed, {"id": "p1", "queries": [{**HOUR_COST, "id": "a"}]})
+    assert options(ed, "x_type") == ["time", "query", "field", "category", "bins"]
+    choose(ed, "x_type", "field")
+    q = ed.evaluate("__editor.config.queries[0]")
+    assert q["x"] == {"type": "field", "field": "tokens"} and q["agg"] == "none" and "transform" not in q
+    choose(ed, "x_type", "bins")
+    assert ed.evaluate("__editor.config.queries[0].x") == {"type": "bins", "bins": 20, "field": "ai_cost_usd"}
+    assert ed.evaluate("__editor.config.queries[0].agg") == "count"
+    choose(ed, "x_type", "category")
+    assert ed.evaluate("__editor.config.queries[0].x") == {"type": "category", "by": "state"}
+    choose(ed, "x_type", "time")
+    assert "x" not in ed.evaluate("__editor.config.queries[0]")
+    choose(ed, "source", "series")
+    assert options(ed, "x_type") == ["time", "query", "bins"]
+
+
+def test_x_axis_display_options(ed):
+    opened(ed, {"id": "p1", "queries": [{**HOUR_COST, "id": "a"}]})
+    ed.get_by_label("X from").fill("5")
+    ed.get_by_label("X to").fill("1")
+    assert ed.locator(".pe-side [role=status]", has_text="start below").count() == 1
+    ed.get_by_label("X to").fill("50")
+    ed.get_by_label("Log X axis").check()
+    ed.get_by_label("X label").fill("Backlog")
+    ed.get_by_role("button", name="Save", exact=True).click()
+    assert result(ed)["saved"]["display"]["x"] == {"min": 5, "max": 50, "log": True, "label": "Backlog"}
+
+
+def test_a_query_used_as_x_cannot_be_hidden_and_removing_it_returns_to_time(ed):
+    opened(ed, {"id": "p1", "form": "phase", "queries": [
+        {"id": "a", "source": "series", "series": "stock.backlog", "agg": "avg", "transform": "none", "x": {"type": "query", "query": "b"}},
+        {"id": "b", "source": "counts", "kind": "gap", "transform": "none"}]})
+    wait_drawn(ed)
+    assert ed.get_by_role("button", name="Hide query B").is_disabled()
+    ed.get_by_role("button", name="Remove query B").click()
+    assert "x" not in ed.evaluate("__editor.config.queries[0]")
+
+
+def build_phase_end(ed):
+    ed.get_by_role("button", name="Save", exact=True).click()
+    saved = result(ed)["saved"]
+    assert saved["form"] == "phase"
+    a, b = saved["queries"]
+    assert a["series"] == "stock.backlog" and a["x"] == {"type": "query", "query": "b"}
+    assert b["source"] == "events" and b["type"] == "gap.merged"
+
+
+def test_builds_a_phase_portrait_from_empty_by_mouse(ed, tmp_path):
+    opened(ed, {"id": "p1"})
+    tile(ed, "phase").click()
+    assert card(ed, "b").count() == 1, "the X query is asked for"
+    ed.wait_for_function("document.activeElement.closest('.pe-q')?.dataset.query === 'b'")
+    choose(ed, "source", "events", "b")
+    choose(ed, "type", "gap.merged", "b")
+    choose(ed, "source", "series")
+    wait_drawn(ed)
+    shot(ed, "desktop-phase", tmp_path)
+    build_phase_end(ed)
+
+
+def test_builds_a_phase_portrait_from_empty_by_keyboard(ed):
+    opened(ed, {"id": "p1"})
+    ed.evaluate("document.querySelector('.pe-form[data-form=line] input').focus()")
+    for _ in range(12):
+        if ed.evaluate("document.activeElement.value") == "phase":
+            break
+        ed.keyboard.press("ArrowRight")
+    assert ed.evaluate("document.activeElement.value") == "phase"
+    assert card(ed, "b").count() == 0, "passing over a form with the arrows changes nothing else"
+    ed.keyboard.press("Enter")
+    ed.wait_for_function("document.activeElement.closest('.pe-q')?.dataset.query === 'b'")
+    ed.keyboard.type("Events", delay=20)
+    key_pick(ed, "type", "gap.m")
+    ed.locator(".pe-q[data-query=a] select[data-slot=source]").focus()
+    ed.keyboard.type("Metric", delay=20)
+    build_phase_end(ed)
+
+
+def check_bode(saved):
+    assert saved["form"] == "bode"
+    f = saved["queries"][0]
+    assert f["source"] == "frequency" and f["segments"] == 8
+    assert f["input"]["source"] == "events" and f["input"]["type"] == "gap.merged"
+    assert f["output"]["series"] == "stock.backlog"
+    assert "id" not in f["input"] and "x" not in f
+
+
+def test_builds_a_bode_plot_from_empty_by_mouse(ed, tmp_path):
+    opened(ed, {"id": "p1"})
+    tile(ed, "bode").click()
+    ed.wait_for_function("document.activeElement.closest('[data-part]')?.dataset.part === 'input'")
+    part(ed, "input", "source").select_option("events")
+    part(ed, "input", "type").select_option("gap.merged")
+    part(ed, "output", "source").select_option("series")
+    choose(ed, "segments", "8")
+    wait_drawn(ed)
+    shot(ed, "desktop-bode", tmp_path)
+    ed.get_by_role("button", name="Save", exact=True).click()
+    check_bode(result(ed)["saved"])
+
+
+def test_builds_a_bode_plot_from_empty_by_keyboard(ed):
+    opened(ed, {"id": "p1"})
+    ed.evaluate("document.querySelector('.pe-form[data-form=line] input').focus()")
+    for _ in range(12):
+        if ed.evaluate("document.activeElement.value") == "bode":
+            break
+        ed.keyboard.press("ArrowRight")
+    ed.keyboard.press("Enter")
+    ed.wait_for_function("document.activeElement.closest('[data-part]')?.dataset.part === 'input'")
+    ed.keyboard.type("Events", delay=20)
+    part(ed, "input", "type").focus()
+    ed.keyboard.type("gap.m", delay=20)
+    part(ed, "output", "source").focus()
+    ed.keyboard.type("Metric", delay=20)
+    card(ed).locator("select[data-slot=segments]").focus()
+    ed.keyboard.type("8", delay=20)
+    ed.get_by_role("button", name="Save", exact=True).focus()
+    ed.keyboard.press("Enter")
+    check_bode(result(ed)["saved"])
+
+
+def test_bode_from_two_queries_uses_them_and_keeps_them_hidden(ed):
+    opened(ed, {"id": "p1", "queries": [
+        {"id": "a", "source": "counts", "kind": "gap", "transform": "none"},
+        {"id": "b", "source": "series", "series": "stock.backlog", "agg": "avg", "transform": "none"}]})
+    tile(ed, "nyquist").click()
+    qs = ed.evaluate("__editor.config.queries")
+    assert [q.get("hidden", False) for q in qs] == [True, True, False]
+    assert qs[2]["input"]["kind"] == "gap" and qs[2]["output"]["series"] == "stock.backlog"
+
+
+@pytest.mark.parametrize("name,form", [("Phase portrait", "phase"), ("Bode plot", "bode"),
+                                       ("Cost against size", "scatter"), ("Distribution of cycle", "histogram")])
+def test_quick_starts_fill_a_complete_panel_and_can_be_undone(ed, name, form):
+    before = {**HOUR_COST, "id": "a"}
+    opened(ed, {"id": "p1", "queries": [before]})
+    wait_drawn(ed)
+    ed.get_by_role("button", name=name).click()
+    got = ed.evaluate("__editor.config")
+    assert got["form"] == form
+    assert "pe-form-blocked" not in tile(ed, form).get_attribute("class")
+    ed.get_by_role("button", name="Undo quick start").click()
+    assert ed.evaluate("__editor.config.queries") == [before] and ed.evaluate("__editor.config.form") == "line"
+    ed.get_by_role("button", name=name).click()
+    ed.get_by_role("button", name="Save", exact=True).click()
+    assert result(ed)["saved"]["form"] == form, "complete: it saves as it is"
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_gallery_and_frequency_fit_a_phone(ed, scheme, tmp_path):
+    ed.emulate_media(color_scheme=scheme)
+    ed.set_viewport_size({"width": 390, "height": 844})
+    opened(ed, {"id": "p1"})
+    tile(ed, "bode").click()
+    wide = ed.evaluate("""() => { const o = document.querySelector('.pe-body');
+        const over = [...o.querySelectorAll('*')].filter(e => e.getClientRects().length
+             && e.getBoundingClientRect().right > innerWidth + 0.5
+             && !e.closest('.pe-live') && getComputedStyle(e).position !== 'absolute');
+        return {scroll: o.scrollWidth, client: o.clientWidth, over: over.map(e => e.tagName + '.' + e.className)}; }""")
+    assert wide["scroll"] <= wide["client"] and wide["over"] == []
+    tile(ed, "phase").scroll_into_view_if_needed()
+    shot(ed, f"phone-gallery-{scheme}", tmp_path)
