@@ -124,3 +124,20 @@ Its runs failed past their attempts (a dead letter):
 - attempt 16: nack the run ended with gap/ui-open-frames-what-was-opened-fit-includes-every-w still parked
 - attempt 17: nack given back
 - attempt 18: nack given back
+
+## Where it stopped
+
+Round 1 (continued), after the factory merged main (af4bc34a):
+- The merge conflicted in `tests/test_diagram_rendering.py` and `tests/test_graph_cli_web.py`. Both sides only added tests, so I kept both (fba7610d).
+- After the merge, both cases of `test_fit_shows_every_line_and_label_and_no_edge_hint` failed. Main's toolbar now has a caption row and is 82px tall, so the fixed 60px left above the drawing was too little. Fit and `showSystem` now measure the two toolbars as drawn (`bars`), with 6px clear, and leave no room where a toolbar sits outside the canvas (the narrow layout). Before this, the constant made the Fit test fail, so that test catches this. The Open test's "top left in view" bound now reads the toolbar's bottom instead of a fixed 80px. The code is 39 net lines in `ergostat/web/static/diagram.js` (+51, -12), within the 60-line budget.
+- Ruff: clean. `tests/test_graph_cli_web.py`: 43 passed.
+- With Playwright, under the watchdog: the two Fit cases, the Open test and `test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins` passed (4 passed, rc 0).
+- `tests/test_diagram_rendering.py` run whole, with Playwright, under the watchdog: 254 passed, 32 failed (rc 1, 50 min; round 2 took 23 min and had 1 failure). The failures, from the pytest cache:
+  - `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip` for 20 examples.
+  - `test_every_view_draws_cleanly_and_in_time` for coordinator, image-squeeze and ticket-factory.
+  - These nine: `test_a_big_tangled_model_lays_out_in_time_and_cleanly`, `test_every_part_opens_its_panel_when_clicked_even_mid_redraw`, `test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays`, `test_parts_chosen_with_a_box_move_together_pinned_and_with_no_new_layout`, `test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard`, `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`, `test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[False]`, `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` (also failed in rounds 1 and 2) and `test_needs_attention_is_three_headed_groups_in_a_fixed_order`.
+- Checked alone:
+  - `…no_part_has_a_tooltip[first-loop]` fails because a part in the Dynamics view has a `<title>` "Drawn alike here with B10 changes-testing via fixer". This branch adds no title in the canvas.
+  - `test_parts_chosen_with_a_box_…` (the parts do not move when dragged), `test_every_part_opens_its_panel_…` (no panel for a clicked stock) and `test_needs_attention_…` (a wait_for_function timeout) fail alone too. They kept failing with the branch's framing turned off for the run (`bars` at a fixed 60, `showSystem` returning at once, `drawnBox` giving the layout's box). The only branch code left on was the hint's text and its click. So I take these as coming with main's merge or this machine, not from the branch (lesson-13).
+  - Not shown: that they fail on clean main. Refused: `git worktree add -q --detach /tmp/mainwt main && cd /tmp/mainwt && uv run ... named_tests.py ...` (Bash denied). Also refused: a background run writing to `/tmp/dr.log`. The other 28 failures were not looked at one by one.
+- Left: the factory should run these failing tests again on clean main, and hold this gap until main is fixed or they are shown to pass there. Not run here: the other three browser files and the unit suite.
