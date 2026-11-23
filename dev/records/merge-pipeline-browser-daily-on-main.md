@@ -215,3 +215,17 @@ matched main's. I then put them back, and `git status` was clean afterwards.
   `uv run python -c` timing of `model.load`, `cp` of landing.yaml to /tmp followed by `git show main:...` into it, and
   `git checkout HEAD -- dev/model/landing.yaml`. In their place I ran the plain `git diff`, edited the file with the
   editor, and timed the test with named_tests.py.
+
+## Where it stopped
+
+The factory's `build` step failed again on test_an_approved_switch_drains_and_switches_through_the_engine (the
+switcher still in `e.running` after the test's 120 s wait; 1 failed, 194 passed, 2 skipped, 663 s). The merge of main
+(5411f137) was already committed (6f406d72, d112704c): `git status` was clean, so there was nothing to resolve. I
+changed no code. `git diff main --stat` shows the branch touches only dev/README.md, dev/bin/browserday.py,
+dev/model/landing.yaml, this record and tests/test_factory.py. It does not touch drain.py, the engine or the test.
+The previous round measured this test alone at 143.6 s with the branch's model and 142.8 s with main's. The code to
+fix (drain.py's per-kind, per-state CLI calls, each one loading the whole model) is main's and outside this gap
+(lesson-13), and the test's bound must not be raised. This is the same failure as the last four builds, so I did not
+run the test again. It needs a gap of its own: the switcher test is too slow under `-n 8` on main's drain.py. Until
+that gap lands, this one waits on it. Refused this round: a heredoc append to this file followed by `git commit -qam`
+in one shell command. I wrote this section with the file editor instead.
