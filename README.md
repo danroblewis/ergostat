@@ -154,7 +154,8 @@ described workflow into a model of the right shape (one connected chain per kind
 a block per step), then check it and look at both diagrams before calling it done. Then
 [docs/MODELLING-WELL.md](docs/MODELLING-WELL.md) (`ergostat help modelling-well`): the craft beyond correctness, so
 that the Dynamics, Blocks and Process views each look as a professional in that discipline would draw them, with
-good and poor models side by side.
+good and poor models side by side. For a Dashboard, [docs/DASHBOARDS.md](docs/DASHBOARDS.md) (`ergostat help
+dashboards`): panels that each answer a question and support a decision, with recipes and bad panels fixed.
 
 `ergostat mcp` serves the tools an agent needs to work on a system: `spec` (the format), `check`
 (after every edit), `explain`, `status`, `findings`, `events`, and `report_done` and `read_sensor`
