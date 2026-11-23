@@ -65,7 +65,7 @@ from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
 SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "every", "cron", "timeout", "parse", "unit",
-               "description", "averages"}
+               "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final"}
@@ -83,7 +83,7 @@ AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "descripti
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file", "tls"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
-MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on"}
+MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on", "runs-on"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
     "program": MACHINE_COMMON | LAW_KEYS | {"run", "daemon", "parse", "goal", "until", "review", "workspace", "actions",
@@ -493,6 +493,9 @@ class Compiler:
             changes = s.get("changes")
             self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()) | ({"changes", "over"} if changes is not None
                                                                                   else {"changes"}), sw)
+            if "runs-on" in s:                                # a sensor runs here, beside what reads it (§12k)
+                self.err(f"{sw}.runs-on: a sensor runs here; only a program block runs on a pool", s.at("runs-on"),
+                         "runs-on-sensor")
             kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon") if s.get(k) not in (None, False)]
             if len(kinds) != 1:
                 self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin: or daemon: (it has "
@@ -830,6 +833,16 @@ class Compiler:
                 getattr(got, attr)[str(kind)] = vals[0] if key == "reopen-to" else vals
         spec.messages = got
 
+    def runs(self, spec: Spec) -> None:
+        """``runs:``: ``outlive_engine``, whether a block's run is kept going by its keeper past the engine (§9.1)."""
+        if (r := self.doc.runs) is None:
+            return
+        if isinstance(r, Map):
+            self.keys(r, {"outlive_engine"}, "runs")
+            spec.outlive_engine = self.flag(r, "outlive_engine", "runs")
+        else:
+            self.err("runs: a map (outlive_engine: true or false)", None, "not-a-map")
+
     def budget(self, spec: Spec) -> None:
         """``budget:``: the day's AI budget, ``daily`` and ``max-cost``, both required and bounded (SPEC §9.9)."""
         m, w = self.doc.budget, self.doc.budget_at
@@ -1078,6 +1091,7 @@ class Compiler:
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
         from ..inbox import config as notify
         notify.parse(self, spec)                             # notify: each channel a gated action notify.NAME (SPEC §12o)
+        self.runs(spec)                                      # runs: whether a run outlives the engine (SPEC §9.1)
         if spec.actions:
             spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
         if spec.workspaces:
@@ -1146,6 +1160,7 @@ class Compiler:
         check_relations(self, spec)
         check_joins(self, spec)
         self.references(spec)
+        compute.pools_used(self, spec)                       # runs-on: a pool there is, its blocks in one shard (§9.8)
         self.equations(spec)
         self.ends(spec)
         self.watched(spec)
@@ -1559,6 +1574,9 @@ class Compiler:
         lease_keys = {"takes": leases.takes(self, m, what), **dict(zip(("pool", "pool_now"), leases.pool(self, m, what), strict=True)),
                       "lease": leases.terms(self, m, "lease", what), "on": triggers.compile_on(self, m, what)} \
             if t in MACHINE else {}
+        from ..compute import compile as compute
+        if t in MACHINE and (on := compute.runs_on(self, name, m, what, t)) is not None:
+            lease_keys["runs_on"] = on                       # set only when a pool is named: local is no field set
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
                      **lease_keys,
                      system=self.system("blocks", name, m), description=self.text(m, "description"),

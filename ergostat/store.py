@@ -418,6 +418,23 @@ class Events:
                 rows = c.execute(sql + " order by seq desc limit ?", [*args, n]).fetchall()[::-1]
         return [self._row(r) for r in rows]
 
+    def moments(self, *, n: int, type: str | None = None, since: float | None = None, until: float | None = None,
+                skip: tuple[str, ...] = ()) -> list[tuple[float, str]]:
+        """(time, type) of the newest ``n`` matching events, oldest first, no event's data read: what a chart of events needs."""
+        where, args = [], []
+        _skipping(skip, where, args)
+        if type:
+            where.append(_types(type, args))
+        if since is not None:
+            where.append("time >= ?")
+            args.append(since)
+        if until is not None:
+            where.append("time <= ?")
+            args.append(until)
+        sql = "select time, type from events" + (" where " + " and ".join(where) if where else "") + " order by seq desc limit ?"
+        with self._c() as c:
+            return [(r[0], r[1]) for r in c.execute(sql, [*args, n]).fetchall()[::-1]]
+
     def get(self, id: str) -> dict | None:
         with self._c() as c:
             r = c.execute("select * from events where id = ?", (id,)).fetchone() or (id and c.execute(
@@ -907,6 +924,38 @@ class Measurements:
                     if t >= a[2]:
                         a[2], a[3] = t, v
         return [(b, a[0] / a[1], a[2], a[3]) for b, a in sorted(acc.items()) if a[1]]
+
+    def rollups(self, series: str, since: float, until: float, start: float, step: float, n: int) -> list[tuple]:
+        """A chart's buckets of ``step`` seconds from ``start``, over ``[since, until]``: ``(bucket, count, sum, min,
+        max, the last reading)`` for each that has a reading, read from the coarsest tier no wider than ``step`` and
+        the raw readings only where no tier holds them."""
+        acc: dict[int, list] = {}
+        with self._c() as c:
+            for e, lo, hi in self._sources(c, series, since, until, fine=step):
+                if e == 0:
+                    rows = c.execute("select max(min(cast((time - ?) / ? as integer), ?), 0), count(*), sum(value), min(value), "
+                                     "max(value), max(time), value from samples where series = ? and time >= ? and time <= ? "
+                                     "group by 1", (start, step, n - 1, series, lo, hi)).fetchall()
+                else:
+                    rows = c.execute("select max(min(cast((last_t - ?) / ? as integer), ?), 0), sum(n), sum(sum), min(min), "
+                                     "max(max), max(last_t), last_v from tiers where series = ? and every = ? and t >= ? "
+                                     "and t < ? group by 1", (start, step, n - 1, series, e, lo, hi)).fetchall()
+                for b, k, total, low, high, t, v in rows:
+                    a = acc.get(b)
+                    if a is None:
+                        acc[b] = [k, total, low, high, t, v]
+                        continue
+                    a[0], a[1], a[2], a[3] = a[0] + k, a[1] + total, min(a[2], low), max(a[3], high)
+                    if t >= a[4]:
+                        a[4], a[5] = t, v
+        return [(b, a[0], a[1], a[2], a[3], a[5]) for b, a in sorted(acc.items())]
+
+    def version(self) -> tuple:
+        """What changes when a reading is written, rolled up or taken out."""
+        with self._c() as c:
+            row = c.execute("select max(rowid) from samples").fetchone()[0]
+            marks = c.execute("select key, value from meta where key = 'deleted' or key like 'rolled.%' order by key").fetchall()
+        return (row, tuple(marks))
 
     def sampled(self, series: str, since: float, until: float | None = None, points: int = 600) -> list[tuple[float, float]]:
         """The readings in a span, raw when there are few; otherwise averaged into ``points`` buckets
