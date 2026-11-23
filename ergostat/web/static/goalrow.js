@@ -13,7 +13,7 @@ const goalBound = (g) => op(g.row ? g.row.bound_words : `${g.setpoint ?? ""}${g.
 const goalPerf = (s) => (s == null || s.not_analysed ? "" : s.working ? "being worked out" : s.failed ? "could not be worked out" : performanceWord(s));
 
 const GOAL_CELLS = {
-  goal: (g) => h("td", { class: "nowrap" }, h("button", { class: "name", type: "button", onclick: (ev) => { ev.stopPropagation(); openLoop(g.name); } }, h("b", {}, g.name)),
+  goal: (g, open = openLoop) => h("td", { class: "nowrap" }, h("button", { class: "name", type: "button", onclick: (ev) => { ev.stopPropagation(); open(g.name); } }, h("b", {}, g.name)),
     g.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
   status: (g) => h("td", {}, statusEl(goalWord(g))),
   measure: (g) => h("td", { class: "nowrap" }, g.row?.measure ?? g.stock),
@@ -38,4 +38,4 @@ const GOAL_CELLS = {
 const goalOffFor = (g) => goalWord(g) !== "off" ? null : g.off_since == null ? "off since ?"
   : `off ${g.off_before_window ? "over " : ""}${dur((S.at || nowS()) - g.off_since)}`;
 /* the cells of one goal ({name, ...its /api/loops entry}), in the columns asked for */
-function goalRow(goal, { columns }) { return columns.map((c) => GOAL_CELLS[c](goal)); }
+function goalRow(goal, { columns, open }) { return columns.map((c) => GOAL_CELLS[c](goal, open)); }   // open: what a click on its name does

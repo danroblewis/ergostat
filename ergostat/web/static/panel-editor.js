@@ -27,12 +27,14 @@
   const LEGENDS = [["", "Automatic"], ["right", "Right"], ["bottom", "Below"], ["hidden", "Hidden"]];
   const LEGEND_VALUES = [["last", "Last"], ["min", "Min"], ["max", "Max"], ["avg", "Average"]];
   const UNITS = ["items", "items/h", "events", "usd", "usd/h", "s", "%", "bytes", "tokens"];
-  const ORDER = ["source", "kind", "field", "measure", "state", "series", "type", "where", "group_by", "agg", "transform", "rate_per", "window", "segments"];
+  const ORDER = ["source", "text", "kind", "field", "measure", "state", "series", "type", "where", "group_by", "agg", "transform", "rate_per", "window", "segments"];
   const FOCUSABLE = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
   const clone = v => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
   const pairs = names => names.map(n => [n, n]);
   const nameOf = x => (typeof x === "string" ? x : x?.name);
 
+  /* a source under the model's sources: that is queried in its own language (ergostat/datasources), not a built-in one */
+  const dataSource = (q, F) => (F?.datasources || []).find(d => d.name === q.source && !SOURCES.some(([n]) => n === d.name)) || null;
   function kindsOf(src) { return Array.isArray(src?.kinds) ? src.kinds : Object.keys(src?.kinds || {}); }
   function kindOf(q, F) { const k = F?.sources?.[q.source]?.kinds; return k && !Array.isArray(k) ? k[q.kind] || null : null; }
   function statesFor(q, F) { return kindOf(q, F)?.states || F?.sources?.items?.kinds?.[q.kind]?.states || []; }
@@ -58,7 +60,10 @@
     if (!F) return [{ key: "source", label: "Source", options: SOURCES, required: true, locked: true }];   // (until the fields are read)
     const offered = SOURCES.filter(([n]) => F.sources?.[n]);
     if (!nested) offered.push(["frequency", "Frequency response"]);
+    if (!nested) for (const d of F.datasources || []) if (dataSource({ source: d.name }, F)) offered.push([d.name, `${d.name} (${d.language})`]);
     const out = [{ key: "source", label: "Source", options: offered, required: true }];
+    const ds = nested ? null : dataSource(q, F);
+    if (ds) return [...out, { key: "text", label: `Query (${ds.language})`, text: true, required: true }];
     if (q.source === "frequency") {
       if (!q.model) out.push({ key: "segments", label: "Segments", options: SEGMENTS.map(n => [n, String(n)]), required: true });
       return out;
@@ -105,11 +110,13 @@
     if (key === "source") {
       delete q.where;
       if (value === "frequency") { delete q.x; q.input ||= {}; q.output ||= {}; } else { delete q.input; delete q.output; delete q.model; }
+      if (dataSource(q, F)) { delete q.x; q.text ??= ""; }
     }
     const dropped = [];
     for (const k of ORDER.slice(ORDER.indexOf(key) + 1)) {
       const slot = slotsOf(q, F, nested).find(x => x.key === k);
       if (!slot) { if (q[k] != null && !(k === "agg" && q[k] === "none")) dropped.push(k); delete q[k]; continue; }
+      if (slot.text) continue;
       if (k === "where") {
         if (q.where?.state) {
           q.where.state = q.where.state.filter(v => hasOption(slot, v));
@@ -140,6 +147,7 @@
     if (q.x?.type === "query" && !q.x.query) incomplete.push({ key: "x_query", label: "X query" });
     for (const slot of slotsOf(q, F, nested)) {
       if (slot.checks) { for (const v of q.where?.state || []) if (!hasOption(slot, v)) missing.push([slot, v]); continue; }
+      if (slot.text) { if (!String(q.text || "").trim()) incomplete.push(slot); continue; }
       if (q[slot.key] == null) { if (slot.required) incomplete.push(slot); } else if (!hasOption(slot, q[slot.key])) missing.push([slot, q[slot.key]]);
     }
     return { missing, incomplete };
@@ -161,7 +169,7 @@
     return q.source === "counts" && statesFor(q, F).length ? ["state"] : [];
   }
   function xTypesOf(q, F) {
-    if (!q.source || q.source === "frequency") return [];
+    if (!q.source || q.source === "frequency" || dataSource(q, F)) return [];
     const out = ["time", "query"];
     if (q.source === "items" && !q.kind) return out;
     if (numericFields(q, F).length >= 2) out.push("field");
@@ -170,7 +178,7 @@
     return out;
   }
   const canBeX = (o, q) => o !== q && o.source !== "frequency" && !(o.x?.type === "query" && o.x.query === q.id);
-  function describe(q) { return [q.field || q.series || q.type || q.measure, q.state, q.kind].filter(Boolean).join(" · ") || q.source || "not chosen yet"; }
+  function describe(q) { if (q.text != null) return `${q.source}: ${String(q.text).slice(0, 40)}`; return [q.field || q.series || q.type || q.measure, q.state, q.kind].filter(Boolean).join(" · ") || q.source || "not chosen yet"; }
   function xSlots(q, F, queries) {
     const types = xTypesOf(q, F);
     if (!types.length) return [];
@@ -387,7 +395,7 @@
         seen.add(slot.key);
         let c = card.slots.get(slot.key);
         if (!c) {
-          c = slot.checks ? checksControl(card, slot) : selectControl(card, slot);
+          c = slot.checks ? checksControl(card, slot) : slot.text ? textControl(card, slot) : selectControl(card, slot);
           card.slots.set(slot.key, c);
         }
         c.sync(slot);
@@ -464,6 +472,14 @@
       const sel = h("select", { "data-slot": slot.key, onchange: () => pick(card, slot.key, sel.value) });
       const el = field(slot.label, sel);
       return { el, sel, sync(s) { fillSelect(sel, s, card.q[s.key]); } };
+    }
+    /* the query's text, in its source's own language: written, not built, and asked for as it is typed */
+    function textControl(card, slot) {
+      const area = h("textarea", { "data-slot": slot.key, rows: 3, spellcheck: "false", class: "pe-text",
+                                   oninput: () => { card.q.text = area.value; errors.delete(card.q.id); changed(); } });
+      const el = field(slot.label, area);
+      el.classList.add("pe-wide");
+      return { el, sync(s) { el.querySelector("label").textContent = s.label; if (area.value !== (card.q.text ?? "")) area.value = card.q.text ?? ""; } };
     }
     function checksControl(card, slot) {
       const box = h("div", { class: "pe-checks" });
@@ -934,6 +950,22 @@
     const saveBtn = h("button", { type: "button", class: "pe-primary", onclick: save }, "Save");
     const tallIn = h("input", { type: "checkbox", onchange: () => { draft.tall = tallIn.checked; changed(); } });
     tallIn.checked = !!draft.tall;
+    /* a repeated panel: one on the dashboard for each series a query answers with (its label's values), or for each
+       value of a variable the draft names; the choices are read when the list is opened, so they follow the queries */
+    const repeatSel = h("select", { onchange: () => {
+      const v = repeatSel.value;
+      if (!v) delete draft.repeat; else draft.repeat = v.startsWith("$") ? { var: v.slice(1) } : { query: v };
+      changed();
+    } });
+    function fillRepeat() {
+      const asIs = draft.repeat?.var ? `$${draft.repeat.var}` : draft.repeat?.query ?? "";
+      const opts = [["", "No"], ...(draft.queries || []).filter((q) => q.id != null).map((q) => [String(q.id), `One per series of query ${q.label || q.id}`])];
+      if (draft.repeat?.var) opts.push([asIs, `One per value of $${draft.repeat.var}`]);
+      repeatSel.replaceChildren(...opts.map(([v, text]) => h("option", { value: v }, text)));
+      repeatSel.value = asIs;
+    }
+    repeatSel.addEventListener("focus", fillRepeat);
+    fillRepeat();
 
     const side = h("div", { class: "pe-side" },
       h("h3", {}, "Panel"),
@@ -955,7 +987,8 @@
       h("h3", {}, "Thresholds"), thresholdsBox, addThreshold,
       h("h3", {}, "Width"),
       radios(uid + "-size", "Width on the dashboard", SIZES, draft.size, v => { draft.size = v; changed(); }),
-      h("label", { class: "check" }, tallIn, "Double height"));
+      h("label", { class: "check" }, tallIn, "Double height"),
+      h("h3", {}, "Repeat"), field("Repeat", repeatSel));
 
     const root = h("div", { class: "pe-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Edit panel", onkeydown: onKey },
       h("header", { class: "pe-head" }, h("h2", {}, "Edit panel"), saveMsg, h("span", { class: "pe-actions" }, cancelBtn, saveBtn)),

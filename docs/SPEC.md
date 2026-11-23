@@ -1193,7 +1193,10 @@ web:
 | any other `Host` | 403 |
 
 `open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
-login: anyone who reaches the name reads everything the page shows, and nothing is changed there. The tunnel must
+login: anyone who reaches the name reads everything the page shows, and nothing is changed there. Such a reader may
+not ask a data source (section 4e, *Data sources*): each of their `{source, text}` queries is refused with
+`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists no `datasources` to them; the
+owner, and a login under a name with `access:`, may ask. The tunnel must
 keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
@@ -1251,6 +1254,21 @@ reads the event log.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+- **Data sources.** A query `{"id": "a", "source": "prom", "text": "sum by (job) (rate(http_requests_total[5m]))"}` names
+  a source under the model's `sources:` (section 11) and is text in that source's own language (PromQL for `prometheus`);
+  it takes no other key and cannot be an X, an input or an output. The server asks the source (the browser never holds
+  its address or credentials) over the request's window, one value per bucket, and answers in the same shape as the rest
+  (`times`, `step`, `series`). It is bounded whatever the source's type: at most 4,000 characters of text, 50 series, 1,000
+  points, a 400-day window and 10 s (less what the request has used); past one it is refused with `error` naming the bound
+  and `error_kind: limit`. The time bound is the whole request's: connecting, the TLS handshake of an `https` source,
+  waiting for the answer and reading it, over http or https, however slowly the source sends (the connection, or its
+  TLS socket, is cut at the bound). Only looking up the source's host name is left
+  to the system's resolver, which ergostat cannot interrupt. An unreachable source is `error_kind: unreachable` (never with its address), a query the source
+  refuses `refused` with the source's own words. It is asked again each time, nothing kept. `/api/query/fields` lists these
+  sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
+  Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
+  `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
+  is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
 
 ## 4f. Dashboards: shared, named, and checked
 
@@ -1914,13 +1932,17 @@ filters) is listed as before, its newest 300.
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
-(`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
+(`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes). A system none of
+whose kinds has relations: the Timeline draws its kinds' items all the same, and the Graph says its items do not wait
+on one another, so there is no dependency graph. In both, the view comes first, above the kinds' charts, and the
+systems it draws come before those it has nothing to draw for, the project's before ergostat's own (List keeps the
+systems' order):
 
 | View | What it shows |
 |---|---|
 | **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A group other than `parent`, of a kind not asked (a gap's `milestone`, with kind `gap` chosen), is a frame its members are drawn inside, titled with its id, title and state, and its members' tally: how many done of all, working (active or queued), ready (unblocked), and blocked and on what (each item they wait on, by its own frame when that is another; in full in the frame's tooltip); a frame that waits on another (a milestone's `depends_on`) has an arrow from it, and lines between members stay drawn across frames. The asked items in no such group are in a plain, dashed frame ("no milestone"). A frame with nothing drawn in it (a completed milestone under **Collapse done**, or one only waited on) is one card with the same title, and a line from a member collapsed in it is drawn from that card. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
 `status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the levelled projection's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled projection's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), each segment named by its state where it fits, and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
@@ -2894,20 +2916,66 @@ memory are the sampler's alone (no `wait4`: `method` is `sampled`, or `none` for
 sample). Its exit code is the wrapper's, as above.
 - **Stopping ergostat leaves it going.** `ergostat run --stop`, or a SIGKILL to the engine's whole process group (a
   crash): the run carries on to its end, its journal whole and its exit written. (A restart in place stops its runs
-  through the same `kill_all`, which passes a kept run by, so it is left going too; no test covers that path yet.) The engine records no end for it (no `agent.ran`); what it printed after the engine stopped is in its
-  journal only, and its keeper's folder stays (up to a day) for whoever reads it next. **Not built yet** (the gap
-  `engine-adopts-runs-from-their-journals`): no engine reads a journal left behind, so until then those lines are
-  recorded nowhere. Its lease is given back as the engine stops, as for any run then (section 9.5), so the item may be
-  taken again by the next engine while the old run still works on it; its reserve (section 9.9) stays charged
-  until recovery closes it. A run the engine read to its end has its journal removed and its keeper let go.
+  through the same `kill_all`, which passes a kept run by, so it is left going too; no test covers that path yet.) The
+  engine records no end for it (no `agent.ran`) and does not give its lease back: the lease stays held, with its
+  fence, for the engine that takes the run up next (below). What it printed after the engine stopped is in its
+  journal, and its keeper's folder stays (up to a day) for whoever reads it next. Its reserve (section 9.9) is
+  closed at the whole reserve by the next engine's budget recovery (the engine that reserved it is gone), and its
+  `agent.ran` later carries its real cost; the day is charged the larger, never less than it spent.
+- **Runs taken up again** (`ergostat/spec/adopt.py`). As it reads a kept run's journal, the engine saves, after each
+  batch of lines, where it has read to and what the lines came to by then (`runs/RUN.offset`: the counts, what it
+  moved, its nack, its AI usage, its claims and proposals), written whole or not at all, after the batch's events. Each event a journal line
+  makes has an id made of the run, the line's place in the journal and its count within the line, and the record
+  keeps an id once; so a line read again after a crash between its events and the saved offset adds no event, and
+  every event line, valve opening, decision and refusal is in the record exactly once. (What a line does outside the
+  record is not undone: an `auxiliary` set read again is one more reading of the same value.) An unreadable offset is
+  read from the start, which records nothing twice for the same reason. A starting engine, before its socket, its
+  loop or its leases' first look, takes up each run in `runs/` with a keeper's folder or a journal left (a run of a
+  block no longer in the model, or with no `agent.started` in the record, is left as it is, said):
+  - **Still going**, by its record: its pid, and that process's start time (a pid now another process's, whose
+    start time differs, is gone; a start time that cannot be read is not taken for gone). The start time is read at
+    most once a second (on macOS each reading is a `ps`); between readings, only whether the pid is still there is
+    checked, and a pid once found to be another process's stays gone. A run whose record was
+    never written (an engine killed just after its keeper started it) is known by its keeper's group id alone: it is
+    waited for while that pid is there, and never signalled by the engine (`run --stop --runs` still stops it). It is
+    followed from its saved offset, and, with its record, is this engine's: `block NAME --stop` and a lease's kill
+    reach it. Its lease, when it still
+    holds it with its fence, is renewed as it is taken up (the time no engine was up is not held against it), and the
+    watchdog renews it (`seen: keeper`) instead of expiring it while the run lives; its keeper's own deadline (its
+    timeout, 5 s on) still ends it, and that is its only timeout now. A block with no timeout taken up runs until it
+    ends or is stopped. Its spend cap (T1) is not applied to what it reports after it was taken up.
+  - **Ended while no engine was up** (its keeper's exit written; or its process gone with none written for 3 s,
+    read as killed, -9): its journal is read from its saved offset to the end, then it is ended as if the engine had
+    been there: `agent.ran` (`agent.failed` with its note), at the time its keeper wrote its exit, with `taken_up:
+    true` and its id made from the run's (written once, whichever engine writes it); its pooled workspace taken
+    without a lease released; its run's series at that time; then what follows any run's end (the engine's
+    `after_end`): its failure triaged from its run log's tail (section 12r: `capture.failed`, or `capture.swallowed`
+    for one that ended well), its claims checked (section 12g), its recipes' outcomes, its review (section 12j,
+    `review.required` or `review.skipped`); then its lease's ack or nack (section 9.5), not counted against it when
+    it moved the item on. Its run record carries what these need from its start (its run log, the item its context
+    was given, its workspace). Its journal, record and offset are removed only after that, and its keeper let go, so
+    a crash at any step leaves it to be ended by the next start, each of the record's events written once; the steps
+    after the end are marked done (`runs/RUN.settled`) once they are, so a crash between them and the mark has them
+    again (a review asked twice), never not at all. The same order holds for a kept run its own engine reads to its
+    end.
+  - **Its lease taken over** while no engine was up (it expired, and the item was leased again: a newer fence): its
+    lines about the item are refused (fencing, as a late run's are), its lease is neither renewed nor ended by it.
+  **When its lines were printed.** Its keeper stamps the journal: each tick (0.25 s) it grew, its size and the time
+  are appended to `runs/RUN/stamps` (at most 100,000 stamps). A run taken up has each line's events, valve
+  openings, `auxiliary` readings, decisions, claims, proposals and refusals at the time of the first stamp that
+  covers the line (within a tick after it was printed, never later than now), so what it did while no engine was up
+  stays in the period it happened. A line not stamped yet (still being written, past the stamps' limit, or a stamp
+  not readable) takes effect when it is read, as a kept run's lines do in the engine that started it. What the run's
+  end writes (its `agent.ran` and series) has the time it ended, and readings a run
+  records itself (`ergostat sensor STOCK.SENSOR --read V`, a manual sensor's) go to the store as it makes them, engine or none. What a run taken up
+  printed that is not JSON is not added to its run log (its errors still are: its keeper holds that file).
 - **What still stops it**, the whole process group each time, through its group's id (the run's own pid). While
-  the engine that started it is up: its timeout, `ergostat block NAME --stop`, a lease's kill (section 9.5), and a
-  budget's trip (the same kill). **Its timeout, engine or none:** the keeper is given the block's timeout and stops
+  an engine that started it or took it up is up: its timeout (the keeper's, once taken up), `ergostat block NAME
+  --stop`, a lease's kill (section 9.5), and, for the engine that started it, a budget's trip (the same kill). **Its
+  timeout, engine or none:** the keeper is given the block's timeout and stops
   the run itself 5 s after it (SIGTERM to the group, SIGKILL 2 s on; its exit's `how` is `timeout`), so the engine's
-  own timeout comes first while it is up and a run left going still ends by it. **Once that engine is gone**, nothing
-  else of these reaches the run (**a known limit** until `engine-adopts-runs-from-their-journals`): a new engine's
-  `block NAME --stop` does not know it, no lease's kill is made for it (its lease was given back), and no engine reads
-  its cost lines, so no budget's trip; what it spends then is bounded only by its timeout (and, for an `ai` block's
+  own timeout comes first while it is up and a run left going still ends by it. **While no engine is up**, nothing
+  else of these reaches the run: what it spends then is bounded only by its timeout (and, for an `ai` block's
   own `claude -p` in a model with `budget:`, by the `--max-budget-usd` of its reserve it was started with). A block with no timeout left going runs until it ends or **`ergostat run --stop
   --runs`**, which tells each keeper whose run has not ended to stop it (SIGTERM to the group, SIGKILL past the kill
   grace, `ERGOSTAT_KILL_GRACE`), engine or none, waits a grace and 5 s at most, and exits 1 naming any still going.
@@ -4090,7 +4158,15 @@ sources:
 | `command` | none | (the same as `run`) |
 | `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
-More types (Datadog, CloudWatch, SQL) can follow the same shape.
+A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
+(`GET /api/v1/query_range`, the only request it makes) through the server (section 4e, *Data sources*).
+
+More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
+`ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
+`sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points; a
+type offering any other public function or class is refused, so the one operation ergostat can call on a source is
+`query` (a type's `query` must itself only read; the `prometheus` one sends only that GET). Panels need no change for a new type (the
+model's JSON schema lists the types by name, so a new one is added there too).
 
 ## 12. What ergostat derives and checks
 

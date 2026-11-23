@@ -440,8 +440,9 @@ function relTimeline(open) {
         const xa = Math.max(x0, X(t0)), xb = Math.min(x1, X(t1));
         lo = Math.min(lo, X(t0)); hi = Math.max(hi, X(t1));
         if (xb - xa < 0.5) return;
-        row.append(s("rect", { class: proj ? "rg-proj" : "rg-seg", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, fill: proj && x.summary ? "none" : rgShade(kinds, x.kind, st), ...(block ? { "data-block": block } : {}) },
+        row.append(s("rect", { class: proj ? "rg-proj" : "rg-seg", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, fill: proj && x.summary ? "none" : rgShade(kinds, x.kind, st), "data-state": st, ...(block ? { "data-block": block } : {}) },
           s("title", {}, `${x.id}: ${st}${proj ? ` (projected${block ? ` in ${block}` : ""})` : ""}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
+        if (!proj && xb - xa > 30) row.append(s("text", { class: "rg-sub rg-inbar", x: xa + 3, y: y + 4 }, rgClip(st, Math.floor((xb - xa - 4) / 6.5))));   // its state, where it fits
       };
       for (const [st, t0, t1] of x.segments || []) seg(st, t0, t1, false);
       for (const [st, t0, t1, block, lane] of x.projected || []) {

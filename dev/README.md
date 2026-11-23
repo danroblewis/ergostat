@@ -237,7 +237,8 @@ reads the item again under `run/flakes.lock` and records at once (`ergostat even
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
 the gaps and times said, `main_fixed_at`, `fixed_by`, `green_passes` and `passed_on` removed). An item it cannot read
-is written as said, the failure on stderr.
+is written as said, the failure on stderr. A flake is said fixed by hand with `manage.py flake-fixed TEST --why W`
+(below).
 
 **Out of main-broken: main-mend.** The block `main-mend` (dev/model/landing.yaml; every 30 minutes, pool 1, a lease,
 timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
@@ -645,8 +646,8 @@ it.) After each unit run (and each triage rerun) the quarantined tests run once 
 implementor: `[suites] alone`; triage: `rerun`), never blocking. Each result is said on `flake/<test>`
 (`flake.measured`: `quarantined`, `last_run`, `last_run_log`), read from that run's whole log: `pass` only on the
 test's own PASSED line with no FAILED or ERROR line, `fail` on either, `unknown` otherwise (skipped, not collected, a
-run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
-released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
+run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is
+released at the next such run: one `flake.released` (`quarantined: false`, `released_at`), not a measurement. When a queue failure names only quarantined tests, triage
 sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
 a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.
 
@@ -763,6 +764,37 @@ A gap is never left a dead letter: a run that fails on its last attempt parks th
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
 `ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.
 
+## Stacked gaps
+
+A gap whose every unfinished dependency is approved, queued or push-pending is built on their reviewed heads, not on
+main (implement.py, step 1), and says so in `stacked_on: [{gap, sha}]`. The queue lands a stack bottom-up, all of it
+or none (queue.py).
+
+A base can move after that: sent back by review or triage, a fix round adds commits and it is approved again at a new
+`reviewed_head`. The block `stack-forward` (`dev/bin/stack.py`, every 5 minutes while `stack-forward-when` commands
+it: the sensor `stale-stacks`, which counts the stacked gaps whose base has moved or landed, above 0) merges the base's new head
+forward into each gap stacked on it. It never rebases or squashes, so the review history stays. One pass runs under
+the queue's lock, taken only if it is free (a queue run holding it means the next pass). It reads the gaps inside the
+lock and takes the stale ones bottom-up, so a stack of three moves in one pass:
+
+- a gap leased, building, in review or in fix is never touched: its next implementor round merges the base itself
+  (`fac.stack_base` reads the bases' reviewed heads again), and a fix gap's review findings stay as they are;
+- an approved gap whose branch is no longer its reviewed head is left alone (the queue refuses it as it is);
+- otherwise each moved base's head is merged into the gap's branch (`--no-ff`, by the factory) in a scratch clone of
+  the drop. The drop's branch moves only from the tip it was read at (update-ref's old value): a branch moved by
+  another writer is refused and theirs is kept. The gap's state is read again just before, and a changed one is
+  refused too (this narrows the window to a reviewer or implementor lease but does not close it). When the merge is
+  clean, `stacked_on` is updated. An approved gap stays approved with the merge as its `reviewed_head`
+  (`reviewed_by: stack-forward`): the merge brings in only reviewed commits, and the queue tests the result. A built
+  gap gets the merge as its `head`, so the review judges it;
+- a conflict is aborted and the gap is sent back to fix (`sent_back_by: stack-forward`, the files in
+  `stack_conflict`), not counted as a failed gate. In fix it is no longer stale, so a later pass does not send it
+  back again. The implementor's next round merges the base again and hands the conflict to its session;
+- a base that has landed (merged or closed) is dropped from `stacked_on`, and nothing is merged.
+
+A `stacked_on` that cannot be read, or that names a gap not in the record, counts in `stale-stacks` and is never
+moved. The pass says what it did with each gap on stderr, in the block's log.
+
 ## Time in each state
 
 Every ten minutes the `timer` block (`dev/bin/times.py`) reads the record of each gap whose events grew since it was
@@ -824,6 +856,13 @@ ergostat event --add intervention.recorded --item intervention/2026-11-20-unstic
   --data '{"reason": "the worktree was left mid-rebase", "class": "worktree", "recorded_at": 1795160000}'
 ergostat event --add intervention.remedied --item intervention/2026-11-20-unstick-alpha --data '{"remedy": "gap/..."}'
 ```
+
+A flake that cannot pass again (its test deleted or renamed) would stay `seen` or `main-broken`, and every goal on those
+stocks with it. Say it is fixed:
+`python3 dev/bin/manage.py flake-fixed tests/test_x.py::test_y --why "renamed to test_z"`. That writes `flake.fixed`
+(`fixed_by`: you, `why`) under `run/flakes.lock` and records the intervention (`flake-fixed`, class `flake`). It
+refuses a test with no flake item, or one that is already `fixed`, and any call but the coordinator's: the pipeline
+manager's is refused (it is not among its tools).
 
 ## The pipeline manager
 
