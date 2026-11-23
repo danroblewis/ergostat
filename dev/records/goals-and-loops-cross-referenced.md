@@ -61,3 +61,18 @@ Round 2 (answering the one finding of round 1's review):
 - Tests run: tests/test_dynamics_view.py (14 passed), tests/test_graph_cli_web.py and tests/test_scale_caches.py
   (83 passed with it), the browser round trip in test_diagram_rendering.py (passed, suite_watch rc 0); ruff clean.
   Merging main: "Already up to date". Still not checked on :8791 (not in this container), as said above.
+
+Round 3 (finishing the factory's merge of main bf6dbebf):
+- Conflicts resolved, keeping both sides: details.js keeps `goalLoopsLine` and takes main's comment on `goalAhead`;
+  dynamics.js `openCausal` takes main's heading (`sdPol`) and polarity sentence, plus the branch's "Serves goal X"
+  line. The list heading ("N feedback loops, M close a goal") merged cleanly.
+- Tests run after the merge: tests/test_dynamics_view.py (17 passed); ruff clean; under suite_watch, the round trip
+  `test_a_goal_and_its_feedback_loops_link_each_other_across_the_views` passed.
+- Failing, and not from this branch: `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`
+  (test_diagram_rendering.py:2318). The banned word it finds is "goal" in the side list's "Goals off" / "No goal is
+  off." group (diagram.js:1492, from main's "Needs attention is three headed groups", cd71c13e). This branch does not
+  touch diagram.js. Main's own copy of the assertion reads the same side text with nothing removed, so it should fail
+  on main too. That was not confirmed by running it on main: making a scratch worktree of main was refused in this
+  session. It is left alone (lesson 13): the fix (the SD_WORDS check skipping the side list's attention groups, or
+  that group worded for Dynamics) belongs in its own gap.
+- Not run here: the whole unit suite and the four browser files. Still not checked on :8791.
