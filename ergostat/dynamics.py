@@ -488,6 +488,9 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
             a["says"] = words(a.get("says", ""))
+        for k in ("first", "more"):                   # an entry waiting on a person, as its card draws it
+            if a.get(k):
+                a[k] = words(a[k])
         if name:
             a["what"] = f"loop {name}"
         else:

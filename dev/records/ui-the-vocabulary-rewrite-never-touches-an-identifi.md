@@ -55,3 +55,20 @@ Round 1: built.
   failure was not named (only the output's tail was kept) and did not happen in the second run.
 - Not run: the unit suite, the other three browser files and demo_check (left to the factory). No merge of main
   was needed: the branch was made from the current `main`.
+
+Round 2: main (ead497d1) merged in; built again.
+
+- The merge conflicted only in `tests/test_diagram_rendering.py`: both sides added a test at the same place (this
+  branch's acceptance test and main's `test_a_stocks_panel_names_its_goal_and_what_serves_it_...`), and main renamed
+  `test_a_module_says_as_many_loops_inside_...` to `test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_...`.
+  Both tests kept, main's name taken.
+- What main changed under the gap, and what followed: (1) a request's card is now drawn from the entry's `first` and
+  `more` (its inbox sentence), not `says`, and `attention()` in `ergostat/dynamics.py` never rewrote those, so the
+  card in Dynamics kept "setpoint" and the gap's own check could no longer fail. `attention()` now runs `first` and
+  `more` through the same `words()` (+3 lines). (2) Held requests are now in the folded "Model housekeeping", where
+  `innerText` reads nothing: the test reads the card's `textContent`. (3) `no-unit`, the only rule-tier code, is a
+  check finding now, not a request: the test's rule-tier request is held as `no-description` on stock.backlog, tier
+  rule, as a stored request can still be.
+- Breaks seen to fail the acceptance test after the merge: with nothing set aside, it fails on "queue-desired
+  level-tolerance on desired level.ci-upgrade-planned"; with `first`/`more` not rewritten, it fails on "setpoint".
+- Size: +17 net lines in `ergostat/dynamics.py` against main (19 added, 2 removed), within 60.
