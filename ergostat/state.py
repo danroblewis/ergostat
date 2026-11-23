@@ -776,6 +776,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
     from .inbox import entries as en
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
+             "object": e.get("action") or e.get("block") or "",                         # what the answer is about
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
              + (f". runs: {e['run']}" if e.get("run") else "") + (f". {en.command(e)}" if e["verbs"] else ""),
