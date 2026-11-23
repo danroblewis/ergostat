@@ -31,3 +31,12 @@ catch, the escapes-found sensor). About 115 net lines, within the 130 budget. Ch
 Round 2: main (ead497d1) merged in. The one conflict, in tests/test_factory.py, was main moving the fixture's fold
 into fold_line(); it is resolved as main's version, with gap.reverted added to fold_line's no-state events. The five
 acceptance tests and the risk test pass again after the merge. `ruff check ergostat tests scripts` is clean.
+
+Build after round 2: the fast suite's one failure was test_an_unstacked_gap_builds_as_before (pytest's lastfailed).
+The traceback ended in subprocess.run with no CalledProcessError line, so it was most likely a timeout. Run alone on
+this branch it passes (188 s: three implement.py runs, about 60 s each, against a 120 s timeout per run). It runs
+implement.py, agents.py and fac.py, none of which this branch changes. So it is not this branch's code: it is the
+120 s bound under -n load (lesson 10), and it belongs in its own gap, not here (lesson 13). Not run on clean main
+here; the factory reruns it there. No code changed for it. The whole of tests/test_factory.py ran once after the
+merge: 1 failed (this test), 203 passed, 2 skipped. Later whole-file runs were refused in this session, so the
+other tests were run by name, three at a time.
