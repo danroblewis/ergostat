@@ -5190,7 +5190,7 @@ MERGED_GAPS = """\
 def test_two_gaps_editing_gaps_md_merge_cleanly(tmp_path):
     """Two gaps that each finish a different entry, moving it to the top of *Done recently*, merge without a conflict
     (they conflict without the union merge); two that edit entries side by side merge too, and the entries that
-    leaves twice are the intake's to report (tests/test_backlog.py::test_a_duplicated_gaps_entry_is_reported)."""
+    leaves twice are the intake's to report (tests/test_backlog.py::test_two_records_of_one_title_are_reported_never_one_picked)."""
     if str(BIN) not in sys.path:
         sys.path.insert(0, str(BIN))
     intake = module("intake")
@@ -5202,10 +5202,13 @@ def test_two_gaps_editing_gaps_md_merge_cleanly(tmp_path):
     rc, text = merge_two(tmp_path / "b", "docs/GAPS.md", MERGED_GAPS, one, two)
     assert rc == 0 and "<<<<<<<" not in text
     assert {e["title"]: e["gaps_says"] for e in intake.gaps_md(text)} == {"Beta": "open"}
-    assert "**Alpha** (done, 2222222)" in text and "**Gamma** (done, 3333333)" in text and intake.twice(text) == {}
+    def twice(text: str) -> list[str]:                # the ids intake.read() says as listed more than once
+        ids = [e["id"] for e in intake.gaps_md(text)]
+        return sorted({i for i in ids if ids.count(i) > 1})
+    assert "**Alpha** (done, 2222222)" in text and "**Gamma** (done, 3333333)" in text and twice(text) == []
     rc, text = merge_two(tmp_path / "c", "docs/GAPS.md", MERGED_GAPS, MERGED_GAPS.replace("(open): a.", "(open): a!"),
                          MERGED_GAPS.replace("(open): b.", "(done, 4444444): b."))
-    assert rc == 0 and sorted(intake.twice(text)) == ["gap/alpha", "gap/beta"]
+    assert rc == 0 and twice(text) == ["gap/alpha", "gap/beta"]
 
 
 def test_two_lessons_editing_review_lessons_merge_cleanly(tmp_path):

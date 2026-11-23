@@ -45,9 +45,16 @@ Choices taken alone (the most reversible):
   (`merge-pipeline-gaps-entries-in-records`, `-md-regenerated-on-land`, this one) have no such heading. A gap whose
   only definition is a heading-less record on main is no longer made ready by the intake. Its definition in
   `run/defs/` (where the coordinator writes) is still read as before.
-- `tests/test_gapsdoc.py:333` called `intake.twice()`. That one clause is removed (the file is outside the Files list;
-  the retirement breaks it otherwise). `dev/README.md` (the agent guide) says what the intake now reads.
+- `tests/test_gapsdoc.py:333` and `tests/test_factory.py::test_two_gaps_editing_gaps_md_merge_cleanly` called
+  `intake.twice()`. Both files are outside the Files list, but the retirement breaks them otherwise. The first
+  clause is removed; the second counts repeated ids from `gaps_md`, as `intake.read()` does. `dev/README.md` (the agent guide) says what the intake now reads.
 
 Each new test was seen to fail with its code broken: one record dropped by entries() (the pinned comparison
 differs), the old entry_only rule put back (gap.defined on Entry + Where it stopped), a decode error swallowed (no
 `zeta: unreadable` on stderr). Size: +37 net lines in dev/bin (budget 50).
+
+Run here, each file alone: tests/test_backlog.py (29 passed), tests/test_gaps_doc.py (10), tests/test_gapsdoc.py
+(39), tests/test_factory.py (238 passed, 2 skipped for Docker, 1 failed on `intake.twice`, since fixed and passing
+alone). Ruff clean. Not run here: the whole unit suite and the four browser files (the factory's and the queue's;
+no page is changed). `scripts/suite_watch.py` and background runs were refused in this session, so the files ran
+under `scripts/named_tests.py` alone.
