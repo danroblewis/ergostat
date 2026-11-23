@@ -42,9 +42,11 @@ function steadyWord(name, word, win) {
   return k.word;
 }
 
-async function pageLoops(main) {
+async function pageLoops(main, q) {
   const p = page(main, "Loops");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
+  const pick = (n) => { setQuery({ select: n }); openLoop(n); };     // the loop chosen, in the address
+  if (q.get("select") && $("#detail").hidden) openLoop(q.get("select"));
   const head = h("span", { class: "muted" }), qbox = h("div", { class: "quiet-systems" });
   p.firstChild.append(head);                             // the goals off, as the header has them (never its rows counted)
   p.append(qbox, box, cap);
@@ -67,8 +69,8 @@ async function pageLoops(main) {
     const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
     const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted"];
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
-      rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => openLoop(g.name) },
-        goalRow({ ...g, behaviour: word(g.name, g) }, { columns }))), "", "Loops"));   // hysteresis and flapping (steadyWord)
+      rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => pick(g.name) },
+        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "", "Loops"));   // hysteresis and flapping (steadyWord)
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -153,10 +155,10 @@ async function pageAgents(main) {
 
 async function pageRecord(main, q) {
   const p = page(main, "Record");
-  // the filter matches an event's type (valve.*), item or source; it and the scope below stay in the address
-  const filt = h("input", { type: "search", placeholder: "Type, item or source, e.g. valve.* or fixer", value: q.get("match") || q.get("type") || "", "aria-label": "Event type, item or source" });
+  // the filter matches an event's type (valve.*), item or source; it and the scope below stay in the address (match=; filter= read too)
+  const filt = h("input", { type: "search", placeholder: "Type, item or source, e.g. valve.* or fixer", value: q.get("match") || q.get("filter") || q.get("type") || "", "aria-label": "Event type, item or source" });
   const runs = h("input", { type: "checkbox", checked: q.get("runs") === "1" });
-  const box = h("div");
+  const box = h("div", {}, h("p", { class: "muted" }, "Loading…"));
   // one machine's events (its instances too), in the page's window: a sensor's observations link here
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
   const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's

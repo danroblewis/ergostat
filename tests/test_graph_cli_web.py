@@ -442,6 +442,33 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page(project):
+    """A pasted link's ?window= is S.since (main.js reads it only when it names one of WINDOWS) and goes to the API as
+    since=: each name must be a window the server reads as its seconds, never its 1h fallback. A link with ?select=,
+    ?window= and ?filter= is still the page (the browser half of this check is tests/test_diagram_rendering.py::
+    test_the_address_holds_what_is_chosen_and_the_window)."""
+    import re
+    from pathlib import Path
+
+    from ergostat.web import serve
+    main_js = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "main.js").read_text()
+    windows = json.loads(re.search(r"const WINDOWS = (\{[^}]*\});", main_js).group(1))
+    assert {"1h", "6h"} <= set(windows)
+    server, url = serve(project, free_port())
+    try:
+        for name, secs in windows.items():
+            with urllib.request.urlopen(f"{url}/api/loops/disk-under-80?since={name}", timeout=10) as r:
+                lp = json.loads(r.read())
+            assert abs(lp["until"] - lp["since"] - secs) < 1, (name, lp["since"], lp["until"])
+        for path in ("/loops?select=disk-under-80&window=6h", "/diagram?view=dynamics&select=stock.disk-used&window=1d",
+                     "/record?filter=valve.*&window=10m"):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                assert r.status == 200 and b'name="ergostat-token"' in r.read(), path
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
     """A controller's and a process's panel start with loopTable (control.js): rows law, process, held-out fit, time
     off, settling, saturation, the fit naming its measure. The image-squeeze tuner's loop answer holds every field
