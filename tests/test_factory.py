@@ -5803,6 +5803,25 @@ def test_a_branch_that_edits_gaps_md_is_refused_uncounted_before_the_suites(tmp_
     assert "# docs/GAPS.md edited" in brief and f"`{NEW}/alpha-thing.md`" in brief   # the next try is told where
 
 
+def test_a_stacked_gap_whose_base_edited_gaps_md_is_judged_by_its_own_commits(tmp_path):
+    f = Factory(tmp_path)
+    base_gap(f, "beta-base", {"docs/GAPS.md": "# Gaps\n\nthe base's entry, approved before the cutover\n"}, rank=1)
+    gid = stacked(f, "gap/beta-base")
+    said, _ = f.run("implement.py", gid)                           # the base's GAPS.md edit is not the gap's own
+    assert said == ["gap.started", "gap.built"]
+    g = Factory(tmp_path / "own")                                  # its own commits edit it too: refused, against the stack
+    base_gap(g, "beta-base", {"docs/GAPS.md": "# Gaps\n\nthe base's entry\n"}, rank=1)
+    gid = stacked(g, "gap/beta-base")
+    said, lines = g.run("implement.py", gid, FACTORY_STANDIN_WRITES="docs/GAPS.md")
+    assert said == ["gap.started", "gap.measured"] and next(x["nack"] for x in lines if "nack" in x)["count"] is False
+    stack = git(g.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
+    brief = (g.tmp / "instance" / "run" / "briefs" / "alpha-thing-implementor-1.md").read_text()
+    assert "# docs/GAPS.md edited" not in brief                    # (the first try's brief: the base's edit is no reason)
+    said, _ = g.run("implement.py", gid, FACTORY_STANDIN_WRITES="docs/GAPS.md")
+    brief = (g.tmp / "instance" / "run" / "briefs" / "alpha-thing-implementor-2.md").read_text()
+    assert "as main and its bases gap/beta-base has it" in brief and f"git checkout {stack[:12]} --" in brief
+
+
 def approved_editing(f: Factory, name: str, files: dict[str, str]) -> str:
     """A gap approved on a branch of its own in the drop that writes ``files`` (docs/GAPS.md, as one approved before
     the entries moved could): its reviewed commit."""

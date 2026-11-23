@@ -289,3 +289,28 @@ keeping both sides. Nothing new was built.
   heredoc append to this file. Both were done with Edit instead.
 
 Overrun reason: dev/bin is about 219 net lines against 130, unchanged by this merge. The reasons are the ones given in the earlier rounds.
+
+## Where it stopped
+
+Built, in round 4 of the second continuation: both findings of the review are answered. It listed no others. main
+has not moved since the last merge, so there was nothing to merge.
+
+- **A stacked gap was judged by its base's GAPS.md edit** (implement.py:273,302). `gaps_md_edited` now compares the
+  branch with `against` (main, or the stack of main and the approved bases), as the stray check does. So only the
+  branch's own commits count, and a base's edit is left for the queue's carry. `gaps_md_brief` names what it compares
+  with ("main" or "main and its bases ...") and the sha to check GAPS.md out from is `against`. New test:
+  `test_a_stacked_gap_whose_base_edited_gaps_md_is_judged_by_its_own_commits`. A base that edits GAPS.md builds, and
+  the first brief has no refusal. A stacked gap whose own commit edits it is refused uncounted, and the next brief
+  names the bases and the stack's sha. Comparing with `base_sha` again failed it.
+- **fac.items is outside this gap** (lesson-13). `fac.items` is back to main's code, and
+  `tests/test_fac_items.py` is back to main's file (the branch's `test_a_state_counted_empty_is_not_listed` is
+  removed). `git diff main -- tests/test_fac_items.py` is empty. The only fac.py change left is `definition_file`,
+  `defines` and `entry_only`. Skipping states counted 0 past the 500 cap belongs to a gap of its own. Without the
+  skip, the switcher test's speed past the cap depends on main's single listing, as it does on main.
+- Run (`scripts/named_tests.py`): the new stacked test, the GAPS.md refusal test and tests/test_fac_items.py, 11
+  passed. ruff is clean on ergostat, tests and scripts and on dev/bin/implement.py and dev/bin/fac.py. Not run here:
+  the whole unit suite and the browser files.
+- Refused in this session: `git checkout main -- tests/test_fac_items.py` (the file was put back with Edit instead),
+  and a bash pipe through awk to count net lines (`git diff --shortstat` was used instead).
+
+Overrun reason: dev/bin is about 221 net lines against 130 (219 before this round): the stacked comparison names what it compares with in the brief, which takes 2 lines; fac.items' revert removed nothing counted against the gap's own size. The other reasons are the ones given in the earlier rounds.

@@ -151,16 +151,17 @@ def stray_brief(text: str, stray: list[str]) -> str:
 
 
 def gaps_md_edited(repo: Path, base: str, head: str) -> bool:
-    """Whether the branch's own commits change docs/GAPS.md (since it left main): the queue writes GAPS.md from the
-    records as it lands (queue.gaps_md()), so a gap's entry is written as its record's `## Entry`."""
+    """Whether the branch's own commits change docs/GAPS.md (since it left ``base``: main, or the stack of main and
+    its approved bases, whose GAPS.md edits the queue carries): the queue writes GAPS.md from the records as it lands
+    (queue.gaps_md()), so a gap's entry is written as its record's `## Entry`."""
     return bool(fac.git(repo, "diff", "--name-only", f"{base}...{head}", "--", "docs/GAPS.md"))
 
 
-def gaps_md_brief(text: str, base: str, branch: str) -> str:
+def gaps_md_brief(text: str, base: str, branch: str, what: str = "main") -> str:
     return (f"{text}\n\n# docs/GAPS.md edited\n\nThe factory refused your build before the suites (uncounted): the "
             "branch changes docs/GAPS.md, which the merge queue writes from the records as it lands. Write the gap's "
             f"entry as the `## Entry` section of `{fac.DEFS}/{branch}.md` (its shape is in dev/prompts/definition.md), "
-            f"put docs/GAPS.md back as main has it (`git checkout {base[:12]} -- docs/GAPS.md`), commit, and stop.\n")
+            f"put docs/GAPS.md back as {what} has it (`git checkout {base[:12]} -- docs/GAPS.md`), commit, and stop.\n")
 
 
 def new_findings(cfg: dict, home: Path, branch: str, base_sha: str, definition: str, logs: Path, tag: str,
@@ -266,11 +267,12 @@ def build(cfg: dict, given: dict, began: float) -> int:
             return 0
         fac.git(work, "fetch", "-q", "origin", f"refs/stack/{fac.git_branch(branch)}")
     definition, held = definition_first(cfg, gap, work)
-    conflicts = merge_main(work, against, "main and its bases " + ", ".join(b["gap"] for b in bases) if bases else "main")
+    what = "main and its bases " + ", ".join(b["gap"] for b in bases) if bases else "main"
+    conflicts = merge_main(work, against, what)
     was = agents.publish(cfg, work, branch)           # (in a merge left in progress: the branch as it was before it)
     text, context = brief.assemble(cfg, "implementor", gap, work, definition=definition)
     text += conflict_brief(against, conflicts) if conflicts else ""
-    text = gaps_md_brief(text, base_sha, branch) if gaps_md_edited(work, base_sha, "HEAD") else text
+    text = gaps_md_brief(text, against, branch, what) if gaps_md_edited(work, against, "HEAD") else text
     context["brief"] = brief.save(cfg, "implementor", gap, text)
     context["round"], context["merge_conflicts"] = rounds, conflicts
     cost, sessions, used = 0.0, 0, []
@@ -280,8 +282,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
     seen: dict[str, bool] = {}                                # tests run on main in this run: failed there?
     retried, deadline = False, began + (hours - float(f.get("build_hours") or 0)) * 3600
     for i in range(1 + int(cfg["ai"]["suite_fix_rounds"])):
-        prompt = text if i == 0 else gaps_md_brief(text, base_sha, branch) if suites.get("gaps_md") else stray_brief(
-            text, suites["stray"]) if suites.get("stray") else findings_brief(
+        prompt = text if i == 0 else gaps_md_brief(text, against, branch, what) if suites.get(
+            "gaps_md") else stray_brief(text, suites["stray"]) if suites.get("stray") else findings_brief(
             text, suites["findings"]) if suites.get("findings") else (
             f"{text}\n\n# The fast suites failed after your work\n\n`{suites['failed']}` failed"
             f" ({', '.join(suites['tests']) or 'see the tail'}). Fix the code (not the tests' bounds), commit, and"
@@ -299,7 +301,7 @@ def build(cfg: dict, given: dict, began: float) -> int:
         if stray:                                               # refused when not); scratch refused before the suites
             suites = {"failed": "scratch files", "tests": stray, "stray": stray, "tail": "\n".join(stray)}
             continue
-        if gaps_md_edited(agents.drop(cfg), base_sha, head):            # the entry belongs in the record: uncounted
+        if gaps_md_edited(agents.drop(cfg), against, head):            # the entry belongs in the record: uncounted
             suites = {"failed": "docs/GAPS.md edited", "tests": [], "gaps_md": True, "tail": "docs/GAPS.md"}
             continue
         fac.wait_quiet(cfg)
