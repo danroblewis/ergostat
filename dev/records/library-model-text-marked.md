@@ -82,3 +82,11 @@ Traceback (most recent call last):
 RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
 
 ```
+
+### Continued (the park was the reviewer's session limit, not a finding)
+
+Merged main (2f08c24e05a8). Two conflicts, each resolved by keeping both sides. In `ergostat/library/uses.py`, the
+refusal keeps the branch's marked `⟦untrusted: library file⟧PATH, under template NAME from FOLDER⟦end of untrusted⟧`
+and main's new `library-unsandboxed` code for a `.daemon` key. In `tests/test_library_trust.py`, the refusal test
+takes main's code argument and keeps the branch's marked `makes`, and the wrapped built-in test is main's (its run is
+now sandboxed, not refused). Nothing else changed, and the size is unchanged.
