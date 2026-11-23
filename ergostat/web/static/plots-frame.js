@@ -241,7 +241,14 @@ const plotFrame = (() => {
       Y = scale(cy - per * box.height / 2, cy + per * box.height / 2, box.bottom, box.top);
     }
     yt = ticksOf(Y, "number", box.height, yUnit, 34);
-    const xt = ticksOf(X, xKind, box.width, xUnit, 76);
+    let xt = ticksOf(X, xKind, box.width, xUnit, 56);
+    if (equal) {                                         // one unit, one tick spacing, on both axes
+      const step = plotMath.niceStep((X.d1 - X.d0) / box.width * 56, 1);   // at least 56 px apart, on the shorter axis too
+      const every = (sc) => { const out = []; for (let k = Math.ceil(sc.d0 / step); k * step <= sc.d1; k++) out.push(+(k * step).toPrecision(12)); return out; };
+      const said = (major, unit) => ({ major, minor: [], words: panelNumbers.axisLabels(major, unit || panelNumbers.parseUnit("")) });
+      xt = said(every(X), xUnit);
+      yt = said(every(Y), yUnit);
+    }
     grid(ctx, box, X, Y, xt, yt);
     return { box, X, Y, xt, yt, finish() { xAxis(ctx, box, X, xt, xTitle); yAxis(ctx, box, Y, yt, yTitle); } };
   }

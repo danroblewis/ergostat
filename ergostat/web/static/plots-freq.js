@@ -72,7 +72,7 @@
       const dbs = M.finite(pts.map((p) => p.db)), degs = M.finite(pts.map((p) => p.deg));
       const dbR = F.range(dbs, { min: d.y?.min, max: d.y?.max }, { pad: 0.08 });
       const degR = o.phase_wrap === "wrapped" ? { min: -180, max: 180, log: false } : F.range(degs, {}, { pad: 0.08 });
-      const dbSteps = [1, 2, 5, 10, 20, 40, 60, 100], degSteps = [5, 15, 30, 45, 90, 180, 360];
+      const dbSteps = [1, 2, 5, 10, 20, 40, 60, 80, 100], degSteps = [5, 15, 30, 45, 90, 180, 360];
       const xTitle = d.x?.label || "Frequency (Hz)";
       const model = { pts, bands: lowBands(pts), panes: null };
       let top = null, low = null;
@@ -81,13 +81,13 @@
         const tickAt = (r, a, b, steps, gap) => M.linearTicks(r.min, r.max, Math.max(2, Math.floor((b - a) / gap)), steps);
         const words = (ts, tail) => ts.map((t) => `${N().formatValue(t, PLAIN())}`.replace("-", "−") + tail);
         const gapMid = 8, lowH = 33, each = Math.max(30, (ht - 6 - gapMid - lowH) / 2);
-        const dbTicks = tickAt(dbR, 0, each, dbSteps, 30), degTicks = tickAt(degR, 0, each, degSteps, 30);
+        const dbTicks = tickAt(dbR, 0, each, dbSteps, 22), degTicks = tickAt(degR, 0, each, degSteps, 22);
         const dbWords = words(dbTicks, ""), degWords = words(degTicks, "°");
         const left = Math.ceil(Math.max(...[...dbWords, ...degWords].map((t) => ctx.measureText(t).width))) + 24;
         const pane = (a, b) => ({ left, right: Math.max(left + 20, w - 10), top: a, bottom: b, get width() { return this.right - this.left; }, get height() { return this.bottom - this.top; } });
         const upper = pane(6, 6 + each), lower = pane(6 + each + gapMid, 6 + each * 2 + gapMid);
         const X = F.scale(xr.min, xr.max, left, upper.right, true);
-        const xt = F.ticksOf(X, "number", upper.width, PLAIN(), 76);
+        const xt = F.ticksOf(X, "number", upper.width, PLAIN(), 56);
         const draw = (box, R, ticks, labels, title, special, get) => {
           const Y = F.scale(R.min, R.max, box.bottom, box.top);
           F.grid(ctx, box, X, Y, xt, { major: ticks, minor: [] });

@@ -95,7 +95,7 @@
         const probe = F.ticksOf(F.scale(vr.min, vr.max, ht - 34, 6, vr.log), "number", ht - 40, opts.unit, 34).words;
         const box = horizontal ? F.layout(ctx, w, ht, { left: catW, xTitle: vTitle }) : F.layout(ctx, w, ht, { yWords: probe, yTitle: vTitle, bottom: 22 });
         const V = horizontal ? F.scale(vr.min, vr.max, box.left, box.right, vr.log) : F.scale(vr.min, vr.max, box.bottom, box.top, vr.log);
-        const vt = F.ticksOf(V, "number", horizontal ? box.width : box.height, opts.unit, horizontal ? 76 : 34);
+        const vt = F.ticksOf(V, "number", horizontal ? box.width : box.height, opts.unit, horizontal ? 56 : 34);
         F.grid(ctx, box, horizontal ? V : null, horizontal ? null : V, horizontal ? vt : null, horizontal ? null : vt);
         const along = (horizontal ? box.height : box.width) / Math.max(1, rows.length);
         const P = (c, v) => (horizontal ? [V.at(v), c] : [c, V.at(v)]);

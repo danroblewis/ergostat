@@ -148,7 +148,8 @@
       const n = F.names(result, config, opts.unit);
       const usable = (x, y) => x != null && y != null && (!d.x?.log || x > 0) && (!d.y?.log || y > 0);
       const allX = shown.flatMap((x) => x.xs), allY = shown.flatMap((x) => x.values);
-      const xr = F.range(allX, d.x), yr = F.range(allY, d.y);
+      const room = typeof o.size === "string" && !/^\d/.test(o.size) ? 0.12 : 0.05;       // a bubble is not cut by the frame
+      const xr = F.range(allX, d.x, { pad: room }), yr = F.range(allY, d.y, { pad: room });
       const bySize = typeof o.size === "string" && !/^\d/.test(o.size) && shown.some((x) => x.sizes) ? o.size : null;
       const fixed = bySize ? 4 : +o.size || 4;
       const groupBy = o.color_by && o.color_by !== "series" && shown.some((x) => x.colors) ? o.color_by : null;
