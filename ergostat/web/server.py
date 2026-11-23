@@ -610,6 +610,11 @@ def _answer_with(live: Live, path: str, q: dict, model):
     return _answer(live, path, q2, p)
 
 
+def _held_up(p) -> dict:
+    from ..why.held import headline
+    return headline(p)
+
+
 def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     """``pinned``: the snapshot to answer from (a dashboard's panels, all of one moment), else the moment's own."""
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
@@ -648,6 +653,11 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             raise BadSet("why: item=ID, as the record is now (never at=)")
         from ..why import answer
         return answer(p, one("item"))
+    if head == "held-up":                         # what holds the work up, ranked (SPEC §5a), as the record is now
+        if one("at"):
+            raise BadSet("held-up: as the record is now (never at=)")
+        from ..why import held
+        return held.answer(p)
     at = None
     if one("at"):
         try:
@@ -672,6 +682,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 **({"edited": edited} if edited else {}),
+                **({"held_up": _held_up(p)} if at is None and spec is not None else {}),   # the header's first line
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
@@ -925,7 +936,15 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
-        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
+        paged = bool(one("kind")) and one("kind") in its.kinds_of(spec)   # a kind's page (SPEC §5a): searched, sorted
+        if paged:
+            from ..spec.item_systems import kind_systems
+            page = its.kind_page(p.events, spec, one("kind"), one("state"), snap["at"], n, max(0, offset),
+                                 (one("q") or "").strip() or None, one("sort") or None)
+            frame = its.listing(p.events, spec, kind=one("kind"), state="\0", until=snap["at"], n=1)
+            got = {**frame, **page, "items": [its._listed(i, its.kinds_of(spec), kind_systems(spec)) for i in page["items"]]}
+        else:
+            got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
         pk = int(one("per_kind") or 0)
         if pk and not one("kind") and not one("state") and spec is not None:   # each kind's newest, however busy the rest
             have = {}
@@ -937,7 +956,8 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                     got["items"] = [i for i in got["items"] if i.get("kind") != k["name"]] + more
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
-        out = _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        out = _as_listed(got, None if paged else one("q"), 0 if paged else int(one("per_kind") or 0), bool(one("shown")),
+                         one("hide"))
         if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
             out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
         est = _estimates(p, m, snap, one("whatif"))
