@@ -176,3 +176,16 @@ one ergostat call per listing". It is not built here. Until it is, this gap pass
 that test overruns its bound under load, as it would on main. Refused this round: putting a temporary per-call timer
 in dev/bin/fac.py from the shell (python edit, then a /tmp log), so these call costs are read from the code and not
 measured.
+
+Round 4, build failure named (the switcher test again). This time it is fixed in the code, as asked, outside this
+gap's Files to touch (dev/bin/fac.py, tests/test_fac_items.py). That is the more reversible choice than leaving the
+build red. fac.items(kind) listed a kind as the header plus one listing per declared state, empty states too (the
+header prints every state with its count), so drain.py's step started some forty `ergostat` processes. Now a single
+listing is the answer when its total says it holds every item. Only a kind past the 500-item cap is listed state by
+state, as before, and its stderr note is kept. New test: test_a_kind_under_the_cap_is_one_listing (seen to fail with
+the shortcut turned off). Run here, serially: tests/test_fac_items.py, 9 passed. The switcher test alone, 1 passed in
+72.8 s (146 s before). With test_a_stack_of_three_moves_forward_in_one_pass and tests/test_fac_items.py, 11 passed in
+134 s. Ruff clean. Not run: tests/test_factory.py whole, the files of the other fac.items callers, and the build under
+-n 8. To undo it, revert the fac.items hunk: nothing else depends on it. Refused here: a per-call timer in fac.py from
+the shell, running the old fac.py from `git show` (the shortcut was turned off with an edit instead), and appending
+this note with printf.
