@@ -111,3 +111,16 @@ this branch does not touch (lesson 13: reported, not fixed). Two checks were ref
 confirmed on clean main: `git worktree add --detach /tmp/mainck main` with the same test run there, and the whole-file
 background run (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/drender.log 2>&1`).
 Not run: the whole of tests/test_diagram_rendering.py, the other three browser files and the unit suite.
+
+Round 6. The one finding, a conflict with main in ergostat/web/static/pages.js, is resolved in the merge of main
+(a171d119, merge commit 9dd926cb). Main now passes each row its held behaviour word (`goalRow({ ...g, behaviour:
+word(g.name, g) }, ...)`, hysteresis and flapping by `steadyWord`). That line is kept whole. The branch adds only
+`"card"` to the columns and the table's `loops` class, as before. No other code changed, so net lines outside tests stay
+at 14.
+After the merge: ruff is clean, and these pass under the watchdog with Playwright (5 in all): the phone-card test,
+test_the_goals_page_says_each_goals_word_as_the_server_does_live_and_from_a_snapshot,
+test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named, test_no_page_script_words_a_goals_state_but_goalrow
+and test_the_loops_row_writes_shares_through_share_text_and_names_flapping_at_twenty.
+Not run: the whole of tests/test_diagram_rendering.py, the other three browser files and the unit suite. The
+round-4/5 failure of test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[False] (the
+diagram's Suggestions fold, which this branch does not touch) was not checked again.
