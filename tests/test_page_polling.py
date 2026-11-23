@@ -299,7 +299,7 @@ def test_the_goals_page_and_its_old_address(browser, site):
     rows = "() => [...document.querySelectorAll('#main tr.click td:first-child b')].map((b) => b.textContent)"
     pg.goto(f"{site}/goals?status=off")
     pg.wait_for_function("() => document.querySelector('#main tr.click')", timeout=30000)
-    assert pg.locator("#main h1").inner_text() == "Goals"
+    assert pg.locator("#main h1").inner_text().split(" · ")[0] == "Goals"      # main adds ' · goals off N' after it
     assert pg.locator("#main th").first.inner_text() == "goal"
     nav = pg.locator("#nav").inner_text()
     assert "Goals" in nav and "Loops" not in nav, nav
