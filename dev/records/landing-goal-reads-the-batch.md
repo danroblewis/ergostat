@@ -181,3 +181,34 @@ One note, not followed up: the test fixes its batch id at `batch/a-20261123T1000
 `time.time()`, so it may depend on the date. Bash refused a run in the background and a wait loop on its
 output. Not run: the unit suite, the four browser files, demo_check (no example touched), and the `ergostat check`
 tests in tests/test_factory.py (no model file changed this round).
+
+### Round 4: main (059ff718) merged
+
+`ergostat/web/static/pages.js` conflicted on two lines of `pageItem`. Main had added `|| late()` to the why answer's
+connected check. The branch had added `w.place` to the why signature. Both are kept (f320addf). The branch's whole
+pages.js diff against main is still that one `w.place`. `git rev-list --count HEAD..main` is 0.
+
+Run here after the merge, serially, rc 0 unless said:
+- tests/test_landing_goal.py: 12 passed.
+- tests/test_why.py, tests/test_factory_manager.py and tests/test_queue_batch_item.py: 82 passed, 1 skipped (no
+  Playwright in that run).
+- `tests/test_factory.py::test_ergostat_check_on_the_factory_model_reports_no_new_finding`: passed.
+- `uv run ruff check ergostat tests scripts dev/bin/measure.py dev/bin/landing.py`: clean.
+
+Under Playwright 1.63.0 and the watchdog, rc 1 for both files:
+- tests/test_queue_batch_item.py: 15 passed, 1 failed. The failure is
+  `test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run`, the same 60 s timeout on `table.items tr.click`
+  as in rounds 2 and 3, and it failed alone too. It is left alone for round 2's reasons (lesson 13).
+- tests/test_items_page.py: 76 passed, 3 failed.
+  - `test_every_surface_prints_the_servers_one_count_of_goals_off` fails on its own. It asserts the header
+    `Loops · goals off …`, but main's goals-page-replaces-loops-page titles that page "Goals" (`pages.js:46`, main's
+    line). This branch changes nothing there. It is main's test against main's page (lesson 13).
+  - `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: the same `#running` timeout as round 1,
+    which failed there with the branch's changes taken out. It is left alone.
+  - `test_the_graph_and_the_timeline_left_open_change_nothing`: it failed in the full file (mutations seen on a
+    BUTTON and a SPAN) but passed alone with both of its parameters. That makes it a load-dependent failure on the
+    graph and timeline pages. The branch's only page change is in the item page's why signature, which those pages
+    never compute. I did not find whether the cause is a race in ergostat or the test's own timing (lesson 10).
+    I am reporting it, not fixing it here.
+
+Not run: the unit suite, the other two browser files, demo_check (no example touched).
