@@ -21,8 +21,9 @@ function sdValue(n) {                                   // a stock's or an auxil
   const v = n.valueText && n.valueText !== "?" ? n.valueText : "–";
   return n.unit ? `${v} ${n.unit}` : v;
 }
+const sdNoUnit = (n) => n.kind === "stock" && !n.bare && !(n.unit || "").trim();   // check's no-unit: 'unit ?', muted
 function sdSize(n) {
-  if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n)) + 28), SD_STOCK_H];
+  if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n) + (sdNoUnit(n) ? " unit ?" : "")) + 28), SD_STOCK_H];
   if (n.kind === "auxiliary") {                         // its name is the part: as wide as that, with its value under it
     const lines = sdAuxLines(n);
     return [Math.max(...lines.map((t) => textWidth(t) * (t === lines[0] ? 1.02 : 0.92))) + 10, 6 + lines.length * 14];
@@ -53,7 +54,8 @@ function sdStock(n, w, hgt) {
   g.append(s("rect", { class: "hit sd-stock", width: w, height: hgt, "stroke-dasharray": n.outside ? "5 4" : null }));
   const v = sdValue(n);
   g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
-  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v));
+  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v,
+    sdNoUnit(n) ? s("tspan", { class: "sd-nounit" }, " unit ?") : null));
   return g;
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
@@ -500,7 +502,7 @@ function sdLoopList(panel, g) {
   // folded, its count in the summary (the legend comes first)
   const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
   panel.append(side);
-  const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
+  const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
     h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
     h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
@@ -515,7 +517,7 @@ function sdLoopList(panel, g) {
     side.append(d);
   }
   for (const [n, xs] of modules)                        // as many as the module's own caption says
-    side.append(h("div", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
+    side.append(h("button", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
       h("div", {}, h("b", {}, n.label), `: ${xs.length} feedback loop${xs.length > 1 ? "s" : ""} inside`),
       h("div", { class: "sub" }, "Open it to see them")));
 }
@@ -538,6 +540,7 @@ const SD_LEGEND = {
   sector: '<rect x="1" y="1" width="24" height="16" rx="3" fill="var(--sd-hull)"/><text x="3" y="7" font-size="5" fill="var(--sd-muted)">NAME</text>',
   stub: '<path d="M1 9 H17" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink)"/><text x="21" y="12" font-size="8" fill="var(--sd-muted)">x</text>',
   shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-muted)">&lt;x&gt;</text>',
+  nounit: '<text x="13" y="13" font-size="8" text-anchor="middle" fill="var(--sd-muted)">unit ?</text>',
 };
 function sdLegend() {
   const g = S.graph || { nodes: [], edges: [] };
@@ -546,6 +549,7 @@ function sdLegend() {
   const pols = new Set((g.causalLoops || []).map((c) => c.polarity || "?"));
   return h("div", { class: "legend sd-legend" },
     row("stock", "stock (level): what accumulates; it changes only by its flows"),
+    has(sdNoUnit) && row("nounit", "unit ?: the stock's value has no unit; the model says none (ergostat check: no-unit)"),
     row("flow", "flow (rate): a pipe with its valve, into or out of a stock; the head shows which way"),
     g.edges.some((e) => e.twoWay) && row("biflow", "biflow: a flow that may run either way"),
     has((n) => n.kind === "cloud") && row("cloud", "source or sink: outside the model's boundary"),
@@ -670,15 +674,21 @@ async function openNodeSD(n) {
   const kind = sdNodeKind(n);
   const rows = [];
   let chart = null, numbers = null, found = null, items = null, counts = [];
+  // its panel at once, titled, and filled when its numbers come; another panel opened meanwhile (or this one
+  // closed) leaves the late answer unshown
+  const wait = h("p", { class: "muted" }, "…");
+  showDetail(h("div", { class: "kind" }, n.kind === "valve" || n.kind === "disturbance" ? "Valve" : (SD_WHAT[kind] || [kind])[0]),
+    h("h2", {}, n.flow || n.label), wait);
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
     rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
-              [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.valueText || "not known yet"}` : null],
+              [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.offBy || "not known yet"}` : null],
               ["switching", n.switching || null],
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
     let d = null;
     panelLoading("Valve", n.flow || n.label);
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
+    if (!wait.isConnected) return;
     const m = d?.model || {}, now = d?.now || {};
     rows.push(["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, n.flow || n.label) : n.rateText],
               ["how it is known", now.how || n.how],
@@ -695,6 +705,7 @@ async function openNodeSD(n) {
     let d = null;
     panelLoading((SD_WHAT[kind] || [kind])[0], n.label);
     try { d = await api(`part/stock/${encodeURIComponent(n.label)}`); } catch (err) { d = null; }
+    if (!wait.isConnected) return;
     const m = d?.model || {}, now = d?.now || {};
     rows.push(["description", m.description || n.description], ...(d?.inferred ? [inferredRow(d.inferred)] : []),
               ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],

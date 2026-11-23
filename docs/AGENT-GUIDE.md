@@ -413,7 +413,11 @@ keeps running it; this model reads it.
    system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
    box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in
    the **remote's** names (`stock.open`, never `stock.incidents-open`); `remote-show-unresolved` means it does
-   not serve one. A measure dimmed there is stale: it says how old its last reading is.
+   not serve one. A measure dimmed there is stale: it says how old its last reading is. `ergostat explain`
+   of any of its parts (and of `system.incidents`, once) starts `remote incidents's (runs at URL, model vM,
+   read T ago)`, or `not answering` in place of the age; a block of it is never run here. A feedback loop
+   through its parts ends `(crosses remote incidents: part, part)`, and a goal here whose loop reads them says
+   each is a measured input (a disturbance, or a setpoint handed to us), never an actuator.
 3. **Link to its parts by those names**, only to read them: a cause (`driven-by: [+stock.incidents-open]`)
    for the load it puts on our stocks, a goal here on one of its measures, a block's input. Never point a
    block's `out:` at a remote part (`remote-output`): its actuators are its own. If it should act
@@ -723,7 +727,9 @@ the failure is fixed); one that fails again regresses it, and the gated action `
 the fix. A regressed fix whose revert is denied stays regressed, for the owner.
 Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
 is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
-swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read. With
+no such trace, its last error-level log line is noted the same way, in two forms only: Python logging's default
+`ERROR:logger:message` (or `CRITICAL`) and a JSON line with `level`/`levelname`/`severity` error, critical or fatal.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is

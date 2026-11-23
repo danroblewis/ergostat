@@ -150,10 +150,27 @@ class Explainer:
         out = ["", f"Feedback loops ({count}; R reinforces, B balances):"]
         for lp in ls[:12]:
             out.append(f"  {lp.polarity or '?'} {lp.name}: " + " → ".join(lp.parts) +
-                       (f" (not known: {', '.join(f'{x.source} → {x.target}' for x in lp.unknown[:2])})" if lp.unknown else ""))
+                       (f" (not known: {', '.join(f'{x.source} → {x.target}' for x in lp.unknown[:2])})" if lp.unknown else "")
+                       + self.crosses(lp.parts))
         if len(ls) > 12:
             out.append(f"  ... and {len(ls) - 12} more.")
         return out
+
+    def remote(self, name: str) -> str:
+        """How a remote is, as its box says it (SPEC §4c): 'remote NAME's (runs at URL, model vM, read T ago)'."""
+        from ..remote import box
+        b = box(self.s, name)
+        v = f", model v{b['version'][:7]}" if b["version"] else ""
+        return f"remote {name}'s (runs at {b['url']}{v}, {b['now']})"
+
+    def crosses(self, parts: list[str]) -> str:
+        """' (crosses remote NAME: part, part)' for the remote parts among these, else ''."""
+        from ..remote import remote_of
+        by: dict[str, list[str]] = {}
+        for p in parts:
+            if (n := remote_of(self.s, p)) is not None:
+                by.setdefault(n, []).append(p)
+        return f" (crosses {'; '.join(f'remote {n}: ' + ', '.join(ps) for n, ps in by.items())})" if by else ""
 
     def block_line(self, b: Block) -> str:
         outs = ", ".join(str(t) for t in b.targets()) or "nothing"
@@ -206,6 +223,13 @@ class Explainer:
                 ds.append(f"{f}" + (f" (set by {setter.name}, {setter.type})" if setter else
                                     f" (declared {s.flows[f].rate:g}/h)" if s.flows[f].rate is not None else " (unmeasured)"))
             lines.append("  Disturbances: " + ", ".join(ds) + ".")
+        on = [f"{what.kind}.{what.name}", *lp.through, *(f"flow.{f}" for f in lp.disturbances),
+              *(f"{r.kind}.{r.name}" for f in lp.disturbances for r in s.flows[f].driven_by),
+              *(f"{r.kind}.{r.name}" for c in dict.fromkeys(lp.controllers + lp.actuators) for r in s.blocks[c].inputs.values())]
+        crossing = self.crosses(list(dict.fromkeys(on)))
+        if crossing:
+            lines.append(f"  Its loop reads a remote's parts{crossing}: each is a measured input here (a disturbance, or a "
+                         f"setpoint handed to us), never an actuator: only its remote acts on it.")
         if self.p is not None:
             y = self.value(str(what))
             st = self.status.get(name, "unknown")
@@ -393,6 +417,9 @@ class Explainer:
         mine = lambda table: [x for x in table.values() if name in s.chain(x.system)]   # noqa: E731
         stocks, goals, blocks = mine(s.stocks), mine(s.goals), [b for b in mine(s.blocks) if not b.implied]
         lines = [f"System {name}" + (f": {s.systems[name]}" if s.systems.get(name) else "") + "."]
+        from ..remote import system_remote
+        if (rn := system_remote(s, name)) is not None:
+            lines.append(f"  It is {self.remote(rn)}: its parts are read here, never run here.")
         if s.within.get(name):
             lines.append(f"  Within {' → '.join(s.chain(s.within[name]))}.")
         lines.append(f"  Holds {len(stocks)} stocks, {len(goals)} goals, {len(blocks)} blocks" +
@@ -485,7 +512,11 @@ class Explainer:
         if r.name not in table:
             raise KeyError(f"no {r.kind} {r.name!r}")
         text = getattr(self, r.kind)(r.name)
-        if self.p is not None:                   # with a project: the open items about it (SPEC §5a, *About*)
+        from ..remote import remote_of
+        if (rn := remote_of(self.s, f"{r.kind}.{r.name}")) is not None:  # a remote's part: whose, where, how fresh
+            text = f"{self.remote(rn)} {text[0].lower()}{text[1:]}" + (
+                f"\n  It is never run here: remote {rn} runs it." if r.kind == "block" else "")
+        if self.p is not None:                  # with a project: the open items about it (SPEC §5a, *About*)
             from .about import explain_line
             said = explain_line(self.p.events, self.s, f"{r.kind}.{r.name}")
             text += f"\n{said}" if said else ""
