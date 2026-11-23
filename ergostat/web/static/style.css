@@ -178,6 +178,7 @@ svg.canvas .opening-note { fill: var(--ink); font-size: var(--text-lg); font-wei
 
 /* tables: hairlines between rows, nothing else; numbers to the right */
 .table-wrap { overflow-x: auto; max-width: 100%; }
+.run-count { color: var(--muted); font-variant-numeric: tabular-nums; }   /* a folded run's ×N (the Record) */
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: var(--sp-2) var(--sp-3) var(--sp-2) 0; border-bottom: var(--hair) solid var(--line); vertical-align: baseline; }
 th { font-size: var(--text-sm); color: var(--muted); font-weight: 400; white-space: nowrap; border-bottom-color: var(--line-strong); }
