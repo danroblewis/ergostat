@@ -12,7 +12,7 @@ const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y:
    opened with no server) the same path is kept in the hash instead, as #/items. UI_PAGES are the first parts
    of the paths the page answers (the server's UI_PAGES, the same list) */
 const HASHED = !!window.SNAPSHOT || location.protocol === "file:";
-const UI_PAGES = ["diagram", "dashboard", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
+const UI_PAGES = ["diagram", "dashboard", "goals", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
 function isPagePath(path) { return path === "/" || UI_PAGES.includes(String(path).split(/[/?#]/)[1]); }
 function appHref(v) { return HASHED && typeof v === "string" && v.startsWith("/") && isPagePath(v) ? "#" + v : v; }
 
@@ -282,6 +282,19 @@ function usd(x) { return x == null ? "\u2013" : x === 0 ? "$0" : x < 0.01 ? `$${
 function tokensText(n) { return n == null ? "\u2013" : n === 0 ? "0" : n >= 1e6 ? `${+(n / 1e6).toPrecision(3)}M` : n >= 1e4 ? `${+(n / 1e3).toPrecision(3)}k` : String(n); }
 function cpuText(x) { return x == null ? "\u2013" : x < 60 ? `${+x.toPrecision(2)}s` : dur(x); }
 function bytesText(b) { return b == null ? "\u2013" : b >= 1e9 ? `${+(b / 1e9).toPrecision(3)} GB` : `${+(b / 1e6).toPrecision(3)} MB`; }
+/* runs' cost ({runs, cost_usd, tokens}) with why it is none: an AI agent's runs with no session and no tokens ran on
+   a free stand-in, unless one failed or was stopped (its session may have spent: not known; a pool-full give-back never began one); another kind's, no AI
+   (a = the agent, {kind, rung, runs_itself}, or {ai} for several; u = totals with `unknown`, or one run with failed, note, exit) */
+function costText(u, a) {
+  const ai = a && (a.ai ?? [1, 2, 3].includes(a.rung));
+  const back = !u.failed && /^workspace pool .* has none free for /.test(u.note || "");   // given back unrun: no session
+  const unknown = u.unknown ?? (u.cost_usd == null && !back && (u.failed || u.note || u.exit !== 0) ? 1 : 0);
+  if (u.cost_usd) return usd(u.cost_usd) + (ai && unknown ? ` + not known: ${unknown} failed or stopped` : "");
+  if (u.tokens) return u.cost_usd == null ? "not priced" : "$0 reported";
+  if (!u.runs) return a && !a.runs_itself ? (a.kind === "person" ? "a person, not priced" : "not run here") : "no runs, $0";
+  if (ai && unknown) return `not known: ${unknown} failed or stopped`;
+  return ai ? "free stand-in, $0" : "no AI, $0";
+}
 function ago(t) {
   if (!t) return "never";
   const d = nowS() - t;
@@ -633,8 +646,9 @@ async function route(keep = false) {             // keep: the window changed; th
   S.was = path === "/diagram" ? main.querySelector(":scope > .diagram") : null;   // the diagram left: shown, dimmed, until the next is drawn
   main.replaceChildren();
   leavePage();
-  const pages = { "/diagram": pageDiagram, "/dashboard": pageDashboard, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
+  const pages = { "/diagram": pageDiagram, "/dashboard": pageDashboard, "/goals": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
+  if (path === "/loops") { replaceRoute(`/goals${q.toString() ? `?${q}` : ""}`); return route(); }   // the Goals page's old name
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
   // the Items page: bare, the overview of the kinds (kinds.js); a kind's own page at /items/KIND (?kind=KIND goes there);

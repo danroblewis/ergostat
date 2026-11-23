@@ -22,7 +22,8 @@ SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "che
             "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
             "daemons": "daemon"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
-       "defaults", "uses", "library", "remotes", "budget", "runs", "dashboards", *SECTIONS}
+       "defaults", "uses", "library", "libraries", "remotes", "budget", "operating", "runs", "dashboards",
+       *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -139,6 +140,8 @@ class Document:
     notify: object = None            # notify: where what waits on a person is sent (main file only)
     budget: object = None            # budget: the day's AI budget runs reserve from (main file only, SPEC §9.9)
     budget_at: Where | None = None
+    operating: object = None         # operating: when the owner reads as away (main file only, SPEC §12k)
+    operating_at: Where | None = None
     runs: object = None              # runs: how a run is held, outliving the engine or not (main file only, SPEC §9.1)
     sections: dict[str, dict[str, Map]] = field(default_factory=lambda: {s: {} for s in SECTIONS})
     defined: dict[tuple[str, str], Where] = field(default_factory=dict)
@@ -146,6 +149,8 @@ class Document:
     problems: list[Problem] = field(default_factory=list)
     library: list[Path] = field(default_factory=list)   # the folders of templates (library:, main file only)
     untrusted: set[Path] = field(default_factory=set)   # of them, those not the owner's: {folder: PATH} (SPEC §2a)
+    fetched: list = field(default_factory=list)         # the templates of libraries: (fetched, checked), in its order
+    refused: dict[str, tuple[str, str]] = field(default_factory=dict)   # each library refused: its code and reason
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
@@ -231,6 +236,12 @@ def load(main: Path) -> Document:
             else:
                 doc.problems.append(Problem("error", "budget: belongs in the main file only", data.at("budget"),
                                             "budget-in-include"))
+        if "operating" in data:
+            if top:
+                doc.operating, doc.operating_at = data["operating"], data.at("operating")
+            else:
+                doc.problems.append(Problem("error", "operating: belongs in the main file only", data.at("operating"),
+                                            "operating-in-include"))
         if "runs" in data:
             if top:
                 doc.runs = data["runs"]
@@ -273,6 +284,13 @@ def load(main: Path) -> Document:
             else:
                 doc.problems.append(Problem("error", "library: belongs in the main file only", data.at("library"),
                                             "library-in-include"))
+        if "libraries" in data:
+            if top:
+                from ..library import fetched
+                fetched.take(doc, data)
+            else:
+                doc.problems.append(Problem("error", "libraries: belongs in the main file only", data.at("libraries"),
+                                            "libraries-in-include"))
         for section in SECTIONS:
             body = data.get(section)
             if body is None:

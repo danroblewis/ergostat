@@ -65,12 +65,12 @@ from .ir import (
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "every", "cron", "timeout", "parse", "unit",
-               "description", "averages", "runs-on"}
+SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "journal", "push", "every", "cron", "timeout", "parse",
+               "unit", "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
-                      "attention"}
+                      "finished", "moves-from", "if-unchanged", "attention"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -498,10 +498,19 @@ class Compiler:
             if "runs-on" in s:                                # a sensor runs here, beside what reads it (§12k)
                 self.err(f"{sw}.runs-on: a sensor runs here; only a program block runs on a pool", s.at("runs-on"),
                          "runs-on-sensor")
-            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon") if s.get(k) not in (None, False)]
+            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon", "journal")
+                     if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin: or daemon: (it has "
-                         f"{', '.join(kinds) or 'none'})", s.where, "sensor-kind")
+                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin:, daemon: or journal: "
+                         f"(it has {', '.join(kinds) or 'none'})", s.where, "sensor-kind")
+            journal = s.get("journal")
+            if journal is not None:                    # a folder inside the model's root (SPEC §6)
+                root = Path(self.doc.root).resolve()
+                if not isinstance(journal, str) or not journal.strip() or Path(journal).is_absolute() or \
+                        not (root / journal).resolve().is_relative_to(root):
+                    self.err(f"{sw}.journal: a folder inside the model's folder, written relative to it (journals/), "
+                             f"not {str(journal)[:80]!r}", s.at("journal"), "bad-journal")
+                    journal = None
             measure = None
             if s.get("builtin") is not None:
                 measure = str(s["builtin"])
@@ -562,7 +571,7 @@ class Compiler:
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
                                     description=self.text(s, "description"), where=s.where,
-                                    daemon=s.get("daemon"), push=s.get("push") is True,
+                                    daemon=s.get("daemon"), push=s.get("push") is True, journal=journal,
                                     run_in=runs.OWNER if measure else runs.verdict(self.doc.uses, s.where, of, str(name)))
         return out
 
@@ -704,6 +713,24 @@ class Compiler:
             self.err(f"{what}.final: a list of its states that no event moves an item out of ([completed])",
                      m.at("final") or m.where, "bad-final")
             final = []
+        done = m.get("finished") or []               # its own finished states (SPEC §5a, *Which states are finished*)
+        done = [done] if isinstance(done, str) else done
+        if not isinstance(done, list) or not all(isinstance(s, str) and s in states[1:] for s in done):
+            self.err(f"{what}.finished: a list of its states, not its first, that count as finished ([done, dropped])",
+                     m.at("finished") or m.where, "bad-finished")
+            done = []
+        only = m.get("moves-from") or {}             # event type → the only states it moves an item out of
+        if not isinstance(only, dict) or not all(e in moves and isinstance(s, list) and s and set(s) <= set(states)
+                                                 for e, s in only.items()):
+            self.err(f"{what}.moves-from: a map of one of its on: events to the list of its states it alone moves an "
+                     f"item out of ({{ticket.reopened: [done]}})", m.at("moves-from") or m.where, "bad-moves-from")
+            only = {}
+        fenced = m.get("if-unchanged") or []         # events applied only to the item as read (SPEC §5a)
+        if not isinstance(fenced, list) or not all(isinstance(t, str) and t for t in fenced):
+            self.err(f"{what}.if-unchanged: a list of event types, each applied only when its data's read is the "
+                     f"item's count of events as it stands ([ticket.freed])", m.at("if-unchanged") or m.where,
+                     "bad-if-unchanged")
+            fenced = []
         attention = m.get("attention")               # the field whose latest item's words need the owner (SPEC §5a)
         if attention is not None and (not isinstance(attention, str) or not attention or attention in relations):
             self.err(f"{what}.attention: the name of a field (not a relation) whose words, on the latest item that has "
@@ -713,7 +740,8 @@ class Compiler:
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
-                        attention=attention)
+                        finished=list(done), moves_from={e: tuple(s) for e, s in only.items()},
+                        if_unchanged=tuple(fenced), attention=attention)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -1100,6 +1128,7 @@ class Compiler:
         compute.compute(self, spec)                          # compute: the pools of nodes runs may execute on (§12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
+        gated.operating(self, spec)                          # operating: when the owner reads as away (SPEC §12k)
         from ..inbox import config as notify
         notify.parse(self, spec)                             # notify: each channel a gated action notify.NAME (SPEC §12o)
         self.runs(spec)                                      # runs: whether a run outlives the engine (SPEC §9.1)

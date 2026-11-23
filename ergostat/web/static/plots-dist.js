@@ -159,6 +159,7 @@
 
   const onOff = (key, label, first = "off") => ({ key, label, type: "choice", choices: first === "off" ? ["off", "on"] : ["on", "off"], default: first });
   registerPlotForm("histogram", { label: "Histogram", group: "distribution", needs: { x: ["bins", "time"], text: "a binned X, or a measure over time" }, draw: drawHistogram,
+    shapes: { series: { roles: "none" }, distribution: { form: ["bins", "samples"] } }, reshape: "ask for values over time, or count them in bins",
     ask: (q, o) => (q.x?.type === "bins" && o.bins !== "auto" ? { ...q, x: { ...q.x, bins: Math.max(1, Math.round(+o.bins)) } } : q), options: [
     { key: "bins", label: "Bins", type: "number", min: 1, max: 200, step: 1, default: "auto", auto: true },
     onOff("cumulative", "Cumulative"),
@@ -166,6 +167,7 @@
     { key: "stack", label: "Several series", type: "choice", choices: ["none", "stacked"], default: "none" },
   ] });
   registerPlotForm("box", { label: "Box plot", group: "distribution", needs: { x: ["category", "time", "field", "query"], text: "a numeric field of items by category, or a measure over time" }, draw: drawBox,
+    shapes: { distribution: { form: ["samples", "quartiles"] } }, reshape: "ask for each item's value of a numeric field by category (aggregation none)",
     /* a numeric field of items is drawn item by item, one box per category: the answer's spread, never an aggregate of it */
     ask: (q) => {
       const type = q.x?.type || "time";

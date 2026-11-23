@@ -63,7 +63,7 @@
     if (!nested) for (const d of F.datasources || []) if (dataSource({ source: d.name }, F)) offered.push([d.name, `${d.name} (${d.language})`]);
     const out = [{ key: "source", label: "Source", options: offered, required: true }];
     const ds = nested ? null : dataSource(q, F);
-    if (ds) return [...out, { key: "text", label: `Query (${ds.language})`, text: true, required: true }];
+    if (ds) return [...out, { key: "text", label: `Query (${ds.language})`, text: true, required: true, language: ds.language, source: ds.name }];
     if (q.source === "frequency") {
       if (!q.model) out.push({ key: "segments", label: "Segments", options: SEGMENTS.map(n => [n, String(n)]), required: true });
       return out;
@@ -213,6 +213,8 @@
   /* why the current queries cannot be drawn by a form (null when they can) */
   function formProblem(reg, queries, answer) {
     const n = reg.needs || {}, shown = queries.filter(q => q.source && !q.hidden);
+    const framed = (answer?.results || []).filter(r => r.shape);
+    if (reg.shapes && framed.length && typeof resultFrames !== "undefined") return resultFrames.mismatch(reg, framed);   // once answered, its shape decides
     if (n.source && !shown.some(q => q.source === n.source)) return `Needs ${n.text || `a ${n.source} query`}.`;
     if (!n.source && shown.some(q => q.source === "frequency")) return "Cannot draw a frequency response.";
     if (n.x?.length) {
@@ -227,7 +229,7 @@
   function formFits(reg, queries, answer) {
     if (formProblem(reg, queries, answer)) return false;
     const agg = reg.needs?.agg;
-    return !agg || queries.filter(q => q.source && !q.hidden && q.source !== "frequency").every(q => q.agg === agg);
+    return !agg || (reg.shapes && (answer?.results || []).some(r => r.shape)) || queries.filter(q => q.source && !q.hidden && q.source !== "frequency").every(q => q.agg === agg);
   }
   function nextId(queries) {
     const used = new Set(queries.map(q => q.id));
@@ -329,7 +331,8 @@
           : draft.queries.some(q => q.hidden) ? "Every query is hidden" : "Choose what to show in a query below");
         return;
       }
-      const sig = JSON.stringify([cfg.form, cfg.options || {}, cfg.queries]);   // (a family may ask for its data its own way)
+      /* what is sent, as this family asks for it: another chart that asks alike draws this answer again, unasked */
+      const sig = JSON.stringify(typeof askedOf === "function" ? [askedOf(cfg), cfg.queries] : [cfg.form, cfg.options || {}, cfg.queries]);
       if (sig === lastSig) {                 // only the display changed: no need to ask again
         if (!inFlight) { chart.setConfig(cfg); if (lastAnswer) draw(lastAnswer); }
         return;
@@ -351,6 +354,10 @@
       const results = got.results || [];
       errors.clear();
       for (const r of results) if (r.error) errors.set(r.id, r.error);
+      for (const [q, card] of cards) {               // (where its source said the text is wrong, marked in it)
+        const r = results.find(x => x.id === q.id);
+        card.slots.get("text")?.mark?.(r?.error_at || null, r?.error);
+      }
       lastAnswer = { results: results.filter(r => !r.error), meta: got.meta, firstError: results.find(r => r.error)?.error };
       renderMessages();
       chart.setConfig({ ...previewConfig(), queries: cfg.queries });
@@ -394,6 +401,7 @@
       for (const slot of slots) {
         seen.add(slot.key);
         let c = card.slots.get(slot.key);
+        if (c && slot.text && c.language !== slot.language) { c.el.remove(); c = null; }   // (another language: its own editor)
         if (!c) {
           c = slot.checks ? checksControl(card, slot) : slot.text ? textControl(card, slot) : selectControl(card, slot);
           card.slots.set(slot.key, c);
@@ -474,12 +482,18 @@
       return { el, sel, sync(s) { fillSelect(sel, s, card.q[s.key]); } };
     }
     /* the query's text, in its source's own language: written, not built, and asked for as it is typed */
+    /* (a language with an editor of its own, window.queryEditors, gets it: highlighted, completed, run with Ctrl+Enter) */
     function textControl(card, slot) {
-      const area = h("textarea", { "data-slot": slot.key, rows: 3, spellcheck: "false", class: "pe-text",
-                                   oninput: () => { card.q.text = area.value; errors.delete(card.q.id); changed(); } });
-      const el = field(slot.label, area);
-      el.classList.add("pe-wide");
-      return { el, sync(s) { el.querySelector("label").textContent = s.label; if (area.value !== (card.q.text ?? "")) area.value = card.q.text ?? ""; } };
+      const typed = v => { card.q.text = v; errors.delete(card.q.id); changed(); };
+      const run = () => { lastSig = null; clearTimeout(timer); runPreview(); };
+      const ed = window.queryEditors?.[slot.language]?.({ source: () => card.q.source, onInput: typed, onRun: run }) || null;
+      const area = ed?.area || h("textarea", { "data-slot": slot.key, rows: 3, spellcheck: "false", class: "pe-text", oninput: () => typed(area.value) });
+      area.id ||= `pe-control-${++controlIds}`;
+      const el = h("div", { class: "pe-f pe-wide" }, h("label", { class: "pe-l", for: area.id }, slot.label), ed?.el || area);
+      return { el, mark: ed?.mark, language: slot.language, sync(s) {
+        el.querySelector("label").textContent = s.label;
+        if (ed) ed.set(card.q.text ?? ""); else if (area.value !== (card.q.text ?? "")) area.value = card.q.text ?? "";
+      } };
     }
     function checksControl(card, slot) {
       const box = h("div", { class: "pe-checks" });
@@ -706,7 +720,9 @@
     const guideText = h("span", {});
     const guideBtn = h("button", { type: "button", onclick: () => setUpForm(true) }, "Set it up");
     formGuide.append(guideText, guideBtn);
-    const currentProblem = () => { const now = formTiles.get(draft.form) || (forms.has(draft.form) ? { reg: forms.get(draft.form) } : null); return now ? formProblem(now.reg, draft.queries, lastAnswer) : null; };
+    /* the answer as the panel will draw it: reshaped, as the reshaping written below asks */
+    const judged = () => (lastAnswer && typeof resultFrames !== "undefined" ? { ...lastAnswer, results: resultFrames.reshaped(draft.reshape, lastAnswer.results) } : lastAnswer);
+    const currentProblem = () => { const now = formTiles.get(draft.form) || (forms.has(draft.form) ? { reg: forms.get(draft.form) } : null); return now ? formProblem(now.reg, draft.queries, judged()) : null; };
     function makeGallery() {
       const groups = [...FORM_GROUPS];
       for (const reg of forms.values()) if (reg.group && !groups.some(g => g[0] === reg.group)) groups.push([reg.group, words(reg.group)]);
@@ -731,9 +747,9 @@
       }, "aria-label": "Chart" }, sections);
     }
     function renderGallery() {
-      const judged = draft.queries.some(q => q.source && !q.hidden);     // (with nothing asked yet every form is open, and sets its queries up)
+      const asked = draft.queries.some(q => q.source && !q.hidden), answer = judged();     // (with nothing asked yet every form is open, and sets its queries up)
       for (const [name, t] of formTiles) {
-        const why = judged ? formProblem(t.reg, draft.queries, lastAnswer) : null;
+        const why = asked ? formProblem(t.reg, draft.queries, answer) : null;
         t.input.checked = name === draft.form;
         t.input.disabled = !!why;
         t.tile.classList.toggle("pe-form-blocked", !!why);
@@ -778,7 +794,7 @@
     function setUpForm(render) {
       const reg = forms.get(draft.form), n = reg?.needs || {};
       const empty = !draft.queries.some(q => q.source);
-      if (!formProblem(reg || {}, draft.queries, lastAnswer) && !(empty && n.x?.length && !n.x.includes("time"))) return;
+      if (!formProblem(reg || {}, draft.queries, judged()) && !(empty && n.x?.length && !n.x.includes("time"))) return;
       let focusOn = null;
       if (n.source === "frequency") focusOn = setUpFrequency();
       else if (n.x?.length) {
@@ -837,8 +853,9 @@
         h("div", { class: "pe-pick-head" }, h("h3", {}, "Charts of this data"), h("button", { type: "button", onclick: () => closePicker() }, "Close")), grid);
       picker = { box, charts: [] };
       root.append(box);
+      const answer = judged();
       for (const [name, reg] of forms) {
-        if (!formFits(reg, draft.queries, lastAnswer)) continue;
+        if (!formFits(reg, draft.queries, answer)) continue;
         const one = chartPanel({ ...base, id: `${uid}-pick-${name}`, form: name, options: keptOptions(name) });
         const label = reg.label || words(name);
         const card = h("div", { class: "pe-pick-card", "data-form": name, onclick: () => choosePicked(name) },
@@ -967,6 +984,14 @@
     repeatSel.addEventListener("focus", fillRepeat);
     fillRepeat();
 
+    /* reshaping the answer where no query language can: written, a step a line, and never asked of the source again */
+    const reshapeIn = h("textarea", { rows: 2, spellcheck: "false", class: "pe-text", "data-slot": "reshape", oninput: () => {
+      if (reshapeIn.value.trim()) draft.reshape = reshapeIn.value; else delete draft.reshape;
+      changed(); renderGallery();
+    } });
+    reshapeIn.value = draft.reshape || "";
+    const reshapeField = field("Reshape (pivot, join or group a table by a dimension, a step a line)", reshapeIn);
+    reshapeField.classList.add("pe-wide");
     const side = h("div", { class: "pe-side" },
       h("h3", {}, "Panel"),
       field("Title", titleIn),
@@ -993,7 +1018,7 @@
     const root = h("div", { class: "pe-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Edit panel", onkeydown: onKey },
       h("header", { class: "pe-head" }, h("h2", {}, "Edit panel"), saveMsg, h("span", { class: "pe-actions" }, cancelBtn, saveBtn)),
       h("div", { class: "pe-body" },
-        h("div", { class: "pe-main" }, formGuide, previewBox, h("div", { class: "pe-query-area" }, fieldsMsg, queriesBox, addBtn)),
+        h("div", { class: "pe-main" }, formGuide, previewBox, h("div", { class: "pe-query-area" }, fieldsMsg, queriesBox, addBtn, reshapeField)),
         side),
       live);
 

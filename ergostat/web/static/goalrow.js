@@ -20,15 +20,22 @@ const GOAL_CELLS = {
   value: (g) => h("td", { class: "num" }, fmt(g.row ? g.row.value : g.value)),
   bound: (g) => h("td", { class: "num nowrap" }, holdText(g.setpoint, g.band)),
   far: (g) => h("td", { class: "num nowrap", "data-off": g.name, title: `How far it is from its ${isLimit(g.setpoint) ? "limit" : "setpoint"}` }, g.off_by_words || ""),
-  timeOff: (g) => h("td", { class: "num", title: "The share of the window the loop spent off" }, shareText(g.off_share)),
+  timeOff: (g) => h("td", { class: "num", title: "The share of the window the goal spent off" }, shareText(g.off_share)),
   backIn: (g) => h("td", { class: "num", title: g.back_in != null ? `Typically holding again this long after going off (slowest ${dur(g.back_in_slowest)}, ${g.times_off} times); its valve opens ${g.answers_in != null ? dur(g.answers_in) : "?"} after` : "It has not gone off and come back in the window" },
     g.back_in != null ? dur(g.back_in) : "–"),
   spark: (g) => h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
     (g.points || []).length > 1 ? sparkSvg(g.points, 120, 24, setpointOf(g.setpoint)) : ""),
-  performance: (g) => h("td", { class: "nowrap", "data-perf": g.name, title: "Flapping (gone off 20 times or more in the window), oscillating, saturated, past or within its bound, or its Harris index: from its scope, over the last day of record; on Loops it changes only once the new behaviour has held a while" },
+  performance: (g) => h("td", { class: "nowrap", "data-perf": g.name, title: "Flapping (gone off 20 times or more in the window), oscillating, saturated, past or within its bound, or its Harris index: from its scope, over the last day of record; on Goals it changes only once the new behaviour has held a while" },
     g.behaviour ?? goalPerf(g.perf)),
   expected: (g) => h("td", { class: "muted" }, g.row?.expected ?? ""),
   acted: (g) => h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, g.observed ? "yes" : h("span", { class: "muted" }, "no")),
+  // on a phone each goal is a card (style.css): its name and word, then its value against its bound and how long off
+  // (up to the moment the answer is as of: the past moment chosen, else now)
+  card: (g) => h("td", { class: "card" }, h("div", {}, h("b", {}, g.name), " · ", statusEl(goalWord(g))),
+    h("div", { class: "muted" }, [`${fmt(g.value)} against ${op(g.setpoint)}`, goalOffFor(g),
+      g.back_in != null ? `usually back in ${dur(g.back_in)}` : null].filter(Boolean).join(" · "))),
 };
+const goalOffFor = (g) => goalWord(g) !== "off" ? null : g.off_since == null ? "off since ?"
+  : `off ${g.off_before_window ? "over " : ""}${dur((S.at || nowS()) - g.off_since)}`;
 /* the cells of one goal ({name, ...its /api/loops entry}), in the columns asked for */
 function goalRow(goal, { columns, open }) { return columns.map((c) => GOAL_CELLS[c](goal, open)); }   // open: what a click on its name does

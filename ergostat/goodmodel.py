@@ -25,7 +25,7 @@ READ_WHAT = {"remote": ("proposals",)}
 READ_FLAGS = ("n", "kind", "state", "history", "type", "item", "source", "follow", "runs", "data", "patch", "set_", "by",
               "to", "why", "after", "no_count", "all", "around", "depth", "list", "wiring", "blocks", "open", "note",
               "command", "stats", "search", "near", "path_to", "about_item", "backfilled", "from_",
-              "replace")
+              "replace", "groups")
 WRITES = ("add", "add_many", "prune", "replace", "forget", "roll", "drop", "flush", "backfill")
 
 
@@ -68,7 +68,7 @@ def keep(project) -> str | None:
     if r is None or r.replay:
         return None
     blobs = {hashlib.sha256(b).hexdigest(): b for b in r.files.values() if b is not None}
-    kept = {"main": str(m.path.resolve()), "taken": time.time(), "dirs": r.dirs, "globs": r.globs,
+    kept = {"main": str(m.path.resolve()), "taken": time.time(), "dirs": r.dirs, "globs": r.globs, "trees": r.trees,
             "library": os.environ.get("ERGOSTAT_LIBRARY") or "",
             "files": {p: (hashlib.sha256(b).hexdigest() if b is not None else None) for p, b in r.files.items()}}
     try:

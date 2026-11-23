@@ -19,6 +19,7 @@ async function pageKinds(main, q) {
   const group = chartGroup("kinds");
   const ans = answers();
   let d = null, rbusy = false;
+  const gps = {}, gpMore = {};                     // a kind's progress per group (itemsets.js groupRows), its rest unfolded
 
   const cardOf = (k) => {
     const href = `/items/${encodeURIComponent(k.name)}`;
@@ -32,7 +33,12 @@ async function pageKinds(main, q) {
       chart = flowChart({ states, counts: all ? k.counts : k.by_group, now: all ? k.now : k.now_by_group, times: d.times, since: d.since, until: d.until },
         group, { kind: k, height: 64, xAxis: false, onState: (st) => navigate(all ? `${href}?state=${encodeURIComponent(st)}` : href) });
     }
-    return h("div", { class: "kind-flow kind-card", "data-kind": k.name }, name, said, chart);
+    const pm = h("a", { class: "pm-link", href: `/diagram?view=process&kind=${encodeURIComponent(k.name)}&mode=states`,   // where its work queues
+                        title: "Its process map: how many are in each state now, and how they moved" }, "process map");
+    // its groups' rows (a gap's milestones), a click on one its kind's page under that group's where
+    const gp = groupRows(gps[k.name], { more: !!gpMore[k.name], onMore: () => { gpMore[k.name] = !gpMore[k.name]; showStates(); },
+                                        onPick: (r) => navigate(itemsHref(r.params)) });
+    return h("div", { class: `kind-flow kind-card${gp ? " kind-card-groups" : ""}`, "data-kind": k.name }, name, pm, said, chart, gp);
   };
 
   /* the switch and every card, from the answer held (``d``): never a request */
@@ -67,7 +73,11 @@ async function pageKinds(main, q) {
     let got;
     try { got = await ans.api("items-overview"); }
     catch (err) { box.replaceChildren(h("p", { class: "note bad" }, String(err.message || err))); return; }
-    if (!p.isConnected || (d && !ans.changed)) return;
+    const gpsWere = JSON.stringify(Object.values(gps).map((g) => g.rows || g.err));    // (its times move with now)
+    await Promise.all(SNAP ? [] : got.kinds.filter((k) => k.progress?.length).map(async (k) => {   // (not in a snapshot)
+      gps[k.name] = await api("items-groups", { kind: k.name, by: k.progress[0], points: 2 }).catch((err) => ({ err: String(err.message || err) }));
+    }));
+    if (!p.isConnected || (d && !ans.changed && JSON.stringify(Object.values(gps).map((g) => g.rows || g.err)) === gpsWere)) return;
     d = got;
     showStates();
     if (!rbusy && !SNAP && d.remotes.length) {          // (not waited on)

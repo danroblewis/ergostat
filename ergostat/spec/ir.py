@@ -564,6 +564,7 @@ class Sensor:
     builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
+    journal: str | None = None  # a folder of JSONL journals inside the model's root, followed while ergostat runs
     untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
     run_in: str | None = None   # "owner" only when compile proved its run the owner's or ergostat's; else (None too)
     #                             it runs in ergostat.sandbox (library/runs.py)
@@ -877,6 +878,7 @@ class Takes:
     order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
                                                      # without one after those with it; the order above among equals
     healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
+    hold_by: list[str] = field(default_factory=list)   # ``faults: {hold-by: [F]}``: a value failing together is held
 
 
 @dataclass
@@ -893,6 +895,9 @@ class Relation:
     there: str = ""                 # the kind's name at that remote (incident)
     # precedence: the target's states (not finished) in which it no longer blocks; the CPM stays finish-to-start
     starts_at: list[str] = field(default_factory=list)
+    # a group's: a finished state of the item's: the fields it counts as done work in, for each group's progress
+    # (spec/grouptally.py); an item in that state that does not match leaves its group's total
+    done_when: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -928,8 +933,10 @@ class ItemKind:
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
+    finished: list[str] = field(default_factory=list)   # its finished states, when messages: done: does not name it
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
+    if_unchanged: tuple = ()   # event types applied only to the item as read: their data's `read` is its event count then
     attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
 
     def matches(self, id: str) -> bool:
@@ -1043,6 +1050,7 @@ class Spec:
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
+    away_after: float = 7200.0       # operating.away-after: no event from the owner this long reads as away (SPEC §12k)
     dashboards: dict[str, Dashboard] = field(default_factory=dict)     # the shared, named dashboards (SPEC §4f)
     outlive_engine: bool = False            # runs: outlive_engine: a run kept by its keeper, never stopped with us (§9.1)
 

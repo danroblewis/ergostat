@@ -91,6 +91,20 @@ def test_the_gate_catches_what_it_should():
         assert hit == caught, decl
 
 
+def test_the_items_lists_wrap_their_fields_and_keep_three_columns_on_a_phone():
+    """The static half of tests/test_items_page.py::test_the_items_table_fits_at_1440_px, which needs a browser: in
+    the kinds' lists a field's cell wraps and is never cut, and at phone width only the item, state and 'in state'
+    (.keep) stay; pages.js gives the lists their class and the 'in state' header and cells their .keep."""
+    _, rules = split()
+    cell = dict(declarations(" ".join(re.findall(r"table\.kind-items td\.cell\s*(\{[^{}]*\})", rules))))
+    assert cell.get("white-space") == "normal" and cell.get("overflow") == "visible", cell
+    assert "text-overflow" not in cell, "a field's text is wrapped, not cut with an ellipsis"
+    assert re.search(r"@media \(max-width: 700px\) \{\s*table\.kind-items tr > :nth-child\(n\+3\):not\(\.keep\) "
+                     r"\{ display: none; \}", rules), "the phone rule keeps item, state and .keep"
+    js = (CSS.parent / "pages.js").read_text()
+    assert '"items kind-items",' in js and '["in state", "num keep"]' in js and 'class: "num nowrap keep"' in js
+
+
 def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():
     """The narrow-width half of tests/test_items_page.py's phone/200% check, readable without a browser: below 760 px
     the nav wraps onto its own rows, nothing in the sheet makes it scroll sideways, and the current page keeps its
@@ -181,6 +195,28 @@ def test_the_arrows_and_guide_dot_borders_stand_3_to_1_on_the_paper_in_both_them
             ratio = (max(y, bg) + 0.05) / (min(y, bg) + 0.05)
             if ratio < 3:
                 low.append(f"{theme} {what} ({token}): {ratio:.2f}")
+    assert not low, low
+
+
+def test_the_diagrams_keyboard_focus_ring_is_the_accent_and_stands_3_to_1_in_both_themes():
+    """Done item 5 of diagram-roving-focus-and-arrow-keys, readable without a browser: the ring keys.js's roving focus
+    shows on a diagram part (its outline, and the part's own outline stroke) is the accent token, and the accent
+    stands 3:1 against the page in the light and the dark theme. tests/test_diagram_rendering.py checks it is drawn."""
+    head, rules = split()
+    light_head, dark_head = head.split("prefers-color-scheme: dark", 1)
+    themes = {"light": dict(re.findall(r"(--[\w-]+):\s*([^;]+);", light_head))}
+    themes["dark"] = {**themes["light"], **dict(re.findall(r"(--[\w-]+):\s*([^;]+);", dark_head))}
+    ring = re.search(r"svg\.canvas \[data-key\]:focus-visible\s*\{([^{}]*)\}", rules)
+    stroke = re.search(r"svg\.canvas \.node:focus-visible \.hit[^{]*\{([^{}]*)\}", rules)
+    assert ring and stroke, "style.css has no focus ring for a diagram part"
+    assert re.search(r"outline:\s*\d+px solid var\(--accent\)", ring[1]), ring[1]
+    assert "stroke: var(--accent)" in stroke[1], stroke[1]
+    low = []
+    for theme, tokens in themes.items():
+        y, bg = _luminance(_oklab(tokens["--accent"].strip())), _luminance(_oklab(tokens["--bg"].strip()))
+        ratio = (max(y, bg) + 0.05) / (min(y, bg) + 0.05)
+        if ratio < 3:
+            low.append(f"{theme}: {ratio:.2f}")
     assert not low, low
 
 
