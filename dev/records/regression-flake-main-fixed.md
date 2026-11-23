@@ -57,5 +57,20 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   so this probably did not cause the `F`; it could have reached forked tests (keeper.py, test_sandbox_attacks.py) in
   the merge queue's unit suite. Not run: the file under xdist (named_tests.py runs serially and takes no options).
   If the `F` comes back, it needs its name from the build's full log.
+- Round 3, the build again (`-n 8`): it names `test_an_approved_switch_drains_and_switches_through_the_engine`, a
+  switcher run still under way at its 120 s wait (1 failed, 203 passed, 2 skipped, 648 s). No code changed, because no
+  cause in this branch was found. Checked: (1) mend.py and its tests leave no state in the pytest worker that
+  the switcher's subprocesses could inherit. No environment is written (fac.cli is not called), no cwd, and no
+  signal handler (stubbed since c7fee7cb). Every fac attribute and the flakes module are put back by monkeypatch,
+  and the race test's thread is joined. (2) The `ergostat item` calls drain.py makes never run the extremes
+  (model.py: problems are late). The block, stock and flow this branch adds are not on the switcher's path, and
+  timed alone they changed nothing (27 s and 26 s per run either way, round 2). (3) items.py's line runs only on a
+  refused event. A run that takes 27 s alone and more than 120 s here is load (lesson-10: neither a race in ergostat
+  nor a sleep in the test, but a fixed wait over about ten cold `ergostat` starts). Making the switcher cheaper
+  (fewer `fac.items` listings in drain.py's under_way) is in drain.py and fac.py, outside this gap's Files list
+  (lesson-13), and the bound is not to be raised. That is the most reversible choice: nothing outside the gap is
+  changed on a guess. Left: a gap of its own for the switcher test's cost under `-n 8`, or the factory's rerun of
+  this test on clean main under the same load. If it fails there too, it is not this branch's. Not run: main under
+  load, or any command but git and file reads (others were refused this session).
 
 Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.
