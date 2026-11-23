@@ -12,7 +12,7 @@ import pytest
 
 from ergostat import model as mdl
 from ergostat import runner as old
-from ergostat.leases import ENDED, EXPIRED, REDRIVEN, RENEWED, TAKEN
+from ergostat.leases import ENDED, EXPIRED, REDRIVEN, RENEWED, TAKEN, gone
 from ergostat.leases.terms import terms
 from ergostat.spec import items as its
 from ergostat.spec.engine import Engine
@@ -577,25 +577,24 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
     first.dispatch.finish = lambda *a, **k: None             # it dies: no lease is ended (nor given back: no close)
     first.stop.set()
     old.kill_all()
+    gone.closed(first.dispatch)                              # (as its process ending would: its id no live engine's)
     held = item(p, "ticket/1").fields["lease"]
     second = start(Project(mdl.load(tmp_path)))
     try:                     # (no fixed sleep: what the record says, in its order, holds however late a look comes)
-        assert wait_for(lambda: p.events.query(n=None, type=EXPIRED, item="ticket/1"), 10), "expired on its TTL"
+        assert wait_for(lambda: ends(p, "ticket/1"), 10), "ended: its run no longer exists (leases/gone.py)"
         assert wait_for(lambda: len(p.events.query(n=None, type=TAKEN)) >= 2, 5), "then the next is taken"
-        expired = p.events.query(n=None, type=EXPIRED, item="ticket/1")[0]
-        assert not [x for x in p.events.query(n=None, type=ENDED) if x["seq"] < expired["seq"]]
+        expired = ends(p, "ticket/1")[0]
     finally:
         second.close()
         old.STOPPING.clear()
     ended = item(p, "ticket/1").fields["lease"]["history"][0]
-    assert ended.get("run") == held["holder"] and ended.get("how") == "expired", \
-        "the new engine reads the lease, and keeps it: nothing ends it but its expiry"
-    expired = p.events.query(n=None, type=EXPIRED, item="ticket/1")[0]
-    assert expired["data"]["expires"] == held["expires"], "expired on the expiry it was taken with"
-    # The second engine's first pass looks (and only marks it overdue) before its first take; the expiry needs a second
-    # look a grace later. So a take that ignored the lease held would come before the expiry in the record.
+    assert ended.get("run") == held["holder"] and ended.get("how") == "nack" and ended["counted"] is False, \
+        "the new engine reads the lease, and ends it uncounted: its run was killed with the engine that held it"
+    assert expired["data"]["run"] == held["holder"] and expired["data"]["count"] is False   # (its record left or not)
+    assert "no longer exists" in expired["data"]["why"] or "process is gone" in expired["data"]["why"]
+    # A take that ignored the lease held would come before its end in the record.
     taken = [ev["seq"] for ev in p.events.query(n=None, type=TAKEN) if ev["data"]["run"] != held["holder"]]
-    assert taken and min(taken) > expired["seq"], "the pool is full: the lease held counts, till it expired"
+    assert taken and min(taken) > expired["seq"], "the pool is full: the lease held counts, till it ended"
     for i in (1, 2):                                         # stopped with ergostat: given back, not counted
         lease = item(p, f"ticket/{i}").fields["lease"]
         assert lease["holder"] is None
