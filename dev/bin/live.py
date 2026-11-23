@@ -38,7 +38,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
-HEALTH_WAIT = 120            # seconds a new version has to show it is healthy
+HEALTH_WAIT = 300            # seconds a new version has to show it is healthy
+STOP_WAIT = 120              # seconds a stopping engine has to close before a start is tried
 PASS_FRESH = 30              # a pass at most this old
 DISPATCH_FAILING = 120       # seconds the dispatcher may meet an error in every look before it is a situation
 SENSOR = "suites-running.main"     # the load interlock's, read every 15 s
@@ -174,16 +175,23 @@ def engine(cfg: dict, sha: str, *args: str, timeout: int = 120) -> subprocess.Co
 
 def start(cfg: dict) -> str:
     sha = target(live(cfg) / "current")
-    r = engine(cfg, sha, "run", "--port", str(cfg["instance"]["port"]))
+    r = engine(cfg, sha, "run", "--no-web")          # the page is its own process (dev/bin/ui.py): it outlives this
     if r.returncode:
         raise RuntimeError(f"start {sha[:12]}: {(r.stderr or r.stdout)[-400:]}")
+    if cfg["ai"]["mode"] != "standin":               # (a test's stand-in factory starts no page of its own)
+        run([sys.executable, str(Path(__file__).with_name("ui.py")), "ensure"], timeout=30, cwd=instance(cfg))
     return sha
 
 
 def stop(cfg: dict) -> None:
+    """Stop the engine and wait until it has gone. `run --stop` gives up after 10 s while a busy engine is still closing,
+    and a start in that time sees it running, starts nothing, and leaves no engine once it exits."""
     sha = target(live(cfg) / "current")
-    if sha:
-        engine(cfg, sha, "run", "--stop")
+    if not sha:
+        return
+    deadline = time.monotonic() + STOP_WAIT
+    while engine(cfg, sha, "run", "--stop").returncode and time.monotonic() < deadline:
+        time.sleep(1)
 
 
 def state_dir(cfg: dict) -> Path:
@@ -296,8 +304,8 @@ def switch(cfg: dict, sha: str) -> dict:
             if h["healthy"]:
                 record(cfg, sha, "upgrade.kept", health=h, healthy_at=time.time())
                 forget_previous(cfg)
-                if kept:
-                    edits_as_gap(cfg, sha, kept)
+                if kept and (cfg.get("instance") or {}).get("edits_as_gaps", True):   # (false: an operator's live-only
+                    edits_as_gap(cfg, sha, kept)                                     # edits stay in run/model-edits/)
                 return h
         h["why"] = f"not healthy within {wait:g}s"
     except Exception as e:  # noqa: BLE001 - whatever failed, the instance goes back to what ran

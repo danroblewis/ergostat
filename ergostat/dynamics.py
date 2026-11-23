@@ -148,13 +148,14 @@ def _connectors(spec) -> tuple[dict[tuple[str, str], dict], set[str]]:
         out_of.setdefault(x.source, []).append(x)
     out: dict[tuple[str, str], dict] = {}
 
-    def add(src: str | None, dst: str | None, sign, rules: list[str]) -> None:
+    def add(src: str | None, dst: str | None, sign, rules: list[str], drv: bool = False) -> None:
         if not src or not dst or src == dst:
             return
         old = out.get((src, dst))
         if old is None:
-            out[(src, dst)] = {"sign": sign, "rules": list(rules)}
+            out[(src, dst)] = {"sign": sign, "rules": list(rules), "drivenBy": drv}   # (declared with driven-by: dashed)
             return
+        old["drivenBy"] = old["drivenBy"] or drv
         if old["sign"] != sign:
             old["sign"] = None                           # two ways round disagree: not known
         old["rules"] += [r for r in rules if r not in old["rules"]]
@@ -181,7 +182,7 @@ def _connectors(spec) -> tuple[dict[tuple[str, str], dict], set[str]]:
         if x.target.startswith("block."):
             into(x.target, x.sign, _drawn_id(x.source), [], set())
         else:
-            add(_drawn_id(x.source), _drawn_id(x.target, True, x.kind), x.sign, [])
+            add(_drawn_id(x.source), _drawn_id(x.target, True, x.kind), x.sign, [], x.kind == "influence")
     for d in decide:
         through(d, 1, f"decision:{d.split('.', 1)[1]}", [d.split(".", 1)[1]], {d})
     for g in spec.goals:
@@ -214,6 +215,26 @@ def _loop_nodes(c: dict, decide: set[str]) -> list[str]:
     if len(dedup) > 1 and dedup[0] == dedup[-1]:
         dedup.pop()
     return dedup
+
+
+def _around(spec, ns: list[str], conns: dict, names: dict[str, str]) -> list[dict]:
+    """Each link around a loop, every part drawn whole (before any system is closed): a connector's sign as it
+    is drawn, a flow's by definition (+ into the stock it fills, − into the one it drains); None where neither
+    says. Each end by its plain name."""
+    out = []
+    for a, b in zip(ns, ns[1:] + ns[:1], strict=False):
+        if a == b:
+            continue
+        sign = (conns.get((a, b)) or {}).get("sign")
+        f = spec.flows.get(a.split(":", 1)[1]) if spec is not None and a.startswith("flow:") else None
+        if f is not None and b in (f"stock:{f.target}", f"stock:{f.source}"):
+            sign = 1 if b == f"stock:{f.target}" else -1
+        goal = spec.goals.get(b[4:]) if spec is not None and b.startswith("gap:") else None
+        if goal is not None and a in (f"stock:{goal.of.name}", f"desired:{goal.name}"):   # a gap is desired − actual
+            sign = (-1 if a.startswith("stock:") else 1) * (-1 if excess(spec, goal.name) else 1)   # (an excess, the reverse)
+        out.append({"from": a, "to": b, "fromName": names.get(a) or a.split(":", 1)[1],
+                    "toName": names.get(b) or b.split(":", 1)[1], "sign": None if sign is None else "+" if sign > 0 else "-"})
+    return out
 
 
 def dynamics(g: dict, model) -> dict:
@@ -254,7 +275,7 @@ def dynamics(g: dict, model) -> dict:
             err = -err
         nodes.append({"id": f"gap:{name}", "kind": "auxiliary", "label": f"excess {of}" if over else f"{of} gap", "sd": True,
                       "role": "gap", "excess": over, "goal": name, "of": of, "setpoint": sp, "desired": want, "switching": sw,
-                      "value": err, "valueText": fmt(err) if err is not None else "", "systems": where})
+                      "value": err, "valueText": fmt(err) if err is not None else "", "offBy": c.get("offBy"), "systems": where})
     conns, decide = _connectors(spec) if spec is not None else ({}, set())
     for part in sorted(decide):                            # a decision: a machine block reading several, moving several
         b = spec.blocks[part.split(".", 1)[1]]
@@ -268,14 +289,14 @@ def dynamics(g: dict, model) -> dict:
             if src in ids and dst in ids:
                 sign = None if c["sign"] is None else "+" if c["sign"] > 0 else "-"
                 e = {"id": f"connector:{src}->{dst}", "source": src, "target": dst, "kind": "connector", "polarity": sign,
-                     "rules": c["rules"]}
+                     "rules": c["rules"], "drivenBy": c["drivenBy"]}
                 if src.startswith(("gap:", "desired:")):
                     e["goalSeeking"] = True                  # (laid out with its flow, as a controller was: layouts.js)
                 edges.append(e)
     else:                                                    # an older model: its influences, and each controller's action
         for e in g["edges"]:
             if e["kind"] == "influence" and e["source"] in ids and e["target"] in ids:
-                edges.append({**e, "id": "connector:" + e["id"].split(":", 1)[1], "kind": "connector", "rules": []})
+                edges.append({**e, "id": "connector:" + e["id"].split(":", 1)[1], "kind": "connector", "rules": [], "drivenBy": True})
         for e in g["edges"]:
             if e["kind"] == "action" and e["source"].startswith("controller:"):
                 name = e["source"].split(":", 1)[1]
@@ -298,22 +319,22 @@ def dynamics(g: dict, model) -> dict:
     acting = {e["source"] for e in edges if e["source"].startswith("gap:")}
     idle = {n["id"] for n in nodes if n.get("role") in ("gap", "desired") and f"gap:{n['goal']}" not in acting}
     for n in nodes:
-        if n["id"] in idle and n["role"] == "gap":
+        if n.get("role") == "gap":
             of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
+            # what serves the goal anywhere in the model (its controllers, each with its top system), drawn here or not
+            by = [{"block": b, "system": (spec.chain(spec.blocks[b].system) or [None])[-1]}
+                  for b in spec.loop(n["goal"]).controllers] if spec is not None and n["goal"] in spec.goals else []
             if of is not None:
                 of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
-                                                   "acted": False})
-        elif n.get("role") == "gap":
-            of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
-            if of is not None:
-                of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
-                                                   "acted": True})
+                                                   "by": by, "acted": n["id"] not in idle or bool(by)})
     nodes = [n for n in nodes if n["id"] not in idle]
     edges = [e for e in edges if e["source"] not in idle and e["target"] not in idle]
     causal = [{**c, "nodes": _loop_nodes(c, decide)} for c in g.get("causalLoops") or []]
     tags = labels(causal)
+    names = {n["id"]: n["label"] for n in nodes}
     for c in causal:
         c["label"] = tags[c["name"]]
+        c["around"] = _around(spec, c["nodes"], conns, names)
     return finish({**g, "kind": "dynamics", "nodes": nodes, "edges": edges, "causalLoops": causal})
 
 
@@ -421,9 +442,6 @@ def shadows(g: dict) -> dict:
 
 # the control words the attention cards use, in system dynamics' (the regulator is the flow's valve)
 _WORDS = [
-    (r"\ba valve too small\b", "a flow too small to close the gap"),
-    (r"\bthe valve is at its limit \(saturated\)", "the flow is at its most (saturated)"),
-    (r"\bits valve keeps up\b", "its flow keeps up"),
     (r"\bits valve\b", "its flow"), (r"\bthe valve\b", "the flow"), (r"\bvalves?\b", "flow"),
     (r"\bits controller\b", "its decision"), (r"\bcontrollers?\b", "decision"),
     (r"\ba goal's setpoint\b", "a desired level"),
@@ -455,7 +473,7 @@ def words(text: str) -> str:
 
 def attention(att: list[dict], snap: dict) -> list[dict]:
     """The attention cards as the dynamics view says them: a loop off its goal as a gap (``backlog is
-    4, desired backlog = 0: excess 4``), the rest in system dynamics' words."""
+    4, desired backlog = 0: off by 4``), the rest in system dynamics' words."""
     out = []
     loops = snap.get("loops") or {}
     for a in att:
@@ -463,12 +481,10 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
         what = a.get("what", "")
         name = what.split(" ", 1)[1] if what.startswith(("loop ", "controller ")) else None
         lp = loops.get(name) if name else None
-        if lp and lp.get("status") == "off" and what.startswith("loop "):
+        if lp and lp.get("status") == "off" and what.startswith("loop ") and a.get("level") != "hint":
             sp = _sp(lp.get("setpoint") or "")
             want = sp.lstrip("≤≥=<> ")
-            err = lp.get("error")
-            over = sp.startswith(("≤", "<"))
-            gap = "" if err is None else f": {'excess' if over else 'gap'} {fmt(abs(err))}"
+            gap = f": {lp['off_by_words']}" if lp.get("off_by_words") else ""
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
             a["says"] = words(a.get("says", ""))

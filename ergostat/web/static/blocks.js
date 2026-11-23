@@ -34,9 +34,9 @@ function bdLines(text, max = 30) {
   }
   return lines.map((l) => (l.length > max ? l.slice(0, max - 1) + "\u2026" : l));
 }
-function bdSensorHead(fn) {                             // H = 1, H(s) = e^(−sT), H(s): avg 1 h; a collector's name
+function bdSensorHead(fn) {                             // H = 1, every 3 s; H(s) = e^(−sT), H(s): avg 1 h; a collector's name
   if (fn.name) return fn.name;
-  return fn.expr === "1" ? "H = 1" : fn.expr ? `H(s) ${fn.expr.startsWith("avg") ? ":" : "="} ${fn.expr}` : "H(s)";
+  return fn.expr === "1" ? "H = 1" + (fn.every ? `, every ${fn.every}` : "") : fn.expr ? `H(s) ${fn.expr.startsWith("avg") ? ":" : "="} ${fn.expr}` : "H(s)";
 }
 function bdSize(n) {
   if (n.kind === "sum") return [BD.SUM, BD.SUM];
@@ -53,18 +53,34 @@ function bdSize(n) {
   const sideN = Math.max(n.ins.length, n.outs.length);
   let w = Math.max(84, bdSymW(fn) + 28), hgt = 46;
   const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
-  if (fn.name) {                                       // a nonlinear block: its name, its kind, a sketch of it
-    w = Math.max(w, bdTextW(fn.name) + 28 + (fn.sketch ? 40 : 0), fn.law ? bdTextW(fn.law, true) + 24 : 0);
-    hgt = fn.law ? 58 : 46;
-  } else if (frac) { w = Math.max(w, bdTextW(frac[0]) + 28, bdTextW(frac[1]) + 28); hgt = 64; }
+  if (fn.name) w = Math.max(w, bdTextW(bdLaw(fn)) + 28 + (fn.sketch ? 40 : 0));   // a nonlinear block: its law, a sketch of it
+  else if (frac) { w = Math.max(w, bdTextW(frac[0]) + 28, bdTextW(frac[1]) + 28); hgt = 64; }
   else if (fn.expr) { w = Math.max(w, bdTextW(fn.expr, true) + 24); hgt = 54; }
   if (n.role === "subsystem") { w += 18; hgt = Math.max(hgt, 54); }
-  if (n.tier) w = Math.max(w, bdTextW(BD_TIER[n.tier] || n.tier, true) + 12);
-  return [Math.round(w), Math.max(hgt, (sideN + 1) * BD.PORT) + (n.tier ? BD.TIER : 0)];
+  if (n.upkeep) { w = Math.max(w, bdTextW(UPKEEP, true) + 20); hgt += BD_UPKEEP; }     // its line under its function
+  const cap = bdCaption(n);
+  if (cap) w = Math.max(w, bdTextW(cap, true) + 12);
+  return [Math.round(w), Math.max(hgt, (sideN + 1) * BD.PORT) + (cap ? BD.TIER : 0)];
 }
 /* who fills a block, on the ladder (SPEC §9.5): written small in its top-left corner, above its function */
 const BD_TIER = { person: "person", ai: "AI agent", "narrow-ai": "narrow AI", decision: "decision", program: "program", rule: "rule" };
+/* a named block's caption, in that band: its name and who fills it (or its kind); else its tier alone */
+function bdCaption(n) {
+  const fn = n.fn || {}, tier = n.tier ? BD_TIER[n.tier] || n.tier : "";
+  return fn.name ? `${fn.name} · ${tier || fn.kind || "block"}` : tier;
+}
+/* a named block's main label, its function: the law identified, the standard nonlinearity it is, or that none is stated */
+const BD_LAW = { relay: "u = relay(e)", compare: "u = relay(e)", alarm: "u = relay(e)", timer: "u = relay(e)",
+                 limit: "u = sat(x)", "dead zone": "u = dz(e)", "zero-order hold": "u = ZOH(x)", expr: "u = f(x)",
+                 lookup: "u = table(x)", select: "u = select(x)", schedule: "u = table(t)", counter: "u = count(x)" };
+function bdLaw(fn) { return fn.law ? (fn.law.includes("=") ? fn.law : `u = ${fn.law}`) : BD_LAW[fn.kind] || "f(·), law not stated"; }
 function bdFrameTitle(f) { return 30; }
+const BD_UPKEEP = 16;
+function bdUpkeep(g) {                                 // the modelling system closed, at the top level, linked to nothing
+  const n = !(g.open || []).length && g.nodes.find((x) => x.upkeep && !x.parent);
+  return n && g.nodes.length > 1 && !(n.ins || []).length && !(n.outs || []).length &&
+    !g.edges.some((e) => e.source === n.id || e.target === n.id) ? n : null;
+}
 
 /* ---- the layout: ELK places the parts and the frames (open systems, the inner loops of cascades) */
 function bdPortPos(n, w, hgt) {                        // the ports of the parts that are drawn by hand: where they are
@@ -120,7 +136,8 @@ function bdElkGraph(g) {
   for (const n of g.nodes) lift(n.id, rank[n.id]);
   const items = [...g.nodes.map((n) => [n.id, n.parent]), ...(g.frames || []).map((f) => [f.id, f.parent])]
     .sort((a, b) => (fr[a[0]] ?? Infinity) - (fr[b[0]] ?? Infinity));
-  for (const [id, parent] of items) (parent && elkNodes[parent] ? elkNodes[parent].children : roots).push(elkNodes[id]);
+  const up = bdUpkeep(g)?.id;                          // (put after, below a rule: bdLayout)
+  for (const [id, parent] of items) if (id !== up) (parent && elkNodes[parent] ? elkNodes[parent].children : roots).push(elkNodes[id]);
   // a sensor sits on the feedback path: given to the layering between where its reading goes and what it
   // reads (its lines reversed), it is placed beneath the forward path, not after it
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
@@ -225,6 +242,17 @@ async function bdLayout(g) {
     }
   }
   const size = bdWrapRows(g, { children, containers, ports, edges }, lay.width, lay.height);
+  const up = bdUpkeep(g);
+  let rule = null;
+  if (up) {                                             // the model's own upkeep: read last, bottom right, below a thin rule
+    const [w, hgt] = bdSize(up), all = [...children, ...containers];
+    const x0 = Math.min(...all.map((c) => c.x)), x1 = Math.max(...all.map((c) => c.x + c.width)), y1 = Math.max(...all.map((c) => c.y + c.height));
+    rule = { x0, x1: Math.max(x1, x0 + w), y: y1 + BD_ROW_GAP / 2 };
+    children.push({ id: up.id, x: Math.max(x0, x1 - w), y: y1 + BD_ROW_GAP, width: w, height: hgt, within: [] });
+    up.systems = [];
+    size[0] = Math.max(size[0], rule.x1 + 20);
+    size[1] = Math.max(size[1], y1 + BD_ROW_GAP + hgt + 20);
+  }
   // the side each port is on, after ELK placed them
   const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
   const box = Object.fromEntries(children.map((c) => [c.id, c]));
@@ -241,7 +269,7 @@ async function bdLayout(g) {
     }
     if (c) { p.dx = p.x - c.x; p.dy = p.y - c.y; }      // (each goes with its part when it is moved: places.js)
   }
-  const out = { children, containers, edges, ports, width: size[0], height: size[1], routing: false };
+  const out = { children, containers, edges, ports, width: size[0], height: size[1], routing: false, rule };
   for (const e of out.edges) {                         // until libavoid's lines come: ELK's, ending on the ports
     const ge = g.edges.find((x) => x.id === e.id);
     const a = ports[ge?.sourcePort], b = ports[ge?.targetPort];
@@ -630,7 +658,8 @@ function bdSym(parent, x, y, fn, { size = BD.FS, anchor = "middle", bold = false
 function bdSketch(kind, x, y) {                        // a static nonlinearity, as the textbooks sketch it
   const g = s("g", { class: "bd-sketch", transform: `translate(${x},${y})` });
   g.append(s("path", { d: "M0,12 H28 M14,0 V24", class: "bd-axis" }));
-  if (kind === "relay") g.append(s("path", { d: "M2,18 H16 V5 H26 M8,18 V5 H16", class: "bd-curve" }));
+  if (kind === "relay") g.append(s("path", { d: "M2,18 H16 V5 H26 M8,18 V5 H16", class: "bd-curve" }));   // with hysteresis
+  else if (kind === "ideal-relay") g.append(s("path", { d: "M2,18 H14 V5 H26", class: "bd-curve" }));      // on and off at one threshold
   else if (kind === "saturation") g.append(s("path", { d: "M2,20 H8 L20,4 H26", class: "bd-curve" }));
   else if (kind === "zoh") g.append(s("path", { d: "M2,20 H8 V15 H14 V9 H20 V5 H26", class: "bd-curve" }));
   else if (kind === "deadzone") g.append(s("path", { d: "M2,22 L9,12 H19 L26,2", class: "bd-curve" }));
@@ -685,10 +714,11 @@ function bdNode(n, c) {
     bdSym(g, w / 2, hgt / 2 + 4, fn, { size: 12 });
     if (n.in) g.append(s("text", { x: n.port_of === "in" ? 0 : w, y: -5, class: "bd-note", "text-anchor": n.port_of === "in" ? "start" : "end" }, n.port_of === "in" ? "from " + n.in : "to " + n.in));
   } else {
-    g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt }));
-    const band = n.tier ? BD.TIER : 0;                 // its tier written small in a band at the top, its function beneath
-    if (n.tier) g.append(s("text", { x: 5, y: 13, class: "bd-note bd-tier", "data-tier": n.tier }, BD_TIER[n.tier] || n.tier));
-    g.append(bdBody(n, fn, w, hgt - band, band));
+    g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt, "stroke-dasharray": n.upkeep ? "6 4" : null }));
+    const cap = bdCaption(n), band = cap ? BD.TIER : 0;   // its caption written small in a band at the top, its function beneath
+    if (cap) g.append(s("text", { x: 5, y: 13, class: "bd-note bd-tier", "data-tier": n.tier || "" }, cap));
+    g.append(bdBody(n, fn, w, hgt - band - (n.upkeep ? BD_UPKEEP : 0), band));
+    if (n.upkeep) g.append(s("text", { x: w / 2, y: hgt - 8, class: "bd-note sys-upkeep", "text-anchor": "middle" }, UPKEEP));
     if (n.remote && !fn.name) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
     if (n.identified) g.append(s("text", { x: w, y: -5, class: "bd-note bd-ident", "text-anchor": "end" }, "identified"));   // its law, from the record
     bdAlarm(g, n);
@@ -700,9 +730,8 @@ function bdBody(n, fn, w, hgt, dy) {                    // what is inside a bloc
   if (fn.name) {
     const sk = fn.sketch ? 38 : 0;
     if (fn.sketch) g.append(bdSketch(fn.sketch, 9, hgt / 2 - 12));
-    // its name only: how often it runs is the side panel's
-    g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + (fn.law ? -2 : 4), class: "bd-name", "text-anchor": "middle" }, fn.name));
-    if (fn.law) g.append(s("text", { x: w / 2, y: hgt / 2 + 14, class: "bd-note", "text-anchor": "middle" }, fn.law));   // its identified law
+    // its function (its name is the caption above it): how often it runs is the side panel's
+    g.append(s("text", { x: sk + (w - sk) / 2, y: hgt / 2 + 4, class: "bd-name bd-main", "text-anchor": "middle" }, bdLaw(fn)));
     return g;
   }
   const frac = fn.frac || bdFrac(fn.expr);   // a process the model declares: its numbers over its lag
@@ -804,6 +833,7 @@ function bdDraw(svg, g, lay) {
     });
     vp.append(fg);
   }
+  if (lay.rule) vp.append(s("path", { class: "bd-upkeep-rule", d: `M${lay.rule.x0},${lay.rule.y} H${lay.rule.x1}` }));
   // the lines: each signal from its port, an arrowhead where it arrives, a dot where it is taken off
   const edgesG = s("g", { class: "bd-edges" }), labelsG = s("g", { class: "bd-labels" });
   const byLe = Object.fromEntries(lay.edges.map((le) => [le.id, le]));
