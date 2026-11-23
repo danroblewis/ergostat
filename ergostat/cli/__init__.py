@@ -17,7 +17,7 @@ from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
-from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual, cmd_why
+from .record import cmd_compact, cmd_event, cmd_held_up, cmd_item, cmd_reset, cmd_residual, cmd_why
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
@@ -222,6 +222,8 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--about", dest="about_item", action="store_true", help="with an item: what relates to it or names its id")
     topic("why", cmd_why, "Why an item is not done: its state for how long, the cause followed to its root, who must "
                           "act and how, the evidence")
+    topic("held-up", cmd_held_up, "What holds the work up: every unfinished item grouped by its root cause, the roots "
+                                  "ranked by what they hold, a stall told from normal queueing", named=False)
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")
     ls.add_argument("--redrive", action="store_true", help="with ITEM: give a dead letter another go (its attempts from nothing)")
     ls.add_argument("--to", metavar="STATE", help="with --redrive: the state it goes back to (default: where it was taken from)")
@@ -323,7 +325,9 @@ def build() -> argparse.ArgumentParser:
             sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")
     r = topic("run", cmd_run, "Start the agents (in the background) and the web page", named=False)
     r.add_argument("--foreground", action="store_true", help="stay attached instead of running in the background")
-    r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs")
+    r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs "
+                                                       "(not those runs: outlive_engine leaves going: --runs)")
+    r.add_argument("--runs", action="store_true", help="with --stop: also the runs left going (runs: outlive_engine)")
     r.add_argument("--no-web", action="store_true", help="no web page")
     r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     r.add_argument("--service", nargs="?", const="auto", choices=["auto", "launchd", "systemd"],

@@ -12,7 +12,7 @@ const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y:
    opened with no server) the same path is kept in the hash instead, as #/items. UI_PAGES are the first parts
    of the paths the page answers (the server's UI_PAGES, the same list) */
 const HASHED = !!window.SNAPSHOT || location.protocol === "file:";
-const UI_PAGES = ["diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
+const UI_PAGES = ["diagram", "dashboard", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
 function isPagePath(path) { return path === "/" || UI_PAGES.includes(String(path).split(/[/?#]/)[1]); }
 function appHref(v) { return HASHED && typeof v === "string" && v.startsWith("/") && isPagePath(v) ? "#" + v : v; }
 
@@ -300,8 +300,7 @@ function rungDot(r, cx, cy, rad = 5.5) {              // the kind's colour, and 
     s("text", { x: cx, y: cy + rad * 0.55, "text-anchor": "middle", class: "rung-letter", style: `font-size:${rad * 1.45}px` }, RUNG_LETTER[r] ?? "?"));
 }
 /* a loop's state, as a word: quiet when it holds, coloured only when it needs someone */
-const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");
-const exceptional = (st) => st && st !== "holding";
+const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");   // (exceptional: goalrow.js)
 
 /* a menu: a button and what it holds, opened under it (or above, near the bottom of the screen).
    items: [{label, onclick, checked, hint, disabled}] or nodes, or a function giving them, called on each opening */
@@ -436,7 +435,7 @@ async function refreshHeader() {
     }
     // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
     // the server's one count (state.goals_off); a status without it counts every goal off, as before
-    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => l.status === "off").length, own: {} };
+    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => goalWord(l) === "off").length, own: {} };
     const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
     setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
@@ -444,7 +443,9 @@ async function refreshHeader() {
     const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
     if (run.className !== cls) run.className = cls;
     const open = document.querySelector('meta[name="ergostat-public"]') ? " · public, read only, no login" : "";   // web: open: read
-    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here" : "";
+    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here"
+      : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
+        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");                                  // (upkeep apart), each by its word
     if (run.title !== tip) run.title = tip;
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
@@ -453,6 +454,15 @@ async function refreshHeader() {
     if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
     setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43); written only when N
                                                          // changes, so its polite live region (index.html) says only that
+    // what holds the work up (SPEC §5a): its first line, red only for a stall; the whole line as its title
+    const held = $("#heldup"), hu = !SNAP && st.held_up;
+    if (held && held.hidden !== !hu) held.hidden = !hu;
+    if (held && hu) {
+      const hcls = "runstate heldup" + (hu.stall ? " bad" : hu.nothing_stuck ? "" : " warn");
+      if (held.className !== hcls) held.className = hcls;
+      if (held.title !== hu.line) held.title = hu.line;
+      setText(held, hu.line);
+    }
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
@@ -598,7 +608,7 @@ async function route() {
   S.was = path === "/diagram" ? main.querySelector(":scope > .diagram") : null;   // the diagram left: shown, dimmed, until the next is drawn
   main.replaceChildren();
   leavePage();
-  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
+  const pages = { "/diagram": pageDiagram, "/dashboard": pageDashboard, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
