@@ -583,6 +583,10 @@ async function pageDashboard(main, q) {
   DASH.grid = h("div", { class: "dash-grid", onkeydown: dashKeydown }, h("p", { class: "muted page-loading" }, "Loading…"));
   p.append(DASH.head, notice, DASH.grid, DASH.live);
   main.append(p);
+  if (SNAP) {                                          // its panels ask the server for what the window holds
+    DASH.grid.replaceChildren(h("p", { class: "note dash-snapshot" }, "The Dashboard needs the live server: a snapshot keeps only the answers taken when it was made. Open it with ergostat web."));
+    return;
+  }
   if (typeof chartPanel !== "function" || typeof queryPanels !== "function") {
     DASH.grid.replaceChildren(h("p", { class: "note" }, "The panels did not load, so there is nothing to draw."));
     return;
