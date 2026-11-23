@@ -184,3 +184,43 @@ Built, in round 1 of the second continuation (merge 2f4ba207). This round only f
   Not run here: the whole unit suite and the browser files.
 - The size note is unchanged: dev/bin is still about 208 net lines against 130, and the merge adds no new lines. The
   overrun reasons are the ones given in rounds 1 and 2 above.
+
+## Where it stopped
+
+Built, in round 2 of the second continuation: main (f086f76e) merged in (e74f4824), and the review's one finding fixed
+(14167388). The review listed no other findings.
+
+- **The merge.** `dev/bin/implement.py`: main now passes `against` (main, or main and the bases) to `conflict_brief`.
+  That is kept, and so is the branch's GAPS.md-edit brief, which still compares with main. `dev/bin/queue.py`: both
+  sides' imports are kept (`flakes`, `gapsdoc`, `halves`). `tests/test_factory.py`: main deleted `dev/bin/prefixes.py`
+  and its tests. The branch's copy of those tests is dropped and the gap's own tests are kept.
+  `dev/records/remote-systems.md`: main's file is taken whole. Its Entry is main's GAPS.md text, and main's
+  `tests/test_gaps_doc.py` checks that. `dev/records/the-day-s-ai-budget-p3-runs.md`: main's definition comes first,
+  and the split's Entry is last, with its text set to main's current GAPS.md text for that entry (main added the
+  `ergostat.toml` clause).
+- **Found on main, not fixed here (lesson-13).** Main's own docs/GAPS.md holds two *The day's AI budget, P3* entries:
+  the old "in progress" one, which toml-models-budget edited, and the new "done" one from the-day-s-ai-budget-p3-runs.
+  A union merge kept both. The records hold only the first. The first landing carries the second into
+  `dev/records/the-day-s-ai-budget-p3-runs-2.md` (see the fix below), so neither is lost. Removing the stale one is
+  for its own gap, which would delete that record's Entry.
+- **The finding (two records of one title).** carry() matched a block to a record by title alone and kept only the
+  last record read, so editing one of two same-title records wrote over the other. Now `tops` keeps every record of a
+  title. An edited block goes to the one record of its title whose drawn block (render's `drawn`) the batch's GAPS.md
+  no longer shows. If two such records exist, which one the block replaces is not known: the block is kept whole in
+  GAPS-unplaced.md and named on the run, and neither record is written. A block of a title whose records all still
+  show their own block is another entry of that title. It gets a record of its own, `<branch>-N`, as split() names
+  one. A union merge of two branches editing one entry puts the first block in the record. The second goes to a
+  `-N` record, or, if a done line in it names the first record, it is kept in GAPS-unplaced.md and said. It is never
+  written over the first. New tests:
+  `test_two_records_of_one_title_each_keep_their_entry_when_either_is_edited` (editing either of two same-title
+  records keeps both and renders the edit in its own record) and
+  `test_two_edits_of_one_entry_keep_the_first_in_its_record_and_the_other_said_never_lost` (the union case, plus a
+  third entry of a title going to `remote-systems-2`). Breaking the fix (matching the last-read record of the title,
+  as before) failed both.
+- Tests run after the merge and the fix (through `scripts/named_tests.py`): tests/test_gapsdoc.py 33 passed;
+  tests/test_queue.py 17 passed; tests/test_queue_halves.py 55 passed; tests/test_gaps_doc.py 9 passed; and the five
+  gap tests in tests/test_factory.py passed. ruff is clean on ergostat, tests and scripts and on dev/bin/gapsdoc.py.
+  `ruff check dev/bin` reports two findings outside this gap: dev/bin/plan.py:439 B023 and dev/bin/review.py:43
+  E501. Neither file is touched by this branch. Not run here: the whole unit suite and the browser files.
+
+Overrun reason: dev/bin is 219 net lines against 130 (208 before this round). Beyond the reasons given in rounds 1 and 2, the review asked carry() to tell apart records that share a title, which takes 11 more lines.
