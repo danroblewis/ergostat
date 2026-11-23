@@ -266,6 +266,17 @@ programs already there.
   the fix made.
   Once main-mend sees the test pass twice alone on the pushed main, it holds again. The loop is named `main-repair`
   and is drawn balancing.
+- **tests-not-falling** (dev/model/guarantees-passing.yaml). `tests-passing` (`dev/bin/passing.py`, every 30m) is the
+  summed `passed` of the latest landed queue run on main whose `suites` cover unit, browser and host (a run that did
+  not run browser by rule is passed over, never read as a fall), chosen by main's first-parent seq of its `main_sha`,
+  never by time. `tests-passing-change` is the latest less the earliest such run within main's last 10 merges, each
+  sha once, by the code measures' trend helper (`measure.by_seq`, `measure.code_change`). Counts `unknown` on the
+  latest full run, fewer than two full runs in the window, or no checkout: no value (exit 1); a run with no counts is
+  never zero. The goal `tests-not-falling` (`>= 0`, tolerance 0, on-stale off) is off when main passes fewer tests than
+  10 merges ago. It is left unserved (check's `missing-feedback`) until regression-guarantees-wired. This is not the
+  test ratio's count (cx-test-ratio: the tests *defined* in the code, from the code-health cache): this counts the
+  tests a queue run on main *passed*, so it falls when a test is skipped, deselected or fails to collect though
+  still defined. The two are never summed.
 
 ## The backlog: ranked, groomed
 
