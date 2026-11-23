@@ -140,3 +140,24 @@ Tests run, serially: `test_parts_belong.py`, `test_templates.py`, `test_library_
 branch's two browser tests, under the watchdog with Playwright: 2 passed, rc 0. The merge touched no page code, so
 the full file (30 minutes in round 2, with 5 failures judged unrelated there) was not run again here, nor the unit
 suite, the other three browser files, or `demo_check`.
+
+## Where it stopped (round 4)
+
+Main (bf6dbebf) merged in. 126 net lines of code outside `tests/`, `docs/` and `dev/` (`git diff --numstat bf6dbebf HEAD`).
+The only finding was the merge conflict, in two files:
+- `ergostat/web/static/dynamics.js`, `sdSystem`: main's box is kept as it is (upkeep dash, the description in up to
+  two lines under the name, the upkeep line). The one change from the branch is that the title is drawn by
+  `nameOf(n)`, not `n.label`. The branch's old loop-count subtitle is dropped, as main dropped it.
+- `tests/test_diagram_rendering.py`: both sides only added tests (the branch's two hover tests, main's two Open-all
+  tests). All four are kept, each closing its own page.
+
+Tests run, serially: `test_parts_belong.py`, `test_dynamics_view.py`, `test_graph_cli_web.py` (63 passed). Ruff clean.
+Under the watchdog with Playwright, from `tests/test_diagram_rendering.py`: this branch's two hover tests (2 passed,
+rc 0), `test_each_closed_system_box_says_what_the_system_is`, `test_modelling_is_drawn_last_set_apart_and_labelled`
+and `test_a_module_counts_its_loops_in_the_side_list_not_on_its_box_and_draws_no_port_squares` (5 passed, rc 0).
+`test_the_guides_last_frame_draws_its_boxes_as_the_live_diagram_does_and_says_it_is_drawing` passed.
+`test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip` failed on most examples (20 of 21). The
+reason is "tooltip on title: Drawn alike here with B27 …", a `<title>` on a loop marker's "N alike" text. Main's
+commit 1208bfab adds it (`dynamics.js:457`), the same line is in bf6dbebf's `dynamics.js`, and this branch's diff to
+main does not touch it. So this fails on main and is not fixed here (lesson-13). Not run: the rest of the browser
+file, the other three browser files, the unit suite, `demo_check` (no example changed).
