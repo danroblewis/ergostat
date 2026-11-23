@@ -411,10 +411,12 @@ def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_pa
 
 
 @contextlib.contextmanager
-def served(example: str, tmp_path: Path, edit=None):
-    """An example's page, served from a fresh copy (the model is not run; ``edit`` may change the copy first)."""
-    d = tmp_path / example
-    shutil.copytree(ROOT / "examples" / example, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+def served(example: str | Path, tmp_path: Path, edit=None):
+    """An example's page (or a model folder's), served from a fresh copy (the model is not run; ``edit`` may change
+    the copy first)."""
+    src = example if isinstance(example, Path) else ROOT / "examples" / example
+    d = tmp_path / src.name
+    shutil.copytree(src, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
     if edit:
         edit(d)
     port = free_port()
@@ -5942,6 +5944,73 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+MAY_DO ="You can look at everything. Approving or denying these is the only thing that changes the system."
+MAY_DO_NONE = "Nothing waits for you. Looking never changes the system."
+MAY_DO_SEEN = """() => {
+  const g = document.querySelector('[role="group"][aria-describedby="may-do"]'), may = document.getElementById("may-do");
+  const legend = document.querySelector("details.legend-box");
+  return { first: g?.firstElementChild === may, text: may?.textContent, lead: g?.innerText.trim().split("\\n")[0],
+           group: !!g, top: !!(may && legend && may.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING),
+           live: !!may?.closest("[aria-live]"), right: may?.getBoundingClientRect().right, width: innerWidth,
+           over: may ? may.scrollWidth > may.clientWidth : null, shown: (may?.getBoundingClientRect().width || 0) > 0 };
+}"""
+
+
+def hold_an_action(d: Path) -> None:
+    from ergostat import model as mdl
+    from ergostat.actions import gate
+    from ergostat.store import Project
+    p = Project(mdl.load(d))
+    gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None})
+
+
+@pytest.mark.parametrize("waiting", [True, False], ids=["waiting", "none"])
+def test_the_requests_group_opens_by_saying_what_a_person_may_do(browser, tmp_path, waiting):
+    """Needs attention opens with the one sentence on what a person may do, its group described by it (a screen reader
+    reads it once on entering, and a redraw neither replaces nor changes it); with nothing waiting, its empty form;
+    the gated actions on the Items page say the same; at 390 px it wraps within the page."""
+    from .test_inbox import MODEL
+    src = tmp_path / "src" / "inbox"
+    src.mkdir(parents=True)
+    (src / "ergostat.yaml").write_text(MODEL)
+    said = MAY_DO if waiting else MAY_DO_NONE
+    with served(src, tmp_path, edit=hold_an_action if waiting else None) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        if waiting:
+            pg.wait_for_selector('[data-inbox^="action/"]', timeout=30000)
+        pg.wait_for_selector("#may-do", timeout=30000)
+        got = pg.evaluate(MAY_DO_SEEN)
+        assert got["text"] == said and got["top"], got           # where the group is: above How to read it
+        if waiting:                                               # the first text of Waiting for you, which it describes
+            assert got["first"] and got["lead"] == said, got
+        else:                                                     # nothing waits: no group, only its empty form
+            assert not got["group"], got
+        assert not got["live"], "said with the group, not as a live region"
+        pg.evaluate("""() => { window.__may = document.getElementById("may-do"); window.__muts = 0;
+          new MutationObserver((rs) => { window.__muts += rs.length; })
+            .observe(window.__may, { childList: true, characterData: true, subtree: true, attributes: true }); }""")
+        pg.evaluate("() => { S.redrawSide(); S.redrawSide(); }")
+        assert pg.evaluate("() => document.getElementById('may-do') === window.__may && window.__muts === 0")
+        pg.set_viewport_size({"width": 390, "height": 844})
+        pg.reload()
+        pg.wait_for_selector("#may-do", timeout=30000)
+        got = pg.evaluate(MAY_DO_SEEN)
+        assert got["text"] == said and got["shown"] and not got["over"] and got["right"] <= got["width"], got
+        pg.set_viewport_size({"width": 1400, "height": 900})
+        for actions in ("items?kind=ergostat.action", "items/ergostat.action"):    # the Items tab's and their own page
+            pg.goto(f"{url}/{actions}")
+            pg.wait_for_selector("p.may-do:not([hidden])", timeout=30000)
+            assert pg.locator("p.may-do:not([hidden])").inner_text() == MAY_DO, actions
+        pg.goto(f"{url}/items")
+        pg.wait_for_selector(".filters", timeout=30000)
+        assert pg.locator("p.may-do:not([hidden])").count() == 0
+        pg.close()
+        assert not errors, errors
+
+
 SIDE_WORDS = """() => ({
   side: [...document.querySelectorAll('.side .att b, .side .suggest .hint b')].map((b) => b.textContent),
   says: [...document.querySelectorAll('.side .suggest .hint')].map((d) => d.textContent.replace(/^\\S+ \\S+ /, '')),
@@ -6684,7 +6753,7 @@ uses:
 """
 GROUPS = """() => [...document.querySelectorAll('.side h3.att-head')].map((hd) => {
   const det = hd.closest('details'), list = det ? det.querySelector('.att') : hd.nextElementSibling;
-  const rows = [...list.children].filter((x) => !x.classList.contains('none'));
+  const rows = [...list.children].filter((x) => !x.classList.contains('none') && !x.classList.contains('may-do'));
   return { head: hd.textContent.trim(), open: det ? det.open : true,
            rows: rows.map((x) => x.tagName === 'HR' ? '---' : x.textContent.trim()),
            words: rows.filter((x) => x.tagName === 'DIV')

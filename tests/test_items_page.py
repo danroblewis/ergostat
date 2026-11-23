@@ -467,6 +467,72 @@ def test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_th
     pg.close()
 
 
+def test_cost_is_stated_or_says_why_it_is_none_with_the_windows_total_and_on_an_item(browser, site):
+    """The Agents page: no cost cell a bare '–' or '$0' (an agent that never ran says so), a column empty for every
+    agent left out, and the table ends in the window's total; an item's header states what the runs that took it
+    cost: not known while none has ended, and an AI agent's run with no session a free stand-in."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/agents")
+    pg.wait_for_selector("tr[data-total]")
+    costs = pg.eval_on_selector_all("td[data-use=cost]", "els => els.map((e) => e.textContent)")
+    assert len(costs) >= 3 and not [c for c in costs if c.strip() in ("–", "$0", "")], costs
+    first = pg.eval_on_selector_all(".table-wrap table tr", "trs => trs.map((tr) => tr.children[0].textContent)")
+    assert first[-1] == "total", first
+    heads = pg.eval_on_selector_all(".table-wrap table tr:first-child th", "els => els.map((e) => e.textContent)")
+    assert "cost" in heads and "tokens" not in heads and "peak memory" not in heads, heads   # no run here: none known
+    pg.goto(f"{site}/item/hypothesis%2F1")
+    pg.wait_for_selector(".meta [data-cost]")
+    head = pg.inner_text(".meta")
+    assert "cost" in head.lower() and "not known yet" in head and "0 of the 1 runs that took it ended" in head, head
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+p.events.add("agent.ran", item="developer", source="ergostat", causedby="run21aaaaaaa", data={{"exit": 0, "seconds": 3}})
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+    pg.goto(f"{site}/item/hypothesis%2F2")
+    pg.wait_for_function("() => /stand-in/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
+    cost = pg.inner_text(".meta [data-cost]")
+    assert cost.startswith("free stand-in, $0") and "1 of the 2 runs that took it ended" in cost, cost
+    # a run killed with no session recorded (a timeout, the cap) may have spent: not known, never $0 (lesson 3)
+    subprocess.run([sys.executable, "-c", code.replace('"agent.ran"', '"agent.failed"').replace("run21", "run22")
+                    .replace('"exit": 0', '"exit": -9, "note": "killed (a timeout?)"')],
+                   env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True, capture_output=True)
+    pg.goto(f"{site}/item/hypothesis%2F2")
+    pg.wait_for_function("() => /not known/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
+    cost = pg.inner_text(".meta [data-cost]")
+    assert cost.startswith("not known: 1 failed or stopped") and "$0" not in cost and "over 2 runs" in cost, cost
+    # taken by an AI block and a program: the AI run killed with no session is still not known, the program's failure
+    # (no session to spend) is not counted as one
+    mixed = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.spec import items as its
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+for run, block in (("run4aaaaaaaa", "developer"), ("run4bbbbbbbb", "matcher")):   # each take the next fence, as the fold wants
+    f = int((its.detail(p.events, p.model.spec, "hypothesis/4")["fields"].get("lease") or {{}}).get("fence") or 0) + 1
+    p.events.add("ergostat.lease.taken", item="hypothesis/4", data={{"run": run, "block": block, "fence": f, "ttl": 600}})
+    p.events.add("ergostat.lease.ended", item="hypothesis/4", data={{"run": run, "fence": f, "how": "ack"}})
+p.events.add("agent.failed", item="developer", source="ergostat", causedby="run4aaaaaaaa",
+             data={{"exit": -9, "seconds": 3, "note": "killed (a timeout?)"}})
+p.events.add("agent.failed", item="matcher", source="ergostat", causedby="run4bbbbbbbb", data={{"exit": 1, "seconds": 1}})
+"""
+    subprocess.run([sys.executable, "-c", mixed], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+    pg.goto(f"{site}/item/hypothesis%2F4")
+    pg.wait_for_function("() => /over 2 runs/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
+    cost = pg.inner_text(".meta [data-cost]")
+    assert cost.startswith("not known: 1 failed or stopped") and "$0" not in cost, cost
+    assert not errors, errors
+    pg.close()
+
+
 def add_events(*events) -> None:
     """Events added to the running site's record from outside, as a block's run would."""
     code = f"""

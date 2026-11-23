@@ -1295,6 +1295,23 @@ reads the event log.
   to the system's resolver, which ergostat cannot interrupt. An unreachable source is `error_kind: unreachable` (never with its address), a query the source
   refuses `refused` with the source's own words. It is asked again each time, nothing kept. `/api/query/fields` lists these
   sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
+  A refusal the source places in the text (Prometheus's `2:3: parse error: ...`, or `at char 5`) also has `error_at`,
+  `[line, column]` from 1, the column in UTF-8 bytes as Prometheus counts it (the page turns it into a place in the text).
+- **The query editor.** A language with an editor of its own gets it in place of the text field (`static/promql.js` for
+  PromQL, registered as `queryEditors.PromQL`; the panel editor picks by the source's language and names none). The PromQL
+  one highlights the text as it is written (functions, keywords, metrics, labels, strings, numbers), completes PromQL's
+  functions and aggregations and the source's metric names, a metric's label names (in braces and in `by (...)`) and a
+  label's values (in a quoted matcher), and marks where `error_at` says the text is wrong. Ctrl+Enter (or Cmd+Enter) asks
+  the preview again at once. Its starting hint is `count by(__name__)({__name__=~".+"})`, every metric and how many series
+  it has. It is ergostat's own JavaScript, with no library and no build step. Its names come from
+  `GET /api/query/suggest?source=&what=metrics|labels|values&prefix=&metric=&label=`, answered `{suggestions, more}`
+  through the server from the source's metadata (for `prometheus`, GETs of `/api/v1/label/__name__/values`,
+  `/api/v1/labels` and `/api/v1/label/<label>/values`, narrowed by the source with `match[]` and `limit`). It is bounded
+  whatever the type: at most 100 names, each starting with what is typed (`more` says others were not sent), 3 s, a
+  `metric` and a `label` that are names, and a prefix of 200 characters at most. A `prometheus` answer is read one name at
+  a time to 256 KB at most, so a source that ignores `limit` and `match[]` still costs no more (shown on 100,000 series).
+  A refusal is `error` and `error_kind`, as for a query, and a reader under an `open: read` name is refused it, with
+  nothing sent.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
   is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
@@ -3279,7 +3296,15 @@ blocks:
 
 The Agents page shows each agent's totals over the window (runs, dollars, tokens, CPU, peak memory) and, in its panel,
 the history of each (dollars by hour, and tokens, CPU and memory run by run) and its runs with their numbers;
-`ergostat agent NAME` says the same in the terminal.
+`ergostat agent NAME` says the same in the terminal. A cost of none says why: "free stand-in, $0" for an AI agent's
+runs with no session and no tokens, unless one failed or was stopped (a killed session may have spent and recorded
+nothing: "not known: N failed or stopped", added after any dollars known; a run given back unrun because its
+workspace pool was full began no session and is not one of them), "no AI, $0" for another kind's, "no runs, $0", "not run here", "a person, not
+priced". A column empty for every agent is left out, and the table ends in the window's total. An item's header
+states what the runs that took it cost (named by its lease's history, §9.5, which keeps every take, one rolled up
+into its snapshot too), and says "not known yet" while none has ended.
+It reads as an AI agent's when any of the blocks that took it is one (or is no longer in the model), and only those
+blocks' failed or stopped runs count as not known.
 
 ### 9.2 Built-in block types
 
@@ -4276,13 +4301,15 @@ sources:
 | `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
 A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
-(`GET /api/v1/query_range`, the only request it makes) through the server (section 4e, *Data sources*).
+(`GET /api/v1/query_range`) through the server (section 4e, *Data sources*); its editor's names come from GETs of its
+metadata API (section 4e, *The query editor*). It makes no other request.
 
 More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
 `ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
-`sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points; a
-type offering any other public function or class is refused, so the one operation ergostat can call on a source is
-`query` (a type's `query` must itself only read; the `prometheus` one sends only that GET). Panels need no change for a new type (the
+`sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points, and
+optionally `suggest(source, what, prefix, metric, label, seconds, most)`, the names its editor completes; a type offering
+any other public function or class is refused, so the only operations ergostat can call on a source are `query` and
+`suggest` (each must itself only read; the `prometheus` ones send only GETs). Panels need no change for a new type (the
 model's JSON schema lists the types by name, so a new one is added there too).
 
 ## 12. What ergostat derives and checks
@@ -7220,7 +7247,11 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   meanwhile stays in its place and says so in its row until then. Held modelling requests that are alike (one code,
   one asker: the entry's `fold`) are one entry, folded: their count, their code and the systems of their parts, with
   one why and *Deny all* (each denied in turn); opened, each with its own answer. The Model page's *Changes to review*
-  counts them as waiting.
+  counts them as waiting. The list opens with one muted sentence saying what a person may do: "You can look at
+  everything. Approving or denying these is the only thing that changes the system." The list is a group described by
+  that sentence (`aria-describedby`), so a screen reader reads it once on entering the list, not on each poll. With
+  nothing waiting, the same place says "Nothing waits for you. Looking never changes the system." The gated actions'
+  own page (`/items/ergostat.action`, and `/items?kind=ergostat.action`) opens with the first sentence.
 
 **The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
 you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
@@ -7849,7 +7880,8 @@ closed, the worker ends (0).
 Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`), and the
 run's output by offset with `attach`, `ack`, `ended` and `done` (`output.py`), both registered in `serve.HANDLERS` once
 `hello` is said, each run's readings, `ended`'s `resources` (`sampler.py`, below), and the keeper's wall and lease
-deadlines (`deadline.py`, section 12s.5). Still to come: the lease's renewals, and the runs listed in `hello`
+deadlines (`deadline.py`, section 12s.5) and the node's side of the lease's renewals (`leaseclock.py`, 12s.5). Still
+to come: the runs listed in `hello`
 (`backends` stays `[]` until then).
 
 **`start`** `{"run", "command", "input", "env", "block", "limits", "lease"}`: `command` a non-empty string, `input`
@@ -8050,7 +8082,24 @@ keeper sends SIGTERM to the run's group, SIGKILL `K` seconds later if any of it 
 `wall` or `lease` (a stop file seen first is a stop, as for `kill`). A deadline moved earlier takes effect within
 half a second.
 
-(Still to be filled: `renew`, which rewrites the file; a node lost after three beats missed.)
+**The lease's renewals** (`ergostat/compute/worker/leaseclock.py`, registered in `serve.HANDLERS` beside `start`).
+The worker never compares a time of the engine's with one of its own. Each engine message that carries `sent`, the
+engine's monotonic clock as it said it (`start`'s `lease`, `renew`, and `ping`), gives `heard − sent`, `heard` on the
+keeper's clock; `base` is the least of these over the last ten minutes of the session (kept one a second at most; a
+`sent` that is not a finite number gives none). `renew {"run", "fence", "left", "sent"}` (`fence` a whole number,
+`left` the seconds to the engine's expiry, at most a day either way, `sent` a finite number; else an `error`) makes
+the run's lease deadline `sent + base + left`: the engine's expiry on the node's clock, late by at most the fastest
+one-way transit of the window, however late this renewal came, so a slow renewal never moves it later than a fast
+one would. It is written into `runs/RUN/deadline` whole (a temporary file, then `os.replace`) with the file's wall
+and `K` kept (`K` is grace(ttl)/4, as `start` wrote it) and the `fence` beside them, read, compared and written
+under `runs/.lock`. A renewal whose fence is below the one written there, or below `start`'s `lease.fence` this
+session, is ignored; one of the same or a newer fence moves the deadline either way. It answers nothing, or
+`refused` with `why` `no such run` (no folder of that id) or `no lease` (its run started without one, or its file
+unreadable: never a lease made up). Only a renewal heard writes the file; `start`'s first deadline is still its own
+now plus `left`, and a session cut, a worker ended or stalled leaves the last deadline standing, so the keeper sends
+SIGTERM there and SIGKILL `K` later.
+
+(Still to be filled: the engine's side of `renew` and its `sent` on `ping`; a node lost after three beats missed.)
 
 ### 12s.6 Runs that outlive the connection
 
