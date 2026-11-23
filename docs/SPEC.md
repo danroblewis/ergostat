@@ -1193,7 +1193,10 @@ web:
 | any other `Host` | 403 |
 
 `open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
-login: anyone who reaches the name reads everything the page shows, and nothing is changed there. The tunnel must
+login: anyone who reaches the name reads everything the page shows, and nothing is changed there. Such a reader may
+not ask a data source (section 4e, *Data sources*): each of their `{source, text}` queries is refused with
+`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists no `datasources` to them; the
+owner, and a login under a name with `access:`, may ask. The tunnel must
 keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
@@ -1251,6 +1254,21 @@ reads the event log.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+- **Data sources.** A query `{"id": "a", "source": "prom", "text": "sum by (job) (rate(http_requests_total[5m]))"}` names
+  a source under the model's `sources:` (section 11) and is text in that source's own language (PromQL for `prometheus`);
+  it takes no other key and cannot be an X, an input or an output. The server asks the source (the browser never holds
+  its address or credentials) over the request's window, one value per bucket, and answers in the same shape as the rest
+  (`times`, `step`, `series`). It is bounded whatever the source's type: at most 4,000 characters of text, 50 series, 1,000
+  points, a 400-day window and 10 s (less what the request has used); past one it is refused with `error` naming the bound
+  and `error_kind: limit`. The time bound is the whole request's: connecting, the TLS handshake of an `https` source,
+  waiting for the answer and reading it, over http or https, however slowly the source sends (the connection, or its
+  TLS socket, is cut at the bound). Only looking up the source's host name is left
+  to the system's resolver, which ergostat cannot interrupt. An unreachable source is `error_kind: unreachable` (never with its address), a query the source
+  refuses `refused` with the source's own words. It is asked again each time, nothing kept. `/api/query/fields` lists these
+  sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
+  Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
+  `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
+  is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
 
 ## 4f. Dashboards: shared, named, and checked
 
@@ -4140,7 +4158,15 @@ sources:
 | `command` | none | (the same as `run`) |
 | `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
-More types (Datadog, CloudWatch, SQL) can follow the same shape.
+A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
+(`GET /api/v1/query_range`, the only request it makes) through the server (section 4e, *Data sources*).
+
+More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
+`ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
+`sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points; a
+type offering any other public function or class is refused, so the one operation ergostat can call on a source is
+`query` (a type's `query` must itself only read; the `prometheus` one sends only that GET). Panels need no change for a new type (the
+model's JSON schema lists the types by name, so a new one is added there too).
 
 ## 12. What ergostat derives and checks
 
