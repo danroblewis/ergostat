@@ -1436,12 +1436,16 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
                               any(e["sourcePort" if io == "outs" else "targetPort"] == p["id"] for e in edges)]
             boxes[box][io].append({"id": pid, "side": "W" if io == "ins" else "E", "key": "vec", "n": len(keys), "keys": keys})
         edges.append({"key": f"vec:{a}>{b}", "source": a, "sourcePort": sp, "target": b, "targetPort": tp, "keys": keys})
-        d.sig[f"vec:{a}>{b}"] = {"key": f"vec:{a}>{b}", "sym": "y",          # a subsystem's outputs, one vector
+        u = cls[a.split(":", 1)[1]]["letter"] == "C"                          # a subsystem's outputs, one vector: u from a C
+        d.sig[f"vec:{a}>{b}"] = {"key": f"vec:{a}>{b}", "sym": "u" if u else "y",
                                  "sub": a.split(":", 1)[1], "what": "vector", "n": len(keys)}
+    _top_loops(d, cls, boxes, edges, out, _coupled(boxes, edges))
     for i, e in enumerate(edges):
         e["id"] = f"w{i}:{e['sourcePort']}>{e['targetPort']}"
         sg = d.sig.get(e["key"]) or d.signal(e["key"])
         e["signal"] = {k: sg[k] for k in ("sym", "sub", "what", "n") if k in sg}
+        if not sg.get("sym") and e["key"].startswith("rec:") and (e["source"] in boxes or e["target"] in boxes):
+            e["signal"] = {"sym": "y", "sub": e["key"][4:].split("~")[0].rsplit(".", 1)[0], "what": "record"}  # between systems
     # what each subsystem block computes, now that its inputs and outputs are known
     for b in boxes.values():
         name = b["system_name"]
@@ -1497,6 +1501,81 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
     return {"kind": "blocks", "nodes": node_list, "edges": edges, "frames": list(frames.values()),
             "open": sorted(open_), "focus": focus,
             "tree": {s: {"within": spec.within.get(s), "description": desc} for s, desc in spec.systems.items()}}
+
+
+def _coupled(boxes: dict, edges: list[dict]) -> list[tuple[str, str]]:
+    """The groups of closed systems drawn as one loop: each C box and the P box its u wires enter."""
+    return sorted({(e["source"], e["target"]) for e in edges if e["source"] in boxes and e["target"] in boxes and
+                   boxes[e["source"]]["fn"]["letter"] == "C" and boxes[e["target"]]["fn"]["letter"] == "P"})
+
+
+def _top_loops(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict, groups: list[tuple[str, str]]) -> None:
+    """Each group of closed systems drawn as its loop: here each coupled C and P (_top_loop)."""
+    for c, p in groups:
+        _top_loop(d, cls, boxes, edges, out, c, p)
+
+
+def _top_loop(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict, c: str, p: str) -> None:
+    """A C acting on a P drawn as the textbook loop (docs/proposals/blocks-levels.md §2): r, the goals of P that C
+    serves, into a summing junction ahead of C; e into C; u from C to P; y out of P, and back through H (the sensors
+    that read it) to the junction's minus input; d into P. Where C serves no goal of P, or reads nothing of P, the
+    wires stay as they are."""
+    spec = d.s
+    C, P = c[4:], p[4:]
+    back = next((e for e in edges if e["source"] == p and e["target"] == c), None)
+    by = lambda g: [spec.blocks[b].system for b in (lambda lp: lp.controllers + lp.actuators)(spec.loop(g))  # noqa: E731
+                    if b in spec.blocks]
+    goals = [g for g, x in spec.goals.items() if P in spec.chain(x.system) and
+             any(C in spec.chain(s) for s in by(g)) and not any(P in spec.chain(s) for s in by(g))]
+    if back is None or not goals:
+        return
+    keys, dk = back.get("keys") or [back["key"]], [x["key"] for x in cls[P]["ports"] if x["as"] == "d"]
+    n, m, at = len(goals), len(keys), boxes[p]["system"]
+    rid, sid, hid, oid, did = (f"{k}:top:{P}" for k in ("ref", "sum", "h", "out", "dist"))
+    hs = [(d.nodes.get((d.prod.get(k) or ("",))[0]) or {}).get("fn", {}).get("expr") or "1" for k in keys]
+    H = hs[0] if m == 1 else f"diag({', '.join(hs)})"
+    ys = ", ".join(_keyname(k).replace(" (measured)", "") for k in keys)
+    sig = {"r": ("r", P, "reference", n), "e": ("e", None, "error", n), "y": ("y", P, "output", m),   # (e and y_m bare, as
+           "ym": ("y", "m", "measured", m), "d": ("d", P, "disturbance", len(dk))}                    # the textbooks: by their Σ)
+    for k, (s_, sub, what, w) in sig.items():
+        d.sig[f"top:{k}:{P}"] = {"key": f"top:{k}:{P}", "sym": s_, "sub": sub, "what": what, "n": w}
+    node = lambda nid, **kw: out.setdefault(nid, {"id": nid, "system": at, "loops": list(goals), **kw})  # noqa: E731
+    node(rid, kind="input", role="reference", label=f"r {P}", fn={"sym": "r", "sub": P, "bold": n > 1,
+         "value": ", ".join(goals) if n > 1 else f"{goals[0]} {_hold(spec.goals[goals[0]])}"},
+         ins=[], outs=[{"id": f"{rid}|out|r", "side": "E"}], math=[sym("r", P, None, n > 1)],
+         says=f"the references of {P} that {C} serves, {n}: " + "; ".join(f"{g} {_hold(spec.goals[g])}" for g in goals) + ".",
+         rows=[["goals", ", ".join(goals)]])
+    node(sid, kind="sum", role="comparator", label=f"Σ {P}", ins=[{"id": f"{sid}|in|r", "side": "W", "sign": "+"},
+         {"id": f"{sid}|in|y", "side": "S", "sign": "−"}], outs=[{"id": f"{sid}|out|e", "side": "E"}],
+         math=[eq(sym("e", P, None, n > 1), row(sym("r", P, None, n > 1), mo("−"), sym("y", f"m,{P}", None, m > 1)))],
+         says=f"compares {P}'s references with what is measured of it: e = r − y_m. {C} reads y_m itself ({ys}) "
+              "and compares inside: this junction is those comparisons, drawn ahead of it.")
+    node(oid, kind="output", role="output", label=f"y {P}", fn={"sym": "y", "sub": P, "bold": m > 1},
+         ins=[{"id": f"{oid}|in|y", "side": "W"}], outs=[], math=[sym("y", P, None, m > 1)],
+         says=f"what {P} puts out, {m}: {ys}.")
+    node(hid, kind="block", role="sensor", label=f"H {P}", fn={"name": f"H_{P} = " + (hs[0] if len(set(hs)) == 1 else f"diag(H_1 … H_{m})"),
+         "reads": ("each its own: " if m > 1 else "") + f"the readings of {ys}"},
+         ins=[{"id": f"{hid}|in|y", "side": "E"}], outs=[{"id": f"{hid}|out|ym", "side": "W"}],
+         math=[eq(sym("H", P, None, m > 1), mt(H))],
+         says=f"the sensing of {P}, on the return path: the sensors that read {ys}" +
+              (", diagonal: each reads its own output" if m > 1 else "") + ". H = 1 where a sensor adds no dynamics.")
+    edges.remove(back)
+    boxes[c]["ins"] = [x for x in boxes[c]["ins"] if x["id"] != back["targetPort"]] + [
+        {"id": f"{c}|in|e", "side": "W", **({"key": "vec", "n": m, "keys": keys} if m > 1 else {"key": keys[0]})}]
+    wire = lambda k, a, ap, b, bp, **kw: edges.append({"key": f"top:{k}:{P}", "source": a, "sourcePort": ap,  # noqa: E731
+                                                       "target": b, "targetPort": bp, "keys": keys, **kw})
+    wire("r", rid, f"{rid}|out|r", sid, f"{sid}|in|r", sign="+", keys=goals)
+    wire("e", sid, f"{sid}|out|e", c, f"{c}|in|e")
+    wire("y", p, back["sourcePort"], oid, f"{oid}|in|y")
+    wire("y", p, back["sourcePort"], hid, f"{hid}|in|y", feedback=True)
+    wire("ym", hid, f"{hid}|out|ym", sid, f"{sid}|in|y", sign="−", feedback=True)
+    if dk:
+        node(did, kind="input", role="disturbance", label=f"d {P}", fn={"sym": "d", "sub": P, "bold": len(dk) > 1},
+             ins=[], outs=[{"id": f"{did}|out|d", "side": "E"}], math=[sym("d", P, None, len(dk) > 1)],
+             says=f"what enters {P} that no valve sets, {len(dk)}: {', '.join(_keyname(k) for k in dk)}.")
+        boxes[p]["ins"].append({"id": f"{p}|in|d", "side": "N", **({"key": "vec", "n": len(dk), "keys": dk}
+                                                                    if len(dk) > 1 else {"key": dk[0]})})
+        wire("d", did, f"{did}|out|d", p, f"{p}|in|d", keys=dk)
 
 
 def _continuous(n: dict) -> bool:

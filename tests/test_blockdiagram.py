@@ -111,8 +111,10 @@ def test_image_squeeze_the_service_is_one_mimo_process_and_the_tuner_integrates(
 def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     spec = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
     g = drawn(spec)
-    assert {n["id"] for n in g["nodes"]} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling"}
-    for n in g["nodes"]:
+    boxes = [n for n in g["nodes"] if n["role"] == "subsystem"]           # (and a C-P loop's r, Σ, H, y and d)
+    assert {n["id"] for n in boxes} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling"}
+    assert {n["id"] for n in g["nodes"]} - {n["id"] for n in boxes} <= {f"{k}:top:service" for k in ("ref", "sum", "h", "out", "dist")}
+    for n in boxes:
         assert n["fn"]["sym"] == (n["fn"]["letter"] or n["label"]) and n["fn"]["expr"] == f"{n['fn']['p']}×{n['fn']['m']}"
     assert any(e["signal"].get("n", 1) > 1 for e in g["edges"])
     one = drawn(spec, {"service"})
@@ -693,3 +695,79 @@ def test_every_system_has_the_same_letter_and_p_by_m_closed_and_open(example):
         assert (roles["factory"], roles["product"]) == ("C", "P")
     if example in ("big", "the-job", "ticket-factory"):
         assert all(v is None for k, v in roles.items() if spec.within.get(k) is None), (example, roles)
+
+
+# ---- the top level as the textbook loop: r, Σ ahead of C, e, u, y, H on the return (dev/records/blocks-top-level-reference-and-sum.md)
+
+TWO = "\n".join(ln for ln in CHAIN.replace("      relay:", "      #").replace("      c: {description: it is controlled}", "")
+                .splitlines() if "load" not in ln and "fill-c" not in ln)
+
+
+def _two(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(TWO))
+    return load(tmp_path / "ergostat.yaml")
+
+
+def _keys(e: dict) -> set[str]:
+    return set(e.get("keys") or [e["key"]])
+
+
+def test_a_two_system_spec_draws_junction_r_e_u_y_and_h_on_the_return_at_the_top_level(tmp_path):
+    g = drawn(_two(tmp_path))
+    n = {x["id"]: x for x in g["nodes"]}
+    sym = lambda e: (e["signal"]["sym"], e["signal"].get("sub"))                       # noqa: E731
+    r = next(e for e in g["edges"] if n[e["source"]].get("role") == "reference")
+    assert n[r["target"]]["kind"] == "sum" and sym(r) == ("r", "b") and r["targetPort"].endswith("|in|r")
+    sid = r["target"]
+    e = next(x for x in g["edges"] if x["source"] == sid)
+    assert e["target"] == "sys:a" and sym(e) == ("e", None) and n["sys:a"]["fn"]["letter"] == "C"
+    assert sym(next(x for x in g["edges"] if x["source"] == "sys:a" and x["target"] == "sys:b"))[0] == "u"
+    outs = [x for x in g["edges"] if x["source"] == "sys:b"]
+    assert {n[x["target"]]["role"] for x in outs} == {"output", "sensor"} and all(sym(x) == ("y", "b") for x in outs)
+    h = next(x["target"] for x in outs if n[x["target"]]["role"] == "sensor")
+    assert n[h]["fn"]["name"].startswith("H_b") and n[h]["math"]
+    ret = next(x for x in g["edges"] if x["source"] == h)
+    assert ret["target"] == sid and ret["sign"] == "−" and ret["feedback"] and sym(ret) == ("y", "m")
+    assert {p["sign"] for p in n[sid]["ins"]} == {"+", "−"}
+    assert not [x for x in g["edges"] if x["source"] == "sys:b" and x["target"] == "sys:a"]   # it goes round through H and Σ
+    d = [x for x in g["edges"] if x["target"] == "sys:b" and n[x["source"]].get("role") == "disturbance"]
+    assert [sym(x) for x in d] == [("d", "b")]
+
+
+def test_every_wire_at_the_top_level_has_a_label_and_software_factory_closes_its_loop():
+    g = drawn(load(ROOT / "examples" / "software-factory" / "ergostat.yaml"))
+    n = {x["id"]: x for x in g["nodes"]}
+    sums = [x for x in n.values() if x["kind"] == "sum"]
+    assert len(sums) == 1 and any(e["source"] == sums[0]["id"] and e["target"] == "sys:factory" for e in g["edges"])
+    r = next(x for x in n.values() if x.get("role") == "reference")
+    assert r["fn"]["bold"] and next(e for e in g["edges"] if e["source"] == r["id"])["signal"]["n"] == 3
+    on_loop = {e["source"] for e in g["edges"]} | {e["target"] for e in g["edges"]}
+    assert "sys:modelling" in n and "sys:modelling" not in on_loop
+    for ex in EXAMPLES:                                        # every wire, at every top level of systems
+        spec = load(ROOT / "examples" / ex / "ergostat.yaml")
+        if not spec.systems:                                   # (its top level is the leaf: not this gap's)
+            continue
+        es = [e for e in drawn(spec, set())["edges"]            # every system closed: the wires of the systems and their loops
+              if any(x.startswith("sys:") or ":top:" in x for x in (e["source"], e["target"]))]
+        assert all(e["signal"].get("sym") for e in es), (ex, [e["id"] for e in es if not e["signal"].get("sym")])
+
+
+@pytest.mark.parametrize("which", ["two", "software-factory"])
+def test_opening_either_subsystem_shows_the_same_signals_at_its_frame_ports(tmp_path, which):
+    spec = _two(tmp_path) if which == "two" else load(ROOT / "examples" / which / "ergostat.yaml")
+    top = drawn(spec)
+    nodes = {x["id"]: x for x in top["nodes"]}
+    boxes = [x for x in nodes.values() if x.get("role") == "subsystem" and x["fn"]["letter"]]
+    assert sorted(x["fn"]["letter"] for x in boxes) == ["C", "P"]
+    for box in boxes:
+        s = box["system_name"]
+        dk = {p["key"] for p in box["ports"] if p["as"] == "d"}
+        into = set().union(*(_keys(e) for e in top["edges"] if e["target"] == box["id"])) - dk
+        out = set().union(*(_keys(e) for e in top["edges"] if e["source"] == box["id"]))
+        g = drawn(spec, {s})
+        ins = _inside(g, f"frame:{s}")
+        assert into == set().union(*(_keys(e) for e in g["edges"] if e["target"] in ins and e["source"] not in ins)), s
+        assert out == set().union(*(_keys(e) for e in g["edges"] if e["source"] in ins and e["target"] not in ins)), s
+        if dk:
+            d = [e for e in top["edges"] if e["target"] == box["id"] and nodes[e["source"]].get("role") == "disturbance"]
+            assert len(d) == 1 and set(d[0]["keys"]) == dk, s
