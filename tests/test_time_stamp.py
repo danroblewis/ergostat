@@ -42,7 +42,9 @@ def test_the_gaps_tables_use_the_stamp_and_event_data_is_unrounded():
     assert "tidy" not in data and "toPrecision" not in data and "toFixed" not in data
     assert not re.search(r"\btidy\b", js("util.js"))
     table = details[details.index("function eventsTable("):]
-    assert 'h("td", { class: "nowrap" }, stamp(e.time))' in table[:table.index("\n}\n")]
+    table = table[:table.index("\n}\n")]
+    assert 'h("td", { class: "nowrap" }, n > 1 ? `${stamp(run[n - 1].time)}–${stamp(e.time)}` : stamp(e.time))' in table
+    assert "toLocaleTimeString(" not in table
     assert '["when", stamp(e.time)]' in details
     assert "const when = (t) => stamp(t);" in js("pages.js")
     for name in ("details.js", "pages.js"):

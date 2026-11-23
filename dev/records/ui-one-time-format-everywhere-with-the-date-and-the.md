@@ -131,3 +131,24 @@ Refused this round, as given: the whole-file browser run piped into `> /tmp/item
 the pipe. A probe script at `/tmp/probe/probe.py` (the file tools are confined to /work) and
 `uv run --with playwright==1.63.0 python /tmp/probe/probe.py`, to print the panel's page errors. And
 `git diff $(git merge-base HEAD^1 HEAD^2) HEAD^2 -- …`, re-run with the two commits named.
+
+Round 5: the merge of main (ead497d1) conflicted in three files, and each keeps both sides:
+
+- `ergostat/web/static/details.js`, the Record's Events table. Main folds a run of identical events into one row
+  ("first–last" and "×n"). The branch had put the time through `stamp`. The folded table now shows `stamp(e.time)`, and a
+  run shows `stamp(first)–stamp(last)`. Main's `clock` helper (toLocaleTimeString) and the cell's `toLocaleString`
+  title are dropped, since the cell already shows the date and zone.
+- `ergostat/web/static/util.js`: main's new `isLimit` and `holdText` are kept. `tidy` stays removed, because nothing
+  calls it.
+- `tests/test_items_page.py`: both imports are kept (`json`, `math`).
+
+Changed in the tests to follow the merge: the stamp test's `stamps()` now checks each half of a folded run's cell
+(split on "–"). `tests/test_time_stamp.py` checks the folded row's text, and that eventsTable has no
+`toLocaleTimeString`. The new split in `stamps()` has not been seen to fail: the test's own events never fold.
+Net code is still about +11 lines. ruff is clean, and `tests/test_time_stamp.py` passes (3 passed). With Playwright
+under the watchdog, the stamp test and main's `test_the_record_folds_runs_of_identical_events` pass (2 passed, rc 0).
+The whole `tests/test_items_page.py` file gave 33 passed and 1 failed (rc 1), twice. The failure is
+main's `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (now at `tests/test_items_page.py:1530`),
+the 30 s wait for the other project in `#project`, as in rounds 2–4. It is left for main (lesson 13). Round 4's five
+Dynamics-panel failures no longer happen. Refused this round: the whole-file run redirected to `/tmp/items5.log`
+and then grepped.
