@@ -168,9 +168,11 @@ def items(kind: str, state: str | None = None) -> list[dict]:
     if state:
         return one(state)
     head = [ln for ln in ergostat("item", "--kind", kind).stdout.splitlines() if ln.startswith(f"{kind} ")]
-    states = re.findall(r"([a-z][a-z-]*) \d+", head[0].split("  ", 2)[-1]) if head else []
-    if not states:
+    counts = re.findall(r"([a-z][a-z-]*) (\d+)", head[0].split("  ", 2)[-1]) if head else []
+    if not counts:
         return one(None)
+    states = [st for st, n in counts if int(n)]     # (an empty state is not listed: one call each made a step of
+    #                                                 the switcher about 45 calls, 40 s, past its bound under load)
     out, seen = [], set()
     for st in states:
         for i in one(st):

@@ -45,6 +45,18 @@ def test_a_state_past_the_cap_is_said(monkeypatch, capsys):
     assert "501 items" in capsys.readouterr().err
 
 
+def test_an_empty_state_is_not_listed(monkeypatch):
+    record(monkeypatch, {"merged": 2, "ready": 0, "dead": 0})
+    calls, real = [], fac.ergostat
+    monkeypatch.setattr(fac, "ergostat", lambda *a: calls.append(a) or real(*a))
+    assert {x["id"] for x in fac.items("gap")} == {"gap/merged-0", "gap/merged-1"}
+    assert [a[a.index("--state") + 1] for a in calls if "--state" in a] == ["merged"]
+    record(monkeypatch, {"ready": 0})
+    calls, real = [], fac.ergostat
+    monkeypatch.setattr(fac, "ergostat", lambda *a: calls.append(a) or real(*a))
+    assert fac.items("gap") == [] and len(calls) == 1        # every state empty: the head alone
+
+
 def ledger(tmp_path, monkeypatch, *lines) -> dict:
     (tmp_path / "costs.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
     monkeypatch.setattr(fac, "run_dir", lambda cfg, *a: tmp_path)

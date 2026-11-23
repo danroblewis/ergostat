@@ -72,3 +72,17 @@ never calls. Attempts 8-10 were queue nacks waiting on other gaps' pushes, not f
 comparison run on clean main (a `git worktree add --detach /tmp/mainwt main`, then the named test there) was refused
 in this session, so the test was not run on main here. The factory reruns it there. Why the switcher's runs take
 this long belongs in its own gap (lesson 13).
+
+Continued, round 1 (the build's failure again: test_an_approved_switch_drains_and_switches_through_the_engine). The
+cause is now measured, not guessed. Each ergostat call was timed in fac.ergostat and drain.py's step (temporary code,
+removed). One switcher step made 46 ergostat calls of about 0.88 s each, so 41 s a step with nothing else running.
+It came from fac.items listing every state of a kind, the empty ones too: upgrade 13 states, gap 19, research 5,
+situation 6, for under_way() and the waiting upgrades. Two such steps against the test's 120 s bound each ran out
+under the build's parallel workers. Fixed in dev/bin/fac.py (outside the Files list, 4 lines: the factory asked for
+the code to be fixed, and it is the code the test waits on). Only a state the head line counts above 0 is listed,
+and a kind whose every state is 0 is the head call alone. A head line that cannot be read still falls back to one
+listing, as before. New test tests/test_fac_items.py::test_an_empty_state_is_not_listed was seen to fail with the
+empty states listed again. The switch test and tests/test_fac_items.py together: 9 passed in 74 s (the switch test
+alone took 146 s before). tests/test_fac_items.py, test_backlog.py and test_factory_manager.py pass (63). ruff is
+clean. No test bound was changed. Main has the same fac.items. The fix is the reversible one (one filter on a parsed
+count).
