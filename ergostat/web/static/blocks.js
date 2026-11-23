@@ -1188,9 +1188,10 @@ async function drawBlocksView(svg, g) {
     for (const n of g.nodes) n.systems = [...(within[n.id] || [])].reverse();
     const moved = bdStates(g) !== S.layout.states;     // a loop's state changed: its error's label placed again
     if ((S.layout.undrawn || moved) && !S.layout.routing) bdDraw(svg, g, S.layout);    // (or routed while it was held: drawn now)
-    for (const n of g.nodes) {                         // an alarm raised or cleared: its label, nothing laid out again
-      const el = svg.querySelector(`g.bd-node[data-id="${CSS.escape(n.id)}"]`);
+    for (const n of g.nodes) {                         // an alarm raised or cleared, a closed system's goal gone off or
+      const el = svg.querySelector(`g.bd-node[data-id="${CSS.escape(n.id)}"]`);   // back: its label, its outline; nothing laid out again
       if (el) bdAlarm(el, n);
+      if (el && n.role === "subsystem") el.classList.toggle("sys-off", systemOff(n));
     }
     return S.layout;
   }

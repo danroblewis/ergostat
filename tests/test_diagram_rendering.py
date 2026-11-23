@@ -2575,6 +2575,36 @@ def test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off(browser, t
     assert sd["drawn"] and all(st == (sd["off"][0] if off else sd["calm"][0]) for off, st in sd["drawn"]), sd
 
 
+def test_a_closed_subsystems_outline_follows_its_goals_as_the_status_polls_change(browser, tmp_path):
+    """A closed subsystem block draws no comparator, so its outline is not redrawn by a loop's error label changing:
+    a goal in it going off after the first draw must still make it heavy on the next poll, and light again after."""
+    off: set[str] = set()
+
+    def status(route):
+        resp = route.fetch()
+        body = resp.json()
+        for k in off:
+            body.setdefault("loops", {}).setdefault(k, {})["status"] = "off"
+        route.fulfill(response=resp, body=json.dumps(body))
+
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg.route("**/api/status*", status)
+        drawn(pg, url, "view=blocks", 0)
+        sub = pg.evaluate("""() => { const n = S.graph.nodes.find((n) => n.role === 'subsystem' && (n.loops || []).length
+                                       && !n.loops.some((k) => S.status.loops?.[k]?.status === 'off'));
+                                     return n && { id: n.id, loops: n.loops }; }""")
+        assert sub, "no closed subsystem with a goal in it, none off"
+        heavy = f"""() => document.querySelector(`g.bd-node[data-id="${{CSS.escape({json.dumps(sub['id'])})}}"]`)
+                             ?.classList.contains('sys-off')"""
+        assert pg.evaluate(heavy) is False
+        off.update(sub["loops"][:1])                     # (a goal in it gone off, after the first draw)
+        pg.wait_for_function(heavy, timeout=20000)
+        off.clear()                                      # (and back)
+        pg.wait_for_function(f"() => !({heavy})()", timeout=20000)
+        pg.close()
+
+
 SIGNS_CHECK = """() => {
   // every link drawn has one sign (+, − or ?); no two signs' boxes overlap or lie within 10 px; each sign's nearest
   // link line is its own (data-edge, and the line it is drawn with); a link declared with driven-by is dashed

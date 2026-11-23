@@ -103,3 +103,21 @@ keeping both sides:
   what is drawn. `test_blocks_crossings_hop_dots_...` fails at line 2232: `get_by_role("button", name="fit")` also
   matches the example's keep-model-fits blocks (strict mode). None was rerun on main because the command
   `git worktree add --detach /tmp/mainwt 2f08c24e05a8def3f529b51b00f6dc7ae9e4d400` was refused.
+
+Round 5. main has no commits the branch lacks (HEAD..main is empty), so there was nothing to merge.
+
+- Finding (blocking, a closed subsystem's outline stale between layouts): drawBlocksView's same-diagram path, run on
+  each poll, now sets or clears `sys-off` on every subsystem block from `systemOff` against the status just read, next
+  to bdAlarm, so a goal inside a closed subsystem going off (or coming back) is drawn on the next poll without a new
+  layout. New test `test_a_closed_subsystems_outline_follows_its_goals_as_the_status_polls_change` (software-factory,
+  Blocks) intercepts /api/status, turns one of a closed subsystem's goals off after the first draw, waits for the block
+  to be heavy, then turns the goal back and waits for the block to be light. With the new line disabled the test failed
+  (it timed out waiting for `sys-off`). Dynamics needs no such change: a module's counts come with the graph, which
+  each poll draws again.
+- Ran (passed): that test, `test_a_closed_systems_outline_is_light_unless_a_goal_in_it_is_off`,
+  `test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_its_pins_survive_closing_and_opening`;
+  ruff clean. The whole file was not run; the round-4 failures judged to come from main were not rerun.
+- Refused commands: one that read the drag test's name with grep into a shell variable and ran three tests
+  (`t=$(grep -o ... | sed 's/def //'); ... named_tests.py ...::$t`), so the name was found with the search tool and the
+  tests were run with it written out; and a `cat >> dev/records/... <<'EOF'` + `git commit`, so this section was written
+  with the edit tool.
