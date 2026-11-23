@@ -160,12 +160,35 @@ def test_reused_pid_stranger_survives(tmp_path, st, monkeypatch):
                             subprocess.CompletedProcess(argv, 0, said[0] + "\n", ""))
         assert st.boot() == said[0] and asked == [["sysctl", "-n", "kern.bootsessionuuid"]]
         said[0] = "{ sec = 1763900000, usec = 0 } Sun Nov 23 10:00:00 2026"
-        live = _folder(tmp_path, {"pid": p.pid, "start": its, "keeper": p.pid, "keeper_start": its,
-                                  "boot": str(uuid.uuid4())}, p.pid)
+        live = _folder(tmp_path, {"pid": p.pid, "start": "Mon Nov 23 10:00:00 2026", "keeper": p.pid,
+                                  "keeper_start": "Mon Nov 23 10:00:00 2026", "boot": str(uuid.uuid4())}, p.pid)
         with pytest.raises(st.Unread):
             st.boot()
         assert st.state(str(tmp_path / "runs" / live), [None]) == {"state": "unknown", "why": "ps failed"}
         assert not (tmp_path / "runs" / live / "exit").exists() and sent == []
+
+        # Off Linux a start time is ps's lstart text, printed by the caller's locale and TZ: every ps and sysctl runs
+        # with those fixed, so the keeper's record and a later worker's reading have one form; a text of another form
+        # (another locale's) is no reading, so a live run under a live keeper is never written gone.
+        boot_id, lstart, envs = str(uuid.uuid4()), ["Mon Nov 23 10:00:00 2026"], []
+
+        def mac(argv, **kw):
+            envs.append((argv[0], kw.get("env") or {}))
+            said = {"sysctl": boot_id, "ps": f"S    {lstart[0]}" if "-p" in argv else f"{p.pid} S"}[argv[0]]
+            return subprocess.CompletedProcess(argv, 0, said + "\n", "")
+        monkeypatch.setenv("LC_ALL", "fr_FR.UTF-8")
+        monkeypatch.setenv("TZ", "Europe/Paris")
+        monkeypatch.setattr(st.subprocess, "run", mac)
+        mine = {"pid": p.pid, "start": lstart[0], "keeper": p.pid, "keeper_start": lstart[0], "boot": boot_id}
+        live = _folder(tmp_path, mine, p.pid)
+        assert st.state(str(tmp_path / "runs" / live), [None]) == {"state": "running"}
+        assert p.pid in st.groups() and {a for a, _ in envs} == {"sysctl", "ps"}
+        assert all(e.get("LC_ALL") == "C" and e.get("TZ") == "UTC" for _, e in envs)
+        lstart[0] = "lun. 23 nov. 11:00:00 2026"                 # (the same start, read under another locale and TZ)
+        assert st.state(str(tmp_path / "runs" / live), [None]) == {"state": "unknown", "why": "ps failed"}
+        assert not (tmp_path / "runs" / live / "exit").exists() and sent == []
+        odd = _folder(tmp_path, {**mine, "start": "lun. 23 nov. 11:00:00 2026"}, p.pid)
+        assert st.state(str(tmp_path / "runs" / odd), [None]) == {"state": "unknown", "why": "record unreadable"}
     finally:
         p.kill()                                             # (os.killpg is the stand-in here)
         p.wait()

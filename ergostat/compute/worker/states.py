@@ -21,10 +21,24 @@ LINUX = sys.platform.startswith("linux")
 GRACE = 2.0                 # seconds from the worker's SIGTERM to its SIGKILL for an unknown run
 HOUR = 3600.0
 BOOT_ID = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")    # a per-boot UUID, nothing else
+# A start time's one form: /proc's clock ticks since boot, else ps's lstart printed under PS_ENV ("Mon Nov 23 10:00:00
+# 2026"). ps prints lstart by the caller's LANG/LC_TIME and TZ, so every ps here runs with those fixed: the keeper's
+# record and a later worker's reading then have one text. A start of any other form is no reading.
+START = {True: re.compile(r"^[0-9]+$"),
+         False: re.compile(r"^[A-Z][a-z]{2} [A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2} [0-9]{4}$")}
+PS_ENV = {"LC_ALL": "C", "LANG": "C", "TZ": "UTC"}     # (over the caller's own, at each call)
+
+
+def _start_form(text: str) -> bool:
+    return bool(START[LINUX].match(text))
 
 
 class Unread(Exception):
     """A reading that could not be made (a failed ``ps``, ``/proc`` unreadable): never taken as an answer."""
+
+
+def _ps(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env={**os.environ, **PS_ENV})
 
 
 def _stat(pid: int) -> tuple[str, str] | None:
@@ -38,15 +52,17 @@ def _stat(pid: int) -> tuple[str, str] | None:
         except OSError as e:
             raise Unread(str(e)) from None
         rest = text[text.rfind(")") + 2:].split()                 # (the name in brackets may hold spaces)
-        if len(rest) < 20:
+        if len(rest) < 20 or not _start_form(rest[19]):
             raise Unread("a short /proc stat")
         return rest[0], rest[19]
     try:
-        out = subprocess.run(["ps", "-o", "state=,lstart=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+        out = _ps(["ps", "-o", "state=,lstart=", "-p", str(pid)], 5)
     except (OSError, subprocess.SubprocessError) as e:
         raise Unread(str(e)) from None
     got = out.stdout.split(None, 1)
     if out.returncode == 0 and len(got) == 2:
+        if not _start_form(got[1].strip()):
+            raise Unread("a start time of another form")
         return got[0][:1], got[1].strip()
     try:
         os.kill(pid, 0)
@@ -71,7 +87,7 @@ def boot() -> str:
             with open("/proc/sys/kernel/random/boot_id", encoding="utf-8") as f:
                 got = f.read().strip()
         else:
-            out = subprocess.run(["sysctl", "-n", "kern.bootsessionuuid"], capture_output=True, text=True, timeout=5)
+            out = _ps(["sysctl", "-n", "kern.bootsessionuuid"], 5)
             got = out.stdout.strip() if out.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError) as e:
         raise Unread(str(e)) from None
@@ -115,7 +131,7 @@ def groups() -> set[int]:
                     got.add(int(rest[2]))
         return got
     try:
-        out = subprocess.run(["ps", "-A", "-o", "pgid=,state="], capture_output=True, text=True, timeout=10)
+        out = _ps(["ps", "-A", "-o", "pgid=,state="], 10)
     except (OSError, subprocess.SubprocessError) as e:
         raise Unread(str(e)) from None
     if out.returncode != 0:
@@ -136,11 +152,11 @@ def _pid(v) -> bool:
 
 
 def _proc(d: str) -> dict | None:
-    """The keeper's ``proc`` record, None when missing or not of its shape."""
+    """The keeper's ``proc`` record, None when missing or not of its shape (a start time not of ``START``'s form)."""
     rec = _read(os.path.join(d, "proc"), json.loads)
     ok = (isinstance(rec, dict) and _pid(rec.get("pid")) and _pid(rec.get("keeper"))
           and all(isinstance(rec.get(k), str) for k in ("start", "keeper_start", "boot"))
-          and BOOT_ID.match(rec["boot"]))
+          and BOOT_ID.match(rec["boot"]) and _start_form(rec["start"]) and _start_form(rec["keeper_start"]))
     return rec if ok else None
 
 

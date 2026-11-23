@@ -7730,7 +7730,9 @@ standard input, or killing its session, leaves every run going.
 
 **The keeper** forks the run, then writes `runs/RUN/proc` `{"pid", "start", "keeper", "keeper_start", "boot"}` (the
 run's pid and start time, its own pid and start time, as the system gives them: `/proc/PID/stat` field 22 on Linux,
-`ps -o lstart=` elsewhere; and the boot, a UUID made at each boot, `/proc/sys/kernel/random/boot_id` on Linux,
+`ps -o lstart=` elsewhere, which prints by the caller's locale and time zone, so every `ps` and `sysctl` of the keeper
+and the worker runs with `LC_ALL=C`, `LANG=C` and `TZ=UTC` set over its own, and a start time of any other form, read
+or recorded, is no reading; and the boot, a UUID made at each boot, `/proc/sys/kernel/random/boot_id` on Linux,
 `sysctl -n kern.bootsessionuuid` elsewhere, never `kern.boottime`, a time of day that moves with the clock; a reading
 not of a UUID's form is no reading; best effort: without it the run reads `unknown`, section 12s.6). The child takes its own process group (the keeper sets it too, so a stop never
 precedes it), writes `runs/RUN/pgid` before anything else, sets `RLIMIT_AS` to `memory`, `RLIMIT_NPROC` to `pids`
@@ -7930,7 +7932,8 @@ three states. **Gone** needs a reading made, one of an allowlist:
   gone too, the worker writes the exit itself, `{"code": null, "how": "keeper gone"}` (`"rebooted"` for another
   boot; `code` reads 127), and the folder is left for the engine's `done` and the sweep;
 - `unknown`, with `why`: anything else: `record unreadable` (no `proc`, or not of that shape, its boot
-  not a UUID among them), `ps failed` (a start time or this boot's UUID not read), `group not read`, `group not empty` (its pid absent while a group of that number still
+  not a UUID or a start time not of its form among them), `ps failed` (a start time or this boot's UUID not read, or
+  read in another form), `group not read`, `group not empty` (its pid absent while a group of that number still
   has a process), `keeper gone` (the run alive, its keeper not), `not read` (an unexpected fault, said on standard
   error). Unknown is never gone and never fine: the worker stops it by name at once by writing its `stop` (so a
   keeper still there acts on it as for a `kill`), and itself sends SIGTERM to the run's group, then SIGKILL 2 seconds

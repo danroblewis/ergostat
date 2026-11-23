@@ -88,3 +88,31 @@ ways the review offered, together:
   here), the hourly sweep's timer.
 
 Overrun reason: about 295 net lines against 200 (round 2's reasons, plus the UUID form check on both boot readings that round 3's finding needs).
+
+Round 4: main (ee43cf605696) merged first. The conflicts were in `keeper.py`, where the keeper now calls both
+`states.record` and main's `keep(..., held, ...)` with its deadlines, and in SPEC §12s.3's "Built so far", which now
+lists main's deadlines (§12s.5) and points to §12s.6 for the runs in `hello`. The one review finding was states.py
+`_stat` off Linux: `ps -o lstart=` text depends on LANG/LC_TIME and TZ, so a record made in one environment and read
+in another reads as another process, and a live run is written gone. Answered both ways the review offered:
+
+- **Every `ps` and `sysctl` in states.py runs with `LC_ALL=C`, `LANG=C` and `TZ=UTC` set over the caller's
+  environment** (`_ps`, used by `_stat` for both `record` and `state`, by `groups()` and by `boot()`). So the keeper's
+  record and a later worker's reading print in one form.
+- **A start time is of one form or it is no reading:** on Linux, `/proc` field 22 must be digits; elsewhere, lstart's
+  C form (`Mon Nov 23 10:00:00 2026`). A read text of another form raises Unread (`unknown` "ps failed", not
+  signalled), and a recorded one of another form is `record unreadable`. A record left by a keeper running before this
+  fix, in another locale, therefore reads unknown and is never written gone. One case is left, said here: a record
+  in the C form but under a different TZ (made before this fix) would still differ. Such records don't exist, because
+  the branch has not landed.
+- `sampler.py`'s `ps` (outside this gap) is not changed; it reads no start times.
+- SPEC §12s.3 (the keeper's `proc`) and §12s.6 (`record unreadable`, `ps failed`) say so.
+- **Test:** `test_reused_pid_stranger_survives` (still six tests) stubs the macOS path with the caller's
+  `LC_ALL=fr_FR.UTF-8` and `TZ=Europe/Paris`. Every ps/sysctl call carries `LC_ALL=C` and `TZ=UTC`. A live run whose
+  C-form record matches reads `running`. The same start read in a French form reads `unknown` "ps failed", with no
+  exit written and nothing signalled. A record in that form reads `record unreadable`. Each break was seen to fail it:
+  the env pin removed (the env assertion); the read form check removed (reads gone "keeper gone", the bug itself);
+  the record form check removed.
+- Ran: tests/test_compute_restart_states.py (6), test_compute_keeper.py with test_compute_keeper_deadlines.py (12),
+  test_runs_outlive_engine.py with test_runs_adopted.py (32), all passing; ruff clean. Not tested: a real macOS.
+
+Overrun reason: about 315 net lines against 200 (round 3's reasons, plus the pinned ps environment and the start-time form check on both the reading and the record that round 4's finding needs).
