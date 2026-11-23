@@ -1895,7 +1895,8 @@ BLOCK_LABELS = """() => [...document.querySelectorAll('svg.canvas g.node.bd-bloc
 
 def test_every_block_carries_a_function_with_the_agents_name_as_its_caption(browser, tmp_path):
     # Blocks, the ticket factory's making: open-pr (a program) and work (an AI agent) state no law, so each says
-    # f(·), its name and kind the caption in its top band; a counting sensor says H = 1 and how often
+    # f(·), its name and kind the caption in its top band; a counting sensor polled every 3 s says e^(−sT),
+    # its T (with its collector's) and how often it polls
     with served("ticket-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "view=blocks&system=making", 0)
@@ -1910,7 +1911,7 @@ def test_every_block_carries_a_function_with_the_agents_name_as_its_caption(brow
     for bid, cap in (("blk:open-pr", "open-pr · program"), ("blk:work", "work · AI agent")):
         assert caps[bid]["cap"] == cap and caps[bid]["capAtTop"], caps.get(bid)
         assert "f(·), law not stated" in caps[bid]["main"], caps[bid]
-    assert any(re.search(r"H = 1, every 3 s", b["main"]) for b in got if b["id"].startswith("sen:")), \
+    assert any(re.search(r"H\(s\) = e−sT\s*T = \d+ s.*every\s3\ss", b["main"]) for b in got if b["id"].startswith("sen:")), \
         [b for b in got if b["id"].startswith("sen:")]
 
 
