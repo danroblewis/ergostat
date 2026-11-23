@@ -46,3 +46,9 @@ guarded code broken: fold's `keep`, the sum kept, the stock numbers drawn, the i
 test_blockdiagram.py, test_footprint.py, test_graph_parts.py, test_graph_cli_web.py and test_correspond.py all pass.
 test_every_view_loads_with_no_console_error_or_warning[ticket-factory] passes. Ruff is clean. `main` was merged and
 was already up to date. Not run here: the whole unit suite and the four browser files (the queue runs them).
+
+Round 2: the queue's one finding was a conflict with main in ergostat/blockdiagram.py. Main added `_effects` and
+`_classes` (a system's C/P class) just above `fold`; the branch had added fold's `keep` parameter. The merge
+(dc8ad98d) keeps both: main's two functions as they are, and `fold(d, open_, focus, keep=None)` with the branch's
+docstring. No other finding was raised. After the merge: the three acceptance tests, test_blockdiagram.py and
+test_correspond.py pass; ruff is clean. Not run here: the whole unit suite and the four browser files.
