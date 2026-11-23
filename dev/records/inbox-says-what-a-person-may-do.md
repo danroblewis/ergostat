@@ -97,3 +97,21 @@ Refused this round, as given: `node --check ergostat/web/static/diagram.js` (the
 without page errors instead), and `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py
 tests/test_graph_cli_web.py` (it was then run without the watchdog). The whole of tests/test_diagram_rendering.py was
 not run.
+
+Round 4: the merge of main (a171d119) is done. It conflicted in three files, each resolved by keeping both sides:
+- pages.js: main's `showFin` in the filters and its `loading` line, with the branch's `mayDo` placed before `loading`.
+- tests/test_diagram_rendering.py and tests/test_graph_cli_web.py: both sides' new tests, one after the other (main's
+  phone-fit test and loop-answer test, the branch's acceptance and unit tests), each closing its own page.
+Net lines outside tests and docs against main: 11 added, 5 removed (6 net), within the 20 budget. Ruff is clean.
+Suites, run serially: the acceptance test with Playwright under suite_watch (2 passed); main's merged
+`test_on_a_phone_the_diagram_opens_with_a_whole_system_box_in_view` (2 passed);
+`test_needs_attention_is_three_headed_groups_in_a_fixed_order` (passed: the 30 s wait of rounds 2-3 no longer
+happens); tests/test_inbox_page.py (12 passed); tests/test_graph_cli_web.py without a browser (53 passed);
+tests/test_items_page.py (65 passed, 1 failed, run twice). The failure each time was
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (a 30 s `wait_for_function` timeout), the
+one that also failed in rounds 2-3, where round 2 saw it fail the same way with the gap's pages.js lines undone. It
+reads the header counts, which this gap does not touch. It was not run on main this round.
+`test_actions_say_per_class_asked_approved_denied_and_whether_held` passes now.
+Refused this round, as given: `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py
+tests/test_graph_cli_web.py` (it was then run without the watchdog). The whole of tests/test_diagram_rendering.py was
+not run.
