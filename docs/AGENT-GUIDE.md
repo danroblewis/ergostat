@@ -289,7 +289,8 @@ The Dynamics view is the workflow you declared; the Process view is the one that
       never printed (look at the collector).
 - [ ] **Items end where the work ends.** The end node should follow your final states; an item that
       ends in a waiting state means a step that never reports.
-- [ ] **Rework is what the person expects.** Lines marked ↺ run back to an earlier state: a review
+- [ ] **Rework is what the person expects.** Lines marked ↺ took an item back to a state it had already
+      been in (a repeated step; how many returns, in the line's panel), never other items' order: a review
       sending work back is real; a lease handing items back over and over is a failing step (its median
       time says how long each try took).
 - [ ] **Fan-out and join** (dashed lines between kinds): work that starts other work (a ticket
@@ -315,7 +316,7 @@ blocks), run again, until every kind reads `N of N agree`. How to read each:
 | Mismatch | Pair | What it means | What to change |
 |---|---|---|---|
 | `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
-| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (↺ on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
+| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (drawn running back on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
 | `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
 | `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
 | `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |
