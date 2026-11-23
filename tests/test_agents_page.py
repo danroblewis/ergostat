@@ -10,6 +10,7 @@ With ``RUNCOST_SHOTS=DIR`` it leaves screenshots of the page and the panel there
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -462,6 +463,10 @@ p.events.add("agent.failed", item="drafter", source="ergostat", causedby=begun["
 """
     subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(site["dir"].parent / "home")},
                    check=True, capture_output=True)
+    for _ in range(50):          # the server keeps a snapshot 1.5 s: open the panel once its answer holds the killed run
+        if json.load(urllib.request.urlopen(site["url"] + "/api/agents/drafter", timeout=10)).get("failed"):
+            break
+        time.sleep(0.2)
     pg.goto(f"{site['url']}/agents")
     pg.click("tr.click:has(b:text-is('drafter'))")
     pg.wait_for_function("""() => [...document.querySelectorAll("#detail tr")].some((tr) => /killed/.test(tr.textContent))""",

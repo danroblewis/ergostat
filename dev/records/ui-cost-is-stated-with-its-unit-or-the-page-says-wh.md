@@ -125,3 +125,42 @@ Run: tests/test_agents_page.py (6 passed, rc 0) and tests/test_items_page.py (22
 the watchdog. tests/test_run_costs.py (16 passed). Ruff is clean. Main has not moved since the clone (the merge-base is
 main, 277a9c6c), so there was nothing to merge. Not run here: test_diagram_rendering.py, test_page_refresh.py,
 test_page_polling.py and the whole unit suite (the factory and the merge queue run them).
+
+Round 4: built. The branch's code is as in round 3 (41 net lines outside `tests/`, `docs/` and `dev/`, budget 60).
+This round is the merge of main (bf6dbebf).
+
+The queue's finding, conflicts with main, resolved (commit a94b2210):
+- `server.py`: an item's answer keeps main's `kind_of.final` and adds the branch's `cost`.
+- `details.js`: main's new runs table (when, item, outcome, outward actions asked, cost; resources behind a
+  disclosure) is kept. Its cost cell is the branch's `costText` over `costOf(e)`, which carries the run's exit,
+  note and failed. Both tables call `costOf(e)`.
+- `pages.js`: main's table is built first, then `holdStill` or `patch` (main's hold while the pointer is on a row).
+  The branch's `nums` columns and the `total` tbody are inside it.
+- `tests/test_agents_page.py`: both sides' tests are kept. `panel_costs` and the stand-in test now read
+  `#detail .runs-table > table`, since main moved the cost there (still the fifth cell).
+
+The stand-in panel test then failed after the merge: the killed run never showed. The cause was the test, not the
+page: the server keeps a snapshot 1.5 s (`Live.snapshot`), and the panel opened right after the write read one made
+before it (`/api/status` `at` was a second before the event). The test now waits until `/api/agents/drafter` counts
+the failed run, then opens the panel (no fixed sleep). Broken again and seen to fail: with `costOf` leaving out exit,
+note and failed, the test failed on its first assertion (all 10 rows "not known: 1 failed or stopped").
+
+Run, with Playwright under the watchdog: tests/test_agents_page.py (9 passed, rc 0). An earlier run of that file
+once failed `test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` (main's, untouched). It read `#detail`
+while it still said "Loading…", because it waits only for the panel's h2, which the loading panel shows already. It
+passed on the next run. It is a race in that test and not part of this gap (lesson 13).
+tests/test_items_page.py: 26 passed, 6 failed, the same six on two runs. The acceptance test
+`test_cost_is_stated_or_says_why_it_is_none_with_the_windows_total_and_on_an_item` passes, alone and in the file.
+The six failures are named here as unrelated, not fixed:
+`test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set`,
+`test_the_model_changes_are_found_by_heading_search_and_panel`, `test_a_valves_leased_items_are_listed_live`,
+`test_a_snapshot_lists_a_parts_items_and_opens_its_set`, `test_a_set_left_out_of_a_snapshot_says_so`, and
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. The panels of the first five stay at
+"Loading…" with no page error. Two of them run in a file:// snapshot with no server, so the branch's server change
+cannot reach them. The branch's JS differs from main only in the agent panel, the agents table and the new
+`costText`. The sixth waits for the project switcher to list a second project. It was not confirmed that they fail on
+clean main too: running main's copy (`git archive bf6dbebf | tar -x -C /tmp/mainwt`, then the test there) and
+putting main's six ergostat files in place for one run (`git checkout bf6dbebf -- ...`) were both refused.
+The factory reruns failing tests on clean main.
+tests/test_run_costs.py and tests/test_snapshot_sets.py (20 passed). Ruff is clean. Not run here:
+test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py and the whole unit suite.
