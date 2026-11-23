@@ -31,7 +31,7 @@ def factory_text() -> str:
     text = (ROOT / "ergostat.yaml").read_text()
     kinds = text[text.index("\n  gap:\n"):text.index("\n  review:\n")]
     said = text[text.index("\nmessages:\n"):text.index("\nagents:\n")]
-    done, paused = (", ".join(re.findall(rf"\b(?:gap|milestone): \[[^\]]*\]", said.split(f"  {k}:")[1].split("\n  ")[0]))
+    done, paused = (", ".join(re.findall(r"\b(?:gap|milestone): \[[^\]]*\]", said.split(f"  {k}:")[1].split("\n  ")[0]))
                     for k in ("done", "paused"))
     return f"name: t\nitems:{kinds}\nmessages:\n  done: {{{done}}}\n  paused: {{{paused}}}\n"
 
@@ -265,4 +265,6 @@ def test_milestones_status_says_each_milestones_progress(rec, monkeypatch):
     def unset(*a, **k):
         raise FileNotFoundError("ERGOSTAT_CMD is not set")
     monkeypatch.setattr(fac, "ergostat", unset)
-    assert "  progress: not read (ERGOSTAT_CMD is not set)" in milestones.status(cfg).splitlines()   # never zero
+    lines = milestones.status(cfg).splitlines()
+    assert "progress: not read (ERGOSTAT_CMD is not set)" in lines                # said once, never as zero
+    assert not any(ln.startswith(("  progress:", "gaps naming no milestone")) for ln in lines)

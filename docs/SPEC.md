@@ -1389,6 +1389,7 @@ messages:
 | `inverse` | a name | `blocks`, `before`, `dependents`, `children`, `duplicated_by`, `related_from`; else `NAME_of` | The other direction's name. Never written: ergostat derives it |
 | `group` | true or false | true for `parent` | A parent: the Graph view hangs its children off it, and the critical path treats it as their summary |
 | `starts_at` | a list of states | none | Precedence only: the target's states, besides finished, in which it no longer blocks (start-to-start: `depends_on: {kind: gap, starts_at: [approved]}`) |
+| `done_when` | a map of state → fields | none | A group only: in its groups' progress, an item in that finished state counts as done work only when its fields match (each a value or a list of them); else it leaves the total (*Progress per group*, below) |
 
 **Starting before a target finishes.** A precedence relation's `starts_at` names states of the kinds it names: a
 target in one of them does not block, so the item's status is *unblocked* (not *blocked*), it is not waited on, and
@@ -1403,6 +1404,31 @@ else the kind's last declared state, not counting the `leased` and `dead` a take
 or `dead`: `starts-at-finished`, a finished target never blocks), and `leased` (`starts-at-leased`: name the state
 it is taken from). The
 Items API and the item page give each relation with its `starts_at`.
+
+**Progress per group.** A group relation whose field holds one id per item (it folds by `replace`: a gap's
+`milestone`) has its groups' progress (`spec/grouptally.py`), read from the item index (the items as folded now and
+their moves), never by replaying events. Each group its items name, every item of the kinds it names (an empty one
+too), a value naming no item (an old label), and the items naming none, is a row: its members by status group, *done*
+(finished), *in progress* (active or queued), *waiting* (first state, or blocked) and *stopped* (paused, a dead
+letter), of its total; the group's state and what its precedence relations name that is not finished (one not in the
+record is not known to be finished), and its set (`where=REL:ID`; none: `REL:null` and `REL:`), exactly its members.
+Two kinds of member leave the total, counted apart: one in a finished state the relation's `done_when` names whose
+fields do not match it (`milestone: {kind: milestone, group: true, done_when: {closed: {end: done}}}`: a gap closed as
+a duplicate, or abandoned, or with no end said, is no done work; `check` refuses a state the kind lacks, an empty map,
+a value that is not a string, number, boolean or null, or a list of them, and `done_when` on a relation that is not a
+group), and one that is itself a group of members of its kind by another group relation (a split parent: counted as
+its parts, wherever they are). A member whose field holds anything but one id (a list) is in no row, and said. Rows run
+by the group's status (active first, then queued, unblocked, blocked, paused, dead, done), then when it was first
+seen; values naming no item after them, the members naming none last. Over the window, each row's count of done
+members at `points` moments (2 to 200), from their moves (membership and `done_when` as they are now).
+`GET /api/items-groups?kind=K&by=REL[&points=N]` answers it, as of now, as a table a chart reads as it is: `rows` the
+categories, `stacks` the series stacked in each, and each row's `done` over `times` (at most 20,000 items of the kind
+and of each group kind: past that it is refused, never cut). `ergostat item --kind K --groups REL [--json]` prints
+it. The Items listing names each kind's relations it is offered for (`progress`), and the kind's card on the Items page
+draws a compact row a group under its chart: its name and title, a bar (done, in progress, waiting, stopped), done of
+its total, its state and what it waits on. The active ones and the row for none are shown, the rest folded behind one
+button that says how many and in which states. A row's click opens its set: the list, and the Graph and the Timeline,
+which narrow to a set's `where` on a relation of the kinds asked (its items, and what they wait on).
 
 A relation is a field like any other: events add and take away links as they change fields (`"data": {"blocked_by":
 "ticket/12"}`, `{"blocked_by": {"remove": "ticket/12"}}`, a JSON Patch), and every change is in its history. The

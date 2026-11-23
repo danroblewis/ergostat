@@ -588,6 +588,7 @@ async function pageItems(main, q) {
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   let used = new Set();
   const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
+  const gps = {}, gpsAt = {}, gpMore = {};            // each kind's progress per group (itemsets.js groupRows), its rest unfolded
   // a chart lives across refreshes: kept while its data is the same (or under the pointer), its data set in
   // place when it can take it (``update``), made again only when it cannot
   const keep = (key, sig, make, update = null) => {
@@ -646,7 +647,7 @@ async function pageItems(main, q) {
       return;
     }
     remoteTick(d.remotes || []);                        // (not waited on)
-    const flowsWere = JSON.stringify(flows);
+    const flowsWere = JSON.stringify([flows, gps]);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
     const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys) || d.kinds.some((k) => k.system === sys && named(k));
@@ -662,6 +663,12 @@ async function pageItems(main, q) {
       const fl = await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null);
       flows[k.name] = fl && Object.values(fl.counts).some((c) => c.some((x) => x)) ? fl : null;   // none yet: its counts
     }));
+    // each kind's progress per group (a gap's milestone), counted by the item index: every 10 s while shown, at once
+    // on a click (not in a snapshot)
+    await Promise.all(SNAP ? [] : shownKinds.filter((k) => k.progress?.length && (force || !(Date.now() - (gpsAt[k.name] || 0) < 10000))).map(async (k) => {
+      gpsAt[k.name] = Date.now();
+      gps[k.name] = await api("items-groups", { kind: k.name, by: k.progress[0], points: 2 }).catch((err) => ({ err: String(err.message || err) }));
+    }));
     // how far each block's claims held, under the ergostat.claim table
     const trust = d.items.some((i) => i.kind === CLAIM_KIND) && (!kind || kind === CLAIM_KIND) ? await ans.api("trust").catch(() => null) : null;
     // the Graph's and the Timeline's answers (relations.js), asked on every refresh: a relation can change on an item
@@ -675,7 +682,7 @@ async function pageItems(main, q) {
       relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }).catch((err) => ({ err })) : null };
     }
     if (!p.isConnected) return;
-    if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
+    if (!force && !ans.changed && JSON.stringify([flows, gps]) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
       h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
     const check = (on, text, title, fn) => h("label", { class: "rg-check", title }, h("input", { type: "checkbox", ...(on ? { checked: "" } : {}), onchange: fn }), text);
@@ -698,14 +705,18 @@ async function pageItems(main, q) {
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
         k.title || k.name, h("span", { class: "mono" }, k.title ? k.name : k.id));
       const fl = flows[k.name];
+      const gp = groupRows(gps[k.name], { more: !!gpMore[k.name], chosen: kind === k.name ? where : [],
+        onMore: () => { gpMore[k.name] = !gpMore[k.name]; refresh(); },
+        onPick: (r) => { const on = kind === k.name && JSON.stringify(where) === JSON.stringify(r.params.where);
+                         kind = k.name; state = null; dropSet(); if (!on) where = [...r.params.where]; go(); } });
       if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
-          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k));
+          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k), gp);
       const chosen = kind === k.name ? state : null;
       return h("div", { class: "kind-flow", key: k.name }, name,
         keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen, k.finished, k.paused, k.finished_from]),
              () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st), kind: k }),
-             (el) => el.update?.(fl, chosen, k)));
+             (el) => el.update?.(fl, chosen, k)), gp);
     };
     patch(notes, ...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
@@ -766,7 +777,8 @@ async function pageItems(main, q) {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
       if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no critical path.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
-      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
+      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status,
+                  where: kind && d.set ? where : [] };     // a set's where on a relation (a milestone's gaps) narrows them
       const m = rgModel(rd, o);
       const key = `rel:${view}:${g.name}`;
       const draw = (el) => { if (view === "graph") el.draw(m, o); else el.draw(m, rd, ro.lanes); return true; };

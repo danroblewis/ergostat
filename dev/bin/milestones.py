@@ -503,7 +503,8 @@ def status(cfg: dict) -> str:
             by.setdefault(g["state"], []).append(g["id"].split("/", 1)[1] + (" (pulled)" if g["fields"].get("pulled") else ""))
         lines.append("  gaps: " + ("; ".join(f"{s} {len(v)} ({', '.join(v)})" for s, v in sorted(by.items())) or
                                    "none (an empty milestone never completes)"))
-        lines.append("  progress: " + (said(rows[m["id"]]) if m["id"] in rows else why or "not in ergostat's answer"))
+        if not why:
+            lines.append("  progress: " + (said(rows[m["id"]]) if m["id"] in rows else "not in ergostat's answer"))
     old: dict[str, int] = {}
     for g in gaps.values():
         for label in ids_of(g["fields"].get("milestone")):
@@ -519,9 +520,10 @@ def status(cfg: dict) -> str:
         then = f"the next pass places {sum(1 for g in homeless if 'gap/' + g in sets)} of them"
     else:
         then = "[milestones] enforce is off"
+    lines.append(f"progress: {why}" if why else "gaps naming no milestone, progress: " + (
+        said(rows[None]) if None in rows else "none"))
     lines.append(f"unfinished gaps with no milestone (none, an old label, or a completed one): {len(homeless)}" + (
         f" ({', '.join(homeless[:20])}{', ...' if len(homeless) > 20 else ''}; {then})" if homeless else ""))
-    lines.append("gaps naming no milestone, progress: " + (said(rows[None]) if None in rows else why or "none"))
     loops = {n.removesuffix(END) for n in in_cycles(pairs_of(ms, gaps))}     # (one deps.py closed: it knows no milestone)
     if loops:
         lines.append("on a precedence cycle (never taken): " + ", ".join(sorted(loops)))
