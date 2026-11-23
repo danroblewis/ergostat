@@ -374,7 +374,8 @@ refusal under R3 is **untrusted-text** instead of **library-untrusted**: the sam
 owner's `use:` line, suggesting no copy into `with:` and quoting no value. An `ai` or `person` block may say only its
 text, `goal`, `until`, `every` and `cron` (these two as R1's rule above), and the common block keys; `model`, `run`,
 `parse`, `context`, `review`, `agent`, `workspace`, `tools`, `timeout` and the rest are refused by name
-(`library-untrusted`). A template cannot write `sources:` today (it is not a template section); the gate judges one
+(`library-untrusted`). `runs-on` (§12k) is refused by name in any block or sensor a library writes: only the owner
+names the machine a block runs on. A template cannot write `sources:` today (it is not a template section); the gate judges one
 by R3 all the same. R3 says only who wrote the text; the library still decides that the part asking it exists.
 
 What R1 and R2 let through is still an untrusted part, under the limits of *Untrusted libraries* above: one floor on

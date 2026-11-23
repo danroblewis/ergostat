@@ -112,3 +112,13 @@ it only when it is under the model's folder. An absolute path, a `..` out of the
 and only the command text is checked (SPEC §12k says so). Test:
 test_a_file_outside_the_model_folder_is_not_read_for_calls, which failed when I removed the folder check.
 Overrun reason: 95 net lines against 90; the five over are the folder check on the script read that round 1's review asked for.
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, gap/compute-runs-on-config-continued-continued round 3). The queue's finding is
+answered. tests/test_library_trust.py::test_every_compile_key_classified failed because the new `runs-on` key was in
+no trust table (sensor, program, ai, person). ergostat/library/trust.py now refuses it by name to a library template,
+in MACHINE_NO and SENSOR: only the owner names the machine a block runs on. That is one file outside the Files list,
+2 lines. Refusing is the more reversible choice, because allowing it later loosens nothing already written. SPEC §2a
+says so. The test failed before the change and passes after it (48 passed in the file).
+Overrun reason: 97 net lines against 90; five are round 2's folder check on the script read, and two are the trust-table lines that classify `runs-on` for library templates.
