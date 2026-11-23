@@ -510,7 +510,11 @@ start). Raising it trades risk for velocity: edit the value, and the next tune's
 `self-reference`, `factory-missing-capability` or `queue-interleaving`, or `"factory": true`. The factory's own
 records count by themselves: the merge queue stopped (`queue`) and the upgrader unable to bring the instance back
 (`switch`). Review findings and a reviewer's park are not harm and do not count. Escapes count against the pools
-too: a merge reverted on main (`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`),
+too: a merge reverted on main (reverts are found by `main-watch`, dev/bin/escapes.py: each `This reverts commit
+<sha>` pushed to main is matched to the merged gap whose reviewed head is that merge's second parent, else whose
+`main_sha` it is when exactly one gap carries it, and recorded as `gap.reverted` once; one matching no gap is the
+intervention `reverted-unmatched`, an escape at the pool size then; by hand,
+`ergostat event --add gap.reverted --item gap/NAME --data '{"reverted": true}'`),
 main broken by it (`ergostat event --add gap.measured --item gap/NAME --data '{"broke_main": true}'`; the
 implementor's triage counts by itself: a `main-broken` intervention blames the gaps whose merge made that main
 commit, their `main_sha`, or, with none found, counts one escape at the pool size then), or a later gap or

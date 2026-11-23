@@ -432,7 +432,7 @@ blocks:
 
   main-watch:
     type: program
-    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one
+    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one; and of reverts pushed to main, each an escape (dev/bin/escapes.py)
     run: python3 dev/bin/upgrade.py watch
     every: 10m
     timeout: 2m
