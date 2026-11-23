@@ -59,6 +59,11 @@ groomer_session_usd = 3.0
 pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one session sees the whole pipeline
 pipeline_manager_session_usd = 3.0
 
+[milestones]                         # groups of gaps finished together (dev/bin/milestones.py)
+active_max = 3                       # the most milestones active at once, an upkeep one not counted (1-20)
+upkeep_days = 7                      # an upkeep milestone's cycle: then it completes, its unfinished gaps carried to the
+                                     # next (1-90)
+
 [backlog]
 every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before
 
