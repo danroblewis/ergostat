@@ -31,3 +31,10 @@ also calls flake-fixed as `pipeline-manager` on a seen flake: refused, no interv
 flake-fixed absent from manage.__doc__. With the guard broken, that test failed. Choice made without asking (the
 most reversible one): refused outright rather than routed through the inbox. The definition says a person says it,
 and refusing adds no inbox action or approved-command path. Kept at three tests, as the definition names three.
+
+Round 2, after the failed build. The build's tail ends partway through the dots, with no FAILED line and no summary,
+so it shows no failing test: the run was cut off, not failed by a test. tests/test_factory.py was then run serially
+(scripts/named_tests.py). One whole-file run reached 201 passed and 2 skipped (Docker) before the session's own
+900 s timeout stopped it in test_a_defect_park_is_never_resumed_by_the_program. That test and every test after it
+were then run three at a time: all passed. The factory's -n 8 build command itself was refused in this session, so
+the xdist run was not reproduced. No code was changed: nothing was found to fix.
