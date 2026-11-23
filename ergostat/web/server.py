@@ -628,10 +628,12 @@ def _record_rows(p, m, snap, about, match, n, skip, span, scope=None) -> list[di
     return sorted(got.values(), key=lambda e: e["seq"])[-n:]
 
 
-def api(live: Live, path: str, q: dict):
+def api(live: Live, path: str, q: dict, reader: bool = False):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
-    shape is, and which shapes stand for each part, so one selection is lit in every view."""
-    got = _answer(live, path, q)
+    shape is, and which shapes stand for each part, so one selection is lit in every view. ``reader``: asked by
+    anyone under a public name (``open: read``), who may not ask a data source (SPEC §4d, §4e)."""
+    parts = path.strip("/").split("/")                  # a reader's query answered here: _answer's signature kept
+    got = _query(live, live.get(), parts, q, True) if reader and parts[0] == "query" else _answer(live, path, q)
     if path.strip("/") == "graph" and isinstance(got, dict):
         from ..correspond import table
         shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
@@ -656,6 +658,15 @@ def _held_up(p) -> dict:
     return headline(p)
 
 
+def _query(live: Live, p, parts: list, q: dict, reader: bool = False):
+    """Every chart's numbers, read-only, without a snapshot (ergostat/query); a reader is refused a data source."""
+    from ..query import answer, fields
+    name = unquote(parts[1]) if len(parts) > 1 else None
+    if name == "fields":
+        return fields(live, p, reader)
+    return answer(live, p, (q.get("q") or [None])[0], reader) if name is None else None
+
+
 def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     """``pinned``: the snapshot to answer from (a dashboard's panels, all of one moment), else the moment's own."""
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
@@ -671,8 +682,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
     if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
-        from ..query import answer, fields
-        return fields(live, p) if name == "fields" else answer(live, p, one("q")) if name is None else None
+        return _query(live, p, parts, q)
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
         from ..spec import itemgraph as ig
         asked = [k for k in ("near", "path", "about") if one(k) is not None]
@@ -1079,6 +1089,12 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from .relations_api import graph as items_graph
         est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
         return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
+    if head == "items-groups":                    # how far along each group is (SPEC §5a, Progress per group)
+        from ..spec.grouptally import progress
+        if abs(time.time() - snap["at"]) >= 5:
+            raise BadSet("items-groups: answers as the record is now (never at=)")
+        return progress(p.events, getattr(m, "spec", None), one("kind") or "", one("by") or "", snap["at"],
+                        snap["at"] - snap["window"], one("points") or 60)
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":
@@ -1396,7 +1412,7 @@ def handler(project):
                 try:
                     q = parse_qs(u.query)                   # (a blank search kept, to be refused: never "list all")
                     q.update({"search": [""]} if "search" not in q and "search" in parse_qs(u.query, True) else {})
-                    data = api(live, u.path.removeprefix("/api/"), q)
+                    data = api(live, u.path.removeprefix("/api/"), q, reader=who == self.READER)
                 except BadSet as e:                     # an Items filter that is not one: said, as the asker's
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except RemoteRefused as e:              # a remote not named, not answering, or asked enough (SPEC §4c)
