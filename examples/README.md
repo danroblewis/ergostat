@@ -19,6 +19,7 @@ folder (each ignores what it writes), and their records in `~/.ergostat/` like a
 | [`deps`](deps/) | Two loops in series, a person behind | people filling roles, valve `max`, saturation, work piling up downstream |
 | [`this-mac`](this-mac/) | This machine, measured for real | a person filling several loops, manual valves, read-only measurement |
 | [`ops`](ops/) | A small platform, several systems | systems and outlines, a weekly status, snapshots |
+| [`autoscaler`](autoscaler/) | A deployment held at a CPU target by an autoscaler ergostat does not run | an external block on an `external: true` agent, its law identified from the record (`identify:`), drawn in Blocks and judged as a loop; `collect` for the cluster's scaling events |
 | [`big`](big/) | 24 loops, for the layout | layout at scale |
 | [`image-squeeze`](image-squeeze/) | A service that compresses images, and a lab of AI agents that optimises it | stocks and auxiliaries sorted by memory, two-way flows, integral control (a setting stepped as a stock), a tracking loop, progressive delivery with rollback, experiments as items, guardrails, real measurement; Claude Code agents (`FACTORY_AI=claude`) or stand-ins |
 | [`software-factory`](software-factory/) | AI agents build a product; customers judge it | items (tickets, PRs, releases) counted as stocks, a factory and a product as one system, `driven-by`, loops that close the long way, real Claude Code agents (`FACTORY_AI=claude`) or stand-ins |
