@@ -99,3 +99,12 @@ from round 3 (`test_the_header_counts_the_systems_goals_and_the_models_upkeep_ap
 touch either, so they are reported and left alone (lesson 13). `test_the_items_table_fits_at_1440_px` passes. Not run:
 `tests/test_page_refresh.py`, the unit suite, the other browser files. `node --check` on pages.js was refused in this
 session. A syntax error would stop pages.js from loading at all, and the 60 page tests that passed all load it.
+
+Round 5: main (8a27f9e3) merged. The one conflict was in `pages.js`, at the kinds' table header and row. Main added
+`data-kind` and `data-state` to each row. The branch had `"num keep"` on the 'in state' header. The resolution keeps
+both, and nothing else changed. After the merge: ruff clean; `tests/test_style_tokens.py` 14 passed;
+`tests/test_items_page.py` with Playwright under the watchdog 66 passed, 1 failed (rc 1), in two runs. The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, with the same `#project` switcher timeout as
+in rounds 2-4. This branch does not touch the header or the switcher, so it is reported and left alone (lesson 13).
+`test_actions_say_per_class_asked_approved_denied_and_whether_held` passes now. `test_the_items_table_fits_at_1440_px`
+passes. Not run: `tests/test_page_refresh.py`, the unit suite, the other browser files.
