@@ -154,3 +154,13 @@ Its runs failed past their attempts (a dead letter):
 - attempt 15: nack exited 1
 - attempt 16: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 17: nack the run ended with gap/ui-the-evidence-says-in-one-line-whether-the-actor still parked
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 18:30).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 15: nack exited 1
+- attempt 16: nack the implementor pool is full (run/pools.json): waits its turn
+- attempt 17: nack the run ended with gap/ui-the-evidence-says-in-one-line-whether-the-actor still parked
+- attempt 18: nack given back
