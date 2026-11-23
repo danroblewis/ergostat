@@ -33,6 +33,7 @@ OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "suggest"}
 MOST_SUGGESTIONS = 100      # names one suggestion answers with
 SUGGEST_SECONDS = 3.0
 SUGGESTED = ("metrics", "labels", "values")
+ANALYSIS = {"name": "analysis", "type": "analysis", "language": "ergostat analysis"}   # query/analysis.py: reserved
 _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a label's name, as a suggestion takes it
 
 
@@ -98,10 +99,19 @@ def types() -> dict[str, ModuleType]:
 
 
 def listed(spec) -> list[dict]:
-    """The model's sources a panel can query: name, type and language, and never their connection."""
+    """The sources a panel can query: ergostat's own ``analysis`` (reserved, never declared), then the model's, each its
+    name, type and language, and never their connection."""
     every = types()
-    return [{"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
-            for s in (getattr(spec, "sources", None) or {}).values() if s.type in every]
+    return [dict(ANALYSIS), *({"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
+                              for s in (getattr(spec, "sources", None) or {}).values()
+                              if s.type in every and s.name != ANALYSIS["name"])]
+
+
+def language(spec, name: str) -> str | None:
+    """The language a source of the model is asked in, or None for none of that name."""
+    src = (getattr(spec, "sources", None) or {}).get(name)
+    mod = types().get(src.type) if src is not None else None
+    return mod.LANGUAGE if mod is not None else None
 
 
 def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS) -> dict:

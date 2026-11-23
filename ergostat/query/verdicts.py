@@ -25,6 +25,10 @@ REASONS: dict[str, tuple[str, str]] = {
     "averaged-percentiles": ("warn", "add the buckets first and take one quantile: "
                                      "histogram_quantile(0.99, sum by (le) (rate(NAME_bucket[5m])))"),
     "quantile-in-bucket": ("warn", "draw the buckets themselves (a heatmap of NAME_bucket by le) to see the bounds"),
+    "only-rollups": ("refuse", "keep the raw readings longer (storage), or chart the series itself, from its roll-ups"),
+    "not-raw": ("warn", "read an ergostat series with raw(A) to see its readings; a source's range windows smooth them"),
+    "scrape-unknown": ("warn", "read the readings with raw(A), or treat periods near twice the step as not seen"),
+    "mixed-windows": ("warn", "ask the queries compared at one step and one range window"),
 }
 
 
