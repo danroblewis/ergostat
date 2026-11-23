@@ -49,3 +49,9 @@ Built, round 1. 66 net lines outside tests and docs (etamodel.py +60, eta.py +6)
   test_finished_states, test_lease_refused_cost, test_leased_workspaces (9), test_pool_now, test_take_order,
   test_graph_cli_web (83); ruff clean. No page changed: no browser file run. The unit suite was not run here (the
   factory runs it).
+
+## Where it stopped
+
+Parked by the factory (review/eta-refused-takes-are-a-closed-gate-1, 2026-11-23 09:35).
+
+Done: (a) refusals (uncounted give-backs under 30 s) left out of attempts and the run curve, said in reasons; (b) measured concurrency (time-weighted p90 of runs while items queued) capping capacities, so the simulation and the levelled pass alike; (c) the gated synthetic record, backtest table and verdict (p50 MAE 847 to 409 min, p90 coverage 0.44 to 0.93, as the branch reports); SPEC §5a; all four acceptance tests present, with mutation checks reported. Left: done item 2 on a copy of the factory record (first paint and simulated Timeline: no more first-hour starts than the implementor's measured concurrency), and the ticket-factory demo record's backtest column showing no worsening. The implementor's container has neither record and cannot run the demo, so another fix round cannot close it.
