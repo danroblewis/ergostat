@@ -5308,6 +5308,80 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
         proc.wait(10)
 
 
+# plots.js's three chart forms (dev/records/dashboard-new-chart-forms.md), each mounted with fixed data on a test page
+# served by route() beside the real static files; the checks read the drawn canvas so each can fail
+PLOTS_PAGE = ('<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/static/style.css">'
+              '<main id="m" style="width:720px"></main>' + "".join(
+                  f'<script src="/static/{f}.js"></script>' for f in ("elk.bundled", "uplot/uPlot.iife.min", "util", "charts", "plots")))
+PLOTS_SEED = """import time, sys; from pathlib import Path; from ergostat import model as mdl; from ergostat.store import Project
+p = Project(mdl.load(Path(sys.argv[1]))); now = time.time(); p.events.add("ergostat.started", at=now - 600)
+for i in range(6):
+    p.measurements.add(p.model.spec.stocks["disk-used"].sensors["main"].series, 50 + 6 * i, at=now - 550 + i * 100)
+    p.events.add("valve.opened", item="delete-old-files", data={"amount": 1}, at=now - 560 + i * 100)"""
+PLOTS_MOUNT = """async () => {
+  const T = Array.from({ length: 12 }, (_, i) => 1.7e9 + i * 60), m = document.getElementById("m");
+  m.append(multiChart(await (await fetch("/api/series?refs=flow.logs-written,flow.cleaned&points=6")).json()));
+  m.append(phasePlot({ times: T, x: { name: "queue", unit: "items", values: T.map((_, i) => (i === 5 ? null : i)) },
+                       y: { name: "done", unit: "items", values: T.map((_, i) => (i * i) % 7), goal: { value: 3 } } }));
+  m.append(heatmap(heatOfStates({ kind: "pr", times: T, states: ["open", "review", "merged"],
+    counts: { open: T.map((_, i) => (i % 2 ? 4 : 0)), review: T.map(() => 2), merged: T.map(() => 4) } })));
+  m.append(heatmap(heatOfGoals([{ goal: "g", unit: "%", times: T, off: [[T[3], T[5]]], e: T.map((_, i) => -i) }])));
+  for (let n = 0; n < 100 && [...m.querySelectorAll(".chart-plot")].some((e) => !e.plot); n++) await new Promise((r) => setTimeout(r, 50));
+  const plot = (c) => m.querySelector(`.${c} .chart-plot`).plot, one = document.createElement("canvas").getContext("2d");
+  const rgb = (t) => { one.fillStyle = tok(t); one.fillRect(0, 0, 1, 1); return [...one.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+  const at = (u, x, y) => [...u.ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data].slice(0, 3);
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 40);
+  const by = (u, x, y, c) => [-1, 0, 1].some((a) => [-1, 0, 1].some((b) => near(at(u, x + a, y + b), c)));   // within a pixel
+  // a line's own pixels: nine samples along its first measured step in the left half (its end label is at the right)
+  const along = (u, j, c) => { const t = u.data[0], v = u.data[j + 1];
+    const i = v.findIndex((y, k) => k < v.length / 2 && y != null && v[k + 1] != null); if (i < 0) return -1;
+    return [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((f) => by(u, u.valToPos(t[i] + (f / 10) * (t[i + 1] - t[i]), "x", true),
+                                                         u.valToPos(v[i] + (f / 10) * (v[i + 1] - v[i]), "y", true), c)).length; };
+  const mu = plot("plot-multi"), ph = plot("plot-phase"), P = (x, y) => at(ph, ph.valToPos(x, "x", true), ph.valToPos(y, "y", true));
+  const hm = plot("plot-heat"), cell = (i, k) => at(hm, hm.valToPos(T[i], "x", true), hm.valToPos(3 - k - 0.5, "y", true));
+  const want = { 0: (i) => (i % 2 ? "--ink" : "--fill"), 1: () => "--fan-50", 2: () => "--ink" };
+  return { chips: [...m.querySelectorAll(".plot-chip")].map((e) => e.textContent), data: mu.data.slice(1),
+    lines: ["--g0", "--g1"].map((t, j) => along(mu, j, rgb(t))),
+    first: near(P(0, 0), rgb("--bg")), last: near(P(11, 2), rgb("--ink")),
+    joined: by(ph, ph.valToPos(1.25, "x", true), ph.valToPos(1.75, "y", true), rgb("--ink")),     // a quarter along (1,1)-(2,4),
+    apart: by(ph, ph.valToPos(1.75, "x", true), ph.valToPos(1.25, "y", true), rgb("--ink")),      // off its tick; and off the path
+    phaseRows: m.querySelectorAll(".plot-phase tbody tr").length,
+    heatCols: m.querySelector(".plot-heat").querySelectorAll("thead th").length - 1,
+    cells: [0, 1, 2].every((k) => T.every((_, i) => near(cell(i, k), rgb(want[k](i))))),
+    off: [4, 8].map((i) => { const g = m.querySelectorAll(".plot-heat .chart-plot")[1].plot;
+      return near(at(g, g.valToPos(T[i], "x", true), g.valToPos(1, "y", true) + 1), rgb("--bad")); }),
+    goalKey: m.querySelectorAll(".plot-heat .plot-key")[1].textContent,
+    named: [...m.querySelectorAll("figure")].map((f) => f.getAttribute("aria-label")) };
+}"""
+
+
+def test_the_three_chart_forms_draw_in_each_theme(browser, tmp_path):
+    """multiChart of two served flows: two labelled lines, each drawn in its own hue, in one unit; phasePlot: a joined
+    path, open first point, filled last; a heatmap of a kind's states: a row per state, a cell per bucket on the ramp,
+    a goal's off stretch hatched; every figure named; light and dark, no console error."""
+    seed = lambda d: subprocess.run([sys.executable, "-c", PLOTS_SEED, str(d)], check=True, capture_output=True,  # noqa: E731
+                                    env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")})
+    errors: list[str] = []
+    with served("disk-space", tmp_path, edit=seed) as url:
+        for theme in ("light", "dark"):
+            pg = browser.new_page(color_scheme=theme, viewport={"width": 900, "height": 1200})
+            pg.on("pageerror", lambda e, t=theme: errors.append(f"{t}: {e}"))
+            pg.on("console", lambda m, t=theme: errors.append(f"{t}: {m.text}") if m.type == "error" else None)
+            pg.route(f"{url}/plots-test", lambda r: r.fulfill(content_type="text/html", body=PLOTS_PAGE))
+            pg.goto(f"{url}/plots-test")
+            got = pg.evaluate(PLOTS_MOUNT)
+            pg.close()
+            names = [c.split(" ")[0] for c in got["chips"]]
+            units = {re.sub(r"^.*\d ", "", c) for c in got["chips"]}
+            assert names == ["logs-written", "cleaned"] and len(units) == 1 and units.pop().startswith("%/"), (theme, got["chips"])
+            assert min(got["lines"]) >= 5, (theme, got["lines"], got["data"])      # each line's own pixels, in its hue
+            assert got["first"] and got["last"] and got["joined"] and not got["apart"] and got["phaseRows"] == 11, (theme, got)
+            assert got["heatCols"] == 3 and got["cells"], (theme, got)              # one row per state, a cell per bucket
+            assert got["off"] == [True, False] and "its own lowest" in got["goalKey"] and "off" in got["goalKey"], (theme, got)
+            assert len(got["named"]) == 4 and all(got["named"]), (theme, got["named"])
+    assert not errors, errors
+
+
 # the header's link: its text, its box, and whether it is the header's first element
 WAITS_LINK = """() => { const a = [...document.querySelectorAll('header a')].find((x) => /wait/.test(x.textContent));
   if (!a || a.hidden) return null;
