@@ -7461,9 +7461,9 @@ as off. To count the window, an `items` sensor on an auxiliary may name `enterin
 A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
 and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
 the protocol: the worker, its frame, `hello`, `beat` and `ping`, a run started under its keeper with its output sent
-by offset (12s.3), and the engine's session with each node of a pool (section 12s.4). A model may declare `compute:`
-pools and a block's `runs-on:` (§12k, *Compute pools*); `runs-on:` is checked only, so nothing runs on a node, and a
-model without `compute:` is unchanged by any of this.
+by offset and its CPU and memory read (12s.3), and the engine's session with each node of a pool (section 12s.4). A
+model may declare `compute:` pools and a block's `runs-on:` (§12k, *Compute pools*); `runs-on:` is checked only, so
+nothing runs on a node, and a model without `compute:` is unchanged by any of this.
 
 **The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
 modules import each other by bare name and nothing from ergostat (a test reads every import of every module), so a
@@ -7502,8 +7502,9 @@ A frame with an unknown `type` is answered `error` and the worker goes on, as it
 | `labels` | the root's `labels.json`, an object of strings (what the owner says the node has); missing, `{}`; unreadable or of another shape, `{}`, said on standard error |
 | `slots` | the most runs it takes at once: its CPUs, at most 64; CPUs unknown, 0 |
 
-Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs`, each run whose output it
-follows with the offsets the engine has taken, `{"RUN": {"out": N, "err": N}}` (`{}` with none; section 12s.3).
+Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs`, `{"RUN": {...}}` (`{}` with
+none; section 12s.3): each run whose output it follows with the offsets the engine has taken, `"out": N, "err": N`,
+and each run folder in the root with its latest readings, `"resources": {...}` (12s.3, *Readings*).
 `ping` is answered `pong` with its `id`. Every other type is a table, `serve.HANDLERS`, of message type to handler:
 each later part of the protocol is one module of the folder and one line registering it there. Standard input
 closed, the worker ends (0).
@@ -7520,8 +7521,8 @@ closed, the worker ends (0).
 
 Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`), and the
 run's output by offset with `attach`, `ack`, `ended` and `done` (`output.py`), both registered in `serve.HANDLERS` once
-`hello` is said. Still to come: the keeper's wall and lease deadlines, `ended`'s `resources`, and the runs listed
-in `hello` (`backends` stays `[]` until then).
+`hello` is said, and each run's readings, `ended`'s `resources` (`sampler.py`, below). Still to come: the keeper's
+wall and lease deadlines, and the runs listed in `hello` (`backends` stays `[]` until then).
 
 **`start`** `{"run", "command", "input", "env", "block", "limits"}`: `command` a non-empty string, `input` (the
 run's standard input) a string, `env` an object of strings, else an `error`. It is answered `refused` with `why`:
@@ -7550,8 +7551,9 @@ the run is not started if that fails or the keeper has already gone) and `oom_sc
 orders the OOM killer's choice, run before keeper). It sets `SIGPIPE`, `SIGXFSZ` and `SIGHUP` back to their
 default (Python and the keeper ignore them, and an ignored signal stays ignored across exec, so `yes | head` would
 not end on its broken pipe). It then execs `/bin/sh -c COMMAND` in `cwd/` with the keeper's
-environment and `env` over it, standard input from `in`, output to `out` and `err`. The keeper waits for it and
-writes `runs/RUN/exit` (whole, by a replace) as `{"code", "how"}`: the exit code, or `-N` for signal N, and `how`,
+environment and `env` over it, standard input from `in`, output to `out` and `err`. The keeper waits for it
+(`wait4`), writes the CPU that gave as `runs/RUN/reaped` `{"user", "system"}` (seconds: the run and every
+descendant it waited for; best effort, a failed write is said on the keeper's log), then writes `runs/RUN/exit` (whole, by a replace) as `{"code", "how"}`: the exit code, or `-N` for signal N, and `how`,
 `exit` or the signal's name (`USR1`), or `TERM`/`KILL` when it was stopped; `{"code": null, "how": "not started"}`
 when it could not fork. A keeper that is itself killed writes nothing: on Linux the kernel then SIGKILLs the run's
 first process (the death signal), but other processes of its group go on.
@@ -7564,6 +7566,34 @@ read stops the run all the same, with the 10-second grace.
 
 After the exit is written the keeper waits for `runs/RUN/done` or a day (`--day SECONDS`, hidden, for tests),
 removes its run folder (by its name, after resolving it under the root's `runs/`), and ends.
+
+**Readings** (`sampler.py`, one thread started with the beat, for every run at once, never one per run). Each
+second it looks at the root's `runs/`, so it finds runs an earlier worker started as well. A run with a `pgid` is sampled once a second
+for its first ten seconds seen, then every ten seconds. Each sample is one listing of the processes (`/proc` on Linux; one
+`ps -A -o pid=,ppid=,pgid=,rss=,utime=,stime=` elsewhere, a failed one no sample) and the run's tree in it: its
+process group and its descendants by parent, whatever their group. Per run it keeps each process's last CPU seen,
+the most resident memory the tree held at once (summed), the most processes and, where cheap (`/proc`; `libproc`
+on macOS), the most open files. When it reads the exit it also reads `reaped` (written before the exit), taken only
+when both are finite numbers from 0: the run's CPU exact once the keeper has reaped it, whether or not any sample
+saw the run (a run of under a second, or one a restarted worker finds already ended). The resources have the keys a local run's carry (`ergostat/costs/sampler.py`,
+`Tracker.result`): `cpu`, `cpu_user`, `cpu_system` (each the larger of the sampled sum and what the keeper reaped),
+`memory_peak` (bytes), `processes_peak`, `open_files_peak` when known, `samples`, `method` (`keeper+sampled`,
+`keeper`, `sampled` or `none`) and `sampler_cpu` (the thread's CPU and its `ps`'s, reaped with `wait4`, shared
+out among the runs it saw). Memory and processes between samples are not seen, nor any of a run no sample saw
+(its `memory_peak` 0). Without a readable `reaped` (a keeper killed, or one from before it was written) the CPU is
+the sampled sum alone, which can miss up to the last gap of the run, and `method` has no `keeper`.
+
+A run is sampled only before its keeper has reaped it: a sample whose run has a `reaped` or an `exit` once the
+listing is taken is dropped, and a run whose `exit` was read is never sampled again. From then on its group's id may
+be a stranger's (the pid reused once the group empties), so a restarted worker's run found already ended has
+nothing from the process on that pid; what the run left running after its exit, and its last second before, go
+unseen (its CPU then only what `reaped` holds). Once a run's `exit` can be read the run leaves the beat's readings;
+its readings are kept, unsampled, until its folder is removed. They are the `resources` of its **`ended`** (below, sent by the
+output follower after the run's last `out`), with `reaped` read again then: a run `ended` before any look found
+it has its CPU from `reaped` and `samples` 0 (`method` `keeper`), and an `ended` said again after an `attach` carries
+them again. A run never started (an exit and no `pgid`) has `method` `none`. The sampler sends no frame itself. A
+look that fails is said on the worker's standard error and the next look tried. Readings are measurements: no
+beat and no reading is an event.
 
 **The output, by offset** (`output.py`). One follower thread, whatever the number of runs, follows each run started
 in this session (from offset 0, once it is `started`) and each run attached, and sends what is new in its `out` and
@@ -7591,9 +7621,10 @@ line rejoins by offset. Its files are looked at again soon after output and at m
 - **`limits.log`** (64 MiB when not given) caps each of the two files: a file past it while the run goes has the
   worker write the run's `stop` (`{"grace": 1, "why": "log over its cap"}`, unless a stop is there already), so the
   keeper stops it as for a `kill`. Nothing past the cap is sent; what the run wrote meanwhile stays in the file.
-- **`ended`** `{"run", "code", "how"}` is sent once the run's `exit` is written and every byte of both files up to
-  it (or its cap) has been sent: after the run's last `out`. `code` and `how` are the exit's, `how` being `log
-  over its cap` when the worker's cap stop ended it (TERM or KILL). The exit is looked at before the files' sizes,
+- **`ended`** `{"run", "code", "how", "resources"}` is sent once the run's `exit` is written and every byte of both
+  files up to it (or its cap) has been sent: after the run's last `out`. `code` and `how` are the exit's, `how` being `log
+  over its cap` when the worker's cap stop ended it (TERM or KILL); `resources` the run's readings (*Readings*,
+  above). The exit is looked at before the files' sizes,
   so nothing written before it is missed, and each file's size the first time the follower sees the exit is where
   its output ends: what a process left behind writes after that is never sent (the test leaves a loop writing),
   and does not hold back `ended`. An unreadable exit is waited for, never read as an end. A run attached again
