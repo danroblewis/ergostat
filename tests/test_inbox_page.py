@@ -120,6 +120,14 @@ def ladder(tmp_path, home):
     yield from serve(tmp_path, home, p, a)
 
 
+@pytest.fixture
+def held_again(tmp_path, home):
+    """A modelling request held for the owner: its id is fixed, so held again it comes back under the same id."""
+    from .test_inbox import held_request
+    p, r, eid = held_request(tmp_path)
+    yield from serve(tmp_path, home, p, (r, eid))
+
+
 def serve(tmp_path, home, p, a):
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "web", "--port", str(port)],
@@ -552,5 +560,40 @@ def test_a_denied_row_says_by_whom_and_links_its_item_whose_page_shows_it(ticket
         assert all("approved by" in t or "denied by" in t for t in texts), texts
         assert any("denied by owner" in t and "not on a Friday" in t for t in texts), texts
         assert any("approved by owner" in t and ", ran " in t for t in texts), texts
+        assert not errors, errors
+        b.close()
+
+
+def test_a_request_answered_here_and_held_again_under_its_id_waits_again(held_again):
+    """lesson-5: a modelling request's id is fixed; approved here, then held again (its change turned away), it is
+    listed again with its answers, and the earlier 'Approved by you' row no longer stands for it."""
+    from ergostat.numbers import requests as rq
+    url, p, (r, eid) = held_again
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        row = pg.locator(f'[data-inbox="{eid}"]')
+        row.wait_for(state="attached", timeout=20000)
+        pg.locator(".housekeeping > summary").click()  # a modelling request is listed in the housekeeping (main's rule)
+        row.wait_for(timeout=20000)
+        row.locator('button[data-verb="approve"]').click()
+        note = row.locator(".inbox-act .note")
+        pg.wait_for_function("(el) => el.textContent.includes('Approved by you at')", arg=note.element_handle(), timeout=20000)
+        leave(pg)
+        done = pg.locator(f'[data-answered="{eid}"]')
+        done.wait_for(timeout=20000)
+        assert rq.stored(p)[r["id"]]["state"] == "open"
+        for _ in range(2):                              # drawn again from a record where it no longer waits
+            with pg.expect_response(lambda x: "/api/" in x.url, timeout=20000):
+                pass
+        assert done.count() == 1 and pg.locator(f'[data-inbox="{eid}"]').count() == 0
+        rq.mark(p, rq.stored(p)[r["id"]], "held", "its change was turned away", tier="ai", tried={"ai": 2})
+        row.wait_for(timeout=20000)                     # waiting again, under the same id, with its answers
+        assert row.locator('button[data-verb="approve"]').count() == 1
+        pg.wait_for_function(f"() => !document.querySelector('[data-answered=\"{eid}\"]')", timeout=20000)
+        assert done.count() == 0 and row.count() == 1
         assert not errors, errors
         b.close()

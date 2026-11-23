@@ -93,3 +93,29 @@ here are still left out of the waiting group and drawn at its top as `data-answe
   - `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` times out
     waiting for the `#project` switcher's other-project option. That is the header, and the branch does not change
     it. Not rerun on clean main here.
+
+## Where it stopped (round 4)
+
+The review's one finding (lesson-5, `diagram.js` ANSWERED kept under a fixed id) is fixed. Two net lines added in
+`ergostat/` (about 27 in all against `main`, by the round-3 count; the numstat pipe was refused here, so not recounted).
+
+- `renderSide` now marks an `ANSWERED` entry `left` the first time a drawing of the side list does not list its id
+  with answers. If the same id is listed with answers again after that (a modelling request held again under its
+  `rid` once its change is turned away), the entry is dropped. The row comes back with its buttons, and the old
+  "Approved by you" row goes away. A drawing from before the answer still lists the id, but `left` is not set yet,
+  so a late graph answer still can't draw the entry twice.
+- One part of the finding is narrower on current main. `waitsOnYou` (util.js) leaves out `kind: request`, so a
+  modelling request is never in "Waiting for you" or its count. It is listed in the folded "Model housekeeping", and
+  `ANSWERED` never hid it there. What the finding got right is that the stale "Approved by you" row stayed up as if
+  it were still the answer. The fix checks any row listed with answers, not only the waiting group, so it covers
+  both groups.
+- Limit, and the easiest choice to undo: if the request is held again before any drawing of the list sees it gone,
+  the entry is kept until the page is loaded again. The page has no seq for a waiting entry to compare with (lesson-2
+  rules out comparing times). Passing the request's `moved` seq through `state.py` would close this, but it is
+  outside the page and was not done.
+- Test: `tests/test_inbox_page.py::test_a_request_answered_here_and_held_again_under_its_id_waits_again` approves a
+  held request on the page, waits for the side list to be drawn twice with it gone, holds it again under the same id
+  (`requests.mark`), and checks that the row is back with Approve and that the `data-answered` row is gone. It failed
+  against the code before the fix (timed out waiting for the answered row to go) and passes with it.
+- Ran: `tests/test_inbox_page.py` under the watchdog, 11 passed, rc 0, none skipped. `ruff check ergostat tests
+  scripts` is clean. The other browser files were not run (the factory runs them).

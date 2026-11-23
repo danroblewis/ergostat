@@ -1483,7 +1483,9 @@ function renderSide(side, g, view) {
   // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
   // colour is not the only cue.
   const ask = waitsOnYou;                                     // (util.js: the header's "N wait for you" counts the same)
-  const waiting = problems.filter((a) => ask(a) && !ANSWERED.has(a.what));   // (answered here: drawn as answered)
+  // answered here: drawn as answered, until the same id, once seen gone, is listed to answer again (a request held again)
+  for (const [w, x] of ANSWERED) { const back = problems.some((a) => a.answer && a.what === w); if (back && x.left) ANSWERED.delete(w); else if (!back) x.left = true; }
+  const waiting = problems.filter((a) => ask(a) && !ANSWERED.has(a.what));
   const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
   const rest = problems.filter((a) => !ask(a) && !off.includes(a));
   const count = (xs) => h("span", { class: "muted" }, ` ${xs.length}`);
