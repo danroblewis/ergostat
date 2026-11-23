@@ -162,7 +162,10 @@ def test_a_todo_whose_prerequisite_was_dropped_stays_waiting_and_says_why(tmp_pa
     assert [x for x in batcher(p, capsys) if "event" in x] == [], "said once, not every pass"
     c = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/clean"]
     assert c.state == "waiting" and "todo/access ended dropped" in c.fields["stuck"]
-    assert not why(p, "todo/clean")["done"]
+    w = why(p, "todo/clean")
+    assert not w["done"] and w["root"]["kind"] == "work" and w["root"]["item"] == "todo/clean"
+    assert "what it waits on is finished (todo/access); stuck: todo/access ended dropped" in w["summary"], w["summary"]
+    next_is_ready(w, "todo/clean")
     add(p, "todo/access2", "todo.done", 100)                     # waited again, on a new prerequisite, which happened
     add(p, "todo/clean", "todo.waiting", 90, waits_on={"set": ["todo/access2"]})
     lines = batcher(p, capsys)
@@ -184,10 +187,31 @@ def test_a_todo_waiting_again_is_not_freed_by_the_wait_it_had_before(tmp_path, m
         assert not [x for x in lines if x.get("event") == "todo.freed"], lines
     b = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"]
     assert b.state == "waiting" and b.fields["waits_on"] == ["todo/a"]
+    assert b.fields["stuck"].startswith("nothing it waits on was named when it last entered waiting")
+    w = why(p, "todo/b")
+    assert "stuck: nothing it waits on was named when it last entered waiting or since" in w["summary"], w["summary"]
+    next_is_ready(w, "todo/b")
     add(p, "todo/b", "todo.noted", 50, waits_on="todo/c")           # a wait named after it entered waiting counts
     add(p, "todo/c", "todo.done", 40)
     lines = batcher(p, capsys)
     assert [x["item"] for x in lines if x.get("event") == "todo.freed"] == ["todo/b"]
+
+
+def next_is_ready(w, iid):
+    """A waiting to-do with nothing unfinished to wait on: next, record it ready, never re-added nor the batcher's."""
+    assert w["next"]["owner"] == "whoever records todo.ready", w["next"]
+    assert w["next"]["command"] == f"ergostat event --add todo.ready --item {iid}"
+    assert "todo.added" not in w["summary"] and "(`ergostat event --add todo.ready" in w["summary"], w["summary"]
+
+
+def test_a_todo_waiting_on_nothing_named_says_so_and_what_happens_next(tmp_path, monkeypatch, capsys):
+    p = project(tmp_path, monkeypatch)
+    add(p, "todo/n", "todo.waiting", 300, title="Wait for the window")
+    assert not [x for x in batcher(p, capsys) if x.get("event") == "todo.freed"]
+    w = why(p, "todo/n")
+    assert w["root"]["kind"] == "work" and "it waits on nothing recorded; stuck: nothing it waits on was named" \
+        in w["summary"], w["summary"]
+    next_is_ready(w, "todo/n")
 
 
 def test_a_todo_dropped_while_the_batcher_frees_it_stays_dropped(tmp_path, monkeypatch, capsys):

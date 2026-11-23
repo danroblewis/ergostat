@@ -119,7 +119,6 @@ def taken(ctx, it, info) -> dict:
     """The root for an item in its state, nothing it waits on unfinished and no lease on it."""
     bs = [b for b in ctx.spec.blocks.values() if b.takes and b.takes.kind == it.kind and it.state in b.takes.at]
     kind = ctx.spec.items[it.kind]
-    onward = sorted(e for e, s in (kind.on or {}).items() if s != it.state)
     moved = f"moved to {it.state} by {it.latest or 'an event'}"
     if not bs:
         asked = _asked(ctx.spec, it)
@@ -135,10 +134,13 @@ def taken(ctx, it, info) -> dict:
                         [ev(moved, item_link(it.id), at=it.entered), ev(f"{b.name} serves goal {g.name}", _blink(b.name))],
                         since=it.entered, who=b.name)
         if it.state in info["working"] and it.state not in info["queue"]:
-            return root("work", it.id, f"in progress in {it.state}, outside ergostat: no block takes it from there, and "
-                        f"it moves on when one of these is recorded: {', '.join(onward) or 'none declared'}",
-                        "whoever records " + (onward[0] if onward else "its next event"), "finish the work and record it",
-                        None, [ev(moved, item_link(it.id), at=it.entered)], since=it.entered)
+            onward = _onward(kind, it.state)
+            return root("work", it.id, f"in progress in {it.state}, outside ergostat: no block takes it from there"
+                        f"{_waits_none(ctx, it)}, and it moves on when one of these is recorded: "
+                        f"{', '.join(onward) or 'none declared'}", "whoever records "
+                        + (onward[0] if onward else "its next event"), "finish the work and record it",
+                        f"ergostat event --add {onward[0]} --item {it.id}" if onward else None,
+                        [ev(moved, item_link(it.id), at=it.entered)], since=it.entered)
         return root("nothing", it.id, f"nothing takes {it.kind} items from {it.state}: no block's takes: names it, and "
                     "nothing it waits on is unfinished", "the owner",
                     f"add a block that takes: {{kind: {it.kind}, at: [{it.state}]}}, or record the event that moves it",
@@ -151,6 +153,28 @@ def taken(ctx, it, info) -> dict:
                 "gate, full pool, refusal or failing run is recorded for it", "the engine",
                 "look at the engine's log if it is not taken within a minute", "ergostat lease",
                 [ev(f"{b.name}: takes it, room now", _blink(b.name)) for b in bs], since=it.entered)
+
+
+def _onward(kind, state: str) -> list[str]:
+    """Its kind's ``on:`` events, in the order written, that can move it out of ``state``: not into it, not back to
+    the kind's first state (made again), and not one whose ``moves-from:`` leaves ``state`` out."""
+    first = kind.states[0] if kind.states else None
+    return [e for e, s in (kind.on or {}).items()
+            if s not in (state, first) and state in kind.moves_from.get(e, (state,))]
+
+
+def _waits_none(ctx, it) -> str:
+    """For a kind with precedence relations: that nothing it waits on is unfinished (what it names, or that it names
+    nothing), and the item's own ``stuck`` text, a program's reason it cannot go on, when one is recorded."""
+    from ..precedence import _prec
+    prec = _prec(ctx.spec, it.kind)
+    stuck = it.fields.get("stuck")
+    said = f"; stuck: {stuck}" if isinstance(stuck, str) and stuck.strip() else ""
+    if not prec:
+        return said
+    with ctx.ix.lock:
+        on = sorted({d for _, r, d in ctx.ix.links_from([it.id]) if r in prec})
+    return ("; what it waits on is finished (" + ", ".join(on) + ")" if on else "; it waits on nothing recorded") + said
 
 
 def _asked(spec, it):

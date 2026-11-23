@@ -144,9 +144,9 @@ def waits_now(p, it) -> list[str] | None:
 
 def free(p, kind: str, met: set[str]) -> int:
     """Each waiting to-do whose wait (``waits_now``) names only items in a ``met`` state (done, answered: what it
-    waited on happened) is ready again (``K.freed``). One that names nothing, an item never recorded, or one not yet
-    met, stays waiting; one whose wait ended without happening (a prerequisite dropped) stays waiting, and its
-    ``stuck`` field says why, said once. Returns how many were freed."""
+    waited on happened) is ready again (``K.freed``). One that names an item never recorded, or one not yet met,
+    stays waiting; one that names nothing, or whose wait ended without happening (a prerequisite dropped), stays
+    waiting, and its ``stuck`` field says why, said once. Returns how many were freed."""
     from ...spec import items as its
     spec, n = p.model.spec, 0
     waiting = items(p, kind, ["waiting"])
@@ -162,7 +162,8 @@ def free(p, kind: str, met: set[str]) -> int:
             n += 1
             continue
         stuck = ("it cannot be told what it waits on since it last entered waiting (its events are rolled up)"
-                 if on is None else "; ".join(
+                 if on is None else f"nothing it waits on was named when it last entered waiting or since: record "
+                 f"{kind}.waiting with a waits_on to name it, or {kind}.ready when it can go on" if not on else "; ".join(
                      f"{t.id} ended {t.state}, not {' or '.join(sorted(met))}: record {kind}.ready to do it anyway, "
                      f"{kind}.waiting with a new waits_on, or {kind}.dropped"
                      for t in got if t is not None and t.state not in met and t.state in finished(spec, t.kind))) or None
