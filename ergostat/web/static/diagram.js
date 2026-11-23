@@ -884,7 +884,8 @@ function fit(svg, lay, legible = false) {
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
   const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
   // the first view keeps 11px text at 9px or more on screen; a wider system is panned from its left
-  const k = legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole);   // nearly whole at 0.7: show it whole
+  // nearly whole at 0.7: show it whole. The process map: its nodes' 11px text never under 11px (the hint says where more is)
+  const k = Math.max(S.graph?.kind === "process" ? 1 : 0, legible ? (whole >= 0.7 ? whole : 0.8) : Math.max(0.08, whole));
   const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 120;   // the toolbars: 56 above, 50 below
   const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
   S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
@@ -895,7 +896,8 @@ function fit(svg, lay, legible = false) {
    box, else a stock, else what comes first), kept from showing empty space beyond the drawing, and the hint says
    which way the rest lies */
 function fitNarrow(svg, lay, whole, legible, r) {
-  const k = legible ? Math.max(whole, NARROW_K) : Math.max(0.08, whole), ox = lay.ox || 0, oy = lay.oy || 0;
+  // the process map: its 11px text never drawn smaller, as in fit()
+  const k = Math.max(S.graph?.kind === "process" ? 1 : 0, legible ? Math.max(whole, NARROW_K) : Math.max(0.08, whole)), ox = lay.ox || 0, oy = lay.oy || 0;
   const at = (ext, size, o) => (ext * k <= size - 20 ? (size - ext * k) / 2 - o * k : null);   // it fits: centred
   let x = at(lay.width, r.width, ox), y = at(lay.height, r.height, oy);
   if (x == null || y == null) {
@@ -1107,9 +1109,11 @@ async function pageDiagram(main, q) {
   }
   const view = !q.get("view") || q.get("view") === "control" ? "dynamics" : q.get("view");
   // the Process view's own: which kinds, states or events, the paths slider; counts or times (the page's)
-  const pq = { kinds: q.get("kinds") || "", by: q.get("by") || "", paths: q.get("paths") || "", show: q.get("show") || "" };
+  const pq = { kinds: q.get("kinds") || q.get("kind") || "", by: q.get("by") || q.get("mode") || "",   // (kind, mode: Items' link)
+               paths: q.get("paths") || "", show: q.get("show") || "" };
   S.pmShow = pq.show;
   const system = q.get("system") || "";
+  S.here = system;                                               // (Escape by keyboard goes back out of it: keys.js)
   const around = q.get("around") || "";
   const item = view !== "process" ? q.get("item") || "" : "", kind = view !== "process" && !item ? q.get("kind") || "" : "";
   const subQ = item ? { item } : kind ? { kind } : {};          // drawn alone: what an item passed through, a kind touches

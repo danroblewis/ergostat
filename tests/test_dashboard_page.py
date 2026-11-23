@@ -689,3 +689,49 @@ def test_a_draft_too_large_for_an_address_stays_in_this_browser(browser, site):
     pg.get_by_role("button", name="Copy link").click()
     assert "Too large" in pg.locator(".dash-said").inner_text()
     ctx.close()
+
+
+SHAPED_FIELDS = {**FIELDS, "sources": {**FIELDS["sources"], "items": {"kinds": {"ticket": {
+    "fields": [{"name": "ai_cost_usd", "unit": "usd"}, {"name": "net_lines", "unit": "lines"}],
+    "states": ["open", "doing", "done"], "group_by": ["state"]}}}, "counts": {"kinds": ["ticket"]}}}
+SHAPED_ITEMS = {"kinds": [{"name": "ticket", "counts": {"open": 1, "doing": 1, "done": 1}, "finished": ["done"], "paused": [],
+                           "dead": False, "finished_from": "declared", "relations": {}}], "items": []}
+SHAPED_GRAPH = {"kinds": [{"name": "ticket", "queue": ["open"]}]}
+ANSWERED = "(id) => (document.querySelector(`[data-panel-id=\"${id}\"]`)?.dataset.state || 'loading') !== 'loading'"
+
+
+def test_every_worked_example_is_drawn_through_the_shape_gate(browser, site, tmp_path):
+    """The default dashboard's worked examples, each query answered by the real engine with its frame (SPEC §4e), so a
+    family whose declared shapes do not take its example's answer is refused here as it would be in use
+    (dev/records/chart-result-shapes.md)."""
+    from ergostat.web.server import Live, api
+    from tests.test_query_axes import T
+    from tests.test_result_shapes import _p
+    live = Live(_p(tmp_path / "p"))
+
+    def real(route):                                   # the record is at T: the window moved over it, the rest as asked
+        text = route.request.url.split("q=")[1].split("&")[0]
+        asked = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+        asked.update(since=480.0, until=T + 480)
+        q = base64.urlsafe_b64encode(json.dumps(asked).encode()).decode().rstrip("=")
+        route.fulfill(json=api(live, "query", {"q": [q]}))
+
+    ctx = context(browser, fields=SHAPED_FIELDS)
+    ctx.route("**/api/query?*", real)
+    ctx.route("**/api/items?*", lambda r: r.fulfill(json=SHAPED_ITEMS))
+    ctx.route("**/api/items-graph*", lambda r: r.fulfill(json=SHAPED_GRAPH))
+    pg = opened(ctx, f"{site}/dashboard")
+    panels = pg.evaluate("() => dashboardDraft().panels.map((p) => ({ id: p.id, title: p.title, form: p.form }))")
+    got = {}
+    for p in panels:
+        cell = pg.locator(f'[data-panel-id="{p["id"]}"]')
+        cell.scroll_into_view_if_needed()
+        pg.wait_for_function(ANSWERED, arg=p["id"])
+        got[p["title"]] = (p["form"], cell.get_attribute("data-state"), cell.locator(".panel-message-text").all_inner_texts())
+    refused = {t: g for t, g in got.items() if any("; this result is " in w for w in g[2])}
+    assert refused == {}
+    heat = got["ticket: ai_cost_usd against net_lines, heatmap"]
+    assert heat[:2] == ("heatmap", "drawn"), heat
+    assert {f for f, _, _ in got.values()} >= {"heatmap", "scatter", "histogram", "box", "bar"}
+    assert pg.errors == []
+    ctx.close()
