@@ -72,5 +72,14 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   changed on a guess. Left: a gap of its own for the switcher test's cost under `-n 8`, or the factory's rerun of
   this test on clean main under the same load. If it fails there too, it is not this branch's. Not run: main under
   load, or any command but git and file reads (others were refused this session).
+- Round 4 (no review findings to answer): main (5411f137) was already merged into the branch (231b15cf). I read the
+  merge's three shared texts (dev/README.md, dev/factory.toml, ergostat.yaml) and found nothing spliced. Main's
+  fac.py change (`suite(group=...)`, `stop_suites(group)`) keeps its defaults, so mend.py's calls are unchanged. Ruff
+  (`ergostat tests scripts`) is clean. The five acceptance tests pass (3 in 14 s, 2 in 67 s), and so do
+  tests/test_spec_items.py, tests/test_changesets.py and tests/test_fac_items.py (73 passed). `ruff check dev/bin`
+  finds two errors in main's dev/bin/plan.py:439 and dev/bin/review.py:43; neither file is touched here (lesson-13).
+  Not run: the whole of tests/test_factory.py after this merge. The background run of `uv run python
+  scripts/suite_watch.py -- uv run python scripts/named_tests.py tests/test_factory.py` was refused, and the file
+  takes about 943 s serially, longer than a foreground call is allowed. The build step runs it.
 
 Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.
