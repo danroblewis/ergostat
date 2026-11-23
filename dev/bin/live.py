@@ -38,7 +38,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
-HEALTH_WAIT = 120            # seconds a new version has to show it is healthy
+HEALTH_WAIT = 300            # seconds a new version has to show it is healthy
+STOP_WAIT = 120              # seconds a stopping engine has to close before a start is tried
 PASS_FRESH = 30              # a pass at most this old
 DISPATCH_FAILING = 120       # seconds the dispatcher may meet an error in every look before it is a situation
 SENSOR = "suites-running.main"     # the load interlock's, read every 15 s
@@ -181,9 +182,14 @@ def start(cfg: dict) -> str:
 
 
 def stop(cfg: dict) -> None:
+    """Stop the engine and wait until it has gone. `run --stop` gives up after 10 s while a busy engine is still closing,
+    and a start in that time sees it running, starts nothing, and leaves no engine once it exits."""
     sha = target(live(cfg) / "current")
-    if sha:
-        engine(cfg, sha, "run", "--stop")
+    if not sha:
+        return
+    deadline = time.monotonic() + STOP_WAIT
+    while engine(cfg, sha, "run", "--stop").returncode and time.monotonic() < deadline:
+        time.sleep(1)
 
 
 def state_dir(cfg: dict) -> Path:

@@ -647,7 +647,13 @@ included: it stops bisecting, the prefix a full green run proved lands, and the 
 (`cap` in `run/queue.json`, cleared by the first run that settles one), down to a batch of 1, which is one suite run.
 So, whatever the batch, the block's 3 hour timeout is reached only by a suite run begun inside the allowance that
 lasts past it (over 60 minutes at 120, 30 at 150); nothing here bounds a suite run that hangs. Each run's
-`queue_runs` entry says how many it `tried`, `landed` and `given_back`. `merges-per-hour` (gaps merged over the hours
+`queue_runs` entry says how many it `tried`, `landed` and `given_back`. Each pytest suite's result in `suites_queue`
+(`unit`, `browser`, `host`; never `ruff` or `demo`) has `counts: {passed, failed, skipped, deselected, errors}`, read
+from the last pytest summary line in its whole log (`fac.counts`), or `"unknown"` when it has none, was stopped by a
+failing sibling or could not be read; never zeros; `"not_run"` is kept for a suite not run by a rule, neither unknown
+nor zero (no such rule is on main yet; a suite turned off, as an empty `host`, has no entry at all). A landed run's
+`queue_runs` entry has `counts` summed over the pytest suites that ran in the green run main ends at, `suites` naming
+them, and `"unknown"` if any of them is. The browser's `skipped` field is unchanged. `merges-per-hour` (gaps merged over the hours
 of every queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
@@ -751,6 +757,9 @@ else its moves), unless it waits on main, its dependencies, a full pool or a hel
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
+While approved gaps wait and nothing merged for 20 minutes, it also carries what holds the merge queue: each lease the
+merge-queue block holds (item, run, taken, renewed, expires, the item's state, whether the run's process is alive, from
+the engine's run record) and queue-when's inputs read now (`queue_holder()`).
 It answers per trigger what it did or why it left it; a trigger it did not answer comes back in the next session.
 Situations of the earlier one-trigger watch (a `print`, no `prints`) count as looked at once handled or failed; one
 still `raised` is closed `superseded`, never run, and its trigger, if it still stands, goes to the next session. Each

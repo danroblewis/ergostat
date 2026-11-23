@@ -319,6 +319,8 @@ def test_risk_is_reproducible_with_a_seed_and_bounded(tmp_path):
     assert a["runs"] == 40 and not a["stopped"]
     x = a["goals"]["queue-short"]
     assert 0.0 <= x["p_off_end"] <= 1.0 and x["expected_off"] >= 0 and len(x["p_off"]) == 48
+    for ever, now_p in ((x["p_ever_off"], x["p_off"]), (x["p_ever_on"], [1 - v for v in x["p_off"]])):   # whole runs
+        assert len(ever) == 48 and ever == sorted(ever) and all(e >= v - 1e-12 for e, v in zip(ever, now_p, strict=True))
     assert "worker.cap" in {u["name"] for u in a["sampled"]}
     said = cl.risk_said(a, "queue-short")
     assert said.startswith("queue-short: ") and "(40 runs)" in said
@@ -360,6 +362,13 @@ def test_the_page_projects_with_the_loops_running_and_tries_what_ifs(tmp_path):
         time.sleep(0.1)
     said = got["risk"][0]["said"]
     assert got["risk"][0]["goal"] == "queue-short" and ("p≈" in said or "holding" in said) and got["fan"]["closed"]
+    words = got["risk"][0]                              # the sentence (forecast_words.py), its numbers kept for the disclosure
+    assert " in 10" in words["sentence"] and "p≈" not in words["sentence"] and "runs" not in words["sentence"]
+    assert {k for k, _ in words["how"]} >= {"chance off at the horizon", "runs", "horizon"}
+    assert held["no_estimate"] == "No estimate: the loops are held (open loop)" and "no_estimate" not in got
+    none = api(live, "series", {"since": ["2h"], "refs": ["flow.arrivals"], "replay": ["1"], "fan": ["1"]})   # no part modelled
+    assert none["series"] and "loops" not in none, [(s["ref"], s.get("modelled")) for s in none["series"]]
+    assert none["no_estimate"] == "No estimate: nothing here is worked out by the model"
     assert api(live, "whatif-fit", {"since": ["2h"], "whatif": ["goal.queue-short:5"]}) == {}
 
 
@@ -531,5 +540,6 @@ def test_a_run_that_is_not_valid_counts_as_off_and_is_said(tmp_path):
     got = cl.risk(spec, data, run, 24 * 3600, 24, {}, cl.Start(), runs=40, seed=3)
     assert 0 < got["invalid"] < got["made"]
     x = got["goals"]["queue-short"]
-    assert x["p_off_end"] >= got["invalid"] / got["made"]
+    assert x["p_off_end"] >= got["invalid"] / got["made"] and x["p_ever_off"][0] >= got["invalid"] / got["made"]
+    assert x["p_ever_on"][-1] <= 1 - got["invalid"] / got["made"]
     assert f"{got['invalid']} of {got['made']} runs not valid, counted as off" in cl.risk_said(got, "queue-short")
