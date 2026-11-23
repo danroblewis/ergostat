@@ -246,3 +246,21 @@ against main. Nothing else changed.
 Parked by the factory (merge-queue, 2026-11-23 13:31).
 
 Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: tests/test_graph_cli_web.py
+
+Round 11: the queue's finding ("its branch moved after the review", 36a221f7 reviewed, 46214289 now) is about which
+commit was reviewed: 46214289 only added round 10's "Where it stopped" text, so no code changed for it. The factory's
+merge of main (278f54a4) conflicted only in tests/test_graph_cli_web.py, where both sides added tests at the same
+place. All are kept: the branch's two and main's
+`test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them`. pages.js merged cleanly and is still
++19/-8 against main.
+
+- Run: ruff clean; tests/test_graph_cli_web.py 59 passed. tests/test_items_page.py with Playwright under the watchdog:
+  87 passed, 3 failed, nothing skipped. The gap's three browser tests pass, also run alone (rc 0). The failures, none
+  of them in what this branch changes (its diff is only the Items and Record search answers in pages.js; lesson 13):
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, as in rounds 3 to 10;
+  `test_every_surface_prints_the_servers_one_count_of_goals_off`, which expects the /loops heading "Loops · goals
+  off 9 · model upkeep 2" and gets "Goals · …" (the branch's diff mentions neither loops nor goals, so this is main's
+  heading against main's test); and `test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel`, an 8 s wait in
+  the full file that passed when rerun alone (a load-dependent timing, lesson 10, not this change).
+  Not run: the unit suite, the other three browser files, demo_check (no example touched).
+- Refused here: a python one-off that removed the conflict markers (Edit was used instead).
