@@ -76,3 +76,20 @@ record is covered in CI by test_levelled_pass_uses_measured_concurrency and test
   passed); test_finished_states, test_lease_refused_cost, test_leased_workspaces (9 passed); test_pool_now,
   test_take_order (29 passed). ruff is clean. No page changed, so no browser file was run. The unit suite was not run
   here (the factory runs it).
+
+## Where it stopped
+
+Round 2, after a later main. Main moved on to 59600738 (event-log-indexes-what-it-is-asked: segments.py,
+leases/dispatch.py) after the note above, which said nothing had landed since. That main is merged into the branch
+(b569c067) with no conflicts, so the "nothing has landed since" line above is out of date. No code changed. The two
+coordinator checks (the factory-record half of done item 2, the ticket-factory demo column) are still **not run**
+here; the coordinator runs them after merge.
+
+- Re-run on b569c067, gated synthetic record (3 truths × 3 cuts, 60 runs): p50 MAE 50,804 s → 24,549 s (×0.48);
+  p90 coverage 0.44 → 0.93; nothing unresolved. Per truth, new model: MAE 29,362 / 17,621 / 26,663 s, coverage
+  0.80 / 1.00 / 1.00, share finished by their p50 0.04 / 0.11 / 0.11. These are the same as before. They came from
+  a temporary `assert False` in test_backtest_gated_record_improves, reverted before commit.
+- Tests run (named_tests, serially): tests/test_eta.py + tests/test_precedence.py (38 passed, all four acceptance
+  tests among them); test_finished_states, test_lease_refused_cost, test_leased_workspaces (9 passed); test_pool_now,
+  test_take_order, test_segments_keyed (36 passed); test_lease_watch_slices (2 passed). ruff is clean. The unit suite
+  and browser files were not run here.
