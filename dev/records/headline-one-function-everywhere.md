@@ -129,3 +129,21 @@ fail again when run alone: `test_sensors_are_blocks_with_what_they_read_and_no_p
 `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` (the Model page has no "Nothing
 waiting."). They are left alone (lesson 13). No clean worktree of main could be made here, so the claim that they fail
 on main too rests on the diff, not on a run. The acceptance tests and ruff pass.
+
+## Where it stopped
+
+Round 5: main (5411f137) merged in. The conflict in diagram.js's side list is resolved keeping main's new layout
+(the "Waiting for you" heading and rows only when something waits, folded past 3, the legend box, the `key`s on each
+part) and this branch's "Goals off" heading that prints the server's count (`goalsOffText()`) instead of main's
+`count(off)`. In tests/test_items_page.py both sides are kept: this branch's acceptance test comes before main's
+milestone tests, which main wants last in the file. Main now shows "Waiting for you" only when something waits, so
+the acceptance test no longer waits for three headings or reads `heads[1]`. It finds the one heading that starts with
+"Goals off". Seen to fail with the heading put back to `count(off)`.
+
+Runs: the acceptance tests pass, as do
+tests/test_diagram_rendering.py::test_needs_attention_is_three_headed_groups_in_a_fixed_order and ruff.
+tests/test_items_page.py ran whole three times. Each time,
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart failed: it timed out at its switcher wait
+(line 1647). This is the main-side failure described in round 1 (it serves both projects with `ergostat web`, which
+never holds `run.pid`), and the branch does not change that test. The first run had one more failure. It passed on
+both later runs, and its name was not captured. tests/test_diagram_rendering.py was not run whole this round.
