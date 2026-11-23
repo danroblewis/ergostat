@@ -21,3 +21,33 @@ Acceptance tests: unit listing over gaps in merged, closed, parked, dead, open (
 Budget: 170 net lines.
 
 Milestone: items-page-readable. Owner items: 1. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1: 80 net lines outside tests and docs (budget 170).
+- Server: `GET /api/items` takes `finished=hide|waits|show` (default hide; anything else is refused with BadSet).
+  `server._unfinished` gives each kind `hidden` (its count per state left out) and pages each kind through the index
+  over its other states (`items.listing(states=...)`, `_paged`), with no filter after the cut. `items.hidden_states`
+  is the rule: finish_of's finished plus dead, nothing for a lives-on kind. Never hidden: `state=`, a set the listing
+  does not serve (where/moved/through/followed/caused), `q=` (with `finished_matched` per kind).
+- A choice taken without the owner (most reversible): a stock that counts every state has a set of only `kind=`,
+  which cannot be told apart from a click on the kind's name. Its link carries `finished=show`
+  (`item_sets.of_part`), so the page it opens lists exactly the stock's count (story F4) and shows the toggle on.
+- Page: `itemsFinished(q)` reads the parameter; the toggle "Show finished" and each kind's note link write it with
+  replaceState. A click shows "Loading…" at once and filters the rows already drawn (`data-kind`/`data-state`), aborts
+  the request of the click before it (AbortController through `apiText`/`answers().api`), and the poll skips while
+  one is pending. The items-graph requests and the trust table are asked together (Promise.all). A snapshot is built
+  with `finished=show` under the same keys, and the page leaves the finished out on its own side.
+- Left to items-graph-one-show-choice: Graph and Timeline do not read `itemsFinished()` yet (they keep their own
+  frontier/collapse choices). `waits` is accepted, and the list reads it as hide.
+- Tests changed because of the new default: `test_items_list_sorts_by_a_column` (hypothesis/2, a dead letter, is left
+  out) and `test_leases_are_shown_on_the_items_page_and_the_items` (opens with `finished=show` to see the dead
+  letter). `test_snapshot_sets.py`'s count of sets now ignores the `finished` key.
+- Seen to fail when the code is broken (lesson 9): poll allowed to overlap (asked 2), no abort (aborted 0), no
+  Loading… (shown False), server never hiding (4 unit tests and the browser test), the stock link without
+  `finished=show` (the F4 unit test), a search hidden (the unit and browser search tests).
+- Not passing, and not shown to be unrelated: `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
+  fails here, in the step that waits for the project switcher to list the other project. That list comes from
+  `/api/projects`, which is the lister's cached `_LISTED` (`server.py`), and this branch does not change it. I
+  could not run the test on main's sources: making a worktree and checking out main's files were both refused in
+  this session. The factory's rerun on clean main should decide it.
