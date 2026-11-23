@@ -70,7 +70,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    {"set": ["epic/PROJ-1"]}}}`. One that sees changes says them: `{"blocked_by": {"add": "ticket/PROJ-9"}}`,
    `{"remove": ...}`. Use the same ids the items have (`ticket/PROJ-9`, not `PROJ-9`), and record the related item
    too, or it shows as "not recorded" and counts as unfinished. Then the step that starts the work can take only
-   what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. Look at the Items
+   what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. When a ticket may
+   start once the one it waits on is in review, not done, say so on the relation: `blocked_by: {kind: ticket,
+   starts_at: [review]}` (name every state from which on; a ticket held under a lease counts by the state it was
+   taken from, so never name `leased`; the projected schedule still waits for it to finish). Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
    to check the links came through, or ask from the command line: `ergostat item ID --near [N]` (the items within N
    hops, 1 to 4), `ergostat item A --path B` (a shortest chain of relations, a backward step named by its inverse),
@@ -151,7 +154,8 @@ Work through these steps in order. Ask the person only what you cannot infer.
    `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and
    `measurement-retainer` (`with: {rollup-every: 1h, retain-every: 1h}`, 1m to 1d), each taking over from the
    engine's own, and the engine's watchdog and the outer watcher drawn as external blocks under `no-stalls` and
-   `heartbeat-fresh` (`stale`, 180 s; `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
+   `heartbeat-fresh` (`stale`, 180 s), with the owner (a person) under `few-restarts` (`restarts-most`, 3 a day;
+   `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
    when the files a model's changing kinds leave behind, the record's growth, or the engine's own health, should show
    on the diagram; with it, leave `storage: rollup: every` out (`check` says it is unused).
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
@@ -417,7 +421,10 @@ keeps running it; this model reads it.
 4. **Check against what it serves now**: `ergostat check` asks the remote first. A
    `remote-reference-unresolved` finding means the remote renamed or dropped a part you reference: fix the
    reference here (a stand-in is drawn meanwhile). `remote-unreachable` means it did not answer: the model
-   runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
+   runs on what it read last, with its age shown; fix the URL, the tunnel or the token. `remote-stale`
+   means the remote's model answers but its readings request fails, which is not fixed here; tell its
+   owner, with the reason and the age the finding gives. (One reading refused as too old is not this
+   finding: it shows as that sensor's `sensor.failed`.)
 5. **Use its measures, not its items.** Its items can be seen in the Items page (a section marked remote)
    and its events in the Record page (`/record?remote=incidents`), but they are still never folded or counted
    locally: count them through the remote stock that counts them (its sensor is mirrored), or a sensor of your
@@ -716,7 +723,9 @@ the failure is fixed); one that fails again regresses it, and the gated action `
 the fix. A regressed fix whose revert is denied stays regressed, for the owner.
 Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
 is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
-swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read. With
+no such trace, its last error-level log line is noted the same way, in two forms only: Python logging's default
+`ERROR:logger:message` (or `CRITICAL`) and a JSON line with `level`/`levelname`/`severity` error, critical or fatal.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is
