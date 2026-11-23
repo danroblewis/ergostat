@@ -104,3 +104,27 @@ test_an_approved_switch_drains_and_switches_through_the_engine: `SystemExit: 143
 browserday.py only as a subprocess (Factory.run, Popen), so they cannot install that handler in pytest. So I left the
 failure alone and changed no code (lesson-13). I did not run it on main to compare, because the worktree of main was
 refused in an earlier round. If the build fails again, the test it names is the place to start.
+
+## Where it stopped
+
+The factory's `build` step failed again (`-n 8`) on two tests:
+test_an_approved_switch_drains_and_switches_through_the_engine (the switcher was still running after its 120 s wait)
+and test_two_failing_merges_take_two_rounds_and_one_full_run (3 full suite runs where it expects 2). I ran both together
+on this branch (`uv run python scripts/named_tests.py
+tests/test_factory.py::test_two_failing_merges_take_two_rounds_and_one_full_run
+tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine`): 2 passed in 211 s. I changed
+no code, because neither test reaches what this branch changes (lesson-13). The branch touches only
+dev/bin/browserday.py, dev/model/landing.yaml, dev/README.md, this record and the new tests at the end of
+tests/test_factory.py. It does not touch queue.py, prefixes.py, drain.py, live.py, fac.py or the engine.
+- The merge test runs queue.py on a stand-in model (Factory, bisect_stand_ins) and never runs browserday.py. A third
+  suite run means a round got an "unknown" prefix and fell back to a serial bisect (land()'s docstring). That fits a
+  load-dependent failure in prefixes.run_all, which runs `git worktree add` from several threads at once on one repo
+  (git's lock files). Any exception there turns that prefix's result into "unknown" (prefixes.py:105). This is a guess:
+  the tail I was sent does not show the prefix logs. It is main's code (ead497d1 and before), outside this gap.
+- The switcher test loads the factory model, which now includes the block browser-daily, but its engine loop is not
+  started (instance_engine). It starts only the switcher, so browser-daily never runs there, and drain.py reads
+  nothing this gap adds. In the earlier serial run this test failed on a stray SIGTERM. Serially it runs before every
+  browser_daily test (line 4467, against 5515 onward), so those tests could not have caused that failure.
+- I did not run either test on main: a worktree of main was refused in an earlier round. A heredoc append to this file
+  (`cat >> dev/records/... <<'EOF'`) and its commit were refused in this session, so I wrote this section with the
+  file editor instead.
