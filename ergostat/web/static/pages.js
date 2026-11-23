@@ -363,7 +363,7 @@ function intentView(d, onDone) {
       for (const r of Object.values(rows)) r.hidden = true;
       row.hidden = false; reason.focus();
       if (by && by.options.length < 2) {
-        const all = await api("items", { kind: DECISION_KIND }).catch(() => ({ items: [] }));
+        const all = await api("items", { kind: DECISION_KIND, finished: "show" }).catch(() => ({ items: [] }));
         for (const x of all.items.filter((x) => x.id !== d.id && !["dismissed", "superseded"].includes(x.state)))
           by.append(h("option", { value: x.id }, `${x.fields.decision || x.id} (${x.state})`));
       }
@@ -553,12 +553,22 @@ function remoteSection(r, d) {
   return h("section", { class: "sys-group remote", "data-remote": r.name, key: `remote:${r.name}` }, head, remoteSaid(r.name, d), counts, rows);
 }
 
+/* the Items page's one finished choice (SPEC §5a, *Finished items*), from its address: hide (the default), waits
+   (the Graph's: the list reads it as hide) or show */
+function itemsFinished(q) { const v = q.get("finished"); return v === "show" || v === "waits" ? v : "hide"; }
+/* the states the list leaves out unless shown: a kind's finished and dead, none for a kind that lives on (items.hidden_states) */
+const hiddenStates = (k) => (!k || k.lives_on ? [] : [...(k.finished || []), ...(k.dead ? ["dead"] : [])]);
+
 async function pageItems(main, q, only = false) {     // only: a kind's own page (/items/KIND), that kind alone
   const p = page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const found = h("span", { class: "muted search-said", "aria-live": "polite" });   // a kind's: its matches, the finished apart
-  let kind = q.get("kind"), state = q.get("state");
+  let kind = q.get("kind"), state = q.get("state"), finished = itemsFinished(q);
+  const showFin = h("label", { class: "rg-check", title: "List the finished and dead items too (each kind says how many it leaves out)" },
+    h("input", { type: "checkbox", ...(finished === "show" ? { checked: "" } : {}), onchange: (ev) => { finished = ev.target.checked ? "show" : "hide"; go(); } }), "Show finished");
+  const loading = h("p", { class: "muted items-loading", hidden: "" }, "Loading…");   // a click's, at once, until its answer
+  const loaded = () => { if (!loading.hidden) loading.hidden = true; };   // (a poll touches nothing it need not)
   // a kind's page (SPEC §5a): a page of its items asked of the server, searched and sorted there; in the address as
   // page=KIND:3, sort=KIND:-field and size=100 (a value for another kind is not this one's)
   const ofKind = (v) => { const i = (v || "").indexOf(":"); return i < 0 ? v || "" : v.slice(0, i) === kind ? v.slice(i + 1) : ""; };
@@ -589,7 +599,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
-  p.append(notes, h("div", { class: "filters" }, search, found, viewBar, chip), compose, box, rbox);
+  p.append(notes, h("div", { class: "filters" }, search, found, showFin, viewBar, chip), loading, compose, box, rbox);
   let rbusy = false;
   const remoteTick = async (rs) => {
     if (rbusy || SNAP || !rs.length) return;
@@ -612,19 +622,24 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     drawn[key] = { sig, el: make() };
     return live(drawn[key].el);
   };
-  // one refresh at a time: one asked for while another runs is run once after it (the poll's rule, kept by clicks
-  // too); the poll's draws only what changed, a click's always
-  let busy = null, again = false, forced = false;
+  // one refresh at a time: a click's is asked at once, letting go of the one before it (its requests aborted, its
+  // answer never drawn); the poll's is skipped while another is pending, and draws only what changed
+  let busy = null, ctl = null;
   async function refresh(force = true) {
-    forced ||= force;
-    if (busy) { again = true; return busy; }
-    busy = (async () => { do { again = false; const f = forced; forced = false; await tick(f); } while (again && p.isConnected); })();
-    try { await busy; } finally { busy = null; }
+    if (busy && !force) return;
+    ctl?.abort();
+    const mine = ctl = new AbortController();
+    const run = busy = tick(force, mine.signal).catch((err) => { if (!mine.signal.aborted) throw err; });
+    try { await run; } finally { if (busy === run) { busy = null; ctl = null; } }
   }
   const ans = answers();
   const go = (load = true) => { const u = new URLSearchParams(); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
+                     if (finished !== "hide") u.set("finished", finished);
+                     showFin.firstChild.checked = finished === "show";
+                     loading.hidden = false;           // and the rows already drawn filtered, before the answer
+                     for (const tr of box.querySelectorAll("tr[data-kind]")) tr.hidden = !!kind && (tr.dataset.kind !== kind || (state != null && tr.dataset.state !== state));
                      if (sort && view === "list") u.set("sort", paged() ? `${kind}:${sort}` : sort);
                      if (paged() && view === "list" && pg > 1) u.set("page", `${kind}:${pg}`);
                      if (paged() && view === "list" && size !== 25) u.set("size", String(size));
@@ -645,9 +660,10 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     rememberFolded(folded);
     go();
   };
-  async function tick(force = true) {
+  async function tick(force = true, signal = null) {
     if (compose.hidden !== (kind !== MESSAGE_KIND || !!SNAP)) compose.hidden = !compose.hidden;
     ans.begin();
+    const gone = () => signal?.aborted || !p.isConnected;   // a newer click asked again: this answer is let go
     // the list as the page shows it: the newest of each kind (all a chosen kind's, up to 300), matched to the
     // search where it is kept, each with its kind's columns only, and nothing of a folded system
     // (a snapshot holds the whole list: filtered here)
@@ -655,19 +671,23 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const folded = foldedSystems();
     let d;
     const sortAsked = sort && view === "list" ? sort : "";
-    const sig = JSON.stringify([kind, state, search.value.trim(), sortAsked, size]);
+    const sig = JSON.stringify([kind, state, search.value.trim(), sortAsked, size, finished]);
     if (asked != null && sig !== asked && pg !== 1) { pg = 1; go(false); }      // a new search, sort or filter: page 1
     asked = sig;
     const wanted = pg, per = size;
     try {
       d = paged() ? await ans.api("items", { kind, ...(state ? { state } : {}), n: size, offset: (pg - 1) * size, shown: 1,
                                              ...(search.value.trim() ? { q: search.value.trim() } : {}),
-                                             ...(sortAsked ? { sort: sortAsked } : {}), ...whatifParams() })
+                                             ...(sortAsked ? { sort: sortAsked } : {}), ...(finished === "show" ? { finished } : {}),
+                                             ...whatifParams() }, signal)
         : await ans.api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}), ...whatifParams(),
-                                                     ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) });
+                                                     ...(finished === "show" ? { finished } : {}),
+                                                     ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) }, signal);
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
+      if (gone()) return;
       box.querySelector(".page-loading")?.remove();
+      loaded();
       patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
       return;
@@ -695,20 +715,25 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       flows[k.name] = fl && Object.values(fl.counts).some((c) => c.some((x) => x)) ? fl : null;   // none yet: its counts
     }));
     // how far each block's claims held, under the ergostat.claim table
-    const trust = d.items.some((i) => i.kind === CLAIM_KIND) && (!kind || kind === CLAIM_KIND) ? await ans.api("trust").catch(() => null) : null;
-    // above the gated actions' rows, a line per class: asked this week, and how each ended
-    const classes = d.items.some((i) => i.kind === ACTION_KIND) && (!kind || kind === ACTION_KIND) ? (await ans.api("actions", { classes: 1 }).catch(() => null))?.asked : null;
+    // (of a kind with any item, listed or not: its finished may all be left out)
+    const any = (n) => (!kind || kind === n) && d.kinds.some((k) => k.name === n && Object.values(k.counts || {}).some((c) => c));
+    const trustAsked = any(CLAIM_KIND) ? ans.api("trust", {}, signal).catch(() => null) : null;
+    // above the gated actions' rows, a line per class: asked this week, and how each ended (with the trust table's)
+    const classesAsked = any(ACTION_KIND) ? ans.api("actions", { classes: 1 }, signal).catch(() => null) : null;
     // the Graph's and the Timeline's answers (relations.js), asked on every refresh: a relation can change on an item
-    // the list does not show. Of the kinds with relations (or named by one) in each open system; the chosen kind alone
+    // the list does not show. Of the kinds with relations (or named by one) in each open system; the chosen kind alone.
+    // Every system's at once, with the trust table's
     const relKinds = new Set();
     for (const k of d.kinds) for (const [, ts] of Object.entries(k.relations || {})) { relKinds.add(k.name); ts.forEach((t) => relKinds.add(t)); }
     const relAsked = {};
-    if (view !== "list") for (const g of systems) {
-      if (!isOpen(g.name) || (d.set && !g.kinds.includes(kind))) continue;
+    await Promise.all((view === "list" ? [] : systems).map(async (g) => {
+      if (!isOpen(g.name) || (d.set && !g.kinds.includes(kind))) return;
       const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : g.kinds.filter((n) => relKinds.has(n));
-      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }).catch((err) => ({ err })) : null };
-    }
-    if (!p.isConnected) return;
+      relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }, signal).catch((err) => ({ err })) : null };
+    }));
+    const trust = await trustAsked, classes = (await classesAsked)?.asked ?? null;
+    if (gone()) return;
+    loaded();
     if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
       h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
@@ -744,7 +769,17 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     patch(notes, ...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
-    const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
+    // the finished left out (SPEC §5a): never a chosen state's, a set's or a search's; by the server, or here in a snapshot
+    const leaves = finished !== "show" && !state && !d.set && !needle;
+    const isHidden = (i) => hiddenStates(kindOf[i.kind]).includes(i.state);
+    const rows = SNAP ? d.items.filter((i) => (!needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) && !(leaves && isHidden(i))) : d.items;
+    const flip = () => h("a", { href: "#", class: "finished-flip", onclick: (ev) => { ev.preventDefault(); finished = finished === "show" ? "hide" : "show"; go(); } }, finished === "show" ? "hide" : "show");
+    const finNote = (name, its) => {                     // what a kind leaves out, or the finished among a search's matches
+      const k = kindOf[name], left = hiddenStates(k).filter((s) => k?.counts?.[s]), n = left.reduce((a, s) => a + k.counts[s], 0);
+      if (leaves && n) return h("p", { class: "note finished-note", key: `fin:${name}` }, `${n} finished (${left.join(", ")}) not shown · `, flip());
+      const m = needle && !paged() ? its.filter(isHidden).length : 0;   // (a kind's page: said beside the search)
+      return m ? h("p", { class: "note finished-note", key: `fin:${name}` }, `${m} finished match${m === 1 ? "" : "es"}`) : null;
+    };
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
     const isNum = (its, f) => its.some((i) => typeof i.fields[f] === "number") && its.every((i) => i.fields[f] == null || typeof i.fields[f] === "number");
     const tableOf = (its, show, limit) => {
@@ -765,7 +800,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
         f, by === f ? h("span", { "aria-hidden": "true" }, down > 0 ? " \u25b4" : " \u25be") : "");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [head(f), "num"] : head(f))),
         ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
-        its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
+        its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, "data-kind": i.kind || "", "data-state": i.state || "", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldOf(f, i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
           ...(leased ? leaseCells(i.fields.lease, i.state) : []),
@@ -792,16 +827,17 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       const parts = [];
       for (const name of names) {
         if (kind && name !== kind) continue;
-        const its = rows.filter((i) => (i.kind || "") === name);
-        if (!its.length) continue;
+        const its = rows.filter((i) => (i.kind || "") === name), note = finNote(name, its);
+        if (!its.length && !note) continue;
         const limit = paged() ? size : kind ? 300 : 25, many = paged() ? d.total : d.matched?.[name] ?? its.length;
         const title = kindOf[name]?.title;
         parts.push(h("h3", { class: "kind-head", key: `head:${name}` }, title || name || "No kind",
           title ? h("span", { class: "muted small mono" }, ` ${name}`) : null, h("span", { class: "muted" }, ` ${many}`),
-          paged() ? pager(name, its.length, "top") : null));
+          paged() && its.length ? pager(name, its.length, "top") : null));
         if (name === ACTION_KIND && classes) parts.push(keyed(actionClasses(classes, (c, x) => !needle || c.toLowerCase().includes(needle) || its.some((i) => x.actions.includes(i.fields.action))), "action-classes"));
-        parts.push(keyed(tableOf(its, kindOf[name]?.show || [], limit), `table:${name}`));
-        if (paged()) parts.push(pager(name, its.length, "foot"));
+        if (its.length) parts.push(keyed(tableOf(its, kindOf[name]?.show || [], limit), `table:${name}`));
+        if (paged() && its.length) parts.push(pager(name, its.length, "foot"));
+        if (note) parts.push(note);
         if (name === CLAIM_KIND && trust) parts.push(keyed(trustView(trust), "trust"));   // how far each block's claims held
         const fl = flows[name];                            // under its table: how long its finished items took
         if (fl) parts.push(keyed(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group), (el) => el.update?.(fl)), `cycle:${name}`));

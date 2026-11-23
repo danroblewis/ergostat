@@ -408,7 +408,7 @@ def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_a
     assert not pg.is_visible("#detail th:text-is('CPU')")                     # behind 'resources' until opened
     pg.click("details.runs-resources summary")
     assert pg.is_visible("#detail th:text-is('CPU')")
-    pg.goto(f"{site['url']}/items?kind=ergostat.action")
+    pg.goto(f"{site['url']}/items?kind=ergostat.action&finished=show")        # (the approved are finished: shown)
     pg.wait_for_selector("table.items tr.click, table tr.click")
     heads = pg.eval_on_selector_all("table:has(th button[title='Sort by author']) th", "ths => ths.map((t) => t.textContent.trim())")
     by, ok = heads.index("by"), heads.index("approved by")

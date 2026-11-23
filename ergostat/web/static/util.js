@@ -349,7 +349,7 @@ function leavePage() { if (PAGE.el && !PAGE.el.isConnected) PAGE.c?.abort(); }
 const pageLeft = (e) => e?.name === "AbortError";
 window.addEventListener("unhandledrejection", (ev) => { if (pageLeft(ev.reason)) ev.preventDefault(); });
 /* an answer as its text, and the address it came from */
-async function apiText(path, params = {}, kept = false) {
+async function apiText(path, params = {}, kept = false) {   // ``kept``: true (the header's), or an AbortSignal of the page's own, to let it go sooner
   if (SNAP) {
     const k = snapKey(path, params);
     if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
@@ -358,7 +358,9 @@ async function apiText(path, params = {}, kept = false) {
   const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
   for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
   const url = `/api/${path}?${q}`;
-  const signal = kept ? undefined : pageSignal();
+  const own = kept instanceof AbortSignal ? kept : null;
+  const page = kept === true ? undefined : pageSignal();
+  const signal = own && page ? AbortSignal.any([own, page]) : own || page;
   const r = await fetch(url, { signal });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return [url, await r.text()];
@@ -372,8 +374,8 @@ function answers() {
   const a = {
     changed: true,
     begin() { a.changed = false; },
-    async api(path, params = {}) {
-      const [key, text] = await apiText(path, params);
+    async api(path, params = {}, signal = null) {   // ``signal``: an AbortController's, to let it go
+      const [key, text] = await apiText(path, params, signal);
       if (last.get(key) !== text) { last.set(key, text); a.changed = true; }
       return JSON.parse(text);
     },
