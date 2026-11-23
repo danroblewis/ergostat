@@ -60,3 +60,14 @@ Not run here: the whole unit suite and the four browser files (the factory runs 
 merge of main is empty. Commands refused in this session: running `ergostat` directly and Python heredoc scripts
 (`uv run ergostat -C /tmp/w1 ...`, `python3 - <<'EOF'`), and `ls examples`; worked around only by running the same
 through the test file.
+
+The factory's own model had the new finding (`wait-unexplained items.knowledge`, `items.lesson`): each kind's first
+state was where its items rest (`active`, `seen`), and nothing took them from it. Fixed in `ergostat.yaml` as the
+guide says, with no finding allowed: each kind gains a first state `new` that no event puts an item in, so items
+arrive in a working state. `why` then names whoever records the move on: the librarian's `lesson.proposed` once a
+second review finds the class, or knowledge-sync's `knowledge.retired` once the entry has gone from the files. Choices
+made with nobody to ask: `active` is not declared finished, because explain, check and status read `about` only from
+unfinished items (test_factory_knowledge's about-missing-part test failed when it was). It is not declared paused
+either, since the Items tab would then show every entry in force as stopped. `seen` is not paused, because the
+librarian moves it on and no one does that by hand. `test_why_guide`'s no-unexplained-wait test now also loads the
+root model, and it failed before the fix. `test_factory_knowledge`'s pin of the knowledge states is updated.

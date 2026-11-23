@@ -250,6 +250,6 @@ def test_only_declared_finished_kinds_are_judged(tmp_path):
 
 def test_the_guides_example_and_the_shipped_examples_have_no_unexplained_wait(tmp_path):
     assert unexplained(project(tmp_path).model.spec) == []
-    for f in sorted(ROOT.glob("examples/*/ergostat.yaml")):
+    for f in [ROOT / "ergostat.yaml", *sorted(ROOT.glob("examples/*/ergostat.yaml"))]:   # and the factory's own
         m = mdl.load(f.parent)
         assert m.spec is None or unexplained(m.spec) == [], f.parent.name

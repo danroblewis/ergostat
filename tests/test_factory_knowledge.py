@@ -1096,7 +1096,7 @@ def test_knowledge_entries_counts_the_items():
     spec, _ = read(ROOT / "ergostat.yaml")
     sensor = spec.stocks["knowledge-entries"].sensors["main"]
     assert sensor.run is None and (sensor.items["kind"], sensor.items["state"]) == ("knowledge", ["active"])
-    assert spec.items["knowledge"].states == ["active", "retired"] and spec.blocks["knowledge-sync"].type == "program"
+    assert spec.items["knowledge"].states == ["new", "active", "retired"] and spec.blocks["knowledge-sync"].type == "program"
 
 
 def test_entry_kind_from_front_matter(tmp_path):
