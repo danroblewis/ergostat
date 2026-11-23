@@ -628,6 +628,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
             at = float(one("at"))
         except ValueError:
             at = None
+    if head == "items-overview":                  # the Items page's overview: from the item index, with no snapshot
+        from .items_overview import overview
+        return overview(p, at if at is not None else time.time(), _window(q))
     snap = live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates

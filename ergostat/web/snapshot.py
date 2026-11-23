@@ -30,7 +30,7 @@ def _q(name: str) -> str:
 
 def _requests(project) -> list[tuple[str, dict]]:
     m = project.model
-    reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("daemons", {}), ("items", {}),
+    reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("daemons", {}), ("items", {}), ("items-overview", {}),
                                     ("residuals", {}), ("fit", {}), ("parts", {}), ("guide", {}), ("graph", {}),
                                     ("events", {"n": 80}), ("events", {"n": 80, "runs": 1})]
     for view in ("dynamics", "control", "blocks", "process"):

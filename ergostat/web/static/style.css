@@ -414,6 +414,14 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
   .kind-flow .cfd-states { flex-direction: row; max-height: none; }
 }
 .kind-flow > .states { margin: var(--sp-1) 0 0; }
+/* the overview (kinds.js): a dense grid of small cards, each chart's legend at its right but on a phone */
+.kind-overview .sys-head { margin: var(--sp-1) 0; }
+.kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--sp-2) var(--sp-4); margin: 0 0 var(--sp-2); }
+.kind-card { min-width: 0; max-width: none; }
+.kind-card .kname { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kind-card .kind-counts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kind-card .cfd-states { max-height: 4.25rem; line-height: 1.25; }
+.kinds-quiet { font-size: var(--text-sm); }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
 .kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }

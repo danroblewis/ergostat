@@ -1604,7 +1604,7 @@ item changed since folded again from the record up to then (`spec/asof.py`; when
 the whole record up to then is folded instead), and each kind's time per state counts only the moves by then. Three things
 stay of now: which states a kind counts as finished (as the item index says now, unless `messages: done:` says),
 the completion estimates (none at a moment travelled to), and the status's list of relation cycles. A snapshot
-(`ergostat snapshot`) holds the Items page's list with no kind chosen; each kind chosen alone, its list (the
+(`ergostat snapshot`) holds the Items page's overview and its list with no kind chosen; each kind chosen alone, its list (the
 first 500 of its items, as `items?kind=K` answers) and its list in each state it declares or counts; and the
 Graph and the Timeline of each system's related kinds together and of each kind alone, related or not. An
 answer that could not be got is left out, and the page says it is not in the snapshot. It also holds the item sets its own panels link to: each part's (a stock's, a
@@ -1710,6 +1710,26 @@ several of the moments judged once, by the latest it could be judged at), the p5
 finished by their p90 (41 tickets)", the share rounded down; fewer than 10 judged: "tickets: too few finished last
 week to check"; a coverage under 0.7 in the warning ink. Not said until first worked out, and kept as the last worked
 out when one fails.
+
+**The overview.** `/items` is an overview of the item kinds: under each system's heading, one small card per kind in
+a dense grid (at 1440x900, sixteen or more in view on a record of the factory's shape), each with the kind's name (a link to its own page,
+`/items/KIND`), how many of its items are unfinished (not in a finished state) and how many in all, its states over the
+window as a small stacked chart with its legend at its right (under it on a phone), and its rate in (items that
+arrived in the window, per hour) and out (items that first reached a finished state in it, per hour: the same finished states the unfinished count uses, so
+never a paused, `leased` or waiting state). A kind with no
+item that had an event in the window and none unfinished is not a card: such kinds are named on one line at the end.
+The overview lists no item and has no List, Graph or Timeline: those are on each kind's own page. By default each
+chart shows the kind's **state groups**: *done* its finished states, *stopped* its paused states and `dead`, *waiting*
+the states its items wait in to be taken (its first state, and any a block takes from), *working* the rest (`leased`
+among them). One switch on the page shows every state instead; the choice is kept in the address
+(`/items?states=all`), and switching redraws every chart from the answer the page holds, with no request. The whole
+overview is one answer, `GET /api/items-overview?since=...` (`at=` for a moment travelled to; `web/items_overview.py`),
+read from the item index: its counts, its moves and its arrivals, and no replay or scan of the event log (the index
+catches up on the events recorded since it last read, as for every indexed answer, and an item with an event after
+the moment shown is folded again from its own events). Where the
+index cannot answer for a kind (no index, or a moment so long past that most of its items changed since), the card
+says so instead of its numbers. `/items?kind=KIND` goes to `/items/KIND`, which is the list, graph and timeline below
+for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, as before.
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
