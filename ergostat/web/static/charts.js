@@ -636,7 +636,7 @@ function finishSaid(k) {
 }
 const finishOf = (k, st) => (k?.finished?.includes(st) ? "finished" : k?.paused?.includes(st) ? "paused" : null);
 
-function flowChart(d, group, { chosen = null, onState = null, kind = null } = {}) {
+function flowChart(d, group, { chosen = null, onState = null, kind = null, height = 120, xAxis = true } = {}) {
   const states = d.states;
   const ramp = ["--line", "--line-strong", "--muted", "--ink-2"];
   const step = (i) => ramp[Math.min(ramp.length - 1, Math.floor((i / Math.max(1, states.length - 1)) * (ramp.length - 1) + 0.0001))];
@@ -655,7 +655,7 @@ function flowChart(d, group, { chosen = null, onState = null, kind = null } = {}
   const plotEl = h("div", { class: "chart-plot" });
   const el = h("div", { class: "cfd" }, plotEl, h("div", { class: "cfd-states", title: finishSaid(kind) }, ...labels.slice()));
   mountPlot(plotEl, (width) => {
-    const o = baseOpts({ width, height: 120, group, since: cur.since, until: cur.until, xAxis: true,
+    const o = baseOpts({ width, height, group, since: cur.since, until: cur.until, xAxis,
       yRange: (_, lo, hi) => [0, Math.max(1, hi || 1) * 1.05],
       hooks: { setCursor: [(u) => { const i = u.cursor.idx;
         states.forEach((st, k) => { setText(labels[k].count, String(i == null ? cur.now[st] || 0 : cur.counts[st][i])); }); }] } });

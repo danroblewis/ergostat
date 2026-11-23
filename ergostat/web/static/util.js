@@ -557,6 +557,16 @@ async function route() {
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
+  // the Items page: bare, the overview of the kinds (kinds.js); a kind's own page at /items/KIND (?kind=KIND goes there);
+  // any other question (a search, a view of every kind) the list of every kind, as before
+  if (path === "/items" && q.get("kind")) {
+    const k = q.get("kind");
+    q.delete("kind");
+    replaceRoute(`/items/${encodeURIComponent(k)}${q.toString() ? `?${q}` : ""}`);
+    return route();
+  }
+  if (path === "/items" && [...q.keys()].every((x) => x === "states")) return pageKinds(main, q);
+  if (path.startsWith("/items/")) { q.set("kind", decodeURIComponent(path.slice(7))); return pageItems(main, q, true); }
   return (pages[path] || pageDiagram)(main, q);
 }
 

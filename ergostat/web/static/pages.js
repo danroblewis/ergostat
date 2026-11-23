@@ -544,7 +544,7 @@ function remoteSection(r, d) {
   return h("section", { class: "sys-group remote", "data-remote": r.name, key: `remote:${r.name}` }, head, remoteSaid(r.name, d), counts, rows);
 }
 
-async function pageItems(main, q) {
+async function pageItems(main, q, only = false) {     // only: a kind's own page (/items/KIND), that kind alone
   const p = page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
@@ -607,7 +607,7 @@ async function pageItems(main, q) {
     try { await busy; } finally { busy = null; }
   }
   const ans = answers();
-  const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state);
+  const go = () => { const u = new URLSearchParams(); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
                      if (sort && view === "list") u.set("sort", sort);
@@ -615,7 +615,9 @@ async function pageItems(main, q) {
                                             if (view === "graph" && ro.group === "kind") u.set("group", "kind");
                                             if (ro.status) u.set("status", ro.status);
                                             if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
-                     replaceRoute("/items" + (u.toString() ? "?" + u : "")); refresh(); };
+                     if (only && !kind) return navigate("/items" + (u.toString() ? "?" + u : ""));   // the kind let go
+                     if (!kind && !u.toString()) u.set("view", "list");      // every kind's list (bare, /items is the overview)
+                     replaceRoute((kind ? `/items/${encodeURIComponent(kind)}` : "/items") + (u.toString() ? "?" + u : "")); refresh(); };
   search.addEventListener("input", () => go());
   let sysOf = {};                                      // each kind's system, as last listed
   const toggle = (sys) => {                            // a chosen kind's system is open: folding it lets the kind go
@@ -649,7 +651,8 @@ async function pageItems(main, q) {
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
     const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys) || d.kinds.some((k) => k.system === sys && named(k));
-    const systems = d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }];
+    const systems = (d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }])      // a kind's page: its system, it alone
+      .flatMap((g) => (!only ? [g] : g.kinds.includes(kind) ? [{ ...g, kinds: [kind] }] : []));
     const kindOf = Object.fromEntries(d.kinds.map((x) => [x.name, x]));
     // each open kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
     // a click on one shows its items; a kind without states, one line of its count. A flow over the window
