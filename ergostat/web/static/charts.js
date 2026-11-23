@@ -294,6 +294,9 @@ function lineChart({ group, name, role, unit, per, times, values, since, until, 
 
 /* ---------------------------------------------------------------- the causes strip */
 
+/* what a chart says while its numbers are asked for: in words, never a bare ellipsis that reads as a stuck load */
+const working = () => h("div", { class: "muted small" }, "being worked out");
+
 /* a part's series and what drives it (api series?strip=1): the part first, taller, then each cause,
    one time axis under the last */
 const ROLE_WORDS = { inflow: "inflow", outflow: "outflow", "driven by": "drives it", from: "it drains", into: "it fills" };
@@ -305,7 +308,7 @@ function partRef(n) {
   return null;
 }
 function causesStrip(ref, group = chartGroup("strip")) {
-  const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
+  const box = h("div", { class: "strip" }, working());
   let tries = 0;                                         // the closed loop's fan, worked out apart: asked for again
   const load = () => api("series", { refs: ref, strip: 1, replay: 1, points: CHART_POINTS, ...(SNAP ? {} : { fan: S.replayFan ? "replay" : 1 }),
                                      ...(S.loops ? { loops: S.loops } : {}), ...whatifParams() }).then((d) => {
@@ -349,9 +352,9 @@ function causesStrip(ref, group = chartGroup("strip")) {
    there (in grey), as Stella's loop dominance view shows them; how often it dominated, unless loops through the
    stock are not scored or it is tied; or why it is not worked out */
 function loopDominance(name, group = chartGroup("dominance")) {
-  const box = h("div", { class: "strip dominance" }, h("div", { class: "muted small" }, "\u2026"));
+  const box = h("div", { class: "strip dominance" }, working());
   api("dominance", { points: CHART_POINTS }).then((d) => {      // every stock's (as a snapshot keeps it); this loop's below
-    if (!d) { box.replaceChildren(); return; }
+    if (!d) { box.replaceChildren(h("p", { class: "muted small" }, "How much of the behaviour it drives is not worked out: the model cannot be read.")); return; }
     const why = d.not_scored?.[name];
     if (why) { box.replaceChildren(h("p", { class: "muted small" }, `How much of the behaviour it drives is not worked out: ${why}.`)); return; }
     const at = (d.stocks || []).filter((x) => (x.relative?.[name] || []).some((v) => v != null));
@@ -379,7 +382,7 @@ function loopDominance(name, group = chartGroup("dominance")) {
       ["+1: it drives everything at the stock, reinforcing; \u22121: balancing. Computed on the model's replay at its integration step",
        d.assumed?.[name]?.length ? `assumed to pass on all of their cause's change (the model does not write how they answer): ${d.assumed[name].join(", ")}` : ""].filter(Boolean).join(". ")), group.when));
     box.replaceChildren(...out);
-  }).catch(() => box.replaceChildren());
+  }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, `How much of the behaviour it drives is not worked out: ${e.message || e}.`)));
   return box;
 }
 /* a loop's relative score in ink over the others competing at the same stock in grey, on −1 to +1 */
@@ -413,7 +416,12 @@ function loopsToggle(now) {
 }
 /* with the loops running: each goal on these parts, its chance of being off at the horizon (the Monte Carlo's) */
 function riskLines(d) {
-  return (d.risk || []).filter((r) => r.said).map((r) => h("p", { class: `small risk${r.p_off_end >= 0.5 ? " s-open" : ""}` }, r.said));
+  return (d.risk || []).filter((r) => r.sentence).map((r) => forecastEl(r, "small risk"));
+}
+/* a goal's forecast as a sentence (forecast_words.py), its p, runs, horizon and method in its title and a closed disclosure */
+function forecastEl(r, cls = "") {
+  return h("div", { class: `forecast ${cls}` }, h("p", { class: r.p_off_end >= 0.5 ? "s-open" : "", title: r.title }, `${r.goal}: ${r.sentence}`),
+    r.how?.length ? h("details", { class: "small" }, h("summary", { class: "muted" }, "How this was worked out"), dl(r.how)) : null);
 }
 /* what stands in for the machine blocks near these parts, in words (the closed-loop projection runs them, not the blocks) */
 function modelsSaid(d) {
@@ -497,7 +505,7 @@ function moduleCharts(n, group = chartGroup("module")) {
   const refs = [...new Set((n.charted || n.measures || []).filter((x) => !x.missing && !x.unchecked)   // (nothing to ask for)
     .map((x) => x.part.replace(":", ".")))];
   if (!refs.length) return null;
-  const box = h("div", { class: "strip" }, h("div", { class: "muted small" }, "…"));
+  const box = h("div", { class: "strip" }, working());
   api("series", { refs: refs.join(","), points: CHART_POINTS }).then((d) => {
     const list = d.series || [];
     if (!list.length || list.every((s) => s.values.every((v) => v == null))) {
@@ -560,7 +568,7 @@ function sideChartsChanged() {                          // the chosen parts chan
    u below (each opening of its valve, or the knob's value), its limits dashed; e = r − y below that;
    the stretches it was off hatched on all three, and labelled "off" over the time axis; then its numbers */
 function loopScope(goal, { numbers = true } = {}) {
-  const box = h("div", { class: "strip scope" }, h("div", { class: "muted small" }, "…"));
+  const box = h("div", { class: "strip scope" }, working());
   api("loop-scope", { goal, points: CHART_POINTS }).then((d) => {
     const group = chartGroup("scope");
     const u = d.u || {};
@@ -650,7 +658,17 @@ function useChart({ group, name, unit = "", times, values, since, until, text = 
 /* a kind's states stacked over the window in state order, the first on top and where they finish at
    the bottom: bands are stocks, their edges' slopes flows. Each state named at the right with its count
    (at the cursor, or now): a click filters the table, as the counts did */
-function flowChart(d, group, { chosen = null, onState = null } = {}) {
+/* which of a kind's states are finished and where that came from (spec/finished.py), or 'lives on'; paused states named:
+   the legend's tooltip, so it takes no line of its own */
+function finishSaid(k) {
+  if (!k || !k.finished) return null;
+  const fin = k.lives_on ? "lives on" : `finished: ${k.finished.join(", ")} (${k.finished_from === "declared" ? "declared"
+    : `inferred: no item has left ${k.finished.length > 1 ? "them" : "it"} yet`})`;
+  return fin + (k.paused?.length ? ` · paused: ${k.paused.join(", ")}` : "");
+}
+const finishOf = (k, st) => (k?.finished?.includes(st) ? "finished" : k?.paused?.includes(st) ? "paused" : null);
+
+function flowChart(d, group, { chosen = null, onState = null, kind = null } = {}) {
   const states = d.states;
   const ramp = ["--line", "--line-strong", "--muted", "--ink-2"];
   const step = (i) => ramp[Math.min(ramp.length - 1, Math.floor((i / Math.max(1, states.length - 1)) * (ramp.length - 1) + 0.0001))];
@@ -661,13 +679,13 @@ function flowChart(d, group, { chosen = null, onState = null } = {}) {
   let cur = d;                                            // the data shown: set in place by update()
   const labels = states.map((st, k) => {
     const n0 = h("span", { class: "n" }, String(d.now[st] || 0));
-    const a = h("a", { href: "#", class: boxClass(d, st, chosen),
+    const a = h("a", { href: "#", class: boxClass(d, st, chosen), title: finishOf(kind, st),
                       onclick: (ev) => { ev.preventDefault(); onState?.(st); } }, h("span", { class: "swatch", style: `background:var(${step(k)})` }), n0, st);
     a.count = n0;
     return a;
   });
   const plotEl = h("div", { class: "chart-plot" });
-  const el = h("div", { class: "cfd" }, plotEl, h("div", { class: "cfd-states" }, ...labels.slice()));
+  const el = h("div", { class: "cfd" }, plotEl, h("div", { class: "cfd-states", title: finishSaid(kind) }, ...labels.slice()));
   mountPlot(plotEl, (width) => {
     const o = baseOpts({ width, height: 120, group, since: cur.since, until: cur.until, xAxis: true,
       yRange: (_, lo, hi) => [0, Math.max(1, hi || 1) * 1.05],
@@ -680,8 +698,9 @@ function flowChart(d, group, { chosen = null, onState = null } = {}) {
     return new uPlot(o, [cur.times, ...cumOf(cur)], plotEl);
   });
   // new data for the same states: the counts and the plot's data set in place (false: the states differ, draw it again)
-  el.update = (d2, chosen2 = null) => {
-    if (JSON.stringify(d2.states) !== JSON.stringify(states)) return false;
+  const finSig = (k) => JSON.stringify([k?.finished, k?.paused, k?.finished_from, k?.lives_on]);
+  el.update = (d2, chosen2 = null, kind2 = kind) => {
+    if (JSON.stringify(d2.states) !== JSON.stringify(states) || finSig(kind2) !== finSig(kind)) return false;
     cur = d2;
     states.forEach((st, k) => {
       setText(labels[k].count, String(d2.now[st] || 0));
