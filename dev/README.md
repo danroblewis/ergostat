@@ -517,7 +517,9 @@ pending push carries as stuck at once.
 its pages drew nothing). The first of them to fail is the one reported, and it stops the rest: a unit failure kills
 the browser run still going (and the other way round), which is recorded `stopped_by` it, its own result not judged.
 
-**Which tests run where.** With `[suites] queue_container`, ruff, unit, browser and demo run in containers, where
+**Which tests run where.** With `[suites] queue_container`, ruff, unit, browser and demo run in containers, each on a
+copy of the checkout (tarred into the container's stdin, never bind-mounted: Docker Desktop's file sharing keeps a
+handle open on every file read through a mount; `vm-open-files` in `dev/model/resources.yaml` watches that count), where
 bwrap cannot make its namespaces and there is no kqueue: `tests/test_repair2.py` and `tests/test_sandbox_attacks.py`
 (the AI repair sandbox's tests) and `tests/test_notify.py`'s kqueue test skip there. `[suites] host` runs those three
 files on the Mac, outside any container, after unit and browser and before demo, under the queue's lock: a required

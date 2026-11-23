@@ -447,22 +447,27 @@ def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str, env: tuple = (
     """(a container's name, the shell command that runs ``cmd`` in it): one of the merge queue's (``box`` "queue") or
     flake triage's ("triage") suites, in the agent image on ``work`` at /work, with no network (a demo's servers and
     ports in its own namespace), pinned to [agents] queue_cpuset (a prefix's, on a worktree under run/queue-prefix/,
-    with [agents] prefix_cpus). The Mac's checkout is kept as the Mac left it: the
-    image's own environment (/opt/venv), with an empty tmpfs over the checkout's .venv; bytecode and ruff's cache under
-    /tmp; the git directory read-only (a worktree's at its own path). run/coverage/ at its own path, as the unit run's
-    ERGOSTAT_COVERAGE names it. ``env``: more NAME=value settings for it (fac.suite's PYTEST_ADDOPTS)."""
+    with [agents] prefix_cpus). The checkout is a copy, never a bind mount (Docker
+    Desktop's file sharing keeps a handle open on every file a container reads through one,
+    dev/records/suites-copy-their-checkout-into-the-container.md): tarred on the Mac (all but its .venv, with its git
+    directory when that is inside it) into the container's stdin and unpacked at /work before ``cmd``, a copy that
+    did not unpack exiting 125 (NotStarted); so the Mac's checkout is kept as the Mac left it. The image's own
+    environment (/opt/venv); bytecode and ruff's cache under /tmp; a worktree's git directory (outside it) read-only at
+    its own path. run/coverage/ mounted at its own path, as the unit run's ERGOSTAT_COVERAGE names it, so what it writes
+    there reaches run/. ``env``: more NAME=value settings for it (fac.suite's PYTEST_ADDOPTS)."""
     name, work = container(f"suite-{box}"), work.resolve()
     prefix = work.is_relative_to((fac.path(cfg, "run") / "queue-prefix").resolve())   # (a prefix's: prefixes.py)
     cpus = prefix_cpus(cfg) if prefix else QUEUE_CPUS.get(suite, 4)
     common = Path(fac.git(work, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
     cov = fac.run_dir(cfg, "coverage").resolve()
-    inside = f"/work/{common.relative_to(work)}" if common.is_relative_to(work) else str(common)
-    args = ["docker", "run", "--rm", "--name", name, "--network", "none",
-            *limits(cfg, "queue", cpus), *SHOTS, "-v", f"{work}:/work", "-v", f"{cov}:{cov}",
-            "-v", f"{common}:{inside}:ro", *(["--tmpfs", "/work/.venv"] if (work / ".venv").is_dir() else []),
+    git = [] if common.is_relative_to(work) else ["-v", f"{common}:{common}:ro"]
+    args = ["docker", "run", "-i", "--rm", "--name", name, "--network", "none",
+            *limits(cfg, "queue", cpus), *SHOTS, "-v", f"{cov}:{cov}", *git,
             "-e", "UV_PROJECT_ENVIRONMENT=/opt/venv", "-e", "PYTHONPYCACHEPREFIX=/tmp/pycache",
-            "-e", "RUFF_CACHE_DIR=/tmp/ruff", *[x for e in env for x in ("-e", e)], "-w", "/work", settings(cfg)["image"], "sh", "-c", cmd]
-    return name, shlex.join(args)
+            "-e", "RUFF_CACHE_DIR=/tmp/ruff", *[x for e in env for x in ("-e", e)], "-w", "/work", settings(cfg)["image"],
+            "sh", "-c", 'tar -xf - || exit 125; exec sh -c "$1"', "sh", cmd]
+    copy = f"COPYFILE_DISABLE=1 tar -C {shlex.quote(str(work))} --exclude ./.venv --no-xattrs --no-acls -cf - ."
+    return name, f"{copy} | {shlex.join(args)}"   # (macOS's tar: no ._ files, no headers GNU tar warns of)
 
 
 def sweep_box(box: str) -> list[str]:
