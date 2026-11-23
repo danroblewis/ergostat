@@ -4763,7 +4763,10 @@ ahead. Each projection run starts from a copy of that state. `check` (the findin
 **external-unidentified** (fewer than 40 points, fewer than three moves, or no law fits) and **external-not-run** (a law
 identified whose output the projection cannot move). The Blocks view writes the law in the block, its sketch (a relay,
 a staircase, a saturation) and a small *identified* mark, from laws already fitted (a miss is fitted in a thread and
-drawn on a later poll); its panel says the rest. *Not yet*: whether the law changed (someone retuned the controller:
+drawn on a later poll); its panel says the rest. A loop whose controller is an external block (`/api/loop-control`)
+gives, in its `controller`, that block's law as identified (`identified`: the law, its numbers, its skill and R² on the
+record held out) and says it, or says why it has none (its law not asked for, or not identified, and why); no margins
+are worked out from it (they need a law written in the model). `examples/autoscaler` shows it. *Not yet*: whether the law changed (someone retuned the controller:
 two laws against one on held-out error; a first comparison of each half's numbers raised it on unchanged controllers),
 a known law tested against the record, and the law's numbers sampled by the risk.
 
