@@ -92,3 +92,28 @@ Run here, one file at a time or up to three:
 - ruff is clean. `main` has not moved since the clone ("Already up to date").
 - Not run here: the whole unit suite and the four browser files (the factory's). No example was touched, so no
   `demo_check`.
+
+### Round 2
+
+The review's one finding, and the only one: the default dashboard's worked heatmap example was a field's rate over time
+(`series`), which the heatmap no longer takes, so every default dashboard with a numeric field showed the mismatch
+sentence where that example should be.
+- `dashboard-examples.js`: the heatmap example is now the scatter example's own query, one numeric field against
+  another (`points`), titled "<kind>: <y> against <x>, heatmap". Like the scatter, it is made only when the kind has a
+  second numeric field. I kept the heatmap's declared shapes as they were. Making it take a time series again would undo
+  the catalog's table, and changing the example is the easier step to reverse.
+- `tests/test_dashboard_page.py::test_every_worked_example_is_drawn_through_the_shape_gate`: the default dashboard
+  built for a kind with two numeric fields, where every query is answered by the real engine (`api(Live(p), "query")`
+  over `tests/test_result_shapes._p`), so each answer carries its real frame. No panel may be refused by shape, and the
+  heatmap example must be `drawn`. The file's other tests use a fake answer with no `shape`, which skips the gate. That
+  is why the regression passed before.
+- Seen to fail when broken: I put the old rate-over-time query back in the heatmap example and the test failed with
+  "Heatmap needs points; ...". Then I restored it.
+- About 5 net lines of code added (the round total is still within the 600 budget).
+
+Run here, one file at a time, browser files under the watchdog, none skipped: test_dashboard_page (36 passed),
+test_result_shapes_page (7), test_dashboards_doc (34), test_panel_editor (34), test_panels (25), and the unit file
+test_result_shapes (13). All passed. ruff is clean. `git merge main`: "Already up to date". On the first run of
+test_dashboard_page, the three `test_entering_edit_mode_moves_no_panel_content` cases timed out. The cause was my new
+test's module constant `SETTLED`, which replaced the file's own constant of that name. I renamed it `ANSWERED` and all 36
+then passed. Not run here: the whole unit suite and the four browser files (the factory's).
