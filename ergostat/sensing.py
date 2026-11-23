@@ -91,10 +91,11 @@ def what(spec: Spec, x: Sensor) -> str:
 
 def reads(spec: Spec, x: Sensor) -> str:
     """What a sensor reads and how often: ``items: alert, fired, every 5 s``."""
+    from .library.runs import sandboxed
     w, h = what(spec, x), how_often(x)
     if x.manual:
         return w if w == "a person's reading" else f"{w}, read by hand"
-    return f"{w}, {h}" if h else w
+    return (f"{w}, {h}" if h else w) + (", sandboxed" if sandboxed(x) else "")
 
 
 def collectors(spec: Spec) -> dict[str, list[Sensor]]:
