@@ -1,24 +1,11 @@
 """stack-forward (the block stack-forward, dev/model/building.yaml): a stacked gap's moved bases merged forward into it.
 
-A gap with `stacked_on` [{gap, sha}] (implement.py), approved, built or sent back to fix, is stale when a base was
-approved again at a new reviewed head (a fix round after review or triage: it is in fac.STACKABLE with another
-`reviewed_head`), or has landed (merged or closed: it is dropped from `stacked_on`, nothing merged). `stack.py stale`
-is the sensor stale-stacks: how many there are. `stack.py` is a pass, under the queue's lock (taken only if free: a
-queue run reads the reviewed heads it merges, and an approved gap moves only through it), the gaps read inside it,
-each stale one in turn bottom-up (a base before the gaps stacked on it, so a stack of three moves in one pass):
-
-- leased, building or in review: never touched; the next implementor round merges the base itself;
-- an approved gap whose branch is no longer its reviewed head: left (the queue refuses it as it is);
-- otherwise each base's new head merged into its branch (`--no-ff`, by the factory, never a rebase or a squash) in a
-  scratch clone of the drop, and the drop's branch moved from the tip it was read at only (update-ref's old value: a
-  branch moved meanwhile is refused and theirs kept; so is a gap whose state changed meanwhile). Clean: `stacked_on`
-  updated; an approved gap stays approved with its new `reviewed_head` (`reviewed_by: stack-forward`: the merge
-  brings only reviewed commits, and the queue tests the result), a built one gets its new `head` for the review;
-- a conflict is aborted and the gap sent back to fix with the files (`stack_conflict`), not counted as a failed gate:
-  implement.py's next round merges the base again and hands the conflict to its session (its conflict brief).
-
-A `stacked_on` that cannot be read, or that names a gap not in the record, counts as stale (lesson-3) and is said,
-never moved."""
+A gap with `stacked_on` (implement.py), approved, built or in fix, is stale when a base was approved again at a new
+reviewed head or has landed; `stack.py stale` counts them (the sensor stale-stacks). `stack.py` is one pass under the
+queue's lock (only if free), the stale gaps bottom-up: leased, building and in-review ones never touched, each moved
+base's head merged in `--no-ff` in a scratch clone of the drop, the drop's branch moved from the tip read only; a
+conflict aborted and the gap sent back to fix, uncounted. A `stacked_on` that cannot be read counts as stale and is
+never moved (lesson-3). dev/README.md, Stacked gaps, says the rest."""
 
 from __future__ import annotations
 
