@@ -7063,8 +7063,9 @@ the run is not started if that fails or the keeper has already gone) and `oom_sc
 orders the OOM killer's choice, run before keeper). It sets `SIGPIPE`, `SIGXFSZ` and `SIGHUP` back to their
 default (Python and the keeper ignore them, and an ignored signal stays ignored across exec, so `yes | head` would
 not end on its broken pipe). It then execs `/bin/sh -c COMMAND` in `cwd/` with the keeper's
-environment and `env` over it, standard input from `in`, output to `out` and `err`. The keeper waits for it and
-writes `runs/RUN/exit` (whole, by a replace) as `{"code", "how"}`: the exit code, or `-N` for signal N, and `how`,
+environment and `env` over it, standard input from `in`, output to `out` and `err`. The keeper waits for it
+(`wait4`), writes the CPU that gave as `runs/RUN/reaped` `{"user", "system"}` (seconds: the run and every
+descendant it waited for; best effort, a failed write is said on the keeper's log), then writes `runs/RUN/exit` (whole, by a replace) as `{"code", "how"}`: the exit code, or `-N` for signal N, and `how`,
 `exit` or the signal's name (`USR1`), or `TERM`/`KILL` when it was stopped; `{"code": null, "how": "not started"}`
 when it could not fork. A keeper that is itself killed writes nothing: on Linux the kernel then SIGKILLs the run's
 first process (the death signal), but other processes of its group go on.
@@ -7084,20 +7085,20 @@ for its first ten seconds seen, then every ten seconds. Each sample is one listi
 `ps -A -o pid=,ppid=,pgid=,rss=,utime=,stime=` elsewhere, a failed one no sample) and the run's tree in it: its
 process group and its descendants by parent, whatever their group. Per run it keeps each process's last CPU seen,
 the most resident memory the tree held at once (summed), the most processes and, where cheap (`/proc`; `libproc`
-on macOS), the most open files. On Linux it also reads the run's keeper (the leader's parent, taken only when its
-command line is `--keep RUN`) and its reaped children's CPU: the run and every descendant waited for, exact once
-the keeper has reaped the run. The resources have the keys a local run's carry (`ergostat/costs/sampler.py`,
+on macOS), the most open files. When it reads the exit it also reads `reaped` (written before the exit), taken only
+when both are finite numbers from 0: the run's CPU exact once the keeper has reaped it, whether or not any sample
+saw the run (a run of under a second, or one a restarted worker finds already ended). The resources have the keys a local run's carry (`ergostat/costs/sampler.py`,
 `Tracker.result`): `cpu`, `cpu_user`, `cpu_system` (each the larger of the sampled sum and what the keeper reaped),
 `memory_peak` (bytes), `processes_peak`, `open_files_peak` when known, `samples`, `method` (`keeper+sampled`,
 `keeper`, `sampled` or `none`) and `sampler_cpu` (the thread's CPU and its `ps`'s, reaped with `wait4`, shared
-out among the runs it saw). What lives less than a sample's gap, and memory between samples, is not seen; off Linux
-the CPU is the sampled sum alone, which can miss up to the last gap of the run.
+out among the runs it saw). Memory and processes between samples are not seen, nor any of a run no sample saw
+(its `memory_peak` 0). Without a readable `reaped` (a keeper killed, or one from before it was written) the CPU is
+the sampled sum alone, which can miss up to the last gap of the run, and `method` has no `keeper`.
 
 Once a run's `exit` can be read, a last sample is taken and the worker says **`ended`** `{"run", "code", "how",
 "resources"}` (`code` and `how` as in the exit file), once a run in each worker session: a worker started again
 says it again for a run whose folder is still there. A run never started (an exit and no `pgid`) is said with
-`method` `none`; an exit file that is whole JSON but not an object is said with `code` and `how` null. The keeper's
-reaped CPU is read only while its command line still says `--keep RUN` (a pid is reused). A look that fails is
+`method` `none`; an exit file that is whole JSON but not an object is said with `code` and `how` null. A look that fails is
 said on the worker's standard error and the next look tried. Readings are measurements: no beat and no reading is
 an event.
 

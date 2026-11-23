@@ -8,7 +8,6 @@ import importlib.util
 import os
 import signal
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -59,16 +58,26 @@ def _ended(node, run: str, timeout: float = 30.0) -> tuple[dict, list[dict]]:
     raise AssertionError(f"no ended for {run}")
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="what the keeper reaped is read from /proc only; "
-                    "elsewhere the sampled sum may miss the last second (SPEC §12s.3)")
+def _burn(seconds: float) -> str:
+    return f"{PY} -c 'import time\nt = time.process_time()\nwhile time.process_time() - t < {seconds}: pass'"
+
+
 def test_a_two_second_cpu_burn_reports_at_least_one_and_a_half(node):
-    burn = "import time\nt = time.process_time()\nwhile time.process_time() - t < 2: pass"
-    run, _ = node.start(f"{PY} -c '{burn}'")
+    run, _ = node.start(_burn(2))
     ended, beats = _ended(node, run)
     assert ended["code"] == 0 and ended["how"] == "exit"
     assert ended["resources"]["cpu"] >= 1.5, ended
     assert ended["resources"]["method"] == "keeper+sampled", ended     # (exact: what the keeper reaped, not luck)
     assert any(b["runs"].get(run, {}).get("resources", {}).get("samples", 0) >= 1 for b in beats), beats
+
+
+def test_a_sub_second_burn_still_has_the_keepers_cpu(node):
+    """Ended before any sample may see it (the sampler looks once a second): its CPU is what the keeper's wait4
+    gave, never 0 with ``method`` ``none`` (a run never started)."""
+    run, _ = node.start(_burn(0.4))
+    ended, _ = _ended(node, run)
+    assert ended["code"] == 0 and ended["resources"]["cpu"] >= 0.35, ended
+    assert ended["resources"]["method"] in ("keeper", "keeper+sampled"), ended
 
 
 def test_a_hundred_megabyte_allocation_reports_a_peak_at_least_that(node):

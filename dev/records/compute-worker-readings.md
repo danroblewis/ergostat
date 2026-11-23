@@ -36,3 +36,20 @@ test's `method`), memory halved (the 100 MB test), `sampler_cpu` dropped (the ke
 (the four-runs test says 12 frames, not 4).
 
 Overrun reason: 225 net lines against 150 (round 2 added 8 lines for the three fail-closed reads above). Four things the definition implies but did not count: the keeper's reaped CPU (what makes the 1.5 s claim hold, rather than depend on where a sample lands), the minimal `ended` frame that `ended.resources` needs, macOS `libproc` open files so the keys equal a local run's on macOS too, and `ps` reaped with `wait4` so `sampler_cpu` counts the listing's cost.
+
+Round 3 answers the one finding (the keeper found only through a live leader, so a run no sample saw read cpu 0,
+`method` `none`). The keeper now reaps the run with `wait4` and writes its CPU to `runs/RUN/reaped`
+`{"user", "system"}` just before `exit`; the sampler reads it with the exit, taking it only when both are finite
+numbers from 0. This replaces the `/proc/KEEPER/stat` read of round 1 and the `--keep RUN` command-line check of
+round 2 (no pid is looked up any more, so none can be reused), and it works off Linux too, so the burn test's
+Linux-only skip is gone. Decisions taken alone (the most reversible): a file of its own rather than more keys in
+`exit`, because the keeper's tests pin `exit` as exactly `{"code", "how"}`; a failed `reaped` write is said on the
+keeper's log and the run still ends as it did (the CPU then the sampled sum, `method` without `keeper`), never
+`not started`. keeper.py is outside the definition's Files list; the finding asked for the change there. A fifth
+test, `test_a_sub_second_burn_still_has_the_keepers_cpu` (a 0.4 s burn: cpu ≥ 0.35, `method` naming the keeper), is
+beyond the definition's four, as the finding asked. With the `reaped` write disabled it fails (cpu 0, `method`
+`sampled`), and so does the 2 s burn test (`method` `sampled`). SPEC 12s.3 says the `reaped` file and narrows what
+goes unseen: memory and processes of a run no sample saw, and the CPU only where `reaped` is unreadable.
+
+Overrun reason: 224 net lines against 150 after round 3 (round 3 is net −1: the keeper's `reaped` write, 6 lines,
+replaces the `/proc` keeper lookup). The four reasons above still stand, the first now the `reaped` file.

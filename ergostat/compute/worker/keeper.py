@@ -160,12 +160,17 @@ def grace(path: str) -> float:
 
 def keep(d: str, pid: int) -> tuple[int, str]:
     """Waits for the run; at the stop file, SIGTERM to its group, then SIGKILL to the group past the grace while any
-    of it is left. Its exit code (-N for a signal) and how it ended: ``exit``, the signal, or ``TERM``/``KILL``."""
+    of it is left. Its exit code (-N for a signal) and how it ended: ``exit``, the signal, or ``TERM``/``KILL``. The
+    CPU ``wait4`` gave (the run and every descendant it waited for) is written to ``reaped`` first."""
     code = how = term = None
     stop = os.path.join(d, "stop")
     while True:
-        if code is None and (got := os.waitpid(pid, os.WNOHANG))[0]:
+        if code is None and (got := os.wait4(pid, os.WNOHANG))[0]:
             code = os.waitstatus_to_exitcode(got[1])
+            try:                                # (best effort: without it the CPU is the sampled sum, said so)
+                put(os.path.join(d, "reaped"), json.dumps({"user": got[2].ru_utime, "system": got[2].ru_stime}))
+            except OSError:
+                traceback.print_exc()
         if term is None and code is None and os.path.exists(stop):
             term, how = time.monotonic() + grace(stop), "TERM"
             group(pid, signal.SIGTERM)

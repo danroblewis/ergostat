@@ -3,7 +3,8 @@ the runs in the root's ``runs/`` (each folder and its ``pgid``), lists the proce
 Linux, one ``ps`` elsewhere) and reads each run's tree: its process group and its descendants by parent. A run is
 sampled once a second for its first ten seconds seen, then every ten. Its resources carry the keys a local run's do
 (``ergostat/costs/sampler.py``, ``Tracker.result``). The latest is in each ``beat``; once the keeper's exit is
-there, the whole is said once in ``ended``. Readings are measurements: nothing here writes an event."""
+there, the whole, with the CPU the keeper's ``wait4`` gave (its ``reaped`` file), is said once in ``ended``.
+Readings are measurements: nothing here writes an event."""
 
 import functools
 import json
@@ -45,8 +46,8 @@ def _clock(s: str) -> float:
 
 
 def listing() -> tuple[dict, float]:
-    """Every process by pid: (parent, group, resident bytes, user, system, reaped children's user and system, or
-    None where not read), and what ``ps`` cost. A ``ps`` that fails raises: no sample, never every tree empty."""
+    """Every process by pid: (parent, group, resident bytes, user, system), and what ``ps`` cost. A ``ps`` that
+    fails raises: no sample, never every tree empty."""
     rows = {}
     if LINUX:
         for d in os.listdir("/proc"):
@@ -54,8 +55,7 @@ def listing() -> tuple[dict, float]:
                 with open(f"/proc/{d}/stat", "rb") as f:
                     raw = f.read().decode(errors="replace")
                 f = raw[raw.rfind(")") + 2:].split()    # (after the command, which may hold spaces)
-                rows[int(d)] = (int(f[1]), int(f[2]), int(f[21]) * PAGE, int(f[11]) / TICK, int(f[12]) / TICK,
-                                int(f[13]) / TICK, int(f[14]) / TICK)
+                rows[int(d)] = (int(f[1]), int(f[2]), int(f[21]) * PAGE, int(f[11]) / TICK, int(f[12]) / TICK)
             except (OSError, IndexError, ValueError):
                 continue
         return rows, 0.0
@@ -72,7 +72,7 @@ def listing() -> tuple[dict, float]:
     for line in out.splitlines():
         f = line.split()
         try:
-            rows[int(f[0])] = (int(f[1]), int(f[2]), int(f[3]) * 1024, _clock(f[4]), _clock(f[5]), None, None)
+            rows[int(f[0])] = (int(f[1]), int(f[2]), int(f[3]) * 1024, _clock(f[4]), _clock(f[5]))
         except (IndexError, ValueError):
             continue
     return rows, (p.rusage.ru_utime + p.rusage.ru_stime) if p.rusage else 0.0
@@ -104,7 +104,7 @@ def _libproc():
 class Run:
     def __init__(self, name: str, now: float):
         self.name, self.first, self.due = name, now, now
-        self.pgid = self.keeper = None
+        self.pgid = None
         self.cpu: dict[int, tuple[float, float]] = {}     # pid: its last (user, system) seen
         self.reaped = (0.0, 0.0)                          # what its keeper reaped: the run and each descendant waited
         self.memory = self.processes = self.samples = 0
@@ -118,11 +118,6 @@ class Run:
         while todo:                                       # (its descendants, whatever their group)
             tree.add(x := todo.pop())
             todo += [k for k in kids.get(x, ()) if k not in tree]
-        if self.keeper is None and LINUX and self.pgid in rows and self._keeper(rows[self.pgid][0]):
-            self.keeper = rows[self.pgid][0]
-        k = rows.get(self.keeper)
-        if k is not None and k[5] is not None and self._keeper(self.keeper):   # (still its keeper: pids are reused)
-            self.reaped, self.kept = (max(self.reaped[0], k[5]), max(self.reaped[1], k[6])), True
         if not tree:
             return False
         self.samples += 1
@@ -135,14 +130,12 @@ class Run:
             self.files = max(self.files or 0, sum(files))
         return True
 
-    def _keeper(self, pid: int) -> bool:
-        """Whether ``pid`` is this run's keeper (its command line says so), never another that took the parent's
-        place (init or a subreaper, once a keeper is gone)."""
-        try:
-            with open(f"/proc/{pid}/cmdline", "rb") as f:
-                return f"\0--keep\0{self.name}\0".encode() in f.read()
-        except OSError:
-            return False
+    def reap(self, got) -> None:
+        """What the keeper's ``wait4`` gave, from its ``reaped`` file; anything else is not taken (the sampled sum
+        stands, ``method`` without ``keeper``)."""
+        ok = lambda v: not isinstance(v, bool) and isinstance(v, int | float) and 0 <= v < 1e9   # noqa: E731
+        if isinstance(got, dict) and ok(got.get("user")) and ok(got.get("system")):
+            self.reaped, self.kept = (float(got["user"]), float(got["system"])), True
 
     def result(self) -> dict:
         user = max(sum(u for u, _ in self.cpu.values()), self.reaped[0])
@@ -189,7 +182,8 @@ class Readings:
                 if r.pgid is None:
                     r.pgid = _read(os.path.join(self.runs_dir, n, "pgid"), int)
                 if (e := _read(os.path.join(self.runs_dir, n, "exit"), json.loads)) is not None:
-                    ends[n] = e
+                    ends[n] = e                           # (read after the exit: the keeper writes it before)
+                    r.reap(_read(os.path.join(self.runs_dir, n, "reaped"), json.loads))
             due = [r for r in self.runs.values() if r.pgid is not None and (r.due <= now + 0.05 or r.name in ends)]
         if not due and not ends:
             return []
