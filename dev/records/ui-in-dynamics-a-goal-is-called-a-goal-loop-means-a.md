@@ -124,3 +124,14 @@ Round 5: main (dc47a763) merged in at 7429c516. The conflicts are resolved and b
   (`.side .suggest .hint button.name` "not visible", `#detail` reopened by `openLoop`'s late answer in `details.js`,
   which is the same as main's). Left for main (lesson 13). Not run here: the rest of `tests/test_diagram_rendering.py`,
   the other browser files and the unit suite.
+
+Round 6: main (a171d119) merged in at 04449cdb. The one conflict (`tests/test_diagram_rendering.py`) is resolved and
+both sides are kept: the branch's acceptance test (with its own `pg.close()` and page-error check) and main's new
+`test_on_a_phone_the_diagram_opens_with_a_whole_system_box_in_view`, whose bodies the conflict had fused. No other
+change.
+
+- Runs: ruff clean; `tests/test_dynamics_view.py` 17 passed. Under the watchdog, the acceptance test and both
+  parametrizations of the phone test passed (3 passed, rc 0). Not run here: the rest of
+  `tests/test_diagram_rendering.py`, the other browser files and the unit suite; the merge queue runs them.
+- Refused: a `python3 - <<'EOF' …` script to strip the conflict markers, and a `cat >> … <<'EOF'` append to this file;
+  both were done with the editor instead.
