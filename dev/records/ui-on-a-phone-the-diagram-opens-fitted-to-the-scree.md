@@ -62,3 +62,10 @@ under the watchdog; ruff clean. The whole tests/test_diagram_rendering.py was st
 session's command time limit stopped it before it finished, and it produced no result; starting it in the background
 with a longer limit was refused (`... named_tests.py tests/test_diagram_rendering.py > /tmp/dr.log 2>&1`). The merge
 queue's run of that file is the check still to come.
+
+Round 3: merged main (bf6dbebf). The conflicts in tests/test_diagram_rendering.py and tests/test_style_tokens.py
+were again new tests from each side added at the same place (main's Open all, reader's-pages and Harris tests; its
+first-level note and dimmed-diagram style tests), so the merge keeps all of them, each test with its own closing
+lines; the page code is unchanged. After the merge: tests/test_style_tokens.py 10 passed; the phone acceptance test
+(2 cases) and main's test_open_all_on_a_model_that_fits_opens_every_system_as_before 3 passed under the watchdog;
+ruff clean. The whole tests/test_diagram_rendering.py was not run here; the merge queue runs it.
