@@ -66,7 +66,7 @@ def say(event: str, item: str | None = None, **data) -> None:
     line = {"event": event, "data": data}
     if item:
         line["item"] = item
-    print(json.dumps(line, default=str), flush=True)
+    print(json.dumps(line, default=str) + "\n", end="", flush=True)   # (one write: a half's thread may say one too)
 
 
 def nack(why: str, after: str | None = None, count: bool = True) -> None:
@@ -496,15 +496,16 @@ def queue_lock(cfg: dict):
 SUITES: set[int] = set()                                # the process groups of the suites running now (suite())
 
 
-def stop_suites() -> None:
+def stop_suites(group: set | None = None) -> None:
     """Every running suite's process group stopped, and its container by name: a run stopped while suites run in
-    threads of its own (queue.py)."""
-    for pid in list(SUITES):
+    threads of its own (queue.py). ``group`` (what suite() added to it): only those, so one half's failure never stops
+    the other's suites."""
+    for pid in [p for p in list(SUITES) if group is None or p in group]:
         try:
             os.killpg(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-    for name in list(BOXES):
+    for name in [b for b in list(BOXES) if group is None or b in group]:
         agents_module().killed(name)
 
 
@@ -545,7 +546,7 @@ def agents_module():
 
 
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
-          quarantined: list[str] = (), box: str = "", **fmt) -> tuple[int, float]:
+          quarantined: list[str] = (), box: str = "", group: set | None = None, **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
     shell, as the coordinator does, inside [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is
     False (the queue: its lock is its slot); ``quarantined``: deselected from unit and browser. The suite's whole
@@ -553,7 +554,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     faulthandler); "host" (the queue's and triage's `[suites] host`) on the Mac, never boxed; the others, with
     [suites] queue_container (true unless false), in a container of its own (agents.queued), killed by name on any
     way out; one that did not start raises agents.NotStarted (an infrastructure failure, never read as the suite's
-    result)."""
+    result). ``group``: a set this suite's pid and container are added to, for stop_suites(group)."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
     cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
     stall, wall = limits(cfg) if box else (600.0, 600.0)  # (again at run time: the queue's and triage's only)
@@ -564,6 +565,8 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     if box and box != "host" and cfg["suites"].get("queue_container", True) is not False:
         boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box, (f"PYTEST_ADDOPTS={env['PYTEST_ADDOPTS']}",))
         BOXES.add(boxed)
+        if group is not None:
+            group.add(boxed)
     held = None
     if slot and cfg["suites"].get("slot") and name != "ruff":
         if box:                                         # the limits' clocks start once the slot is held (marked inside)
@@ -576,6 +579,8 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
         SUITES.add(p.pid)
+        if group is not None:
+            group.add(p.pid)
         try:
             size, grew, clock = 0, began, began
             while p.poll() is None:
@@ -775,7 +780,7 @@ STANDIN = {
                'It works.\n\n## Files to touch\n\n- `x.py` (new)\n- `standin/work.txt` (new)\n\n## Risks\n\n- none.\n\n'
                '## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
                'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
-    "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
+    "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- `docs/GAPS.md:1`: the gaps\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
     "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
     "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}
