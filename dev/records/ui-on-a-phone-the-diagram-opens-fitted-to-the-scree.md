@@ -69,3 +69,12 @@ first-level note and dimmed-diagram style tests), so the merge keeps all of them
 lines; the page code is unchanged. After the merge: tests/test_style_tokens.py 10 passed; the phone acceptance test
 (2 cases) and main's test_open_all_on_a_model_that_fits_opens_every_system_as_before 3 passed under the watchdog;
 ruff clean. The whole tests/test_diagram_rendering.py was not run here; the merge queue runs it.
+
+Round 4: merged main (ead497d1). In ergostat/web/static/diagram.js, main's new partClick and the branch's fitNarrow
+were added at the same place after fit(); the merge keeps both functions whole, and fitNarrow is unchanged. In
+tests/test_diagram_rendering.py, main's one-sided-limit and no-unit tests and the branch's phone test were added at
+the same place; the merge keeps all three. After the merge: ruff clean; tests/test_style_tokens.py 11 passed; the
+phone acceptance test (2 cases), test_a_one_sided_limit_is_drawn_and_named_as_a_limit and
+test_a_stock_with_no_unit_reads_unit_query_after_its_value_and_the_legend_explains_it 4 passed under the watchdog.
+The whole tests/test_diagram_rendering.py was not run here; the merge queue runs it. `node --check` on diagram.js
+was refused; the browser tests load the merged script without page errors.
