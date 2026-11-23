@@ -1,0 +1,82 @@
+/* the panel editor (panel-editor.js): the whole window, the preview over the queries, display options beside them */
+.pe-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font-size: var(--text); }
+.pe-head { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); background: var(--chrome); border-bottom: var(--hair) solid var(--line); }
+.pe-head h2 { margin: 0; font-size: var(--text-lg); font-weight: 600; white-space: nowrap; }
+.pe-save-msg { flex: 1; min-width: 0; color: var(--bad); font-size: var(--text-sm); }
+.pe-actions { display: flex; gap: var(--sp-2); margin-left: auto; flex: none; }
+.pe-overlay button.pe-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.pe-overlay button.pe-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.1); }
+.pe-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--side-w); }
+.pe-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.pe-preview { flex: 0 0 45%; min-height: 0; min-width: 0; display: flex; padding: var(--sp-3); border-bottom: var(--hair) solid var(--line); background: var(--chrome); }
+.pe-preview > * { flex: 1; min-width: 0; min-height: 0; }
+.pe-overlay .pe-preview > .panel { --panel-h: auto; }   /* the preview takes the room it is given, whatever the panel's size */
+.pe-query-area { flex: 1; min-height: 0; overflow-y: auto; padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-3); }
+.pe-queries { display: flex; flex-direction: column; gap: var(--sp-3); }
+.pe-add { align-self: flex-start; }
+.pe-fields-msg { color: var(--bad); padding: var(--sp-2); background: var(--bad-wash); border-radius: var(--radius); }
+.pe-q { border: var(--hair) solid var(--line); border-radius: var(--radius-menu); background: var(--bg); }
+.pe-q-hidden .pe-q-grid { opacity: 0.5; }
+.pe-q-head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); background: var(--chrome); border-bottom: var(--hair) solid var(--line); border-radius: var(--radius-menu) var(--radius-menu) 0 0; }
+.pe-q-id { font-weight: 600; font-family: var(--mono); color: var(--accent); }
+.pe-q-title { color: var(--muted); font-size: var(--text-sm); }
+.pe-q-tools { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-0); }
+.pe-q-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--side-w) / 2), 1fr)); gap: var(--sp-2) var(--sp-3); padding: var(--sp-3); }
+.pe-q-msg { padding: 0 var(--sp-3); font-size: var(--text-sm); }
+.pe-q-msg:not(:empty) { padding-bottom: var(--sp-2); }
+.pe-msg-bad { color: var(--bad); font-size: var(--text-sm); }
+.pe-msg-warn { color: var(--warn); font-size: var(--text-sm); }
+.pe-f { display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0; }
+.pe-f select, .pe-f input { width: 100%; min-width: 0; box-sizing: border-box; }
+.pe-l { color: var(--muted); font-size: var(--text-sm); padding: 0; }
+.pe-group { border: 0; margin: 0; padding: 0; min-width: 0; }
+.pe-wide { grid-column: 1 / -1; }
+.pe-segs, .pe-checks { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-0); }
+.pe-seg { position: relative; display: inline-flex; align-items: center; gap: var(--sp-1); padding: var(--sp-0) var(--sp-2); border: var(--hair) solid var(--line-strong); border-radius: var(--radius); cursor: pointer; }
+.pe-seg:hover { background: var(--fill); }
+.pe-seg:has(input:checked) { background: var(--accent-wash); border-color: var(--accent); }
+.pe-seg:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: var(--hair); }
+.pe-seg input { margin: 0; accent-color: var(--accent); }
+.pe-segs .pe-seg input { position: absolute; opacity: 0; width: 0; height: 0; }
+.pe-seg-missing, .pe-overlay select.pe-missing, .pe-overlay [aria-invalid="true"] { border-color: var(--bad); color: var(--bad); }
+.pe-side { min-height: 0; overflow-y: auto; padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); background: var(--chrome); border-left: var(--hair) solid var(--line); }
+.pe-side h3 { margin: var(--sp-2) 0 0; font-size: var(--text-sm); font-weight: 600; color: var(--ink-2); }
+.pe-side h3:first-child { margin-top: 0; }
+.pe-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.pe-thresholds { display: flex; flex-direction: column; gap: var(--sp-1); }
+.pe-thresholds:empty { display: none; }
+.pe-threshold { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--sp-1); }
+.pe-threshold input { min-width: 0; width: 100%; box-sizing: border-box; }
+.pe-side > button { align-self: flex-start; }
+.pe-live { position: absolute; width: var(--hair); height: var(--hair); overflow: hidden; clip-path: inset(50%); }
+.pe-x { border-top: var(--hair) solid var(--line); }
+.pe-x[hidden], .pe-parts[hidden], .pe-form-guide[hidden], .pe-options[hidden], .pe-side h3[hidden] { display: none; }
+.pe-parts { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
+.pe-part { border: var(--hair) solid var(--line); border-radius: var(--radius); padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
+.pe-part .pe-q-grid { padding: 0; }
+.pe-form-group { display: flex; flex-direction: column; gap: var(--sp-0); margin-top: var(--sp-1); }
+.pe-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pe-seg.pe-form { flex-direction: column; align-items: flex-start; gap: var(--sp-0); padding: var(--sp-1); min-width: 0; }
+.pe-form-icon { width: calc(var(--sp-4) * 2); height: var(--sp-4); fill: none; stroke: currentColor; stroke-width: 1.4; color: var(--accent); }
+.pe-form-name { font-size: var(--text-sm); font-weight: 600; }
+.pe-form-need { font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; line-height: 1.2; }
+.pe-form-blocked .pe-form-need { color: var(--warn); }
+.pe-form-blocked .pe-form-icon { color: var(--muted); }
+.pe-form-guide { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2); background: var(--warn-wash); color: var(--ink); border-radius: var(--radius); font-size: var(--text-sm); }
+.pe-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.pe-quick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-1); }
+.pe-quick-btn { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-0); text-align: left; white-space: normal; min-width: 0; font-size: var(--text-sm); }
+@media (max-width: 700px) {
+  .pe-head { flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); }
+  .pe-save-msg { order: 3; flex-basis: 100%; }
+  .pe-save-msg:empty { display: none; }
+  .pe-body { display: block; overflow-y: auto; overflow-x: hidden; }
+  .pe-main { display: contents; }   /* so the preview sticks for the whole scroll, the options too */
+  .pe-preview { position: sticky; top: 0; z-index: 1; height: calc(var(--sp-7) * 5); box-sizing: border-box; padding: var(--sp-1); }   /* in sight while a query below it changes */
+  .pe-query-area { overflow: visible; padding: var(--sp-2); }
+  .pe-q-grid { grid-template-columns: minmax(0, 1fr); padding: var(--sp-2); }
+  .pe-side { overflow: visible; border-left: 0; border-top: var(--hair) solid var(--line); padding: var(--sp-3); }
+}
+@media (max-width: 700px) and (max-height: 560px) {
+  .pe-preview { position: static; }
+}

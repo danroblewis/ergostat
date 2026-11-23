@@ -98,8 +98,8 @@ out, never written.
   in the repository's `.gitignore`), it holds what belongs to the machine a model runs on rather than to the model, so
   a model shared through git carries no private hostname and a copy placed again keeps them. It is read after the
   main file and over it. The **per-machine settings** are exactly these: `web:` (section 4d; it replaces the main
-  file's whole) and `intake:`'s `bind:` and `allow:` (section 5c; each over the main file's, whose `hooks:` stay
-  the model's). Any other key, or another key under `intake:`, is an error at its line in `ergostat.local.yaml`
+  file's whole), `intake:`'s `bind:` and `allow:` (section 5c; each over the main file's, whose `hooks:` stay
+  the model's) and `runs:`'s `outlive_engine` (section 9.1). Any other key, or another key under `intake:`, is an error at its line in `ergostat.local.yaml`
   (**not-per-machine**). `check` says each setting it took and where (`web: from ergostat.local.yaml:1, this
   machine's own`; `--json`: `local`). It is not one of the model's files: nothing that edits the model (a proposal,
   a template's author) writes it, and a change to it reloads the model like any other.
@@ -610,6 +610,8 @@ uses:                           # optional: instances of templates (section 2a)
   ...
 remotes:                        # optional: systems other ergostats run, read here (section 4c)
   ...
+runs:                           # optional, main file only (or ergostat.local.yaml): how runs are held (section 9.1)
+  outlive_engine: false         # true: each run kept by a keeper of its own; stopping ergostat leaves it going
 web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
 library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
@@ -1207,6 +1209,38 @@ machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**
 | `open` | `read`: the names public and read only, with no login (never with `access`) |
 | `mtls` | the remote API on a listener of its own, over mutual TLS: `port`, `bind`, `cert`, `key`, `client-ca` (section 4c) |
 
+## 4e. Asking for numbers: the query API
+
+Every chart reads through one read-only endpoint, `GET /api/query?q=<base64url of JSON>` (a GET, so a read-only public
+name can use it). `GET /api/query/fields` lists what can be charted. Nothing here writes, and only the `events` source
+reads the event log.
+
+```json
+{"since": 86400, "until": null, "points": 120,
+ "queries": [{"id": "a", "source": "items", "kind": "gap", "field": "ai_cost_usd",
+              "where": {"state": ["merged"]}, "group_by": "state",
+              "agg": "sum", "transform": "rate", "rate_per": "hour", "bucket": "auto"}]}
+```
+
+- **Sources.** `items`: a numeric field of a kind, from the item index's `number_log`. `moves` (`measure`: `entries`,
+  `exits` or `time_in_state`, with `state`). `counts`: items per state, the level at each bucket's end. `series` (`series`:
+  a metric's name), from the metrics store's roll-ups. `events` (`type`, which may end in `*`): counts by type, at most the
+  latest 20,000 events of the window, marked `read_log` (and `truncated` when cut).
+- **Numbers of an item.** A value is a plain number at the top of its document: not a boolean, a numeric string, an id
+  or a timestamp. Each change is kept with the value and how much it moved: for `items`, `sum` adds the moves (what a cost
+  rose by in the bucket), and the other aggregations read the values taken.
+- **Aggregations.** `count`, `sum`, `avg`, `min`, `max`, `last`, `p50`, `p90`, `p95`, `p99` (percentiles interpolate
+  between ranks). A bucket with nothing in it counts and sums to 0 for what happens (`items`, `moves`, `events`), except
+  before the record began, and is `null` for a reading.
+- **Transforms.** `none`; `rate`, per `rate_per` (`second`, `minute`, `hour`, `day`; by default the shortest in which the
+  largest value is at least 1), over the seconds each bucket covers, so a part bucket is no dip; for a `series` with `agg:
+  last` it is a counter's rate, a fall being a reset; `delta`; `cumulative`; `moving_avg` (`window` in buckets).
+- **Groups.** `group_by` is `state`, `kind` or a low-cardinality field, at most 12 groups, the rest added up as `other`
+  (`capped` says how many).
+- **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
+  refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
+  in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+
 ## 5. Stocks
 
 A quantity with memory: its value persists when nothing happens, and changes only through its
@@ -1502,6 +1536,30 @@ time and durations differ at every poll. The engine is read from its run lock an
 watcher's limit). An item's own state is never folded from its events; only the evidence is looked up, a few events
 at most per item. On a record of 3,000 items it answers in under 100 ms (`tests/test_why.py`).
 
+**What holds the work up.** `ergostat held-up [--json]`, `GET /api/held-up` and MCP's `held_up` answer for the whole
+system, as the record is now (`ergostat/why/held.py`). Every unfinished item of the model's own kinds (not in a
+finished state, of a kind that does not live on; the `ergostat.*` kinds are left out) is followed to its roots as
+`why` follows one, each item's roots worked out once (an item that waits on another takes that one's roots; a link
+back to an item still being followed is a `cycle`). Items with the same root are grouped: a root about one item (a
+lease, work going on, a parked or missing item, an action asked of the owner) is that item's; a block's, a gate's or
+the budget's is the same root for every item it holds. Each root is a **stall** (something that should be moving and
+is not: a dead or stale lease, the budget refusing runs, a block failing or no engine running, a cycle, a missing
+item, a dead letter, a state nothing takes, a parked item others wait on), **held** on purpose (a gate reading 0, a
+closed goal or intake, a person to answer, a parked item nothing waits on), **queue** (ordinary queueing: work going
+on, a full pool of live runs, a give-back's wait) or **unknown** (the record cannot tell). The roots are ranked stalls
+first, then unknown, held and queue, and within each by the items waiting on it, the items it holds and their hours
+of waiting (in their state); each names its first 5 items in the order its block would take them (`takes: order:`,
+then the longest waiting). A goal is off by its last recorded crossing (`loop.off`); one whose stock or auxiliary
+counts items (`items:` sensor) is folded under the root holding most of the unfinished items it counts, and one that
+counts none is said as *not traced to an unfinished item*. The answer's `line`, also the header's line on every
+page (`/api/status`'s `held_up`, red for a stall, worked out again when the record moves or after 30 s, a failure
+said in it rather than failing the status), is the first stall in words with how much waits on it and its next
+step, or else *No stall found, but what holds N items is not known* (N over every unknown root, `unknown`), and
+*Nothing is stuck* only when no root is a stall or unknown, naming the most held root (most items waiting on it, then
+most held, over every root: `most` is its place in `roots`). The first 20 roots are listed, and the most held after
+them when it ranks lower (`more` counts the rest, none holding more than it). On a record of 3,000 items (about 2,400
+unfinished) it answers in under 200 ms (`tests/test_held_up.py`).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:
@@ -1748,6 +1806,23 @@ index cannot answer for a kind (no index, or a moment so long past that most of 
 says so instead of its numbers. `/items?kind=KIND` goes to `/items/KIND`, which is the list, graph and timeline below
 for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, as before.
 
+**A kind's page.** `/items/KIND`'s list is a page of the kind's items, 25 rows by default (100 or 300 by choice), with
+a pager in the kind's bar and under its table: *1-25 of 1200 · Prev · Next* (*of 3 matches* with a search, *of 77
+review* with a state chosen). Each page is asked of the server, `GET /api/items?kind=KIND` with `state` (one, when
+chosen), `offset`, `n` (1..500) and, when given, `q` and `sort` (`items.kind_page`, read from the item index: the ids,
+states and times of the kind's rows, then only the items shown). `q` keeps the items whose id holds it or whose text
+(*Search*) holds each of its words (1 to 8), out of every item of the kind, finished ones too; the answer's `total` is
+how many match and `finished` how many of them are in one of the kind's finished states, said beside the search box
+(*3 matches, 1 finished*). `sort=FIELD` (up) or `sort=-FIELD` (down) orders the whole filtered set by that field
+before the page is cut: numbers as numbers, then text, a missing or non-finite value last, the newest first among
+equals. Up to 5,000 items are read for it (`items.SORTED_MOST`, without their moves); past that it is the newest 5,000
+that are sorted and paged, and the answer's `cut` (5000) says so, as the pager and the table's caption do. Without
+`sort`, the newest first. An `offset` past the end answers the last page, and says its `offset`. The page, the size
+and the sort are in the address, the page and sort named by their kind (`page=gap:3`, `sort=gap:-ai_cost_usd`,
+`size=100`); a new search, sort, state or size starts at page 1, and the poll asks again for the page shown. In a
+snapshot (no server) the kind's list is the snapshot's, as before. A set (`where`, `moved` and the process map's
+filters) is listed as before, its newest 300.
+
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
 (`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
@@ -1918,6 +1993,9 @@ The Items page's filters, in its address (`/items?...`) and in `GET /api/items`:
 | `where=FIELD:VALUE` | the field equals the value (repeated: any of the values for one field, all the fields) |
 | `moved=FROM>TO` | moved from one of `FROM` to one of `TO` (states joined by commas); an empty side is any other state, or none (an arrival): `>done` entering done, `briefed>` leaving briefed |
 | `moved_since`, `moved_until` | the span of `moved` (after since, up to until): `2026-11-18T10:00:00Z` (UTC) or seconds since 1970; default the hour before now |
+| `offset`, `n` | with one kind and no set: the page of its items from `offset`, `n` of them (1..500; past the end, the last page); in the address `page=KIND:N` and `size=25`, `100` or `300` (*A kind's page*) |
+| `sort=FIELD`, `sort=-FIELD` | with one kind and no set: the whole filtered set ordered by the field before the page is cut (the newest 5,000 of a larger one, said by `cut`); in the address `sort=KIND:-FIELD` |
+| `q=TEXT` | with one kind and no set: the items whose id holds it or whose text holds each of its words, every item of the kind; `total` and `finished` count them |
 | `remote=NAME` | a remote's items instead, asked there within its budget (§4c, *Its items and events in the pages*); with it only `kind`, `state`, `n` and `offset` |
 
 The page shows the set as one chip with its count (for moves, the items and the moves), removed with its ×;
@@ -2081,7 +2159,9 @@ waits for an approval holds no thread: it is answered when the owner answers.
 
 A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no engine answers (no socket, a refused
 connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
-120, at most 3600), then does what it does with no engine. A command from a shell does not wait. It does not wait
+120, at most 3600), then does what it does with no engine; a run kept by a keeper (section 9.1, `runs:
+outlive_engine`) writes an `event --add` or a `lease --nack` to its journal instead, at once. A command from a shell
+does not wait. It does not wait
 where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
 the socket is removed it waits 10 s at most for it to be made again. Only a final stop removes it: `ergostat run`
 starting itself again in place under the same name (a change of storage or format, or the watchdog's restart) leaves
@@ -2705,6 +2785,46 @@ A run stopped part way (its timeout, the owner's `--stop`, ergostat stopping) ke
 was stopped: what it recorded stays recorded, what it moved counts. Equally for `program` blocks and `ai` blocks
 with `run:` (an `ai` block's own `claude -p`, and the session helper, `ergostat session`, print their result lines when the session ends; the session helper copies the transcript as it grows).
 
+**Runs kept going without the engine** (`runs: outlive_engine: true`, in the main file or `ergostat.local.yaml`;
+default false, which is everything above, unchanged). Each program or `ai` run (not one a daemon holds) starts under a
+**keeper** of its own, the compute worker's (`ergostat/compute/worker/keeper.py`, standard library only, section
+12s.3): a detached process in its own session that forks the run into its own process group, waits for it and writes
+its exit (`runs/RUN/exit`, `{"code": ..., "how": "exit" | "TERM" | "KILL" | "timeout" | a signal}`) whether or not any engine is
+there. The run's standard output is opened by the keeper, before the run's command, as its **journal**,
+`runs/RUN.jsonl` in the state folder, append-only: every write the run makes lands there as it makes it, so the
+journal is byte for byte what it printed, in order, a last line without a newline too (what a program holds in its
+own buffer arrives when it flushes, as above). The format is the line protocol above. The engine follows the journal
+as it followed the run log file: lines take effect as they arrive. Its errors go to its run log as before; its CPU and
+memory are the sampler's alone (no `wait4`: `method` is `sampled`, or `none` for a run that ended before the first
+sample). Its exit code is the wrapper's, as above.
+- **Stopping ergostat leaves it going.** `ergostat run --stop`, or a SIGKILL to the engine's whole process group (a
+  crash): the run carries on to its end, its journal whole and its exit written. (A restart in place stops its runs
+  through the same `kill_all`, which passes a kept run by, so it is left going too; no test covers that path yet.) The engine records no end for it (no `agent.ran`); what it printed after the engine stopped is in its
+  journal only, and its keeper's folder stays (up to a day) for whoever reads it next. **Not built yet** (the gap
+  `engine-adopts-runs-from-their-journals`): no engine reads a journal left behind, so until then those lines are
+  recorded nowhere. Its lease is given back as the engine stops, as for any run then (section 9.5), so the item may be
+  taken again by the next engine while the old run still works on it; its reserve (section 9.9) stays charged
+  until recovery closes it. A run the engine read to its end has its journal removed and its keeper let go.
+- **What still stops it**, the whole process group each time, through its group's id (the run's own pid). While
+  the engine that started it is up: its timeout, `ergostat block NAME --stop`, a lease's kill (section 9.5), and a
+  budget's trip (the same kill). **Its timeout, engine or none:** the keeper is given the block's timeout and stops
+  the run itself 5 s after it (SIGTERM to the group, SIGKILL 2 s on; its exit's `how` is `timeout`), so the engine's
+  own timeout comes first while it is up and a run left going still ends by it. **Once that engine is gone**, nothing
+  else of these reaches the run (**a known limit** until `engine-adopts-runs-from-their-journals`): a new engine's
+  `block NAME --stop` does not know it, no lease's kill is made for it (its lease was given back), and no engine reads
+  its cost lines, so no budget's trip; what it spends then is bounded only by its timeout (and, for an `ai` block's
+  own `claude -p` in a model with `budget:`, by the `--max-budget-usd` of its reserve it was started with). A block with no timeout left going runs until it ends or **`ergostat run --stop
+  --runs`**, which tells each keeper whose run has not ended to stop it (SIGTERM to the group, SIGKILL past the kill
+  grace, `ERGOSTAT_KILL_GRACE`), engine or none, waits a grace and 5 s at most, and exits 1 naming any still going.
+  On Linux a keeper killed takes its run with it (the death signal); elsewhere a run whose keeper was killed reads
+  as killed (-9) to the engine, which may not be so.
+- **Its calls while no engine answers.** The run is given `ERGOSTAT_JOURNAL`, its journal's path. A call that only
+  records (`ergostat event --add`, `ergostat lease --nack`) asks the engine once; when none answers it appends its
+  line to the journal, as the run would print it (`{"event": ...}`, `{"nack": {"why", "count", "after"}}`), in one
+  write, and succeeds; it is not written to the record. A line appended while the run holds half a line of its own
+  in the journal joins that line, so a run that calls while it prints should end its lines first. A call that needs
+  an answer (`act`, `lease --renew`, `item ID --json`) waits as before (below, *Calls from a step*).
+
 **When the model changes** (`ergostat.yaml` or a file it includes edited, or a change to the model accepted), a running
 ergostat takes the new model **in place, at run boundaries**: it never restarts and never kills a run for it.
 
@@ -2773,7 +2893,8 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
 - A change of the model's name, of its format (TOML to YAML) or of its storage is a new state directory or store:
   that one restarts in place, and stops the runs; a restarted runner whose files were edited again meanwhile waits,
   holding its lock, for a model that runs. `ergostat run --stop` (and any explicit restart) stops everything, as
-  always.
+  always, but the runs `runs: outlive_engine` leaves going (`run --stop --runs` stops those too: *Runs kept going
+  without the engine*, above).
 
 **The watchdog** (`ergostat/spec/watchdog.py`). Inside the engine, once a second: when the sensor pool has given
 nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest timeout of the readings it has begun,
@@ -6444,9 +6565,10 @@ remote), and the same push through `git-push` after the owner's approval.
 ### Compute pools
 
 `compute:` declares pools of **nodes**: machines a model's runs may later execute on (the plan is
-`docs/proposals/compute-systems.md`). **So far a pool is declared and checked only**: nothing connects to a node,
-reads a secret's file or runs anywhere but on the engine's own machine, and a model without `compute:` compiles to
-the same model as before. A block may name its pool (`runs-on:`, below), and still runs here.
+`docs/proposals/compute-systems.md`). **So far a pool is declared, checked and connected to** (section 12s.4, *The
+engine's connection*): nothing reads a secret's file or runs anywhere but on the engine's own machine, and a model
+without `compute:` compiles to the same model as before and opens no session. A block may name its pool (`runs-on:`,
+below), and still runs here.
 
 ```yaml
 compute:
@@ -6737,7 +6859,10 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   pointer or the focus is in one of the side panel's lists (*Waiting for you*, *Goals off*, *Model housekeeping*; and
   likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its top
   how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or gone
-  meanwhile stays in its place and says so in its row until then.
+  meanwhile stays in its place and says so in its row until then. Held modelling requests that are alike (one code,
+  one asker: the entry's `fold`) are one entry, folded: their count, their code and the systems of their parts, with
+  one why and *Deny all* (each denied in turn); opened, each with its own answer. The Model page's *Changes to review*
+  counts them as waiting.
 
 **The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
 you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
@@ -7297,8 +7422,10 @@ as off. To count the window, an `items` sensor on an auxiliary may name `enterin
 
 A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
 and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
-the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper with its output sent by offset (12s.3). Nothing in the engine speaks to it yet; a
-model may declare `compute:` pools and a block's `runs-on:` (§12k, *Compute pools*), checked only, and runs as before.
+the protocol: the worker, its frame, `hello`, `beat` and `ping`, a run started under its keeper with its output sent
+by offset (12s.3), and the engine's session with each node of a pool (section 12s.4). A model may declare `compute:`
+pools and a block's `runs-on:` (§12k, *Compute pools*); `runs-on:` is checked only, so nothing runs on a node, and a
+model without `compute:` is unchanged by any of this.
 
 **The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
 modules import each other by bare name and nothing from ergostat (a test reads every import of every module), so a
@@ -7442,8 +7569,49 @@ line rejoins by offset. Its files are looked at again soon after output and at m
 
 ### 12s.4 Pools in the model, and the engine's connection
 
-(To be filled: `compute:` and `runs-on:`, their `check` findings and ceilings, `ssh` or `connect:`, the
-`ergostat.compute.*` measures.)
+`compute:`, `runs-on:` and their `check` findings and ceilings are in section 12k, *Compute pools*. (Still to be
+filled: running on a node, the `ergostat.compute.*` measures, and the round trips and status shown.)
+
+**The engine's connection** (`ergostat/compute/connection.py`). When the engine starts, it opens a session with
+every node of every pool the model declares; a swap closes the sessions of a pool changed or removed and opens those
+of a pool added (a pool unchanged keeps its sessions); closing the engine ends every one. Under shards (§9.8) the
+lead alone connects: one session per node per engine process. Each node is named **`POOL/N`**, by its place in the
+pool's list (from 1), and never by its host.
+
+- **The session** is a subprocess, `ssh -T -o BatchMode=yes HOST ergostat worker --stdio` for `{ssh: HOST}`, or the
+  `connect:` argv as written, in a process group of its own, spoken to over its standard input and output by one
+  reader thread per node (at most 64 nodes, counting sessions still closing: a pool that would pass that is not
+  connected, and is said). The pool's log is `logs/compute.POOL.log` in the state folder, each line stamped and
+  prefixed with `POOL/N`; it turns over to `.log.1` past 8 MiB. An `ssh:` session's standard error is never kept
+  (once ssh reads its config it prints the real HostName, address and user): the log holds only `ssh exited N`
+  when it ends. A `connect:` session's standard error is kept as the command wrote it (its last MiB), once the
+  session ends, held until then in an unnamed temporary file: its words are the owner's and are not rewritten.
+- **In service** only after the first line is a `hello` of protocol 1 (the frame of §12s, checked as the worker
+  checks the engine's, `seq` too) whose `labels` include each of the pool's `labels:` with the same text, and whose
+  `slots` is a whole number from 0 to 64. Otherwise the node is **refused**: out of service with the reason kept
+  (`line 1: protocol v2 is not v1`, `its labels lack the pool's gpu`, `the worker refused; its reason is not kept`),
+  and its session ended. A reason is ergostat's own words with numbers at most: nothing the worker wrote is kept (a
+  worker's `error` can name its root under the remote user's home; a `v` that is not a whole number reads `its
+  protocol is not v1`).
+- **Lost** at the session's end (`the session ended`), after three beats missed (30 s with nothing heard: `3 beats
+  missed`; any line heard counts), on a later line that is not a frame (JSON nested too deep for the parser reads
+  `line N: not JSON`), or on any other fault of the session, a temporary file for its standard error that cannot be
+  made included (`the session failed: OSError`, the fault's kind alone); its process group is then killed and
+  reaped (a stopped worker too). Each lost or refused session is tried again after a wait of 1 s, doubling each try
+  to ten minutes; only a session that stayed in service for three beats (30 s) starts the wait at 1 s again, so a
+  worker that says a good hello and then dies or sends a bad line is tried at the same growing waits. A refused node
+  is tried again the same way, and stays refused with its reason until a hello is taken.
+- **Requests.** `request(msg, timeout=30)` sends `msg` with a new integer `id` and returns the frame that repeats
+  it (a worker's `error` with that id included); it raises `Lost` when the node is out of service or its session
+  ends first, and `TimeoutError` past the timeout. `on(type, fn)` calls `fn(node, frame)`, on the reader thread, for
+  each frame of that type that answers no request (`beat`, later `out` and `ended`); a handler that raises is said
+  in the pool's log and the session goes on.
+- **The record.** `compute.node.up` (`node`, `slots`) when a hello is taken; `compute.node.lost` and
+  `compute.node.refused` (`node`, `why`) when a node goes out of service, once for each new reason (a node that stays
+  down is not said again on each try). Once a session said up has ended before it held three beats, a later try's
+  hello is said only when its session has held three beats, and a lost reason the same as the last one said is not
+  said again, so a worker that keeps saying hello and dying is said up and lost once. Their data, what the engine says and ergostat's own lines of the pool's log
+  name a node only as `POOL/N`: no host name, address or user (a `connect:` command's own standard error aside).
 
 ### 12s.5 The lease on a node
 

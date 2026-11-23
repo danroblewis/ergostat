@@ -158,12 +158,12 @@ async function openLoop(name, asController = false) {
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
   const kids = asController
-    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("controller"), whatIs("loop")]
-    : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("loop")];
+    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("controller"), whatIs("loop")]
+    : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("loop")];
   kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
-  kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock}, ${holdText(lp.setpoint, lp.band)}${lp.per ? `, each ${lp.per}` : ""}`],
+  kids.push(dl([["status", statusEl(goalWord(lp))], ["holds", `${lp.stock}, ${holdText(lp.setpoint, lp.band)}${lp.per ? `, each ${lp.per}` : ""}`],
     ["now", lp.per ? `${fmt(lp.value)}, the worst ${lp.per}'s` : fmt(lp.value)],
     ["stale", lp.stale != null ? `read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}` : null],
     ["how far", lp.off_by_words || null], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
@@ -438,12 +438,12 @@ async function openEdge(e) {
     const c = byId[dst];
     what = `Here: ${nameOf(src)}'s reading goes to the controller of ${nameOf(dst)}.`;
     rows.push(["from", link(src)], ["reading", byId[src]?.reading || null], ["to", link(dst)],
-              ["setpoint", c?.setpoint || null], ["how far", c?.offBy || null], ["status", c?.status ? statusEl(c.status) : null]);
+              ["setpoint", c?.setpoint || null], ["how far", c?.offBy || null], ["status", c?.status ? statusEl(goalWord(c)) : null]);
   } else if (e.kind === "action") {
     kind = "control action · control";
     const c = byId[src], v = byId[dst];
     what = `Here: the controller of ${nameOf(src)} opens the valve on ${nameOf(dst)} while its goal is off.`;
-    rows.push(["controller", link(src)], ["holds", c?.setpoint || null], ["status", c?.status ? statusEl(c.status) : null],
+    rows.push(["controller", link(src)], ["holds", c?.setpoint || null], ["status", c?.status ? statusEl(goalWord(c)) : null],
               ["acts on", link(dst)], ["filled by", v?.agent ? badgeText(v.agent) : null], ["rate now", v?.rateText || null],
               ["last decision", c?.decision ? `“${c.decision}”${c.decisionAt ? ", " + ago(c.decisionAt) : ""}` : null]);
   } else if (e.kind === "influence") {
