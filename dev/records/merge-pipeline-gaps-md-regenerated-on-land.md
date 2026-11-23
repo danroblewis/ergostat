@@ -165,3 +165,22 @@ Its runs failed past their attempts (a dead letter):
 - attempt 27: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 28: nack exited 1
 - attempt 29: nack the run ended with gap/merge-pipeline-gaps-md-regenerated-on-continued still parked
+
+## Where it stopped
+
+Built, in round 1 of the second continuation (merge 2f4ba207). This round only finished the factory's merge of main
+(63998238). No review findings were open. Nothing new was built.
+
+- `dev/bin/queue.py`: main added the run's summed suite counts (`summed(...)`) to the run record, and the branch added
+  the GAPS.md notes (`**notes`) to the same line. Both are kept. Their keys (`counts`, `suites` and `gaps_md*`) do not
+  collide.
+- `dev/records/ergostat-s-upkeep-as-a-modelled.md`: main made this record for its gap, and the branch's split had made
+  it as an Entry-only record. Both are kept: main's definition comes first and the Entry comes last, so parse() still
+  reads it. The Entry's Left clause is main's GAPS.md text ("the loops are drawn, not closed by ergostat (their
+  controllers are its code)"), so the render matches main's GAPS.md for that entry.
+- Run again after the merge: ruff clean; tests/test_gapsdoc.py 30 passed; tests/test_queue.py 17 passed; and the five
+  gap tests in tests/test_factory.py passed (old-folder resolution, definition before an Entry-only record, refusal
+  of a GAPS.md edit, approved branch landing with main_sha equal to the pushed head, and no-change/malformed record).
+  Not run here: the whole unit suite and the browser files.
+- The size note is unchanged: dev/bin is still about 208 net lines against 130, and the merge adds no new lines. The
+  overrun reasons are the ones given in rounds 1 and 2 above.
