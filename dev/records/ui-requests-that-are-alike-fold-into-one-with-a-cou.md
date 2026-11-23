@@ -265,3 +265,26 @@ merge of main (ead497d1, dd3b5787). 44 net lines outside tests and docs against 
   as reported above), the other browser files, the unit suite. No browser test covers `diagnosis_in` on a row; it was
   not checked by a run here.
 - **Refused:** a `python3 - <<EOF` script to resolve the conflicts (done with edits instead).
+
+Continued, round 4: the queue's finding (conflicts with main in `docs/SPEC.md` and `diagram.js`), answered by
+finishing the factory's merge of main (5411f137, a8ce6f95). 44 net lines outside tests and docs against main (budget
+60).
+
+- **Merge:** `diagram.js`: main's `list` gained a `key` argument (each list keyed: `waiting-rows`, `off-rows`); the
+  branch's shared `row`, `one` and its `folded`/`foldRow` loop are kept inside main's keyed `list`. `SPEC.md` §12o:
+  main's new text (*Waiting for you* first, folded past 3; the side panel's order with *How to read it* second) kept
+  whole, with the branch's sentences on folding held requests added after the hold-still sentence.
+- **Test changed, because of main's change:** main's `diagram-side-panel-legend-first` puts the legend, open by
+  default, above *Model housekeeping*, so at 1440x900 the fold entry sat below the panel's bottom and the acceptance
+  test's in-view check failed (`out: ['request · 24 stocks: no description …']`). **Choice taken (nobody to ask; the
+  most reversible):** the test closes the legend (as a reader may, and it stays closed) before the in-view check, as
+  it already opens Model housekeeping. Main's order is left as main chose it. Seen to fail without that line (the run
+  above), pass with it.
+- **Runs:** ruff clean. `tests/test_inbox.py`: 34 passed. The acceptance test and
+  `test_two_folds_each_keep_their_own_reason_across_a_refresh`: 2 passed, rc 0. `tests/test_inbox_page.py`: 10
+  passed, rc 0. `test_needs_attention_is_three_headed_groups_in_a_fixed_order` still times out on the header's
+  `/loops? off/`, as reported in round 4 (main's header, not this branch; lesson-13).
+- **Refused:** `node --check …diagram.js && git add … && git commit --no-edit …` as one command and a
+  `python3 - docs/SPEC.md <<EOF` script (done as edits and separate `git add` / `git commit --no-edit`). So
+  `diagram.js` was not syntax-checked by node; the browser tests above load it.
+- **Not run:** the rest of `tests/test_diagram_rendering.py`, the other browser files, the unit suite.

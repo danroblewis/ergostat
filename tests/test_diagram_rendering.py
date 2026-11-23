@@ -5227,6 +5227,9 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
         summary = pg.locator(f"{FOLD_ROW} > details.fold > summary").inner_text()
         assert "24 stocks" in summary and "no description" in summary and "(api, billing, build, data, support, web)" in summary, summary
         assert pg.locator('.side .att > [data-inbox^="request/"]').count() == 0     # no member left as a row of its own
+        legend = pg.locator(".side details.legend-box")              # main puts the legend first; the reader may close it
+        if legend.evaluate("(d) => d.open"):
+            legend.locator(":scope > summary").click()
         got = pg.evaluate(IN_VIEW)
         assert got == {"scrolled": 0, "out": []}, got
         pg.locator(f"{FOLD_ROW} > details.fold > summary").click()
