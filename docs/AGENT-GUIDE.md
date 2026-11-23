@@ -73,7 +73,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. When a ticket may
    start once the one it waits on is in review, not done, say so on the relation: `blocked_by: {kind: ticket,
    starts_at: [review]}` (name every state from which on; a ticket held under a lease counts by the state it was
-   taken from, so never name `leased`; the projected schedule still waits for it to finish). Look at the Items
+   taken from, so never name `leased`; the projected schedule still waits for it to finish). Items grouped in one
+   group each (a ticket's `epic: {kind: epic, group: true}`, folded by `replace`) show each group's progress on the
+   kind's card (`ergostat item --kind ticket --groups epic`); when a finished state is not always done work (closed
+   as a duplicate), say which fields make it so: `done_when: {closed: {end: done}}`. Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
    to check the links came through, or ask from the command line: `ergostat item ID --near [N]` (the items within N
    hops, 1 to 4), `ergostat item A --path B` (a shortest chain of relations, a backward step named by its inverse),
@@ -475,7 +478,10 @@ choose one of three ways.
 ergostat measures every run itself (SPEC §9.1): what its AI sessions cost (dollars as Claude Code reported them, or
 estimated from tokens), its tokens, the CPU time and peak memory of its processes, its wall time and exit. You do not
 write anything for this: an `ai` block's own `claude -p`, and `ergostat session` inside any block's `run:`, report
-through the run. The Agents page shows each agent's totals and history; `ergostat agent NAME` the same.
+through the run. The Agents page shows each agent's totals and history (a cost of none says why: a free stand-in for an
+AI agent whose runs had no session, "not known" when one of those failed or was stopped (a pool-full give-back is neither), no AI, no runs; the table ends in the window's total), and an item's header what the
+runs that took it cost (every take in its lease's history, a rolled-up one too; an AI agent's words if any block that took it is AI; not known counts only those blocks' runs);
+`ergostat agent NAME` the same.
 An agent whose last run failed, that never ran on its schedule, or that ran under half the runs its `every:` asks for
 over the window's record ("behind: 10 of ~120") is marked in red with its reason under the row, and counted on the
 page's top line.
@@ -608,6 +614,12 @@ one, `person-gate`) (SPEC §9.5, *Dispatch*):
   raising its threshold, denying a channel or dropping a gate without automating what it guarded is recorded as
   **suppression**: it never lowers the measure, and the request stays open until the guard is back or the work is
   automated. Never change a gate yourself without the owner.
+- **Work the person does by hand, on purpose.** When they describe their own to-dos (done on a bastion, on a VPN, by
+  hand), add `uses: {todo: {use: todo}}` rather than modelling each one: each to-do is an item with its `where`,
+  `instructions` (`[{do, run, check}]`), `requester`, `due` and `waits_on`. Record one they tell you about in one
+  call (MCP `record_event`, type `todo.ready`, item `todo/<id>`; `todo.added` when they have not said how yet), and
+  record nothing as done that they did not say they did. When a stakeholder asks after one, answer from `ergostat
+  why todo/<id>` (its summary is the paragraph to paste), never from memory. The template has no action: keep it so.
 
 ## 3e. Many sensors, or many items: a daemon instead of a process each
 

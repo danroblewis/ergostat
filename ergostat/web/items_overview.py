@@ -12,6 +12,7 @@ from __future__ import annotations
 from .. import series
 from ..spec import items as its
 from ..spec.finished import finish_of
+from ..spec.grouptally import offered
 from ..spec.ir import DEAD
 
 POINTS = 32                                    # a card's chart is small: this many buckets over the window
@@ -77,7 +78,7 @@ def overview(p, at: float, window: float, n: int = POINTS) -> dict:
     for k in kinds.values():
         got = of(its.asks_transcript([k]))
         card = {"name": k.name, "title": TITLES.get(k.name), "id": k.id, "system": where[k.name]["system"],
-                "states": k.states}
+                "states": k.states, "progress": [r for r, x in k.relations.items() if offered(k, x)]}   # (grouptally.py)
         if got is None:
             out.append({**card, "why": "not indexed: open the kind's own page" if its._index(p.events, spec, False) is None
                         else "most items changed since this moment: open the kind's own page"})
