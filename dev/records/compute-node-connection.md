@@ -90,4 +90,4 @@ Choice taken alone (the more reversible one): the worker's refusal text is dropp
 allowlist of serve.py's Refused forms, since those forms are another gap's and change with it; an allowlist can be
 added later in `_hello` without changing anything else.
 
-Overrun reason: connection.py is now 318 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds 11 net lines (the allowlist of bad-frame reasons and the fixed refusal).
+Overrun reason: connection.py is now 316 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds 9 net lines (the allowlist of bad-frame reasons and the fixed refusal).
