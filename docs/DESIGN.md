@@ -197,6 +197,12 @@ The control diagram is the product's main view. Conventions:
   A pin is kept by the node's name (its kind and activity), not per States or Events: a node drawn in both
   stays where it was put in both, and the frames too; it holds through the map refreshed in place and laid
   out again as events come, and whichever kinds are drawn.
+- **The caption.** One line under the view switch, the page's only h1 and the diagram's accessible name
+  (`aria-labelledby`), names the drawing by its discipline, the model with its purpose (`purpose:`), the
+  number of top-level systems, and the verdict as that view counts it: "Stock-and-flow diagram (system
+  dynamics) · NAME: PURPOSE · 2 systems · 25 goals, 0 off" (every goal), "Block diagram (control) · … ·
+  16 control loops, 2 off" (the goals a controller holds). The Process view gives its type, the model and
+  its systems, and no goal count: a process map holds no goals.
 - **Two views at once.** A grip on each edge of the canvas, dragged inward, reveals a second pane
   behind a separator (left or right: side by side; top or bottom: stacked); the separator resizes it,
   a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the
@@ -217,7 +223,12 @@ The control diagram is the product's main view. Conventions:
 - **Export** (the zoom bar's Export menu): "SVG" and "PNG" write a standalone file with a header (project, system, view,
   when) and, for the control view, a one-line legend, every style resolved; "Design SVG" leaves out
   what changes minute to minute (values, rates, status, decisions, trends) for a design document; `ergostat snapshot` writes the whole page and its answers as one
-  HTML file that opens offline (agents' logs only with `--with-logs`).
+  HTML file that opens offline (agents' logs only with `--with-logs`). The model behind the picture, as Markdown, for
+  the system drawn: Dynamics' "Model (Markdown)" (a variable table: name, kind, unit, equation or sensor, now; the
+  flows per stock; the feedback loops of the side list, with the goal each closes) and Blocks' "Loops (Markdown)" (a
+  row per goal in the system drawn, the goal or the part it holds inside it at any depth: goal, reference, measured output, controller and its law in the panel's words, actuator,
+  process, sensor and period, status). The server writes them (`GET /api/export?view=dynamics|blocks&system=S`,
+  `format=md` by default, `json` for the page), so `curl` gets the same file; a snapshot file says it cannot.
 
 ## 7. The command line
 

@@ -321,6 +321,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
         contradicted.setdefault(e["data"].get("block") or "", []).append(e)
     agents = {}
+    blocks = getattr(getattr(m, "spec", None), "blocks", None) or {}
     for a in m.agents.values():
         counted = project.events.runs(a.name, since, now)
         last_any = max(project.events.query(n=1, item=a.name, type="agent.ran", until=now) +
@@ -335,7 +336,11 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                     got = project.measurements.latest(f"sensor/{r.name}", now)
                     if got is None or _missed(a, got[0], now):
                         stale.append(r.name)
-        agents[a.name] = {"kind": a.kind, "rung": a.rung, "roles": [{"kind": r.kind, "name": r.name} for r in roles],
+        b = blocks.get(a.name)                            # its block: the goal its valves serve, and whether it takes items
+        goal = b.goal if b is not None else None
+        agents[a.name] = {"kind": a.kind, "rung": a.rung, "leased": bool(b is not None and b.takes),
+                          "roles": [{"kind": r.kind, "name": r.name, **({"goal": goal} if goal and r.kind == "valve" else {})}
+                                    for r in roles],
                           "every": a.every, "on": a.on, "cron": a.cron, "schedule": a.schedule, **counted,
                           "last": last_any, "failing": bool(last_any and last_any["type"] == "agent.failed"),
                           "stale": stale, "runs_itself": bool(a.command and a.kind != "person"),
@@ -749,8 +754,11 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
-             + (f". {en.command(e)}" if e["verbs"] else "")}
-            for e in snap.get("inbox", [])]
+             + (f". runs: {e['run']}" if e.get("run") else "") + (f". {en.command(e)}" if e["verbs"] else ""),
+             "first": e["summary"] + (f" because {by}" if by else ""), "age": human(e["age"]), "run": e.get("run"),
+             "cli": en.command(e), "record": e.get("record"), "suggest": e.get("suggest"),
+             "more": None if by else e.get("why") or None}         # an action's reason ends its sentence, said once
+            for e in snap.get("inbox", []) for by in [e["kind"] == "action" and not e.get("warn") and e.get("why")]]
     out = sorted(out, key=lambda a: LEVELS.get(a["level"], 1))           # problems first, then what waits on a person
     return [a for a in out if a["level"] == "bad"] + asks + [a for a in out if a["level"] != "bad"]
 
