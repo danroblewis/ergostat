@@ -2629,7 +2629,7 @@ with `run:` (an `ai` block's own `claude -p`, and the session helper, `ergostat 
 default false, which is everything above, unchanged). Each program or `ai` run (not one a daemon holds) starts under a
 **keeper** of its own, the compute worker's (`ergostat/compute/worker/keeper.py`, standard library only, section
 12s.3): a detached process in its own session that forks the run into its own process group, waits for it and writes
-its exit (`runs/RUN/exit`, `{"code": ..., "how": "exit" | "TERM" | "KILL" | a signal}`) whether or not any engine is
+its exit (`runs/RUN/exit`, `{"code": ..., "how": "exit" | "TERM" | "KILL" | "timeout" | a signal}`) whether or not any engine is
 there. The run's standard output is opened by the keeper, before the run's command, as its **journal**,
 `runs/RUN.jsonl` in the state folder, append-only: every write the run makes lands there as it makes it, so the
 journal is byte for byte what it printed, in order, a last line without a newline too (what a program holds in its
@@ -2645,9 +2645,16 @@ sample). Its exit code is the wrapper's, as above.
   recorded nowhere. Its lease is given back as the engine stops, as for any run then (section 9.5), so the item may be
   taken again by the next engine while the old run still works on it; its reserve (section 9.9) stays charged
   until recovery closes it. A run the engine read to its end has its journal removed and its keeper let go.
-- **What still stops it**, the whole process group each time, through its group's id (the run's own pid): its
-  timeout, `ergostat block NAME --stop`, a lease's kill (section 9.5), and a budget's trip (the same kill). **`ergostat run --stop
-  --runs`** also tells each keeper whose run has not ended to stop it (SIGTERM to the group, SIGKILL past the kill
+- **What still stops it**, the whole process group each time, through its group's id (the run's own pid). While
+  the engine that started it is up: its timeout, `ergostat block NAME --stop`, a lease's kill (section 9.5), and a
+  budget's trip (the same kill). **Its timeout, engine or none:** the keeper is given the block's timeout and stops
+  the run itself 5 s after it (SIGTERM to the group, SIGKILL 2 s on; its exit's `how` is `timeout`), so the engine's
+  own timeout comes first while it is up and a run left going still ends by it. **Once that engine is gone**, nothing
+  else of these reaches the run (**a known limit** until `engine-adopts-runs-from-their-journals`): a new engine's
+  `block NAME --stop` does not know it, no lease's kill is made for it (its lease was given back), and no engine reads
+  its cost lines, so no budget's trip; what it spends then is bounded only by its timeout (and, for an `ai` block's
+  own `claude -p` in a model with `budget:`, by the `--max-budget-usd` of its reserve it was started with). A block with no timeout left going runs until it ends or **`ergostat run --stop
+  --runs`**, which tells each keeper whose run has not ended to stop it (SIGTERM to the group, SIGKILL past the kill
   grace, `ERGOSTAT_KILL_GRACE`), engine or none, waits a grace and 5 s at most, and exits 1 naming any still going.
   On Linux a keeper killed takes its run with it (the death signal); elsewhere a run whose keeper was killed reads
   as killed (-9) to the engine, which may not be so.

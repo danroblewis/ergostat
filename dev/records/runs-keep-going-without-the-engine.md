@@ -53,3 +53,18 @@ Left for later (outside this gap): reading journals back after a restart (`engin
 A restart in place leaves kept runs through the same `kill_all` path, but no test covers it. Under a systemd unit with
 the default `KillMode=control-group`, `systemctl stop` of the service still ends the keepers in its cgroup; that is
 not changed here. A call's line appended while the run holds half a line of its own joins it (said in SPEC 9.1).
+
+Round 2, answering the review (its one finding: a kept run had no stop once its engine was gone).
+- The timeout now holds with no engine: `keeper.launch` takes the block's timeout and writes it to the run's record as
+  `wall` (timeout + `MARGIN`, 5 s); the keeper stops the group itself at it (SIGTERM, SIGKILL 2 s on), its exit's
+  `how` is `timeout`. The margin keeps the engine's own timeout first while it is up (the existing tests'
+  notes are unchanged); should the keeper's come first, the engine still notes it as the timeout. A `wall` that is
+  not a positive finite number stops the keeper before the run starts (never unbounded). The compute worker's node
+  runs write no `wall` and are unchanged. New test:
+  `test_a_run_whose_engine_was_killed_still_ends_at_its_timeout` (engine SIGKILLed, the run and its child gone,
+  `how: timeout`). It failed with the timeout not passed to the keeper, and passes with it.
+- The other stops are narrowed in SPEC 9.1 rather than built, as a known limit (the more reversible choice: taking
+  a left run up again is `engine-adopts-runs-from-their-journals`). With its engine gone, a new engine's
+  `block --stop` does not know the run, no lease kill is made for it, and no budget trip happens (no engine reads its
+  cost lines). Its spend is then bounded by its timeout, and for an `ai` block's own `claude -p` under `budget:` by
+  its `--max-budget-usd`. A block with no timeout runs until it ends or `run --stop --runs`.

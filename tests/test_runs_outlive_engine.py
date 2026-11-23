@@ -253,6 +253,29 @@ def test_run_stop_runs_stops_what_was_left_going(tmp_path, keepers):
     assert json.loads(open(os.path.join(runs_dir(p), name, "exit")).read())["how"] in ("TERM", "KILL")
 
 
+@pytest.mark.slow
+def test_a_run_whose_engine_was_killed_still_ends_at_its_timeout(tmp_path, keepers):
+    """The engine SIGKILLed mid-run: no engine is left to time the run out, so its keeper does, ``MARGIN`` seconds
+    after the block's timeout: SIGTERM, then SIGKILL, to the whole group (the run and what it started)."""
+    p = project(tmp_path, GROUP, extra=EVERY + "    timeout: 8s\n")
+    keepers(p)
+    proc = engine(tmp_path)
+    try:
+        said = wait_for(lambda: p.events.query(n=1, type="thing.pids"), 60)
+        assert said, "the run never said its pids"
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+    pids, t0 = said[0]["data"], time.monotonic()
+    assert not gone(pids["run"]) and not gone(pids["kid"]), "the run ended with its engine"
+    name = os.path.basename(journals(p)[0])[:-len(".jsonl")]
+    d = os.path.join(runs_dir(p), name)
+    assert wait_for(lambda: keeper.ended(d) is not None, 8 + keeper.MARGIN + keeper.WALL_GRACE + 10), "never ended"
+    assert time.monotonic() - t0 > 2, "stopped at once, not at its deadline"
+    assert json.loads(open(os.path.join(d, "exit")).read())["how"] == "timeout"
+    assert wait_for(lambda: gone(pids["run"]) and gone(pids["kid"]), 3), "something of its group outlived its timeout"
+
+
 def test_a_call_that_only_records_goes_to_the_journal_while_no_engine_answers(tmp_path):
     """``event --add`` and ``lease --nack`` from a kept run, with its engine gone (its socket left, nothing listening):
     each line appended to the journal as the run would print it, at once, and the command succeeds."""

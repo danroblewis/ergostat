@@ -1035,7 +1035,7 @@ class Engine:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
         env.pop("ERGOSTAT_EVENT", None)
         env.pop("ERGOSTAT_JOURNAL", None)                        # (a kept run's own, below: never one inherited)
-        reserve =budget.reserve_of(spec, b) if spec.budget is not None else None
+        reserve = budget.reserve_of(spec, b) if spec.budget is not None else None
         env.pop("ERGOSTAT_MAX_COST", None)                       # its cap (T1, SPEC §9.9), never one inherited
         if reserve is not None:
             env["ERGOSTAT_MAX_COST"] = str(reserve)
@@ -1114,7 +1114,7 @@ class Engine:
                         os.close(os.open(files["out"], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600))
                         proc = keeper.launch(str(self.p.dir.resolve()), name,
                                              "exec " + shlex.join(runrecord.command(cmd, files)), stdin or "",
-                                             str(cwd), env, str(files["out"]), lf.fileno())
+                                             str(cwd), env, str(files["out"]), lf.fileno(), b.timeout)
                     else:
                         files["in"].write_text(stdin or "", encoding="utf-8")
                         with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
@@ -1143,8 +1143,8 @@ class Engine:
                         proc.watch = reap.Watch(proc.pid)            # what it starts, for a lease kill (leases/kill.py)
                         got = stream.follow(proc, files["out"], b.timeout, take, self.stop if kept else None)
                         left = got is None                           # we stop, it goes on: its end is not ours
-                        if got:
-                            note = f"stopped after its timeout of {b.timeout:g}s"
+                        if got or kept and not left and proc.how() == "timeout":   # (its keeper's, should that
+                            note = f"stopped after its timeout of {b.timeout:g}s"     # come first)
                     finally:
                         if not left:
                             runrecord.remove(files)                  # read to its end: nothing left to take again
