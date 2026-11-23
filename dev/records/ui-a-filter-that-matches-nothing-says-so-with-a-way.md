@@ -240,3 +240,9 @@ against main. Nothing else changed.
   (lesson 13). Not run: the unit suite, the other three browser files, demo_check (no example touched).
 - Refused here: the same browser run with its output redirected to /tmp/items.out and filtered by `grep` (it was run
   without them instead).
+
+## Where it stopped
+
+Parked by the factory (merge-queue, 2026-11-23 13:31).
+
+Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: tests/test_graph_cli_web.py
