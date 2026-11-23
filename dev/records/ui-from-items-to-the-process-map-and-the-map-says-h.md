@@ -110,3 +110,29 @@ Runs: tests/test_graph_cli_web.py 33 passed; the gap's browser test, under suite
 in this session, so I ran the files it would pick one at a time. tests/test_graph_cli_web.py is new to that
 selection, because the branch now changes it. Also not run: the unit suite, the four browser files in full, and
 test_items_page.py again. Main has not moved since the merge at 2a565036.
+
+### Round 3
+
+The only finding was the merge conflict with main (tests/test_graph_cli_web.py, and also pages.js). I resolved it in
+107a2f0b and kept both sides. In pages.js, the Items card keeps main's new chart arguments (`k.finished`, `k.paused`,
+`k.finished_from`, `kind: k`) and the branch's `pm` process-map link after the name. In tests/test_graph_cli_web.py,
+both tests are kept: main's side-panel ellipsis test and the branch's `now` test. No source changed beyond the merge.
+
+Runs after the merge:
+- ruff: clean.
+- tests/test_graph_cli_web.py: 41 passed.
+- The gap's browser test, under suite_watch with Playwright: 1 passed, rc 0.
+- tests/test_items_page.py, under suite_watch with Playwright: 6 failed / 25 passed, rc 1.
+  I reran three of the six alone and all three failed again:
+  - test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set: no
+    `#detail .item-set table.item-list` in a Dynamics side panel.
+  - test_the_model_changes_are_found_by_heading_search_and_panel.
+  - test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart: no `#project` option for the second
+    project.
+  The other three are not named: the output was truncated, and a piped rerun to list them was refused.
+
+  I judge these unrelated to this gap. The branch's diff against main is server.py (`now` on process-map state
+  nodes), diagram.js (the pan hint's words, the process-only fit floor, the `kind`/`mode` aliases), pages.js (one
+  link), process.js (one label) and style.css (one rule). None of it touches the Dynamics side panel's item sets
+  or the header's project picker. That is not shown on main, though: `git worktree add --detach /tmp/mainwt main` was
+  refused in this session. The factory's rerun on clean main should settle it.
