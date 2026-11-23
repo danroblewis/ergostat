@@ -7,6 +7,7 @@ of any model is named here."""
 from __future__ import annotations
 
 from ..precedence import status
+from ..process import LEASED
 
 SHOWN = 3            # a holder's shown fields said, at most
 NAMED = 5            # holders named, at most
@@ -36,10 +37,24 @@ def unfinished(ctx, kind: str) -> list:
         return ctx.ix.items(kind, [s for s in info["states"] if s not in info["finished"]], moves=False)
 
 
+def waits_in(ctx, its: list) -> dict:
+    """Each item's state as its work has it (SPEC §9.5): its own, but for one held by a run (``leased``), which waits in
+    the state it was taken from, read from its last move into the lease. That state unread: ``leased`` itself."""
+    held = [i.id for i in its if i.state == LEASED]
+    with ctx.ix.lock:
+        moved = {i.id: i.moves for i in ctx.ix.items(None, ids=held)} if held else {}
+    out = {i.id: i.state for i in its}
+    for iid, moves in moved.items():
+        took = [m["from"] for m in moves if m["to"] == LEASED and m["from"] not in (LEASED, None)]
+        out[iid] = took[-1] if took else LEASED
+    return out
+
+
 def place(ctx, it) -> dict | None:
     """{"in": the unfinished items naming it, "ahead": {kind: {n, latest}}}, or None when no relation of the model may
-    name its kind. Ahead of it: the unfinished items of a relating kind that name an item of its kind in its state
-    (the others waiting as it waits: an approved gap behind the batch testing approved gaps), the latest first."""
+    name its kind. Ahead of it: the unfinished items of a relating kind that name an item of its kind waiting in its
+    state, a leased one counted in the state it was taken from (an approved gap behind the batch testing a gap the
+    queue took from approved), the latest first."""
     rels = relating(ctx.spec, it.kind)
     if not rels:
         return None
@@ -62,7 +77,8 @@ def place(ctx, it) -> dict | None:
         with ctx.ix.lock:
             links = [(a, d) for a, r, d in ctx.ix.links_from([h.id for h in open_]) if r in mine]
         named = ctx.items([d for _, d in links])
-        like = {a for a, d in links if d in named and named[d].kind == it.kind and named[d].state == it.state}
+        at = waits_in(ctx, [it, *named.values()])
+        like = {a for a, d in links if d in named and named[d].kind == it.kind and at[d] == at[it.id]}
         alike = [h for h in open_ if h.id in like]
         if alike:
             ahead[kind] = {"n": len(alike), "latest": said(ctx.spec, alike[0])}

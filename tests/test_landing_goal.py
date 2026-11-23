@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from ergostat import model as mdl
+from ergostat.leases import TAKEN
 from ergostat.spec import read
 from ergostat.store import Project
 from ergostat.why import answer
@@ -132,21 +133,30 @@ def test_a_run_under_way_and_no_batch_at_all_are_said():
         "no batch runs now (3 gap(s) wait): the last, batch/e-3, ended given-back: its run raised")
 
 
-def measure(tmp_path: Path, name: str, batches: list[dict], gaps: list[dict]) -> subprocess.CompletedProcess:
+# measure.py as a script, its clock fixed at NOW: the record's windows never depend on the day the suite runs
+CLOCKED = ("import runpy, sys, time; time.time = lambda: {now!r}; sys.path.insert(0, {bin!r}); "
+           "sys.argv = [{script!r}, {name!r}]; runpy.run_path({script!r}, run_name='__main__')")
+
+
+def measure(tmp_path: Path, name: str, batches: list[dict], gaps: list[dict],
+            now: float = NOW) -> subprocess.CompletedProcess:
     (tmp_path / "fake.py").write_text(FAKE)
     (tmp_path / "record.json").write_text(json.dumps({"items": batches + gaps, "details": {}}))
     env = {**os.environ, "ERGOSTAT_CMD": f"{sys.executable} {tmp_path / 'fake.py'}"}
-    return subprocess.run([sys.executable, str(BIN / "measure.py"), name], cwd=tmp_path, env=env,
+    code = CLOCKED.format(now=now,bin=str(BIN), script=str(BIN / "measure.py"), name=name)
+    return subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=env,
                           capture_output=True, text=True, timeout=60)
 
 
 def test_measure_py_reads_the_batch_items_and_prints_the_reason(tmp_path):
-    items = ENDED + [STALLED]                              # (measure.py reads the real clock: T0 is after it, so
-    r = measure(tmp_path, "main-stalled-why", items, WAITING + OTHERS)   # every batch is in its window)
+    items = ENDED + [STALLED]                              # (measure.py's clock is NOW: every batch in its window)
+    r = measure(tmp_path, "main-stalled-why", items, WAITING + OTHERS)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == f"batch/f-4 (isolating, 3 gap(s)), run 6 (halves) crashed: {NO_SPACE}"
     r = measure(tmp_path, "crash-lost-minutes", items, WAITING + OTHERS)
     assert r.returncode == 0 and r.stdout.strip() == "57.0", r.stderr
+    r = measure(tmp_path, "crash-lost-minutes", items, WAITING + OTHERS, now=NOW + 20 * 86400)
+    assert r.returncode == 0 and float(r.stdout) == 0.0, r.stderr        # the clock given is the one read
 
 
 def test_the_pipeline_manager_reads_the_reason_rather_than_the_queue_state(tmp_path):
@@ -217,6 +227,16 @@ def test_a_waiting_gap_s_why_names_its_batch_and_run_or_the_batches_ahead(tmp_pa
     p.events.add("gap.queued", item="gap/q", at=T0 + 50)                         # a gap in another state: no batch
     p.events.add("batch.started", item="batch/q-5", data={"gaps": ["gap/q"], "size": 1}, at=T0 + 60)
     assert answer(p, "gap/later", now=now, engine=up)["place"]["ahead"] == {}   # it waits on no gap in approved
+    # The queue's own batch of one: its gap taken from approved under a lease (as queue.py's merge-queue holds it)
+    p.events.add("gap.approved", item="gap/r", at=T0 + 70)
+    p.events.add(TAKEN, item="gap/r", source="ergostat", at=T0 + 75,
+                 data={"run": "r1", "block": "queue", "fence": 1, "ttl": 1800, "max": 3})
+    p.events.add("batch.started", item="batch/r-6", data={"gaps": ["gap/r"], "size": 1}, at=T0 + 80)
+    d = answer(p, "gap/later", now=now, engine=up)
+    assert answer(p, "gap/r", now=now, engine=up)["now"]["state"] == "leased"
+    assert d["place"]["ahead"] == {"batch": {"n": 1, "latest": {"item": "batch/r-6", "kind": "batch",
+                                                                 "state": "testing", "shown": {"size": 1}}}}
+    assert "ahead of it: 1 unfinished batch item, the latest batch/r-6 (testing; size 1)" in d["summary"]
 
 
 def test_a_kind_no_relation_names_has_no_place(tmp_path):

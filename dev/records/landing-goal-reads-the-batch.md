@@ -150,3 +150,34 @@ same as main's) and `batches.py`. The snapshot and the list page never call the 
 this branch's (lesson 13), and it is left alone. Round 1 never ran it with Playwright. I could not run it on main:
 Bash refused `git worktree add --detach /tmp/mainwt main`. Not run: the unit suite, the four browser files, and
 demo_check (no example touched).
+
+### Round 3: the review's two findings
+
+Main had not moved (`git rev-list --count HEAD..main` is 0), so there was nothing to merge.
+
+- **measure.py on the real clock** (tests/test_landing_goal.py, the measure.py test). The subprocess now runs
+  measure.py as `__main__` through `runpy`, with `time.time` fixed at the record's `NOW` (`CLOCKED`). No reading
+  depends on the date the suite runs. The test also runs it at `NOW + 20 days` and reads 0 crash-lost minutes, so a
+  clock that is not the one given fails it. measure.py is unchanged. This is the most reversible fix: test only.
+- **A leased gap was not counted ahead** (`ergostat/why/within.py`). A named item that is `leased` now counts in the
+  state it was taken from: the `from` of its last move into `leased`, read from the item index's moves. This is the
+  same reading as SPEC §9.5 and `process.unleased`, so nothing in it names a kind. If that state can't be read, the
+  item counts as `leased`, which is never a waiting gap's state. That case undercounts, and nothing is made up. The
+  same-state rule stays, so a batch of a `queued` gap is still not ahead of an approved one. The test adds the
+  queue's own batch of one: `gap/r`, approved and then taken by a lease (`TAKEN`), in `batch/r-6`. A later approved
+  gap's answer reads "ahead of it: 1 unfinished batch item, the latest batch/r-6 (testing; size 1)".
+  Seen to fail with the code broken: with the leased gap left as `leased`, the new assertion fails (ahead is `{}`).
+  With the same-state rule dropped, the `queued` batch assertion fails.
+
+Size: within.py +16 net (19 added, 3 removed). That makes 107 net lines outside tests/, docs/ and dev/, well under 600.
+
+Run here, serially: tests/test_landing_goal.py (12 passed, rc 0), tests/test_why.py with
+tests/test_queue_batch_item.py and the place test (49 passed, 1 skipped for want of Playwright, rc 0), and
+`uv run ruff check ergostat tests scripts dev/bin/measure.py dev/bin/landing.py` (clean). Under Playwright 1.63.0
+and the watchdog, tests/test_queue_batch_item.py: 15 passed and 1 failed (rc 1). The failure is
+`test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run`, the same timeout on `table.items tr.click` as
+in round 2. It is left alone for round 2's reasons (lesson 13): the snapshot's list page never calls `place`.
+One note, not followed up: the test fixes its batch id at `batch/a-20261123T100000Z` but takes its clock from
+`time.time()`, so it may depend on the date. Bash refused a run in the background and a wait loop on its
+output. Not run: the unit suite, the four browser files, demo_check (no example touched), and the `ergostat check`
+tests in tests/test_factory.py (no model file changed this round).
