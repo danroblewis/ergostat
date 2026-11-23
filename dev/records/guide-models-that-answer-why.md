@@ -32,8 +32,9 @@ Built in round 1 (about 55 net lines of code outside tests, docs and dev):
   seeded: a dependency chain to a change on hold, the build gate shut by its sensor, a dead lease holding the
   releaser's pool; `why` names each true root and `held-up` lists them with no unknown); every command in the section
   run in order with rc 0, with the to-do and batch answers checked; every inline command matched to one that runs;
-  the finding found and not found as its rule says; no shipped example has it. Break-tested: with the finding's call
-  removed, or the owner order put back to by-name, three tests fail.
+  the finding found and not found as its rule says; no shipped example has it. Break-tested once, both breaks together: with
+  the finding's call removed and the owner order put back to by-name, three tests fail (the finding's test, and the
+  two that read the owner).
 
 Choices made with nobody to ask, each the most reversible:
 
