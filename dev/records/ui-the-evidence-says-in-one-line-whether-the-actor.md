@@ -174,3 +174,33 @@ Its runs failed past their attempts (a dead letter):
 - attempt 17: nack the run ended with gap/ui-the-evidence-says-in-one-line-whether-the-actor still parked
 - attempt 18: nack given back
 - attempt 19: nack given back
+
+## Where it stopped
+
+Continued, round 1: the merge of main (ead497d1) conflicted in ergostat/state.py and tests/test_agents_page.py.
+No new code beyond the merge.
+
+- **state.py, agent roles.** Main added `leased` and a `goal` on each valve role. The branch adds the `keep-GOAL`
+  controller role. Both are kept: main's roles list, followed by the branch's controller role.
+- **state.py, the ladder hint.** Main put the cause in fixed words ("saturated, moving its most each run" / "falling
+  behind the load"). The branch says "it acts but moves nothing" / "nothing ran to move any" when the loop's own
+  valves moved nothing. Both are kept. When the valves moved nothing, the hint reads "loop X was off N% of the time:
+  falling behind the load: it acts but moves nothing out of S while L/h came in". Otherwise it is main's text
+  unchanged.
+- **tests/test_agents_page.py.** Both sides added tests at the same place. I kept both, and the branch's test ends
+  with its own `assert not errors` and `pg.close()`.
+
+Tests after the merge: tests/test_runner_and_state.py 45 passed; ruff clean. tests/test_agents_page.py: 8 passed,
+1 failed in 2 of 2 runs of the file. The failure is main's
+`test_each_row_says_how_it_is_engaged_and_which_goal_it_serves`: it reads `#detail` as soon as the panel's h2
+appears, before the agent's fetch has answered ('Agent\n×\nwork\n\nLoading…'). It is not this branch's (lesson 13).
+It passes alone (1 passed). It fails just as well when run after main's own
+`test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_and_fit_the_panel`, without this
+branch's test. Nothing this branch changes is on the agent panel's path: the diff against main touches only the
+loop panel, the sensor panel's "filled by", the snapshot's roles and the ladder hint. It is a race in the test (it
+needs a wait for the panel's content), to be fixed on main in its own gap. Both acceptance cases of this branch
+passed.
+Refused in this session: `python3 - <<'E' ...` (an empty probe), a combined `grep ...; uv run ruff ... && git add
+... && git commit` (run instead as separate commands), the browser run piped through `tail` with `echo rc=$?` (run
+instead without the pipe), and `git worktree add -q --detach /tmp/main-wt ead497d1` (meant to run the failing test
+on clean main).
