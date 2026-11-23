@@ -9,6 +9,7 @@ the worst-looking first."""
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -630,6 +631,108 @@ def d_signal_backwards(r: Rule, g: G):
     return out
 
 
+HOP_NEAR, SLASH_CLEAR = 2.0, 12.0   # a hop within this of its crossing; a vector's slash at least this far from any
+
+
+def wire_crossings(g: G) -> list:
+    """Where two drawn wires cross (Blocks: every stretch level or upright): a level stretch and an upright one, each
+    passing through the point, not ending on it (a line ending on another is a take-off, not a crossing). Each as
+    (x, y, the level wire's id, the upright one's, whether it is under the level one's arrowhead: within 12px of its
+    end)."""
+    hs, vs = [], []
+    for e in g.edges:
+        for i, (a, b) in enumerate(segs(e["pts"])):
+            if abs(a[1] - b[1]) < 0.5 and abs(a[0] - b[0]) > 0.5:
+                hs.append((min(a[0], b[0]), max(a[0], b[0]), a[1], e["id"], b[0] if i == len(e["pts"]) - 2 else None))
+            elif abs(a[0] - b[0]) < 0.5 and abs(a[1] - b[1]) > 0.5:
+                vs.append((min(a[1], b[1]), max(a[1], b[1]), a[0], e["id"]))
+    return [(x, y, h, v, tip is not None and abs(tip - x) < 12)
+            for x0, x1, y, h, tip in hs for y0, y1, x, v in vs if x0 + 1 < x < x1 - 1 and y0 + 1 < y < y1 - 1]
+
+
+def wire_backtracks(d: str, verbose: bool = False) -> list:
+    """Where a wire's drawn path (an SVG d of M, L and A: a hop's arc taken by its two ends) runs back along the move
+    before it: a straight stretch drawn back under a hop is a plain cross again. Each the point it turns back at. Not
+    the last move when it is no longer than an arrowhead (10px): the wire ends at the head's base, which lies behind
+    the last bend when the last stretch is shorter than the head, all of it under the head."""
+    pts = [tuple(float(v) for v in re.split(r"[ ,]+", args.strip())[-2:]) for _, args in re.findall(r"([MLA])([^MLA]*)", d)]
+    out, prev = [], None
+    for i, (a, b) in enumerate(segs(pts)):
+        v = (b[0] - a[0], b[1] - a[1])
+        if math.hypot(*v) < 0.05:
+            continue
+        along = prev and abs(prev[0] * v[1] - prev[1] * v[0]) < 0.05 * math.hypot(*prev) * math.hypot(*v)
+        if along and prev[0] * v[0] + prev[1] * v[1] < 0 and not (i == len(pts) - 2 and math.hypot(*v) <= 10):
+            out.append(a)
+            if verbose:
+                out[-1] = (*a, f"from ({a[0] - prev[0]:.1f}, {a[1] - prev[1]:.1f}) to {a} back to {b}")
+        prev = v
+    return out
+
+
+def d_crossing_without_hop(r: Rule, g: G):
+    """Two wires crossing drawn as a plain cross (no hop on the level one; on the upright one where the level one's
+    arrowhead is over the crossing), or with a dot: read as a connection. So too a wire drawn back along itself (under
+    a hop: the cross drawn again beneath it)."""
+    out = [inst(r, 1, f"{w['edge']}'s wire runs back over itself at ({x:.0f}, {y:.0f}): {how}", [w["edge"]],
+                (x - 10, y - 10, x + 10, y + 10))
+           for w in g.geo.get("wires", []) for x, y, how in wire_backtracks(w["d"], True)]
+    for x, y, h, v, head in wire_crossings(g):
+        hop = any(o["edge"] in ((h, v) if head else (h,)) and math.dist(o["at"], (x, y)) <= HOP_NEAR for o in g.geo.get("hops", []))
+        dot = any(math.dist(d, (x, y)) <= 4 for d in g.geo.get("dots", []))
+        if not hop or dot:
+            out.append(inst(r, 1, f"{h} crosses {v} at ({x:.0f}, {y:.0f}) {'with a dot' if dot else 'with no hop'}",
+                            [h, v], (x - 10, y - 10, x + 10, y + 10)))
+    return out
+
+
+def takeoffs(g: G) -> list:
+    """Where a signal's wires part (the graph's take-off points): a point of one net's wires (a bend, or where they
+    leave the port) that three ways meet at (the port's block one of them), not only where two wires pass through."""
+    nets: dict = {}
+    for e in g.edges:
+        nets.setdefault(e.get("net") or e["id"], []).append([tuple(p) for p in e["pts"]])
+    found = []
+    for routes in nets.values():
+        starts = {r[0] for r in routes}
+        for p in {q for r in routes for q in r[:-1]}:
+            ways, vertex = set(), False
+            for a, b in (s for r in routes for s in segs(r)):
+                lo_x, hi_x, lo_y, hi_y = min(a[0], b[0]), max(a[0], b[0]), min(a[1], b[1]), max(a[1], b[1])
+                if not (lo_x - 0.6 <= p[0] <= hi_x + 0.6 and lo_y - 0.6 <= p[1] <= hi_y + 0.6) or math.dist(a, b) < 0.5:
+                    continue
+                u = ((b[0] - a[0]) / math.dist(a, b), (b[1] - a[1]) / math.dist(a, b))
+                at_a, at_b = math.dist(p, a) < 0.6, math.dist(p, b) < 0.6
+                vertex |= at_a or at_b
+                if not at_b:
+                    ways.add((round(u[0]), round(u[1])))
+                if not at_a:
+                    ways.add((-round(u[0]), -round(u[1])))
+            if vertex and len(ways) + (p in starts) >= 3:
+                found.append(p)
+    return found
+
+
+def d_dot_not_at_takeoff(r: Rule, g: G):
+    """A dot where no signal's wires part: a connection drawn where there is none."""
+    at = takeoffs(g)
+    return [inst(r, 1, f"a dot at ({d[0]:.0f}, {d[1]:.0f}), no take-off there", [], (d[0] - 10, d[1] - 10, d[0] + 10, d[1] + 10))
+            for d in g.geo.get("dots", []) if not any(math.dist(d, p) <= 2 for p in at)]
+
+
+def d_slash_on_crossing(r: Rule, g: G):
+    """A vector's slash on or beside a crossing: it reads as a mark on the other wire."""
+    out = []
+    cross = wire_crossings(g)
+    for sl in g.geo.get("slashes", []):
+        near = min((math.dist(sl["at"], (x, y)) for x, y, *_ in cross), default=math.inf)
+        if near < SLASH_CLEAR:
+            x, y = sl["at"]
+            out.append(inst(r, SLASH_CLEAR - near, f"{sl['edge']}'s slash {near:.0f}px from a crossing", [sl["edge"]],
+                            (x - 12, y - 12, x + 12, y + 12)))
+    return out
+
+
 RULES: list[Rule] = [
     Rule("flow-excursion", "critical", ("dynamics",), True, d_flow_excursion,
          "a flow's pipe at most 1.3x the distance between its ends, plus 80px"),
@@ -639,6 +742,12 @@ RULES: list[Rule] = [
          "no part on another"),
     Rule("valve-between-ends", "critical", ("dynamics",), True, d_valve_between,
          "a valve inside the box its two ends span (grown by 30px)"),
+    Rule("crossing-without-hop", "critical", ("blocks",), True, d_crossing_without_hop,
+         "two wires crossing: a hop on the level one, and no dot; no wire drawn back along itself"),
+    Rule("dot-not-at-takeoff", "critical", ("blocks",), True, d_dot_not_at_takeoff,
+         "a dot only where a signal's wires part"),
+    Rule("slash-on-crossing", "major", ("blocks",), True, d_slash_on_crossing,
+         "a vector's slash at least 12px from any crossing"),
     Rule("cloud-by-valve", "major", ("dynamics",), True, d_cloud_adjacent,
          "a cloud at most 70px from its valve"),
     Rule("line-overlap", "major", ("dynamics", "blocks", "process"), True, d_line_overlap,

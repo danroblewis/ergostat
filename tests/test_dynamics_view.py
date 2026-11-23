@@ -222,6 +222,16 @@ def test_a_goal_s_suggestion_says_what_serves_it():
         == "a feedback loop q-x"                                                # (a name only where it is a goal's, whole)
 
 
+def test_the_dynamics_wording_keeps_codes_ids_and_tiers_as_they_are():
+    from ergostat.dynamics import words
+    said = words("modelling holds queue-goal-tolerance on goal.ci-upgrade-planned, waiting 3h (why: a goal's setpoint "
+                 "and tolerance are what decides: the owner's to change). ergostat inbox request/80fe1e93e1 --deny")
+    assert said == ("modelling holds queue-goal-tolerance on goal.ci-upgrade-planned, waiting 3h (why: a desired level "
+                    "and tolerance are what decides: the owner's to change). ergostat inbox request/80fe1e93e1 --deny")
+    assert words("the rule tier has no certain change for it: a rule reads goal.x") == \
+        "the rule tier has no certain change for it: a fixed decision reads goal.x"
+
+
 def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):
     """A valve's panel says what its rate is as far as the model says: its equation where it writes
     one, a decision that sets it, or declared causes with a sign and no size yet, and which act at once."""

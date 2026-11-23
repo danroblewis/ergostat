@@ -17,6 +17,7 @@ a loop that crosses its setpoint (holding to off, or back) is recorded as ``loop
 
 from __future__ import annotations
 
+import contextlib
 import fnmatch
 import json
 import os
@@ -26,7 +27,9 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 from . import state as st
 from .reports import crash as reports_crash
@@ -283,10 +286,33 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
     if version is None:
         from .history import version as model_version
         version = model_version(project.model)
-    started = time.time()
-    begun = project.events.add("agent.started", item=agent.name, source=SOURCE,
-                               causedby=trigger.get("id") if trigger else None,
-                               data={"trigger": trigger["type"] if trigger else why, "model": version})
+    from .costs import budget
+    started, run_id, spec = time.time(), uuid.uuid4().hex, budget.of(project.model)
+
+    def write(more: dict | None = None) -> dict:
+        return project.events.add("agent.started", item=agent.name, source=SOURCE, id=run_id,
+                                  causedby=trigger.get("id") if trigger else None,
+                                  data={"trigger": trigger["type"] if trigger else why, "model": version, **(more or {})})
+    if spec is None or spec.budget is None:
+        begun = write()
+    else:                                       # the permissive (SPEC §9.9): the agent's declared kind, none charged
+        begun, no = budget.permit(project, spec, SimpleNamespace(name=agent.name, agent=agent.name, type=None),
+                                  write, run_id)
+        if begun is None:
+            return {"budget": no, "note": f"refused: budget: {no}"}
+    try:
+        return _ran(project, agent, trigger, why, version, started, begun)
+    except BaseException:
+        if begun["id"] in budget.OPEN:          # raised before its end: its reserve stays charged
+            with contextlib.suppress(Exception):
+                budget.close(project, agent.name, begun["id"], None, "the run raised before its end")
+        raise
+    finally:
+        budget.OPEN.discard(begun["id"])
+
+
+def _ran(project, agent, trigger, why, version, started, begun) -> dict:
+    """The run, once its ``agent.started`` is written: to its end."""
     rec = Recorder(project, agent, begun["id"])
     log = log_path(project, agent.name)
     from .storage import trim
@@ -453,7 +479,18 @@ class Runner:
                         self.say(f"{n}: its cron no longer matches ({e}); it will not run again")
                         next_cron[n] = None
                     self._due(n)
+            self._recover()
             self.stop.wait(TICK)
+
+    def _recover(self, every: float | None = None) -> None:
+        """The reserves of runs whose process is gone closed (SPEC §9.9): at most once a minute, or ``every``."""
+        from .costs import budget
+        spec = budget.of(self.p.model)
+        try:
+            if spec is not None and spec.budget is not None:
+                budget.recover(self.p, spec, budget.RECOVER_EVERY if every is None else every)
+        except Exception as e:
+            self.say(f"budget: recovery: {type(e).__name__}: {e}")
 
     def _due(self, name: str) -> None:
         q = self.queues.get(name)
@@ -500,6 +537,7 @@ class Runner:
         seq = self.p.events.last_seq()
         if not RELOADED.is_set():
             self._still_off()
+        self._recover(every=0)
         for name in list(self.queues):
             self._worker(name)
         threading.Thread(target=self._schedule, daemon=True).start()
