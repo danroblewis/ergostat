@@ -36,3 +36,11 @@ Choices I made with nobody to ask (each the one easiest to undo):
 - `how` values use "taken", never "held", following docs/vocabulary.md.
 - Done item 4 (under 300 ms on :8796) was not measured: no demo runs on :8796 in this container. A serial unit test
   checks that the answer on 300 roadmap tickets, after a first call, takes under 300 ms.
+
+Round 2: merged main (2a97eafb) and resolved the conflict in `ergostat/web/server.py`. The item answer keeps main's
+`kind_of.final` and the branch's `path`. Ruff is clean. tests/test_footprint.py (8) and tests/test_spec_items.py pass.
+tests/test_items_page.py: 27 pass, and 1 fails three times out of three:
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` times out waiting for the other project's entry
+in the `#project` switcher. That comes from the project registry and the header, which this branch does not touch
+(it adds only `/api/kinds/K` and `path` on `/api/items/ID`). The check on clean main was not run: making a worktree
+of main was refused in this session.
