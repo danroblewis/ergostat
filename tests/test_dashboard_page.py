@@ -182,7 +182,7 @@ def test_the_default_leads_with_the_kind_that_is_work_moving_to_a_finish(browser
     assert d["panels"][0]["title"] == "widget: work in progress"                 # not the log, which holds the most
     said = " ".join(p["title"] for p in d["panels"])
     assert "part:" in said and "ergostat.note" not in said and "log:" not in said
-    assert len(d["panels"]) <= 24
+    assert len(d["panels"]) <= 32
     ctx.close()
 
 
@@ -255,6 +255,20 @@ def test_a_default_with_no_cost_has_three_stats_and_with_no_kinds_charts_series(
       return { stats, series: dashDefault(bare, []).panels.map((p) => p.queries[0].series) };
     }""", [FIELDS, ITEMS])
     assert got == {"stats": 3, "series": ["stock.x"]}
+    ctx.close()
+
+
+def test_the_default_has_a_panel_of_every_chart_family(browser, site):
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    got = pg.evaluate("""([f, items]) => {
+      const rich = JSON.parse(JSON.stringify(f));
+      rich.sources.items.kinds.widget.fields = [{ name: "cost_usd", unit: "usd" }, { name: "net_lines", unit: "lines" }];
+      const made = dashDefault(rich, items.kinds).panels;
+      return { made: made.map((p) => normalizeForm(p).form), all: Object.keys(plotForms()), n: made.length, most: DASH_MOST };
+    }""", [FIELDS, ITEMS])
+    assert set(got["all"]) <= set(got["made"])
+    assert got["n"] <= got["most"]
     ctx.close()
 
 
@@ -441,7 +455,7 @@ def test_a_crafted_draft_cannot_freeze_the_tab(browser, site, bad):
     panels += [{"id": f"n{i}", "title": "n", "form": "line", "size": "s", "queries": []} for i in range(200)]
     pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded({'title': 't', 'since': 'constructor', 'panels': panels})}")
     d = pg.evaluate("() => dashboardDraft()")
-    assert d["panels"][0]["size"] == "m" and d["since"] == "1d" and len(d["panels"]) == 24
+    assert d["panels"][0]["size"] == "m" and d["since"] == "1d" and len(d["panels"]) == 32
     assert len(d["panels"][1]["title"]) == 200 and d["panels"][1]["form"] == "line" and d["panels"][1]["queries"] == []
     assert pg.errors == []
     ctx.close()

@@ -5,7 +5,7 @@
 
 const DASH_COLUMNS = { s: 4, m: 6, l: 8, full: 12 };
 const DASH_SIZES = Object.keys(DASH_COLUMNS);
-const DASH_MOST = 24;                                  // panels on one dashboard (docs/proposals/dashboard.md, section 6)
+const DASH_MOST = 32;                                  // panels on one dashboard (docs/proposals/dashboard.md, section 6)
 const DASH_NARROW = "(max-width: 699px)";
 const DASH_EVERY = { Off: 0, "10s": 10000, "30s": 30000, "1m": 60000, "5m": 300000 };
 const DASH_LONGEST = { id: 64, title: 200, note: 500 };   // what a draft's words may run to
@@ -278,6 +278,7 @@ function dashDefault(fields, infos = [], queues = {}) {
     for (const { want, f } of worth) first.push(dashFieldPanel(lead, f, want));
     if (first.length % 2) first[first.length - 1].size = "full";
     panels.push(...first);
+    panels.push(...dashExamples(lead, fields, new Set(panels.map((p) => normalizeForm(p).form))));
     for (const k of kinds.slice(1).filter((x) => x.inWork && x.midway >= 2 && !x.name.startsWith("ergostat.")).slice(0, 2)) {
       const row = dashKindPanels(k);
       const size = { 1: "full", 2: "m", 3: "s" }[row.length];
