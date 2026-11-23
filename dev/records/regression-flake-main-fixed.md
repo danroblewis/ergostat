@@ -148,4 +148,4 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   dev/bin/mend.py) is clean. Not run: tests/test_factory.py whole, or under `-n 8`. The test's 120 s wait under load
   is still main's cost. This shortens it but does not prove it fits under every load.
 
-Overrun reason: 197 net lines against 150 (168 in mend.py, 24 in landing.yaml, 5 elsewhere); the stock, flow and parameter the block's in/out must name (about 10) and the round-5 rotation of the pick (tried.json, about 37, asked by review) were not in the definition's estimate.
+Overrun reason: 200 net lines against 150 (168 in mend.py, 24 in landing.yaml, 3 in fac.py, 5 elsewhere); the stock, flow and parameter the block's in/out must name (about 10), the round-5 rotation of the pick (tried.json, about 37, asked by review) and fac.items' one listing (3, asked by the build) were not in the definition's estimate.
