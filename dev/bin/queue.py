@@ -125,7 +125,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         lost = nowhere(text, logs / f"{tag}-unit.txt") if name == "host" else []
         got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {}),
-               **({"nowhere": lost} if lost else {})}
+               **({"nowhere": lost} if lost else {}), **({"counts": fac.counts(text) or "unknown"} if name in PYTEST else {})}
         if cov:
             got["coverage"] = coverage_kept(cfg, repo, cov, rc, pre)
         if rc or skipped or lost:
@@ -143,7 +143,8 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
                     r = e
                 with said:                             # (which failed first, decided and kept in one hold)
                     if isinstance(r, dict) and r.get("failure") and first:
-                        r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]}
+                        r = {k: v for k, v in r.items() if k != "failure"} | {"stopped_by": first[0]} \
+                            | ({"counts": "unknown"} if n in PYTEST else {})      # (killed: its counts unsaid)
                     elif isinstance(r, BaseException) or r.get("failure"):   # (a container that did not start:
                         first.append(n)                                          # its sibling is stopped too)
                     got[n] = r
@@ -202,6 +203,7 @@ def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
 EXCUSE_MOST = 3                                         # more failed tests than this in one run is not a flake
 NEVER_EXCUSED = ("tests/test_page_polling.py",)         # (dynamics-open-dom-growth: is it a leak?)
 SUITES = ("ruff", "unit", "browser", "host", "demo")
+PYTEST = ("unit", "browser", "host")                    # the suites whose pytest counts are kept (ruff, demo: none)
 SKIP = re.compile(r"^SKIPPED \[\d+\] (\S+:\d+): (.*)$", re.M)     # pytest -rs: one line a skip's place and reason
 EXTERNAL = re.compile(r"\bERGOSTAT_\w+_URL\b|^spends money\b|^no Chromium to drive\b|^could not import 'playwright\b"
                       r"|^needs Docker and the agent image\b|^no \d+ free ports in\b")  # the stated external needs in use
@@ -226,6 +228,16 @@ def nowhere(host: str, unit_log) -> list[str]:
     out = sorted(f"{w}: {r}" for w, r in SKIP.findall(host) if not EXTERNAL.search(r) and (blind or w in theirs))
     return out + (["skips counted but not named: run the host step with -rs"]
                   if COUNTED.search(host) and not SKIP.search(host) else [])
+
+
+def summed(got: dict) -> dict:
+    """A landed run's pytest counts, summed over the pytest suites that ran (``suites``, by name); "unknown" if any of
+    them is or says none. A suite not run by rule (counts "not_run") or not in the run at all is neither."""
+    ran = [n for n in PYTEST if isinstance(got.get(n), dict) and got[n].get("counts") != "not_run"]
+    each = [got[n].get("counts") for n in ran]
+    if not all(isinstance(c, dict) for c in each):
+        return {"counts": "unknown", "suites": ran}
+    return {"counts": {k: sum(c.get(k, 0) for c in each) for k in fac.COUNTS}, "suites": ran}
 
 
 def excusable(red: dict) -> bool:
@@ -1006,7 +1018,8 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             ids = [g["id"] for g, _ in landed]
             save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": ids, "at": began, "landing": ids}})
             run = {"run": fac.run_tag(fac.branch_of(gap), began), "minutes": round((time.time() - began) / 60, 1),
-                   "at": time.time(), "tried": len(batch), "landed": len(landed), "given_back": len(back), **notes}
+                   "at": time.time(), "tried": len(batch), "landed": len(landed), "given_back": len(back),
+                   **(summed(landed[-1][1]["suites_queue"]) if landed else {}), **notes}   # (the green run main ends at)
             # (the whole run, on each of its gaps, for merges-per-hour; given_back: sent back to approved, uncounted)
             extra = lambda g: {} if g["id"] == gap["id"] else {"queued_at": began, "queue_attempts": 1}  # noqa: E731
             for g, timing in landed:

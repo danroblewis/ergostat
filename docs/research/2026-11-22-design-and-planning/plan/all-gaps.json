@@ -1,0 +1,2117 @@
+[
+{
+"gap": "gap/ui-the-exported-picture-is-fit-for-a-document",
+"state": "approved",
+"title": "The exported picture is fit for a document"
+},
+{
+"gap": "gap/demos-upkeep-holds-and-actions-wait",
+"state": "ready",
+"title": "Demos: modelling's goals hold in a healthy demo because its fixer answers what it can, and ticket-factory leaves a few a"
+},
+{
+"gap": "gap/goal-row-one-renderer",
+"state": "ready",
+"title": "One goal row: the server says a goal's word and columns once, and one function draws the row wherever a goal is listed"
+},
+{
+"gap": "gap/headline-one-function-everywhere",
+"state": "ready",
+"title": "The page and the CLI never count goals themselves: header, switcher, side list, Goals page and `ergostat status` print t"
+},
+{
+"gap": "gap/attention-entries-say-system-and-class",
+"state": "ready",
+"title": "Each attention entry says its goal's system, whether it is upkeep, and whether it is model housekeeping"
+},
+{
+"gap": "gap/quiet-system-says-all-holding",
+"state": "ready",
+"title": "A quiet system says so: 'all goals holding, nothing being worked'"
+},
+{
+"gap": "gap/perf-page-speed-is-an-upkeep-goal",
+"state": "ready",
+"title": "Page answer time is measured as an upkeep goal (web-answers-fast), with a page budget test on the factory-size fixture"
+},
+{
+"gap": "gap/stories-rerun-after-owner-list",
+"state": "ready",
+"title": "The stories are walked again on the demos after the owner's list and the first redesign pieces, and each is recorded as "
+},
+{
+"gap": "gap/dynamics-box-goal-rows",
+"state": "ready",
+"title": "A closed system box in Dynamics lists its goals as rows: status, measure, value, bound, off first"
+},
+{
+"gap": "gap/ui-every-goal-name-is-a-link-to-its-evidence-and-th",
+"state": "approved",
+"title": "Every goal name is a link to its evidence, and the part is marked"
+},
+{
+"gap": "gap/ui-open-frames-what-was-opened-fit-includes-every-w",
+"state": "building",
+"title": "Open frames what was opened, Fit includes every wire, and the edge hint says which way"
+},
+{
+"gap": "gap/ui-a-goal-s-bound-is-written-the-same-way-everywher",
+"state": "building",
+"title": "A goal's bound is written the same way everywhere"
+},
+{
+"gap": "gap/ui-a-system-s-loop-count-is-the-same-on-its-box-in",
+"state": "building",
+"title": "A system's loop count is the same on its box, in its panel and in its parent"
+},
+{
+"gap": "gap/ui-one-time-format-everywhere-with-the-date-and-the",
+"state": "approved",
+"title": "One time format everywhere, with the date and the zone"
+},
+{
+"gap": "gap/perf-answers-never-wait-for-a-snapshot",
+"state": "building",
+"title": "Page answers use the last snapshot while the next is built, say how old it is, and never wait on the model-file check"
+},
+{
+"gap": "gap/eta-works-out-on-the-factory-record",
+"state": "building",
+"title": "The completion estimates are worked out on the factory's record: no KeyError, items that cannot move never run a simulat"
+},
+{
+"gap": "gap/goal-state-says-its-system-and-upkeep",
+"state": "approved",
+"title": "Each goal's state says its system and whether it is the modelling system's own, and one server function makes the goals-"
+},
+{
+"gap": "gap/ui-each-polarity-sign-sits-on-its-own-arrow-and-eve",
+"state": "building",
+"title": "Each polarity sign sits on its own arrow, and every top-level link has one"
+},
+{
+"gap": "gap/ui-the-evidence-says-in-one-line-whether-the-actor",
+"state": "approved",
+"title": "The evidence says in one line whether the actor was commanded, ran and moved anything"
+},
+{
+"gap": "gap/perf-goals-page-asks-once",
+"state": "building",
+"title": "The Goals (Loops) page asks for all goals' performance in one answer and stops fetching the whole graph for sparklines"
+},
+{
+"gap": "gap/missing-unit-is-a-check-finding",
+"state": "building",
+"title": "A missing unit is a Check finding drawn as 'unit ?' on the stock, not a request of the owner per stock"
+},
+{
+"gap": "gap/perf-header-projects-list-is-cheap",
+"state": "building",
+"title": "The header's project list holds running projects only, worked out off the request path; the CLI's list is unchanged"
+},
+{
+"gap": "gap/ui-rates-in-one-system-share-one-time-base-and-no-v",
+"state": "building",
+"title": "Rates in one system share one time base, and no value prints a bare '1'"
+},
+{
+"gap": "gap/ui-one-rate-per-flow-with-its-window-the-same-in-th",
+"state": "building",
+"title": "One rate per flow, with its window, the same in three places"
+},
+{
+"gap": "gap/ui-the-window-in-the-header-never-claims-more-than",
+"state": "building",
+"title": "The window in the header never claims more than the record"
+},
+{
+"gap": "gap/ui-every-name-in-a-list-carries-its-system",
+"state": "building",
+"title": "Every name in a list carries its system"
+},
+{
+"gap": "gap/ui-a-system-alone-at-its-level-opens-whatever-model",
+"state": "building",
+"title": "A system alone at its level opens, whatever modelling does"
+},
+{
+"gap": "gap/ui-modelling-is-drawn-last-set-apart-and-labelled",
+"state": "building",
+"title": "modelling is drawn last, set apart and labelled"
+},
+{
+"gap": "gap/ui-a-view-with-nothing-to-draw-says-so-on-the-canva",
+"state": "building",
+"title": "A view with nothing to draw says so on the canvas"
+},
+{
+"gap": "gap/diagram-large-case-fixture",
+"state": "building",
+"title": "The live factory's graph saved as a render-test fixture with time budgets"
+},
+{
+"gap": "gap/ui-a-goal-a-person-serves-links-to-that-person-s-wa",
+"state": "building",
+"title": "A goal a person serves links to that person's waiting ask; a goal an agent serves links to its items"
+},
+{
+"gap": "gap/forecast-sentence-in-words",
+"state": "ready",
+"title": "The forecast reads as a sentence in words, with p and the run count behind a disclosure"
+},
+{
+"gap": "gap/dynamics-open-dom-growth-continued",
+"state": "building",
+"title": "Find out whether the Dynamics page with all systems open leaks DOM nodes, and fix what is true, continued"
+},
+{
+"gap": "gap/ui-a-caption-names-the-diagram-the-model-s-purpose",
+"state": "building",
+"title": "A caption names the diagram, the model's purpose and the verdict"
+},
+{
+"gap": "gap/ui-no-leftover-in-a-panel",
+"state": "building",
+"title": "No leftover '\u2026' in a panel"
+},
+{
+"gap": "gap/ui-each-closed-system-box-says-what-the-system-is",
+"state": "building",
+"title": "Each closed system box says what the system is"
+},
+{
+"gap": "gap/ui-guide-sections-and-step-dots-are-links",
+"state": "building",
+"title": "Guide sections and step dots are links"
+},
+{
+"gap": "gap/ui-the-list-holds-still-while-i-am-in-it-and-a-requ",
+"state": "building",
+"title": "The list holds still while I am in it, and a request stays until it is answered"
+},
+{
+"gap": "gap/ui-the-view-switch-says-what-each-view-shows",
+"state": "building",
+"title": "The view switch says what each view shows"
+},
+{
+"gap": "gap/ui-guide-frames-stack-their-two-diagrams-on-a-narro",
+"state": "building",
+"title": "Guide frames stack their two diagrams on a narrow screen"
+},
+{
+"gap": "gap/library-sandbox-sensors",
+"state": "building",
+"title": "Untrusted library sensors run in the sandbox"
+},
+{
+"gap": "gap/cx-sensor-backfill",
+"state": "building",
+"title": "ergostat sensor --backfill: readings recorded at past times, with a kept ledger of what was backfilled"
+},
+{
+"gap": "gap/ui-a-system-box-that-holds-an-off-goal-says-so-with",
+"state": "building",
+"title": "A system box that holds an off goal says so, without colour alone"
+},
+{
+"gap": "gap/library-fetch",
+"state": "building",
+"title": "Libraries fetched by git URL, pinned in a lock"
+},
+{
+"gap": "gap/diagram-side-panel-legend-first",
+"state": "building",
+"title": "The Diagram's default side panel: what waits for you, then the legend of what is drawn; the rest folded with counts"
+},
+{
+"gap": "gap/ui-the-vocabulary-rewrite-never-touches-an-identifi",
+"state": "building",
+"title": "The vocabulary rewrite never touches an identifier"
+},
+{
+"gap": "gap/ui-from-items-to-the-process-map-and-the-map-says-h",
+"state": "building",
+"title": "From Items to the process map, and the map says how many are there now"
+},
+{
+"gap": "gap/ui-the-address-holds-what-is-selected-and-the-windo",
+"state": "building",
+"title": "The address holds what is selected and the window"
+},
+{
+"gap": "gap/cx-measure-frame",
+"state": "building",
+"title": "One complexity script, its per-family cache and its output format, with the first stock"
+},
+{
+"gap": "gap/ui-the-evidence-gives-how-long-the-goal-has-been-of",
+"state": "building",
+"title": "The evidence gives how long the goal has been off against how long it usually takes"
+},
+{
+"gap": "gap/evidence-panel-reads-as-a-runbook",
+"state": "ready",
+"title": "A goal's evidence opens with its four lines, then the charts, then parts and prose; the remedy comes from its suggestion"
+},
+{
+"gap": "gap/forecast-on-first-paint-window-horizon",
+"state": "ready",
+"title": "The forecast is worked out with the page in the per-goal background cache, and looks as far ahead as the window says"
+},
+{
+"gap": "gap/flows-only-chain-layout-pilot",
+"state": "ready",
+"title": "Pilot: Flows only with one row per chain, upstream first, measured against the current engine for the layout decision"
+},
+{
+"gap": "gap/perf-the-page-says-how-old-it-is",
+"state": "ready",
+"title": "While an answer is being worked out, the page keeps what it has and says how old it is"
+},
+{
+"gap": "gap/eta-calibration-said-on-the-timeline",
+"state": "ready",
+"title": "The Timeline says how well past estimates held: 'last week, 8 in 10 gaps finished by their p90'"
+},
+{
+"gap": "gap/dashboard-add-and-edit-draft",
+"state": "ready",
+"title": "The Dashboard's draft is edited in the page and filled from anywhere: add, move, resize, remove, by mouse or keyboard"
+},
+{
+"gap": "gap/perf-page-server-process-proposal",
+"state": "ready",
+"title": "Proposal: the page server stops sharing the engine's Python process (docs/proposals/page-server-process.md)"
+},
+{
+"gap": "gap/blocks-top-level-reference-and-sum",
+"state": "ready",
+"title": "Blocks top level: references and a summing junction ahead of the controlling subsystem, labelled signals, H on the retur"
+},
+{
+"gap": "gap/blocks-model-health-on-the-blocks",
+"state": "ready",
+"title": "Blocks: model health is printed on the blocks, from the same source as the evidence panel"
+},
+{
+"gap": "gap/cx-code-measures-as-stocks",
+"state": "ready",
+"title": "The four code-health measures read the cache and become stocks with history"
+},
+{
+"gap": "gap/cx-show-and-docs",
+"state": "ready",
+"title": "The complexity system's box, its sub-systems, and the design note finished"
+},
+{
+"gap": "gap/cx-merge-deltas",
+"state": "ready",
+"title": "What each merge added and removed: a delta item per commit of main, and flows by gaps and by simplification"
+},
+{
+"gap": "gap/diagram-routes-fast-then-refined",
+"state": "ready",
+"title": "Diagram lines are drawn routed within a second and refined within a bound; fewer ELK runs, off the main thread"
+},
+{
+"gap": "gap/diagram-layout-engine-proposal",
+"state": "ready",
+"title": "Proposal: keep ELK plus correcting passes, or a layout of our own for Dynamics, decided with measurements (docs/proposal"
+},
+{
+"gap": "gap/open-leaves-other-systems-in-place",
+"state": "ready",
+"title": "Opening or closing one system leaves the others where they were"
+},
+{
+"gap": "gap/cx-module-items",
+"state": "ready",
+"title": "Every module an item carrying its measures and slice keys; oversize modules counted"
+},
+{
+"gap": "gap/cx-twins-and-adds",
+"state": "ready",
+"title": "Reports for distilling: what each package adds given the rest, and near-twin files found by a prefilter"
+},
+{
+"gap": "gap/cx-reduction-report",
+"state": "ready",
+"title": "One report that joins the measures per module and package, for the reduction map to read"
+},
+{
+"gap": "gap/agent-spec-api",
+"state": "ready",
+"title": "An agent's answer carries what it is: its block's definition, prompt and program files, law, machine and decisions"
+},
+{
+"gap": "gap/items-one-section-per-kind-closed",
+"state": "ready",
+"title": "Items: one section per kind under a heading you can find, its list closed until opened, filtered in place"
+},
+{
+"gap": "gap/items-pages-through-a-kind",
+"state": "ready",
+"title": "Items: an open kind pages through all its filtered items, sorted on the server, and the search reaches every item"
+},
+{
+"gap": "gap/perf-snapshot-counts-without-refolding",
+"state": "ready",
+"title": "The snapshot's residual counts stop refolding every recently changed item from the record"
+},
+{
+"gap": "gap/queue-goal-grace-in-words",
+"state": "ready",
+"title": "A queue goal states its grace and tolerance in words, and the headline counts only goals off past their grace"
+},
+{
+"gap": "gap/phone-home-is-the-stacked-boxes",
+"state": "ready",
+"title": "On a phone the stacked system boxes are the home view; the redirect to the goals list goes"
+},
+{
+"gap": "gap/item-page-draws-its-path",
+"state": "ready",
+"title": "The item page draws its path on the Dynamics and Blocks diagrams, on demand"
+},
+{
+"gap": "gap/blocks-closed-block-r-y-and-status",
+"state": "ready",
+"title": "Blocks: a closed system's block prints r and y on its ports and its status in words under it"
+},
+{
+"gap": "gap/dynamics-minor-loops-folded-and-named",
+"state": "ready",
+"title": "Dynamics draws the named loops and one per goal; minor loops are listed and drawn when selected; a loop may be named in "
+},
+{
+"gap": "gap/bisect-tests-main-itself",
+"state": "approved",
+"title": "A batch whose failure is main's is never blamed on its gaps"
+},
+{
+"gap": "gap/dynamics-marker-collision-pass",
+"state": "ready",
+"title": "Dynamics: loop markers sit at the centre of their loop, and markers, names and signs never overlap parts, pipes or each "
+},
+{
+"gap": "gap/diagram-text-floor-11px",
+"state": "ready",
+"title": "Drawn text never falls under 11 px: the drawing pans with direction hints instead of shrinking"
+},
+{
+"gap": "gap/agent-show-page",
+"state": "ready",
+"title": "An Agent show page at /agent/NAME: what it is by rung (prompt, program, specification, means of deciding, law), its defi"
+},
+{
+"gap": "gap/agent-names-link-to-their-page",
+"state": "ready",
+"title": "Every agent name links to its page, and Agents rows are links"
+},
+{
+"gap": "gap/agent-page-narrow-ai-and-decision",
+"state": "ready",
+"title": "The Agent page shows a narrow AI's specification and a decision agent's means, as the proposal settles"
+},
+{
+"gap": "gap/blocks-one-loop-per-row",
+"state": "ready",
+"title": "Blocks inside a system: one loop per row in signal order, upstream first, the sensor under its own process"
+},
+{
+"gap": "gap/blocks-crossings-hop-dot-slash",
+"state": "ready",
+"title": "Blocks: a hop at a crossing, a dot only at a take-off, the vector slash away from crossings"
+},
+{
+"gap": "gap/library-sandbox-blocks",
+"state": "ready",
+"title": "Untrusted library block programs run in the sandbox"
+},
+{
+"gap": "gap/cx-cyclomatic",
+"state": "ready",
+"title": "Branching as stocks: cyclomatic sum, functions over 20, the worst 1%"
+},
+{
+"gap": "gap/cx-compress-tree",
+"state": "ready",
+"title": "Compressed size of the code as stocks, with a fixed compressor: logic, prose, and the share repeated far away"
+},
+{
+"gap": "gap/cx-backfill-replace",
+"state": "ready",
+"title": "sensor --backfill --replace: a redefined measure's span is set aside before its history is written again"
+},
+{
+"gap": "gap/cx-backfill-run",
+"state": "ready",
+"title": "complexity.py record: every first-parent commit of main measured and its readings sent, history and new commits by one p"
+},
+{
+"gap": "gap/box-rows-trend-and-where-heading",
+"state": "ready",
+"title": "Each goal row on a box shows its trend and where it is heading"
+},
+{
+"gap": "gap/dynamics-doubt-on-flows-and-processes",
+"state": "ready",
+"title": "Dynamics: doubt about a flow or a process is drawn on it"
+},
+{
+"gap": "gap/dynamics-chains-upstream-short-pipes",
+"state": "ready",
+"title": "Dynamics: chains are drawn upstream first from the top left, clouds beside their valve, pipes with one bend at most"
+},
+{
+"gap": "gap/finished-rule-in-series-and-routing",
+"state": "ready",
+"title": "The process map, the state counts over time and message routing take their finished states from the one function, with t"
+},
+{
+"gap": "gap/dashboard-diagram-panel",
+"state": "ready",
+"title": "A diagram in a Dashboard panel: a Diagram or Items Graph address drawn read-only"
+},
+{
+"gap": "gap/blocks-uncoupled-systems-parallel-rows",
+"state": "ready",
+"title": "Blocks: uncoupled systems are parallel rows with their own r and y and a caption saying no signals join them"
+},
+{
+"gap": "gap/the-kind-page",
+"state": "ready",
+"title": "The kind's page: its definition, where the model counts and moves it, its goals and loops, and its items"
+},
+{
+"gap": "gap/dashboard-declaration-and-api",
+"state": "ready",
+"title": "Named dashboards declared under dashboards: in the model, checked like show:, and served in one request"
+},
+{
+"gap": "gap/dashboard-keep-display-proposal",
+"state": "ready",
+"title": "Keep: a dashboard draft becomes a declared dashboard through an owner display proposal"
+},
+{
+"gap": "gap/control-aware-completion-estimates",
+"state": "ready",
+"title": "The completion estimates run the blocks' gates and the stocks they read, as the proposal defines"
+},
+{
+"gap": "gap/dynamics-module-bundled-connectors",
+"state": "ready",
+"title": "Dynamics: connectors between two closed modules drawn as one bundle"
+},
+{
+"gap": "gap/dynamics-trunk-bundling-in-open-systems",
+"state": "ready",
+"title": "Bundled connectors inside and between open systems: one trunk into a part fed from far away, routed along frames"
+},
+{
+"gap": "gap/ui-no-command-yaml-line-or-spec-section-on-the-read",
+"state": "approved",
+"title": "No command, YAML line or SPEC section on the reader's pages"
+},
+{
+"gap": "gap/ui-doubt-about-a-stock-is-drawn-on-the-stock",
+"state": "fix",
+"title": "Doubt about a stock is drawn on the stock"
+},
+{
+"gap": "gap/ui-a-request-reads-as-a-sentence-what-will-happen-t",
+"state": "approved",
+"title": "A request reads as a sentence: what will happen, to what, who asks and why"
+},
+{
+"gap": "gap/ui-requests-that-are-alike-fold-into-one-with-a-cou",
+"state": "fix",
+"title": "Requests that are alike fold into one, with a count and one answer"
+},
+{
+"gap": "gap/shards-measured",
+"state": "ready",
+"title": "The sharded engine measured at scale"
+},
+{
+"gap": "gap/shard-supervisor",
+"state": "ready",
+"title": "One engine process per shard, supervised by the runner"
+},
+{
+"gap": "gap/ai-guard-own-pure-functions",
+"state": "ready",
+"title": "The AI approver's guard reads a call of the program's own pure function as shaped"
+},
+{
+"gap": "gap/stories-rerun-after-redesigns",
+"state": "ready",
+"title": "The stories are walked again after the redesigns, and the count of possible-and-obvious stories is the plan's result"
+},
+{
+"gap": "gap/operating-gates",
+"state": "ready",
+"title": "Gates scheduled by operating state, and bypass leases"
+},
+{
+"gap": "gap/redesign-ghosts-a-removed-system-resumed",
+"state": "ready",
+"title": "redesign-ghosts-a-removed-system, continued (its work was done; parked on the leaked base or the old kill rule; main has backlog now)"
+},
+{
+"gap": "gap/job-behaviour-test",
+"state": "ready",
+"title": "the-job: the coordinator's behaviour tests"
+},
+{
+"gap": "gap/operating-states-continued-continued",
+"state": "open",
+"title": "Operating states: declared, entered by the owner or a trip, scheduling the pool, continued, continued"
+},
+{
+"gap": "gap/toml-models-budget",
+"state": "ready",
+"title": "Models in ergostat.toml get a budget, and their runs reserve"
+},
+{
+"gap": "gap/code-health-guidance",
+"state": "ready",
+"title": "recurring removal classes become house rules, and checkable ones become checks"
+},
+{
+"gap": "gap/job-equations-laws",
+"state": "ready",
+"title": "the-job: equations and designed control laws"
+},
+{
+"gap": "gap/demo-observed-external-controller",
+"state": "ready",
+"title": "A demo has an observed external controller (an autoscaler), identified and judged"
+},
+{
+"gap": "gap/demo-loop-with-identified-process",
+"state": "ready",
+"title": "A demo has a control loop with an identified process, so margins, step response and tuning appear"
+},
+{
+"gap": "gap/export-dynamics-xmile",
+"state": "ready",
+"title": "Export the Dynamics model as XMILE"
+},
+{
+"gap": "gap/parts-belong-to-their-system",
+"state": "fix",
+"title": "A part knows its system and is shown without the system name where that is known"
+},
+{
+"gap": "gap/items-graph-draws-the-systems-own-kinds",
+"state": "ready",
+"title": "A system's Graph draws only its own kinds' dependency network; another system's items are stubs at its edge"
+},
+{
+"gap": "gap/goals-and-loops-cross-referenced",
+"state": "ready",
+"title": "Each feedback loop that closes a goal names it; each goal's evidence names its feedback loops and its control loop, each"
+},
+{
+"gap": "gap/attention-names-goals-as-goals",
+"state": "ready",
+"title": "Attention entries and suggestions name a goal as 'goal NAME', with the name as a field, not parsed from words"
+},
+{
+"gap": "gap/check-is-a-section-of-model",
+"state": "ready",
+"title": "Check becomes a section of the Model page; the Check page and its nav entry go"
+},
+{
+"gap": "gap/ui-check-and-the-model-page-say-each-thing-once-in",
+"state": "ready",
+"title": "Check and the Model page say each thing once, in a table"
+},
+{
+"gap": "gap/export-model-and-loops-markdown",
+"state": "ready",
+"title": "Export the model behind the picture: Dynamics as a variable table and loop list, Blocks as a loop table, in Markdown"
+},
+{
+"gap": "gap/diagram-spoken-names",
+"state": "ready",
+"title": "Every part of the diagram has a spoken name in its discipline's words, with its state and the loops it belongs to"
+},
+{
+"gap": "gap/goals-page-keep-or-fold-decision",
+"state": "ready",
+"title": "Decision: once boxes carry goal rows and the Dashboard exists, does the Goals page stay?"
+},
+{
+"gap": "gap/kb-parts",
+"state": "parked",
+"title": "Part and file items with hashes; knowledge goes stale when what it is about changes"
+},
+{
+"gap": "gap/item-search-join-2",
+"state": "merged",
+"title": "Full-text search and graph queries (near, path, about, search) over items, from the CLI and API: not built at the join"
+},
+{
+"gap": "gap/item-search-join-1",
+"state": "merged",
+"title": "Full-text search and graph queries (near, path, about, search) over items, from the CLI and API: not built at the join"
+},
+{
+"gap": "gap/architecture-per-system-redesign",
+"state": "merged",
+"title": "per-system redesign and the daily larger-model review"
+},
+{
+"gap": "gap/item-graph-queries",
+"state": "merged",
+"title": "near, path and about over items' relations and mentions, from the CLI and API"
+},
+{
+"gap": "gap/rs-detach",
+"state": "merged",
+"title": "A run no longer depends on the engine that started it"
+},
+{
+"gap": "gap/ui-what-waits-for-me-is-one-step-from-every-page-an",
+"state": "ready",
+"title": "What waits for me is one step from every page, and first on a phone"
+},
+{
+"gap": "gap/diagram-roving-focus-and-arrow-keys",
+"state": "ready",
+"title": "The diagram is one tab stop with roving focus; arrow keys follow pipes, connectors and signals"
+},
+{
+"gap": "gap/keyboard-story-in-browser-tests",
+"state": "ready",
+"title": "A keyboard-only run of story H5 is part of the browser tests"
+},
+{
+"gap": "gap/dashboard-xy-and-heatmap-panels",
+"state": "ready",
+"title": "The Dashboard gains several-series, X/Y and heatmap panels"
+},
+{
+"gap": "gap/dashboard-page-v1",
+"state": "ready",
+"title": "The Dashboard page: panels drawn from existing components, arranged by its address"
+},
+{
+"gap": "gap/perf-segments-item-span-first",
+"state": "parked",
+"title": "An event query by item skips segments that do not hold the item before testing their types"
+},
+{
+"gap": "gap/ui-the-current-page-view-and-mode-are-announced-tab",
+"state": "ready",
+"title": "The current page, view and mode are announced; tables and controls have names"
+},
+{
+"gap": "gap/ui-counts-read-as-words",
+"state": "ready",
+"title": "Counts read as words"
+},
+{
+"gap": "gap/ui-the-blocks-legend-defines-every-symbol-and-a-nam",
+"state": "ready",
+"title": "The Blocks legend defines every symbol, and a name is printed once"
+},
+{
+"gap": "gap/ui-sensors-polled-alike-are-drawn-alike",
+"state": "ready",
+"title": "Sensors polled alike are drawn alike"
+},
+{
+"gap": "gap/proposals-drawn-dashed-in-both-diagrams-continued-2",
+"state": "open",
+"title": "Proposals drawn dashed in both diagrams; proposals that state the behaviour they predict, continued, continued"
+},
+{
+"gap": "gap/shard-wires",
+"state": "ready",
+"title": "Signals carried between shard engines"
+},
+{
+"gap": "gap/diagram-frames-corners",
+"state": "ready",
+"title": "System frames drawn as corner marks joined by a hairline; a closed system's outline light unless a goal in it is off"
+},
+{
+"gap": "gap/diagram-line-tones",
+"state": "ready",
+"title": "A second tone of each ink: information links and secondary signals drawn lighter than the material path; the colour rule"
+},
+{
+"gap": "gap/items-graph-one-show-choice",
+"state": "ready",
+"title": "Graph and Timeline read the page's one finished choice, with a middle level 'and what they wait on', replacing Frontier "
+},
+{
+"gap": "gap/item-page-says-where-it-went",
+"state": "ready",
+"title": "An item says where it went in the model: the stocks it was counted in and the valve and block that moved it"
+},
+{
+"gap": "gap/perf-answers-carry-only-what-is-drawn",
+"state": "ready",
+"title": "The graph, the header's status poll and the item poll carry only what the page draws"
+},
+{
+"gap": "gap/flake-quarantine-continued",
+"state": "fix",
+"title": "Known flaky tests stop blocking merges: quarantined, run beside, reviewed after, continued"
+},
+{
+"gap": "gap/timeline-shows-the-simulated-schedule-in-order",
+"state": "ready",
+"title": "Timeline: rows in projected order, items not scheduled set apart with reasons, each block's capacity named"
+},
+{
+"gap": "gap/dashboard-new-chart-forms",
+"state": "ready",
+"title": "Three chart forms: several series on one axis, an X/Y phase plot, a heatmap over time"
+},
+{
+"gap": "gap/control-aware-estimates-proposal",
+"state": "ready",
+"title": "Proposal: completion estimates that run the control model and the stocks and flows together with the items (docs/proposa"
+},
+{
+"gap": "gap/item-page-fields-flow-and-lists-are-cards",
+"state": "ready",
+"title": "An item's page lays short fields in a flowing grid, shows lists of records as cards with files behind disclosures, and k"
+},
+{
+"gap": "gap/diagram-draws-what-an-item-or-kind-touches",
+"state": "ready",
+"title": "The Dynamics and Blocks diagrams draw only what an item passed through, or what a kind touches"
+},
+{
+"gap": "gap/goal-rows-say-approaching-and-expected",
+"state": "ready",
+"title": "A goal's one word gains 'approaching' and 'falling behind' in neutral ink, its row an 'expected' cell, and every surface"
+},
+{
+"gap": "gap/code-reduction-map-continued",
+"state": "ready",
+"title": "A map of what code to remove or merge, with evidence, continued"
+},
+{
+"gap": "gap/valve-panel-lists-its-leased-items",
+"state": "ready",
+"title": "A valve's panel lists the items its block has taken now, counts them right, and says how many wait"
+},
+{
+"gap": "gap/dynamics-bundled-connectors-proposal",
+"state": "ready",
+"title": "Proposal: bundled (many-to-one, one-to-many) connectors in the Dynamics diagram, true to system dynamics at both ends"
+},
+{
+"gap": "gap/cx-line-age",
+"state": "ready",
+"title": "Age of the code as an on-demand report: young lines, median age, dated by when main received them"
+},
+{
+"gap": "gap/dynamics-off-status-on-the-part",
+"state": "ready",
+"title": "Dynamics: a goal's gap prints the goal's one word, and an off goal's gap and loop marker take the off colour, never the "
+},
+{
+"gap": "gap/dynamics-every-goal-drawn",
+"state": "ready",
+"title": "Dynamics: every goal is drawn as desired level and gap in its own system"
+},
+{
+"gap": "gap/blocks-subsystems-classified-c-p",
+"state": "ready",
+"title": "Blocks: subsystems are classified C, P or a named block, with the same letter and dimensions at both levels"
+},
+{
+"gap": "gap/ui-everything-clickable-in-the-diagram-can-be-reach",
+"state": "ready",
+"title": "Everything clickable in the diagram can be reached and acted on by keyboard"
+},
+{
+"gap": "gap/light-theme-continued-continued-continued",
+"state": "ready",
+"title": "Light theme contrast, continued (main merged in; backlog now on main), continued, continued"
+},
+{
+"gap": "gap/ui-what-i-selected-stays-selected-with-its-panel-wh",
+"state": "ready",
+"title": "What I selected stays selected, with its panel, when I switch view"
+},
+{
+"gap": "gap/eta-refused-takes-are-a-closed-gate",
+"state": "ready",
+"title": "A block's refused takes are its gate closed, not runs: the estimates and the levelled pass take the concurrency the cont"
+},
+{
+"gap": "gap/flows-only-arranges-the-flows",
+"state": "ready",
+"title": "Flows only lays out and draws the flows alone with the current engine, with its own pins and Re-arrange in the menu"
+},
+{
+"gap": "gap/forward-pass-levelled-by-block-capacity",
+"state": "ready",
+"title": "Before the estimates, and at a moment travelled to, the Timeline's forward pass is levelled by each block's capacity, re"
+},
+{
+"gap": "gap/cx-change-coupling",
+"state": "ready",
+"title": "Hidden coupling: modules that change together with no import between them, as a report and a cached count"
+},
+{
+"gap": "gap/cx-information-measures",
+"state": "ready",
+"title": "Structure without names, in the cache: compressed shape stream, token entropy, vocabulary, Halstead volume"
+},
+{
+"gap": "gap/cx-factory-model-size",
+"state": "ready",
+"title": "The factory model's own size: its parts as a stock, its lines and scripts by system in the cache"
+},
+{
+"gap": "gap/cx-js-measures",
+"state": "ready",
+"title": "The product's own JavaScript measured from tokens, in the cache: tokens, functions, branches, compressed size"
+},
+{
+"gap": "gap/cx-test-ratio",
+"state": "ready",
+"title": "Tests against code: the ratio as one auxiliary; test counts and modules with no named test in the cache"
+},
+{
+"gap": "gap/cx-public-surface",
+"state": "ready",
+"title": "The surface others depend on: public names as a stock; share and undocumented names in the cache"
+},
+{
+"gap": "gap/cx-cognitive-nesting",
+"state": "ready",
+"title": "Reading difficulty in the cache and a report: cognitive complexity, nesting depth, parameters"
+},
+{
+"gap": "gap/cx-size-nodes-prose",
+"state": "ready",
+"title": "More sizes in the cache: AST nodes, code-only lines, docstring and comment lines, classes, definitions"
+},
+{
+"gap": "gap/cx-layer-map",
+"state": "ready",
+"title": "Layers as a slice key from one written map of module paths, with an unclassified check; no new stocks"
+},
+{
+"gap": "gap/cx-trend-auxiliaries",
+"state": "ready",
+"title": "Each headline stock's change over main's last merges, ready for goals that fire nothing yet"
+},
+{
+"gap": "gap/cx-test-only-names",
+"state": "ready",
+"title": "Dead-code candidates beyond word search, as a report and cached counts: names only tests mention, modules nothing reache"
+},
+{
+"gap": "gap/cx-import-graph",
+"state": "ready",
+"title": "Coupling as a stock: modules in an import cycle, the largest cycle, import edges"
+},
+{
+"gap": "gap/dynamics-goals-and-loop-folding-proposal",
+"state": "ready",
+"title": "Proposal: every goal drawn in Dynamics, and which feedback loops are drawn, named or folded (docs/proposals/dynamics-goa"
+},
+{
+"gap": "gap/ui-a-loop-s-panel-starts-with-a-table-law-process-h",
+"state": "ready",
+"title": "A loop's panel starts with a table: law, process, held-out fit, performance"
+},
+{
+"gap": "gap/item-and-kind-footprint-proposal",
+"state": "ready",
+"title": "Proposal: how the diagrams draw what an item or kind touches, the item page's picture, and the kind's page (docs/proposa"
+},
+{
+"gap": "gap/ui-cost-is-stated-with-its-unit-or-the-page-says-wh",
+"state": "fix",
+"title": "Cost is stated, with its unit, or the page says why it is zero"
+},
+{
+"gap": "gap/ui-a-flow-with-no-value-says-why-and-an-estimate-wi",
+"state": "ready",
+"title": "A flow with no value says why, and an estimate with no basis says so"
+},
+{
+"gap": "gap/ui-new-requests-and-a-changed-count-are-announced",
+"state": "ready",
+"title": "New requests and a changed count are announced"
+},
+{
+"gap": "gap/inbox-says-what-a-person-may-do",
+"state": "ready",
+"title": "The requests group opens with one sentence saying what a person may do here"
+},
+{
+"gap": "gap/ui-off-in-a-chart-is-a-mark-as-well-as-a-colour",
+"state": "ready",
+"title": "'Off' in a chart is a mark as well as a colour"
+},
+{
+"gap": "gap/ui-on-a-phone-the-diagram-opens-fitted-to-the-scree",
+"state": "ready",
+"title": "On a phone the diagram opens fitted to the screen"
+},
+{
+"gap": "gap/ui-on-a-phone-each-goal-is-a-card-value-against-bou",
+"state": "ready",
+"title": "On a phone each goal is a card: value against bound, and how long off"
+},
+{
+"gap": "gap/ui-a-one-sided-limit-is-drawn-and-named-as-a-limit",
+"state": "ready",
+"title": "A one-sided limit is drawn and named as a limit"
+},
+{
+"gap": "gap/ui-every-block-carries-a-function-with-the-agent-s",
+"state": "ready",
+"title": "Every block carries a function, with the agent's name as its caption"
+},
+{
+"gap": "gap/ui-in-dynamics-a-goal-is-called-a-goal-loop-means-a",
+"state": "ready",
+"title": "In Dynamics a goal is called a goal; 'loop' means an R or B loop"
+},
+{
+"gap": "gap/ui-every-band-of-the-state-chart-is-labelled-in-lig",
+"state": "fix",
+"title": "Every band of the state chart is labelled, in light and in dark"
+},
+{
+"gap": "gap/ui-an-item-s-history-shows-its-states-not-its-lease",
+"state": "fix",
+"title": "An item's history shows its states, not its leases"
+},
+{
+"gap": "gap/ui-an-item-s-header-and-its-latest-change-read-as-w",
+"state": "ready",
+"title": "An item's header and its latest change read as words"
+},
+{
+"gap": "gap/ui-per-class-of-action-asked-approved-denied-and-wh",
+"state": "fix",
+"title": "Per class of action: asked, approved, denied, and whether it is held"
+},
+{
+"gap": "gap/ui-approve-and-deny-say-what-they-answer-in-an-orde",
+"state": "fix",
+"title": "Approve and Deny say what they answer, in an order the keyboard can use"
+},
+{
+"gap": "gap/ui-a-filter-that-matches-nothing-says-so-with-a-way",
+"state": "ready",
+"title": "A filter that matches nothing says so, with a way to clear it"
+},
+{
+"gap": "gap/goals-page-replaces-loops-page",
+"state": "ready",
+"title": "The Loops page becomes Goals, and every reader-facing 'loop' that means a goal says 'goal'"
+},
+{
+"gap": "gap/perf-factory-size-fixture",
+"state": "ready",
+"title": "A script builds a factory-size state directory, so page speed and size can be tested without the live factory"
+},
+{
+"gap": "gap/perf-web-requests-never-pile-up",
+"state": "ready",
+"title": "The page server drops requests whose client left, bounds its queue, keeps a fast lane for cheap answers and logs each sl"
+},
+{
+"gap": "gap/cx-clone-share",
+"state": "ready",
+"title": "Duplication as a stock: tokens in a repeated 40-token shape, with a variety filter and a stated disk budget"
+},
+{
+"gap": "gap/goal-forecast-proposal",
+"state": "ready",
+"title": "Proposal: 'approaching', grace and the forecast's horizon: what a goal's word says beyond off and holding (docs/proposal"
+},
+{
+"gap": "gap/kind-and-item-footprint-api",
+"state": "ready",
+"title": "The model says what a kind and an item touch: /api/kinds/K and an item's path"
+},
+{
+"gap": "gap/open-all-stops-at-what-fits",
+"state": "ready",
+"title": "'Open all' on a model that will not fit opens to the system boxes and says 'Into' for the rest"
+},
+{
+"gap": "gap/diagram-drag-lines-follow",
+"state": "ready",
+"title": "A dragged part's lines move with it in the same frame; a drop re-routes only what it touched"
+},
+{
+"gap": "gap/ui-a-goal-s-behaviour-label-does-not-flip-between-r",
+"state": "fix",
+"title": "A goal's behaviour label does not flip between reloads, and flapping has a name"
+},
+{
+"gap": "gap/ui-the-diagram-loads-without-console-errors",
+"state": "ready",
+"title": "The diagram loads without console errors"
+},
+{
+"gap": "gap/ui-a-loop-is-called-r-or-b-only-when-every-link-has",
+"state": "ready",
+"title": "A loop is called R or B only when every link has a sign"
+},
+{
+"gap": "gap/blocks-textbook-levels-proposal",
+"state": "ready",
+"title": "Proposal: Blocks above the leaf: classified subsystems, a top level with references and summing junctions, rows per loop"
+},
+{
+"gap": "gap/agent-means-proposal",
+"state": "ready",
+"title": "Proposal: what a narrow AI's specification and a decision agent's means of deciding are (docs/proposals/agent-means.md)"
+},
+{
+"gap": "gap/ui-a-suggestion-appears-when-it-has-a-verdict",
+"state": "ready",
+"title": "A suggestion appears when it has a verdict"
+},
+{
+"gap": "gap/items-list-hides-finished-by-default",
+"state": "ready",
+"title": "Items lists leave finished items out by default from one page-wide choice, never hide a searched or linked item, and a f"
+},
+{
+"gap": "gap/diagram-lines-stay-attached",
+"state": "ready",
+"title": "Every drawn line is attached to its two parts at every stage of a layout, and only one drawing writes the page"
+},
+{
+"gap": "gap/export-loops-json-and-traces-csv",
+"state": "ready",
+"title": "Export Blocks' loops as JSON and their traces as CSV"
+},
+{
+"gap": "gap/cx-sensor-read-at",
+"state": "ready",
+"title": "sensor --read with --at is refused, never silently recorded at now"
+},
+{
+"gap": "gap/closed-box-shows-items-inside",
+"state": "ready",
+"title": "A closed system shows the total of the items counted inside it"
+},
+{
+"gap": "gap/blocks-status-without-colour",
+"state": "ready",
+"title": "Blocks: a loop's state is printed on its error signal in the goal's one word and in bold when not holding, never by colo"
+},
+{
+"gap": "gap/ui-from-a-crossing-to-the-record-narrowed-to-that-g",
+"state": "fix",
+"title": "From a crossing to the Record, narrowed to that goal and time"
+},
+{
+"gap": "gap/one-phrase-for-how-far-off",
+"state": "ready",
+"title": "Outside Blocks, how far a goal is from its bound is said in one phrase from one function"
+},
+{
+"gap": "gap/items-kinds-say-which-states-finish",
+"state": "ready",
+"title": "Each item kind says which of its states are finished, from one function for the Items page, the dependency graph and the"
+},
+{
+"gap": "gap/cx-hotspots",
+"state": "ready",
+"title": "Hotspots: churn times branching, as a ranked report and a cached concentration measure"
+},
+{
+"gap": "gap/dashboard-proposal",
+"state": "ready",
+"title": "Proposal: the Dashboard page, its panels, where a dashboard is kept, and its load budget (docs/proposals/dashboard.md)"
+},
+{
+"gap": "gap/perf-compress-large-answers",
+"state": "ready",
+"title": "Large JSON answers are gzip-compressed for browsers that accept it"
+},
+{
+"gap": "gap/system-box-control-panel-proposal",
+"state": "ready",
+"title": "Proposal: the closed system box as the control panel, in Dynamics and Blocks (docs/proposals/system-box-control-panel.md"
+},
+{
+"gap": "gap/cx-size-by-area",
+"state": "ready",
+"title": "Size by area as stocks: product, factory, tests and own JS; the other areas kept in the cache"
+},
+{
+"gap": "gap/stories-reflect-owner-decisions",
+"state": "ready",
+"title": "The 46 stories are brought up to the owner's decisions: Goals, the Dashboard and Agent pages, the kind's page"
+},
+{
+"gap": "gap/cx-churn-deletions",
+"state": "ready",
+"title": "Distillation rate: lines deleted against added over main's last 50 commits, with each commit's changed files kept"
+},
+{
+"gap": "gap/cx-wave-one-proof",
+"state": "ready",
+"title": "The first wave proven on the real history before the rest is built: check, a real backfill, measured costs"
+},
+{
+"gap": "gap/cx-backfill-in-model",
+"state": "ready",
+"title": "The factory records complexity by itself: unsent readings are a stock, and a block drains it"
+},
+{
+"gap": "gap/ui-open-into-and-every-panel-link-show-that-somethi",
+"state": "approved",
+"title": "Open, Into and every panel link show that something is happening"
+},
+{
+"gap": "gap/ui-needs-attention-is-three-headed-groups-in-a-fixe",
+"state": "approved",
+"title": "Needs attention is three headed groups in a fixed order"
+},
+{
+"gap": "gap/ui-agents-a-group-heading-counts-its-rows",
+"state": "merged",
+"title": "Agents: a group heading counts its rows"
+},
+{
+"gap": "gap/ui-the-items-table-fits-at-1440-px",
+"state": "approved",
+"title": "The Items table fits at 1440 px"
+},
+{
+"gap": "gap/ui-after-i-answer-the-row-says-what-was-done-and-by",
+"state": "approved",
+"title": "After I answer, the row says what was done and by whom, and the item shows it"
+},
+{
+"gap": "gap/trial-copy-test-under-load",
+"state": "parked",
+"title": "A templates test passes under the queue load"
+},
+{
+"gap": "gap/ui-an-agent-s-recent-runs-name-the-item-the-outcome",
+"state": "approved",
+"title": "An agent's recent runs name the item, the outcome and what it asked to do outside"
+},
+{
+"gap": "gap/ui-a-stock-s-panel-never-says-nothing-acts-on-a-goa",
+"state": "approved",
+"title": "A stock's panel never says nothing acts on a goal that has an actor"
+},
+{
+"gap": "gap/ui-an-unknown-address-gives-a-page-with-the-navigat",
+"state": "approved",
+"title": "An unknown address gives a page with the navigation"
+},
+{
+"gap": "gap/ui-the-navigation-shows-every-page-at-phone-width-a",
+"state": "approved",
+"title": "The navigation shows every page at phone width and at 200% zoom"
+},
+{
+"gap": "gap/ui-the-headline-counts-the-system-s-goals-and-the-m",
+"state": "approved",
+"title": "The headline counts the system's goals, and the model's upkeep apart"
+},
+{
+"gap": "gap/ui-the-headline-count-is-a-link-to-the-goals-it-cou",
+"state": "approved",
+"title": "The headline count is a link to the goals it counts"
+},
+{
+"gap": "gap/rs-switch",
+"state": "ready",
+"title": "A switch keeps runs going, each on its own version"
+},
+{
+"gap": "gap/ui-a-number-or-reason-asked-of-a-person-has-a-full",
+"state": "approved",
+"title": "A number or reason asked of a person has a full label and a unit"
+},
+{
+"gap": "gap/ui-an-agent-that-never-ran-is-behind-schedule-or-la",
+"state": "approved",
+"title": "An agent that never ran, is behind schedule or last failed stands out"
+},
+{
+"gap": "gap/ui-the-record-folds-runs-of-identical-events",
+"state": "approved",
+"title": "The Record folds runs of identical events"
+},
+{
+"gap": "gap/model-edit-e963e98fcc",
+"state": "parked",
+"title": "Model changes accepted in the instance (model-edit-e963e98fcc)"
+},
+{
+"gap": "gap/ui-timeline-draws-each-item-s-states-over-time-rela",
+"state": "approved",
+"title": "Timeline draws each item's states over time, relations or not"
+},
+{
+"gap": "gap/ui-guide-s-last-frame-uses-the-theme-s-box-fill-and",
+"state": "approved",
+"title": "Guide's last frame uses the theme's box fill, and says it is loading"
+},
+{
+"gap": "gap/code-reduction-map",
+"state": "parked",
+"title": "A map of what code to remove or merge, with evidence"
+},
+{
+"gap": "gap/ui-agents-each-row-says-how-it-is-engaged-and-which",
+"state": "approved",
+"title": "Agents: each row says how it is engaged and which goal it serves"
+},
+{
+"gap": "gap/ui-the-finish-estimate-is-a-clock-time-that-agrees",
+"state": "approved",
+"title": "The finish estimate is a clock time that agrees with the critical path"
+},
+{
+"gap": "gap/ui-the-lifecycle-strip-shows-the-path-taken-and-doe",
+"state": "approved",
+"title": "The lifecycle strip shows the path taken, and does not draw alternatives as next steps"
+},
+{
+"gap": "gap/modeller-calls-ask-the-budget",
+"state": "approved",
+"title": "The redesigner's and the modeller's calls ask the day's budget"
+},
+{
+"gap": "gap/run-budget-ledger-continued",
+"state": "merged",
+"title": "The day's AI budget: config, spend folded by run id, budget.left, continued"
+},
+{
+"gap": "gap/queue-test-reads-its-own-env",
+"state": "merged",
+"title": "Tests of the queue container pass inside that container"
+},
+{
+"gap": "gap/ai-calls-ask-the-budget-continued",
+"state": "merged",
+"title": "ergostat's own decisions, intent and review calls ask the day's budget, continued"
+},
+{
+"gap": "gap/plan-by-size-continued",
+"state": "merged",
+"title": "Planning by size: S skips the planner, M a capped plan, L a sampled review, XL must split; planning-cost-share measured, continued"
+},
+{
+"gap": "gap/ai-approver-for-repairs-needs-a-continued",
+"state": "merged",
+"title": "AI approver for repairs: needs a positive allowlist of the AST changes a fix may make, continued"
+},
+{
+"gap": "gap/ai-approved-not-an-intervention",
+"state": "parked",
+"title": "An action the AI approver approved is not counted as an intervention"
+},
+{
+"gap": "gap/what-the-ai-approver-s-guard-does-not-see",
+"state": "parked",
+"title": "What the AI approver's guard does not see"
+},
+{
+"gap": "gap/engine-runs-its-shard-join-1",
+"state": "merged",
+"title": "An engine that runs only its shard's parts: not built at the join"
+},
+{
+"gap": "gap/remote-items-record-continued",
+"state": "merged",
+"title": "A remote's items and events in the Items and Record pages, continued"
+},
+{
+"gap": "gap/split-verified-join-2",
+"state": "merged",
+"title": "Splits verified: children sized and covering the parent, judged at the join, split quality measured: not built at the join"
+},
+{
+"gap": "gap/conformance-stock-proposal",
+"state": "merged",
+"title": "A proposal: conformance lists as a stock"
+},
+{
+"gap": "gap/regression-guarantees-proposal",
+"state": "merged",
+"title": "A proposal: regression guarantees encoded in the feedback model"
+},
+{
+"gap": "gap/compute-systems-proposal",
+"state": "merged",
+"title": "A proposal: compute systems that run what the engine decides"
+},
+{
+"gap": "gap/ticket-factory-jira-links",
+"state": "merged",
+"title": "ticket-factory records Jira's links as relations"
+},
+{
+"gap": "gap/library-provenance-join-1",
+"state": "merged",
+"title": "Library trust gate by provenance: not built at the join"
+},
+{
+"gap": "gap/split-verified",
+"state": "merged",
+"title": "Splits verified: children sized and covering the parent, judged at the join, split quality measured"
+},
+{
+"gap": "gap/engine-runs-its-shard",
+"state": "parked",
+"title": "An engine that runs only its shard's parts"
+},
+{
+"gap": "gap/line-routing-for-large-diagrams-continued",
+"state": "parked",
+"title": "line routing for large diagrams (layoutopt / layout3-try branches hold earlier tries), continued"
+},
+{
+"gap": "gap/run-budget-trip-continued",
+"state": "merged",
+"title": "T1: a run stopped at its spend cap, continued"
+},
+{
+"gap": "gap/implementor-clone-has-no-remote",
+"state": "merged",
+"title": "Implementors and reviewers are told the implementor clone has no remote"
+},
+{
+"gap": "gap/queue-runs-what-its-container-skips",
+"state": "merged",
+"title": "The tests the queue container cannot run still gate a merge"
+},
+{
+"gap": "gap/state-times-in-the-loop",
+"state": "merged",
+"title": "The time-in-state goals are read by something that acts"
+},
+{
+"gap": "gap/finding-structure-from-residuals",
+"state": "merged",
+"title": "Finding structure from residuals"
+},
+{
+"gap": "gap/upkeep-record-loops",
+"state": "merged",
+"title": "upkeep: event-log roll-up and measurement retention as loops"
+},
+{
+"gap": "gap/remote-of-remotes-continued",
+"state": "merged",
+"title": "A remote composed of remotes, continued"
+},
+{
+"gap": "gap/the-judge-almost-never-decides-on-a-continued",
+"state": "merged",
+"title": "The judge almost never decides on a slow model, continued"
+},
+{
+"gap": "gap/operating-states-continued",
+"state": "parked",
+"title": "Operating states: declared, entered by the owner or a trip, scheduling the pool, continued"
+},
+{
+"gap": "gap/queue-suites-faster-continued",
+"state": "parked",
+"title": "The queue's suites within their time budget, continued"
+},
+{
+"gap": "gap/rs-adopt-continued",
+"state": "parked",
+"title": "A starting engine adopts the runs still alive, continued"
+},
+{
+"gap": "gap/job-person-steps-continued",
+"state": "parked",
+"title": "the-job: every step of mine is a person block, continued"
+},
+{
+"gap": "gap/queue-takes-all-ready",
+"state": "parked",
+"title": "Each merge-queue run takes everything ready to merge, up to a cap, and the model shows the batch truly"
+},
+{
+"gap": "gap/ergostat-s-upkeep-as-a-modelled-system",
+"state": "parked",
+"title": "ergostat's upkeep as a modelled system"
+},
+{
+"gap": "gap/the-day-s-ai-budget-p3-runs-reserve-before-they-start",
+"state": "split",
+"title": "The day's AI budget, P3: runs reserve before they start"
+},
+{
+"gap": "gap/kb-mcp",
+"state": "parked",
+"title": "kb_* MCP tools for sessions from a mounted read-only snapshot, its hash on each brief"
+},
+{
+"gap": "gap/one-bad-link-never-stops-dispatch",
+"state": "merged",
+"title": "A dependency loop through a split parent cannot stop every block in the factory"
+},
+{
+"gap": "gap/run-budget-reserve",
+"state": "merged",
+"title": "P3: no charged run starts unless the day's budget left covers its reserve"
+},
+{
+"gap": "gap/dod-measured-runs",
+"state": "merged",
+"title": "The factory takes a definition's named measurement from its own watched slot"
+},
+{
+"gap": "gap/library-provenance-marks-continued",
+"state": "merged",
+"title": "Library provenance marks: the owner's commands run, the library's never, continued"
+},
+{
+"gap": "gap/ergostat-s-own-ai-calls-under-the-budget",
+"state": "split",
+"title": "ergostat's own AI calls under the budget"
+},
+{
+"gap": "gap/remote-process-lines",
+"state": "merged",
+"title": "Lines in the process map between our items and a remote's"
+},
+{
+"gap": "gap/relative-gain-array",
+"state": "merged",
+"title": "The relative gain array from approved step tests"
+},
+{
+"gap": "gap/library-untrusted-text",
+"state": "merged",
+"title": "Untrusted library text marked, and its schedules bounded"
+},
+{
+"gap": "gap/searching-items-and-querying-their-graph",
+"state": "merged",
+"title": "Searching items and querying their graph"
+},
+{
+"gap": "gap/split-verified-join-1",
+"state": "merged",
+"title": "Splits verified: children sized and covering the parent, judged at the join, split quality measured: not built at the join"
+},
+{
+"gap": "gap/a-queue-suite-that-stops-making",
+"state": "merged",
+"title": "A queue suite that stops making progress is stopped and said"
+},
+{
+"gap": "gap/upkeep-watched-loops",
+"state": "merged",
+"title": "upkeep: the watchdog, the heartbeat goal the outer watcher reads, leases and the worktree pool"
+},
+{
+"gap": "gap/remote-mtls",
+"state": "merged",
+"title": "Mutual TLS for remote systems"
+},
+{
+"gap": "gap/repair-verify",
+"state": "merged",
+"title": "Repair: verify an applied fix by the runs after it, and offer its revert"
+},
+{
+"gap": "gap/redesign-rescored-as-the-record-moves-continued",
+"state": "merged",
+"title": "A waiting redesign scored again as the record moves, continued"
+},
+{
+"gap": "gap/eigenvalue-elasticity",
+"state": "merged",
+"title": "Modes and eigenvalue elasticity at the model's start"
+},
+{
+"gap": "gap/interface-stability",
+"state": "merged",
+"title": "Interface stability over the model's history"
+},
+{
+"gap": "gap/from-upkeep-s-fault-injection",
+"state": "merged",
+"title": "From upkeep's fault injection"
+},
+{
+"gap": "gap/code-health-simplifier",
+"state": "merged",
+"title": "a simplifier block that picks one area by evidence and asks for a branch that removes code"
+},
+{
+"gap": "gap/code-health-measures",
+"state": "merged",
+"title": "net lines, long functions, duplication, dead code and coverage as measures, with goals on their trend"
+},
+{
+"gap": "gap/redesign-beside-refinement",
+"state": "parked",
+"title": "Redesign beside refinement"
+},
+{
+"gap": "gap/code-health",
+"state": "parked",
+"title": "Periodic simplification runs, and deletions become contribution rules and checks"
+},
+{
+"gap": "gap/shared-libraries",
+"state": "parked",
+"title": "Shared libraries"
+},
+{
+"gap": "gap/repair",
+"state": "parked",
+"title": "Repair"
+},
+{
+"gap": "gap/relations-what-is-left",
+"state": "parked",
+"title": "Relations, what is left"
+},
+{
+"gap": "gap/operating-modes-regime-scheduled-thresholds-interlocks-risk",
+"state": "parked",
+"title": "Operating modes, regime-scheduled thresholds, interlocks, risk gating"
+},
+{
+"gap": "gap/the-ir-and-a-rust-runtime",
+"state": "parked",
+"title": "The IR and a Rust runtime"
+},
+{
+"gap": "gap/remodel-the-job",
+"state": "parked",
+"title": "Remodel `the-job`"
+},
+{
+"gap": "gap/an-engine-per-system",
+"state": "parked",
+"title": "one engine per system"
+},
+{
+"gap": "gap/run-budget-permissive",
+"state": "parked",
+"title": "The budget permissive P3 and the run cap T1"
+},
+{
+"gap": "gap/kb-reflection",
+"state": "parked",
+"title": "Knowledge linked to loops and measured values; explain/findings/status point at it; an eval of why-is-this-loop-off answers"
+},
+{
+"gap": "gap/kb-writeback",
+"state": "parked",
+"title": "Sessions propose knowledge; research gaps produce knowledge; the planner reads the graph first"
+},
+{
+"gap": "gap/kb-curator",
+"state": "parked",
+"title": "The curator: stale, unused, duplicate and contradicting entries; usage and lift on entries; KB goals in the model"
+},
+{
+"gap": "gap/merged-dependencies-never-block",
+"state": "merged",
+"title": "A finished dependency never blocks a gap because the item graph was capped"
+},
+{
+"gap": "gap/external-event-logs-continued",
+"state": "merged",
+"title": "External event logs, continued"
+},
+{
+"gap": "gap/implementor-loop-stays-light",
+"state": "merged",
+"title": "An implementor round never runs the browser suite or the whole unit suite, and each session has a CPU cap"
+},
+{
+"gap": "gap/remote-proposals-text",
+"state": "merged",
+"title": "Proposals written as text for a remote's owner"
+},
+{
+"gap": "gap/repair-traces",
+"state": "merged",
+"title": "Repair: other languages' tracebacks, and errors a run swallowed"
+},
+{
+"gap": "gap/park-waits-clear-right",
+"state": "merged",
+"title": "A park's wait clears when its work is really on main"
+},
+{
+"gap": "gap/queue-batches-larger",
+"state": "merged",
+"title": "The merge queue tests up to 8 commits together, as many as can combine and pass"
+},
+{
+"gap": "gap/engine-runs-its-shard-2",
+"state": "merged",
+"title": "Owner asks followed through the record by the owning shard, and the lead shard does what must happen"
+},
+{
+"gap": "gap/build-suite-configurable",
+"state": "merged",
+"title": "The implementor's loop runs a small configurable test set; the full suites run only in the merge queue"
+},
+{
+"gap": "gap/merge-queue-in-docker",
+"state": "merged",
+"title": "The merge queue suites run in containers, on CPUs of their own"
+},
+{
+"gap": "gap/gaps-landed-stock",
+"state": "merged",
+"title": "The model has a stock of gaps that have landed on main"
+},
+{
+"gap": "gap/library-trust-folders",
+"state": "merged",
+"title": "Untrusted library folders: no shadowing, nothing runnable"
+},
+{
+"gap": "gap/pool-control-continued",
+"state": "merged",
+"title": "Pools sized by measured risk against the operator tolerance (continued: parked only on main test failures)"
+},
+{
+"gap": "gap/architecture-vsm-and-purpose",
+"state": "merged",
+"title": "the VSM checklist and purpose coverage (the AI rung)"
+},
+{
+"gap": "gap/code-health-first-run-continued",
+"state": "parked",
+"title": "the first simplification run, merged, continued"
+},
+{
+"gap": "gap/code-health-first-run",
+"state": "parked",
+"title": "the first simplification run, merged"
+},
+{
+"gap": "gap/pool-full-keeps-its-rank",
+"state": "merged",
+"title": "A gap told the pool is full is not overtaken by lower-ranked gaps"
+},
+{
+"gap": "gap/rs-calls",
+"state": "merged",
+"title": "A run's calls survive the engine restarting"
+},
+{
+"gap": "gap/split-verified-3",
+"state": "merged",
+"title": "Split quality measured"
+},
+{
+"gap": "gap/the-size-gate-reads-an-overrun",
+"state": "merged",
+"title": "The size gate reads an overrun's reason from the definition's Where it stopped"
+},
+{
+"gap": "gap/queue-lands-past-a-flake",
+"state": "merged",
+"title": "A batch whose only failures pass alone on the same tree lands, and the flake is recorded"
+},
+{
+"gap": "gap/stray-patterns-from-evidence",
+"state": "merged",
+"title": "The stray-file gate catches the strays that really happened"
+},
+{
+"gap": "gap/warm-failed-runs-charged",
+"state": "merged",
+"title": "Warm runs that crash or hang report their CPU"
+},
+{
+"gap": "gap/a-gap-the-queue-refuses-for",
+"state": "merged",
+"title": "A gap the queue refuses for conflicts reaches fix"
+},
+{
+"gap": "gap/implementors-can-run-the-four",
+"state": "merged",
+"title": "Implementors can run the four browser files"
+},
+{
+"gap": "gap/the-module-map-is-read-and",
+"state": "merged",
+"title": "The module map is read and pruned safely while sessions start together"
+},
+{
+"gap": "gap/a-gap-waiting-on-an-unfinished",
+"state": "merged",
+"title": "A gap waiting on an unfinished dependency says which and why"
+},
+{
+"gap": "gap/a-lease-taken-while-the-engine-closes-outlives-the-close",
+"state": "merged",
+"title": "A lease taken while the engine closes outlives the close"
+},
+{
+"gap": "gap/gap-records-out-of-docs",
+"state": "merged",
+"title": "A gap's working record is written under dev/records/, not docs/"
+},
+{
+"gap": "gap/drain-survives-a-new-version",
+"state": "merged",
+"title": "A version installed during a drain does not cancel that drain"
+},
+{
+"gap": "gap/queue-no-idle-after-push",
+"state": "merged",
+"title": "A push waiting for approval no longer puts every approved gap off for ten minutes"
+},
+{
+"gap": "gap/quarantine-timing-tests",
+"state": "merged",
+"title": "Five tests that fail by timing under load stop reddening the merge queue"
+},
+{
+"gap": "gap/aggregation-from-dominance",
+"state": "merged",
+"title": "Candidates to aggregate, from loop dominance over the window"
+},
+{
+"gap": "gap/upkeep-index-files-continued",
+"state": "merged",
+"title": "use: upkeep, with the item-index files as its first loop, continued"
+},
+{
+"gap": "gap/manager-sessions",
+"state": "merged",
+"title": "The pipeline manager sees the whole pipeline, on a schedule and on a broken pipeline, and reviews merge speed"
+},
+{
+"gap": "gap/a-queue-run-that-lands-nothing",
+"state": "merged",
+"title": "A queue run that lands nothing says why"
+},
+{
+"gap": "gap/the-drop-s-main-is-fetched",
+"state": "merged",
+"title": "The drop's main is fetched under a lock"
+},
+{
+"gap": "gap/a-set-chosen-in-a-snapshot",
+"state": "merged",
+"title": "A set chosen in a snapshot"
+},
+{
+"gap": "gap/the-implementor-pool-gives-its",
+"state": "parked",
+"title": "The implementor pool gives its turn to the gap that has waited longest"
+},
+{
+"gap": "gap/engine-runs-its-shard-1",
+"state": "merged",
+"title": "Engine(project, shard=NAME) limits blocks, clock, dispatch, triggers, daemons, observer and readings"
+},
+{
+"gap": "gap/route-one-large-system-in-parts",
+"state": "merged",
+"title": "One large system's lines routed in parts"
+},
+{
+"gap": "gap/knowledge-seen-lesson-13-528e6fc8",
+"state": "merged",
+"title": "lesson-13 seen as a new shape"
+},
+{
+"gap": "gap/split-verified-2",
+"state": "merged",
+"title": "The parent judged at the join"
+},
+{
+"gap": "gap/act-risk-gating",
+"state": "merged",
+"title": "Act-risk: a gate one step stricter when the act is riskier than its class"
+},
+{
+"gap": "gap/implementors-can-clean-up",
+"state": "merged",
+"title": "An implementor may run what its definition and reviewer require (remove files, the watched suite)"
+},
+{
+"gap": "gap/model-edit-55758f46b6",
+"state": "merged",
+"title": "Model changes accepted in the instance (model-edit-55758f46b6)"
+},
+{
+"gap": "gap/groomer-remembers-removed-links",
+"state": "merged",
+"title": "A dependency the coordinator removed is not proposed again"
+},
+{
+"gap": "gap/a-block-s-pool-set-by-the-model-s-state-continued",
+"state": "merged",
+"title": "A block's pool set by the model's state, continued"
+},
+{
+"gap": "gap/red-batch-fast",
+"state": "merged",
+"title": "A red batch stops early and bisects on its failing tests"
+},
+{
+"gap": "gap/push-settles-by-itself",
+"state": "merged",
+"title": "A settled push is recorded without waiting for another queue run"
+},
+{
+"gap": "gap/timer-long-records-continued",
+"state": "merged",
+"title": "The state timer works on a long record, continued (setpoints moved to the coordinator)"
+},
+{
+"gap": "gap/knowledge-queue",
+"state": "merged",
+"title": "Knowledge has its own work queue, and no longer goes through the gap queue"
+},
+{
+"gap": "gap/repair-runlog-continued",
+"state": "merged",
+"title": "Repair: each run's own log, continued"
+},
+{
+"gap": "gap/ai-call-failures-are-failures",
+"state": "merged",
+"title": "A failed AI call is recorded as failed and charged"
+},
+{
+"gap": "gap/lease-kill-detached",
+"state": "merged",
+"title": "A lease kill reaches a detached process whose parent exited"
+},
+{
+"gap": "gap/knowledge-seen-lesson-8-b6fc6710",
+"state": "merged",
+"title": "lesson-8 seen as a new shape"
+},
+{
+"gap": "gap/kb-curation-flags",
+"state": "parked",
+"title": "The curator: stale, unused and duplicate entries flagged, with a stock and a goal"
+},
+{
+"gap": "gap/advise-gate-that-works",
+"state": "merged",
+"title": "The advice for gating a block that takes items actually works"
+},
+{
+"gap": "gap/knowledge-seen-lesson-8-3e8105dd",
+"state": "merged",
+"title": "lesson-8 seen as a new shape"
+},
+{
+"gap": "gap/kb-usage-lift",
+"state": "parked",
+"title": "Usage and lift on each knowledge entry, and a goal on entries that do not help"
+},
+{
+"gap": "gap/knowledge-seen-lesson-5-1e43a6ca",
+"state": "merged",
+"title": "lesson-5 seen as a new shape"
+},
+{
+"gap": "gap/poor-identifications-proposed-projections-drawn-as-sure",
+"state": "merged",
+"title": "Poor identifications proposed, projections drawn as sure"
+},
+{
+"gap": "gap/split-verified-1",
+"state": "merged",
+"title": "A split's sub-gaps sized and covered"
+},
+{
+"gap": "gap/model-edit-293151c1c2",
+"state": "merged",
+"title": "Model changes accepted in the instance (model-edit-293151c1c2)"
+},
+{
+"gap": "gap/quarantine-list-honest",
+"state": "merged",
+"title": "The quarantine list names who added each test, and releases the fixed one"
+},
+{
+"gap": "gap/groomer-keeps-built-work",
+"state": "merged",
+"title": "The groomer never splits a gap that already has built work"
+},
+{
+"gap": "gap/remote-box-measures",
+"state": "merged",
+"title": "A remote's measures on its closed box"
+},
+{
+"gap": "gap/switcher-actually-runs",
+"state": "merged",
+"title": "The upgrade switcher and the pipeline watch actually run on their schedule"
+},
+{
+"gap": "gap/inbox-dismiss-continued",
+"state": "merged",
+"title": "Held modelling requests answerable from the inbox, continued: reset tried/owner on reopen, answer under the lock"
+},
+{
+"gap": "gap/shards-from-systems",
+"state": "merged",
+"title": "The model's parts assigned to engine shards by system"
+},
+{
+"gap": "gap/build-failures-counted",
+"state": "merged",
+"title": "The build-failure kill rule counts failures"
+},
+{
+"gap": "gap/knowledge-seen-lesson-7-037d2f0a",
+"state": "merged",
+"title": "lesson-7 seen as a new shape"
+},
+{
+"gap": "gap/knowledge-seen-lesson-7-a70058e0",
+"state": "merged",
+"title": "lesson-7 seen as a new shape"
+},
+{
+"gap": "gap/hard-restart-safe",
+"state": "merged",
+"title": "An engine's hard restart never leaves two runs of one item or spends an attempt"
+},
+{
+"gap": "gap/flows-only-closed-systems",
+"state": "merged",
+"title": "Flows-only shows the flows between closed systems"
+},
+{
+"gap": "gap/queue-picks-mergeable",
+"state": "merged",
+"title": "The queue fills each batch with gaps that merge"
+},
+{
+"gap": "gap/ir-json-emit",
+"state": "parked",
+"title": "The IR as versioned canonical JSON, emitted and golden-tested"
+},
+{
+"gap": "gap/expr-grammar-without-ast",
+"state": "parked",
+"title": "The expr language as a written grammar, off Python's ast"
+},
+{
+"gap": "gap/ir-read-back",
+"state": "parked",
+"title": "Reading the IR back into a Spec, refusing what it cannot read"
+},
+{
+"gap": "gap/kb-why-eval",
+"state": "parked",
+"title": "An eval of why-is-this-loop-off answers, with and without linked knowledge"
+},
+{
+"gap": "gap/kb-proposals",
+"state": "parked",
+"title": "Sessions and research propose facts, gated, carried by area"
+},
+{
+"gap": "gap/knowledge-diagnose-from-the-current-record-not-an",
+"state": "parked",
+"title": "a new lesson, \u00a7 14"
+},
+{
+"gap": "gap/knowledge-test-the-real-path-and-what-the-user",
+"state": "parked",
+"title": "a new lesson, \u00a7 14"
+},
+{
+"gap": "gap/kb-contradictions",
+"state": "parked",
+"title": "Contradicting knowledge entries found by a bounded haiku step"
+},
+{
+"gap": "gap/kb-planner-reads",
+"state": "parked",
+"title": "The planner reads the graph first and names what it read"
+},
+{
+"gap": "gap/gaps-md-no-collisions",
+"state": "merged",
+"title": "Finishing a gap no longer collides on docs/GAPS.md or breaks a test"
+},
+{
+"gap": "gap/flake-quarantine-min",
+"state": "merged",
+"title": "A quarantined test never reds the queue"
+},
+{
+"gap": "gap/model-check-ratchet",
+"state": "merged",
+"title": "A gap may not add findings to the factory's own model"
+},
+{
+"gap": "gap/instance-fixes-in-repo",
+"state": "merged",
+"title": "The running factory's two remaining local fixes are in the repository"
+},
+{
+"gap": "gap/gap-size-resumed",
+"state": "merged",
+"title": "gap-size, continued (its work was done; parked on the leaked base or the old kill rule; main has backlog now)"
+},
+{
+"gap": "gap/the-judge-almost-never-decides-resumed",
+"state": "merged",
+"title": "the-judge-almost-never-decides, continued (its work was done; parked on the leaked base or the old kill rule; main has backlog now)"
+},
+{
+"gap": "gap/daemons-left-over",
+"state": "merged",
+"title": "Daemons, left over"
+},
+{
+"gap": "gap/code-health-coverage-continued",
+"state": "merged",
+"title": "Coverage per module, continued (overhead measured: none; turn queue_coverage on)"
+},
+{
+"gap": "gap/kb-about-resumed",
+"state": "merged",
+"title": "kb-about, continued (its work was done; parked on the leaked base or the old kill rule; main has backlog now)"
+},
+{
+"gap": "gap/push-survives-the-run",
+"state": "merged",
+"title": "An approved push of a green merge always runs"
+},
+{
+"gap": "gap/lesson-denied-settles",
+"state": "merged",
+"title": "A denied lesson proposal is settled"
+},
+{
+"gap": "gap/proposals-superseded-by-any-edit",
+"state": "merged",
+"title": "Proposals superseded by any edit"
+}
+]

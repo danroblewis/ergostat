@@ -17,9 +17,9 @@ FILE = "ergostat.yaml"
 LOCAL = "ergostat.local.yaml"     # beside the main file, untracked: this machine's settings only (SPEC §2)
 PER_MACHINE = {"web": None, "intake": {"bind", "allow"}}   # what LOCAL may set (and, for a map, which of its keys)
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
-            "loops", "claims", "contexts", "actions", "workspaces", "leases", "daemons")
+            "loops", "claims", "contexts", "actions", "workspaces", "compute", "leases", "daemons")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
-            "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of",
+            "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
             "daemons": "daemon"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
        "defaults", "uses", "library", "remotes", "budget", *SECTIONS}

@@ -142,9 +142,29 @@ def add(event: str, item: str, **data) -> None:
 
 
 def items(kind: str, state: str | None = None) -> list[dict]:
-    """The items of a kind (in a state), from the record (at most 5,000: the factory's kinds are small)."""
-    args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", state] if state else [])
-    return json.loads(ergostat(*args).stdout).get("items", [])
+    """The items of a kind (in a state), from the record. One listing carries at most 500 items (spec/items.py
+    LISTED), so with no state each state is listed on its own and the lists joined (past 500 gaps the
+    intake read merged and closed gaps as new and opened them again)."""
+    def one(st):
+        args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", st] if st else [])
+        got = json.loads(ergostat(*args).stdout)
+        if len(got.get("items", [])) < int(got.get("total") or 0):    # (a state past the cap: said, as before)
+            print(f"items({kind!r}, {st!r}): {got.get('total')} items, the listing carries "
+                  f"{len(got.get('items', []))}", file=sys.stderr)
+        return got.get("items", [])
+    if state:
+        return one(state)
+    head = [ln for ln in ergostat("item", "--kind", kind).stdout.splitlines() if ln.startswith(f"{kind} ")]
+    states = re.findall(r"([a-z][a-z-]*) \d+", head[0].split("  ", 2)[-1]) if head else []
+    if not states:
+        return one(None)
+    out, seen = [], set()
+    for st in states:
+        for i in one(st):
+            if i["id"] not in seen:
+                seen.add(i["id"])
+                out.append(i)
+    return out
 
 
 def act(name: str, key: str, **args) -> tuple[int, str]:
@@ -596,6 +616,26 @@ def outcomes(text: str, tests: list[str]) -> dict[str, str]:
     for word, t in OUTCOME.findall(text):
         said[t] = "fail" if word != "PASSED" or said.get(t) == "fail" else "pass"
     return {t: said.get(t, "unknown") for t in tests}
+
+
+# pytest's summary line, -q or not, xdist's too: `1 failed, 3 passed, 2 warnings in 2.10s (0:00:02)`, `no tests ran in`
+SUMMARY = re.compile(r"^=*\s*((?:\d+ [a-z]+, )*\d+ [a-z]+|no tests ran) in \d+(?:\.\d+)?s(?: \([\d:]+\))?\s*=*\s*$", re.M)
+COUNTS = ("passed", "failed", "skipped", "deselected", "errors")
+COUNTED_AS = {**{k: k for k in COUNTS}, "error": "errors"}
+
+
+def counts(text: str) -> dict[str, int] | None:
+    """A pytest log's counts (passed, failed, skipped, deselected, errors) from its last summary line, anywhere in the
+    whole log; None without one (killed, stopped, not pytest): unknown, never zeros. Other words (warnings, xfailed)
+    are not counted."""
+    found = SUMMARY.findall(re.sub(r"\x1b\[[0-9;]*m", "", text))
+    if not found:
+        return None
+    got = dict.fromkeys(COUNTS, 0)
+    for n, word in re.findall(r"(\d+) ([a-z]+)", found[-1]):
+        if word in COUNTED_AS:
+            got[COUNTED_AS[word]] += int(n)
+    return got
 
 
 def beside(tests: list[str], log: Path, run) -> dict[str, str]:

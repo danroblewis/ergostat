@@ -42,7 +42,8 @@ TOOLS = {
                     "Bash(git merge:*)",           # (to finish main's merge, implement.py; its clone has no remote)
                     f"Bash({NAMED}:*)", "Bash(uv run ruff check:*)", "Bash(ls:*)", "Bash(wc:*)",
                     "Bash(mkdir:*)", "Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
-                    f"Bash({BROWSER_FILE}:*)"],  # (a browser file: under the watchdog, with Playwright)
+                    f"Bash({BROWSER_FILE}:*)",   # (a browser file: under the watchdog, with Playwright)
+                    "Bash(uv run python -m tests.graph_fixtures:*)"],  # (writes tests/fixtures/graphs/<model>-<view>.json, offline)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)

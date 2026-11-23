@@ -156,10 +156,34 @@ class Victoria:
         for i in range(0, len(rows), 200_000):
             self._import(rows[i:i + 200_000])
 
-    def backfill(self, series: str, rows: list[tuple[float, float]], src: str | None = None) -> dict:
-        """Past readings not backfilled before, sent while the ledger is held; a refused import rolls the ledger back."""
+    def backfill(self, series: str, rows: list[tuple[float, float]], src: str | None = None, replace: bool = False) -> dict:
+        """Past readings not backfilled before, sent while the ledger is held; a refused import rolls the ledger back.
+        ``replace``: what is in their span set aside first (``_replace``)."""
         from .store import ledger_write
-        return ledger_write(self._ledger, series, rows, src, lambda c, rows: self.add_many(rows))
+        return ledger_write(self._ledger, series, rows, src, lambda c, rows: self.add_many(rows),
+                            self._replace if replace else None)
+
+    def _replace(self, c, series: str, lo: float, hi: float, rows: list[tuple[str, float, float]], why: str) -> int:
+        """The server deletes only whole series: under the compaction lock, the series read out, its readings in
+        ``[lo, hi]`` set aside (``measurements.forgotten.json``, with ``why``), and the rest with ``rows`` written back."""
+        import fcntl
+
+        from .rollup import LOCK
+        self.flush()
+        with open(self.dir / LOCK, "a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)                 # (let go when the file is closed)
+            pts = self._export(series, 0).get(series) or []
+            out = [p for p in pts if lo <= p[0] <= hi]
+            self._req("/api/v1/admin/tsdb/delete_series", {"match[]": self._sel(series)}, body=b"")
+            self._import([(series, t, v) for t, v in pts if not lo <= t <= hi] + rows)
+            self._aside(series, out, why)
+        return len(out)
+
+    def _aside(self, series: str, pts: list[tuple[float, float]], why: str | None = None) -> None:
+        note = self.dir / "measurements.forgotten.json"
+        old = json.loads(note.read_text()) if note.exists() else []
+        note.write_text(json.dumps(old + [{"series": series, "time": t, "value": v, "forgotten_at": time.time(), "why": why}
+                                          for t, v in pts]))
 
     def backfills(self, series: str) -> list[dict]:
         from .store import ledger_read
@@ -277,9 +301,7 @@ class Victoria:
         keep = [(series, t, v) for t, v in pts if (t, v) not in set(bad)]
         if keep:
             self._import(keep)
-        note = self.dir / "measurements.forgotten.json"
-        old = json.loads(note.read_text()) if note.exists() else []
-        note.write_text(json.dumps(old + [{"series": series, "time": t, "value": v, "forgotten_at": time.time()} for t, v in bad]))
+        self._aside(series, bad)
         return bad
 
     def roll(self, now: float | None = None) -> dict:
