@@ -1460,6 +1460,11 @@ def test_an_approved_lesson_is_applied_with_no_gap(tmp_path):
     set_db(f, lessons_fail=False)
     assert f.run("lesson.py", "lesson/add-shared-stash", argv=("apply",))[0] == ["lesson.applied"]
     assert f.item("lesson/add-shared-stash")["fields"]["lesson"] == "lesson-15"
+    db = f.db()                                     # spans of exactly an hour, an hour and 0, not the test's own seconds
+    for lid, span in (("lesson/seen-lesson-1-aaa", 3600), ("lesson/new-stale-cache", 3600), ("lesson/add-shared-stash", 0)):
+        fl = db["items"][lid]["fields"]
+        fl["proposed_at" if fl.get("proposed_at") else "approved_at"] = float(fl["applied_at"]) - span
+    f.record.write_text(json.dumps(db))
     assert f.tool("lesson.py", "hours").stdout.strip() == "0.667"   # proposed to applied: an hour, an hour, ~0 (add)
     assert "knowledge_unread" not in block_in(f, BIN, "pipeline_manager", "lesson/add-shared-stash")
     proposed(f, "lesson/seen-lesson-2-held", {**SEEN, "lesson": "lesson-2"})               # as the lease holds it:

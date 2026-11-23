@@ -92,3 +92,13 @@ fault in `lesson.py`. The branch changes neither `dev/bin` nor this test, and it
 first state `new` that no event uses) does not touch the timing. Lesson 13 says this is reported, not fixed here: a
 fix would make the test's clock fixed, or make its bound allow the real span, and that belongs to its own gap. The
 command refused in this round: a shell heredoc appending this paragraph (`cat >> dev/records/... <<'EOF'`).
+
+Round 2, second build failure of the same test (0.668 again): the factory asked for a fix, so the test's clock is now
+fixed, and its bound is unchanged. Before `lesson.py hours`, the test sets each applied lesson's recorded start
+(`proposed_at`, or `approved_at` for the coordinator's own) to exactly 1 h, 1 h and 0 before its `applied_at`. The
+assertion is still `0.667`, and it now checks the mean the comment claims, not the test's own seconds under load.
+`lesson.py` is unchanged: it measures the recorded spans as they are, which is right. The test runs against a fake
+`ergostat`, so none of this branch's code is on its path. This is a fix outside the gap (lesson 13). It is the most
+reversible one: one test, six lines, no code. Passes alone (1 passed in 64 s); ruff clean. Not break-tested: the
+command that broke `hours()`'s `approved_at` fallback with `sed -i`, ran the test and restored the file with
+`git checkout dev/bin/lesson.py` was refused.
