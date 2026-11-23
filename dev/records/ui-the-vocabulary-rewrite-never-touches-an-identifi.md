@@ -72,3 +72,25 @@ Round 2: main (ead497d1) merged in; built again.
 - Breaks seen to fail the acceptance test after the merge: with nothing set aside, it fails on "queue-desired
   level-tolerance on desired level.ci-upgrade-planned"; with `first`/`more` not rewritten, it fails on "setpoint".
 - Size: +17 net lines in `ergostat/dynamics.py` against main (19 added, 2 removed), within 60.
+- Run after the merge: the acceptance test passes; tests/test_dynamics_view.py 16 passed; ruff clean.
+  tests/test_diagram_rendering.py in full under the watchdog (rc 1, nothing skipped): 252 passed, 31 failed. None
+  reads text that goes through `attention()`, and the branch changes nothing under `ergostat/web/`:
+  - 22 of `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip[*]`: the loop marker's
+    `<title>` "Drawn alike here with ..." that main's `ergostat/web/static/dynamics.js:467` draws.
+  - `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`: the side list's fixed
+    heading "Goals off" (`diagram.js`, main's), not a card.
+  - `test_needs_attention_is_three_headed_groups_in_a_fixed_order`: fails the same way, alone, with the `first`/`more`
+    lines switched off.
+  - Time and layout bounds: `test_every_view_draws_cleanly_and_in_time[coordinator, image-squeeze, ticket-factory]`
+    (routing over 20 s; satellite-far 15 of 14) and `test_a_big_tangled_model_lays_out_in_time_and_cleanly` (2560 ms
+    of 2500).
+  - Panels, pinning, keyboard and the suggestion fold: `test_every_part_opens_its_panel_when_clicked_even_mid_redraw`,
+    `test_parts_chosen_with_a_box_move_together_pinned_and_with_no_new_layout`,
+    `test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard` and
+    `test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[False]` (a hint button not
+    visible).
+  - `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`: the same /model failure as
+    round 1.
+  - Not proven on clean main: putting main's `dynamics.py` back to compare was refused
+    (`git checkout main -- ergostat/dynamics.py ...`). Left to the factory's rerun on main (lesson 13).
+- Not run: the unit suite, the other three browser files, demo_check.
