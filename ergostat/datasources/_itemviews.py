@@ -137,11 +137,25 @@ def _ranked(why: list, scale: float, lo: float, hi: float):
     return Ranked
 
 
+def _finished(c, spec) -> dict[str, list[str]]:
+    """Each kind's finished states (spec/finished.py), from the states its items have left as ``c`` reads them."""
+    from ..spec.finished import finish_of
+    left: dict[str, set[str]] = {}
+    for kind, state in c.execute('select k.name, s.name from main."left" l join main.names k on k.id = l.kind '
+                                 "join main.names s on s.id = l.state"):
+        left.setdefault(kind, set()).add(state)
+    return {k: finish_of(spec, k, left.get(k, set()))["finished"] for k in spec.items}
+
+
 @contextlib.contextmanager
-def opened(ix, spec, finished: dict[str, list[str]], deadline: float, text: str | None = None, why: list | None = None):
+def opened(ix, spec, deadline: float, text: str | None = None, why: list | None = None):
     """``(connection, why)``: the index's file opened read only, each view ``text`` names (every one, for None) copied
     into a table of the connection's own, and then only SELECT on those allowed, until ``deadline``
     (``time.monotonic()``). ``why``: the words of a refusal, the authorizer's or an aggregate's.
+
+    The copies, and the states each kind's items finish in (``reason``), are read in one read transaction, so they are
+    of one state of the index: a catch-up committed meanwhile is seen by none of them, and a query joining two views
+    sees each item the same in both.
 
     (A copy, not a view over the index: SQLite tells the authorizer which view a read is for only while the view is not
     flattened into the query, so a view's reads could not be told from a query's own. Once the copies are made nothing
@@ -160,10 +174,13 @@ def opened(ix, spec, finished: dict[str, list[str]], deadline: float, text: str 
         c.create_aggregate("percentile_cont", 2, _ranked(why, 1.0, 0.0, 1.0))
         c.create_aggregate("percentile", 2, _ranked(why, 0.01, 0.0, 100.0))
         names = set()
+        c.execute("begin")                   # (one snapshot of the index, from the first read to the commit)
+        finished = _finished(c, spec)
         for view, select in _definitions(spec, finished).items():
             if words is None or view.lower() in words:
                 c.execute(f'create temp table "{view}" as {select}')
                 names.add(view.lower())
+        c.execute("commit")
         c.execute("pragma query_only = 1")
 
         def denied(what: str) -> int:

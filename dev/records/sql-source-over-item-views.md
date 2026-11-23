@@ -101,6 +101,25 @@ Run here, one file at a time:
 - Not run here: the whole unit suite and the four browser files (the factory's). No example was touched, so no
   `demo_check`. `main` (278f54a4) has not moved since the clone, so there was nothing to merge.
 
+Round 2: the review's one finding, answered.
+- **Copies read in separate snapshots (blocking, lesson-1).** `_itemviews.opened` now runs `begin` before the copies
+  and `commit` after them, before the authorizer is set. Each kind's finished states (what `reason` is made from) are
+  now read inside that same transaction, from the index's `left` table (`_finished`), not from `ix.left` before it.
+  `sql._index` no longer reads them, and `opened` no longer takes them.
+- New test `test_a_query_joining_views_reads_one_state_of_the_index_while_it_is_caught_up_between_copies`. It
+  monkeypatches `_definitions`, so that after `item_spans` is copied and before `ticket` is, ticket/5 is made done and
+  the index caught up (a committed write). The join still sees ticket/5 `doing` in both views. The next query sees it
+  `done` in both.
+- Seen to fail: with `begin`/`commit` removed, the `ticket` view had ticket/5 as `done` and `item_spans` had it as
+  `doing`.
+- SPEC §4e (*How a query is kept read only*) says so.
+- Run: test_sql_source (9), test_data_sources, test_query_engine. ruff is clean. `main` (278f54a4) has not moved, so
+  there was nothing to merge. Not run here: the whole unit suite and the four browser files.
+- Once, with test_data_sources and test_query_engine run together, a timing bound failed. It was
+  test_query_engine.py:343, `best < 0.100` s for an items/moves/counts/series query on a 100,000-event record, which
+  does not go through the sql source. It passed when that file was run alone, and twice more with the pair (70
+  passed). It is a load-dependent bound outside this gap, so it is left alone (lesson-13).
+
 ## Entry
 
 section: Interface

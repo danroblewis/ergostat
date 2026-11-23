@@ -1417,6 +1417,9 @@ reads the event log.
   How a query is kept read only:
   - Each query gets a connection of its own to the item index's file, opened read only, under the file's shared lock.
   - The views the text names are copied into the connection's own temporary tables.
+    - The copies, and the finished states that make `reason`, are read in one read transaction. So they all show one
+      state of the index: a query that joins two views sees each item the same in both, even if a catch-up is committed
+      while they are copied.
   - Then SQLite's authorizer allows only SELECT, reading those copies and the query's own `WITH` names, and an
     allowlist of functions (no `load_extension`, no internal helper).
   - So a write, `ATTACH`, `PRAGMA`, a transaction or a read of any of the index's own tables (`items`, `moves`, `names`,

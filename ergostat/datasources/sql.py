@@ -37,14 +37,11 @@ def _project():
 
 
 def _index(p, spec):
-    from ..spec.finished import finish_of
     from ..spec.itemindex import index_for
     ix = index_for(p.events, spec, False)
     if ix is None:
         raise SourceError("unknown", "this project's record is kept nowhere on disk, so it has no item index to read")
-    with ix.lock:
-        finished = {k: finish_of(spec, k, set(ix.left(k)))["finished"] for k in spec.items}
-    return ix, finished
+    return ix
 
 
 def _refusal(e: sqlite3.Error, why: list, seconds: float) -> SourceError:
@@ -98,10 +95,10 @@ def _frame(cols: list[str], rows: list[tuple]) -> dict:
 def query(src, text: str, w) -> dict:
     p, spec = _project()
     deadline = time.monotonic() + w.seconds
-    ix, finished = _index(p, spec)
+    ix = _index(p, spec)
     why: list = []
     try:
-        with _itemviews.opened(ix, spec, finished, deadline, text, why) as (c, _):
+        with _itemviews.opened(ix, spec, deadline, text, why) as (c, _):
             cur = c.execute(text, {"since": w.since, "until": w.until, "step": w.step})
             if cur.description is None:
                 raise SourceError("refused", "the text holds no SELECT")

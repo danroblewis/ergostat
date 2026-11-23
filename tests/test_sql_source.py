@@ -148,8 +148,8 @@ def test_rows_bytes_values_and_a_median_s_numbers_are_bounded(p, monkeypatch):
 
 def raw(p, text: str) -> tuple[list[str], list[tuple]]:
     """A query's columns and rows as SQLite answers them, on the views as a query sees them (no frame made)."""
-    ix, finished = sql._index(p, p.model.spec)
-    with _itemviews.opened(ix, p.model.spec, finished, time.monotonic() + 10) as (c, why):
+    ix = sql._index(p, p.model.spec)
+    with _itemviews.opened(ix, p.model.spec, time.monotonic() + 10) as (c, why):
         try:
             cur = c.execute(text)
         except sqlite3.Error as e:
@@ -158,8 +158,8 @@ def raw(p, text: str) -> tuple[list[str], list[tuple]]:
 
 
 def test_a_query_s_connection_holds_its_memory_and_attaches_nothing(p):
-    ix, finished = sql._index(p, p.model.spec)
-    with _itemviews.opened(ix, p.model.spec, finished, time.monotonic() + 10) as (c, _):
+    ix = sql._index(p, p.model.spec)
+    with _itemviews.opened(ix, p.model.spec, time.monotonic() + 10) as (c, _):
         assert c.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) == 16 * 2**20 and c.getlimit(sqlite3.SQLITE_LIMIT_ATTACHED) == 0
         c.set_authorizer(None)                                     # (only to read what was set)
         got = [c.execute(f"pragma {q}").fetchone()[0] for q in ("cache_size", "temp.cache_size", "temp_store",
@@ -218,6 +218,28 @@ def test_the_views_survive_an_index_layout_change(p, monkeypatch):
     monkeypatch.setattr(itemindex, "VERSION", itemindex.VERSION + 100)   # a new layout's file, built again from the record
     assert index_file(p) != path
     assert view_answers(p) == before
+
+
+def test_a_query_joining_views_reads_one_state_of_the_index_while_it_is_caught_up_between_copies(p, monkeypatch):
+    """A catch-up committed between two views' copies (another request's, or another process's) is seen by none."""
+    definitions = _itemviews._definitions
+
+    class Between(dict):
+        def items(self):
+            for view, select in super().items():
+                if view == "ticket":                    # item_spans is copied; ticket/5 is done before ticket is
+                    p.events.add("ticket.done", item="ticket/5", data={}, at=T + 200)
+                    itemindex.index_for(p.events, p.model.spec, False)
+                yield view, select
+
+    monkeypatch.setattr(_itemviews, "_definitions", lambda spec, finished: Between(definitions(spec, finished)))
+    got = rows(p, "select t.id, t.state, s.state as now, s.reason, count(*) as n from ticket t join item_spans s "
+                  "on s.id = t.id and s.\"left\" is null where t.id = 'ticket/5' group by 1, 2, 3, 4")
+    assert got == [["ticket/5", "doing", "doing", None, 1]]           # (a reason all null reads as a measure)
+    monkeypatch.setattr(_itemviews, "_definitions", definitions)
+    assert rows(p, "select t.id, t.state, s.state as now, s.reason, count(*) as n from ticket t join item_spans s "
+                   "on s.id = t.id and s.\"left\" is null where t.id = 'ticket/5' group by 1, 2, 3, 4") == [
+        ["ticket/5", "done", "done", "done", 1]]
 
 
 def test_exact_medians_and_percentiles_match_the_hand_worked_record(p):
