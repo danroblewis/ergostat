@@ -104,3 +104,30 @@ main's `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, n
 the 30 s wait for the other project in `#project`. The branch's stamp test passed in both runs. As in round 2 it is
 left for main (lesson 13). A command that printed the test's lines with `grep`/`sed` was refused, so I read the file
 with the editor's reader instead.
+
+Round 4: the merge of main (7cb97857) conflicted only in `tests/test_items_page.py`, where both sides added a test
+after `test_a_remote_items_file_field_never_reads_a_local_file`. Both are kept: the branch's
+`test_every_time_is_one_stamp_with_its_date_and_zone`, then main's
+`test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_on`, each with its own `finally`. No page
+code changed this round, and net code is still +11 lines. ruff is clean, and `tests/test_time_stamp.py` passes
+(3 passed). With Playwright under the watchdog, `tests/test_items_page.py` gave 26 passed and 6 failed (rc 1). The
+branch's stamp test passed, and it passed again in a later run of its own. The six failures:
+
+- `test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set`,
+  `test_the_model_changes_are_found_by_heading_search_and_panel`, `test_a_valves_leased_items_are_listed_live`,
+  `test_a_snapshot_lists_a_parts_items_and_opens_its_set` and `test_a_set_left_out_of_a_snapshot_says_so`. Each failed
+  again when run alone. Each waits for a stock's or valve's Dynamics panel to fill in (`#detail .item-set`,
+  `#detail .leases-line`), and it never does. I found a cause in main's code, not the branch's, though I have not run
+  it on main. Main's `openNodeSD` (`ergostat/web/static/dynamics.js`, merged with
+  `factory/ui-everything-clickable-in-the-diagram-can-be-reach` / `ui-what-i-selected-stays-selected…`) first shows a
+  placeholder `wait`. Then it calls `panelLoading`, which redraws the panel through `showDetail` and so removes `wait`
+  from the page. After the part's answer comes, `if (!wait.isConnected) return;` is always true, so the panel stays at
+  "Loading…". The branch does not touch dynamics.js, `panelLoading`, `showDetail` or itemsets.js. It is left for main
+  (lesson 13).
+- `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: the same 30 s wait for the other project in
+  `#project` as in rounds 2 and 3. It is left for main.
+
+Refused this round, as given: the whole-file browser run piped into `> /tmp/items.log … grep`, then re-run without
+the pipe. A probe script at `/tmp/probe/probe.py` (the file tools are confined to /work) and
+`uv run --with playwright==1.63.0 python /tmp/probe/probe.py`, to print the panel's page errors. And
+`git diff $(git merge-base HEAD^1 HEAD^2) HEAD^2 -- …`, re-run with the two commits named.
