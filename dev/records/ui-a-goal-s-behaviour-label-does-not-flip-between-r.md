@@ -273,3 +273,34 @@ Run: the three behaviour tests (3 passed, rc 0, under the watchdog); main's
 `tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (2 passed, rc 0, under the watchdog);
 `tests/test_graph_cli_web.py` (45 passed); ruff clean. Not run: the whole unit suite and the four browser files in
 full (left to the factory and the merge queue).
+
+## Where it stopped (continued, round 7)
+
+The review's one finding (lesson-5): the kept word was keyed by project and goal, not by window. After a change of
+window, the old window's word, with its count and span, was held for a hold of the new window. On the first render
+after the change, `win` was also the header's old `S.status.window`. Fixed in pages.js, with 1 more net line of code
+(about 35 in all):
+- The key is now `ergostat.behaviour.<project>.<S.since>.<goal>`, so each window keeps its own word. A word kept for
+  another window is never read.
+- `win` comes from the chosen window (`WINDOWS[S.since]`, the header's `S.status.window` if that is unknown),
+  clipped to the recorded span as before. So the first render after a change already states the new window's span.
+
+Choice made without an answer (the most reversible): a kept word for each window, not a reset on a change of window.
+Going back to a window shows that window's own kept word, held as before.
+
+Test: `tests/test_diagram_rendering.py::test_a_change_of_window_shows_that_windows_behaviour_at_once`. Over ten
+minutes the mocked goal is 'within its bound' (kept). Switched to a day (as the window menu does), where it went off
+23 times, it reads `flapping (23 crossings in <the day's recorded span>)` within 5 s. Back to ten minutes, it reads
+'within its bound' at once, and each window's kept word is its own. Each break made it fail:
+- The unscoped key put back: a wait_for_function timeout (the old 'within' was held).
+- The header's `st.window` put back: `['flapping (23 crossings in 10m)', 'flapping (23 crossings in 40m)']`.
+
+The other behaviour tests now read the kept word under the window's key.
+
+Run: the new test, `test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named` and
+`test_a_past_moment_shows_its_own_behaviour_at_once_and_keeps_the_live_one` (3 passed, rc 0, under the watchdog);
+`test_a_goals_behaviour_holds_across_refreshes_of_an_open_page` and
+`tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (2 passed, rc 0, under the watchdog);
+`tests/test_graph_cli_web.py` (45 passed); ruff clean. Not run: the whole unit suite and the four browser files in
+full (left to the factory and the merge queue). `main` is still 1c790d38, already merged in, so there was nothing to
+merge.

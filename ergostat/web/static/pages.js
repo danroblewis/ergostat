@@ -20,13 +20,13 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 
 /* a loop's behaviour, with hysteresis: its class (the words without their numbers) changes only once the new class
    has held for HOLD_SHARE of the window (a minute at least), and within a class its numbers are kept as long;
-   remembered across reloads (by project), so a reload alone never flips it; a word not seen within the last hold and
+   remembered across reloads (by project and window, so another window's word is never held), so a reload alone never flips it; a word not seen within the last hold and
    two refreshes (PERF_EVERY, as the server's PERF_LIFE) is stale and the new one is shown at once; a past moment
    (S.at) shows its own word at once and keeps nothing, so the live word is neither shown there nor overwritten */
 const HOLD_SHARE = 0.05, PERF_EVERY = 300000;
 function steadyWord(name, word, win) {
   if (S.at) return word;
-  const key = `ergostat.behaviour.${S.status?.name || ""}.${name}`, now = Date.now(), hold = Math.max(60, HOLD_SHARE * win) * 1000;
+  const key = `ergostat.behaviour.${S.status?.name || ""}.${S.since}.${name}`, now = Date.now(), hold = Math.max(60, HOLD_SHARE * win) * 1000;
   const cls = (w) => w.replace(/[\d(−-].*$/, "").replace(/[,\s]+$/, "");
   let k = null;
   try { k = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) { /* none kept */ }
@@ -53,7 +53,8 @@ async function pageLoops(main) {
     ans.begin();
     // every loop in one answer: its stock's trend, and how it is doing (control.js), worked out on the server in the background
     const loops = await ans.api("loops", { perf: 1 }), systems = await ans.api("systems").catch(() => []);
-    const st = S.status, win = st?.window ? Math.min(st.window, st.first ? st.at - st.first : st.window) : 0;
+    const st = S.status, full = WINDOWS[S.since] || st?.window || 0;   // the window chosen, before the header catches up
+    const win = full ? Math.min(full, st?.first ? st.at - st.first : full) : 0;
     const word = (n, lp, s = lp.perf) => (s == null || s.not_analysed ? "" : lp.times_off >= FLAP_AT ? steadyWord(n, `flapping (${lp.times_off} crossings in ${dur(win)})`, win)
       : s.working ? "being worked out" : s.failed ? "could not be worked out" : steadyWord(n, performanceWord(s), win));
     const w = windowNote();
