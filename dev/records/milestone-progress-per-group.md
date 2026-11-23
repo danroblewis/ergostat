@@ -164,3 +164,13 @@ tests/test_dashboards_doc.py (74), ruff clean. tests/test_items_page.py under th
 failed, `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` at line 2013 (the project switcher,
 as in rounds 1 to 5; this branch touches neither the header nor the switcher). Not run: the other three browser
 files, the unit suite.
+
+Round 7. The queue's finding (the merge in a batch of 3 failed, and alone
+`tests/test_cli_fallback.py::test_every_flag_of_a_read_topic_is_called_acting_or_read_only` failed) is fixed. The
+branch's new `ergostat item --groups` flag was not classified for the last-good-model fallback. It only reads (it
+opens the project and folds the item index, writing nothing; `cli/record.py` `_item_groups`), so it is added to
+`goodmodel.READ_FLAGS`. The test was seen to fail before the change (`['item --groups']` untold) and pass after.
+No other findings were raised.
+Run here: tests/test_cli_fallback.py (18 passed), tests/test_group_progress.py (9 passed), ruff clean. Refused in
+this session: a shell command that grepped the CLI and edited goodmodel.py with `sed -i`; the editor was used
+instead. Not run: the browser files (no page code changed this round), the unit suite.
