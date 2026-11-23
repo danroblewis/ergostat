@@ -214,3 +214,16 @@ Refused this session (Bash denied): `python3 -I -c` reading `fac.allowances` of 
 `git commit` of this note, so it is not committed. The parse was checked by reading the regex at dev/bin/fac.py:333-335
 by hand instead: each of the seven entries is `code part: why`, with no comma in the reason. Nothing else was run, and
 the size is unchanged.
+
+Round 4 (implementor, 2026-11-23). No change to the code or the model. Round 3 answered both blocking findings in the
+list sent, and its fixes are still in place. `flakes-fixed` is `leaving: seen`, so the two flows add up to
+`flakes-open`. This is pinned in `test_flakes_few_names_the_oldest`, which fails on the old `entering: fixed` sensor.
+The person blocks, the loops and the guarantees.yaml rerouting are out: `git diff main --stat` touches only
+dev/README.md, dev/bin/flakes.py, dev/model/guarantees-flakes.yaml, this record and tests/test_factory.py. check's
+findings stand under the `allows-findings` line above, which a new run's gate can read. The count-versus-age question
+for `flakes-few` is still the owner's, as written above.
+Run here and passing: the four acceptance tests, `test_the_guarantees_model_checks_clean` and
+`test_main_green_stale_is_off`. `uv run ruff check ergostat tests scripts dev/bin/flakes.py` is clean.
+Refused (Bash denied): `uv run ergostat check`, so the findings were read only through `ergostat.spec.read` in the
+test. The commit of this note was refused too (a heredoc append with `git add` and `git commit`). Not run: the whole
+unit suite and the four browser files (the factory's). The size is unchanged.
