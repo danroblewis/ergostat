@@ -129,5 +129,6 @@ tests/test_items_page.py (67 passed, 1 failed). The failure was again
 alone, it failed the same way. This is the same failure as in rounds 2-4: it reads the header counts, which this gap
 does not touch, and round 2 saw it fail with the gap's pages.js lines undone. It was not run on main.
 Refused this round, as given: `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py
-tests/test_graph_cli_web.py` (it was then run without the watchdog), and the same test name run without suite_watch
+tests/test_graph_cli_web.py` (it was then run without the watchdog), and `uv run --with playwright==1.63.0 python
+scripts/named_tests.py tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
 (it was then run under suite_watch). The whole of tests/test_diagram_rendering.py was not run.
