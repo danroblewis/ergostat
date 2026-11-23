@@ -201,3 +201,21 @@ failed:
 Not proven on clean main: running these two tests with main's `pages.js` and `relations.js` copied in, then the
 branch's put back, was refused. The factory's rerun on clean main settles it. Not run by me: `tests/test_graph_cli_web.py`
 (unchanged by this merge), the unit suite and the other three browser files (left to the factory).
+
+## Where it stopped (round 6, after merging main 28ad5c4a)
+
+The only finding listed was the conflict with main in `ergostat/web/static/pages.js`. I resolved it keeping both
+sides: main's way of asking each open system's `items-graph` (all at once with `Promise.all`, with the request's
+`signal`, then awaiting the trust and action-class answers, `gone()` and `loaded()`), plus the branch's choice of
+kinds (a system with no related kind asks for its kinds that have items, for the Timeline only). The branch's old
+serial loop and its `p.isConnected` check are gone, because main's `gone()` covers that check. The code still differs
+from main only in the branch's own lines, +9 net, within budget.
+
+Tests run after the merge: `uv run ruff check ergostat tests scripts` clean; `tests/test_graph_cli_web.py` 53
+passed; `tests/test_items_page.py` with Playwright under the watchdog: 67 passed, 1 failed, rc 1. Both acceptance
+tests (`desk` and `tickets`) passed. The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It is the same timeout as in rounds 2 to 5,
+waiting for the header's project picker (`#project` options, `tests/test_items_page.py:2210`). The branch does not
+change the header or the project list, so it is left alone as unrelated (lesson-13). Round 5's other failure
+(`test_actions_say_per_class_...`) now passes. Not run by me: the unit suite and the other three browser files
+(left to the factory).
