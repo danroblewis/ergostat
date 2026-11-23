@@ -1562,7 +1562,7 @@ def test_items_links_each_kind_to_its_process_map_whose_states_say_how_many_are_
         pg.get_by_role("button", name="Fit").click()
         assert all(n["px"] >= 10.99 for n in pg.evaluate(NODE_TEXT)), pg.evaluate(NODE_TEXT)
         assert pg.evaluate("() => S.layout.width * S.view.k > document.querySelector('svg.canvas').getBoundingClientRect().width")
-        assert pg.is_visible("#panhint") and "to the right" in pg.inner_text("#panhint"), pg.inner_text("#panhint")
+        assert pg.is_visible("#panhint") and "→" in pg.inner_text("#panhint"), pg.inner_text("#panhint")
         pg.close()
     assert not errors, errors
 

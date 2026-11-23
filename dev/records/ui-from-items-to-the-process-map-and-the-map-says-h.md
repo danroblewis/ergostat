@@ -185,3 +185,23 @@ are not this gap's:
   `.action-classes`, which only the old list draws (pages.js), and main's overview no longer shows that list there.
   It fails alone, and it also fails with this round's overview link removed, so main's change causes it, not this one.
 Not run: the unit suite and the other browser files in full (the merge queue runs them).
+
+### Round 6, main (8a27f9e3) merged at e729a49b
+
+The finding (conflicts with main in docs/DESIGN.md, diagram.js, tests/test_graph_cli_web.py) is answered in
+e729a49b, and no conflict markers are left in `ergostat/`, `tests/` or `docs/`.
+- diagram.js: main's pan hint now gives the direction itself, as arrows ("More beyond the edge →↓"). I kept main's
+  hint and dropped the branch's worded one ("More to the right and below"). Main's hint already says which way more
+  lies, so the branch no longer needs its own, and this is the most reversible choice. The process-only fit floor and
+  the `kind`/`mode` aliases are unchanged.
+- The browser test now checks that the hint carries "→" at 760 px, not "to the right".
+- DESIGN.md: main's text (arrows, phone-width fit) plus the branch's clause on the Process map's 11px floor.
+- tests/test_graph_cli_web.py: both tests kept, the branch's `now` test and main's loop-table test.
+Net outside tests and docs drops by about 4 lines, because the branch's hint is gone.
+
+Runs: ruff clean; tests/test_graph_cli_web.py 53 passed; the gap's browser test under suite_watch with Playwright,
+1 passed (rc 0); tests/test_items_page.py under suite_watch with Playwright, 65 passed / 1 failed (rc 1). The failing
+test's name was not in the output I filtered. I reran
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` alone and it fails (wait_for_function timeout,
+the header's project switcher). Earlier rounds and main's own record name that test as failing in this container,
+and this branch does not touch the header. Not run: the unit suite and the four browser files in full.
