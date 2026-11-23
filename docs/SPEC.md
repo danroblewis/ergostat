@@ -52,9 +52,11 @@ How each draws what measures and what comes in from outside:
 
 - In the control view every loop's feedback path goes through a **sensor block**, beneath the loop,
   as Franklin, Powell & Emami-Naeini draw the standard loop. Inside it, its function: `H = 1` when
-  the model gives it no dynamics; `H(s)` and its window (`avg 10 min`) for a rate over a window; a
-  sampler's switch and `e^(−sT)` when it polls at a period T that is a tenth or more of the loop's
-  own (its controller's `every`, else its identified process's τ + θ, else ten minutes). Beneath
+  the model gives it no dynamics and it does not poll; `H(s)` and its window (`avg 10 min`) for a
+  rate over a window; a sampler's switch and `e^(−sT)`, `T =` its period, whenever it polls, so
+  sensors polled alike are drawn alike. The switch is drawn in the muted stroke when T is under a
+  tenth of the loop's own period (its controller's `every`, else its identified process's τ + θ,
+  else ten minutes), and the sensor's panel gives the ratio (`T / loop  8 s / 10 min = 0.013`). Beneath
   that, what it reads and how often (`items: alert, fired, every 5 s`; `prometheus: <query>, every
   30 s`; a `run` sensor's description when it has one, `Jira: FF tickets approved, every 5 min`,
   else its command). A sensor that counts items is preceded, on the same path, by its kind's
@@ -616,6 +618,8 @@ web:                            # optional, main file only (or ergostat.local.ya
   ...
 library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
   - ...                         # a folder (trusted), {folder: PATH, trust: owner}, or {folder: PATH, untrusted: true|false}
+dashboards:                     # optional: shared, named dashboards, display only (section 4f)
+  ...
 ```
 
 ## 4a. Systems: parts made of parts
@@ -1237,9 +1241,89 @@ reads the event log.
   last` it is a counter's rate, a fall being a reset; `delta`; `cumulative`; `moving_avg` (`window` in buckets).
 - **Groups.** `group_by` is `state`, `kind` or a low-cardinality field, at most 12 groups, the rest added up as `other`
   (`capped` says how many).
+- **Frequency responses.** `frequency` with an `input` and an `output` estimates the response from the record (Welch's
+  method, `segments` averages, 4 by default). With `model: {goal}` it gives the goal's declared process instead. A
+  response from the record is drawn only where the record supports one. The coherence floor (`coherence_floor`) is
+  corrected for the number of frequencies looked at (Bonferroni over the per-frequency floor, `coherence_floor_each`).
+  When no frequency reaches the corrected floor, the answer is `supported: false` with `refused` saying why, and it
+  carries no curve. Unrelated signals are refused this way in at least 95% of records. The page marks the points under
+  the server's floor as unreliable, and when the server refuses it says that this data cannot support a response.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+
+## 4f. Dashboards: shared, named, and checked
+
+A reader's own arrangement of panels lives in the page's address and the browser. A dashboard shared by everyone is
+declared under `dashboards:`, compiled and checked as a system's `show:` is (section 4a), so a part renamed is an
+error at its line instead of a blank panel. The design is `docs/proposals/dashboard.md`. People do not write it by
+hand: the Supervisor, or an agent on the owner's behalf, adds it (`docs/AGENT-GUIDE.md`).
+
+```yaml
+dashboards:
+  week:
+    title: The factory, this week          # optional
+    description: where tickets wait        # optional
+    window: 7d                             # optional: the one window of all its panels; at most keep:
+    panels:                                # 1 to 24
+      - {panel: goals, size: full}
+      - {panel: states, kind: ticket, size: l, note: Where tickets wait}
+      - {panel: chart, refs: [stock.backlog, stock.in-review], replay: true}
+      - {panel: items, kind: ticket, state: review}
+```
+
+Each panel is its kind (`panel:`), its words (`title`, `note`), its `size` (`s`, `m`, `l` or `full`, each with
+`-tall` too; default `m`), and **exactly the parameters its endpoint takes**, by the same names:
+
+| `panel` | Answered by | Its parameters |
+|---|---|---|
+| `note` | nothing: its text | `text` (needed) |
+| `goals` | `GET /api/loops`: each goal's row | `goals` (default all) |
+| `chart` | `GET /api/series` | `refs` (stocks, flows, auxiliaries; needed), `points`, `replay`, `fan` |
+| `items` | `GET /api/items` (with each open item's estimate) | `kind` (needed), `state`, `where`, `moved`, `moved_since`, `moved_until`, `through`, `followed`, `search`, `n` |
+| `states`, `cycle-time` | `GET /api/items-flow` | `kind` (needed), `points` |
+| `scope` | `GET /api/loop-scope` | `goal` (needed), `points` |
+| `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `kinds`, `system` |
+
+A list may be written as one string, as the address writes it (`refs: stock.a,stock.b`). `check` refuses an unknown
+kind of panel, size or a value of the wrong type (**bad-dashboard**), an unknown key (**unknown-key**), and a
+reference to a stock, flow or auxiliary (or a sensor of one), a goal, an item kind, a state of the panel's kind, or a
+system that the model does not have (**unknown-ref**), each at its line. More than 24 panels, or a `window` longer
+than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below), so it cannot be declared.
+
+**Namespaced by its file.** A dashboard written in a file whose `defaults:` sets a system is named `SYSTEM.NAME`
+(`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
+
+**Display only.** `dashboards:` is in no version hash (section 12e: the structure, the numbers, the control, the
+sensors): declaring, changing or removing one changes neither the model's version nor any replay. **A
+dashboards-only change does not yet skip the judge's replay.** Filed as an `ergostat.model-change`, it falls
+through `kind_of` to *parameter* (nothing else differs) and is replayed like one, a replay that by construction
+equals the one before. A `display` kind that is checked but never replayed is the held follow-on gap
+dashboard-keep-display-proposal (`docs/proposals/dashboard.md`, section 5); until it lands, the Supervisor adds a
+dashboard as an edit to the model and `ergostat check`, never through the judge.
+
+**Served in one request.** `GET /api/dashboards` lists each dashboard: `name`, `title`, `description`, `panels` (how
+many), `window` and `declared`, the model's own `default` first. `GET /api/dashboard/NAME` (`since`, `at` as every
+answer; else the dashboard's `window`) answers every panel at once: each panel's declaration (`panel`) and its
+`answer`, built by the same function its own endpoint calls on the same parameters, all on one snapshot of the
+state. The answer says that snapshot's number (`moment`) and `at`. `NAME` `default` is the model's own: for each
+top system, a `chart` of its `show:` measures (else its goals' measures, at most 5) and a `goals` panel of its goals.
+
+- **A time limit per panel.** Each panel is worked out on the dashboard's pool (2 threads, at most 48 waiting: fixed
+  in code, twice the 24 panels a dashboard may have, so one request's panels always fit on a pool that holds no
+  more than one other dashboard's worth, an idle one among them). One not done after 0.3 s of its own, or by 0.4 s after the snapshot for the batch, answers
+  `{"pending": true, "moment": N}` and goes on being worked out; a request with `moment=N` (the next poll) is
+  answered at that same moment, on the same snapshot, with the panel's answer once done. A moment is kept 30 s and
+  only while the model is the one it was read under; named after that, a new moment answers. With the pool full (more than a
+  dashboard's worth already waiting, from other requests) a panel answers `{"pending": true, "busy": true}` and nothing is queued. A job waiting unasked for 6 s is dropped
+  before it starts; one running is not stopped (Python threads cannot be), but no more than 2 ever run. Two slow
+  panels at once fill the pool, so the panels after them answer pending too until a thread is free.
+- **Nothing sent twice.** Each answered panel has a `stamp`; `have=S1,S2,...` (the stamps held, in panel order)
+  answers a panel whose stamp is unchanged as `{"same": true, "stamp": S}` without its answer.
+- A panel whose answer raised says `{"error": ...}`; the others are answered.
+
+`ergostat snapshot` holds `dashboards` and each dashboard's answer under `dashboard/NAME`, every panel worked out
+(none pending), at the snapshot's window.
 
 ## 5. Stocks
 
@@ -1368,7 +1452,9 @@ folded into that document in sequence. The event chooses how it changes it, in o
 A changeset applies whole or not at all. A `test` that does not hold, a path that is not there,
 an index past an array's end, an operation that is not one, or a rule that cannot fold its value
 (`sum` of a word) refuses the whole event: none of it changes the item, and the item says which
-event was refused and why (its `refused` list, and its history). The event itself is recorded as
+event was refused and why (its `refused` list, and its history). A refused `patch` or `set` moves the
+item out of its state no more than it changes a field, so a `test` is a precondition of the move too
+(a refused `data` event still moves it: its move is what its block reported). The event itself is recorded as
 it was sent: the record holds what was said; the fold, what came of it. A changeset that is not
 even the right shape (a patch that is not a list of operations, `set` that is not an object, or
 two forms in one event) is refused before it is recorded, as a bad line is. `ergostat event --add`
@@ -2079,7 +2165,7 @@ page's window (`process.py`), with the item index's moves for the states.
 | a node | an **activity** of a kind's items: by **States**, a state they entered (a move, from the item index; a lease's hold, `leased` (§9.5), folded out as the index's transitions fold it: the time held counts in the state it was taken from, and a lease handed back is no move); by **Events**, an event type about them. Its number is how many times in the window, and how many items; the more, the darker |
 | start, end | where the kind's items **start** (their first event is in the window) and **end** (they reached a state the kind counts as finished, as §12h's `done` or the item index says; `leased` never counts) |
 | a line A → B | **directly follows**: on one item, B came next after A with nothing about that item between. Its weight is how often (one scale for the map); its number how many times (**Counts**) or the median time between A and B (**Times**). By States, a move from A to B is such a line, its time the time spent in A, even when A was entered before the window |
-| rework | a line from a later step to an earlier one (by States, in the kind's declared order of states; by Events, by each type's usual place in its items' runs), or round to the same step: marked ↺, and laid out running back |
+| rework | a repeated step, as in §5a's paths: a passage is a **return** when it takes its item back to a step that same item has already done (by States, a state it entered, before the window too; by Events, an event type recorded about it in the window), and a line with any return is rework, marked ↺, its panel saying how many (`returns`; each kind's total, `kinds[].returns`). The order in which different items take steps never counts. A line to a step earlier in the kind's order (by States, its declared states; by Events, each type's usual place in its items' runs) is laid out running back, rework or not |
 | a dashed line between kinds | **caused**: an event on an item of one kind caused (`causedby`, followed up through events about no item, such as a block's run, up to four steps) an event on an item of another kind; aggregated by the two activities, with the event types under it. One into many is a fan-out, many into one a join |
 | a schedule | where a scheduled run's events come from: a cause followed up to a run a block started on its own schedule (`every:`, `cron:`; its `agent.started`, `"trigger": "schedule"`, caused by nothing) ends there. The run is the cause its events cite, so no event of its own is recorded for a firing. Drawn in a frame of its own, **schedules**, a node per block (a clock, its name and how often; its number, how many of its runs caused something), with a dashed line to each activity its runs caused, its fan-out; its items `caused=ergostat.schedule:BLOCK>A` |
 | a dotted line, named | **related**: an item names another in a relation its kind declares (§5a, *Relations*: `parent`, `blocked_by`), both drawn: from the activity the naming item was last at in the window to the one the named item was last at, aggregated by the relation and the two activities; its number how many links. Read as the links stand now; a link to an item not drawn is no line |
@@ -2843,20 +2929,66 @@ memory are the sampler's alone (no `wait4`: `method` is `sampled`, or `none` for
 sample). Its exit code is the wrapper's, as above.
 - **Stopping ergostat leaves it going.** `ergostat run --stop`, or a SIGKILL to the engine's whole process group (a
   crash): the run carries on to its end, its journal whole and its exit written. (A restart in place stops its runs
-  through the same `kill_all`, which passes a kept run by, so it is left going too; no test covers that path yet.) The engine records no end for it (no `agent.ran`); what it printed after the engine stopped is in its
-  journal only, and its keeper's folder stays (up to a day) for whoever reads it next. **Not built yet** (the gap
-  `engine-adopts-runs-from-their-journals`): no engine reads a journal left behind, so until then those lines are
-  recorded nowhere. Its lease is given back as the engine stops, as for any run then (section 9.5), so the item may be
-  taken again by the next engine while the old run still works on it; its reserve (section 9.9) stays charged
-  until recovery closes it. A run the engine read to its end has its journal removed and its keeper let go.
+  through the same `kill_all`, which passes a kept run by, so it is left going too; no test covers that path yet.) The
+  engine records no end for it (no `agent.ran`) and does not give its lease back: the lease stays held, with its
+  fence, for the engine that takes the run up next (below). What it printed after the engine stopped is in its
+  journal, and its keeper's folder stays (up to a day) for whoever reads it next. Its reserve (section 9.9) is
+  closed at the whole reserve by the next engine's budget recovery (the engine that reserved it is gone), and its
+  `agent.ran` later carries its real cost; the day is charged the larger, never less than it spent.
+- **Runs taken up again** (`ergostat/spec/adopt.py`). As it reads a kept run's journal, the engine saves, after each
+  batch of lines, where it has read to and what the lines came to by then (`runs/RUN.offset`: the counts, what it
+  moved, its nack, its AI usage, its claims and proposals), written whole or not at all, after the batch's events. Each event a journal line
+  makes has an id made of the run, the line's place in the journal and its count within the line, and the record
+  keeps an id once; so a line read again after a crash between its events and the saved offset adds no event, and
+  every event line, valve opening, decision and refusal is in the record exactly once. (What a line does outside the
+  record is not undone: an `auxiliary` set read again is one more reading of the same value.) An unreadable offset is
+  read from the start, which records nothing twice for the same reason. A starting engine, before its socket, its
+  loop or its leases' first look, takes up each run in `runs/` with a keeper's folder or a journal left (a run of a
+  block no longer in the model, or with no `agent.started` in the record, is left as it is, said):
+  - **Still going**, by its record: its pid, and that process's start time (a pid now another process's, whose
+    start time differs, is gone; a start time that cannot be read is not taken for gone). The start time is read at
+    most once a second (on macOS each reading is a `ps`); between readings, only whether the pid is still there is
+    checked, and a pid once found to be another process's stays gone. A run whose record was
+    never written (an engine killed just after its keeper started it) is known by its keeper's group id alone: it is
+    waited for while that pid is there, and never signalled by the engine (`run --stop --runs` still stops it). It is
+    followed from its saved offset, and, with its record, is this engine's: `block NAME --stop` and a lease's kill
+    reach it. Its lease, when it still
+    holds it with its fence, is renewed as it is taken up (the time no engine was up is not held against it), and the
+    watchdog renews it (`seen: keeper`) instead of expiring it while the run lives; its keeper's own deadline (its
+    timeout, 5 s on) still ends it, and that is its only timeout now. A block with no timeout taken up runs until it
+    ends or is stopped. Its spend cap (T1) is not applied to what it reports after it was taken up.
+  - **Ended while no engine was up** (its keeper's exit written; or its process gone with none written for 3 s,
+    read as killed, -9): its journal is read from its saved offset to the end, then it is ended as if the engine had
+    been there: `agent.ran` (`agent.failed` with its note), at the time its keeper wrote its exit, with `taken_up:
+    true` and its id made from the run's (written once, whichever engine writes it); its pooled workspace taken
+    without a lease released; its run's series at that time; then what follows any run's end (the engine's
+    `after_end`): its failure triaged from its run log's tail (section 12r: `capture.failed`, or `capture.swallowed`
+    for one that ended well), its claims checked (section 12g), its recipes' outcomes, its review (section 12j,
+    `review.required` or `review.skipped`); then its lease's ack or nack (section 9.5), not counted against it when
+    it moved the item on. Its run record carries what these need from its start (its run log, the item its context
+    was given, its workspace). Its journal, record and offset are removed only after that, and its keeper let go, so
+    a crash at any step leaves it to be ended by the next start, each of the record's events written once; the steps
+    after the end are marked done (`runs/RUN.settled`) once they are, so a crash between them and the mark has them
+    again (a review asked twice), never not at all. The same order holds for a kept run its own engine reads to its
+    end.
+  - **Its lease taken over** while no engine was up (it expired, and the item was leased again: a newer fence): its
+    lines about the item are refused (fencing, as a late run's are), its lease is neither renewed nor ended by it.
+  **When its lines were printed.** Its keeper stamps the journal: each tick (0.25 s) it grew, its size and the time
+  are appended to `runs/RUN/stamps` (at most 100,000 stamps). A run taken up has each line's events, valve
+  openings, `auxiliary` readings, decisions, claims, proposals and refusals at the time of the first stamp that
+  covers the line (within a tick after it was printed, never later than now), so what it did while no engine was up
+  stays in the period it happened. A line not stamped yet (still being written, past the stamps' limit, or a stamp
+  not readable) takes effect when it is read, as a kept run's lines do in the engine that started it. What the run's
+  end writes (its `agent.ran` and series) has the time it ended, and readings a run
+  records itself (`ergostat sensor STOCK.SENSOR --read V`, a manual sensor's) go to the store as it makes them, engine or none. What a run taken up
+  printed that is not JSON is not added to its run log (its errors still are: its keeper holds that file).
 - **What still stops it**, the whole process group each time, through its group's id (the run's own pid). While
-  the engine that started it is up: its timeout, `ergostat block NAME --stop`, a lease's kill (section 9.5), and a
-  budget's trip (the same kill). **Its timeout, engine or none:** the keeper is given the block's timeout and stops
+  an engine that started it or took it up is up: its timeout (the keeper's, once taken up), `ergostat block NAME
+  --stop`, a lease's kill (section 9.5), and, for the engine that started it, a budget's trip (the same kill). **Its
+  timeout, engine or none:** the keeper is given the block's timeout and stops
   the run itself 5 s after it (SIGTERM to the group, SIGKILL 2 s on; its exit's `how` is `timeout`), so the engine's
-  own timeout comes first while it is up and a run left going still ends by it. **Once that engine is gone**, nothing
-  else of these reaches the run (**a known limit** until `engine-adopts-runs-from-their-journals`): a new engine's
-  `block NAME --stop` does not know it, no lease's kill is made for it (its lease was given back), and no engine reads
-  its cost lines, so no budget's trip; what it spends then is bounded only by its timeout (and, for an `ai` block's
+  own timeout comes first while it is up and a run left going still ends by it. **While no engine is up**, nothing
+  else of these reaches the run: what it spends then is bounded only by its timeout (and, for an `ai` block's
   own `claude -p` in a model with `budget:`, by the `--max-budget-usd` of its reserve it was started with). A block with no timeout left going runs until it ends or **`ergostat run --stop
   --runs`**, which tells each keeper whose run has not ended to stop it (SIGTERM to the group, SIGKILL past the kill
   grace, `ERGOSTAT_KILL_GRACE`), engine or none, waits a grace and 5 s at most, and exits 1 naming any still going.
@@ -6701,7 +6833,7 @@ the findings `check` already reports about the same thing (linked, not said agai
 
 | Pair | Finding | When |
 |---|---|---|
-| Process ↔ Dynamics | `move-without-flow`, `rework-without-flow`, `chain-skipped`, `order-contradicted` | items moved between two states with stocks and no path of flows carries them: the chain's own finding (`move-without-flow`, `outflow-not-chained`, ...), given the window's moves, with its fix. Named for what the record did: back to an earlier state (rework, ↺ on the Process view), straight past a stock the chain passes through (a skip), against the chain's flows (contradicted) |
+| Process ↔ Dynamics | `move-without-flow`, `rework-without-flow`, `chain-skipped`, `order-contradicted` | items moved between two states with stocks and no path of flows carries them: the chain's own finding (`move-without-flow`, `outflow-not-chained`, ...), given the window's moves, with its fix. Named for what the record did: back to a state earlier in the kind's order (a move the chain must carry back; the Process view's ↺ is rework, a repeated step, §5b), straight past a stock the chain passes through (a skip), against the chain's flows (contradicted) |
 | | `arrival-not-modelled` | items arrived (their first event) in a state whose stock no flow fills from outside |
 | | `completion-not-modelled` | items finished (a state the kind counts as done, with no stock of its own) and no flow takes them out of the stock they left |
 | | `flow-not-seen` (a note, one per kind) | the flows of the chain no item moved along in the window, those the record has not exercised said so (linked to `not-exercised`). Not counted against: quiet is not absent (§12e) |
@@ -7163,25 +7295,31 @@ uses:
 `ergostat.run.failed` about an item of the built-in kind **`ergostat.failure`** (it exists only in such a model), one
 item a **signature**: the block, its program (the first word of its `run:` that is a file under the model's folder), the
 exception's type and its innermost frame in the project, from the last trace in the run's output; without one, the
-block, its program and how it ended. Traces are read from the **tail** only: the last 8,000 characters of the run's own
-file, its first partial line dropped when it does not begin at the run's start. Four languages are read
+block, its program and how it ended. Traces are read from the **tail**: the last 8,000 characters of the run's own
+file, its first partial line dropped when it does not begin at the run's start. Five languages are read
 (`repair/traces.py`): **Python**'s `Traceback (most recent call last)` (its frame the innermost one outside
 `site-packages`, `/lib/python`, `<frozen` and `<string>`, as triage always signed it, so a Python failure keeps its id);
 **Node**'s `Name[ [CODE]]: message` directly followed by `    at` lines; **Java**'s outer exception line (with or
 without `Exception in thread "T"`) directly followed by `\tat` lines, then its `Caused by:` blocks (indented
 `Suppressed:` blocks ignored); **Go**'s `panic: message`, `goroutine N [running]:` and its function and file lines (its
-type `panic`). The trace whose header line comes last is taken, and **a trace needs its header**: one whose header the
-tail cut off is no trace, whatever frames or `Caused by:` lines are left, and the run is signed by how it ended (so a
-Python traceback more than 8,000 characters before the end of a failed run's output is too). A **project frame** is one
-whose file, a relative path taken against the model's folder, lies under that folder, in none of its `site-packages`,
-`node_modules`, `.venv`, `venv` or `vendor` folders, and is not the runtime's (`node:`, `<frozen`, `<string>`); for
-Node and Go the signature frame is the innermost project frame, else the innermost frame. **Java** signs by its **root
+type `panic`); **Ruby**'s `path:N:in 'meth': message (Type)` (or the older `` in `meth' ``) directly followed by zero
+or more `\tfrom path:N:in ...` lines, innermost first. The trace whose header line comes last is taken, and **a trace
+needs its header**: one whose header the tail cut off is no trace, whatever frames or `Caused by:` lines are left, and
+the run is signed by how it ended. The one exception is a **long Python traceback**: when the tail has no
+`Traceback (most recent call last)` header and its last line reads as a Python exception line (`pkg.Type: message`),
+triage reads at most the last **64,000 characters** of the run's own file (the file `log` names, never the block's log;
+not followed when it is a link) and signs the run from the last Python traceback there whose exception line is the
+file's last line. One that begins further back, one that does not run to the end, and a file that is gone or cannot be
+read leave the run signed by how it ended. A **project frame** is one whose file, a relative path taken against the
+model's folder, lies under that folder, in none of its `site-packages`, `node_modules`, `.venv`, `venv` or `vendor`
+folders (for Ruby, nor `gems`), and is not the runtime's (`node:`, `<frozen`, `<string>`, `<internal:`); for Node, Go
+and Ruby the signature frame is the innermost project frame, else the innermost frame. **Java** signs by its **root
 cause** (the last `Caused by:`, else the outer exception): its type and message, and the innermost project frame of
 its own frames, else of the nearest enclosing exception's, else its innermost frame. A Java frame's file is its class's
 package path (`com/acme/Store.java`), the project's when a file under the model's folder ends with it; the folder is
 walked for that once a trace, at most 5,000 entries (dot-folders and the library folders not entered), and a walk that
-reaches the cap finds no Java frame the project's (the trace says `walk: capped`). Ruby and other languages are not
-read. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
+reaches the cap finds no Java frame the project's (the trace says `walk: capped`). Other languages are not read. The
+item keeps the error, the traceback, the tail of standard error (8,000 characters), the
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
 of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. The standard
 error is read only from the run's own file (`log`, `logs/runs/<block>/<seq>-<id>.log`, section 4b), never from the
@@ -7231,14 +7369,15 @@ message (at most 300 characters) and no traceback, and is never opened; an exist
 always wins over a log line, and a failed run is still signed by its trace or by how it ended, so no existing id moves
 and a log item is never opened by a failed run.
 
-**Superseding.** Node, Java and Go failures were signed by how they ended before triage read their traces, so their old
-items have other ids. When a failure is signed by such a trace, triage looks for the item at its old signature (block,
-program, how it ended); only if that item's kept `stderr` parses to the same new signature does it write
+**Superseding.** Node, Java, Go and Ruby failures, and Python ones signed by a long traceback, were signed by how they
+ended before triage read their traces, so their old items have other ids. When a failure is signed by such a trace,
+triage looks for the item at its old signature (block, program, how it ended); only if that item's kept `stderr`, read
+the same way (for a long Python traceback, the run file its `log` names), parses to the same new signature does it write
 `ergostat.failure.superseded` (`{"by": NEW}`) about it, which moves it to `superseded` from `noted` or `open` only. One
 being worked (leased, awaiting approval, applied) is not moved, the refusal listed, and a later failure tries again;
 one whose stderr is another bug that ended the same way is left alone. A failure at that old signature with no readable
-trace (one that ended the same way) opens the superseded item again, so it hides nothing. Python failures are never
-superseded: their signatures did not change.
+trace (one that ended the same way) opens the superseded item again, so it hides nothing. Python failures signed from
+the tail are never superseded: their signatures did not change.
 
 **Sealed.** A failure's fields are ergostat's alone: its kind is *sealed* (`ItemKind.sealed`), so the fold
 (`spec/items.py`) refuses every event about it whose type is not ergostat's own (`ergostat.*`, which no block line,
