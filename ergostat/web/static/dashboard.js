@@ -417,24 +417,27 @@ function dashPipeline(pipe, src) {
   if (w && /^[A-Za-z_]\w*$/.test(view(w.kind))) {
     const f = (x) => `(select value from item_fields f where f.id = w.id and f.field = ${lit(x)})`;
     const order = [...w.order.flatMap((x) => [`${f(x)} is null`, f(x)]), "w.id"].join(", ");
-    const held = pipe.holds ? `select w.id as item, 'in ' || l.id as place, 0 as turn from ${word(view(w.kind))} w, ` +
+    const held = pipe.holds ? `select w.id || ' in ' || l.id as item, 0 as turn from ${word(view(w.kind))} w, ` +
       `(select id, value from item_fields where field = ${lit(pipe.holds)} and id = ${live} and id in (select id from item_progress)) l ` +
       `where instr(l.value, '"' || w.id || '"') > 0 union all ` : "";
     out.push({ title: `${pipe.title || pipe.kind}: running, and waiting in the order taken`, form: "table", size: "m",
-               queries: q(`${held}select * from (select w.id as item, 'waiting' as place, row_number() over (order by ${order}) as turn ` +
+               queries: q(`${held}select * from (select w.id || ' waiting' as item, row_number() over (order by ${order}) as turn ` +
                           `from ${word(view(w.kind))} w where w.state = ${lit(w.state)}) order by turn`), display: {} });
   }
+  // a table takes one dimension: each row's words in one column, its numbers (minutes) after
   const min = (x, as) => `round(${x} / 60.0, 1) as ${as}`;
   out.push({ title: `${pipe.title || pipe.kind}: now`, form: "table", size: "m", display: {},
-             queries: q(`select id as item, coalesce(stage, '') as stage, note, ${min("elapsed", "elapsed_min")}, ${min("expected", "expected_min")}, ` +
-                        `samples, ${min('"left"', "left_min")} from item_progress where kind = ${K} order by id`) });
+             queries: q(`select id || ': ' || coalesce(stage, 'between stages') || case when note != '' then ' (' || note || ')' else '' end as stage, ` +
+                        `${min("elapsed", "elapsed_min")}, ${min("expected", "expected_min")}, samples, ${min('"left"', "left_min")} ` +
+                        `from item_progress where kind = ${K} order by id`) });
   out.push({ title: `${pipe.title || pipe.kind}: each stage of the running one`, form: "table", size: "m", display: {},
-             queries: q(`select s.stage, s.run, s.run_kind, s.state, coalesce(s.outcome, '') as outcome, ${min("s.seconds", "minutes")}, ` +
-                        `${min("e.expected", "expected_min")} from item_stages s ` +
-                        `left join stage_estimates e on e.kind = s.kind and e.run_kind = s.run_kind and e.stage = s.stage where s.id = ${live} order by s.started`) });
+             queries: q(`select row_number() over (order by s.started) || '. ' || s.stage || ' (run ' || s.run || ' ' || s.run_kind || ': ' || ` +
+                        `s.state || coalesce(', ' || s.outcome, '') || ')' as stage, ${min("s.seconds", "minutes")}, ${min("e.expected", "expected_min")} ` +
+                        `from item_stages s left join stage_estimates e on e.kind = s.kind and e.run_kind = s.run_kind and e.stage = s.stage ` +
+                        `where s.id = ${live} order by s.started`) });
   const size = pipe.holds ? `(select json_array_length(value) from item_fields f where f.id = s.id and f.field = ${lit(pipe.holds)}) as size, ` : "";
   out.push({ title: `${pipe.title || pipe.kind}: recent`, form: "table", size: "m", display: {},
-             queries: q(`select s.id as item, i.state as outcome, group_concat(s.stage || ' ' || coalesce(round(s.seconds / 60.0, 1) || ' min', s.state), ', ') as stages, ` +
+             queries: q(`select s.id || ' ' || i.state || ': ' || group_concat(s.stage || ' ' || coalesce(round(s.seconds / 60.0, 1) || ' min', s.state), ', ') as item, ` +
                         `${size}${min("(max(coalesce(s.finished, s.started)) - min(s.started))", "minutes")} from (select * from item_stages where kind = ${K} order by started) s ` +
                         `join ${word(view(pipe.kind))} i on i.id = s.id group by s.id order by min(s.started) desc limit 10`) });
   out.push({ title: `${pipe.title || pipe.kind}: median minutes per stage`, form: "line", size: "full", display: { unit: "min", ...dashLegend(), y: { min: 0 } },

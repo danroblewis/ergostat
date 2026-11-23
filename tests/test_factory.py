@@ -258,7 +258,7 @@ def fold_line(db: dict, kinds: dict, line: dict, about: str | None = None) -> No
     assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
                                                                 ".dependencies", ".push-settled", ".groomed",
                                                                 ".resumed", ".need-met", ".released",
-                                                                ".reverted")), line
+                                                                ".reverted", ".stage-started", ".stage-finished")), line
     it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
     for op in line.get("patch") or []:                             # (RFC 6902, as flakes.py writes it: top level)
         k = op["path"][1:].replace("~1", "/").replace("~0", "~")
