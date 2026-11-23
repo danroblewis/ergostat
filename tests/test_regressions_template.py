@@ -4,7 +4,9 @@ reader behind the passing counts, ``python -m ergostat.regressions counts``."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import subprocess
 import time
 
 import pytest
@@ -131,6 +133,47 @@ def test_a_failing_run_sets_tests_green_off(tmp_path, monkeypatch):
             e.close()
 
 
+def alive(pidfile, wait: float = 5.0) -> bool:
+    """Whether the process whose pid the test command wrote is still running (a zombie is not), after ``wait``."""
+    for _ in range(int(wait * 20)):
+        if pidfile.exists() and pidfile.read_text().strip():
+            got = subprocess.run(["ps", "-o", "stat=", "-p", pidfile.read_text().strip()], capture_output=True,
+                                 text=True).stdout.strip()
+            if not got or got.startswith("Z"):
+                return False
+        time.sleep(0.05)
+    return True
+
+
+@pytest.mark.parametrize("exec_", ["", "exec "])
+def test_the_sensor_timing_out_first_leaves_no_test_run(tmp_path, monkeypatch, exec_):
+    """The sensor's own timeout kills only its shell: the reader orphaned under it (a shell that forks), or the
+    reader itself (one that execs). The test command, in a session of its own, is killed all the same: by the reader
+    seeing its shell gone, or by its guard seeing the reader gone. No run is left to pile up under the next."""
+    p, s = green_project(tmp_path, monkeypatch, "echo $$ > pid; sleep 60; echo '== 1 passed in 60s =='")
+    s = dataclasses.replace(s, run=exec_ + s.run.replace("--within 600", "--within 300"), timeout=3.0)
+    assert "--within 300" in s.run
+    t0 = time.monotonic()
+    got, why = read_sensor(p.model.spec, s)
+    assert got is None and "no answer within 3s" in why and time.monotonic() - t0 < 20, why
+    for _ in range(100):
+        if (p.model.spec.root / "pid").exists():
+            break
+        time.sleep(0.05)
+    assert (p.model.spec.root / "pid").exists(), "the test command was started within the sensor's time"
+    assert not alive(p.model.spec.root / "pid"), "the test run outlived the reader the sensor killed"
+
+
+def test_the_reader_counts_its_deadline_from_its_own_start(monkeypatch):
+    """The run gets what is left of --within after a fixed margin and the reader's own start, not 0.9 of it from
+    the moment the run begins."""
+    seen = []
+    monkeypatch.setattr(regressions, "counts", lambda within: (seen.append(within), (0, ""))[1])
+    monkeypatch.setattr(regressions, "BEGAN", time.monotonic() - 3)
+    assert regressions.main(["counts", "--within", "10"]) == 0
+    assert 4.5 < seen[0] <= 5.0, seen                     # 10 - 2 (margin) - 3 (since the reader began)
+
+
 def test_an_unreadable_test_command_is_stale_and_off(tmp_path, monkeypatch):
     """A run with no summary, one that exits non-zero counting no failure, one past its time and a model with no
     claims: tests command each give no value; tests-green, never read again, goes stale and off, never holding."""
@@ -139,9 +182,10 @@ def test_an_unreadable_test_command_is_stale_and_off(tmp_path, monkeypatch):
         got, why = read_sensor(p.model.spec, s)
         assert got is None and why, (tests, got)
     assert regressions.main(["counts", "--within", "0.5"]) == 1          # (the last: no command declared)
-    p, s = green_project(tmp_path / "slow", monkeypatch, "sleep 30; echo '== 1 passed in 30s =='")
+    p, s = green_project(tmp_path / "slow", monkeypatch, "echo $$ > pid; sleep 30; echo '== 1 passed in 30s =='")
     t0 = time.monotonic()
     assert regressions.counts(0.5) == (None, "no answer within 0.5s") and time.monotonic() - t0 < 10
+    assert not alive(p.model.spec.root / "pid"), "the run past its time is killed with its group"
     clock = [1_800_000_000.0]
     monkeypatch.setattr(time, "time", lambda: clock[0])
     monkeypatch.setattr(time, "monotonic", lambda: clock[0])

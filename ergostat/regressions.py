@@ -12,7 +12,10 @@ import re
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+BEGAN = time.monotonic()                                  # the reader's start, as near as it can see it
 
 SUMMARY = re.compile(r"^=*\s*(.*?)\s+in\s+[\d.]+\s*s(?:econds)?\b.*?=*$")   # "== 3 passed, 1 failed in 0.52s =="
 COUNT = re.compile(r"^(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed|deselected|warnings?|rerun)$")
@@ -41,6 +44,23 @@ def failing(counts: dict[str, int]) -> int:
     return counts.get("failed", 0) + counts.get("errors", 0)
 
 
+def guard(group: int) -> int:
+    """A child that outlives this reader: if the reader ends before saying the run is over (the sensor's own timeout
+    kills only it), the guard kills the run's whole process group. Returns the pipe to say so on."""
+    r, w = os.pipe()
+    if os.fork():
+        os.close(r)
+        return w
+    os.close(w)
+    for fd in (0, 1, 2):                                  # the sensor's pipes: not held open past the reader
+        os.close(fd)
+    try:
+        if not os.read(r, 1):                             # nothing said: the reader is gone, the run may not be
+            os.killpg(group, signal.SIGKILL)
+    finally:
+        os._exit(0)
+
+
 def counts(within: float) -> tuple[int | None, str]:
     """The model's tests run once: how many failed, or None and why not."""
     from .spec import SpecError, find, load
@@ -54,12 +74,20 @@ def counts(within: float) -> tuple[int | None, str]:
     env = {**os.environ, "ERGOSTAT_ROOT": str(spec.root)}
     p = subprocess.Popen(c.run, shell=True, cwd=Path(spec.root) / c.in_, env=env, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, errors="replace", start_new_session=True)
+    said, parent, end = guard(p.pid), os.getppid(), time.monotonic() + min(c.timeout, within)
     try:
-        out, _ = p.communicate(timeout=min(c.timeout, within))
-    except subprocess.TimeoutExpired:
-        os.killpg(p.pid, signal.SIGKILL)                  # the whole run, not only its shell
-        p.communicate()
-        return None, f"no answer within {min(c.timeout, within):g}s"
+        while True:                                       # until the run ends, its time is up, or the sensor's
+            try:                                          # shell above this reader is killed (its timeout)
+                out, _ = p.communicate(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                if time.monotonic() >= end or os.getppid() != parent:
+                    os.killpg(p.pid, signal.SIGKILL)      # the whole run, not only its shell
+                    p.communicate()
+                    return None, f"no answer within {min(c.timeout, within):g}s"
+    finally:
+        os.write(said, b"x")                              # the run is over and reaped: the guard kills nothing
+        os.close(said)
     got = parse(out)
     if got is None:
         return None, f"exited {p.returncode} with no test summary"
@@ -73,7 +101,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("what", choices=["counts"])
     ap.add_argument("--within", type=float, default=600.0, help="seconds the run may take, at most")
     a = ap.parse_args(argv)
-    n, why = counts(a.within * 0.9)                       # before the sensor's own timeout, which stops only this
+    left = a.within - max(2.0, 0.05 * a.within) - (time.monotonic() - BEGAN)   # before the sensor's own timeout
+    n, why = counts(max(left, 0.1))
     print(why if n is None else n, file=sys.stderr if n is None else sys.stdout)
     return 1 if n is None else 0
 

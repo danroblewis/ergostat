@@ -65,3 +65,28 @@ tests/docs/dev (68 template, 82 reader). Choices made alone, each the reversible
   off signal, the `ergostat.goal.stale` event, the person block's input saying `off`, and the person being asked.
 
 Not run here: the unit suite as a whole, the four browser files and demo_check (no example touched; no page changed).
+
+Round 2, answering the one finding (the test run orphaned when the sensor's own timeout fires first):
+
+- The deadline is counted from the reader's start (`BEGAN`, taken when the module loads), less a fixed margin of
+  `max(2s, 5% of --within)`, not 0.9 × timeout counted from the run's start. At the 10s minimum the run gets about 8s
+  less the reader's own load time.
+- The margin alone cannot be enough (a loaded machine can start the reader late), so both ways the sensor's timeout
+  can land now stop the run. The engine's `subprocess.run` kills only the shell's pid. (1) When the shell forks the
+  reader (this container's `sh`), the reader is orphaned: it waits on the run in 0.2s steps and, once its parent pid
+  changes, kills the run's process group. (2) When the shell execs the reader (bash, `exec`), the reader itself is
+  killed: a guard child forked beside the run waits on a pipe from the reader and kills the run's group on EOF with
+  nothing written. The reader writes one byte once the run has ended and been reaped, so the guard never signals a
+  group after it is gone (lesson-11). Left open: a window of a few instructions between `Popen` and the fork of
+  the guard, where a reader killed there leaves the run going. The engine killing a sensor's whole group (it starts
+  each in its own session) would close that window and fix it for every sensor, but it is outside this gap (lesson-13).
+- Test `test_the_sensor_timing_out_first_leaves_no_test_run`, run both ways (forking shell, and `exec`): the sensor's
+  timeout (3s) fires long before `--within 300`, and the test command's pid, which it writes, is shown gone (a zombie
+  counts as gone). Seen to fail: with the parent-pid check removed the forking case fails; with the guard's kill
+  removed the `exec` case fails. `test_the_reader_counts_its_deadline_from_its_own_start` pins the margin. The
+  existing past-its-time test now also shows the killed run's pid gone.
+- Size: 179 net lines outside tests/docs/dev (68 template, 111 reader).
+Overrun reason: 29 lines over the 150 budget, all for the round-2 finding: the guard child (16 lines) and the waiting loop that notices its shell is gone plus the deadline from the reader's start (13 lines). The template and the rest of the reader are unchanged, and both kill paths are needed, since a POSIX shell may fork the reader or exec it.
+
+Run here: tests/test_regressions_template.py (18 passed) and ruff (clean). Not run: the unit suite as a whole, the four
+browser files and demo_check (no example touched; no page changed).
