@@ -122,3 +122,20 @@ is resolved in the merge of main (5411f137): `_answer` keeps both main's `why` h
 change 5 (the page) is not built, because dashboard-page-v1 is not on main, and done item 4 is not measured on :8796.
 Tests run after the merge: tests/test_dashboards.py (31 passed), tests/test_why.py (33 passed),
 tests/test_graph_cli_web.py (42 passed), ruff clean. Not run: the unit suite, the browser files, demo_check.
+
+## Where it stopped
+
+Implementor, 2026-11-23 (continued, round 4). The one finding was that the pool's waiting bound was below the
+checker's panel cap, and it is fixed: `dashboard_api.WAITING` is now `2 * MOST`, which is 48 (`spec/dashboards.MOST`
+is 24). One request's own panels therefore always fit when the pool holds at most one other dashboard's worth of
+waiting jobs, which includes an idle pool. Busy now means only that other requests have overloaded the pool. Threads
+stay at 2, which is the bound that matters for the machine. Each waiting job is a closure over a kept moment's
+snapshot, and at most 8 snapshots are kept. `default` is now cut at `MOST` instead of a literal 24. SPEC §4e says 48
+and when busy happens. New test `test_a_dashboard_of_the_most_panels_answers_every_one_in_one_request`: a valid
+24-panel dashboard on an idle server answers every panel, with none busy, pending or failed, and each answer equals
+its own endpoint's at the same moment. With WAITING put back to 16 it failed (panels 18 to 23 answered busy). The
+test raises the batch and panel time limits, so it pins the pool's room and not the timing (done item 4's test pins
+the timing).
+Still as round 1 says: change 5 (the page) is not built, because dashboard-page-v1 is not on main, and done item 4
+is not measured on :8796. Code lines changed this round: +3 net.
+Tests run: tests/test_dashboards.py (32 passed), ruff clean. Not run: the unit suite, the browser files, demo_check.

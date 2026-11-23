@@ -1265,12 +1265,13 @@ answer; else the dashboard's `window`) answers every panel at once: each panel's
 state. The answer says that snapshot's number (`moment`) and `at`. `NAME` `default` is the model's own: for each
 top system, a `chart` of its `show:` measures (else its goals' measures, at most 5) and a `goals` panel of its goals.
 
-- **A time limit per panel.** Each panel is worked out on the dashboard's pool (2 threads, at most 16 waiting: fixed
-  in code). One not done after 0.3 s of its own, or by 0.4 s after the snapshot for the batch, answers
+- **A time limit per panel.** Each panel is worked out on the dashboard's pool (2 threads, at most 48 waiting: fixed
+  in code, twice the 24 panels a dashboard may have, so one request's panels always fit on a pool that holds no
+  more than one other dashboard's worth, an idle one among them). One not done after 0.3 s of its own, or by 0.4 s after the snapshot for the batch, answers
   `{"pending": true, "moment": N}` and goes on being worked out; a request with `moment=N` (the next poll) is
   answered at that same moment, on the same snapshot, with the panel's answer once done. A moment is kept 30 s and
-  only while the model is the one it was read under; named after that, a new moment answers. With the pool full a
-  panel answers `{"pending": true, "busy": true}` and nothing is queued. A job waiting unasked for 6 s is dropped
+  only while the model is the one it was read under; named after that, a new moment answers. With the pool full (more than a
+  dashboard's worth already waiting, from other requests) a panel answers `{"pending": true, "busy": true}` and nothing is queued. A job waiting unasked for 6 s is dropped
   before it starts; one running is not stopped (Python threads cannot be), but no more than 2 ever run. Two slow
   panels at once fill the pool, so the panels after them answer pending too until a thread is free.
 - **Nothing sent twice.** Each answered panel has a `stamp`; `have=S1,S2,...` (the stamps held, in panel order)

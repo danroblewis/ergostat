@@ -310,6 +310,28 @@ def test_a_slow_panel_answers_pending_while_the_others_answer(live, monkeypatch)
     assert states["answer"] == fast(live.p, snap, "ticket") and states["answer"]
 
 
+BIG = MODEL + "  big:\n    window: 2h\n    panels:\n" + "".join(
+    f"      - {{panel: {k}, title: p{i}}}\n" for i, k in enumerate(["goals", "timeline", "note, text: n"] * 8))
+
+
+def test_a_dashboard_of_the_most_panels_answers_every_one_in_one_request(tmp_path, monkeypatch):
+    """24 panels (the checker's cap) on an idle server: every one queued, none busy, each its own endpoint's."""
+    from ergostat.spec.dashboards import MOST
+    from ergostat.web import dashboard_api, server
+    from ergostat.web.server import api
+    monkeypatch.setattr(server, "_estimates", lambda *a, **k: None)
+    monkeypatch.setattr(dashboard_api, "BATCH", 5.0)            # time is not what this test is about: the pool's room
+    monkeypatch.setattr(dashboard_api, "LIMIT", 5.0)
+    live = server.Live(project(tmp_path, BIG))
+    at = time.time() - 5
+    got = api(live, "dashboard/big", {"at": [str(at)]})
+    assert len(got["panels"]) == MOST
+    assert not [x for x in got["panels"] if x.get("busy") or x.get("pending") or "error" in x], got["panels"]
+    for x in got["panels"]:
+        if x["panel"]["panel"] != "note":
+            assert x["answer"] == _separate(live, x["panel"], at), x["panel"]
+
+
 def test_a_full_pool_answers_busy_and_queues_nothing(live, monkeypatch):
     from ergostat.web import dashboard_api
     from ergostat.web.server import api

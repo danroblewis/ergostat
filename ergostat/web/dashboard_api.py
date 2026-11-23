@@ -17,13 +17,14 @@ import threading
 import time
 from collections import OrderedDict
 
-from ..spec.dashboards import names, plain, plain_panel, query
+from ..spec.dashboards import MOST, names, plain, plain_panel, query
 from ..spec.ir import Dashboard, Panel
 
 LIMIT = 0.3           # s: one panel's own running time before it answers pending
 BATCH = 0.4           # s: the whole batch's panels, after the snapshot: the rest answer pending
 THREADS = 2           # the pool's threads, at most (a hard maximum: lesson 4)
-WAITING = 16          # jobs waiting for a thread, at most
+WAITING = 2 * MOST    # jobs waiting, at most: a request's own panels (MOST at most) always fit on a pool
+                      # holding one other dashboard's worth or less (an idle one among them): busy is overload
 KEPT = 30.0           # s: a finished panel, and its moment's snapshot, kept for a poll naming that moment
 DROP = 6.0            # s: a waiting job no poll has asked for in this long is dropped before it starts
 MOMENTS = 8           # moments kept at once
@@ -44,7 +45,7 @@ def default(spec) -> Dashboard:
             d.panels.append(Panel("chart", f"{s}: its measures", "m", params={"refs": refs}))
         if goals:
             d.panels.append(Panel("goals", f"{s}: its goals", "m", params={"goals": goals}))
-    d.panels = d.panels[:24]
+    d.panels = d.panels[:MOST]
     return d
 
 
