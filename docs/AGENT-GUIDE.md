@@ -800,6 +800,14 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
    every write there is refused; `check` and the page's header say it is public. The tunnel must still keep the
    Host (step 2): the declared name is what opens it, and a request through Cloudflare by `127.0.0.1` is refused.
 
+## 3k. Asking for numbers over time
+
+To read a rate, a level or a duration without scanning the record, use `GET /api/query?q=<base64url of JSON>` and see what
+exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per hour by state is
+`{"since": 86400, "queries": [{"id": "a", "source": "items", "kind": "KIND", "field": "ai_cost_usd", "agg": "sum",
+"transform": "rate", "rate_per": "hour", "group_by": "state"}]}`. Prefer `items`, `moves`, `counts` and `series`; the
+`events` source reads the log, bounded, and says so.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
@@ -825,6 +833,10 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
   the root (a lease, a full pool, the budget, a gate and which of its inputs is 0, a parked or missing dependency, a
   cycle, nothing taking its state, ...), names who must act and the command, and links the evidence. Ask it before
   guessing why work has stalled; when it says `unknown`, the record lacks what it needs (SPEC §5a).
+- **What holds the work up**: `ergostat held-up [--json]` (MCP `held_up`, `/api/held-up`) groups every unfinished
+  item by its root, ranks the roots (stalls first, then by what waits on them), folds the goals off because of a root
+  under it, and its first line names the biggest stall and its next step, or says nothing is stuck. Ask it first when
+  many goals are off at once: fix the first stall, then ask again (SPEC §5a).
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.

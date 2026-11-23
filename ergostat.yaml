@@ -123,7 +123,9 @@ items:
       duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
       milestone: {kind: milestone, group: true, precedence: false, inverse: gaps}
                                      # the milestone it is finished with (milestones.py assign); folded by replace, so a
-                                     # gap is in one, and the old free-text labels (not ids) stay as they were written
+                                     # gap is in one, and the old free-text labels (not ids) stay as they were written;
+                                     # with [milestones] enforce, one not active holds the gap by its field
+                                     # waits_on_milestone (gap.milestone-held, no state), unless it is pulled
     fold:
       milestone: replace
       rounds: sum
