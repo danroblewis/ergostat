@@ -128,3 +128,18 @@ Not run: every Bash command was refused in this session (`uv run ergostat check`
 none of this was checked by running it, and these edits are not committed.
 
 Overrun reason: only under the definition's "outside tests/" reading: 175 net lines (guarantees-flakes.yaml 101, the last 2 the causes that answer system-splits, flakes.py 50, dev/README.md 17, guarantees.yaml 7), the extra over round 1 being the flows, block, loops and parameter check's six findings needed; the factory's rule counts none of it (all under dev/).
+
+Run and fixed (implementor, 2026-11-23, a later session). The earlier session's edits had been committed
+(cecfeb68) but never run. Running them showed one finding that the hand-working had missed:
+`test_flakes_few_names_the_oldest` failed on `outflow-ignores-stock flow.flakes-fixed`. The `-stock.quarantined` cause
+added for system-splits left the drain's rate not following `flakes-open`. Following check's own advice, the fix is
+`driven-by: [+stock.flakes-open, -stock.quarantined]` (a YAML line to undo). It closes only the stock's own
+draining loop. The test then passed, so it is shown to fail on this break.
+Run here and passing: the four acceptance tests, `test_the_guarantees_model_checks_clean`,
+`test_main_green_goes_off_and_holds_again`, `test_main_green_stale_is_off`,
+`test_quarantine_small_holds_on_main_and_is_off_with_one_test_added`. `uv run ruff check ergostat tests scripts
+dev/bin/flakes.py` is clean.
+Refused: `uv run ergostat check` (Bash denied). The findings were read through `ergostat.spec.read` in the test instead
+(no errors, nothing on this gap's parts, no `system-splits`). Not run: the whole unit suite and the four browser files
+(the factory's). The size is unchanged from the line above (175 net under the "outside tests/" reading, 0 under the
+factory's rule).
