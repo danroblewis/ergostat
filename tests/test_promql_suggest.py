@@ -44,9 +44,9 @@ class Meta(Stub):
         one = {k: v[0] for k, v in a.items()}
         type(self).seen.append(("GET", u.path, one))
         if u.path == "/api/v1/query_range" and "$" in one.get("query", ""):
-            text = one["query"]
-            line = text[:text.index("$")].count("\n") + 1
-            col = text.index("$") - (text.rfind("\n", 0, text.index("$")) + 1) + 1
+            text = one["query"].encode()                  # Prometheus counts the column in bytes
+            line = text[:text.index(b"$")].count(b"\n") + 1
+            col = text.index(b"$") - (text.rfind(b"\n", 0, text.index(b"$")) + 1) + 1
             return self.answer(400, {"status": "error", "errorType": "bad_data",
                                      "error": f"{line}:{col}: parse error: unexpected character: '$'"})
         if u.path == "/api/v1/query_range":
@@ -203,5 +203,7 @@ def test_a_parse_error_says_where_the_source_said_it_is(p):
     assert one["error_kind"] == "refused" and one["error_at"] == [1, 9] and "unexpected character" in one["error"]
     assert two["error_at"] == [2, 6]
     assert old["error_at"] == [1, 5]                       # (the old stub's words: "1:5: parse error: ...")
+    [wide] = ask(p, {"source": "small", "text": 'up{job="café"} $'})
+    assert wide["error_at"] == [1, 17]                     # a column in bytes, as Prometheus says it: "é" is two
     assert prometheus._at("parse error at char 7: unexpected") == (1, 7)
     assert prometheus._at("bad_data: no place said") is None

@@ -93,3 +93,20 @@ Run here, one file at a time:
 - ruff is clean.
 - Not run here: the whole unit suite and the four browser files (the factory's). No example was touched, so no
   `demo_check`. `main` has not moved since the clone, so there was nothing to merge.
+
+Round 2 (answering the round-1 review). It had one finding, and it was blocking:
+- Prometheus's `L:C` column counts the query's UTF-8 bytes, but `offsetOf` read it as a UTF-16 index, so with any
+  non-ASCII text before the error on its line the mark landed too far right. Fixed: `offsetOf` (`promql.js`) now walks
+  the line one code point at a time, counting each one's UTF-8 bytes (1 to 4) and stepping two UTF-16 units for a
+  surrogate pair. The stub `Meta` (`tests/test_promql_suggest.py`) now counts bytes, as Prometheus does. SPEC §4e and
+  `prometheus._at`'s docstring say the column is in bytes. The `at char N` form goes through the same walk, so it is
+  read as bytes from the start of the text, as Prometheus counts it.
+- New browser case `test_a_syntax_error_after_non_ascii_text_is_marked_where_it_is`: `# naïve` on line 1, then
+  `sum(up{job="café 🙂"}) $ 2` on line 2. The error is `2:27` and the mark is on the `$`. New unit assertion in
+  `test_a_parse_error_says_where_the_source_said_it_is`: `up{job="café"} $` gives `error_at == [1, 17]`.
+- Seen to fail: `offsetOf` counting one byte per UTF-16 unit (the old behaviour) failed the browser case (it marked
+  a space). Counting bytes but stepping one unit through the surrogate pair failed it too (it marked `}`). The stub
+  counting characters failed the unit assertion (16 ≠ 17).
+- Run here: test_promql_suggest (9 passed). test_promql_editor under the watchdog (7 passed, rc 0, none skipped).
+  ruff is clean. `main` has not moved (merge-base = main = ee43cf60). Not run again this round: test_panel_editor,
+  test_dashboard_page and test_data_source_panels. They do not reach `offsetOf`, the only page code changed.

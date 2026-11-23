@@ -118,7 +118,8 @@ def _ask(src, path: str, params: dict | list, seconds: float, most: int) -> tupl
 
 
 def _at(said: str) -> tuple[int, int] | None:
-    """Where Prometheus said the text is wrong: ``1:5: parse error: ...`` (line and column), or ``at char 5``."""
+    """Where Prometheus said the text is wrong: ``1:5: parse error: ...`` (line and column), or ``at char 5``;
+    the column counts the text's UTF-8 bytes, as Prometheus does, and the page turns it into a place in its text."""
     m = _LINE_COL.search(said)
     if m:
         return int(m[1]), int(m[2])

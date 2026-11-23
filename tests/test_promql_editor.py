@@ -166,6 +166,18 @@ def test_a_syntax_error_is_marked_where_the_source_says_it_is_and_ctrl_enter_run
     assert asked() > before                                        # (nothing else asks: the preview was drawn, unchanged)
 
 
+def test_a_syntax_error_after_non_ascii_text_is_marked_where_it_is(editor, site):
+    """Prometheus's column counts bytes: "é" is two and "🙂" four (and two UTF-16 units), so the mark must not drift."""
+    pg, open_on = editor
+    area = open_on("prom")
+    text = '# naïve\nsum(up{job="café 🙂"}) $ 2'
+    area.fill(text)
+    err = pg.locator(".pq-hl .pq-err")
+    err.wait_for(timeout=10000)
+    assert "2:27: parse error" in err.get_attribute("title")      # 26 bytes before "$" on its line
+    assert err.inner_text() == "$" and err.get_attribute("data-at") == str(len(text[:text.index("$")].encode("utf-16-le")) // 2)
+
+
 def test_the_owners_exploration_pattern_is_the_starting_hint_and_runs(editor, site):
     pg, open_on = editor
     _, kinds = site

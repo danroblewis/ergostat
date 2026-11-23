@@ -74,11 +74,16 @@
     return "";
   }
 
-  /* line and column (each from 1) as an offset in ``text`` */
+  /* line and column (each from 1) as an offset in ``text``; the column counts UTF-8 bytes, as Prometheus counts it */
   function offsetOf(text, [line, col]) {
     let off = 0;
     for (let l = 1; l < line; l++) { const n = text.indexOf("\n", off); if (n < 0) return text.length; off = n + 1; }
-    return Math.min(text.length, off + Math.max(0, col - 1));
+    for (let bytes = Math.max(0, col - 1); bytes > 0 && off < text.length;) {
+      const c = text.codePointAt(off);
+      bytes -= c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+      off += c > 0xffff ? 2 : 1;
+    }
+    return off;
   }
 
   /* ``source()``: the data source's name now (the query may be moved to another source of the same language) */
