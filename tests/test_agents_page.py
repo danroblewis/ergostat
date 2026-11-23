@@ -542,7 +542,7 @@ def test_an_ai_agents_runs_given_back_for_a_full_pool_read_free_not_unknown(leas
     assert pg.inner_text("tr.click:has(b:text-is('work')) td[data-use=cost]") == "free stand-in, $0"
     assert "not known" not in pg.inner_text("tr[data-total] td[data-use=cost]")
     pg.click("tr.click:has(b:text-is('work'))")
-    pg.wait_for_selector("#detail .runs-table > table tr:nth-child(2)")
+    pg.wait_for_selector("#detail .runs-table > table > tr")         # a run's row (the head row is in its thead)
     costs = panel_costs(pg)
     assert len(costs) == 10 and all(c == "free stand-in, $0" for c in costs), costs   # the ten newest: all given back
     assert "19 refused (workspace pool full), 0 failed" in pg.inner_text("#detail")
@@ -558,7 +558,7 @@ def test_a_stand_in_agents_panel_reads_free_for_a_good_run_and_not_known_for_a_k
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{site['url']}/agents")
     pg.click("tr.click:has(b:text-is('drafter'))")
-    pg.wait_for_selector("#detail .runs-table > table tr:nth-child(2)")
+    pg.wait_for_selector("#detail .runs-table > table > tr")         # a run's row (the head row is in its thead)
     costs = panel_costs(pg)
     assert len(costs) == 10 and all(c == "free stand-in, $0" for c in costs), costs   # good exit-0 runs, no session
     code = f"""

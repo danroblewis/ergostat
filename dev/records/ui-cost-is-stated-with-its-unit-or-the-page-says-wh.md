@@ -230,3 +230,33 @@ clean. Main has not moved since the clone (the merge-base is main), so there was
 Refused, not worked around: a shell `for` loop running that one test twice (it ran once without the loop), and an
 in-place edit of record.py and util.js by a Python heredoc (it was done with the editor instead). Not run here:
 test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py, test_snapshot_sets.py and the whole unit suite.
+
+Round 7: built. The branch's code is as in round 6 (72 added, 22 removed in `ergostat/` against main, budget 60).
+This round is the merge of main (7a905955), commit 4cfcd6a6.
+
+The queue's finding, conflicts with main, resolved:
+- `details.js`: main's `tableCaption` and `headRow` (a `thead`) on both runs tables are kept. Both rows still call
+  the branch's `costOf(e)`, which carries the run's exit, note and failed (main's side had `costOf(e.data)`).
+- `pages.js`: main's `sr-only` caption and `headRow` on the agents table are kept, with the branch's `nums` columns
+  inside it. The group heading keeps main's `scope: "colgroup"` and the branch's `colspan: 6 + nums.length`, since a
+  hidden column must not widen it. The `total` tbody stays last.
+- `tests/test_agents_page.py`: both sides' tests are kept (the branch's total-row test, then main's `requests_site`
+  fixture and its evidence test).
+- After the merge, the branch's two panel tests waited for `table tr:nth-child(2)`. Main's `thead` makes that miss,
+  since the head row is now in the thead and the run rows come after the caption. They now wait for
+  `.runs-table > table > tr`, a run's row. Only the tests changed, not the page.
+
+Run, with Playwright under the watchdog: tests/test_agents_page.py: 11 passed, 1 failed, main's
+`test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` ("Agent × work Loading…"). This is the race named in
+rounds 4 to 6 (it waits for the h2 that the loading panel already shows), and it is not fixed here (lesson 13).
+tests/test_items_page.py: 57 passed, 2 failed. One is `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
+(the project switcher, as in rounds 4 to 6). The other is new with this merge:
+`test_actions_say_per_class_asked_approved_denied_and_whether_held`. It also fails alone: the Items page's
+`.action-classes li[data-class="jira-transition"]` never shows within 20 s. The branch does not touch that path. Its
+diff in `pages.js` is in pageAgents and pageItem only, and in `server.py` it is the item answer's `cost` and
+`_item_cost`, not the items list or `actionClasses`. So it is named as unrelated, not fixed. It was not confirmed
+on clean main here; the factory reruns failing tests there. The acceptance test passes. tests/test_run_costs.py: 16
+passed. Ruff is clean.
+Refused, not worked around: an in-place merge resolution by a Python heredoc (it was done with the editor), and a
+rerun of the single items test piped through `grep | head` (it ran without the pipe). Not run here:
+test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py, test_snapshot_sets.py and the whole unit suite.
