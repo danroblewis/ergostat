@@ -67,3 +67,14 @@ both test groups. test_agents.py takes main's fresh-module rerun test, which loa
 stub line is gone. The README's remake sentence names all five fields. After the merge these pass: ruff, the three
 flake acceptance tests, the remake test, the build-setting test, three main-mend tests, tests/test_queue.py
 (19 passed) and tests/test_agents.py (22 passed).
+
+Round 2, merge of main ee43cf60 (regression-flake-fixed-by-hand, among others). The two conflicts kept both sides:
+dev/README.md's remake sentence keeps this branch's field list (`fixed_on`, and `green_passes` set to 0 for a seen) and
+adds main's `manage.py flake-fixed` sentence. "How a flake leaves seen" stays before main's new "Regression
+guarantees" section. tests/test_factory.py keeps the three green-run tests and main's three flake-fixed-by-hand tests.
+flakes.py merged with no conflict; its REMAKE_CLEARS is this branch's five fields, which include main's. No finding
+from a review was given for this round, only the merge conflicts. After the merge these pass: ruff (ergostat tests
+scripts), the three flake acceptance tests, main's three flake-fixed and release tests, the remake test, the
+build-setting test, tests/test_queue.py (19 passed) and tests/test_agents.py (22 passed). `ruff check dev/bin` reports
+two findings, in plan.py (B023) and review.py (E501). This branch does not touch either file, so they are left alone.
+Not run: the whole of tests/test_factory.py, the full unit suite and the four browser files (the queue runs those).
