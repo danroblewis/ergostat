@@ -184,3 +184,18 @@ Round 3, after the factory merged main (8a27f9e3):
   - The run printed only the last failure's message, and I could not read the others: a Bash call that would list the pytest cache was refused (`uv run python -c "import json;..."`). I read the cache file with the editor instead. As far as rounds 1 and 2 showed, none of these is about Fit, Open framing or the hint. I have not shown that they fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes them, or they are shown to pass there.
 - Also refused: `mb=$(git merge-base ...); git diff $mb 8a27f9e3 -- ...; grep ...`, and a `cat >> ... <<'EOF'` heredoc to append this section, which I wrote with the editor instead.
 - Not run here: the other three browser files and the unit suite.
+
+## Where it stopped
+
+Round 4, after the factory merged main (dc8ad98d):
+- There were no review findings to answer besides the queue's "conflicts with main: tests/test_graph_cli_web.py".
+- The merge conflicted only in `tests/test_graph_cli_web.py`, where both sides added a test at the same place. I kept both: the branch's `test_the_served_diagram_script_frames_what_is_drawn_and_its_edge_hint_names_the_way` and main's `test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page` (500d4c71). `diagram.js` merged with no conflict. The branch's code there is unchanged: 36 net lines against main (+51, -15), within the 60-line budget.
+- Refused: a `python3 - <<'EOF'` heredoc to strip the conflict markers. I resolved them with the editor instead.
+- Ruff: clean. `tests/test_graph_cli_web.py`: 55 passed.
+- With Playwright, under the watchdog: the Fit and Open cases and `test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins` passed (7 passed, rc 0). So did `test_on_a_phone_the_diagram_opens_with_a_whole_system_box_in_view` (2 passed, rc 0).
+- `tests/test_diagram_rendering.py` run whole, with Playwright, under the watchdog: 302 passed, 36 failed (rc 1, 61 min). All the Fit, Open and phone cases passed. From the pytest cache, the failures are round 3's 34, plus two more:
+  - `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`, which last failed in round 1. It fails alone too, at tests/test_diagram_rendering.py:2746. The Dynamics view's text says "goal" ("open · goal developer-honest cannot close …"), and the test forbids control words there. That is the view's wording, not Fit, Open framing or the hint.
+  - `test_a_suggestion_appears_when_it_has_a_verdict` (new). It fails alone too, with a 20 s wait_for_function timeout. The test waits for Needs attention's loop entry and for the suggestions list, which this branch does not touch.
+  - The other 34 are the same tests as round 3's, including `test_an_equation_…` (no "Nothing waiting." on /model, now at tests/test_diagram_rendering.py:5546).
+  - None of them is about what this branch changes, as far as their messages show. I have not shown that they fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes them, or until they are shown to pass there.
+- Not run here: the other three browser files and the unit suite.
