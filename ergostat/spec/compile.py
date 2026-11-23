@@ -1067,6 +1067,8 @@ class Compiler:
         from ..actions import compile as gated
         from ..workspaces import compile as pools
         pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
+        from ..compute import compile as compute
+        compute.compute(self, spec)                          # compute: the pools of nodes runs may execute on (§12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
         from ..inbox import config as notify

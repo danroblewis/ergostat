@@ -187,6 +187,13 @@ def one(doc, name: str, entry, w: Where | None, defaults: dict, put) -> None:
         doc.problems.append(Problem("finding", f"remote {name}: {url} did not answer ({why})"
                                     + (f" since {_ago(since)} ago" if since else "") + age, via, "remote-unreachable",
                                     f"system.{name}"))
+    elif st.get("read_ok") is False:            # its model answers, its readings do not (the box's own status)
+        since, last = st.get("read_failing_since"), st.get("read")   # a reading's time, never the model's
+        doc.problems.append(Problem("finding", f"remote {name}: its readings fail ({st.get('read_why') or '?'})"
+                                    + (f" since {_ago(since)} ago" if since else "")
+                                    + (f"; its measures here are {_ago(last)} old" if last else
+                                       "; none of its measures has been read here"), via, "remote-stale",
+                                    f"system.{name}"))
     info["pending"] = []
     try:
         mine = instance.own(d.parent.parent)

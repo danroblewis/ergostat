@@ -1,0 +1,40 @@
+# Branching (dev/records/cx-cyclomatic.md): McCabe complexity of each Python function and method of the code scope,
+# from dev/bin/cx_branching.py, one reading per commit of main at the commit's time. Python only: JavaScript is not
+# read, so it is no value here, never zero. The pattern is complexity.yaml's.
+defaults:
+  system: complexity
+
+stocks:
+  complexity-cyclomatic:
+    unit: branches
+    description: McCabe complexity summed over the Python functions and methods of ergostat/, dev/bin/ and scripts/ (Python only, JavaScript not read) - its readings recorded per commit of main, at the commit's time, by complexity.py record, never by a person or a schedule
+    sensor: {manual: true}
+  complexity-functions-over-20:
+    unit: functions
+    description: Python functions and methods of ergostat/, dev/bin/ and scripts/ whose McCabe complexity is over 20 (Python only, JavaScript not read) - its readings recorded per commit of main, at the commit's time, by complexity.py record, never by a person or a schedule
+    sensor: {manual: true}
+
+auxiliaries:
+  complexity-cyclomatic-p99:
+    unit: branches
+    description: the 99th percentile (nearest rank) of McCabe complexity over every Python function and method of ergostat/, dev/bin/ and scripts/ (Python only, JavaScript not read) - recorded per commit of main by complexity.py record
+    driven-by: [+stock.complexity-cyclomatic, +flow.gaps-merged, -flow.removals-merged]   # (as code-long-functions)
+    sensor: {manual: true}
+
+flows:
+  complexity-cyclomatic-grown:
+    to: complexity-cyclomatic
+    description: branches added to the Python code, each rise of the stock over a day
+    sensor: {changes: rises, over: 1d}
+  complexity-cyclomatic-distilled:
+    from: complexity-cyclomatic
+    description: branches taken out of the Python code, each fall of the stock over a day
+    sensor: {changes: falls, over: 1d}
+  complexity-functions-over-20-grown:
+    to: complexity-functions-over-20
+    description: Python functions crossing over a complexity of 20, each rise of the stock over a day
+    sensor: {changes: rises, over: 1d}
+  complexity-functions-over-20-distilled:
+    from: complexity-functions-over-20
+    description: Python functions brought to a complexity of 20 or less (or removed), each fall of the stock over a day
+    sensor: {changes: falls, over: 1d}
