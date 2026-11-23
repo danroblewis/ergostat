@@ -224,3 +224,20 @@ Built, in round 2 of the second continuation: main (f086f76e) merged in (e74f482
   E501. Neither file is touched by this branch. Not run here: the whole unit suite and the browser files.
 
 Overrun reason: dev/bin is 219 net lines against 130 (208 before this round). Beyond the reasons given in rounds 1 and 2, the review asked carry() to tell apart records that share a title, which takes 11 more lines.
+
+## Where it stopped
+
+The build step failed on `tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine`
+(`'switcher' in e.running` after its 120 s wait, in an 831 s run of the file). Nothing was changed for it. It is
+outside this gap (lesson-13):
+
+- Run alone on this branch it passes (1 passed, 147 s for the whole test, setup and the 90 s switch wait included).
+- The switcher's run is `dev/bin/drain.py`. It imports only `fac` and `live`. The branch changes neither drain.py nor
+  live.py. Its one change to fac.py (`definition_file`, `defines`, `entry_only`) is never called on that path. Each
+  step makes several `ergostat` CLI calls (`fac.items`, `fac.say`, `action_state`), and each is a fresh process that
+  loads the whole model. The model (ergostat.yaml, dev/model/) does not read dev/records/, so the branch's new
+  records do not reach it. A run that misses a fixed 120 s wait only when the machine is loaded is lesson-10's
+  load-dependent bound, which belongs in its own gap.
+- Not checked: whether it fails on main under the same load. Running the test in a worktree of main
+  (`git worktree add -q /tmp/mainwt main && ...`) was refused in this session.
+- The merge of main (f086f76e) was already committed in e74f4824, with no conflict left.
