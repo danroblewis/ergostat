@@ -96,21 +96,47 @@ def types() -> dict[str, ModuleType]:
         return dict(_TYPES)
 
 
-def listed(spec) -> list[dict]:
-    """The model's sources a panel can query: name, type and language, and never their connection."""
+OWN = "ergostat"            # the built-in source: ergostat's own readings, as PromQL (a model's source of this name wins)
+NEEDS = ("ergostat's own series answer PromQL only from VictoriaMetrics, and this project keeps its readings in SQLite: "
+         "run VictoriaMetrics, set storage: measurements: victoriametrics, and copy the readings over with "
+         "ergostat migrate (docs/DASHBOARDS.md, Turning on VictoriaMetrics)")
+
+
+def sources(spec, store=None) -> dict:
+    """The model's ``sources:``, and with the project's measurements (``store``) the built-in ``ergostat``: a
+    Prometheus-compatible source over the VictoriaMetrics that holds them, asked only for this project's series (its
+    ``extra_label``, which the server enforces whatever the text says); over SQLite, one that says what it needs."""
+    got = dict(getattr(spec, "sources", None) or {})
+    if store is not None and OWN not in got:
+        from ..spec.ir import Source
+        vm = getattr(store, "name", "") == "victoriametrics"
+        got[OWN] = Source(OWN, "prometheus", getattr(store, "base", "") if vm else "",
+                          options={"extra_label": f"project={store.project}"} if vm else {"needs": NEEDS})
+    return got
+
+
+def _needs(src) -> None:
+    if src.options.get("needs"):
+        raise SourceError("refused", src.options["needs"])
+
+
+def listed(spec, store=None) -> list[dict]:
+    """The sources a panel can query (the built-in ``ergostat`` when it answers: on VictoriaMetrics): name, type and
+    language, and never their connection. A panel naming it over SQLite is answered with what it needs."""
     every = types()
     return [{"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
-            for s in (getattr(spec, "sources", None) or {}).values() if s.type in every]
+            for s in sources(spec, store).values() if s.type in every and not s.options.get("needs")]
 
 
-def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS) -> dict:
+def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, store=None) -> dict:
     """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError."""
-    src = (getattr(spec, "sources", None) or {}).get(name)
+    src = sources(spec, store).get(name)
     if src is None:
         raise SourceError("unknown", f"no source named {name!r} under sources:")
     mod = types().get(src.type)
     if mod is None:
         raise SourceError("unknown", f"source {name!r} is of type {src.type}, which panels cannot query")
+    _needs(src)
     if not isinstance(text, str) or not text.strip():
         raise SourceError("refused", f"the query text is empty; write it in {mod.LANGUAGE}")
     if len(text) > MOST_TEXT:
@@ -144,14 +170,15 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS) -> dict:
 
 
 def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",
-            seconds: float = SUGGEST_SECONDS) -> dict:
+            seconds: float = SUGGEST_SECONDS, store=None) -> dict:
     """The names an editor may complete: ``{suggestions, more}``, at most MOST_SUGGESTIONS, each starting with ``prefix``
     (``more``: there were others, not sent). ``metric`` narrows labels and values to one metric's; ``label`` is whose
     values. Bounded like a query, whatever the type: in time, in what is asked and in what is answered."""
-    src = (getattr(spec, "sources", None) or {}).get(name)
+    src = sources(spec, store).get(name)
     mod = types().get(src.type) if src is not None else None
     if mod is None:
         raise SourceError("unknown", f"no source named {name!r} under sources: that panels can query")
+    _needs(src)
     if not callable(getattr(mod, "suggest", None)):
         raise SourceError("refused", f"source {name!r} ({src.type}) suggests nothing")
     if what not in SUGGESTED:

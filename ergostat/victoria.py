@@ -1,8 +1,10 @@
 """The measurements in VictoriaMetrics (SPEC §4b, ``storage: measurements: {backend: victoriametrics,
 url: ...}``): the same interface as ``store.Measurements``, over its HTTP API (standard library only).
 
-Every reading is a sample of ``ergostat_reading{project="<state key>", series="<series>"}``, so
-ergostat's own series can be queried by PromQL like any other source. Writes: ``/api/v1/import``
+Every reading is a sample named for its series, with the series' bounded labels (``promql_name``): a sensor's
+``ergostat_sensor{part, sensor}``, a run's ``ergostat_run_<measure>{block}``, a valve's ``ergostat_valve_position{valve}``,
+..., each with ``project="<state key>"`` and ``series="<series>"`` too, so ergostat's own series are queried by PromQL
+like any other source's (the built-in ``ergostat`` data source, ergostat/datasources). Writes: ``/api/v1/import``
 (JSON lines, millisecond timestamps, out of order allowed), then ``/internal/force_flush`` so what
 was written is read at once. Raw reads: ``/api/v1/export``. Buckets: MetricsQL over
 ``/api/v1/query_range`` (``avg_over_time``, ``last_over_time``, ``tlast_over_time``), computed by the
@@ -15,6 +17,7 @@ backfilled readings (``backfill``) in ``measurements.backfilled.db`` beside it."
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import urllib.error
@@ -22,9 +25,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-METRIC = "ergostat_reading"
+OLD_METRIC = "ergostat_reading"   # every series' one name before its labels (ergostat migrate renames it)
 FOREVER = "3650d"
 EPS = 0.001                       # a bucket is (start, end]: queried a millisecond early, so it is [start, end)
+_WORD = re.compile(r"[^a-z0-9_]+")
+_KINDS = {"valve": ("ergostat_valve_position", "valve"), "block": ("ergostat_block_output", "block")}
+_MEASURES = {"run": "block", "observer": "observer"}       # kind/NAME/MEASURE: ergostat_<kind>_<measure>{<label>=NAME}
 
 
 class VictoriaError(RuntimeError):
@@ -33,6 +39,28 @@ class VictoriaError(RuntimeError):
 
 def _q(s: str) -> str:
     return json.dumps(s)
+
+
+def _word(s: str) -> str:
+    return _WORD.sub("_", s.lower()).strip("_") or "x"
+
+
+def promql_name(series: str) -> dict[str, str]:
+    """A series' metric name and labels (without ``project`` and ``series``). Each label's value is a part, block or
+    measure the model declares, so the labels are bounded by the model: nothing generated (an item's id, a run's)
+    is ever a label, which is the event log's."""
+    kind, _, rest = series.partition("/")
+    if kind == "sensor" and rest:
+        part, dot, s = rest.rpartition(".")
+        return {"__name__": "ergostat_sensor", **({"part": part, "sensor": s} if dot and part else {"part": rest})}
+    if kind in _MEASURES and rest.count("/") == 1:
+        name, measure = rest.split("/")
+        return {"__name__": f"ergostat_{kind}_{_word(measure)}", _MEASURES[kind]: name}
+    if kind in _KINDS and rest:
+        return {"__name__": _KINDS[kind][0], _KINDS[kind][1]: rest}
+    if rest:
+        return {"__name__": f"ergostat_{_word(kind)}", "name": rest}
+    return {"__name__": "ergostat_series", "name": series}
 
 
 class Victoria:
@@ -86,20 +114,24 @@ class Victoria:
         except OSError as e:
             raise VictoriaError(f"VictoriaMetrics at {self.base}: {e}") from e
 
-    def _sel(self, series: str | None = None) -> str:
-        return "{" + f'__name__="{METRIC}",project={_q(self.project)}' + (f",series={_q(series)}" if series else "") + "}"
+    def _sel(self, series: str | None = None, name: str = "ergostat_.+") -> str:
+        """Every name of this project's (or one series'): a record written before its labels, under OLD_METRIC, is
+        read too until ``ergostat migrate`` renames it."""
+        return "{" + f'__name__=~"{name}",project={_q(self.project)}' + (f",series={_q(series)}" if series else "") + "}"
 
     def _import(self, rows: list[tuple[str, float, float]]) -> None:
         groups: dict[str, dict] = {}
         for s, t, v in rows:
-            g = groups.setdefault(s, {"metric": {"__name__": METRIC, "project": self.project, "series": s}, "values": [], "timestamps": []})
+            g = groups.setdefault(s, {"metric": {**promql_name(s), "project": self.project, "series": s},
+                                      "values": [], "timestamps": []})
             g["values"].append(float(v))
             g["timestamps"].append(round(float(t) * 1000))
         self._req("/api/v1/import", body="".join(json.dumps(g) + "\n" for g in groups.values()).encode())
         self._req("/internal/force_flush")
 
-    def _export(self, series: str | None, start: float | None = None, end: float | None = None) -> dict[str, list]:
-        params: dict = {"match[]": self._sel(series)}
+    def _export(self, series: str | None, start: float | None = None, end: float | None = None,
+                sel: str | None = None) -> dict[str, list]:
+        params: dict = {"match[]": sel or self._sel(series)}
         if start is not None:
             params["start"] = f"{start:.3f}"
         if end is not None:

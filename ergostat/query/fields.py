@@ -65,7 +65,7 @@ def _read(p) -> dict:
     for name, got in sources.items():
         got["x"] = list(X_OF[name])
         got["ohlc"] = name in OHLC_SOURCES
-    return {"sources": sources, "datasources": datasources.listed(spec), "x_types": list(X_TYPES),
+    return {"sources": sources, "datasources": datasources.listed(spec, p.measurements), "x_types": list(X_TYPES),
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),
             "rate_units": dict(transforms.SHORT)}
 

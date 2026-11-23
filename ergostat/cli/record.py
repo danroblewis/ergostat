@@ -375,6 +375,29 @@ def cmd_reset(args) -> int:
 
 
 
+def cmd_migrate(args) -> int:
+    """``ergostat migrate``: this project's readings copied into VictoriaMetrics (ergostat/migrate.py); run again, it
+    sends nothing."""
+    from ..migrate import migrate
+    from ..storage import VM_URL
+    from ..victoria import Victoria, VictoriaError
+    p = open_project(args)
+    url = args.url or p.storage.url or VM_URL
+    try:
+        got = migrate(p.dir, Victoria(url, p.dir), list(p.storage.tiers), dry=args.dry_run)
+    except VictoriaError as e:
+        print(f"ergostat migrate: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        return out_json({"url": url, **got, "dry_run": args.dry_run})
+    verb = "would send" if args.dry_run else "sent"
+    print(f"{got['series']} series, {got['readings']} readings read from SQLite; {verb} {got['sent']} to {url}"
+          + (f"; {got['renamed']} series renamed from ergostat_reading" if got["renamed"] else ""))
+    if not args.dry_run and p.storage.measurements != "victoriametrics":
+        print("To read them from there, set storage: measurements: {backend: victoriametrics, url: " + url + "}")
+    return 0
+
+
 def cmd_compact(args) -> int:
     """``ergostat compact``: now, what the engine does every hour (SPEC §4b): items' events older than
     their horizon rolled up into snapshots and archived, what is older than ``keep`` forgotten, the
