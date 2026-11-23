@@ -153,3 +153,24 @@ Round 6 (the queue's one finding: conflicts with main in `ergostat/spec/compile.
 - Run one file at a time after the merge: test_todo_template, test_templates, test_library_trust (103 passed),
   test_finding_attention, test_changesets, test_why (96 passed), test_finished_states, test_rollup,
   test_item_systems (64 passed); ruff clean. demo_check, the whole unit suite and the browser files were not run.
+
+Round 7 (the review's one finding, blocking, lesson 5: a to-do's `stuck` reason survived its leaving waiting):
+
+- The batcher's freeing pass now lists every to-do that is waiting or still carries a `stuck`. It folds each from
+  the events it queried. One no longer waiting that still has a `stuck` (moved by `todo.ready` by hand, as the stuck
+  text and `why` advise, or by `todo.started`, `todo.done` or `todo.dropped`) gets `todo.stuck` with `stuck: null`
+  and `read`, the count it judged. The kind's `if-unchanged:` then refuses the clearing if the to-do was recorded
+  again since: one waiting again keeps its reason (lesson 1). This is said once, not every pass.
+- Reading taken, the most reversible: the clearing is the batcher's, as the review proposed, not a new generic fold
+  rule. So the old reason can show for at most one regroup (default 30s) after the move. SPEC §5a, the template's
+  `kind` description and the demo README say so. A fold-level clear on leaving a state would close that window,
+  but it would change the generic fold for every kind. It was left out.
+- Tests: `test_a_stuck_todo_moved_out_of_waiting_by_hand_loses_its_stuck_reason` (ready, done, dropped and started;
+  then said once; `why` gives no stuck text) and `test_a_stuck_reason_is_not_cleared_from_a_reading_a_new_wait_overtook`
+  (the clearing printed, a new `todo.waiting` recorded, then the clearing recorded: refused, form `read`). With the
+  clearing removed, both failed. With a wrong `read` stamped (n+1), both failed. The between-the-list test's
+  monkeypatch now hooks the freeing's listing by its new call (`items(p, "todo")`, no states).
+- Run one file at a time: test_todo_template (19 passed), test_changesets (60), then test_why, test_templates and
+  test_rollup together (122); ruff clean. Refused here: `uv run python scripts/suite_watch.py -- uv run python
+  scripts/demo_check.py --seconds 25 todo-list`. The whole unit suite and the browser files were not run (no page
+  changed). Main has not moved since the round-6 merge (the merge base is main).

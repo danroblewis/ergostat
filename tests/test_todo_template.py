@@ -174,6 +174,47 @@ def test_a_todo_whose_prerequisite_was_dropped_stays_waiting_and_says_why(tmp_pa
     assert c.state == "ready" and c.fields["stuck"] is None
 
 
+def test_a_stuck_todo_moved_out_of_waiting_by_hand_loses_its_stuck_reason(tmp_path, monkeypatch, capsys):
+    """Recorded ready anyway (as stuck and why both advise), done or dropped: the old reason is cleared, said once."""
+    p = project(tmp_path, monkeypatch)
+    add(p, "todo/access", "todo.ready", 300, title="Request access")
+    for n, ev in enumerate(("todo.ready", "todo.done", "todo.dropped", "todo.started")):
+        add(p, f"todo/t{n}", "todo.waiting", 290, title=ev, where="build-host", waits_on="todo/access")
+    add(p, "todo/access", "todo.dropped", 280)
+    batcher(p, capsys)
+
+    def stuck():
+        return {i.id: i.fields.get("stuck") for i in its.project(p.events, p.model.spec) if i.id.startswith("todo/t")}
+    assert all(s and "todo/access ended dropped" in s for s in stuck().values()), stuck()
+    for n, ev in enumerate(("todo.ready", "todo.done", "todo.dropped", "todo.started")):
+        add(p, f"todo/t{n}", ev, 100 - n)
+    lines = batcher(p, capsys)
+    cleared = sorted(x["item"] for x in lines if x.get("event") == "todo.stuck")
+    assert cleared == ["todo/t0", "todo/t1", "todo/t2", "todo/t3"], lines
+    assert all(x["data"]["stuck"] is None for x in lines if x.get("event") == "todo.stuck")
+    assert stuck() == dict.fromkeys(cleared), stuck()
+    assert not [x for x in batcher(p, capsys) if x.get("event") == "todo.stuck"], "cleared once, not every pass"
+    assert "stuck:" not in why(p, "todo/t0")["summary"]
+
+
+def test_a_stuck_reason_is_not_cleared_from_a_reading_a_new_wait_overtook(tmp_path, monkeypatch, capsys):
+    """Ready by hand, read by the batcher, then waiting again before its clearing lands: the clearing is refused."""
+    p = project(tmp_path, monkeypatch)
+    add(p, "todo/access", "todo.ready", 300, title="Request access")
+    add(p, "todo/t", "todo.waiting", 290, title="t", waits_on="todo/access")
+    add(p, "todo/access", "todo.dropped", 280)
+    batcher(p, capsys)
+    add(p, "todo/t", "todo.ready", 100)
+    lines = batcher(p, capsys, record=False)
+    clear = [x for x in lines if x.get("event") == "todo.stuck"]
+    assert [x["item"] for x in clear] == ["todo/t"] and clear[0]["data"]["stuck"] is None
+    add(p, "todo/t", "todo.waiting", 50, notes="the access request was refused again")
+    p.events.add("todo.stuck", item="todo/t", source="todo-batcher", data=clear[0]["data"])
+    t = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/t"]
+    assert t.state == "waiting" and "todo/access ended dropped" in t.fields["stuck"]
+    assert [r["form"] for r in t.refused] == ["read"]
+
+
 def test_a_todo_waiting_again_is_not_freed_by_the_wait_it_had_before(tmp_path, monkeypatch, capsys):
     """The same to-do waits a second time with only a note: the earlier, finished waits_on is not this wait."""
     p = project(tmp_path, monkeypatch)
@@ -284,7 +325,7 @@ def test_a_new_wait_between_the_batchers_list_and_its_reading_is_judged_on(tmp_p
 
     def items(pp, kind, states=None):
         out = listed(pp, kind, states)
-        if states == ["waiting"]:
+        if kind == "todo" and states is None:                   # the freeing's listing (waiting, or still stuck)
             add(pp, "todo/b", "todo.waiting", 50, waits_on="todo/c")
         return out
     monkeypatch.setattr(todo, "items", items)

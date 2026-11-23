@@ -24,7 +24,7 @@ params:
   kind:
     type: name
     default: ${name}
-    description: 'the kind of item; ids KIND/<id>; its events KIND.added (new), KIND.ready, KIND.done, KIND.started, KIND.waiting, KIND.dropped; its fields title, requester, where, instructions (a list of steps, each a text or {do, run, check}), due, waits_on and notes; stuck, KIND.stuck, is the batcher''s: why a waiting one stays waiting though its wait ended (what it waited on was dropped)'
+    description: 'the kind of item; ids KIND/<id>; its events KIND.added (new), KIND.ready, KIND.done, KIND.started, KIND.waiting, KIND.dropped; its fields title, requester, where, instructions (a list of steps, each a text or {do, run, check}), due, waits_on and notes; stuck, KIND.stuck, is the batcher''s: why a waiting one stays waiting though its wait ended (what it waited on was dropped), cleared on its next pass once the to-do has left waiting by any event'
   wait-kind:
     type: name
     default: ${name}-wait

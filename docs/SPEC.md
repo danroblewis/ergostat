@@ -253,7 +253,8 @@ batcher, a program on the rule rung, `todo batches`, which says a waiting to-do 
 waits on has happened (done, or answered: `--met`; only what its `waits_on` named since it last entered waiting
 counts, so a wait over before does not free a new one), keeps one whose prerequisite was dropped, or whose wait
 names nothing, waiting and says so once in its `stuck` field (`KIND.stuck`, which `ergostat why` says, its next
-step `KIND.ready`), and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
+step `KIND.ready`; a to-do that has left waiting by any event, by hand or freed, has its `stuck` cleared on the
+batcher's next pass, so it lasts at most one regroup after the move), and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
 due first, every one's instructions in order in its `sitting`; it reads the record and prints events, and the
 template adds no action, workspace or daemon, so nothing it adds acts outside ergostat (the optional `command` is
 the owner's own, run by `collect` as a source); a freeing is `KIND.freed`, which `moves-from:` lets move a to-do

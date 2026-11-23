@@ -29,7 +29,7 @@ Working through them:
   "the network team says yes", "who": "the network team"}'`, then `{"waits_on": "todo-wait/firewall-ok"}` on the
   to-do; `todo-wait.answered` once they answer. A waiting to-do whose every wait has happened (done, answered) is ready
   again by itself, in its place's batch; one whose prerequisite was dropped stays waiting, and its `stuck` field
-  says so. Only what `waits_on` named since it last entered waiting counts.
+  says so (cleared on the batcher's next pass once it leaves waiting, by `todo.ready` or any other). Only what `waits_on` named since it last entered waiting counts.
 - When someone asks how theirs is going, `ergostat why todo/ID` says its state and for how long, what it waits on,
   and who must do what next, from the record, in one paragraph to paste.
 

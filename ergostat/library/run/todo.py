@@ -11,7 +11,8 @@ First, a waiting to-do whose wait (what its ``waits_on`` named since it last ent
 named in a ``--met`` state (done, answered), is said ready again (``K.freed``, which the kind's ``moves-from:`` lets
 move it only out of waiting, and its ``if-unchanged:`` only when nothing was recorded of the to-do since it was read:
 its ``read`` is the count of events judged, so a drop or a new wait since stays as recorded), grouped on the next pass;
-one whose prerequisite ended without happening (dropped) stays waiting, said in its ``stuck`` field (``K.stuck``).
+one whose prerequisite ended without happening (dropped) stays waiting, said in its ``stuck`` field (``K.stuck``),
+cleared on the next pass once it has left waiting by any event (ready by hand, done, dropped).
 It reads the record and prints lines; it runs nothing and writes nowhere else."""
 
 from __future__ import annotations
@@ -146,10 +147,12 @@ def free(p, kind: str, met: set[str]) -> int:
     """Each waiting to-do whose wait (``waits_now``) names only items in a ``met`` state (done, answered: what it
     waited on happened) is ready again (``K.freed``). One that names an item never recorded, or one not yet met,
     stays waiting; one that names nothing, or whose wait ended without happening (a prerequisite dropped), stays
-    waiting, and its ``stuck`` field says why, said once. Returns how many were freed."""
+    waiting, and its ``stuck`` field says why, said once. A to-do that has left waiting by any event (ready, started,
+    done, dropped) and still carries a ``stuck`` has it cleared on this pass, from the count read. Returns how many
+    were freed."""
     from ...spec import items as its
     spec, n = p.model.spec, 0
-    waiting = items(p, kind, ["waiting"])
+    waiting = [i for i in items(p, kind) if i.state == "waiting" or i.fields.get("stuck") is not None]
     if not waiting:
         return 0
     known = {i.id: i for i in its.project(p.events, spec)}
@@ -157,6 +160,8 @@ def free(p, kind: str, met: set[str]) -> int:
         evs = p.events.query(item=was.id, n=None)          # the to-do folded from the very events judged: what is
         it = its.fold(was.id, evs, spec.items[kind])       # said carries their count (read), and the kind's
         if it.state != "waiting":                          # if-unchanged: refuses it once another lands (SPEC §5a)
+            if it.fields.get("stuck") is not None:         # left waiting by any event: its old reason is not its own
+                say({"event": f"{kind}.stuck", "item": it.id, "data": {"stuck": None, "read": it.n}})
             continue
         on = waits_now(it, evs)
         got = [known.get(t) for t in on or ()]
