@@ -60,6 +60,10 @@ systems:
     within: oversight
     description: how well the factory works - cycle time, first-pass yield, fix rounds, the queue, flakes, cost
     show: [auxiliary.first-pass-yield, auxiliary.cycle-hours, auxiliary.cost-per-merged]
+  guarantees:
+    within: oversight
+    description: what the factory promises of main - its failing tests, held at zero by main-green
+    show: [stock.main-failing-tests]
   times:
     within: oversight
     description: how long each gap spends in each state, in the build-review loop and at each gate, held by goals

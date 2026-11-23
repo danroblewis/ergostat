@@ -1,0 +1,46 @@
+# The guarantees: what the factory promises of main, each a stock held at zero by a goal. The first is main's failing
+# tests (flake items in main-broken, dev/bin/onmain.py): main-green is off while any test fails on main, and its loop
+# closes through the coordinator (remedy, dev/model/interventions.yaml), who has the fix made; main-mend
+# (dev/model/landing.yaml) is what records each break cleared, once it passes twice alone on the pushed main, so
+# main-tests-fixed counts its flake.main-fixed. Nothing here acts on the world (dev/README.md, *Regression guarantees*).
+defaults:
+  system: guarantees
+
+stocks:
+  main-failing-tests:
+    unit: tests
+    description: tests failing on main (main-broken), each a break of main's guarantee until main-mend sees it pass
+    sensor: {items: flake, state: main-broken, every: 1m}
+
+flows:
+  main-tests-broken:
+    to: main-failing-tests
+    description: a test found failing on clean main too (flake.main-broken)
+    sensor: {items: flake, entering: main-broken, over: 1d}
+  main-tests-fixed:
+    from: main-failing-tests
+    description: a main-broken test passed twice alone on the pushed main (flake.main-fixed, by main-mend)
+    driven-by: [+stock.main-failing-tests]
+    equation: stock.main-failing-tests / main-repair-time
+    sensor: {items: flake, entering: fixed, where: {fixed_by: main-mend}, over: 1d}
+
+parameters:
+  main-repair-time:
+    value: 1d
+    estimate: true
+    description: how long a test failing on main takes to be fixed and seen passing by main-mend
+
+goals:
+  main-green:
+    stock: main-failing-tests
+    hold: "<= 0"
+    tolerance: 0
+    critical: true                    # a break left on main spreads: every gap merged on it fails the queue
+    on-stale: "off"                   # main's tests not read are counted as failing. An items sensor is never stale
+                                      # (SPEC 9.6), so this holds for the day the stock is read some other way
+    description: no test fails on main
+
+loops:
+  main-repair:
+    goal: main-green
+    description: a test failing on main asks the coordinator for its fix (remedy); main-mend sees it pass and clears it

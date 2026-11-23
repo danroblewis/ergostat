@@ -40,3 +40,37 @@ ergostat.yaml, dev/model/guarantees.yaml (new), dev/model/interventions.yaml, de
 40 net lines of code outside tests/ (the rest is model YAML in dev/).
 
 Area: regression. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1 (2026-11-23). Choices made with no one to ask, each the most reversible, and the done items they touch:
+
+- **remedy is the one setter of `main-tests-fixed`; main-mend's `out:` is unchanged.** The Change gives the flow two
+  setters (remedy and main-mend). `check` refuses that: `two-actuators`, "one block sets a flow (put a select in
+  front, or split the flow)". `main-mend` keeps `out: flow.flakes-mended`, and dev/model/landing.yaml is untouched.
+  The flow's sensor still counts main-mend's own `flake.main-fixed` (`fixed_by: main-mend`). So main-mend is what
+  records each fix, and the coordinator (remedy) is drawn as what moves it. The other way is a select in front of the
+  flow, or two flows. That is for the owner.
+- **No `per: item` on `main-green`.** `check` refuses `per: item` on a count of items (`goal-per`, SPEC §8: "each
+  item counts one"), so done item 1 could not hold with it. Without it the goal holds the count at 0, which is the
+  same promise. `breaking` does not list the tests; `ergostat item --kind flake --state main-broken` does.
+- **`remedy-when` is a `select` (`pick: max`) and no longer an `expr`.** It still gives `max(rising, many, main)`.
+  An `expr`'s sign is never known (SPEC §12a), so main-repair would be drawn `?` and not B, and done item 2 would fail.
+  A select passes +. One difference: a select ignores an input that is not known, where the expr gave no command at
+  all. remedy's `ask` also says what to do about a failing test on main.
+- **Done item 2, "`check` says so".** check's feedback list prints the first 12 of `causal.loops`, which stops at 300
+  loops. In the factory's model main-repair is past that limit, so check's text does not print it. The test builds the
+  cycle from ergostat's own links (`causal.links`), and names and signs it with check's naming (`causal._named`):
+  `main-repair`, B. `ergostat check` itself was not run here (the command was refused in this session); the tests read
+  the model with `ergostat.spec.read`, which is what check uses.
+- **Done item 4 holds only for a reading that can go stale.** An `items` sensor is never stale (SPEC §9.6,
+  `observer.stale_by`), so `on-stale: "off"` on main-green changes nothing today. `test_main_green_stale_is_off` pins
+  that, then makes the reading stale the way a periodic sensor's would be (it monkeypatches `stale_by`). It shows that
+  main-green then counts as off, and that it holds again after a fresh reading. Making items sensors go stale is an
+  engine change for every model and outside this gap.
+
+The owner's question, not built: should `main-green` off also hold the merge queue (`queue-when`,
+dev/model/landing.yaml) for batches that do not touch the failing tests?
+
+Size: 0 net lines of code outside tests/, docs/ and dev/ (4 lines of ergostat.yaml, the rest model YAML and the
+README).
