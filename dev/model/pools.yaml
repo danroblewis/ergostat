@@ -67,6 +67,7 @@ flows:
     to: escapes
     description: a merged gap found to have let low-quality work through (reverted, main broken, or named as a cause)
     driven-by: [+stock.implementor-pool]
+    sensor: {run: python3 dev/bin/pools.py read escapes-day, every: 10m, timeout: 1m, description: escapes found over the last day per hour - reverts on main that main-watch found and main broken}
   implementor-pool-steps:
     to: implementor-pool
     two-way: true

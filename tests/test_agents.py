@@ -543,3 +543,135 @@ def test_the_implementor_is_told_its_clone_has_no_remote(tmp_path):
     assert "Your clone is not the implementor's" in reviewer
     assert "A ref visible to you does not disprove what the implementor says of its own clone" in reviewer
     assert "such a statement is not a finding" in reviewer
+
+
+# ---- research-design-queues-sessions-see-a-demo: a designer, and an implementor, may start a demo and walk it
+
+DEMO_UP, WALK = "uv run python scripts/demo_up.py", f"uv run --with {PIN} python scripts/walk.py"
+REVIEWER = ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"]
+
+
+class Kept:                       # (a sessions.Session's names, as run_args reads them)
+    HOME, stem, sid = "/home/dev/.claude/projects", "alpha-thing-designer-1", "0" * 36
+
+    def __init__(self, raw):
+        self.raw = raw
+
+
+def factory_cfg(tmp_path, **agents_set) -> dict:
+    cfg = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())
+    cfg["paths"]["run"] = str(tmp_path / "run")
+    cfg["agents"].update(agents_set)
+    return cfg
+
+
+def mounts(args: list[str]) -> list[str]:
+    return flag(args, "-v")
+
+
+def test_designer_session_argv_mounts_shots_and_readonly_work(tmp_path, monkeypatch):
+    import contextlib
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg, keep = factory_cfg(tmp_path), Kept(tmp_path / "raw")
+    designer = agents.run_args(cfg, "designer", Path("/w"), "n", keep)
+    reviewer = agents.run_args(cfg, "reviewer", Path("/w"), "n", keep)
+    shots = f"{(tmp_path / 'run' / 'shots' / keep.stem).resolve()}:/shots"
+    assert "/w:/work:ro" in mounts(designer)
+    assert sorted(mounts(designer)) == sorted(mounts(reviewer) + [shots])          # one mount new, and no other
+    cut = lambda a: a[:a.index(cfg["agents"]["image"])]  # noqa: E731              # (docker's part, before the image)
+    d, r = cut(designer), cut(reviewer)
+    i = d.index(shots)
+    d = d[:i - 1] + d[i + 1:]                                                       # its "-v" and the mount taken out
+    assert len(d) == len(r) and [(x, y) for x, y in zip(d, r, strict=True) if x != y] == [("3", "1.5")]   # only --cpus
+    # without a kept session, the container's name names the folder; a name that is not one is refused
+    named = f"{(tmp_path / 'run' / 'shots' / 'n').resolve()}:/shots"
+    assert named in mounts(agents.run_args(cfg, "designer", Path("/w"), "n"))
+    for bad in ("..", "a/b", "", "A"):
+        with pytest.raises(agents.Refused, match="pictures folder"):
+            agents.run_args(cfg, "designer", Path("/w"), bad)
+    # the session itself: the folder made on the host, the brief told to pass --shots /shots, the argv as above
+    ran = []
+    monkeypatch.setattr(agents, "token", lambda cfg: "tok-123")
+    monkeypatch.setattr(agents, "sweep", lambda cfg: [])
+    monkeypatch.setattr(agents, "egress", lambda cfg: None)
+    monkeypatch.setattr(agents, "killed", lambda name: agents.RUNNING.discard(name))
+    res = type(sys)("resources")
+    res.sampled = lambda *a: contextlib.nullcontext({})
+    monkeypatch.setitem(sys.modules, "resources", res)
+    monkeypatch.setattr(agents.subprocess, "run", lambda argv, **k: ran.append((argv, k["input"])) or
+                        subprocess.CompletedProcess(argv, 0, '{"type": "result"}', ""))
+    keep.copy = type("C", (), {"follow": lambda self: None})()
+    assert agents.session(cfg, "designer", "look at the Items tab", Path("/w"), keep=keep)["type"] == "result"
+    (argv, brief), = ran
+    assert (tmp_path / "run" / "shots" / keep.stem).is_dir() and shots in mounts(argv) and "/w:/work:ro" in mounts(argv)
+    assert brief.startswith("look at the Items tab") and "--shots /shots" in brief
+    # a bad designer_cpus: refused with its reason before any container is run
+    with pytest.raises(agents.Refused, match="designer_cpus"):
+        agents.session(factory_cfg(tmp_path, designer_cpus=9), "designer", "b", Path("/w"), keep=keep)
+    assert len(ran) == 1 and not agents.RUNNING
+    assert agents.TIMEOUTS["designer"] == 3600 and module("fac").STANDIN["designer"]
+    assert (cfg["ai"]["designer_model"], cfg["ai"]["designer_session_usd"]) == ("opus", 2.0)
+
+
+def test_designer_and_implementor_may_run_demo_and_walk():
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    for role in ("designer", "implementor"):
+        assert may(f"{DEMO_UP} start ops --port 8801", role) and may(f"{DEMO_UP} stop ops", role), role
+        assert may(f"{WALK} steps.json --shots /shots", role) and may(f"{WALK} - --shots /shots", role), role
+        assert not may("uv run python scripts/walk.py x", role) and not may("uv run python scripts/demo_check.py", role)
+        assert not may(f"{DEMO_UP}x start ops", role) and not may("curl http://127.0.0.1:8801", role)
+    assert agents.TOOLS["designer"] == REVIEWER + agents.SEE                  # exactly the reviewer's and the two
+    assert agents.SEE == [f"Bash({DEMO_UP}:*)", f"Bash({WALK}:*)"]
+    assert set(agents.SEE) <= set(agents.TOOLS["implementor"])
+    others = ("reviewer", "planner", "groomer", "researcher", "librarian")
+    assert not [r for r in others if may(f"{DEMO_UP} start ops", r) or may(f"{WALK} x", r)]
+    cfg = {"ai": {"designer_model": "opus", "designer_session_usd": 2.0}}
+    args = agents.claude_args(cfg, "designer")
+    assert args[args.index("--allowedTools") + 1].split(",") == agents.TOOLS["designer"]
+    assert args[args.index("--tools") + 1] == "Bash,Glob,Grep,Read"             # (no Edit, no Write)
+
+
+def test_designer_cpus_bounds(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cpus = lambda cfg, role, brief="": flag(agents.run_args(cfg, role, Path("/w"), "n", brief=brief), "--cpus")  # noqa: E731
+    web = "## Files to touch\n\n- ergostat/web/items.js\n"
+    cfg = factory_cfg(tmp_path)
+    assert cfg["agents"]["designer_cpus"] == 3
+    assert cpus(cfg, "designer") == ["3"] and cpus(cfg, "implementor", web) == ["3"]
+    assert cpus(cfg, "implementor", "ergostat/spec/x.py") == ["1.5"] and cpus(cfg, "reviewer", web) == ["1.5"]
+    absent = factory_cfg(tmp_path)
+    absent["agents"].pop("designer_cpus")
+    assert cpus(absent, "designer") == ["3"]                                       # its default
+    for ok in (4, 0.5, "2"):
+        assert cpus(factory_cfg(tmp_path, designer_cpus=ok), "designer") == [f"{float(ok):g}"]
+    for bad in (0, -1, 4.5, 64, "lots", "nan", "inf"):                            # (a ceiling: lesson-4)
+        cfg = factory_cfg(tmp_path, designer_cpus=bad)
+        for role, brief in (("designer", ""), ("implementor", web)):
+            with pytest.raises(agents.Refused, match=r"\[agents\] designer_cpus = .*at most 4"):
+                cpus(cfg, role, brief)
+        assert cpus(cfg, "implementor", "no web here") == ["1.5"]                  # not its setting: not refused
+        assert cpus(cfg, "reviewer") == ["1.5"]
+
+
+def test_no_proxy_names_loopback(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    cfg = factory_cfg(tmp_path)
+    for role in ("implementor", "reviewer", "designer", "planner"):
+        env = flag(agents.run_args(cfg, role, Path("/w"), "n"), "-e")
+        assert "NO_PROXY=127.0.0.1,localhost" in env and "no_proxy=127.0.0.1,localhost" in env, role
+        assert not [e for e in env if e.lower().startswith("no_proxy=") and not e.endswith("=127.0.0.1,localhost")]
+
+
+def test_reviewer_tools_unchanged(tmp_path):
+    sys.modules.setdefault("fac", module("fac"))
+    agents = module("agents")
+    assert agents.TOOLS["reviewer"] == REVIEWER                                   # the reviewer gains nothing
+    for role in ("planner", "plan_reviewer", "join_judge", "pipeline_manager", "groomer"):
+        assert agents.TOOLS[role] == REVIEWER, role
+    assert agents.TOOLS["researcher"] == REVIEWER + ["WebSearch"]
+    args = agents.run_args(factory_cfg(tmp_path), "reviewer", Path("/w"), "n")
+    assert not [m for m in mounts(args) if m.endswith(":/shots")] and "/w:/work:ro" in mounts(args)
