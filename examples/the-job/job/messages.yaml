@@ -110,5 +110,15 @@ goals:
   notes-reach-work:
     stock: messages-unrouted
     hold: "<= 0"
-    description: everything I say about the work reaches the work it is about. Nothing here acts on it (only I can
-      say what I meant); the morning brief lists what reached nothing
+    description: everything I say about the work reaches the work it is about. Only I can say what I meant; the
+      morning brief lists what reached nothing, and I route it
+
+blocks:
+  route-notes:
+    type: person
+    agent: me
+    goal: notes-reach-work
+    ask: >-
+      Something you said reached no work (the morning brief lists it). Say what it was about:
+      ergostat messages ID --about KIND/ID.
+    out: flow.messages-routed-by-hand

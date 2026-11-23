@@ -720,7 +720,8 @@ function bdNode(n, c) {
     g.append(bdBody(n, fn, w, hgt - band - (n.upkeep ? BD_UPKEEP : 0), band));
     if (n.upkeep) g.append(s("text", { x: w / 2, y: hgt - 8, class: "bd-note sys-upkeep", "text-anchor": "middle" }, UPKEEP));
     if (n.remote && !fn.name) g.append(s("text", { x: 0, y: -5, class: "bd-note live" }, n.remote.says));   // run by another ergostat
-    if (n.identified) g.append(s("text", { x: w, y: -5, class: "bd-note bd-ident", "text-anchor": "end" }, "identified"));   // its law, from the record
+    if (n.identified || n.declared)                   // its law, from the record, or declared (an assumption)
+      g.append(s("text", { x: w, y: -5, class: "bd-note bd-ident", "text-anchor": "end" }, n.identified ? "identified" : n.declared));
     bdAlarm(g, n);
   }
   return g;
