@@ -131,3 +131,14 @@ clean. Local `main` has nothing the branch lacks.
 
 Not run here: the unit suite and the four browser files (the factory runs them). Run one file at a time, all pass:
 test_runs_adopted.py (21), test_runs_outlive_engine.py (11). ruff is clean. Local `main` has nothing the branch lacks.
+
+### Round 4
+
+The one finding was a conflict with main in `ergostat/compute/worker/keeper.py`. It came from main's `wait4` and
+`reaped` CPU file meeting the branch's journal stamps. Main 28ad5c4ad880 is merged, and both changes are kept: each
+tick the keeper stamps the journal, then reaps the run with `os.wait4` and writes `reaped`. The docstring now says
+both. No other code changed.
+
+Not run here: the unit suite and the four browser files (the factory runs them). Run one file at a time after the
+merge, all pass: test_compute_keeper.py (5), test_runs_adopted.py (21), test_runs_outlive_engine.py (11),
+test_compute_readings.py (6), test_compute_connection.py (10). ruff is clean.
