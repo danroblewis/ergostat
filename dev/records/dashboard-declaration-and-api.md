@@ -164,3 +164,13 @@ built, because dashboard-page-v1 is not on main, and done item 4 is not measured
 Tests run after the merge: tests/test_dashboards.py, test_spec_schema.py and test_spec_compile.py (97 passed),
 test_runs_outlive_engine.py, test_spec_structure.py and test_query_engine.py (74 passed), test_graph_cli_web.py and
 test_compute_keeper.py (52 passed), ruff clean. Not run: the unit suite, the browser files, demo_check.
+
+## Where it stopped
+
+Implementor, 2026-11-23 (continued, round 7). The one finding was a conflict with main in ergostat/web/server.py. It
+is resolved in the merge of main (a28ec45b): main's new `_held_up` helper (the header's held-up line) is kept ahead
+of `_answer`, and `_answer` keeps the branch's `pinned=` parameter for a dashboard's panels. No other code changed
+this round. Still as round 1 says: change 5 (the page) is not built, because dashboard-page-v1 is not on main, and
+done item 4 is not measured on :8796.
+Tests run after the merge: tests/test_dashboards.py, test_held_up.py and test_graph_cli_web.py (107 passed), ruff
+clean. Not run: the unit suite, the browser files, demo_check.
