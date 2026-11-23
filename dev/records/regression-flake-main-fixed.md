@@ -81,5 +81,18 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   Not run: the whole of tests/test_factory.py after this merge. The background run of `uv run python
   scripts/suite_watch.py -- uv run python scripts/named_tests.py tests/test_factory.py` was refused, and the file
   takes about 943 s serially, longer than a foreground call is allowed. The build step runs it.
+- Round 4, the build (`-n 8 --dist worksteal` on tests/test_factory.py) failed with no test named: its tail stops
+  after 8 results (no `F`, no `E`, no summary). That fits the suite stopped by `[suites] stall_minutes = 10` (no
+  output for 10 minutes), the same shape as round 3's first build. No code changed, because no cause in this branch
+  was found. Read and ruled out: the mend tests stub every wait (fac.wait_quiet, fac.suite, pushed, tree,
+  fac.quarantine, stop_on_term). flakes.held() locks a file under the test's own tmp_path (fac.config is not cached,
+  and FACTORY_CONFIG is set per test). No other dev/bin writer sends a `patch` event, so the items.py line (a refused
+  patch or set moves nothing) cannot hold back another block's move. Main's merged fac.py change (`suite(group=)`,
+  `stop_suites(group)`) keeps its defaults, and mend.py's calls are unchanged. Refused this session, as given:
+  `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py tests/test_factory.py` (in the
+  background), `timeout 580 uv run python -m pytest -q -rfEs -n 8 --dist worksteal -o faulthandler_timeout=240
+  tests/test_factory.py` (to name a hung test from its stack), and a python3 script editing this file. So the whole
+  file was not run after the merge of main. Left: the build's full log or a faulthandler dump to name the test that
+  stops. A stall that also happens on clean main under `-n 8` is not this branch's (lesson-10, lesson-13).
 
 Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.
