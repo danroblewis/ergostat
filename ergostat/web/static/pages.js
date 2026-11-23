@@ -105,7 +105,7 @@ async function pageAgents(main) {
           h("td", { class: "num", "data-use": "tokens" }, tokensText(use(a).ai_runs ? use(a).tokens : null)),
           h("td", { class: "num", "data-use": "cpu" }, cpuText(use(a).cpu)),
           h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak))),
-          exc(a) ? h("tr", { class: "exception-why", key: name + "/why" }, h("td", { colspan: 9 }, exc(a)[1])) : null].filter(Boolean)))))));
+          exc(a) ? h("tr", { class: "exception-why", key: name + "/why" }, h("td", { colspan: 9 }, exc(a)[1])) : null].filter(Boolean))))));
     if (heldStill(box)) holdStill(box, table, () => tick());      // the reader in the table: its rows stay as they are
     else patch(box, table);
     const ds = Object.entries(daemons || {});

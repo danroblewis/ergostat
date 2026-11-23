@@ -358,8 +358,9 @@ def test_an_agent_that_never_ran_is_behind_or_last_failed_stands_out(standout, b
     runs = pg.eval_on_selector(row("judge"), "tr => tr.children[2].textContent")
     pg.click(row("judge"))
     pg.wait_for_selector("#detail h2:text-is('judge')")
+    pg.wait_for_selector("#detail .panel-loading", state="detached")      # (its heading is drawn before it is read)
     import re
-    said = re.search(r"(\d+) runs, \d+ failed", pg.inner_text("#detail"))
+    said = re.search(r"(\d+) runs: \d+ done", pg.inner_text("#detail"))
     assert said and runs == said.group(1) == "10"                         # the list and the panel: one count
     assert not errors, errors
     pg.close()

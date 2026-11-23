@@ -116,3 +116,20 @@ Its runs failed past their attempts (a dead letter):
 - attempt 13: nack the run ended with gap/ui-an-agent-that-never-ran-is-behind-schedule-or-la still parked
 - attempt 14: nack given back
 - attempt 15: nack given back
+
+## Where it stopped
+
+Continued, round 1: main (af4bc34a) merged. It conflicted in pages.js, style.css and tests/test_agents_page.py.
+Kept from main: the ladder line's `data-kind` steps with "most general → most specific" (the branch's arrows are gone),
+the group headings with counts, `data-row`, `rolesText`, and the table held still under the pointer. Kept from the
+branch: the `.exception` words, the `tr.exception-why` reasons and the counts on the ladder line. One extra paren from
+the merge broke the page script, and that is fixed. Main's panel now draws its heading with "Loading…" before it has
+read anything, so the acceptance test now waits for `.panel-loading` to go. It also matches the panel's
+"N runs: M done" line, which is what the panel says now.
+
+Run with Playwright under suite_watch: tests/test_agents_page.py gave 8 passed and 1 failed (rc 1). The failure is
+`test_each_row_says_how_it_is_engaged_and_which_goal_it_serves`, which came from main and is unchanged here. It reads
+`#detail` as soon as `h2:text-is('work')` appears, and that is now before the panel has loaded ('Loading…'). It reads
+`/api/agents/<name>`, and this branch does not change that endpoint (server.py changes only the listing). This branch
+leaves it alone (lesson 13). It was not run on clean main: `git worktree add` was refused here. `ruff check ergostat
+tests scripts` is clean. Not run: the unit suite and the other browser files.
