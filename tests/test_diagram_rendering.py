@@ -908,10 +908,12 @@ OUTSIDE = """() => {
 }"""
 
 
-@pytest.mark.parametrize("view", ["blocks", "dynamics"])
-def test_fit_shows_every_line_and_label_and_no_edge_hint(browser, tmp_path, view):
-    """Fit frames what is drawn (every part, line and label), not only the layout's box, clear of the toolbars."""
-    with served("software-factory", tmp_path) as url:
+@pytest.mark.parametrize("example, view", [("ticket-factory", "blocks"), ("ticket-factory", "dynamics"),
+                                           ("software-factory", "blocks"), ("software-factory", "dynamics")])
+def test_fit_shows_every_line_and_label_and_no_edge_hint(browser, tmp_path, example, view):
+    """Fit frames what is drawn (every part, line and label), not only the layout's box, clear of the toolbars.
+    ticket-factory's modelling is the demo the design review saw wires past the right edge on after Fit (:8791)."""
+    with served(example, tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1800, "height": 560})     # wide and low: the toolbars' room counts
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
@@ -929,15 +931,20 @@ def test_fit_shows_every_line_and_label_and_no_edge_hint(browser, tmp_path, view
         assert not errors, errors
 
 
-def test_open_frames_the_system_opened_or_says_which_way_the_rest_lies(browser, tmp_path):
+@pytest.mark.parametrize("example", ["big", "software-factory"])
+def test_open_frames_the_system_opened_or_says_which_way_the_rest_lies(browser, tmp_path, example):
     """Each system opened from its box (Open) is then wholly in view; one too big at the least legible zoom has
-    its top left in view, the zoom at that least, and the hint names the way to the rest, and clicked pans there."""
-    with served("software-factory", tmp_path) as url:
+    its top left in view, the zoom at that least, and the hint names the way to the rest, and clicked pans there.
+    big's api is the system the design review saw land half off-screen after Open (:8797)."""
+    with served(example, tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1280, "height": 800})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=-", 0)
         names = pg.evaluate("() => Object.keys(S.graph.tree || {}).filter((n) => !S.graph.tree[n].within)")
+        if example == "big":
+            assert "api" in names, names
+            names = ["api"]
         assert names
         for i, name in enumerate(names):
             drawn(pg, url, "open=-", i + 1)
@@ -964,6 +971,10 @@ def test_open_frames_the_system_opened_or_says_which_way_the_rest_lies(browser, 
                     assert after[0] < before[0], (before, after)
                 if "below" in at["hint"]:
                     assert after[1] < before[1], (before, after)
+        if example != "software-factory":
+            pg.close()
+            assert not errors, errors
+            return
         # drawn alone (Into) in a small window: too big to show legibly, so the hint names the way, and pans there
         pg.set_viewport_size({"width": 1000, "height": 400})
         drawn(pg, url, "system=factory", 99)
