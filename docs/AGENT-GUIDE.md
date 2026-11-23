@@ -649,10 +649,14 @@ blocks:
   duration past a threshold, each with a cooldown), each with a delay, and keeps the one that predicts the held-out record best for its
   number of parameters. The Blocks view writes the law in the block, marked *identified*; the closed-loop projection,
   what-if and risk run it in place of a generic stand-in.
-- Where the controller's law is known, declare it beside `identify:` (SPEC §12d, *Known laws*):
+- Declare the law beside `identify:` (SPEC §12d, *Known laws*) when you have its configuration in front of you (the
+  HPA's manifest, the alert rule's file), not from what you remember of the product's defaults:
   `law: {kind: kubernetes-hpa, target: 0.7, min: 2, max: 20}` (tolerance 0.1, stabilize-down 5m, stabilize-up 0s,
   every 15s unless written) or `law: {kind: alert-rule, threshold: 300, side: above, for: 5m}`. A wrong kind, key or
-  value is `bad-law` at that key. For now it is only checked and kept in the model, not yet drawn or run.
+  value is `bad-law` at that key. The Blocks view writes it in the block, marked *declared kubernetes-hpa* (or
+  *declared alert-rule*), and `explain` says it in words. A declared law is an assumption until tested against the
+  record: once the record identifies a law, the block is drawn with that one, marked *identified*, and the declared one
+  stays in its rows to compare. It is not yet run by the projections.
 - `external-unidentified` means too little record (40 points of both at least, and three moves of its output) or no law
   fits: wait for more, or check the sensors read the right series. `external-not-run` means its output is an auxiliary
   (or a stock its `out:` flow does not move): the law is drawn, but the projection runs a generic stand-in.

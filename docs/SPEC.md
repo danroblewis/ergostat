@@ -4677,7 +4677,10 @@ it is not (an evaluation every 15s unless the caller gives another). The law che
 (`Block.law`, the kind and its parameters with defaults filled; None without `law:`, so a model with none compiles as
 before). **bad-law**, at the key: an unknown kind or parameter, a value not its type or out of its bounds, `min` above
 `max` (at `max`); at `law:`: a required parameter missing, a law that is not a map, or a law without `identify:`. A law
-declared is compiled only: it is not yet drawn, explained, run in the projection or tested against the record.
+declared is drawn as its block's function in Blocks (the law in the block's notation, as an identified law's, marked
+*declared KIND* where an identified law is marked *identified*; a law the record identifies is drawn over it, the
+declared one kept in the block's rows) and said in words with its parameters by `explain` (and its MCP tool); it is not
+yet run in the projection or tested against the record.
 
 ## 12e. Improving the model, as a loop
 
