@@ -44,6 +44,10 @@ systems:
     within: oversight
     description: the AI sessions' cost over the last day, held under the daily cap
     show: [auxiliary.ai-spend]
+  ai-hold:
+    within: oversight
+    description: the provider's usage limit - the AI sessions held till its reset, the queue and the suites running on
+    show: [auxiliary.ai-held]
   load:
     within: oversight
     description: the load interlock - the suites running on the machine, their threads and memory
@@ -212,6 +216,9 @@ items:
     id: flake/*
     description: a test that failed in a suite and passed alone (seen) - counted each time, until fixed; or one that fails on main too (main-broken, the implementor's triage, dev/bin/onmain.py)
     states: [seen, main-broken, fixed]
+    # written only by dev/bin/flakes.py, on the item as it stands, under its lock: seen on a main-broken item is
+    # flake.measured (counted, still main's); a second main-broken keeps main_broken_at; either on a fixed item makes
+    # it again (times 1, main_fixed_at, fixed_by and green_passes removed)
     on:
       flake.seen: seen
       flake.main-broken: main-broken   # failed on a branch and on clean main: main's, not the gap's
