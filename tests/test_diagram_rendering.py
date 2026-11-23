@@ -948,12 +948,13 @@ def test_open_frames_the_system_opened_or_says_which_way_the_rest_lies(browser, 
             at = pg.evaluate("""(name) => {
               const h = document.querySelector(`g.hull[data-hull="${name}"] rect:not(.hull-grip)`).getBoundingClientRect();
               const c = document.querySelector('svg.canvas').getBoundingClientRect(), hint = document.getElementById('panhint');
+              const bar = document.querySelector('.diagram .toolbar').getBoundingClientRect();
               return { l: h.left - c.left, t: h.top - c.top, r: h.right - c.left, b: h.bottom - c.top, w: c.width, h: c.height,
-                       k: S.view.k, hint: hint.hidden ? '' : hint.textContent }; }""", name)
+                       k: S.view.k, bar: bar.bottom - c.top, hint: hint.hidden ? '' : hint.textContent }; }""", name)
             inside = at["l"] >= -1 and at["t"] >= -1 and at["r"] <= at["w"] + 1 and at["b"] <= at["h"] + 1
             if not inside:
-                too_big = at["r"] - at["l"] > at["w"] - 39 or at["b"] - at["t"] > at["h"] - 119
-                assert too_big and at["k"] <= 0.8 + 1e-6 and 0 <= at["l"] < 40 and 0 <= at["t"] < 80, (name, at)
+                too_big = at["r"] - at["l"] > at["w"] - 39 or at["b"] - at["t"] > at["h"] - at["bar"] - 59
+                assert too_big and at["k"] <= 0.8 + 1e-6 and 0 <= at["l"] < 40 and 0 <= at["t"] < at["bar"] + 20, (name, at)
                 way = "(to the right|to the left|above|below)"
                 assert re.fullmatch(f"More {way}( and {way})*", at["hint"]), at
                 before = pg.evaluate("() => [S.view.x, S.view.y]")

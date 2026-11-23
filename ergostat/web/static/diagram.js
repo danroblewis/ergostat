@@ -884,11 +884,16 @@ function drawnBox(svg, lay) {
   return { x: lay.ox || 0, y: lay.oy || 0, width: lay.width, height: lay.height };
 }
 
-const TOP = 60, BOTTOM = 60;                          // the toolbars' room: 56 above, 50 below, kept off the drawing
+/* the floating toolbars' room above and below the drawing, as drawn (none where they sit outside the canvas) */
+function bars(svg, r) {
+  const at = (sel, f) => { const b = document.querySelector(sel)?.getBoundingClientRect(); return b?.height ? Math.max(0, f(b) + 6) : 60; };
+  return [at(".diagram .toolbar", (b) => b.bottom - r.top), at(".diagram .zoom", (b) => r.bottom - b.top)];
+}
+
 function fit(svg, lay, legible = false) {
   const r = svg.getBoundingClientRect();
   if (!lay || !r.width) return;
-  const b = drawnBox(svg, lay), room = r.height - TOP - BOTTOM;
+  const [TOP, BOTTOM] = bars(svg, r), b = drawnBox(svg, lay), room = r.height - TOP - BOTTOM;
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
   const whole = Math.min(1.25, (r.width - 40) / b.width, room / b.height);
   // the first view keeps 11px text at 9px or more on screen; a wider system is panned from its left
@@ -902,7 +907,7 @@ function fit(svg, lay, legible = false) {
 function showSystem(svg, name) {
   const c = name != null && S.layout && S.graph && anchorOf(S.layout, S.graph, name), r = svg.getBoundingClientRect();
   if (!c || !r.width) return;
-  const room = r.height - TOP - BOTTOM, k = Math.max(Math.min(S.view.k, (r.width - 40) / c.width, room / c.height), Math.min(S.view.k, 0.8));
+  const [TOP, BOTTOM] = bars(svg, r), room = r.height - TOP - BOTTOM, k = Math.max(Math.min(S.view.k, (r.width - 40) / c.width, room / c.height), Math.min(S.view.k, 0.8));
   const into = (v, lo, size, span) => {               // the least move that brings [v, v + size] within [lo, lo + span]
     const a = v * k / S.view.k;                       // (zoomed about the drawing's origin first)
     return size > span ? lo - a : Math.min(Math.max(a, lo), lo + span - size) - a;
