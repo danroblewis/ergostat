@@ -323,7 +323,9 @@ def build() -> argparse.ArgumentParser:
             sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")
     r = topic("run", cmd_run, "Start the agents (in the background) and the web page", named=False)
     r.add_argument("--foreground", action="store_true", help="stay attached instead of running in the background")
-    r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs")
+    r.add_argument("--stop", action="store_true", help="stop the ergostat running here, and its agents' runs "
+                                                       "(not those runs: outlive_engine leaves going: --runs)")
+    r.add_argument("--runs", action="store_true", help="with --stop: also the runs left going (runs: outlive_engine)")
     r.add_argument("--no-web", action="store_true", help="no web page")
     r.add_argument("--port", type=int, help="the web page's port (default 8781, or the next free one)")
     r.add_argument("--service", nargs="?", const="auto", choices=["auto", "launchd", "systemd"],

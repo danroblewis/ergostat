@@ -64,6 +64,92 @@ def test_a_real_difference_is_still_found_and_named_by_its_first_key(monkeypatch
     assert got[0].startswith(f"item {ITEM}: folds differently than before: branch: now \"other\", before \"b\"")
 
 
+def autoscaler(tmp_path, seconds: int = 2400):
+    """examples/autoscaler copied, with the record its sensors would have read over ``seconds``: its own cluster.py run
+    a second a tick, read every 5 s as the model's sensors read it (replicas, utilisation, load)."""
+    import shutil
+    import time
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    shutil.copytree(ROOT / "examples" / "autoscaler", tmp_path / "demo")
+    spec = importlib.util.spec_from_file_location("autoscaler_cluster", tmp_path / "demo" / "cluster.py")
+    cl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cl)
+    now = time.time()
+    s, rows = cl.fresh(now - seconds), []
+    while s["t"] < now - 1:
+        cl.tick(s, s["t"] + 1)
+        if int(s["t"]) % 5 == 0:
+            rows += [("sensor/replicas.main", s["t"], float(s["replicas"])), ("sensor/utilisation.main", s["t"], s["util"]),
+                     ("sensor/load.main", s["t"], s["load"])]
+    p = Project(mdl.load(tmp_path / "demo"))
+    p.measurements.add_many(rows)
+    return p, s
+
+
+def test_the_autoscaler_demo_draws_identifies_and_lists_its_external_controller(tmp_path):
+    """examples/autoscaler, after forty minutes of its record (definition of done 1-3): Blocks draws the HPA as an
+    external controller in its loop, r and y into it and u (replicas) out, its law identified; /api/loop-control gives
+    that law with its fit and judges the loop; the Agents page lists it as not run here, with no runs of its own."""
+    import time
+
+    from ergostat.web.server import Live, api
+    p, s = autoscaler(tmp_path)
+    assert len(s["events"]) >= 10                       # it scaled, often: the record has moves to identify it from
+    live = Live(p)
+    for _ in range(300):                                 # the law is fitted in a thread, drawn on a later poll
+        g = api(live, "graph", {"view": ["blocks"]})
+        n = next(x for x in g["nodes"] if x["id"] == "blk:web-hpa")
+        if n.get("identified"):
+            break
+        time.sleep(0.1)
+    assert n["role"] == "controller" and n["identified"] and n["fn"]["kind"].startswith("identified ")
+    assert ["block", "web-hpa (external, on kubernetes)"] in n["rows"] and "external controller" in n["says"]
+    into = {e["signal"]["sym"]: e for e in g["edges"] if e["target"] == "blk:web-hpa"}
+    out = [e for e in g["edges"] if e["source"] == "blk:web-hpa"]
+    assert into["r"]["source"] == "ref:cpu-at-target" and into["y"]["source"] == "sen:auxiliary.utilisation"
+    assert [(e["signal"]["sym"], e["key"]) for e in out] == [("u", "stock.replicas")]
+
+    lc = api(live, "loop-control", {"goal": ["cpu-at-target"]})
+    assert (lc["y"], lc["u"], lc["how"]) == ("auxiliary.utilisation", "stock.replicas", "setting")
+    c = lc["controller"]
+    assert c["block"] == "web-hpa" and c["identified"]["family"] in ("onoff", "proportional", "pi", "stepper")
+    assert c["identified"]["skill"] is not None and c["identified"]["r2"] is not None and c["identified"]["points"] >= 40
+    assert c["says"].startswith("web-hpa is external: its law identified from the record") and "R²" in c["says"]
+    assert "oscillation" in lc["performance"] and "constraint" in lc["performance"]     # the loop judged
+
+    a = api(live, "agents", {})["web-hpa"]               # the page writes "not run here" and no count of runs
+    assert a["runs_itself"] is False and a["runs"] == 0 and a["last"] is None and a["kind"] != "person"
+    assert {"kind": "controller", "name": "cpu-at-target"} in a["roles"]
+    spec = p.model.spec
+    assert spec.blocks["web-hpa"].type == "external" and spec.agents["kubernetes"].external
+    assert p.events.query(n=None, item="web-hpa", type="agent.*") == []
+
+
+def test_the_autoscaler_with_too_little_record_says_why_its_law_is_not_identified(tmp_path):
+    from ergostat.web.server import Live, api
+    p, _ = autoscaler(tmp_path, seconds=120)
+    c = api(Live(p), "loop-control", {"goal": ["cpu-at-target"]})["controller"]
+    assert c["identified"] is None and c["says"].startswith("web-hpa is external: its law is not identified: ")
+    assert "at least 40" in c["says"]
+
+
+def test_the_autoscaler_demo_checks_and_its_readme_walks_through_it(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_")} | {"ERGOSTAT_HOME": str(tmp_path / "h")}
+    r = subprocess.run([sys.executable, "-m", "ergostat", "check", "--json"], cwd=ROOT / "examples" / "autoscaler", env=env,
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
+    got = json.JSONDecoder().raw_decode(r.stdout[r.stdout.index("{"):])[0]
+    assert r.returncode == 0 and got["ok"] and got["errors"] == 0, r.stdout[-3000:]
+    readme = (ROOT / "examples" / "autoscaler" / "README.md").read_text()
+    for said in ("Blocks", "loop-control", "Agents", "not run here", "What ergostat adds"):
+        assert said in readme, said
+
+
 def test_first_diff_names_a_missing_key_and_counts_the_rest():
     dc = demo_check()
     assert dc.first_diff({"a": 1, "b": 2}, {"a": 1}) == "b: now 2, before missing"
