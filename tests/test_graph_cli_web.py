@@ -665,6 +665,26 @@ def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
     assert key("graph", {"view": "control", "system": "", "around": "undefined", "since": "1h"}) == "graph?view=control"
 
 
+def test_a_snapshot_inlines_every_stylesheet_and_script_the_page_links(project, tmp_path, monkeypatch):
+    import shutil
+
+    from ergostat.web import snapshot
+    static = tmp_path / "static"
+    shutil.copytree(snapshot.STATIC, static)
+    (static / "second-sheet.css").write_text(".second-sheet { color: var(--ink); } /* </style><b>not a tag */")
+    (static / "second-script.js").write_text("window.secondScript = 1;")
+    page = (static / "index.html").read_text()
+    page = page.replace("</head>", '<link rel="stylesheet" href="/static/second-sheet.css">\n</head>', 1)
+    page = page.replace("</body>", '<script src="/static/second-script.js"></script>\n</body>', 1)
+    (static / "index.html").write_text(page)
+    monkeypatch.setattr(snapshot, "STATIC", static)
+    html = snapshot.build(project)
+    assert '<link rel="stylesheet"' not in html and '<script src="' not in html      # nothing fetched
+    assert ".second-sheet { color: var(--ink); }" in html and "window.secondScript = 1;" in html
+    assert "</style><b>" not in html                                                 # a stylesheet cannot close its element
+    assert html.count("<style>") == html.count("</style>") == page.count('rel="stylesheet"')
+
+
 def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     from ergostat.web.snapshot import build
     project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
