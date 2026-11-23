@@ -53,6 +53,8 @@ def test_the_index_is_a_fresh_fold_as_events_arrive_and_after_rollups(tmp_path, 
     itemindex.reindex(p.events, p.model.spec)                # and built again from the record
     for tr in (False, True):
         assert _indexed(p, tr) == _fresh(p, tr), tr
+    from tests.test_index_projections import _check
+    _check(p, r)                                             # and what the status reads, beside the items
 
 
 def _ticket(tmp_path, backend="segments", extra=""):
