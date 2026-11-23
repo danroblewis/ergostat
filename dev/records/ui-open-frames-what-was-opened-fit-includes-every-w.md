@@ -65,3 +65,32 @@ Round 2:
 - `tests/test_diagram_rendering.py` whole, with Playwright, under the watchdog: 202 passed, 1 failed (rc 1, 23 min). The first try was stopped at my shell's 10-minute background limit before it printed anything, and I ran it again. `test_every_view_draws_cleanly_and_in_time[image-squeeze]`, which failed in round 1's whole-file run, passed this time.
   - The one failure: `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page`, at tests/test_diagram_rendering.py:3403, the same as round 1. The /model page does not show "Nothing waiting." after a calibration is accepted. That text comes from `pages.js:1093`, the Model page's proposal list. This branch does not change `pages.js`, and none of its changed functions (`applyView`, `fit`, `drawnBox`, `showSystem`) appear in that path. I take it as unrelated (lesson-13) but have not shown that it fails on main. Refused: `git worktree add -q --detach /tmp/mainwt main && cd /tmp/mainwt && uv run ... named_tests.py tests/test_diagram_rendering.py::test_an_equation_...` (Bash denied), so the merge queue's run on main must settle it.
 - Not run here: the other three browser files and the unit suite.
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 17:02).
+
+Stopped on its last attempt by RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 678, in session
+    out = agents.session(cfg, role, brief, work, keep=kept)
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 204, in session
+    egress(cfg)
+    ~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 117, in egress
+    _egress(cfg)
+    ~~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 124, in _egress
+    docker("network", "create", "--internal", NET)
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 106, in docker
+    raise RuntimeError(f"docker {args[0]}: {r.stderr.strip()[-300:]}")
+RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
