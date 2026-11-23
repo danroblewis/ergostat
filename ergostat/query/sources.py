@@ -98,17 +98,40 @@ def _moves_of(ix, k, q: Query, g: Grid) -> list[tuple]:
     kn = ix.known(k.name)
     if kn == -1:
         return []
-    col = "dst" if q.measure == "entries" else "frm"
-    ids = _state_ids(ix, k, q, ix.reached(k.name) if q.measure == "entries" else ix.left(k.name))
+    entering = q.measure == "entries"
+    col = "dst" if entering else "frm"
+    ids = _state_ids(ix, k, q, ix.reached(k.name) if entering else ix.left(k.name))
+    if q.include_open:
+        return _left_rows(ix, kn, _state_ids(ix, k, q, ix.left(k.name)), g) + _open_rows(ix, k, kn, q, g)
     if not ids:
         return []
     marks = ",".join("?" * len(ids))
+    if q.first_only:                  # an item's first time in the state: never a return to it
+        sql = (f"select first, rid, dst, 1.0 from (select min(t) first, rid, dst from moves where kind = ? and dst in ({marks}) "
+               f"group by rid, dst) where first >= ? and first <= ? order by first")
+        return _all(ix, sql, (kn, *ids, g.since, g.until))
     if q.measure == "time_in_state":
-        sql = (f"select m.t, m.rid, m.frm, m.t - (select max(x.t) from moves x where x.rid = m.rid and x.dst = m.frm and x.t <= m.t) "
-               f"from moves m where m.kind = ? and m.frm in ({marks}) and m.t >= ? and m.t <= ? order by m.t")
-    else:
-        sql = f"select t, rid, {col}, 1.0 from moves where kind = ? and {col} in ({marks}) and t >= ? and t <= ? order by t"
+        return _left_rows(ix, kn, ids, g)
+    sql = f"select t, rid, {col}, 1.0 from moves where kind = ? and {col} in ({marks}) and t >= ? and t <= ? order by t"
     return _all(ix, sql, (kn, *ids, g.since, g.until))
+
+
+def _left_rows(ix, kn: int, ids: list[int], g: Grid) -> list[tuple]:
+    """(when it left, rid, state, how long it had been there) of each time an item left one of the states."""
+    if not ids:
+        return []
+    marks = ",".join("?" * len(ids))
+    sql = (f"select m.t, m.rid, m.frm, m.t - (select max(x.t) from moves x where x.rid = m.rid and x.dst = m.frm and x.t <= m.t) "
+           f"from moves m where m.kind = ? and m.frm in ({marks}) and m.t >= ? and m.t <= ? order by m.t")
+    return _all(ix, sql, (kn, *ids, g.since, g.until))
+
+
+def _open_rows(ix, k, kn: int, q: Query, g: Grid) -> list[tuple]:
+    """(the window's end, rid, state, its age there so far) of each item in one of the states at the window's end."""
+    names = [s for s in q.state if s in ix.reached(k.name)] if q.state else sorted(x for x in ix.reached(k.name) if x)
+    wanted = {x for x in (ix.known(s) for s in names) if x != -1}
+    rows = _all(ix, "select max(t), rid, dst from moves where kind = ? and t <= ? group by rid", (kn, g.until))
+    return [(g.until, rid, dst, g.until - t) for t, rid, dst in rows if dst in wanted]
 
 
 def moves(p, spec, q: Query, g: Grid) -> Read:

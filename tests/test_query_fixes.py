@@ -13,7 +13,7 @@ from ergostat.query.buckets import grid
 from ergostat.query.sources import series_grid
 from ergostat.store import Measurements
 from ergostat.web.server import Live, api
-from tests.test_query_engine import T, _ask, _q, _record
+from tests.test_query_engine import T, _ask, _q, _record, _series
 
 DAY = 86400.0
 BASE = 20_000 * DAY
@@ -151,3 +151,61 @@ def _ask_raw(p, queries):
     import json
     raw = base64.urlsafe_b64encode(json.dumps({"since": 480, "until": T + 480, "points": 4, "queries": queries}).encode()).decode()
     return api(Live(p), "query", {"q": [raw]})["results"]
+
+
+def _reentering(p):
+    """x: arrives 10, doing 20, back to open 130, doing 250, done 370. y: arrives 15, doing 260."""
+    for item, at, ty in (("x", 10, "ticket.note"), ("y", 15, "ticket.note"), ("x", 20, "ticket.started"), ("x", 130, "ticket.reopened"),
+                         ("x", 250, "ticket.started"), ("y", 260, "ticket.started"), ("x", 370, "ticket.done")):
+        p.events.add(ty, item=f"ticket/{item}", at=T + at)
+
+
+@pytest.fixture
+def q(tmp_path):
+    import textwrap
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from tests.test_query_engine import MODEL
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace(
+        "on: {ticket.started: doing, ticket.done: done}", "on: {ticket.started: doing, ticket.reopened: open, ticket.done: done}"))
+    got = Project(mdl.load(tmp_path))
+    _reentering(got)
+    return got
+
+
+def test_first_entries_count_an_arrival_once(q):
+    every = _ask(q, {"source": "moves", "kind": "ticket", "measure": "entries", "state": "doing", "agg": "count"})[0]
+    first = _ask(q, {"source": "moves", "kind": "ticket", "measure": "entries", "first_only": True, "state": "doing", "agg": "count"})[0]
+    assert _series(every)["entries"] == [1.0, 0.0, 2.0, 0.0]
+    assert _series(first)["entries"] == [1.0, 0.0, 1.0, 0.0]         # x's return at 250 is not a new arrival
+
+
+def test_time_in_state_can_include_what_is_still_there(q):
+    ask = {"source": "moves", "kind": "ticket", "measure": "time_in_state", "state": "doing", "agg": "max"}
+    assert _series(_ask(q, ask)[0])["time_in_state"] == [None, 110.0, None, 120.0]
+    got = _series(_ask(q, {**ask, "include_open": True})[0])["time_in_state"]
+    assert got == [None, 110.0, None, 220.0]             # y, in doing since 260, is 220 s old at the window's end (480)
+
+
+def test_an_item_in_a_state_it_has_never_left_is_counted_when_open(tmp_path):
+    p = _record(tmp_path)
+    p.events.add("ticket.started", item="ticket/z", at=T + 400)
+    ask = {"source": "moves", "kind": "ticket", "measure": "time_in_state", "state": "done", "agg": "max", "include_open": True}
+    assert _series(_ask(p, ask)[0])["time_in_state"][-1] == 110.0     # a, done since 370; no item has ever left done
+
+
+def test_include_open_reads_the_state_at_the_windows_end(q):
+    ask = {"source": "moves", "kind": "ticket", "measure": "time_in_state", "state": "doing", "agg": "max", "include_open": True}
+    got = _series(_ask(q, ask, since=240.0, until=T + 240, points=2)[0])["time_in_state"]
+    assert got[-1] == 110.0                              # at 240: x had left at 130 (110 s) and nobody was in doing
+
+
+def test_the_two_flags_are_each_for_their_measure(q):
+    assert "include_open" in _ask(q, {"source": "moves", "kind": "ticket", "measure": "entries", "include_open": True})[0]["error"]
+    assert "first_only" in _ask(q, {"source": "moves", "kind": "ticket", "measure": "exits", "first_only": True})[0]["error"]
+
+
+def test_the_fields_name_each_kinds_finished_states(q):
+    got = api(Live(q), "query/fields", {})["sources"]
+    assert got["moves"]["kinds"]["ticket"]["finished"] == ["done"] and got["items"]["kinds"]["ticket"]["finished"] == ["done"]

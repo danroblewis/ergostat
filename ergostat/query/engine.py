@@ -184,7 +184,8 @@ def _read(p, spec, q: Query, g: Grid, work: Work) -> Read:
     return READERS[q.source](p, spec, q, g)
 
 
-def _one(live, p, q: Query, since: float, until: float, points: int, first: float | None, work: Work | None = None) -> dict:
+def _one(live, p, q: Query, since: float, until: float, points: int, first: float | None,
+         work: Work | None = None) -> dict:
     g = series_grid(p.measurements, q.series, since, until, points, q.bucket) if q.source == "series" else \
         grid(since, until, points, q.bucket)
     kept = _kept(live)
@@ -209,7 +210,7 @@ def _one(live, p, q: Query, since: float, until: float, points: int, first: floa
 
 
 def answer(live, p, raw: str | None) -> dict:
-    """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or cannot be answered says so in its result."""
+    """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its result."""
     asked = parse(decode(raw))
     now = time.time()
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY

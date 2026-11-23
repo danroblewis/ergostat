@@ -22,7 +22,7 @@ POINTS = 120
 MOST_WINDOW = 400 * 86400.0
 MOST_AVERAGED = 200         # buckets in a moving average
 KEYS = {"id", "source", "kind", "field", "where", "group_by", "agg", "transform", "rate_per", "bucket", "window",
-        "measure", "state", "series", "type"}
+        "measure", "state", "series", "type", "first_only", "include_open"}
 DEFAULT_AGG = {"items": "sum", "moves": "count", "counts": "last", "series": "avg", "events": "count"}
 
 
@@ -47,6 +47,8 @@ class Query:
     state: tuple | None = None
     series: str | None = None
     type: str | None = None
+    first_only: bool = False        # entries: only each item's first entry to the state, never a return to it
+    include_open: bool = False      # time_in_state: also the items in the state now, at their age so far
 
 
 @dataclass(frozen=True)
@@ -146,12 +148,22 @@ def _query(d, i: int) -> Query:
               rate_per=_word(d, "rate_per", tuple(RATE_PER), None, who), bucket=_bucket(d, who),
               window=_window(d, who), measure=measure,
               state=None if d.get("state") is None else _texts(d["state"], f"{who}: state"),
-              series=_text(d, "series", who), type=_text(d, "type", who))
+              series=_text(d, "series", who), type=_text(d, "type", who), first_only=_flag(d, "first_only", "entries", measure, who),
+              include_open=_flag(d, "include_open", "time_in_state", measure, who))
     if source == "items" and not q.field:
         raise BadQuery(f"{who}: field is missing (a numeric field of the kind)")
     if source == "series" and not q.series:
         raise BadQuery(f"{who}: series is missing (a metric's name)")
     return q
+
+
+def _flag(d: dict, key: str, needs: str, measure: str | None, who: str) -> bool:
+    v = d.get(key, False)
+    if not isinstance(v, bool):
+        raise BadQuery(f"{who}: {key} must be true or false")
+    if v and measure != needs:
+        raise BadQuery(f"{who}: {key} is for the measure {needs}")
+    return v
 
 
 def _window(d: dict, who: str) -> int:
