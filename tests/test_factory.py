@@ -2549,7 +2549,9 @@ def test_batch_of_one_is_todays_queue(tmp_path):
     assert f.item("gap/b")["state"] == "approved"                              # b ranks higher, but is not this run's
     said, _ = f.run("queue.py", "gap/b")
     assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and merges(f) == ["b"]
-    assert {x.get("item") for x in lines if "event" in x} <= {None, "gap/a"}
+    assert {x.get("item") for x in lines if "event" in x and not x["event"].startswith("batch.")} <= {None, "gap/a"}
+    (own,) = {x["item"] for x in lines if x.get("event", "").startswith("batch.")}    # and its own batch item, a's
+    assert own.startswith("batch/a-")
 
 
 def main_moves(f: Factory, path: str) -> None:

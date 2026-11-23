@@ -68,3 +68,14 @@ Renamed after `ergostat check` (round 1, `event-names-mixed items.batch`): the f
 The check reads an event as the kind, a dot, then a past-tense verb, so `batch.ended.landed` had the head
 `batch.ended` and was flagged. The bullet on event names above should read with that change. The finding is fixed in
 the model, not allowed: the definition has no `allows-findings` line.
+
+Fast suites, round 1 (`build` red on two tests of tests/test_factory.py):
+- `test_batch_of_one_is_todays_queue` asserted that gap/a's queue run says nothing of any item but gap/a. That run
+  now also speaks for its own batch item, the point of this gap. The test still holds everything else to gap/a, and
+  now also asserts that the `batch.*` events name exactly one item, gap/a's batch (`batch/a-...`). It passes alone.
+- `test_an_approved_switch_drains_and_switches_through_the_engine` passed alone here (145 s), but under `-n 8` a
+  switcher run outlived its 120 s bound. Its bounds are unchanged. The likely cause, not proven: this branch's six queue
+  tests were marked `slow`, so `conftest._slow_first` started them all first, one per worker, beside the switch test.
+  On main, three slow tests started at once. The six are now unmarked and run later, as stolen work. Main's timing
+  could not be measured: `git worktree add -q /tmp/mainwt main` and `git checkout main -- dev/model/landing.yaml
+  ergostat.yaml` were refused. If it goes red again, compare it with main's in the same slot.
