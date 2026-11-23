@@ -43,14 +43,14 @@ def test_a_failing_host_step_fails_the_batch_and_bisects(tmp_path):
     with_host(f, host_script(f, "if [ -e bad.txt ]; then echo 'FAILED tests/test_repair2.py::test_x - boom'; exit 1; fi"))
     approved_gaps(f, {"p": 1, "q": 2, "r": 3, "s": 4}, bad="r", batch=4)
     said, _ = f.run("queue.py", "gap/p")
-    # all four red on host; p, q green; p, q, r red: r. Then s onto p, q: green. Unit green each time
+    # all four red on host; p, q green and r, s red at once; then r red and s green at once. Unit green each time
     assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 3
-    assert merges(f) == ["p", "q", "s"] and suite_runs(f) == 4 and host_runs(f) == 4
+    assert merges(f) == ["p", "q", "s"] and suite_runs(f) == 5 and host_runs(f) == 5
     r = f.item("gap/r")["fields"]
     assert r["failed_suite"] == "host" and r["failed_tests"] == ["tests/test_repair2.py::test_x"]
     assert r["suites_queue"]["host"]["rc"] == 1 and r["suites_queue"]["unit"]["rc"] == 0
     assert f.item("gap/s")["fields"]["suites_queue"]["host"]["rc"] == 0           # in the landed run's outcome too
-    assert len(host_logs(f)) == 4                                                 # beside the others, in run/queue
+    assert len(host_logs(f)) == 5                                                 # beside the others, in run/queue
     # flake triage reruns the host's tests on the Mac too: with the container on, the rerun still runs unboxed
     # (boxed, it would need Docker, which this test does not have, and the rerun would never run)
     (tmp_path / "rerun.sh").write_text(f'echo "$*" >> {tmp_path}/reruns\necho "FAILED $1 - boom"\nexit 1\n')

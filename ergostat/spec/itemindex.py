@@ -18,6 +18,8 @@ folds only what is newer than it.
   relation, the id it names), indexed both ways, so an item's links and the links to it (the inverse: ``blocks``,
   ``children``) are both one lookup. A kind that declares ``about:`` keeps there too, as relation ``@about``, each
   part of the model its items name (``goal.x``), as its field now holds them: "the items about goal.x" is one lookup.
+- ``records``, ``marks``, ``voids``, ``asks``: what the status answer reads from the record (``projections.py``),
+  followed in the same transactions.
 
 In memory, only items still open are kept folded (their fold state, a few thousand at most, the
 latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
@@ -55,12 +57,13 @@ from collections import OrderedDict
 from pathlib import Path
 
 from ..store import damaged
-from . import codec
+from . import codec, projections
 from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 5                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links)
+VERSION = 6                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
+#                             6: what the status reads, projections.py)
 ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
@@ -285,7 +288,7 @@ class Index:
                 c.execute("pragma synchronous=normal")
                 c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
                 c.execute("pragma temp_store=memory")
-                c.executescript(SCHEMA)        # (an older layout is another file: its name holds VERSION)
+                c.executescript(SCHEMA + projections.SCHEMA)   # (an older layout is another file: its name holds VERSION)
             except BaseException:
                 c.close()
                 raise
@@ -410,19 +413,25 @@ class Index:
             seq = 0
         elif int(self._meta("gen")) != gen:
             self._reconcile(events)                         # events taken out (rolled up, pruned): items gone go
+            projections.again(self, events, seq)            # and what the status reads folded again from what is left
         self._set_meta(gen=gen)
         new = events.of_items(None, after_seq=seq, skip=skip, limit=CHUNK)
-        self._fold(new)
         top = max([seq, *(e["seq"] for e in new)])
         finished = len(new) < CHUNK
         if finished:
             top = max(top, last)                            # every item event up to ``last`` is folded
+        got, other = projections.loose(events, seq, top, CHUNK)
+        if len(got) >= CHUNK:                             # as many of the status's own: up to the last of them
+            top, finished = got[-1]["seq"], False
+            new = [e for e in new if e["seq"] <= top]
+        self._fold(new)
+        projections.follow(self, sorted(new + other, key=lambda e: e["seq"]))
         self._set_meta(seq=top)
         self.seq, self.gen = top, gen
         return finished
 
     def _reset(self) -> None:
-        for t in ("items", "moves", "left", "reached", "links", "names", "meta"):
+        for t in ("items", "moves", "left", "reached", "links", "names", "meta", *projections.TABLES):
             self.db.execute(f"delete from {t}")
         self.names, self.rnames = {None: None}, {None: None}
         self.cache.clear()
@@ -865,6 +874,10 @@ class Index:
             except BaseException:
                 self.db.execute("rollback")
                 raise
+
+    records = _healing(projections.records)          # what the status reads (projections.py)
+    marked = _healing(projections.marked)
+    asked = _healing(projections.asked)
 
     def close(self) -> None:
         """Its file closed (opened again when next used)."""

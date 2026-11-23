@@ -527,7 +527,7 @@ function sideChartsChanged() {                          // the chosen parts chan
   const sig = [...(S.sel || [])].sort().join(",");
   if (sig === S.selSig) return;
   S.selSig = sig;
-  if (S.graph?.kind === "dynamics" && S.sideChartsEl?.isConnected) S.redrawSide?.();
+  if (S.graph?.kind === "dynamics") S.redrawSide?.();      // (with none chosen the charts are not in the panel)
 }
 
 /* ---------------------------------------------------------------- the scope */
