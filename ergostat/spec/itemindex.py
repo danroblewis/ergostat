@@ -18,6 +18,10 @@ folds only what is newer than it.
   relation, the id it names), indexed both ways, so an item's links and the links to it (the inverse: ``blocks``,
   ``children``) are both one lookup. A kind that declares ``about:`` keeps there too, as relation ``@about``, each
   part of the model its items name (``goal.x``), as its field now holds them: "the items about goal.x" is one lookup.
+- ``number_log`` and ``numbers``: each change of an item's numeric field (when, the value, by how much) and each
+  item's value now (``itemnumbers.py``), so a chart of a field reads its kind, field and window and decodes no body.
+- ``records``, ``marks``, ``voids``, ``asks``: what the status answer reads from the record (``projections.py``),
+  followed in the same transactions.
 
 In memory, only items still open are kept folded (their fold state, a few thousand at most, the
 latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
@@ -55,12 +59,14 @@ from collections import OrderedDict
 from pathlib import Path
 
 from ..store import damaged
-from . import codec
+from . import codec, itemnumbers, projections
 from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 5                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links)
+VERSION = 7                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
+#                             6: the numbers, or what the status reads, on the two branches that each took 6;
+#                             7: both)
 ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
@@ -93,6 +99,12 @@ create table if not exists reached (kind integer, state integer, primary key (ki
 create table if not exists links (rid integer, rel integer, dst text);
 create index if not exists links_rid on links(rid);
 create index if not exists links_dst on links(dst);
+create table if not exists number_log (kind integer, field integer, t real, rid integer, value real, delta real,
+    primary key (kind, field, t, rid)) without rowid;
+create index if not exists number_log_rid on number_log(rid);
+create table if not exists numbers (rid integer, field integer, kind integer, value real, t real,
+    primary key (rid, field)) without rowid;
+create index if not exists numbers_kind on numbers(kind, field, value);
 """
 
 COLS = "rid, id, kind, state, first, last, newest, entered, n, latest, arrived, raw, raw_first, body"
@@ -103,7 +115,8 @@ def kinds_key(spec) -> tuple:
     when it leaves them as they are)."""
     return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())),
                   tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None),
-                  *((tuple(sorted(k.moves_from.items())),) if getattr(k, "moves_from", None) else ()))
+                  *((tuple(sorted(k.moves_from.items())),) if getattr(k, "moves_from", None) else ()),
+                  *((("final", tuple(sorted(k.final))),) if getattr(k, "final", None) else ()))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 
@@ -284,7 +297,7 @@ class Index:
                 c.execute("pragma synchronous=normal")
                 c.execute("pragma cache_size=-16000")         # 16 MB of pages, at most
                 c.execute("pragma temp_store=memory")
-                c.executescript(SCHEMA)        # (an older layout is another file: its name holds VERSION)
+                c.executescript(SCHEMA + projections.SCHEMA)   # (an older layout is another file: its name holds VERSION)
             except BaseException:
                 c.close()
                 raise
@@ -409,19 +422,25 @@ class Index:
             seq = 0
         elif int(self._meta("gen")) != gen:
             self._reconcile(events)                         # events taken out (rolled up, pruned): items gone go
+            projections.again(self, events, seq)            # and what the status reads folded again from what is left
         self._set_meta(gen=gen)
         new = events.of_items(None, after_seq=seq, skip=skip, limit=CHUNK)
-        self._fold(new)
         top = max([seq, *(e["seq"] for e in new)])
         finished = len(new) < CHUNK
         if finished:
             top = max(top, last)                            # every item event up to ``last`` is folded
+        got, other = projections.loose(events, seq, top, CHUNK)
+        if len(got) >= CHUNK:                             # as many of the status's own: up to the last of them
+            top, finished = got[-1]["seq"], False
+            new = [e for e in new if e["seq"] <= top]
+        self._fold(new)
+        projections.follow(self, sorted(new + other, key=lambda e: e["seq"]))
         self._set_meta(seq=top)
         self.seq, self.gen = top, gen
         return finished
 
     def _reset(self) -> None:
-        for t in ("items", "moves", "left", "reached", "links", "names", "meta"):
+        for t in ("items", "moves", "left", "reached", "links", "number_log", "numbers", "names", "meta", *projections.TABLES):
             self.db.execute(f"delete from {t}")
         self.names, self.rnames = {None: None}, {None: None}
         self.cache.clear()
@@ -435,6 +454,8 @@ class Index:
         if gone:
             self.db.executemany("delete from moves where rid = ?", gone)
             self.db.executemany("delete from links where rid = ?", gone)
+            self.db.executemany("delete from number_log where rid = ?", gone)
+            self.db.executemany("delete from numbers where rid = ?", gone)
             self.db.executemany("delete from items where rid = ?", gone)
             dead = {r[0] for r in gone}
             for id in [i for i, (it, *_) in self.cache.items() if getattr(it, "rid", None) in dead]:
@@ -461,7 +482,7 @@ class Index:
                 rid, arrived, newest, raw, raw_first = row[0], row[10], row[6], row[11], row[12]
             else:
                 it, rid, arrived, newest, raw, raw_first = None, None, None, None, 0, None
-            it = fold(id, evs, k, it=it, transcript=self.transcript)
+            it, numbered, renumbered = itemnumbers.follow(id, evs, k, it, self.transcript, fold)
             restored = False
             for e in evs:
                 if e["type"] == SNAPSHOT:
@@ -484,6 +505,7 @@ class Index:
                                 "arrived=?, raw=?, raw_first=?, body=?, text=? where rid=?", (*values, rid))
             if restored:
                 self.db.execute("delete from moves where rid = ?", (rid,))
+            self._keep_numbers(rid, it, numbered, renumbered)
             if k is not None and (k.relations or k.about):     # its links, as its fields now hold them
                 self.db.execute("delete from links where rid = ?", (rid,))
                 got = links_of(k, it.fields) + [(ABOUT, t) for t in parts_named(it.fields.get(k.about) if k.about else None)]
@@ -507,6 +529,31 @@ class Index:
                 self.cache[id] = (it, raw, raw_first)
         while len(self.cache) > CACHED:
             self.cache.popitem(last=False)
+
+    def _keep_numbers(self, rid: int, it: Item, rows: list[tuple], restored: bool) -> None:
+        """An item's changes of its numeric fields written (``restored``: a snapshot's history in place of what was
+        kept), and its value now of each. Two changes of one field at one moment are one row: the last value, their
+        deltas added, however the events were split into chunks."""
+        if restored:
+            self.db.execute("delete from number_log where rid = ?", (rid,))
+            self.db.execute("delete from numbers where rid = ?", (rid,))
+        if not rows or it.kind is None:              # an item of no kind has no field to chart
+            return
+        kn = self.nid(it.kind)
+        self.db.executemany(
+            "insert into number_log(kind, field, t, rid, value, delta) values (?,?,?,?,?,?) "
+            "on conflict(kind, field, t, rid) do update set value = excluded.value, delta = delta + excluded.delta",
+            [(kn, self.nid(f), t, rid, v, d) for f, t, v, d in rows])
+        latest: dict[str, float] = {}
+        for f, t, _, _ in rows:
+            latest[f] = max(t, latest.get(f, t))
+        now = itemnumbers.values(it.fields)
+        self.db.executemany("delete from numbers where rid = ? and field = ?",
+                            [(rid, self.nid(f)) for f in latest if f not in now])
+        self.db.executemany(
+            "insert into numbers(rid, field, kind, value, t) values (?,?,?,?,?) "
+            "on conflict(rid, field) do update set value = excluded.value, t = max(t, excluded.t)",
+            [(rid, self.nid(f), kn, now[f], t) for f, t in latest.items() if f in now])
 
     def _open(self, it: Item, k, now: float) -> bool:
         """Whether an item is kept folded in memory: not finished, and touched within ``idle``."""
@@ -604,6 +651,16 @@ class Index:
             c = out.setdefault(self.name(k) or "", {})
             c[self.name(s) or ""] = c.get(self.name(s) or "", 0) + n
         return out
+
+    @_healing
+    def in_window(self, since: float, until: float) -> dict[str, tuple[int, int]]:
+        """Per kind, of the items with no event after ``until``: how many arrived in ``[since, until]``, and how many had
+        an event in it (the Items page's overview, ``items_overview.py``)."""
+        w, a = self._where(None, until=until)
+        w = (w + " and " if w else " where ") + "last >= ? and first <= ?"
+        rows = self.db.execute(f"select kind, sum(arrived >= ? and arrived <= ?), count(*) from items{w} group by kind",
+                               (since, until, *a, since, until))
+        return {self.name(k) or "": (int(n_in or 0), n) for k, n_in, n in rows}
 
     @_healing
     def count(self, kind: str | None, states=None, until: float | None = None, words=()) -> int:
@@ -854,6 +911,10 @@ class Index:
             except BaseException:
                 self.db.execute("rollback")
                 raise
+
+    records = _healing(projections.records)          # what the status reads (projections.py)
+    marked = _healing(projections.marked)
+    asked = _healing(projections.asked)
 
     def close(self) -> None:
         """Its file closed (opened again when next used)."""

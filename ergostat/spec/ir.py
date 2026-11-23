@@ -341,6 +341,17 @@ def once_made(spec, x) -> bool:
     return bool(u and u.get("once") and not u.get("owners"))
 
 
+OWN_TEMPLATES = frozenset({"modelling"})   # the owner's decision: these once templates' goals are upkeep, not the system's
+
+
+def upkeep_of(spec, x) -> str | None:
+    """The template's name when a once library template in ``OWN_TEMPLATES`` made ``x``; else None."""
+    if not once_made(spec, x):
+        return None
+    t = spec.uses[x.where.instance].get("template")
+    return t if t in OWN_TEMPLATES else None
+
+
 def modelling_request_kind() -> ItemKind:
     on = {f"{MODELLING_REQUEST}.raised": "open", f"{MODELLING_REQUEST}.reopened": "open", f"{MODELLING_REQUEST}.proposed": "proposed",
           f"{MODELLING_REQUEST}.held": "held", f"{MODELLING_REQUEST}.answered": "answered",
@@ -377,7 +388,7 @@ def message_kind() -> ItemKind:
 
 def action_kind() -> ItemKind:
     on = {f"{ACTION}.{s}": s for s in ACTION_STATES}
-    return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "command", "exit"], {},
+    return ItemKind(ACTION, f"{ACTION}/*", list(ACTION_STATES), on, ["action", "item", "gate", "by", "approved by", "command", "exit"], {},
                     None, "a gated action an AI session or a program asked for: approved by its gate (auto) or the owner, or denied; "
                     "then ran or failed, its output given back (built in, SPEC §12k)", fold={"deliveries": "append"},
                     final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)
@@ -515,6 +526,25 @@ class WorkspacePool:
 
 
 @dataclass
+class ComputePool:
+    """A pool of nodes runs may execute on (``compute:``, SPEC §12k): each node an SSH ``Host`` name (``ssh``) or a
+    command whose standard input and output reach a worker (``connect``); ``slots`` runs at once on each; ``limits``
+    each run's (bytes, seconds, ``network``); ``repos`` name → path here, ``secrets`` name → the file it is read from
+    (never read at compile), ``labels`` what a node must say it has. Declared only: nothing runs on one yet."""
+    name: str
+    nodes: list[dict] = field(default_factory=list)      # each {"ssh": HOST} or {"connect": [argv]}
+    backend: str = "process"
+    image: str | None = None
+    slots: int = 1
+    limits: dict = field(default_factory=dict)            # cpus, memory, pids, disk, wall, network, log
+    repos: dict[str, str] = field(default_factory=dict)
+    secrets: dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
+    description: str = ""
+    where: Where | None = None
+
+
+@dataclass
 class Sensor:
     name: str
     of: Ref                    # the stock or flow it measures
@@ -535,6 +565,8 @@ class Sensor:
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
     untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
+    run_in: str | None = None   # "owner" only when compile proved its run the owner's or ergostat's; else (None too)
+    #                             it runs in ergostat.sandbox (library/runs.py)
 
     @property
     def window(self) -> float:
@@ -693,6 +725,14 @@ class Goal:
 
 
 @dataclass
+class KnownLaw:
+    """An external block's declared law, from the catalogue of known laws (control/laws.py, SPEC §12d): its kind and
+    its parameters as checked (numbers as floats, durations in seconds), each one the catalogue names, defaults filled."""
+    kind: str
+    params: dict
+
+
+@dataclass
 class Block:
     name: str
     type: str
@@ -719,6 +759,10 @@ class Block:
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
     untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
+    law: KnownLaw | None = None  # an external block's declared law (``law: {kind: ...}``); None when it declares none
+    # ``runs-on: POOL``: the compute pool its runs are for (SPEC §12k); None: here. Left out of its plain form while None,
+    # so a model that names no pool hashes as it did before the key existed (numbers/version._plain).
+    runs_on: str | None = field(default=None, metadata={"unset": None})
 
     @property
     def builtin(self) -> bool:
@@ -832,6 +876,7 @@ class Takes:
     unblocked: bool = False         # only items whose predecessors are all finished, the critical first (SPEC §5a, relations)
     order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
                                                      # without one after those with it; the order above among equals
+    healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
 
 
 @dataclass
@@ -846,6 +891,8 @@ class Relation:
     group: bool = False             # a parent: the Graph view groups by it
     remote: str = ""                # names a remote's kind (incidents-incident): the remote; never precedence (§4c)
     there: str = ""                 # the kind's name at that remote (incident)
+    # precedence: the target's states (not finished) in which it no longer blocks; the CPM stays finish-to-start
+    starts_at: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -959,6 +1006,7 @@ class Spec:
     actions: dict[str, Action] = field(default_factory=dict)           # the gated actions sessions may ask for (SPEC §12k)
     notify: object = None                   # inbox.config.Notify: where what waits on a person is sent (SPEC §12o)
     workspaces: dict[str, WorkspacePool] = field(default_factory=dict)  # the workspace pools (SPEC §12k)
+    compute: dict[str, ComputePool] = field(default_factory=dict)      # where runs may execute (SPEC §12k)
     leases: dict[str, LeaseTerms] = field(default_factory=dict)        # tier → its lease terms, over the defaults (SPEC §9.5)
     daemons: dict[str, Daemon] = field(default_factory=dict)           # the long-lived runners (SPEC §9.7)
     uses: dict = field(default_factory=dict)                           # instance → its template, values, stand-ins (SPEC §2a)
@@ -966,6 +1014,7 @@ class Spec:
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
+    outlive_engine: bool = False            # runs: outlive_engine: a run kept by its keeper, never stopped with us (§9.1)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept

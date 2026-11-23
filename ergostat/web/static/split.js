@@ -23,7 +23,7 @@ function splitSave() {
 }
 let splitPane = null, splitSep = null, splitFrame = null;
 
-const OTHER_PAGES = ["/goals", "/loops", "/agents", "/record", "/items", "/model", "/fit", "/residuals", "/check", "/guide", "/item/"];
+const OTHER_PAGES = ["/dashboard", "/goals", "/loops", "/agents", "/record", "/items", "/model", "/fit", "/residuals", "/check", "/guide", "/item/"];
 function diagramHash(r) {                            // a route (or an old #/ address) that draws a diagram
   const path = (String(r || "").replace(/^#/, "") || "/diagram").split("?")[0];
   return !OTHER_PAGES.some((p) => path === p || (p.endsWith("/") && path.startsWith(p)));

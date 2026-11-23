@@ -15,8 +15,13 @@ async function pageGuide(main, q) {
   const steps = h("div", { class: "g-steps" });
   let last = null;
   frames.forEach((f, k) => {
-    if (f.part !== last) { steps.append(h("span", { class: "g-part", "data-part": f.part }, d.parts[f.part])); last = f.part; }
-    steps.append(h("button", { class: "g-dot", "data-frame": String(k), title: f.text, onclick: () => show(k) }));
+    if (f.part !== last) {                          // a section's name: a link to its first frame
+      steps.append(h("a", { class: "g-part", "data-part": f.part, href: routeUrl(`/guide?frame=${k}`),
+                            onclick: (ev) => { ev.preventDefault(); show(k); } }, d.parts[f.part]));
+      last = f.part;
+    }
+    steps.append(h("button", { class: "g-dot", "data-frame": String(k), title: f.text,
+                               "aria-label": `Step ${k + 1} of ${frames.length}`, onclick: () => show(k) }));
   });
   const text = h("p", { class: "g-text" });
   const stage = h("div", { class: "g-stage" });
@@ -42,7 +47,10 @@ async function pageGuide(main, q) {
     i = at(k);
     const f = frames[i];
     replaceRoute(`/guide?frame=${i}`);
-    for (const b of steps.querySelectorAll(".g-dot")) b.classList.toggle("on", +b.dataset.frame === i);
+    for (const b of steps.querySelectorAll(".g-dot")) {
+      b.classList.toggle("on", +b.dataset.frame === i);
+      if (+b.dataset.frame === i) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
+    }
     for (const s0 of steps.querySelectorAll(".g-part")) s0.classList.toggle("on", s0.dataset.part === f.part);
     text.textContent = f.text;
     count.textContent = `${i + 1} / ${frames.length}`;
@@ -50,10 +58,12 @@ async function pageGuide(main, q) {
     deck.dataset.frame = f.id;
     deck.dataset.drawn = "";
     const views = h("div", { class: "g-views" + (f.views?.length > 1 || f.id === "yours" ? " two" : "") });
-    stage.replaceChildren(views, f.plot ? guidePlot(f.plot) : "");
+    const wait = f.id === "yours" ? h("p", { class: "muted g-wait" }, "Drawing your system…") : "";   // (its graphs are asked for first)
+    stage.replaceChildren(views, f.plot ? guidePlot(f.plot) : "", wait);
     const mine = i;
     const jobs = f.id === "yours" ? await guideYours(views) : (f.views || []).map((v) => guideView(views, v));
     await Promise.all(jobs);
+    if (wait) wait.remove();
     if (mine === i) deck.dataset.drawn = f.id;      // (the tests wait for it)
   }
   await show(i);

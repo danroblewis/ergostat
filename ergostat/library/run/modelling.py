@@ -75,13 +75,14 @@ def rules(argv: list[str]) -> int:
     from ...numbers import requests as rq
     from ...numbers import rules as ru
     p = project()
-    mine = [r for r in rq.waiting(p, ("open",)) if r.get("tier") == "rule"]
+    mine = [r for r in rq.waiting(p, ("open",)) if r.get("tier") == "rule"] + ru.unitless(p)   # (check's, no request)
     if not mine:
         note("rules: no open request the rule tier answers")
         return 0
     made, none = ru.propose(p, mine, most=a.most)
     for r, why in none:
-        rq.mark(p, r, "held", f"the rule tier has no certain change for it: {why}", tier="ai")
+        if not r.get("check"):                           # a check finding with no change sure: check goes on saying it
+            rq.mark(p, r, "held", f"the rule tier has no certain change for it: {why}", tier="ai")
     got = submitted(p, [raw for _, raw in made], "fixer")
     note(f"rules: {got} proposed, {len(none)} handed on (of {len(mine)} open)")
     return 0
@@ -233,8 +234,9 @@ def redesign(argv: list[str]) -> int:
     run = ("open", "answered")                     # (as it was opened, or answered as never ended meanwhile)
     if out.get("result") == "proposed":
         rq.move(p, req, "proposed", {"change": out.get("id"), "why": None}, run)
-    elif out.get("result") == "error":           # its call failed: the request stays open, saying so
-        rq.move(p, req, "open", {"why": f"the redesigner's call failed: {out['why_not']}"[:500]}, run)
+    elif out.get("result") in ("error", "no budget"):   # its call failed, or was refused: the request stays open
+        said = "failed" if out["result"] == "error" else "was refused"
+        rq.move(p, req, "open", {"why": f"the redesigner's call {said}: {out['why_not']}"[:500]}, run)
     else:
         rq.move(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")},
                 run)
