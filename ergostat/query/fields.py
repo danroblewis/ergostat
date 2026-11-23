@@ -44,13 +44,14 @@ def _read(p) -> dict:
     items_, moves, types = {}, {}, set()
     for name, k in kinds.items():
         types |= set(k.on)
-        moves[name] = {"states": list(k.states)}
+        finished = list(its.finishes(p.events, spec, name)["finished"])
+        moves[name] = {"states": list(k.states), "finished": finished}
         ix = its._index(p.events, spec, its.asks_transcript([k]))
         if ix is None:
-            items_[name] = {"fields": [], "states": list(k.states), "group_by": ["state", "kind"]}
+            items_[name] = {"fields": [], "states": list(k.states), "finished": finished, "group_by": ["state", "kind"]}
             continue
         items_[name] = {"fields": [{"name": f["field"], "unit": f["unit"]} for f in numberreads.fields_of(ix).get(name, ())],
-                        "states": list(k.states), "group_by": _groupable(ix, k)}
+                        "states": list(k.states), "finished": finished, "group_by": _groupable(ix, k)}
     return {"sources": {"items": {"kinds": items_}, "moves": {"kinds": moves}, "counts": {"kinds": list(kinds)},
                         "series": {"series": _series(p)}, "events": {"types": sorted(types)}},
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),

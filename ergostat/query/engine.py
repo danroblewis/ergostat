@@ -9,15 +9,19 @@ import time
 import weakref
 from collections import OrderedDict
 
+from . import sources
 from . import transforms as tf
 from .buckets import Grid, grid
-from .parse import RATE_PER, Query, decode, parse
-from .sources import READERS, Read, Unanswerable, bucketed
+from .parse import RATE_PER, Query, Refused, decode, parse
+from .sources import READERS, Read, Unanswerable, bucketed, series_grid
 
 MOST_GROUPS = 12
 OTHER = "other"
 LIVE_EVERY = 5.0            # a window ending now ends on a multiple of this: requests in between share an answer
 MOST_CELLS = 400_000        # values kept in the cache, in all
+REQUEST_SECONDS = 10.0      # a request stops starting queries after this: what is left answers that it was not read
+LOG_READS = 4               # distinct reads of the event log one request may make
+LOG_AT_ONCE = 2             # reads of the event log at once, in all: the web server's workers are never all held by them
 log = logging.getLogger("ergostat")
 
 
@@ -28,6 +32,7 @@ class Kept:
         self.lock = threading.Lock()
         self.got: OrderedDict = OrderedDict()
         self.cells = 0
+        self.log_gate = threading.BoundedSemaphore(LOG_AT_ONCE)
 
     def get(self, key):
         with self.lock:
@@ -46,6 +51,33 @@ class Kept:
             while self.cells > MOST_CELLS and len(self.got) > 1:
                 _, (_, n) = self.got.popitem(last=False)
                 self.cells -= n
+
+
+class Work:
+    """One request's budget: a deadline, and a few reads of the event log, the same read shared by its queries. A read
+    that would wait for another is refused at once, so abandoned requests cannot hold the server's workers."""
+
+    def __init__(self, kept: Kept):
+        self.deadline = time.monotonic() + REQUEST_SECONDS
+        self.gate = kept.log_gate
+        self.read: dict = {}
+
+    def late(self) -> bool:
+        return time.monotonic() > self.deadline
+
+    def log(self, p, n, type_, since, until, skip) -> list:
+        key = (n, type_, since, until, skip)
+        if key in self.read:
+            return self.read[key]
+        if len(self.read) >= LOG_READS:
+            raise Unanswerable(f"busy: this request already read the event log {LOG_READS} times; ask for fewer event charts")
+        if not self.gate.acquire(blocking=False):
+            raise Unanswerable("busy: the event log is being read for other charts; try again shortly")
+        try:
+            got = self.read[key] = p.events.query(n=n, type=type_, since=since, until=until, skip=skip)
+        finally:
+            self.gate.release()
+        return got
 
 
 _KEPT: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -100,7 +132,8 @@ def _transformed(q: Query, read: Read, values: list, g: Grid) -> list:
     if q.transform != "rate":
         return values
     if q.source == "series" and q.agg == "last":
-        return tf.counter_rate(values, g.spans, read.before)
+        cut = g.spans[0] < g.step and read.before_t is not None
+        return tf.counter_rate(values, g.spans, read.before, g.since - read.before_t if cut else 0.0)
     if q.source == "counts":
         return tf.plain_rate(tf.delta(values), g.spans)
     return tf.plain_rate(values, g.spans)
@@ -119,6 +152,8 @@ def _result(q: Query, read: Read, g: Grid, first: float | None) -> dict:
             values = [0.0 if v is None else v for v in values]
         if zero_fills or q.source == "counts":
             values = _before_record(values, g, first)
+        if read.read_from is not None:                # a bucket not wholly read is unknown, never a zero
+            values = [None if g.start + i * g.step < read.read_from else v for i, v in enumerate(values)]
         out.append((n, _transformed(q, read, values, g)))
     unit = read.unit
     if q.transform == "rate":
@@ -143,15 +178,27 @@ def _version(p, q: Query) -> tuple:
     return ("e", ev.generation() if hasattr(ev, "generation") else None, ev.last_seq() if hasattr(ev, "last_seq") else ev.count())
 
 
-def _one(live, p, q: Query, since: float, until: float, points: int, first: float | None) -> dict:
-    g = grid(since, until, points, q.bucket)
+def _read(p, spec, q: Query, g: Grid, work: Work) -> Read:
+    if q.source == "events":
+        return sources.events(p, spec, q, g, lambda n, ty, a, b, skip: work.log(p, n, ty, a, b, skip))
+    return READERS[q.source](p, spec, q, g)
+
+
+def _one(live, p, q: Query, since: float, until: float, points: int, first: float | None,
+         work: Work | None = None) -> dict:
+    g = series_grid(p.measurements, q.series, since, until, points, q.bucket) if q.source == "series" else \
+        grid(since, until, points, q.bucket)
     kept = _kept(live)
     key = (q, g.since, g.until, g.step, getattr(live, "mtime", None), _version(p, q))
     if (got := kept.get(key)) is not None:
         return got[0]
+    work = work or Work(kept)
+    if work.late():
+        return {"id": q.id, "error": f"{q.source}: busy: this request ran past {REQUEST_SECONDS:g} s; try again",
+                "read_log": False}
     spec = getattr(p.model, "spec", None)
     try:
-        got = _result(q, READERS[q.source](p, spec, q, g), g, first)
+        got = _result(q, _read(p, spec, q, g, work), g, first)
     except Unanswerable as e:
         return {"id": q.id, "error": f"{q.source}: {e}", "read_log": q.source == "events"}
     except Exception as e:                            # one query's failure is its own: the others still answer
@@ -163,11 +210,13 @@ def _one(live, p, q: Query, since: float, until: float, points: int, first: floa
 
 
 def answer(live, p, raw: str | None) -> dict:
-    """``GET /api/query``: a malformed request raises ``BadQuery``; a query that cannot be answered says so in its result."""
+    """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its result."""
     asked = parse(decode(raw))
     now = time.time()
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
     since = until - asked.since
     first = p.events.first_time()
+    work = Work(_kept(live))
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step,
-            "results": [_one(live, p, q, since, until, asked.points, first) for q in asked.queries]}
+            "results": [{"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
+                        else _one(live, p, q, since, until, asked.points, first, work) for q in asked.queries]}

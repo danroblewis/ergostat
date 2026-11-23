@@ -22,7 +22,7 @@ POINTS = 120
 MOST_WINDOW = 400 * 86400.0
 MOST_AVERAGED = 200         # buckets in a moving average
 KEYS = {"id", "source", "kind", "field", "where", "group_by", "agg", "transform", "rate_per", "bucket", "window",
-        "measure", "state", "series", "type"}
+        "measure", "state", "series", "type", "first_only", "include_open"}
 DEFAULT_AGG = {"items": "sum", "moves": "count", "counts": "last", "series": "avg", "events": "count"}
 
 
@@ -47,6 +47,15 @@ class Query:
     state: tuple | None = None
     series: str | None = None
     type: str | None = None
+    first_only: bool = False        # entries: only each item's first entry to the state, never a return to it
+    include_open: bool = False      # time_in_state: also the items in the state now, at their age so far
+
+
+@dataclass(frozen=True)
+class Refused:
+    """A query that cannot be asked: it answers with these words, and the others still answer."""
+    id: str
+    error: str
 
 
 @dataclass(frozen=True)
@@ -54,7 +63,7 @@ class Asked:
     since: float                    # the window, in seconds back from ``until``
     until: float | None
     points: int
-    queries: tuple[Query, ...]
+    queries: tuple[Query | Refused, ...]
 
 
 def decode(q: str | None) -> dict:
@@ -139,7 +148,8 @@ def _query(d, i: int) -> Query:
               rate_per=_word(d, "rate_per", tuple(RATE_PER), None, who), bucket=_bucket(d, who),
               window=_window(d, who), measure=measure,
               state=None if d.get("state") is None else _texts(d["state"], f"{who}: state"),
-              series=_text(d, "series", who), type=_text(d, "type", who))
+              series=_text(d, "series", who), type=_text(d, "type", who), first_only=_flag(d, "first_only", "entries", measure, who),
+              include_open=_flag(d, "include_open", "time_in_state", measure, who))
     if source == "items" and not q.field:
         raise BadQuery(f"{who}: field is missing (a numeric field of the kind)")
     if source == "series" and not q.series:
@@ -147,11 +157,26 @@ def _query(d, i: int) -> Query:
     return q
 
 
+def _flag(d: dict, key: str, needs: str, measure: str | None, who: str) -> bool:
+    v = d.get(key, False)
+    if not isinstance(v, bool):
+        raise BadQuery(f"{who}: {key} must be true or false")
+    if v and measure != needs:
+        raise BadQuery(f"{who}: {key} is for the measure {needs}")
+    return v
+
+
 def _window(d: dict, who: str) -> int:
     v = d.get("window", 5)
     if isinstance(v, bool) or not isinstance(v, int) or not 1 <= v <= MOST_AVERAGED:
         raise BadQuery(f"{who}: window must be a whole number of buckets, 1 to {MOST_AVERAGED}")
     return v
+
+
+def _id_of(x, i: int) -> str:
+    """The id its answer goes under, even for a query that is not well formed."""
+    v = x.get("id", i) if isinstance(x, dict) else i
+    return str(v) if isinstance(v, str | int) and not isinstance(v, bool) and len(str(v)) <= 64 else str(i)
 
 
 def _since(v) -> float:
@@ -167,7 +192,7 @@ def _since(v) -> float:
 
 
 def parse(d: dict) -> Asked:
-    """The request, checked; a request or query that is not well formed is refused whole."""
+    """The request, checked: one that is not well formed is refused whole, a query that is not answers with why."""
     until = d.get("until")
     if until is not None and (isinstance(until, bool) or not isinstance(until, int | float) or not 0 < until < 1e11):
         raise BadQuery("query: until must be a Unix time, or null for now")
@@ -177,10 +202,19 @@ def parse(d: dict) -> Asked:
     qs = d.get("queries")
     if not isinstance(qs, list) or not qs:
         raise BadQuery("query: queries must be a list of at least one")
-    if len(qs) > MOST_QUERIES:
-        raise BadQuery(f"query: {len(qs)} queries, more than the {MOST_QUERIES} allowed")
-    got = tuple(_query(x, i) for i, x in enumerate(qs))
-    ids = [q.id for q in got]
-    if len(set(ids)) != len(ids):
-        raise BadQuery("query: two queries have the same id")
+    got: list[Query | Refused] = []
+    seen: set[str] = set()
+    for i, x in enumerate(qs):
+        id_ = _id_of(x, i)
+        if i >= MOST_QUERIES:
+            got.append(Refused(id_, f"query {id_}: not answered, past the {MOST_QUERIES} queries one request may ask"))
+        elif id_ in seen:
+            got.append(Refused(id_, f"query {id_}: two queries have the same id"))
+        else:
+            try:
+                got.append(_query(x, i))
+            except BadQuery as e:
+                got.append(Refused(id_, str(e)))
+        seen.add(id_)
+    got = tuple(got)
     return Asked(_since(d.get("since")), None if until is None else float(until), points, got)

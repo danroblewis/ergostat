@@ -3,15 +3,17 @@ aggregated in their buckets) or ``Levels`` (one value per bucket already). Only 
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from ..spec import items as its
 from ..spec import numberreads
 from . import labels
-from .buckets import Grid, aggregate
+from .buckets import Grid, aggregate, grid
 from .parse import Query
 
 EVENTS_MOST = 20_000        # events one query may read from the log
+EVENTS_WINDOW = 31 * 86400.0    # the longest window an events query may read the log over
 READINGS_MOST = 20_000      # a series' readings read for a percentile
 ANY = "all"
 
@@ -27,9 +29,11 @@ class Read:
     order: list[str] = field(default_factory=list)   # groups in their natural order (a kind's states), when they have one
     unit: str = ""
     before: float | None = None                   # a series' last reading ahead of the window
+    before_t: float | None = None                 # ... and when it was
     truncated: bool = False
     read_log: bool = False
     note: str | None = None
+    read_from: float | None = None                # only what happened from here on was read: earlier buckets are unknown
 
 
 def kinds(spec, q: Query) -> list:
@@ -94,17 +98,40 @@ def _moves_of(ix, k, q: Query, g: Grid) -> list[tuple]:
     kn = ix.known(k.name)
     if kn == -1:
         return []
-    col = "dst" if q.measure == "entries" else "frm"
-    ids = _state_ids(ix, k, q, ix.reached(k.name) if q.measure == "entries" else ix.left(k.name))
+    entering = q.measure == "entries"
+    col = "dst" if entering else "frm"
+    ids = _state_ids(ix, k, q, ix.reached(k.name) if entering else ix.left(k.name))
+    if q.include_open:
+        return _left_rows(ix, kn, _state_ids(ix, k, q, ix.left(k.name)), g) + _open_rows(ix, k, kn, q, g)
     if not ids:
         return []
     marks = ",".join("?" * len(ids))
+    if q.first_only:                  # an item's first time in the state: never a return to it
+        sql = (f"select first, rid, dst, 1.0 from (select min(t) first, rid, dst from moves where kind = ? and dst in ({marks}) "
+               f"group by rid, dst) where first >= ? and first <= ? order by first")
+        return _all(ix, sql, (kn, *ids, g.since, g.until))
     if q.measure == "time_in_state":
-        sql = (f"select m.t, m.rid, m.frm, m.t - (select max(x.t) from moves x where x.rid = m.rid and x.dst = m.frm and x.t <= m.t) "
-               f"from moves m where m.kind = ? and m.frm in ({marks}) and m.t >= ? and m.t <= ? order by m.t")
-    else:
-        sql = f"select t, rid, {col}, 1.0 from moves where kind = ? and {col} in ({marks}) and t >= ? and t <= ? order by t"
+        return _left_rows(ix, kn, ids, g)
+    sql = f"select t, rid, {col}, 1.0 from moves where kind = ? and {col} in ({marks}) and t >= ? and t <= ? order by t"
     return _all(ix, sql, (kn, *ids, g.since, g.until))
+
+
+def _left_rows(ix, kn: int, ids: list[int], g: Grid) -> list[tuple]:
+    """(when it left, rid, state, how long it had been there) of each time an item left one of the states."""
+    if not ids:
+        return []
+    marks = ",".join("?" * len(ids))
+    sql = (f"select m.t, m.rid, m.frm, m.t - (select max(x.t) from moves x where x.rid = m.rid and x.dst = m.frm and x.t <= m.t) "
+           f"from moves m where m.kind = ? and m.frm in ({marks}) and m.t >= ? and m.t <= ? order by m.t")
+    return _all(ix, sql, (kn, *ids, g.since, g.until))
+
+
+def _open_rows(ix, k, kn: int, q: Query, g: Grid) -> list[tuple]:
+    """(the window's end, rid, state, its age there so far) of each item in one of the states at the window's end."""
+    names = [s for s in q.state if s in ix.reached(k.name)] if q.state else sorted(x for x in ix.reached(k.name) if x)
+    wanted = {x for x in (ix.known(s) for s in names) if x != -1}
+    rows = _all(ix, "select max(t), rid, dst from moves where kind = ? and t <= ? group by rid", (kn, g.until))
+    return [(g.until, rid, dst, g.until - t) for t, rid, dst in rows if dst in wanted]
 
 
 def moves(p, spec, q: Query, g: Grid) -> Read:
@@ -182,6 +209,32 @@ def counts(p, spec, q: Query, g: Grid) -> Read:
     return Read(levels=levels, order=order if by == "state" else [], unit="items", note=note)
 
 
+def series_grid(m, name: str, since: float, until: float, points: int, asked: float | None) -> Grid:
+    """The grid for a series: its step a whole multiple of every roll-up tier that answers the window, so that each
+    roll-up row lies wholly in one bucket (a 600 s row cannot be shared out among 720 s buckets: it holds no times)."""
+    g = grid(since, until, points, asked)
+    if not hasattr(m, "_sources"):
+        return g
+    for _ in range(4):
+        with m._c() as c:
+            parts = m._sources(c, name, g.since, g.until, fine=g.step)
+        tiers = {int(e) for e, _, _ in parts if e > 0}     # (one wider than the step asked for is the finest the record holds)
+        if not tiers or g.step % (unit := math.lcm(*tiers)) == 0:
+            return g
+        g = grid(since, until, points, float(math.ceil(g.step / unit) * unit))
+    return g
+
+
+def overhangs(m, name: str, g: Grid) -> bool:
+    """Whether the first bucket is answered by a roll-up row that began before the window: it holds readings from
+    outside it, which cannot be told apart from those inside."""
+    if not hasattr(m, "_sources"):
+        return False
+    with m._c() as c:
+        parts = m._sources(c, name, g.since, g.until, fine=g.step)
+    return bool(parts) and parts[0][0] > 0 and parts[0][1] < g.since
+
+
 def series(p, spec, q: Query, g: Grid) -> Read:
     if q.group_by or q.where:
         raise Unanswerable("a series has no groups or filters: its readings carry no labels")
@@ -192,9 +245,14 @@ def series(p, spec, q: Query, g: Grid) -> Read:
     unit = _series_unit(p, q.series)
     if q.agg.startswith("p"):
         rows = [(t, v, v) for t, v in m.sampled(q.series, g.since, g.until, points=READINGS_MOST // 2)]
-        return Read(rows={q.series: rows} if rows else {}, unit=unit, before=before and before[1],
+        return Read(rows={q.series: rows} if rows else {}, unit=unit, before=before and before[1], before_t=before and before[0],
                     note="percentiles over rolled-up spans read their buckets' means")
-    return Read(levels={q.series: _rolled(m, q, g)}, unit=unit, before=before and before[1])
+    row = _rolled(m, q, g)
+    note = None
+    if q.agg in ("count", "sum") and row[0] is not None and overhangs(m, q.series, g):
+        row[0] = None
+        note = "the first bucket is left empty: its roll-up began before the window, so its count and sum are not this window's"
+    return Read(levels={q.series: row}, unit=unit, before=before and before[1], before_t=before and before[0], note=note)
 
 
 def _rolled(m, q: Query, g: Grid) -> list:
@@ -222,17 +280,22 @@ def _series_unit(p, name: str) -> str:
     return next((x.unit for parts in named.values() if (x := parts.get(kind)) is not None and x.unit), "")
 
 
-def events(p, spec, q: Query, g: Grid) -> Read:
+def events(p, spec, q: Query, g: Grid, read=None) -> Read:
+    """``read(n, type, since, until, skip)``: how the log is read (under the request's budget), when given."""
     if q.group_by not in (None, "type") or q.where:
         raise Unanswerable("events are counted by type only: group_by may be type, and there are no filters")
     skip = () if q.type else (its.TRANSCRIPT_TYPES,)
-    got = p.events.query(n=EVENTS_MOST + 1, type=q.type, since=g.since, until=g.until, skip=skip)
+    if g.until - g.since > EVENTS_WINDOW:
+        raise Unanswerable(f"events are read from the log, over at most {int(EVENTS_WINDOW // 86400)} days: ask for a shorter window")
+    ask = read or (lambda n, type, since, until, skip: p.events.query(n=n, type=type, since=since, until=until, skip=skip))
+    got = ask(EVENTS_MOST + 1, q.type, g.since, g.until, skip)
     cut = len(got) > EVENTS_MOST
     out: dict[str, list] = {}
     for e in got[-EVENTS_MOST:]:
         out.setdefault(e["type"] if q.group_by else (q.type or ANY), []).append((e["time"], 1.0, 1.0))
-    note = f"only the latest {EVENTS_MOST} events in the window were read" if cut else None
-    return Read(rows=out, unit="events", truncated=cut, read_log=True, note=note)
+    note = f"only the latest {EVENTS_MOST} events in the window were read: earlier buckets are empty, not zero" if cut else None
+    return Read(rows=out, unit="events", truncated=cut, read_log=True, note=note,
+                read_from=got[-EVENTS_MOST]["time"] if cut else None)
 
 
 READERS = {"items": items, "moves": moves, "counts": counts, "series": series, "events": events}
