@@ -7,7 +7,8 @@ the critical first (`takes: unblocked`), the Process view and each gap's page dr
 estimates wait on it.
 
 Read, conservatively, from:
-- docs/GAPS.md: within an entry, `after `NAME``, `parked until `NAME``, `needs `NAME` first`, `depends on `NAME``, and a
+- the entries in main's dev/records/ as they render (gapsdoc.entries(); docs/GAPS.md only before the split): within an
+  entry, `after `NAME``, `parked until `NAME``, `needs `NAME` first`, `depends on `NAME``, and a
   table whose header has a "Depends on" column beside a gap or branch column;
 - a definition file: a line `depends-on: [name, ...]` (dev/records/<branch>.md; its shape: dev/prompts/definition.md);
 - `gap.requested`: its `depends_on` (gap ids), already on the item.
@@ -19,11 +20,14 @@ gap (`dependency_problem`, the goal dependencies-sound), said, never dropped sil
 one says which and its state (`blocked_reason`; only a parked or dead one sets `waits_on_parked`); one whose branch is
 already merged into main is said 'landed, not closed', for the coordinator to close; one in a starts_at state
 (approved, queued, push-pending: fac.STACKABLE) is said 'stacked on X (approved)', as the gap is built on it.
+A record that cannot be read (from_main()) is said by name on the gap it is the record of (its branch), and that gap
+is held (`waits_on_parked`, its `blocked_reason` saying so): its dependencies are unknown, so it is never free.
 `deps.py stacked` prints the count for the auxiliary gaps-stacked."""
 
 from __future__ import annotations
 
 import re
+import sys
 
 import fac
 
@@ -73,6 +77,16 @@ def from_gaps(text: str) -> tuple[dict[str, list[tuple[str, str]]], dict[str, se
     return deps, own
 
 
+def from_main(repo, ref: str, gaps_md: str) -> tuple[dict, dict[str, set[str]], dict[str, str]]:
+    """from_gaps() of the entries in ``ref``'s dev/records/ (gapsdoc.entries()), and {record: why} for each that
+    cannot be read; of ``gaps_md`` (``ref``'s docs/GAPS.md) only where ``ref`` has no GAPS-head.md (before the split)."""
+    import gapsdoc  # (here: deps is loaded alone, by path, in tests)
+    if (got := gapsdoc.entries(repo, ref)) is None:
+        print(f"deps: {ref} has no {fac.DEFS}/GAPS-head.md: dependencies read from its docs/GAPS.md", file=sys.stderr)
+    text, unreadable = got or (gaps_md, {})
+    return (*from_gaps(text), unreadable)
+
+
 def from_definition(text: str) -> list[str]:
     m = DEFLINE.search(text or "")
     return [x.strip().strip("`'\"") for x in m.group(1).split(",") if x.strip()] if m else []
@@ -118,16 +132,24 @@ def ancestors(gaps: dict[str, dict], gid: str) -> set[str]:
 
 
 def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: dict[str, set[str]],
-         merged: set[str] = frozenset(), landed: set[str] = frozenset()) -> dict[str, dict]:
+         merged: set[str] = frozenset(), landed: set[str] = frozenset(),
+         unreadable: dict[str, str] | None = None) -> dict[str, dict]:
     """Each gap's dependencies as they should be: {gap id: {depends_on, sources, problems, blocked_reason}}. Links are
     added one at a time; one that would close a cycle is refused and said. A name that is no gap but a branch already
     merged into main (``merged``) is work done: satisfied, kept as a source, no link; one the backlog took away
 (``depends_on_removed``) is kept as a source, no link. A dependency is 'landed, not closed' only when its branch is in
     ``merged`` and its own work is on main: its definition (its branch's first commit) is in main's tree (``landed``,
-    the stems of docs/roadmap/overnight/*.md there), so a branch made from main with no commits of its own is not."""
+    the stems of docs/roadmap/overnight/*.md there), so a branch made from main with no commits of its own is not.
+    A gap whose record is in ``unreadable`` ({record: why}, from_main()) is held, said on it; each said on stderr."""
     find = resolver(gaps, own)
     graph = {gid: set(g["fields"].get("depends_on") or []) for gid, g in gaps.items()}
     out = {gid: {"sources": [], "problems": []} for gid in gaps}
+    held = {}
+    for name, why in sorted((unreadable or {}).items()):
+        print(f"deps: {fac.DEFS}/{name}.md cannot be read ({why})", file=sys.stderr)
+        if (gid := find(name)) in gaps:
+            out[gid]["problems"].append(held.setdefault(gid, f"its record {fac.DEFS}/{name}.md cannot be read ({why}): "
+                                                        "its dependencies are unknown, so held"))
     up = {gid: ancestors(gaps, gid) for gid in gaps}
     for gid in gaps:                                               # what the item already names (gap.requested)
         for d in list(graph[gid]):
@@ -163,9 +185,10 @@ def plan(gaps: dict[str, dict], parsed: dict[str, list[tuple[str, str]]], own: d
     for gid in gaps:
         out[gid]["depends_on"] = sorted(graph[gid])
         waits = [d for d in sorted(graph[gid]) if gaps[d]["state"] not in DONE]
-        out[gid]["waits_on_parked"] = any(gaps[d]["state"] in ("parked", "dead") for d in waits)
+        hold = [held[gid]] if gid in held and gaps[gid]["state"] not in DONE else []
+        out[gid]["waits_on_parked"] = bool(hold) or any(gaps[d]["state"] in ("parked", "dead") for d in waits)
         out[gid]["blocked_reason"] = "" if gaps[gid]["state"] in DONE else "; ".join(
-            waiting(d, gaps[d], merged, landed) for d in waits)
+            hold + [waiting(d, gaps[d], merged, landed) for d in waits])
     return out
 
 
