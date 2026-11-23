@@ -84,3 +84,13 @@ file at a time, on the merged tree: tests/test_lease_gone.py, tests/test_factory
 tests/test_finding_attention.py (13 passed); tests/test_leases.py, tests/test_resilience.py and
 tests/test_leased_workspaces.py (81 passed); tests/test_agents.py (20 passed, 1 failed: the same unrelated
 `test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'` at dev/bin/onmain.py:25). ruff is clean.
+
+Round 5 (no review findings came back). No code changed. main as of the clone (58471daf) is merged (6ed6ce59). Checked
+what it brought against the release path: remote-systems changed docs only; shard-daemons-file-each gives each shard
+its own `daemons.SHARD.json`, which the release never reads (a daemon's block is left to its TTL, gone.py `local`), so
+neither touches it. Ran again, one file at a time, on the merged tree: tests/test_lease_gone.py,
+tests/test_factory_outage.py and tests/test_finding_attention.py (13 passed); tests/test_leases.py,
+tests/test_resilience.py and tests/test_leased_workspaces.py (81 passed); tests/test_engine_shard.py (21 passed);
+tests/test_shards.py, tests/test_daemons.py and tests/test_daemons_restart.py (55 passed); tests/test_agents.py (20
+passed, 1 failed: the same unrelated `test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'` at
+dev/bin/onmain.py:25). ruff is clean. The browser files were not run: no page code changed.
