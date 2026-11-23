@@ -58,6 +58,8 @@ groomer_model = "opus"               # the groomer: the backlog's links, value, 
 groomer_session_usd = 3.0
 pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one session sees the whole pipeline
 pipeline_manager_session_usd = 3.0
+designer_model = "opus"              # the designer: starts a demo and walks it (agents.py; read-only, pictures in run/shots/)
+designer_session_usd = 2.0
 
 [milestones]                         # groups of gaps finished together (dev/bin/milestones.py)
 active_max = 3                       # the most milestones active at once, an upkeep one not counted (1-20)
@@ -89,6 +91,8 @@ token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude set
                                      # 2026-11-21); an empty cpuset pins nothing (agents.limits)
 session_cpus = 1.5                   # each AI session's (and its finish's) container's --cpus; the suite containers
                                      # keep their 4. Empty or absent: 4; above 4 or not a number refuses the session
+designer_cpus = 3                    # a designer's --cpus, and a web-touching implementor's (its brief names
+                                     # ergostat/web/): an engine and Chromium at once. Absent: 3; outside (0, 4] refused
 session_cpuset = "0-7"               # the sessions' (implementor, reviewer, ...) and their finish's CPUs
 suite_cpuset = "8-11"                # a gap's own suites' (the implementor's rounds, 4 CPUs each)
 queue_cpuset = "12-23"               # the merge queue's and flake triage's suites ([suites] queue_container): unit (8)
