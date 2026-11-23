@@ -119,13 +119,20 @@ ADAPT = {"dependency": dependency, "process": process, "service": service}
 
 
 def drawn(frame: dict, said: dict) -> dict:
-    """A maker's frame, checked, its cycles worked out on the whole of it, fitted to a panel, with the matrix."""
+    """A maker's frame, checked, then made a panel's (``panel``)."""
     try:
         full = _frames.answer(frame, None, 0)
     except _frames.Bad as e:
         raise Unanswerable(f"the {frame.get('kind')} graph is not well formed: {e}") from e
-    kind, warnings, notes = full["kind"], [], [said["note"]] if said.get("note") else []
-    if said.get("truncated"):
+    return panel(full, said)
+
+
+def panel(full: dict, said: dict) -> dict:
+    """A checked graph, a data source's or ergostat's own: its cycles worked out on the whole of it and said by kind,
+    unknown when it was cut before it came here; fitted to a panel; and the matrix beside it. ``said``: what its maker
+    adds (``note``, ``truncated``, ``cycles``, ``ends``)."""
+    kind, warnings, notes = full["kind"], [*full.get("warnings", ())], [said["note"]] if said.get("note") else []
+    if said.get("truncated") or full["omitted"]["nodes"] or full["omitted"]["edges"]:
         full["semantics"]["acyclic"] = None
         warnings.append(("graph-truncated", f"only part of the {kind} graph was read ({full['omitted']['how']}), so "
                                             "whether it has a cycle, and what reaches what, is not known"))

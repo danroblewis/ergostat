@@ -35,7 +35,7 @@
       + `${c.rows === 1 ? " and one row" : ""}${c.measures ? ` and ${c.measures} measures` : ""}`;
     if (shape === "points") return c.order === "time" ? "points in time order" : "points";
     if (shape === "distribution") return `a distribution as ${list(c.form || ["bins"])}${c.over_time ? " over time" : ""}`;
-    if (shape === "graph") return "a graph's edges";
+    if (shape === "graph") return "a graph";
     return c.has === "system" ? "a model's poles and zeros" : "a frequency response";
   }
   function what(r) {

@@ -141,7 +141,8 @@ def test_the_process_map_is_a_process_graph_whose_routes_are_not_evidence(tmp_pa
     lines = {f"{label[s]}>{label[t]}": n for s, t, n in zip(r["edges"]["source"], r["edges"]["target"], r["edges"]["n"], strict=True)}
     assert lines == {"start>todo": 3, "todo>doing": 4, "doing>done": 2, "doing>todo": 1, "done>end": 2}
     returns = column(r, "edges", "returns")
-    assert {f"{label[s]}>{label[t]}": returns[i] for i, s, t in zip(r["edges"]["id"], r["edges"]["source"], r["edges"]["target"], strict=True)
+    e = r["edges"]
+    assert {f"{label[s]}>{label[t]}": returns[i] for i, s, t in zip(e["id"], e["source"], e["target"], strict=True)
             if returns[i]} == {"todo>doing": 1, "doing>todo": 1}
     assert {label[k]: v for k, v in column(r, "nodes", "count").items()} == {"start": 3, "todo": 4, "doing": 4, "done": 2, "end": 2}
     assert r["semantics"]["acyclic"] is False and r["meta"]["verdict"]["level"] == "ok"     # a line back is no defect (G44)
@@ -263,7 +264,7 @@ def test_a_graph_read_only_in_part_says_whether_it_has_a_cycle_is_not_known():  
 def test_what_a_cycle_means_is_said_by_kind():                                     # G44
     item = lambda i, **kw: {"id": i, "status": "blocked", "cycle": True, **kw}      # noqa: E731
     ans = {"items": [item("x"), item("y")], "now": 0, "end": 0, "since": 0, "capped": {}, "critical": [], "cycles": [["x", "y"]],
-           "edges": [{"from": "x", "to": "y", "rel": "after", "kind": "precedence"}, {"from": "y", "to": "x", "rel": "after", "kind": "precedence"}]}
+           "edges": [{"from": a, "to": b, "rel": "after", "kind": "precedence"} for a, b in (("x", "y"), ("y", "x"))]}
     dep = graphs.drawn(*graphs.dependency(ans))
     assert dep["warnings"] == [("graph-cycle", "a cycle of precedence is a defect: none of its items can ever be ready (x, y)")]
     assert dep["nodes"]["health"] == ["unhealthy", "unhealthy"]
