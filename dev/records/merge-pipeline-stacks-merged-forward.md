@@ -140,3 +140,17 @@ a guess (lesson-13). The likely cause is still the build step's container (4 CPU
 main's failure from this gap's, the next round needs the build log, or tests/test_factory.py run on clean main under
 the same load. Refused this round: appending this note and committing it from the shell (heredoc, then ruff and
 git commit in one command).
+
+Round 3, second build failure, named: test_an_approved_switch_drains_and_switches_through_the_engine again (the
+switcher still running at its 120 s wait; 1 failed, 194 passed, 2 skipped in 697 s). This time it was measured, not
+guessed. The test was given a timer for each switcher run, written only for the measurement and not committed. Run
+alone with the branch's model, the two runs took 43.0 s and 42.2 s. With this gap's three model parts taken out
+(dev/model/building.yaml the same as main's), they took 43.6 s and 43.8 s. So the branch adds no time to the switcher.
+Its model parts cost nothing measurable, and stack.py is never started on that path. A run takes about 43 s alone
+against a 120 s bound. Under `-n 8` on the build container's 4 CPUs it runs about three times slower and overruns. That
+is lesson-10's fixed bound, on main's code (dev/bin/drain.py's many `ergostat item` subprocesses), which is outside
+this gap (lesson-13). The ask was to fix the code, not the bound. The only code that would make the run faster is
+drain.py or ergostat's start-up, and neither is in this gap's Files to touch, so it belongs in its own gap. No code was
+changed. Both files were put back to the committed text and checked with git status. Refused here: `git checkout main
+-- dev/model/building.yaml` (so the model parts were taken out with edits instead), a later `git checkout HEAD --`
+to put them back (done with edits), and reading or piping a timing file under /tmp.
