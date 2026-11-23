@@ -1,0 +1,221 @@
+# ui-timeline-draws-each-item-s-states-over-time-rela: Timeline draws each item's states over time, relations or not
+
+depends-on: []
+
+A quick UI fix from the design review of 2026-11-22 (eight designers walked the running demos blind, then briefed on the owner's intent, then tested 46 newcomer user stories; Q59 of 82). Quick path: a small, focused change to the page; test what the change touches, no unrelated work.
+
+**Pages:** /items Timeline and Graph
+
+**The problem:** On demos whose items have no relations Timeline shows the same charts as List plus a configuration instruction, though its tooltip promises 'A Gantt chart: each item's states over time'. Switching mode barely changes the screen.
+
+**The change:** Without relations, Timeline draws one bar per item, split by state over time. Graph says 'These items do not wait on one another, so there is no dependency graph'. In both modes the mode's own content comes first, above the per-kind charts.
+
+**User stories it serves:** F5, F2
+
+## Definition of done
+1. The change above, and nothing outside it.
+2. The acceptance check below holds, as a browser test in the existing browser test files where it can be (tests/test_diagram_rendering.py, tests/test_items_page.py or the page's own test file).
+3. The owner's design rules hold: no new page, panel or view; the Dynamics and Blocks diagrams stay separate, each true to its discipline.
+
+## Acceptance
+On :8791/items?view=timeline one row per ticket (8) is drawn with segments labelled by state, within the first 900 px; the page does not contain 'relations:'.
+
+## Files to touch
+The page's template, script and style under `ergostat/web/`, and the test.
+
+## Size budget
+60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built, round 1. Net code: +4 lines (`ergostat/web/static/pages.js` +5 −3, `relations.js` +2 −1); within budget.
+
+- `pages.js`: in Graph and Timeline, a system none of whose kinds has relations asks `items-graph` for its kinds
+  that have items, for the Timeline only; the Graph says "These items do not wait on one another, so there is no
+  dependency graph." (the old "relations: (blocked_by: ticket)" instruction is gone). In both modes each system's
+  view is drawn above its kinds' charts; List keeps its order.
+- `relations.js`: each Timeline segment that actually happened is named by its state inside its bar where it fits
+  (more than 30 px), and has `data-state`. Projected bars are not labelled.
+- SPEC §5a ("The Items page's views") says both.
+- Test: `tests/test_items_page.py::test_the_timeline_draws_each_items_states_without_relations_and_the_graph_says_there_is_none`.
+  It uses a small `desk` model of its own: 8 tickets, no relations, on a port from `tests/ports.py` (the 8791-8799
+  range), not a fixed :8791. Checked: 8 rows, one per ticket, each above 900 px, segments with `data-state` and
+  labels matching its moves; the Timeline and the Graph message sit above the kinds' charts; no "relations:" in the
+  page. Each of four breaks was seen to fail it: Timeline asking only related kinds (timeout), charts first (row at
+  910 px), no in-bar labels, the old Graph wording.
+
+Decisions taken alone (the most reversible option):
+- The Frontier (on by default: only the unfinished) is left as it is, so finished items still drop out of the
+  Timeline unless Frontier is unchecked. So the test's 8 tickets are all unfinished. To show the finished by default
+  when there are no relations would change a default that is outside this gap.
+- In a snapshot, a system with several kinds and no relations now says "The graph and the timeline are not in a
+  snapshot." for the Timeline, because `snapshot.py` holds `items-graph` only for related kinds per system (and each
+  kind alone, so choosing a kind still works). Making snapshots hold this too is a separate change.
+- No docs/GAPS.md entry: the gap has none.
+
+Tests run: `tests/test_items_page.py` whole, with Playwright, under the watchdog: 22 passed, none skipped, rc 0.
+`uv run ruff check ergostat tests scripts`: clean. Not run by me (left to the factory, per the rules): the unit
+suite and the other three browser files. Nothing on `main` is newer than the branch's base, so there was nothing to
+merge.
+
+## Where it stopped (after the factory's build step)
+
+The factory's `build` step failed with rc 5: `scripts/affected_tests.py` picked `tests/test_items_page.py` (the
+branch changes it) and ran it without Playwright, so the module-level `importorskip` skipped the whole file and
+pytest ran no tests. The code didn't cause this, so the code is unchanged. Running the same file with Playwright
+(`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+tests/test_items_page.py`) gives 22 passed, none skipped, rc 0. Ruff is clean. Making the build step install
+Playwright, or treat a browser-only file as not affected, belongs in the factory's own tooling and is outside this
+gap (lesson-13), so it is not changed here.
+
+## Where it stopped (round 1, after the build step failed again)
+
+The build step failed again with rc 5 for the same reason: the only test file it picked, `tests/test_items_page.py`,
+is skipped without Playwright. This time it pointed at something real that the record had left as a known gap: a
+snapshot of a system with several kinds and no relations had no Timeline ("The graph and the timeline are not in a
+snapshot."), because `snapshot.py` `_graphs` held `items-graph` only for related kinds. It now asks for what pages.js
+asks for: with no related kind in a system, its kinds that have items, joined (+3 net lines; the branch is +7 in all).
+Its unit test is `tests/test_graph_cli_web.py::test_a_snapshot_holds_the_timeline_of_a_system_without_relations`
+(a `desk` of ticket and call with items and memo without). I broke the fix (`want or` to `want and`) and saw the
+test fail, then put the fix back. Because the branch changes that unit file, the build step now runs its 32 tests
+along with the skipped browser file. The earlier decision "a snapshot says not in a snapshot" is withdrawn.
+
+Tests run: `tests/test_graph_cli_web.py` whole: 32 passed. `uv run ruff check ergostat tests scripts`: clean. Not run
+again this session: `tests/test_items_page.py` with Playwright (no page code changed since its 22 passed).
+
+## Where it stopped (round 2, after merging main bf6dbebf)
+
+Merged main; the three conflicts are resolved keeping both sides:
+- `pages.js`: main had replaced the old "relations: (blocked_by: ticket)" instruction with "These items do not wait on
+  one another, so there is no critical path." in both modes. The branch's line is kept: the Graph says "...so there is
+  no dependency graph." (the wording this definition names) and the Timeline draws instead of saying anything. Main's
+  point, no configuration instruction on the page, still holds. No test on main checks main's wording.
+- `docs/SPEC.md`: main's Graph and Timeline rows (the finish sentence, the legend is the Graph's, the finished
+  collapsed by default, opening at now), plus this branch's "each segment named by its state where it fits".
+- `tests/test_items_page.py`: both sides' new tests kept (this branch's `desk` test, main's `FINISHING` and header
+  tests).
+
+After the merge the code differs from main only in the branch's own +12 −6 lines (`pages.js`, `relations.js`,
+`snapshot.py`). The net code size is unchanged.
+
+Tests run after the merge: `uv run ruff check ergostat tests scripts` clean; `tests/test_graph_cli_web.py` 41 passed;
+`tests/test_items_page.py` with Playwright under the watchdog: 26 passed, 6 failed, rc 1. This gap's acceptance test
+`test_the_timeline_draws_each_items_states_without_relations_and_the_graph_says_there_is_none` passed. These failed:
+`test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set`,
+`test_the_model_changes_are_found_by_heading_search_and_panel`, `test_a_valves_leased_items_are_listed_live`,
+`test_a_snapshot_lists_a_parts_items_and_opens_its_set`, `test_a_set_left_out_of_a_snapshot_says_so`,
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. Three of them, rerun by name, failed again
+the same way (not load). Their tests time out waiting for the diagram's side panel (`#detail .item-set`,
+itemsets.js/main.js), the List view's search, or the header's project picker (`#project` options, main.js/util.js).
+None of that code is changed by this branch, whose diff touches only the Graph/Timeline paths, the order of a
+section's content outside List, Timeline bar labels and snapshot `_graphs`. So they look unrelated (lesson-13) and
+are left alone. Not proven: running them on main's code here was refused (`git worktree add --detach /tmp/mainck
+bf6dbebf` and `git checkout bf6dbebf -- <the three files>` were both refused), so the factory's rerun on clean main
+is what settles it.
+
+## Where it stopped (round 3, after merging main ead497d1)
+
+Merged main; both conflicts kept both sides:
+- `relations.js`: main's segment (`data-block`, "projected in BLOCK" in its title) plus the branch's `data-state` and
+  the in-bar state label.
+- `docs/SPEC.md`: main's Graph and Timeline rows (the levelled projection, clock times with date and zone), plus the
+  branch's "each segment named by its state where it fits".
+
+After the merge this gap's acceptance test failed: ticket/7's row was at 910 px. Main now draws a project's built-in
+`ergostat` system (9 kinds, 0 items) first, and its empty charts (432 px) pushed the project's own Timeline down to
+767 px. The definition says the mode's own content comes first, so in Graph and Timeline the systems a mode draws
+now come before those it has nothing to draw for (`pages.js`: the section is marked `data-draws` and the groups are
+sorted, stably; List keeps its order). SPEC §5a says so. The test is unchanged: it failed at 910 px without this
+and passes with it. Net code against main: +13 −6 = +7 lines, within budget.
+
+Review findings: the only finding listed (conflicts with main in docs/SPEC.md and relations.js) is resolved above.
+
+Tests run: `uv run ruff check ergostat tests scripts` clean; `tests/test_graph_cli_web.py` 43 passed;
+`tests/test_items_page.py` with Playwright under the watchdog: 33 passed, 1 failed, rc 1. The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (failed again run by name). It times out
+waiting for the header's project picker (`#project` options, main.js/util.js) to list the other project. It failed
+the same way in round 2, and this branch does not change the header or the project list, so it is left alone as
+unrelated (lesson-13). It was not run on clean main here; the factory's rerun on main settles it. The five other
+round-2 failures now pass.
+
+## Where it stopped (round 4, answering the review)
+
+Both findings answered:
+
+1. *The acceptance on a project shaped like the demo.* New test
+   `tests/test_items_page.py::test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkeep`, on a
+   fixture shaped like ticket-factory: the ticket kind declares `relations: {blocked_by: ticket}` and no `system:`
+   (as `ticket.yaml`), ticket/2 is blocked by ticket/1, three of the 8 tickets are done (1, 3, 5), and the built-in
+   `ergostat` system has ten unfinished messages (twelve, two moved on so "routed" is a state that is left). With
+   `?view=timeline&frontier=0&collapse=0`: 8 rows, one per ticket, each above 900 px, each split into `todo`,
+   `doing` segments named in their bars (a finished ticket's bar ends where it was closed); the tickets' Timeline is
+   above their charts; the tickets' system comes before `ergostat`; no "relations:". With the defaults
+   (`?view=timeline`): the 5 unfinished tickets are drawn, above 900 px, still before `ergostat`.
+   **The claim is narrowed:** on a project where tickets finish, "one row per ticket (8)" holds with the Frontier
+   and Collapse done off, not on plain `?view=timeline`. The Frontier, on by default, leaves the finished out (and
+   collapses ticket/1 into ticket/2's line). SPEC §5a's Timeline row, from main, says so ("The frontier with the
+   finished collapsed by default"). Changing that default is outside this gap, so it is left as it is (the most
+   reversible option). The `desk` test (no relations, none finished) still shows 8 rows on plain `?view=timeline`.
+2. *Built-in upkeep leading the Timeline.* `pages.js`: among the systems a mode draws, ergostat's own now comes after
+   the project's (rank: the project's drawn, then ergostat's drawn, then those with nothing to draw; List keeps the
+   server's order). This matters when the project's kinds are under `other`, which the server lists after `ergostat`.
+   The built-in kinds still get their own Timeline (they have states over time), only after the project's. SPEC §5a
+   says so. Seen to fail without it: with the built-in rank removed, the new test fails on the order
+   (`['ergostat', 'other']`). The 900 px check alone did not catch that at this fixture's size; the order check does.
+
+Net code against main: +15 −6 = +9 lines (`pages.js` +8 −3, `relations.js` +2 −1, `snapshot.py` +5 −2); within
+budget.
+
+Tests run: `uv run ruff check ergostat tests scripts` clean; `tests/test_graph_cli_web.py` 43 passed;
+`tests/test_items_page.py` with Playwright under the watchdog: 34 passed, 1 failed, rc 1. The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, the same one as in rounds 2 and 3: a timeout
+waiting for the header's project picker (`#project`, main.js/util.js), which this branch does not change. So it is
+left alone as unrelated (lesson-13); the factory's rerun on clean main settles it. Not run by me: the unit suite and
+the other three browser files (left to the factory). There was nothing newer on `main` to merge (the clone's `main`
+is the branch's base).
+
+## Where it stopped (round 5, after merging main dc47a763)
+
+The only finding listed was the conflicts with main in `docs/SPEC.md` and `tests/test_items_page.py`. Both are
+resolved keeping both sides:
+- `docs/SPEC.md`: main's Timeline row (frame summary rows, the schedule's order, folding past 200 rows, the name
+  whole where it fits), plus the branch's "each segment named by its state where it fits".
+- `tests/test_items_page.py`: the branch's `desk` and `tickets` tests, and main's new stamp, caption and named-controls
+  tests, each closed by its own `assert not errors` / `pg.close()`. Main's named-controls test stays the last one on
+  `site`; the branch's tests use their own fixtures.
+
+The code still differs from main only in the branch's own lines: +15 −6 = +9 net (`pages.js`, `relations.js`,
+`snapshot.py`), within budget.
+
+Tests run after the merge: `uv run ruff check ergostat tests scripts` clean; `tests/test_items_page.py` with
+Playwright under the watchdog: 61 passed, 2 failed, rc 1. Both acceptance tests (`desk` and `tickets`) passed. These
+failed:
+- `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: the same header project-picker timeout as
+  in rounds 2 to 4. The branch does not change the header.
+- `test_actions_say_per_class_asked_approved_denied_and_whether_held` (new this round; failed again run by name, so
+  it is not load): a timeout waiting for `.action-classes li[data-class="jira-transition"]` on `/items`. That page
+  opens in List (`pages.js:569`), and in List the branch changes nothing: no `items-graph` is asked, each section's
+  order is still charts then tables, and every group ranks the same, so the stable sort keeps the server's order.
+  The line is drawn by `actionClasses` from the `actions` API (`pages.js:700`, `:804`), which the branch does not touch.
+  So it is unrelated (lesson-13) and left alone.
+Not proven on clean main: running these two tests with main's `pages.js` and `relations.js` copied in, then the
+branch's put back, was refused. The factory's rerun on clean main settles it. Not run by me: `tests/test_graph_cli_web.py`
+(unchanged by this merge), the unit suite and the other three browser files (left to the factory).
+
+## Where it stopped (round 6, after merging main 28ad5c4a)
+
+The only finding listed was the conflict with main in `ergostat/web/static/pages.js`. I resolved it keeping both
+sides: main's way of asking each open system's `items-graph` (all at once with `Promise.all`, with the request's
+`signal`, then awaiting the trust and action-class answers, `gone()` and `loaded()`), plus the branch's choice of
+kinds (a system with no related kind asks for its kinds that have items, for the Timeline only). The branch's old
+serial loop and its `p.isConnected` check are gone, because main's `gone()` covers that check. The code still differs
+from main only in the branch's own lines, +9 net, within budget.
+
+Tests run after the merge: `uv run ruff check ergostat tests scripts` clean; `tests/test_graph_cli_web.py` 53
+passed; `tests/test_items_page.py` with Playwright under the watchdog: 67 passed, 1 failed, rc 1. Both acceptance
+tests (`desk` and `tickets`) passed. The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It is the same timeout as in rounds 2 to 5,
+waiting for the header's project picker (`#project` options, `tests/test_items_page.py:2210`). The branch does not
+change the header or the project list, so it is left alone as unrelated (lesson-13). Round 5's other failure
+(`test_actions_say_per_class_...`) now passes. Not run by me: the unit suite and the other three browser files
+(left to the factory).

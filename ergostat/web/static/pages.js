@@ -42,9 +42,11 @@ function steadyWord(name, word, win) {
   return k.word;
 }
 
-async function pageLoops(main) {
+async function pageLoops(main, q) {
   const p = page(main, "Loops");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
+  const pick = (n) => { setQuery({ select: n }); openLoop(n); };     // the loop chosen, in the address
+  if (q.get("select") && $("#detail").hidden) openLoop(q.get("select"));
   const head = h("span", { class: "muted" }), qbox = h("div", { class: "quiet-systems" });
   p.firstChild.append(head);                             // the goals off, as the header has them (never its rows counted)
   p.append(qbox, box, cap);
@@ -67,8 +69,8 @@ async function pageLoops(main) {
     const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
     const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted"];
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
-      rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => openLoop(g.name) },
-        goalRow({ ...g, behaviour: word(g.name, g) }, { columns }))), "", "Loops"));   // hysteresis and flapping (steadyWord)
+      rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => pick(g.name) },
+        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "", "Loops"));   // hysteresis and flapping (steadyWord)
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -153,10 +155,10 @@ async function pageAgents(main) {
 
 async function pageRecord(main, q) {
   const p = page(main, "Record");
-  // the filter matches an event's type (valve.*), item or source; it and the scope below stay in the address
-  const filt = h("input", { type: "search", placeholder: "Type, item or source, e.g. valve.* or fixer", value: q.get("match") || q.get("type") || "", "aria-label": "Event type, item or source" });
+  // the filter matches an event's type (valve.*), item or source; it and the scope below stay in the address (match=; filter= read too)
+  const filt = h("input", { type: "search", placeholder: "Type, item or source, e.g. valve.* or fixer", value: q.get("match") || q.get("filter") || q.get("type") || "", "aria-label": "Event type, item or source" });
   const runs = h("input", { type: "checkbox", checked: q.get("runs") === "1" });
-  const box = h("div");
+  const box = h("div", {}, h("p", { class: "muted" }, "Loading…"));
   // one machine's events (its instances too), in the page's window: a sensor's observations link here
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
   const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's
@@ -771,7 +773,9 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const relAsked = {};
     await Promise.all((view === "list" ? [] : systems).map(async (g) => {
       if (!isOpen(g.name) || (d.set && !g.kinds.includes(kind))) return;
-      const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : g.kinds.filter((n) => relKinds.has(n));
+      const related = g.kinds.filter((n) => relKinds.has(n));     // none: the Timeline still draws each item's states
+      const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : related.length || view === "graph" ? related
+        : g.kinds.filter((n) => Object.values(kindOf[n]?.counts || {}).some(Boolean));
       relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }, signal).catch((err) => ({ err })) : null };
     }));
     const trust = await trustAsked, classes = (await classesAsked)?.asked ?? null;
@@ -893,7 +897,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
     const relPart = async (g) => {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
-      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no critical path.")];
+      if (!want.length) return kind || view !== "graph" ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);
@@ -918,8 +922,11 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head, charts)); continue; }   // the charts, not the lists
       const t = view === "list" ? await tables(names) : await relPart(g);
       anyRows ||= t.length > 0;
-      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name }, head, charts, ...t));
+      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name, ...(relAsked[g.name]?.want.length ? { "data-draws": "" } : {}) }, head, ...(view === "list" ? [charts, ...t] : [...t, charts])));   // a mode's own drawing first
     }
+    // and the systems it draws first, the project's before ergostat's own upkeep (List: none drawn, its order kept)
+    const rank = (e) => (e.hasAttribute("data-draws") ? (e.getAttribute("data-system") === "ergostat" ? 1 : 0) : 2);
+    groups.sort((a, b) => rank(a) - rank(b));
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
     const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
