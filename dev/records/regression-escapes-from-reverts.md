@@ -117,3 +117,11 @@ reopen that blocking finding, so no code changed. The test's bounds were not cha
 change dev/bin/fac.py, dev/bin/drain.py or dev/bin/live.py, so the code the test waits on is main's. The failure needs
 the proposed gap "fac.items lists only the states that hold items" (55d39de7 has the fix). Until that gap lands,
 this gap waits on it, or on the factory's rerun on clean main to place the failure there.
+
+Continued, round 2 (build after c05e7cbc): the same failure again,
+tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine (the switcher still running at
+its 120 s bound; 1 failed, 194 passed, 2 skipped, 721 s). The factory asked for the code to be fixed. The only code
+fix found is the fac.items change (55d39de7), and the review told this branch to take it out (lesson 13), so it was
+not put back. No code or test bound changed. The branch still does not touch dev/bin/fac.py, drain.py or live.py
+(diff --stat against main above), so the code the test waits on is main's. This gap waits on the proposed gap
+"fac.items lists only the states that hold items", or on the factory's rerun on clean main to place the failure there.
