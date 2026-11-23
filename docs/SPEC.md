@@ -1286,7 +1286,8 @@ reads the event log.
   duration (never a keyword), else the query is refused (`error_kind: refused`); a comment is left as written. The
   `analysis` and `model` call languages have the same rules without regular expressions; a language with no rules
   refuses every variable used in it. In the older query forms a field takes a variable's one value, and a list element
-  that is the variable alone takes every value. Changing a variable asks again only the panels whose queries then
+  that is the variable alone takes every value; with several chosen, a field is left as written (`$kind`), which
+  matches nothing. Changing a variable asks again only the panels whose queries then
   change (those that use it, and the copies of a panel repeated by it); each panel takes only the answer of the last
   ask it was in, by sequence. A panel repeated by a variable (section 4f's design, *Repeated panels*) shows one panel
   for each value chosen.
