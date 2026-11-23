@@ -139,3 +139,24 @@ touch the snapshot: `git diff main...HEAD -- ergostat` is only `web/snapshot.py`
 (+75), and neither starts a thread. So it is not this gap's, and it is left unfixed here (lesson-13). Its own gap
 should count only the threads `redesign_asked` starts, not every thread alive. Still not run: the three browser
 tests (no `playwright` here) and the full suite under `-n 8` (a whole-suite run was refused here). Ruff is clean.
+
+Round 3. The finding was "conflicts with main: docs/GAPS.md docs/SPEC.md tests/test_items_page.py". It no longer
+holds. Main already carries this branch's round-2 head: `a7cad540 Merge branch 'factory/a-set-chosen-in-a-snapshot'`,
+and `git branch --contains 736f8158` lists `main`. Main (277a9c6c) was merged back into the branch (0702022e), so
+`git diff main...HEAD` is empty. Checked by reading: the three files have no conflict markers. The GAPS entry *A set
+chosen in a snapshot* is one entry with one *Left* list, after *A kind chosen in a snapshot* (done), with no splice
+(lesson-7). SPEC §5a keeps the sentence on the sets the panels link to. No code changed in this round.
+
+Run here, on the merged tree (Playwright is present in this container now):
+- `tests/test_snapshot_sets.py`: 4 passed.
+- With Playwright under `suite_watch`: `tests/test_items_page.py::test_a_snapshot_lists_a_parts_items_and_opens_its_set`,
+  `::test_a_set_left_out_of_a_snapshot_says_so` and
+  `tests/test_diagram_rendering.py::test_a_snapshot_lists_a_process_lines_items`: 3 passed, none skipped.
+- Ruff is clean.
+
+The lesson-9 breaks still owed from rounds 1 and 2 were made, each then undone. With `MOST = 0`, the parts browser
+test and the process-line browser test both fail: their panel's `table.item-list` never shows. With `flat` writing a
+list as Python's `str()` (`['area:flags', 'area:billing']`), both
+`test_each_parts_set_is_held_as_the_page_asks` (its literal `where=area:flags,area:billing` key is missing) and the
+parts browser test fail. Not run here: the whole unit suite and the four browser files in full (the factory and the
+merge queue run them).

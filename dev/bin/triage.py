@@ -13,6 +13,7 @@ import time
 
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
+import flakes  # noqa: E402
 import review  # noqa: E402
 
 RETRIES = 2
@@ -73,7 +74,7 @@ def main() -> int:
     if rc == 0:                                  # (only quarantined tests failed: no flake seen, no retry spent)
         tests = [t for t in tests if t not in got.get("quarantined", [])]
         for t in tests:
-            fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=[gap["id"]], times=1, seen_at=time.time())
+            flakes.say("flake.seen", t, gaps=[gap["id"]], times=1, seen_at=time.time())
         fac.say("gap.retried", approved_by="flake-retry", retries=1 if tests else 0, flakes=tests, triage=got)
         return 0
     again = f"failed again alone: {', '.join(got.get('tests') or tests)}" if "seconds" in got else got["why"]
