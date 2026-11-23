@@ -90,3 +90,26 @@ every `prometheus` source. Fixed. About 15 net lines more, so about 285 (budget 
 Run here, round 2, one file at a time: test_data_sources, test_query_engine, test_web_access, test_query_fixes and
 test_numbers all passed. test_data_source_panels passed under the watchdog, with none skipped. ruff is clean. Not
 run here: the whole unit suite and the four browser files. `main` has still not moved.
+
+### Round 3
+
+The finding (blocking): eight tests in `tests/test_web_lanes.py` failed in the queue, and failed again with only this
+gap applied. The cause was this branch. Round 2 added a `reader=` keyword to `web.server._answer`. That test's `site`
+fixture swaps `_answer` for a stub that still has main's signature, `(live, path, q, project=None)`. So every `/api/`
+call through the stub raised `TypeError`, and no worker was ever seen taking a request.
+
+Fixed in the code. The test is unchanged.
+- `_answer` has main's signature again.
+- A new `_query(live, p, parts, q, reader=False)` answers `query` and `query/fields`. `_answer` calls it for everyone
+  else, as before.
+- `api` sends only a reader's `query` paths to `_query(..., reader=True)` itself. Everything else still goes through
+  `_answer` with three arguments.
+- This is the most reversible option: anything that replaces `_answer` keeps working.
+- About 5 net lines more, so about 290 (budget 600).
+- `tests/test_data_sources.py::test_an_anonymous_public_reader_is_refused_a_source_and_nothing_is_sent` still guards
+  the reader path. I saw it fail with `api`'s reader branch forced off, then pass again with the branch back.
+
+Run here, round 3, one file at a time: test_web_lanes (11, was 8 failed), test_data_sources (13), test_query_engine,
+test_web_access and test_projects_header all passed. test_data_source_panels passed under the watchdog (rc 0, none
+skipped). ruff is clean. Not run here: the whole unit suite and the four browser files. `main` (f086f76e) is already
+merged in and has not moved.

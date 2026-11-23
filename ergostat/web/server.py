@@ -584,7 +584,8 @@ def api(live: Live, path: str, q: dict, reader: bool = False):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view. ``reader``: asked by
     anyone under a public name (``open: read``), who may not ask a data source (SPEC §4d, §4e)."""
-    got = _answer(live, path, q, reader=reader)
+    parts = path.strip("/").split("/")                  # a reader's query answered here: _answer's signature kept
+    got = _query(live, live.get(), parts, q, True) if reader and parts[0] == "query" else _answer(live, path, q)
     if path.strip("/") == "graph" and isinstance(got, dict):
         from ..correspond import table
         shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
@@ -609,7 +610,16 @@ def _held_up(p) -> dict:
     return headline(p)
 
 
-def _answer(live: Live, path: str, q: dict, project=None, reader: bool = False):
+def _query(live: Live, p, parts: list, q: dict, reader: bool = False):
+    """Every chart's numbers, read-only, without a snapshot (ergostat/query); a reader is refused a data source."""
+    from ..query import answer, fields
+    name = unquote(parts[1]) if len(parts) > 1 else None
+    if name == "fields":
+        return fields(live, p, reader)
+    return answer(live, p, (q.get("q") or [None])[0], reader) if name is None else None
+
+
+def _answer(live: Live, path: str, q: dict, project=None):
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
         got = _LISTED
         return dict(got, age=None if got["at"] is None else max(0.0, time.time() - got["at"]))
@@ -623,8 +633,7 @@ def _answer(live: Live, path: str, q: dict, project=None, reader: bool = False):
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
     if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
-        from ..query import answer, fields
-        return fields(live, p, reader) if name == "fields" else answer(live, p, one("q"), reader) if name is None else None
+        return _query(live, p, parts, q)
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
         from ..spec import itemgraph as ig
         asked = [k for k in ("near", "path", "about") if one(k) is not None]
