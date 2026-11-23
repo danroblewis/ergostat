@@ -723,6 +723,14 @@ class Goal:
 
 
 @dataclass
+class KnownLaw:
+    """An external block's declared law, from the catalogue of known laws (control/laws.py, SPEC §12d): its kind and
+    its parameters as checked (numbers as floats, durations in seconds), each one the catalogue names, defaults filled."""
+    kind: str
+    params: dict
+
+
+@dataclass
 class Block:
     name: str
     type: str
@@ -749,6 +757,7 @@ class Block:
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
     untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
+    law: KnownLaw | None = None  # an external block's declared law (``law: {kind: ...}``); None when it declares none
     # ``runs-on: POOL``: the compute pool its runs are for (SPEC §12k); None: here. Left out of its plain form while None,
     # so a model that names no pool hashes as it did before the key existed (numbers/version._plain).
     runs_on: str | None = field(default=None, metadata={"unset": None})
