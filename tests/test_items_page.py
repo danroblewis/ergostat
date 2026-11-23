@@ -115,7 +115,7 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{site}/items")
+    pg.goto(f"{site}/items?view=list")                                         # every kind's list (bare: the overview)
     pg.wait_for_selector('section.sys-group[data-system="lab"] .kind-flow .uplot')
     assert systems(pg) == ["lab", "benchmark", "modelling", "ergostat"]       # ergostat's own kinds where they are counted
     head = pg.locator('section.sys-group[data-system="lab"] .sys-head').inner_text()
@@ -284,7 +284,7 @@ def test_a_folded_system_keeps_its_charts_not_its_lists_and_stays_folded(browser
     asked: list[str] = []
     pg.on("request", lambda r: asked.append(r.url) if "/api/items" in r.url else None)
     pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 10;")
-    pg.goto(f"{site}/items")
+    pg.goto(f"{site}/items?view=list")                                             # every kind's list
     lab = 'section.sys-group[data-system="lab"]'
     pg.wait_for_selector(f"{lab} .kind-flow .uplot")
     assert pg.locator(f"{lab} table").count() >= 1
@@ -468,6 +468,8 @@ def test_the_model_changes_are_found_by_heading_search_and_panel(browser, site):
     card = pg.locator('section.sys-group[data-system="modelling"] .kind-flow .kname').first
     card.wait_for()
     assert card.inner_text().startswith("Model changes") and "ergostat.model-change" in card.inner_text()
+    assert card.get_attribute("href") == "/items/ergostat.model-change"                # the overview's card: its own page
+    pg.goto(f"{site}/items?view=list")                                             # every kind's list
     head = pg.locator('section.sys-group[data-system="modelling"] h3.kind-head')
     head.wait_for()
     assert head.inner_text().startswith("Model changes")
@@ -484,7 +486,7 @@ def test_the_model_changes_are_found_by_heading_search_and_panel(browser, site):
         value = int(float(pg.evaluate(f"() => api('part/stock/{stock}').then((d) => d.now.value)")))
         line.locator("a").click()
         pg.wait_for_selector(".set-chip")
-        assert f"kind=ergostat.model-change&state={state}" in pg.url
+        assert f"/items/ergostat.model-change?state={state}" in pg.url                  # ?kind= went to the kind's page
         pg.wait_for_selector('section.sys-group[data-system="modelling"] table tr td')
         rows = pg.locator('section.sys-group table tr td:first-child').all_inner_texts()
         assert len(rows) == value and all(r.startswith("ergostat.model-change/") for r in rows), (rows, value)
@@ -522,6 +524,91 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     pg.wait_for_function("""() => ![...document.querySelectorAll('section.sys-group table tr td:first-child')]
         .some((td) => td.textContent === 'hypothesis/3')""", timeout=20000)
     assert leased() == ["hypothesis/1"] and pg.evaluate("() => window.__same")
+    assert not errors, errors
+    pg.close()
+
+
+ACTIONS = """
+actions:
+  jira-transition: {run: "echo moved {key}", gate: auto, args: {key: the issue}}
+  git-push: {run: "echo pushed", gate: approve, class: outward}
+"""
+
+
+@pytest.fixture(scope="module")
+def acted(tmp_path_factory):
+    """The example with two gated actions declared (the Actions kind is there only then), and their record: five
+    jira-transitions (three let through by the gate and ran, one denied, one waiting) and one push held."""
+    d = tmp_path_factory.mktemp(EXAMPLE) / EXAMPLE
+    shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    with open(d / "ergostat.yaml", "a") as f:
+        f.write(ACTIONS)
+    home = d.parent / "home"
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+from ergostat.actions import record as rec
+p = Project(mdl.load(Path({str(d)!r})))
+for i, end in enumerate(["ran", "ran", "ran", "denied", None]):
+    rec.step(p, f"jira{{i}}", "requested", {{"action": "jira-transition", "class": "jira-transition", "gate": "auto",
+                                           "command": f"echo moved PROJ-{{i}}"}})
+    if end == "ran":
+        rec.step(p, f"jira{{i}}", "approved", {{"approved_by": "gate"}})
+        rec.step(p, f"jira{{i}}", "ran", {{"exit": 0, "output": "moved"}})
+    elif end:
+        rec.step(p, f"jira{{i}}", "denied", {{"denied_by": "owner"}})
+rec.step(p, "push1", "requested", {{"action": "git-push", "class": "outward", "gate": "approve", "command": "echo pushed"}})
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def test_actions_say_per_class_asked_approved_denied_and_whether_held(browser, acted):
+    """Above the Actions rows, a line per class: asked this week, approved (and by whom), denied and waiting, each
+    action counted once so asked is their sum, and whether its gate holds it for approval or lets it through; the
+    search narrows the rows by class and by command."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{acted}/items")
+    line = pg.locator('.action-classes li[data-class="jira-transition"]')
+    line.wait_for(timeout=20000)
+    got = re.fullmatch(r"jira-transition: (\d+) asked, (\d+) approved \(by the gate\), (\d+) denied, (\d+) waiting this week"
+                       r" · let through", line.inner_text().strip())
+    assert got, line.inner_text()
+    asked, approved, denied, waiting = map(int, got.groups())
+    assert (asked, approved, denied, waiting) == (5, 3, 1, 1) and asked == approved + denied + waiting
+    held = pg.locator('.action-classes li[data-class="outward"]').inner_text().strip()
+    assert held == "outward: 1 asked, 0 approved, 0 denied, 1 waiting this week · held for approval", held
+    rows = lambda: sorted(pg.locator('section.sys-group table tr td:first-child').all_inner_texts())   # noqa: E731
+    assert len([r for r in rows() if r.startswith("ergostat.action/")]) == 6
+    pg.fill('input[type="search"]', "jira-transition")                 # by its class: only its rows, and its line
+    pg.wait_for_function("""() => ![...document.querySelectorAll('section.sys-group table tr td:first-child')]
+        .some((td) => td.textContent === 'ergostat.action/push1')""", timeout=20000)
+    assert rows() == [f"ergostat.action/jira{i}" for i in range(5)]
+    assert pg.locator(".action-classes li").evaluate_all("els => els.map((e) => e.dataset.class)") == ["jira-transition"]
+    pg.fill('input[type="search"]', "echo pushed")                     # by its command
+    pg.wait_for_function("""() => ![...document.querySelectorAll('section.sys-group table tr td:first-child')]
+        .some((td) => td.textContent.startsWith('ergostat.action/jira'))""", timeout=20000)
+    assert rows() == ["ergostat.action/push1"]
+    assert pg.locator(".action-classes li").evaluate_all("els => els.map((e) => e.dataset.class)") == ["outward"]
     assert not errors, errors
     pg.close()
 
@@ -1508,7 +1595,8 @@ def test_the_side_panels_and_item_tables_are_captioned(browser, site):
 @pytest.mark.parametrize("route, nav, view", [
     ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
     ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
-    ("/items", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"), ("/record", "/record", None),
+    ("/items", "/items", None), ("/items?view=list", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"),
+    ("/record", "/record", None),
     ("/model", "/model", None)])
 def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
     """Acceptance (ui-the-current-page-view-and-mode-are-announced-tab): on each page, no button or link without a
@@ -1522,8 +1610,10 @@ def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
     if nav == "/diagram":
         pg.wait_for_function(DIAGRAM_READY, timeout=60000)
     else:
-        pg.wait_for_selector("#main table", timeout=20000)
+        pg.wait_for_selector("#main table" if route != "/items" else "#main .kind-card", timeout=20000)
     pg.wait_for_timeout(500)                                  # the parts asked for after the first (counts, charts)
+    if route == "/items":                                     # the overview: its one switch says which is on
+        assert pg.locator(".seg[aria-label=States] button[aria-pressed=true]").all_inner_texts() == ["State groups"]
     got = pg.evaluate(NAMES)
     assert got["out"] == [], got["out"]
     # The diagram's view buttons also say what each view shows ("Dynamics · what is"): the view's word leads the name.
@@ -1655,6 +1745,114 @@ def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser
         for proc in procs:
             proc.terminate()
             proc.wait(timeout=10)
+
+
+# items-one-section-per-kind-closed: /items is the overview of the kinds, each opening on its own page (structure only)
+
+@pytest.fixture(scope="module")
+def factory_site(tmp_path_factory):
+    """A record of the factory's shape (tests/factory_shape.py: about 25 kinds, 700 gaps, 2,500 sessions), served."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    from tests import factory_shape
+    mp = pytest.MonkeyPatch()
+    d = tmp_path_factory.mktemp("factory")
+    mp.setenv("ERGOSTAT_HOME", str(d / "home"))
+    factory_shape.write(d / "f")
+    server, url = web_serve(Project(mdl.load(d / "f")), free_port())
+    yield url
+    server.shutdown()
+    server.server_close()
+    mp.undo()
+
+
+SHARED = {"/api/status", "/api/projects"}          # the header's own calls, on every page
+LEGENDS = "() => [...document.querySelectorAll('.kind-card .cfd-states')].map((l) => l.innerText)"
+
+
+def api_paths(pg) -> list[str]:
+    from urllib.parse import urlsplit
+    asked: list[str] = []
+    pg.on("request", lambda r: asked.append(urlsplit(r.url).path) if "/api/" in r.url else None)
+    return asked
+
+
+@pytest.mark.slow
+def test_the_overview_is_one_answer_no_rows_and_most_kinds_above_the_fold(browser, factory_site):
+    """Done items 1, 3, 4 and 6: one data request besides the header's, no table row; at 1440x900 at least 16 cards
+    wholly in view, each legend right of its chart, each title a link to its kind's page; at 390 px one column and no
+    sideways scroll."""
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    asked = api_paths(pg)
+    pg.goto(f"{factory_site}/items")
+    pg.wait_for_function("() => document.querySelectorAll('.kind-card .uplot').length >= 16", timeout=30000)
+    pg.wait_for_timeout(800)
+    assert [a for a in asked if a not in SHARED] == ["/api/items-overview"], asked
+    assert pg.locator("tr").count() == 0 and pg.locator("table").count() == 0
+    assert pg.locator(".rg-viewbar button", has_text="Graph").count() == 0
+    whole = pg.evaluate("""() => [...document.querySelectorAll('.kind-card')].filter((e) => { const r = e.getBoundingClientRect();
+        return r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth; }).length""")
+    assert whole >= 16, whole
+    sides = pg.evaluate("""() => [...document.querySelectorAll('.kind-card .cfd')].map((c) => {
+        const p = c.querySelector('.chart-plot').getBoundingClientRect(), l = c.querySelector('.cfd-states').getBoundingClientRect();
+        return [p.right, l.left, p.top, l.top]; })""")
+    assert len(sides) >= 16 and all(pr <= ll and abs(pt - lt) < 20 for pr, ll, pt, lt in sides), sides
+    links = pg.locator(".kind-card").evaluate_all(
+        "els => els.map((e) => [e.dataset.kind, e.querySelector('a.kname').getAttribute('href')])")
+    assert links and all(href == f"/items/{k}" for k, href in links), links
+    assert "Nothing in the window" in pg.locator(".kinds-quiet").inner_text()   # the empty built-in kinds, one line
+    pg.set_viewport_size({"width": 390, "height": 844})
+    pg.wait_for_timeout(500)
+    seen = pg.evaluate("""() => ({ scroll: document.scrollingElement.scrollWidth, client: document.scrollingElement.clientWidth,
+        lefts: new Set([...document.querySelectorAll('.kind-card')].map((e) => Math.round(e.getBoundingClientRect().left))).size })""")
+    assert seen["scroll"] == seen["client"] and seen["lefts"] == 1, seen
+    assert not errors, errors
+    pg.close()
+
+
+@pytest.mark.slow
+def test_the_state_group_switch_redraws_every_chart_with_no_request_and_survives_a_reload(browser, factory_site):
+    """Done item 5."""
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    asked = api_paths(pg)
+    pg.goto(f"{factory_site}/items")
+    pg.wait_for_function("() => document.querySelectorAll('.kind-card .uplot').length >= 16", timeout=30000)
+    grouped = pg.evaluate(LEGENDS)
+    assert any("working" in t for t in grouped) and not any("checking" in t for t in grouped), grouped
+    asked.clear()
+    pg.locator(".rg-viewbar button", has_text="Every state").click()
+    pg.wait_for_function("() => location.search === '?states=all'")
+    pg.wait_for_function("() => document.querySelectorAll('.kind-card .uplot').length >= 16")
+    every = pg.evaluate(LEGENDS)
+    assert len(every) == len(grouped) and all("checking" in t for t in every[:16]), every
+    assert "/api/items-overview" not in asked, asked
+    pg.reload()
+    pg.wait_for_function("() => document.querySelectorAll('.kind-card .uplot').length >= 16", timeout=30000)
+    assert pg.locator(".rg-viewbar button.on").inner_text() == "Every state"
+    assert pg.evaluate(LEGENDS) == every
+    pg.locator(".rg-viewbar button", has_text="State groups").click()
+    pg.wait_for_function("() => location.pathname + location.search === '/items'")
+    assert pg.evaluate(LEGENDS) == grouped
+    pg.close()
+
+
+def test_a_kinds_page_is_its_list_alone_and_the_old_address_goes_there(browser, factory_site):
+    """Done item 6: /items?kind=K goes to /items/K, which shows that kind's chart and list and no other kind's."""
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    asked = api_paths(pg)
+    pg.goto(f"{factory_site}/items?kind=gap&sort=-title")
+    pg.wait_for_selector("tr.click")
+    assert pg.evaluate("location.pathname + location.search") == "/items/gap?sort=-title"
+    assert pg.locator("section.sys-group").evaluate_all("els => els.map((e) => e.dataset.system)") == ["build"]
+    assert pg.locator(".kind-flow").count() == 1
+    assert all(r.startswith("gap/") for r in pg.locator("tr.click td:first-child").all_inner_texts())
+    assert asked.count("/api/items-flow") == 1, asked                               # its chart's alone, not every kind's
+    pg.locator(".rg-viewbar button", has_text="Graph").click()                    # its views, on its own page
+    pg.wait_for_function("() => location.pathname === '/items/gap' && location.search.includes('view=graph')")
+    pg.close()
 
 
 # milestones in the Graph and the Timeline (dev/records/milestone-shown-in-the-graph.md): last in the file, so the
