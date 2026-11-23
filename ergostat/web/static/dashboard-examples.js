@@ -37,7 +37,8 @@ function dashFlowExamples(k, goals) {
   if (k.waiting.length && k.working.length)
     out.push({ title: `${k.name}: waiting against working`, form: "phase", note: "The path the two take together over time",
                queries: [{ ...dashCount(k, "a", k.working, "working"), x: { type: "query", query: "b" } },
-                         { ...dashCount(k, "b", k.waiting, "waiting"), hidden: true }], display: { unit: "items", decimals: 0 } });
+                         { ...dashCount(k, "b", k.waiting, "waiting"), hidden: true }],
+               display: { unit: "items", decimals: 0, x: { label: "waiting" } } });
   if (!k.done.length) return out;
   const io = { id: "a", source: "frequency", input: { ...dashArrivals(k), id: "in" }, output: { ...dashCompletions(k), id: "out" } };
   out.push({ title: `${k.name}: arrivals to completions, Bode`, form: "bode", note: "Gain and phase by frequency", queries: [io], display: {} },
