@@ -16,88 +16,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.compute_pipe import WORKER, Pipe, image_python
-
-
-def _alive(pid: int) -> bool:
-    """A process there and not a zombie (a container's PID 1 may never reap what is reparented to it)."""
-    if sys.platform.startswith("linux"):
-        try:
-            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
-        except OSError:
-            return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-
-
-def _until(cond, timeout: float = 10.0) -> bool:
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if cond():
-            return True
-        time.sleep(0.05)
-    return cond()
-
-
-class Node:
-    """A worker over a pipe on a root of its own; ``end`` kills every run group and keeper it started."""
-
-    def __init__(self, tmp: Path):
-        self.root = tmp / "r"
-        self.w = Pipe([image_python(), "-I", str(WORKER), "--stdio", "--root", str(self.root)],
-                      env={**os.environ, "HOME": str(tmp)})
-        self.hello = self.w.read()
-        assert self.hello["type"] == "hello", self.w.stderr()
-        self.keepers: list[int] = []
-        self.n = 0
-
-    def ask(self, type: str, **fields) -> dict:
-        self.n += 1
-        self.w.send({"type": type, "id": self.n, **fields})
-        end = time.monotonic() + 10
-        while time.monotonic() < end:
-            f = self.w.read(10)
-            assert f is not None, self.w.stderr()
-            if f.get("id") == self.n:
-                return f
-        raise AssertionError(f"no answer to {type}")
-
-    def start(self, command: str, **fields) -> tuple[str, dict]:
-        run = uuid.uuid4().hex
-        got = self.ask("start", run=run, command=command, block="b", **fields)
-        if got["type"] == "started":
-            self.keepers.append(got["keeper"])
-        return run, got
-
-    def dir(self, run: str) -> Path:
-        return self.root / "runs" / run
-
-    def exit(self, run: str, timeout: float = 10.0) -> dict:
-        f = self.dir(run) / "exit"
-        assert _until(f.exists, timeout), (sorted(p.name for p in self.dir(run).iterdir()),
-                                           (self.dir(run) / "keeper.log").read_text())
-        return json.loads(f.read_text())
-
-    def pgid(self, run: str) -> int:
-        f = self.dir(run) / "pgid"
-        assert _until(f.exists)
-        return int(f.read_text())
-
-    def end(self) -> None:
-        self.w.close()
-        for d in (self.root / "runs").glob("*/pgid"):
-            try:
-                os.killpg(int(d.read_text()), signal.SIGKILL)
-            except (OSError, ValueError):
-                pass
-        for pid in self.keepers:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
+from tests.compute_pipe import Node
+from tests.compute_pipe import alive as _alive
+from tests.compute_pipe import until as _until
 
 
 @pytest.fixture
