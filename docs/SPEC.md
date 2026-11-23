@@ -1188,7 +1188,7 @@ consumer L, which composes them like any of M's (`stock.m-a-open`, in the system
 `ergostat remote` lists this model's remotes (url, version, parts, how each answers); `ergostat remote
 events NAME` reads a remote's newest events in place, by cursor, into a cache kept for a day (20,000 at
 most); `ergostat remote refresh` asks each again now; `ergostat remote proposals` lists the texts written for
-remotes' owners (above).
+remotes' owners (above). For agents, the MCP tool `remotes` (`name`, `proposals`) answers the same from the same rows, read only, with no remote asked, and on the last good model while the YAML is broken.
 
 **Its items and events in the pages.** The Items page adds, after the local systems, one section per remote,
 framed and marked *remote NAME · URL*: the remote's counts by kind and state and its newest 25 items, each linking
