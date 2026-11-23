@@ -183,11 +183,6 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: every gap sent back taken again by the implementor
-  stacks-current:
-    auxiliary: stale-stacks
-    hold: "<= 0"
-    tolerance: 0
-    description: every stacked gap holds its bases' reviewed heads, each moved base merged forward into it
   built-gaps-reviewed:
     stock: gaps-built
     hold: "<= 0"
@@ -272,11 +267,18 @@ blocks:
     timeout: 5m
     out: flow.dead-letters-parked
 
+  stack-forward-when:
+    type: expr
+    description: merge forward while a stacked gap's base has moved or landed (stale-stacks above 0)
+    in:
+      stale: auxiliary.stale-stacks
+    expr: stale > 0
+    out: block.stack-forward
   stack-forward:
     type: program
     description: merges each moved base's new reviewed head forward into the gaps stacked on it, bottom-up (--no-ff, never a rebase or a squash; leased, building and in-review gaps never touched); a conflict sends the gap back to fix, uncounted
     run: python3 dev/bin/stack.py
-    goal: stacks-current
     every: 5m
+    in: block.stack-forward-when
     timeout: 30m
     out: flow.sent-back-by-stack-forward

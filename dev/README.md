@@ -705,8 +705,8 @@ main (implement.py, step 1), and says so in `stacked_on: [{gap, sha}]`. The queu
 or none (queue.py).
 
 A base can move after that: sent back by review or triage, a fix round adds commits and it is approved again at a new
-`reviewed_head`. The block `stack-forward` (`dev/bin/stack.py`, every 5 minutes while the goal `stacks-current` is
-off; the sensor `stale-stacks` counts the stacked gaps whose base has moved or landed) merges the base's new head
+`reviewed_head`. The block `stack-forward` (`dev/bin/stack.py`, every 5 minutes while `stack-forward-when` commands
+it: the sensor `stale-stacks`, which counts the stacked gaps whose base has moved or landed, above 0) merges the base's new head
 forward into each gap stacked on it. It never rebases or squashes, so the review history stays. One pass runs under
 the queue's lock, taken only if it is free (a queue run holding it means the next pass). It reads the gaps inside the
 lock and takes the stale ones bottom-up, so a stack of three moves in one pass:

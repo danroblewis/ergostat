@@ -322,9 +322,9 @@ def without_landed(text: str) -> str:
 
 def without_stack_forward(text: str) -> str:
     """A model file as main had it before merge-pipeline-stacks-merged-forward: no block stack-forward, nor its
-    sensor stale-stacks, its goal stacks-current or its flow sent-back-by-stack-forward."""
-    return re.sub(r"(?m)^  (?:stack-forward|stale-stacks|stacks-current|sent-back-by-stack-forward):\n(?:    .*\n)*", "",
-                  text)
+    sensor stale-stacks, its gate stack-forward-when or its flow sent-back-by-stack-forward."""
+    return re.sub(r"(?m)^  (?:stack-forward|stale-stacks|stack-forward-when|sent-back-by-stack-forward):\n(?:    .*\n)*",
+                  "", text)
 
 
 def factory_copy(where: Path, edit=lambda text: text) -> Path:
@@ -415,7 +415,7 @@ def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, ca
     before = factory_copy(tmp_path / "before", lambda t: without_stack_forward(without_landed(t)))
     old = "".join(x.read_text() for x in (before / "dev" / "model").iterdir())
     assert "\n  gaps-landed:" not in old and "to: gaps-landed" not in old and "merged_by: null" not in old
-    assert "stack-forward" not in old and "stale-stacks" not in old and "stacks-current" not in old
+    assert "stack-forward" not in old and "stale-stacks" not in old
     now = found(factory_copy(tmp_path / "now"))
     assert not [x for x in now if x.startswith(("extremes-running", "extremes-skipped"))]
     assert sorted(now - found(before)) == []
