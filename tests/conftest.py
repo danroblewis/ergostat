@@ -192,11 +192,12 @@ class FactoryState:
     ``record`` (its state directory), ``stats`` (what the script said it wrote), ``digests`` (each record file's
     sha256 as built), ``project()``, and ``serve()``: a page server on it, a context manager giving its URL."""
 
-    def __init__(self, out: Path, stats: dict):
+    def __init__(self, out: Path, stats: dict, digests: dict | None = None):
         import hashlib
         self.model, self.home, self.record, self.stats = out / "model", out / "home", Path(stats["record"]), stats
-        self.digests = {str(f.relative_to(self.record)): hashlib.sha256(f.read_bytes()).hexdigest()
-                        for f in sorted(self.record.rglob("*")) if f.is_file() and f.name != "repo.json"}
+        self.digests = digests if digests is not None else {
+            str(f.relative_to(self.record)): hashlib.sha256(f.read_bytes()).hexdigest()
+            for f in sorted(self.record.rglob("*")) if f.is_file() and f.name != "repo.json"}
 
     def project(self):
         from ergostat import model
@@ -217,17 +218,33 @@ class FactoryState:
             srv.server_close()
 
 
+def clean_env(**more: str) -> dict:
+    """This process's environment without what an ergostat running the suite gave it (its socket, run, home: as the
+    ``home`` fixture clears for a test), but the watchdog's tag; a session fixture is set up before ``home`` runs."""
+    return {**{k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_") or k == "ERGOSTAT_SUITE_WATCH"}, **more}
+
+
 def build_factory_state(out: Path, *args: str) -> dict:
     got = subprocess.run([sys.executable, str(here().parent / "scripts/factory_fixture.py"), str(out), *args],
-                         check=True, capture_output=True, text=True, timeout=900)
+                         check=True, capture_output=True, text=True, timeout=900, env=clean_env())
     return json.loads(got.stdout)
 
 
 @pytest.fixture(scope="session")
 def factory_state(request, tmp_path_factory) -> FactoryState:
-    """A factory-size state directory (seed 1, its record ending at this hour), built once a session (tests/README.md).
-    Skipped under a ``-m fast`` run: it takes about a minute to build."""
+    """A factory-size state directory (seed 1, its record ending at this hour; tests/README.md), built once a run: under
+    xdist by the first worker to ask, in the run's own temporary root, while the others wait on its lock, so a parallel
+    run holds one copy, not one a worker. Its digests are taken as built. Skipped under a ``-m fast`` run."""
     if "fast" in (request.config.getoption("markexpr") or ""):
         pytest.skip("the factory-size state directory is not built in a -m fast run")
-    out = tmp_path_factory.mktemp("factory") / "state"
-    return FactoryState(out, build_factory_state(out, "--seed", "1", "--end", str(int(time.time()) // 3600 * 3600)))
+    root = tmp_path_factory.getbasetemp()
+    root = root.parent if os.environ.get("PYTEST_XDIST_WORKER") else root     # (a worker's is <run's root>/<worker id>)
+    said = root / "factory-state.json"
+    with open(root / "factory-state.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)                    # (let go as the file closes, the build failed or not)
+        if not said.exists():
+            out = Path(tempfile.mkdtemp(prefix="factory-", dir=root)) / "state"
+            built = FactoryState(out, build_factory_state(out, "--seed", "1", "--end", str(int(time.time()) // 3600 * 3600)))
+            said.write_text(json.dumps({"out": str(out), "stats": built.stats, "digests": built.digests}))
+        got = json.loads(said.read_text())
+    return FactoryState(Path(got["out"]), got["stats"], got["digests"])

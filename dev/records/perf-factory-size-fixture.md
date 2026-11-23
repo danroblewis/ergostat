@@ -85,3 +85,37 @@ holds if the factory copy's `state.snapshot` is within a factor of two of the fi
 
 Not run here: the unit suite and the four browser files. Under the rules they are run by the factory and the merge
 queue. No page changed.
+
+## Where it stopped
+
+Round 3 (2026-11-23). The two findings: the merge queue found this branch the first failing merge of a batch of 9 by
+bisecting, and the unit suite failed with no test named. The queue's log is not in this clone, so the cause is
+inferred, not seen. `fac.FAILED` matches `ERROR` lines as well as `FAILED`, so a fixture that failed at setup would
+have been named. A unit run that names no test is most likely one killed whole: the watchdog (6 GB or 1,500 threads)
+or the container's memory limit. This branch's tests are the heaviest in the suite. Under `-n 8`, `_slow_first` puts
+each of the three on its own worker. Session scope is per worker, so each of those workers built its own ~100 MB
+record at the same time, and the determinism test then built a fourth. The counts test also ran `ergostat check` (107
+s) in the worker's own process, so its memory and module caches stayed with that worker. Changed (tests only; the
+script is unchanged at 180 lines):
+- `factory_state` is now built once a run. Under xdist the first worker to ask builds it in the run's temporary root
+  (the parent of each worker's basetemp) while the others wait on a file lock. A failed build leaves no
+  `factory-state.json`, so the next worker builds again in a fresh directory. The record's digests are taken as
+  built and kept in that file, so files a later test writes into the shared record (`ergostat check`'s
+  `extremes.json`, for one) cannot change what the determinism test compares. A parallel run now holds two copies
+  (this one and the determinism test's), not up to four.
+- The build runs with `ERGOSTAT_*` cleared (`clean_env`; the watchdog's tag is kept). A session fixture is set up
+  before the autouse `home` fixture clears them, so when the suite ran as an engine's block, the build inherited
+  that engine's `ERGOSTAT_SOCKET`, `ERGOSTAT_RUN` and the rest.
+- The counts test runs `ergostat check` as `python -m ergostat` in its own process, with the same clean environment
+  and a 900 s timeout. Its memory is freed when it ends.
+- tests/README.md says it is built once a run.
+
+Not proven: that this was the queue's failure. Without its log I cannot show that the old branch broke a limit, or
+that this one stays under it. The shared build under xdist was not run either, because named_tests.py runs serially
+and the whole parallel suite is the queue's to run. The serial path (the run's own basetemp) was run:
+`scripts/named_tests.py tests/test_factory_fixture.py` passed 3 of 3 in 322 s, and the pre-change head passed 3 of 3
+the same way. `uv run ruff check ergostat tests scripts` is clean. If the queue fails again with no test named, its
+`suite_watch` line (`killed`, `peak`) says which limit was hit. If it was memory, the next reversible step is to mark
+the three tests `serial`, so nothing else runs beside them. Done 3 still waits for the coordinator's readings on a
+copy of the factory, as round 2 says. main had not moved since the merge at eab052ff, so there was nothing new to
+merge.

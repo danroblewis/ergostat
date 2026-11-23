@@ -1,7 +1,7 @@
 # Tests: fixtures worth knowing
 
 **`factory_state`** (tests/conftest.py): a factory-size state directory, written by `scripts/factory_fixture.py OUT
---seed 1` (byte for byte the same for one seed and `--end`), built once a session into a temporary directory, with
+--seed 1` (byte for byte the same for one seed and `--end`), built once a run into its temporary root (under xdist by the first worker to ask, the others waiting for it), with
 its record ending at the hour the session started, and skipped under a `-m fast` run. It holds the factory's
 measured shape: 25 model files, 60 goals in 8 systems (two made by `use: modelling` and `use: upkeep`), 260 sensors,
 37 machine blocks (declared, filled by a program), 8 item kinds with 1,500 items (`gap`: 430, most of them in

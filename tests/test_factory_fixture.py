@@ -3,14 +3,14 @@ session's ``factory_state`` (tests/conftest.py): its sizes, read back from the m
 one seed byte for byte; and the page server's answers on it."""
 
 import json
+import subprocess
 import sys
 import urllib.request
 
 import pytest
 
-from ergostat.cli import main
 from ergostat.spec import items as its
-from tests.conftest import FactoryState, build_factory_state, here
+from tests.conftest import FactoryState, build_factory_state, clean_env, here
 
 sys.path.insert(0, str(here().parent / "scripts"))
 import factory_fixture as ff  # noqa: E402
@@ -18,7 +18,7 @@ import factory_fixture as ff  # noqa: E402
 pytestmark = pytest.mark.slow
 
 
-def test_its_sizes_match_the_factorys_measured_shape(factory_state, monkeypatch):
+def test_its_sizes_match_the_factorys_measured_shape(factory_state):
     s = factory_state.stats
     shape = {k: s[k] for k in ("files", "systems", "goals", "sensors", "machine", "kinds")}
     assert shape == {"files": 25, "systems": 8, "goals": 60, "sensors": 260, "machine": 37, "kinds": 8}, s
@@ -54,8 +54,9 @@ def test_its_sizes_match_the_factorys_measured_shape(factory_state, monkeypatch)
     upkept = {str(x.of) for x in spec.sensors() if (x.builtin or "").startswith("ergostat.upkeep.")}
     assert [str(spec.goals[g].of) in upkept for g in s["off"] if g != ff.OFF_GOAL] == [True]
 
-    monkeypatch.setenv("ERGOSTAT_HOME", str(factory_state.home))
-    assert main(["-C", str(factory_state.model), "check"]) == 0
+    checked = subprocess.run([sys.executable, "-m", "ergostat", "-C", str(factory_state.model), "check"], capture_output=True,
+                             text=True, timeout=900, env=clean_env(ERGOSTAT_HOME=str(factory_state.home)))
+    assert checked.returncode == 0, checked.stdout[-3000:] + checked.stderr[-3000:]     # its own process: its memory let go
 
 
 def test_one_seed_builds_a_byte_identical_record(factory_state, tmp_path):
