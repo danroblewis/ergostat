@@ -1075,7 +1075,7 @@ async function pageItem(main, id, q) {
     // durations are redrawn with the rest of the page
     const w = !S.at && !(k?.final || []).includes(d.state) ? await api("why", { item: id }).catch(() => null) : null;
     const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
-      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
+      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])]), w.place]);
     if (!p.isConnected) return;
     const same = wsig === whySig;
     whySig = wsig;

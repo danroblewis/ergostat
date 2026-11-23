@@ -152,7 +152,7 @@ blocks:
     every: 5m
     timeout: 4m
     # read, not commanded: a goal: here would take it off its schedule (schedule-removed)
-    in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing,
+    in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing, goal.main-moving,
          goal.ready-short, goal.queued-short, goal.replan-short, goal.planned-short, goal.leased-short,
          goal.queue-failed-short, goal.loop-short]
     out: flow.situations-found

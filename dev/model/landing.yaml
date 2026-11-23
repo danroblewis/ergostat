@@ -98,6 +98,11 @@ auxiliaries:
     description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
+  main-stalled-minutes:
+    unit: minutes
+    description: minutes main has not moved while gaps wait for the queue (approved, queued, or leased by merge-queue) - from the later of its last move and the oldest waiting gap's approval; 0 while none waits. Its reason, the current batch, its run and the cause, is `measure.py main-stalled-why` (dev/bin/landing.py)
+    driven-by: [+stock.gaps-approved, -flow.gaps-merged]
+    sensor: {run: python3 dev/bin/measure.py main-stalled-minutes, every: 1m, timeout: 1m, description: the batch items}
 
 flows:
   gaps-approved:
@@ -330,6 +335,17 @@ goals:
     hold: "<= 2"
     tolerance: 0
     description: a drain ends by its bound ([upgrade] drain_minutes) and the switcher's next minutes - past them the switch is stuck
+  main-moving:
+    auxiliary: main-stalled-minutes
+    hold: "<= 120"
+    tolerance: 30
+    description: main moves within two hours (a batch's suites and its halves) while gaps wait; never off while none waits. Off, its reason names the current batch, its run and the cause (measure.py main-stalled-why), which the pipeline watch puts in its broken no-merge condition
+
+dashboards:
+  merge-pipeline:                    # named landing.merge-pipeline (SPEC §4f)
+    description: the merge pipeline's health, from its batch items
+    panels:
+      - {panel: chart, size: full, refs: [auxiliary.main-stalled-minutes, auxiliary.main-still-minutes, auxiliary.batch-runs, auxiliary.batch-first-green, auxiliary.crash-lost-minutes, auxiliary.gaps-landed-per-hour]}
 
 actions:
   push-main:
