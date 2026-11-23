@@ -782,6 +782,14 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
    every write there is refused; `check` and the page's header say it is public. The tunnel must still keep the
    Host (step 2): the declared name is what opens it, and a request through Cloudflare by `127.0.0.1` is refused.
 
+## 3k. Asking for numbers over time
+
+To read a rate, a level or a duration without scanning the record, use `GET /api/query?q=<base64url of JSON>` and see what
+exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per hour by state is
+`{"since": 86400, "queries": [{"id": "a", "source": "items", "kind": "KIND", "field": "ai_cost_usd", "agg": "sum",
+"transform": "rate", "rate_per": "hour", "group_by": "state"}]}`. Prefer `items`, `moves`, `counts` and `series`; the
+`events` source reads the log, bounded, and says so.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |

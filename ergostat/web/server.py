@@ -553,6 +553,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
+        from ..query import answer, fields
+        return fields(live, p) if name == "fields" else answer(live, p, one("q")) if name is None else None
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
         from ..spec import itemgraph as ig
         asked = [k for k in ("near", "path", "about") if one(k) is not None]

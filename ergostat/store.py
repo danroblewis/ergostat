@@ -908,6 +908,38 @@ class Measurements:
                         a[2], a[3] = t, v
         return [(b, a[0] / a[1], a[2], a[3]) for b, a in sorted(acc.items()) if a[1]]
 
+    def rollups(self, series: str, since: float, until: float, start: float, step: float, n: int) -> list[tuple]:
+        """A chart's buckets of ``step`` seconds from ``start``, over ``[since, until]``: ``(bucket, count, sum, min,
+        max, the last reading)`` for each that has a reading, read from the coarsest tier no wider than ``step`` and
+        the raw readings only where no tier holds them."""
+        acc: dict[int, list] = {}
+        with self._c() as c:
+            for e, lo, hi in self._sources(c, series, since, until, fine=step):
+                if e == 0:
+                    rows = c.execute("select max(min(cast((time - ?) / ? as integer), ?), 0), count(*), sum(value), min(value), "
+                                     "max(value), max(time), value from samples where series = ? and time >= ? and time <= ? "
+                                     "group by 1", (start, step, n - 1, series, lo, hi)).fetchall()
+                else:
+                    rows = c.execute("select max(min(cast((last_t - ?) / ? as integer), ?), 0), sum(n), sum(sum), min(min), "
+                                     "max(max), max(last_t), last_v from tiers where series = ? and every = ? and t >= ? "
+                                     "and t < ? group by 1", (start, step, n - 1, series, e, lo, hi)).fetchall()
+                for b, k, total, low, high, t, v in rows:
+                    a = acc.get(b)
+                    if a is None:
+                        acc[b] = [k, total, low, high, t, v]
+                        continue
+                    a[0], a[1], a[2], a[3] = a[0] + k, a[1] + total, min(a[2], low), max(a[3], high)
+                    if t >= a[4]:
+                        a[4], a[5] = t, v
+        return [(b, a[0], a[1], a[2], a[3], a[5]) for b, a in sorted(acc.items())]
+
+    def version(self) -> tuple:
+        """What changes when a reading is written, rolled up or taken out."""
+        with self._c() as c:
+            row = c.execute("select max(rowid) from samples").fetchone()[0]
+            marks = c.execute("select key, value from meta where key = 'deleted' or key like 'rolled.%' order by key").fetchall()
+        return (row, tuple(marks))
+
     def sampled(self, series: str, since: float, until: float | None = None, points: int = 600) -> list[tuple[float, float]]:
         """The readings in a span, raw when there are few; otherwise averaged into ``points`` buckets
         (each at its readings' last time), with the first and last readings kept exact (a week of

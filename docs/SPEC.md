@@ -1160,6 +1160,38 @@ machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**
 | `open` | `read`: the names public and read only, with no login (never with `access`) |
 | `mtls` | the remote API on a listener of its own, over mutual TLS: `port`, `bind`, `cert`, `key`, `client-ca` (section 4c) |
 
+## 4e. Asking for numbers: the query API
+
+Every chart reads through one read-only endpoint, `GET /api/query?q=<base64url of JSON>` (a GET, so a read-only public
+name can use it). `GET /api/query/fields` lists what can be charted. Nothing here writes, and only the `events` source
+reads the event log.
+
+```json
+{"since": 86400, "until": null, "points": 120,
+ "queries": [{"id": "a", "source": "items", "kind": "gap", "field": "ai_cost_usd",
+              "where": {"state": ["merged"]}, "group_by": "state",
+              "agg": "sum", "transform": "rate", "rate_per": "hour", "bucket": "auto"}]}
+```
+
+- **Sources.** `items`: a numeric field of a kind, from the item index's `number_log`. `moves` (`measure`: `entries`,
+  `exits` or `time_in_state`, with `state`). `counts`: items per state, the level at each bucket's end. `series` (`series`:
+  a metric's name), from the metrics store's roll-ups. `events` (`type`, which may end in `*`): counts by type, at most the
+  latest 20,000 events of the window, marked `read_log` (and `truncated` when cut).
+- **Numbers of an item.** A value is a plain number at the top of its document: not a boolean, a numeric string, an id
+  or a timestamp. Each change is kept with the value and how much it moved: for `items`, `sum` adds the moves (what a cost
+  rose by in the bucket), and the other aggregations read the values taken.
+- **Aggregations.** `count`, `sum`, `avg`, `min`, `max`, `last`, `p50`, `p90`, `p95`, `p99` (percentiles interpolate
+  between ranks). A bucket with nothing in it counts and sums to 0 for what happens (`items`, `moves`, `events`), except
+  before the record began, and is `null` for a reading.
+- **Transforms.** `none`; `rate`, per `rate_per` (`second`, `minute`, `hour`, `day`; by default the shortest in which the
+  largest value is at least 1), over the seconds each bucket covers, so a part bucket is no dip; for a `series` with `agg:
+  last` it is a counter's rate, a fall being a reset; `delta`; `cumulative`; `moving_avg` (`window` in buckets).
+- **Groups.** `group_by` is `state`, `kind` or a low-cardinality field, at most 12 groups, the rest added up as `other`
+  (`capped` says how many).
+- **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
+  refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
+  in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+
 ## 5. Stocks
 
 A quantity with memory: its value persists when nothing happens, and changes only through its
