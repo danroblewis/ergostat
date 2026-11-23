@@ -52,3 +52,8 @@ def test_a_reviews_gap_may_be_a_list_of_one():
     assert measure.review_gap({"fields": {"gap": "gap/a"}}) == "gap/a"
     assert measure.review_gap({"fields": {"gap": []}}) is None
     assert measure.review_gap({"fields": {}}) is None
+
+
+def test_live_only_edits_can_stay_out_of_the_backlog():
+    text = (BIN / "live.py").read_text()
+    assert 'get("edits_as_gaps", True)' in text
