@@ -91,3 +91,23 @@ suggestion back until ten minutes of record (test_a_suggestion_appears_when_it_h
 two of main's changes meeting, not this branch. Checking it on clean main (`git archive main | tar -x -C /tmp/mainck`
 and the same test there) was refused in this session, so that is not confirmed.
 Not run: the whole of tests/test_diagram_rendering.py, the other three browser files and the unit suite.
+
+Round 5. The one finding, a conflict with main in ergostat/web/static/pages.js, is resolved in the merge of main
+(dc47a763, merge commit 3374e557). Main now draws each goal's row through one renderer, goalrow.js (`goalRow`,
+`GOAL_CELLS`), and test_graph_cli_web.py::test_no_page_script_words_a_goals_state_but_goalrow bars any other script
+from wording a goal's state (`statusEl(lp.status)`, `lp.status !== "off"`). So the card moves from pages.js into
+goalrow.js as one more cell, `GOAL_CELLS.card`, with its helper `goalOffFor`. Both now read `goalWord(g)` instead of
+the status. The Loops page keeps main's code whole (the quiet-systems lines, `goalRank`, `goalRow` with its columns)
+and adds only `"card"` to its columns and the table's `loops` class. Nothing else changed. Net lines outside tests:
+14 (state.py 1, goalrow.js 7, style.css 6, pages.js 0).
+After the merge: ruff is clean; test_no_page_script_words_a_goals_state_but_goalrow passes; tests/test_runner_and_state.py
+passes (47); the phone-card test passes, and with `"card"` taken out of the columns it failed (Playwright timeout). Also
+passing: test_the_goals_page_says_each_goals_word_as_the_server_does_live_and_from_a_snapshot,
+test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks and
+test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[True].
+Still fails, as in round 4: test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[False],
+now at line 3544 (`.side .suggest .hint button.name` click times out). That is the diagram's Suggestions fold, which
+this branch does not touch (lesson 13: reported, not fixed). Two checks were refused in this session, so this is not
+confirmed on clean main: `git worktree add --detach /tmp/mainck main` with the same test run there, and the whole-file
+background run (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/drender.log 2>&1`).
+Not run: the whole of tests/test_diagram_rendering.py, the other three browser files and the unit suite.
