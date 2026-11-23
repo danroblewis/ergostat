@@ -177,3 +177,15 @@ no code, because nothing this branch changes is on that test's path (lesson-13):
   call (`time (uv run ergostat -C . item --kind upgrade >/dev/null 2>&1); nproc; uptime`) and an awk listing of
   engine.py's run_block. Neither was worked around. I did not run the test on main, because a worktree of main was
   refused in an earlier round.
+
+## Where it stopped
+
+Round 3: merged main (5411f137). The one conflict was in tests/test_factory.py. Main replaced dev/bin/prefixes.py
+with halves.py and removed the prefix tests, and this branch's browser_daily tests came after them. I kept main's
+removal and the branch's tests. Main had also dropped `import signal`, which test_browser_daily_holds_the_queue_lock
+still uses, so I put it back. browserday.py needed no change, since it uses nothing from prefixes.py. After the
+merge, ruff is clean and these pass: the four acceptance tests, test_browser_daily_goal_closes_in_landing and
+test_ergostat_check_on_the_factory_model_reports_no_new_finding. The unit suite and the four browser files were not
+run here (the factory's and the queue's steps). Done item 6's "no new finding" against main is still unverified by a
+full `ergostat check`. Two shell commands were refused this round: a git status piped through grep, used to list
+the conflicts, and a short python script to cut the conflict block. I did both with the file tools instead.
