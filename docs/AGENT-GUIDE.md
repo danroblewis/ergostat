@@ -1004,11 +1004,14 @@ blocks:
     type: program
     description: releases one reviewed change at a time
     run: scripts/release
-    takes: {kind: change, at: releasing, to: [released]}
+    takes: {kind: change, at: releasing, to: [released], unblocked: true}
     pool: 1
 ```
 
-The review is nobody's block: `in-review` is a working state the reviewer moves on by recording `change.reviewed`.
+A precedence relation says what an item waits on; it is never enforced (SPEC §5a). Every block that takes items of a
+kind with one takes `unblocked: true`, or it takes them anyway and `why` names a root the work went past: without it
+here, the releaser would release a reviewed change whose pull request is still open, while `why` on it names
+whoever records `pr.merged`. The review is nobody's block: `in-review` is a working state the reviewer moves on by recording `change.reviewed`.
 Three things then go wrong at once, as they do: change `c1` is put on hold, and `c3` depends on `c2`, which depends
 on `c1`; the build service goes down while `c5` is proposed; and the releaser's run on `c6` dies, leaving its lease,
 while `c7` waits to be released. Ask:

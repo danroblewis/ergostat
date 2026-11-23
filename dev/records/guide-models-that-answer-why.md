@@ -131,3 +131,18 @@ to run it there (`git worktree add --detach /tmp/mainwt main`) was refused. Also
 one-liner to resolve the conflict (done with edits instead), a grep across docs, a wait loop on a background output
 file, and a `ps` check for running pytest processes. The whole unit suite and the four browser files were not run
 here (the factory runs them).
+
+Round 4, answering the review's one finding (blocking; there were no others): the worked example's releaser lacked
+`unblocked: true`, so it would release a reviewed change whose pull request is still open while `why` names whoever
+records `pr.merged`, a false root. The releaser in §3m now takes `unblocked: true`, and a paragraph after the model
+says the rule: a precedence relation is never enforced (SPEC §5a), so every block that takes items of a kind with one
+takes `unblocked: true`. The new test
+`test_a_reviewed_change_whose_pull_request_is_open_waits_on_it_and_the_releaser_does_not_take_it` seeds a fourth
+stall, `c8`, reviewed with its pull request open: `why change/c8` names `pr/c8` and `pr.merged`, and the releaser's
+take filter (`leases.ready.unblocked`, the dispatcher's own hook) keeps `c7` (pull request merged) and leaves out
+`c8`. Break-tested: with `unblocked: true` taken off the guide's releaser the test fails; restored, it passes. The
+check is on the dispatcher's filter, not a full dispatch with a running engine (the more reversible test: no process
+started). Run, each passing: `tests/test_why_guide.py` (11), `tests/test_why.py`, `tests/test_held_up.py`,
+`tests/test_coherence.py`, `tests/test_dashboards_doc.py`, `tests/test_spec_items.py`; ruff clean. No code outside
+tests and docs changed this round. The whole unit suite and the four browser files were not run here (the factory
+runs them).

@@ -134,6 +134,32 @@ def test_the_worked_example_names_the_true_root_of_each_of_three_stalls(engine, 
     assert all(r["kind"] != "unknown" for r in h["roots"])
 
 
+def test_a_reviewed_change_whose_pull_request_is_open_waits_on_it_and_the_releaser_does_not_take_it(engine, tmp_path,
+                                                                                                     capsys):
+    """The described process: a change is not released before its pull request is merged. ``why`` on a reviewed change
+    whose pull request is open names the pull request, and the releaser (``unblocked: true``) does not take it, while it
+    takes a reviewed change whose pull request is merged: the root ``why`` names is the one the work waits on."""
+    from types import SimpleNamespace
+
+    from ergostat.leases.ready import unblocked
+    from ergostat.spec import items as its
+    seed(engine)
+    now, add = time.time(), engine.events.add
+    add("pr.opened", item="pr/c8", at=now - 1800)
+    add("change.proposed", item="change/c8", at=now - 1700, data={"pull_request": "pr/c8"})
+    add("change.built", item="change/c8", at=now - 1600)
+    add("change.reviewed", item="change/c8", at=now - 1500)
+    a = why(tmp_path, "change/c8", capsys)
+    assert "pr/c8" in a["root"]["path"] and "pr.merged" in a["root"]["owner"], a["root"]
+    spec = engine.model.spec
+    b = spec.blocks["releaser"]
+    assert b.takes.unblocked, "the guide's releaser takes only what nothing unfinished holds"
+    ready = [i for i in its.project(engine.events, spec, "change") if i.state == "releasing"]
+    assert {"change/c7", "change/c8"} <= {i.id for i in ready}, [(i.id, i.state) for i in ready]
+    taken = {i.id for i in unblocked(SimpleNamespace(p=engine, spec=spec), b, ready)}
+    assert "change/c7" in taken and "change/c8" not in taken, taken
+
+
 def test_without_the_budget_the_dead_lease_cannot_be_told_from_live_work(tmp_path, capsys):
     """The guide's reason for ``budget:``: with it left out, the same dead run is said as not known."""
     text = model_text().replace("budget: {daily: 5, max-cost: 1}", "")
