@@ -29,6 +29,16 @@ the egress proxy (`dev/agent/egress.py`, container `ergostat-egress`), which rea
 one secret, the session token, and nothing else of this machine. Claude Code inside still runs `--restricted` with the
 role's narrow tools.
 
+**A session may see a page.** The implementor and the designer (a read-only role, like the reviewer: the reviewer's
+tools and nothing that writes) may also run `uv run python scripts/demo_up.py` (start one demo of `examples/`, offline,
+and stop it) and `uv run --with playwright==1.63.0 python scripts/walk.py` (walk its pages in Chromium). No other
+role may. Each implementor or designer session gets a folder of its own on this machine, `run/shots/<session>/`
+(named as its transcript, `<gap>-<role>-<n>`), mounted read-write at `/shots`, and its brief tells it to pass
+`--shots /shots`: its pictures land there and outlive the container (its `/tmp` does not). A designer runs on
+`[agents] designer_cpus` CPUs (default 3, above 0 and at most 4, else the session is refused with the reason), and so
+does an implementor whose brief names `ergostat/web/` (an engine and Chromium at once); every other session keeps
+`session_cpus`. `NO_PROXY` is `127.0.0.1,localhost`, so the demo's own web is reached without the egress proxy.
+
 **Each session's conversation is kept.** Claude Code's own session file (from a folder of its own mounted as its
 projects folder, `/home/dev/.claude/projects`, and nothing else of this machine's home) is copied as it grows, the
 session token scrubbed, into `run/sessions/<gap>-<role>-<n>.jsonl` (at most 20 MB; a last line says when the rest was

@@ -25,3 +25,18 @@ Acceptance tests (tests/test_agents.py):
 Size budget: 90 net lines (code and config; tests and docs excluded).
 
 Area: research-design-queues. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1; every done item is in agents.py, fac.py, factory.toml and dev/README.md, with the five acceptance
+tests. Choices made where nobody could be asked (each the most reversible):
+
+- "Its brief says the gap touches ergostat/web/" is read as the text `ergostat/web/` appearing anywhere in the brief
+  (agents.WEB); a narrower reading (its Files to touch alone) would need brief.py's parser in agents.py.
+- The brief's line on `--shots /shots` is added by agents.session for the implementor and designer (agents.LOOK), not
+  written into dev/prompts/ (no designer prompt exists yet; none was in Files to touch).
+- The folder is named by the session's transcript stem (`<gap>-<role>-<n>`), or by the container's name when there is
+  no kept session; a name outside `[a-z0-9][a-z0-9-]{0,127}` or a path outside run/shots/ is refused. It is made
+  only after run_args has passed, so a refused session leaves nothing.
+- `no_proxy` (lower case) is set beside `NO_PROXY`, as `https_proxy` already is beside `HTTPS_PROXY`.
+- No caller starts a designer session yet: the queue that runs one is another gap's.
