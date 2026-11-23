@@ -22,47 +22,29 @@ async function pageLoops(main, q) {
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
   const pick = (n) => { setQuery({ select: n }); openLoop(n); };     // the loop chosen, in the address
   if (q.get("select") && $("#detail").hidden) openLoop(q.get("select"));
-  const perf = {};
-  let pts = {}, ptsAt = 0;
   p.append(box, cap);
   const ans = answers();
   async function tick(force = true) {
     ans.begin();
-    const loops = await ans.api("loops");
-    // the stocks' trends: every system open (or, where that is not at hand, a snapshot, each closed system's measures);
-    // the whole graph is a large answer and a trend over the window hardly moves in seconds: asked for every 30s
-    if (Date.now() - ptsAt > 30000) {
-      const stocks = await ans.api("graph", { open: "*" }).catch(() => ans.api("graph"));
-      for (const n of stocks.nodes) for (const m of n.measures || []) if (m.points) stocks.nodes.push({ kind: "stock", label: m.label, points: m.points });
-      pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
-      ptsAt = Date.now();
-    }
+    // every loop in one answer: its stock's trend, and how it is doing (control.js), worked out on the server in the background
+    const loops = await ans.api("loops", { perf: 1 });
+    const word = (s) => (s == null || s.not_analysed ? "" : s.working ? "being worked out" : s.failed ? "could not be worked out" : performanceWord(s));
     const w = windowNote();
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
-    // how each loop is doing, as a control engineer reads its scope (control.js), over the last day of record: asked
-    // for every 5 minutes, not every tick (each is an identification on the server, up to a second or two, for every loop)
-    if (!perf.at || Date.now() - perf.at > 300000) {
-      perf.at = Date.now();
-      for (const [n] of rows) loopControl(n).then((d) => {
-        perf[n] = performanceWord(d);
-        const cell = [...box.querySelectorAll("td[data-perf]")].find((c) => c.dataset.perf === n);
-        if (cell) setText(cell, perf[n]);
-      }).catch(() => {});
-    }
-    patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
+    patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => pick(n) },
         h("td", { class: "nowrap" }, h("button", { class: "name", type: "button", onclick: (ev) => { ev.stopPropagation(); pick(n); } }, h("b", {}, n)), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
         h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
-        h("td", { class: "num nowrap" }, op(lp.setpoint) + (lp.band || "")),
-        h("td", { class: "num nowrap", "data-off": n, title: "How far it is from its setpoint" }, lp.off_by_words || ""),
+        h("td", { class: "num nowrap" }, holdText(lp.setpoint, lp.band)),
+        h("td", { class: "num nowrap", "data-off": n, title: `How far it is from its ${isLimit(lp.setpoint) ? "limit" : "setpoint"}` }, lp.off_by_words || ""),
         h("td", { class: "num", title: "The share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
         h("td", { class: "num", title: lp.back_in != null ? `Typically holding again this long after going off (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times); its valve opens ${lp.answers_in != null ? dur(lp.answers_in) : "?"} after` : "It has not gone off and come back in the window" },
           lp.back_in != null ? dur(lp.back_in) : "–"),
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
-          (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
-        h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, perf[n] || ""),
+          (lp.points || []).length > 1 ? sparkSvg(lp.points, 120, 24, setpointOf(lp.setpoint)) : ""),
+        h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, word(lp.perf)),
         h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();
@@ -164,7 +146,7 @@ async function pageRecord(main, q) {
     if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
       const d = await remoteApi("events", { remote, n: 80, ...(filt.value ? { type: filt.value } : {}) });
       if (!p.isConnected) return;
-      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
+      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false, true) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
       patch(box, ...[remoteSaid(remote, d), list].filter(Boolean));
       return;
     }
@@ -175,7 +157,7 @@ async function pageRecord(main, q) {
       evs = await ans.api("events", { n: 80, ...asked });
     } catch (err) { patch(box, h("p", { class: "muted" }, String(err.message || err))); return; }
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
-    patch(box, evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
+    patch(box, evs.length ? eventsTable(evs, false, true) : h("p", { class: "muted" }, "Nothing recorded yet."));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);

@@ -47,6 +47,10 @@ function showAt() {
   if (whenMenu.button.textContent !== whenLabel()) whenMenu.button.textContent = whenLabel();
   whenMenu.button.classList.toggle("past", !!S.at);
 }
+// the header's "N wait for you": the Diagram, at its "Waiting for you" (here at once, or once the page is drawn)
+$("#waits").addEventListener("click", () => { S.toWaiting = true; toWaiting(); });
+if (location.hash === "#waiting") S.toWaiting = true;
+window.addEventListener("hashchange", () => { if (location.hash === "#waiting") { S.toWaiting = true; toWaiting(); } });
 window.addEventListener("popstate", route);                  // back and forward
 window.addEventListener("hashchange", () => { if (HASHED || oldAddress()) route(); });   // a snapshot's route; an old #/ address
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") shutDetail(); });

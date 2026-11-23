@@ -7,7 +7,10 @@
 - **proportional**: ``u = c + k x``, clamped to ``[lo, hi]`` where the record shows it saturating;
 - **pi**: velocity form, ``u += kp Δx + ki dt (x − r)`` while ``|x − r|`` is past the deadband ``db``;
 - **stepper**, three-position step (floating) control: up by ``step_up`` while above ``up`` for ``for_up`` and
-  ``cool_up`` since its last move, down by ``step_down`` while below ``down`` (the HPA's shape), within ``[lo, hi]``.
+  ``cool_up`` since its last move, down by ``step_down`` while below ``down`` (the HPA's shape), within ``[lo, hi]``;
+- **ratio**, the HPA's own rule, declared (control/laws.py), stepped and never fitted: ``u = ⌈u x / target⌉`` when
+  ``x / target`` is outside ``1 ± tolerance``, down to the largest of that over ``stabilize_down``, up to the least over
+  ``stabilize_up``, within ``[lo, hi]``.
 
 Each is fitted on the record's first three quarters and judged on the last (Ljung, *System Identification*, ch. 16):
 its **skill** one step ahead against holding the last value, and its **R²** run free from the held-out record's start.
@@ -72,6 +75,9 @@ class Law:
             law = "three-position step (floating) control:" + "; ".join(
                 f" {w} {p['step_' + w]:g} once {past} {g(w)} for {t('for_' + w)}, {t('cool_' + w)} after its last move"
                 for w, past in (("up", "above"), ("down", "below")) if p[w] is not None)
+        elif self.family == "ratio":
+            law = (f"ratio: ⌈u x / {p['target']:g}⌉ outside ±{p['tolerance']:g}, down after {t('stabilize_down')}, "
+                   f"up after {t('stabilize_up')}")
         elif self.family == "proportional":
             law = f"proportional: u = {g('c')} + {g('k')} x"
         else:
@@ -95,6 +101,8 @@ class Law:
         if self.family == "stepper":
             return ", ".join(f"{s}{p['step_' + w]:g} {c} {p[w]:.3g}" for w, s, c in (("up", "+", ">"), ("down", "−", "<"))
                              if p[w] is not None)
+        if self.family == "ratio":
+            return f"⌈u x / {p['target']:.3g}⌉"
         if self.family == "proportional":
             return f"K_p = {p['k']:.3g}"
         return f"K_p = {p['kp']:.3g}, K_i = {p['ki']:.3g}"
@@ -121,7 +129,24 @@ def _rules(law: Law) -> list[tuple[int, float | None, int, int]]:
 
 
 def start(law: Law, u: float, x: float) -> dict:
-    return {"u": u, "since": 10 ** 6, "runs": [0, 0], "x": x, "rules": _rules(law) if law.family in ("onoff", "stepper") else []}
+    return {"u": u, "since": 10 ** 6, "runs": [0, 0], "x": x, "rules": _rules(law) if law.family in ("onoff", "stepper") else [],
+            "wants": []}
+
+
+def _ratio(law: Law, st: dict, x: float) -> float:
+    """The HPA's rule: desired ⌈u x / target⌉ when x / target is outside 1 ± tolerance; the samples' desired kept over
+    each window (those within it, now's included), a scale-up to the least over ``stabilize_up``, a scale-down to the
+    largest over ``stabilize_down``; within [lo, hi]."""
+    p, u = law.p, st["u"]
+    r = x / p["target"]
+    want = math.ceil(u * r - 1e-9) if abs(r - 1) > p["tolerance"] else u
+    wants = st["wants"]
+    wants.append(want)
+    n_up, n_dn = max(1, law.n("stabilize_up")), max(1, law.n("stabilize_down"))
+    del wants[:-max(n_up, n_dn)]
+    up, down = min(wants[-n_up:]), max(wants[-n_dn:])
+    new = up if u < up else u
+    return _clamp(down if new > down else new, p.get("lo"), p.get("hi"))
 
 
 def step(law: Law, st: dict, x: float) -> float:
@@ -144,6 +169,8 @@ def step(law: Law, st: dict, x: float) -> float:
                 if thr is not None and room and st["runs"][i] >= nf and st["since"] >= nc:
                     st["u"], st["since"] = _clamp(u + sign * p["step_up" if i == 0 else "step_down"], p.get("lo"), p.get("hi")), 0
                     break
+    elif f == "ratio":
+        st["u"] = _ratio(law, st, x)
     elif f == "proportional":
         st["u"] = _clamp(p["c"] + p["k"] * x, p.get("lo"), p.get("hi"))
     else:
