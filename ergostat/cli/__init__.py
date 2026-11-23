@@ -17,7 +17,7 @@ from .leases import cmd_lease
 from .messages import cmd_message, cmd_messages, cmd_session
 from .numbers import _max_cost, cmd_accept, cmd_fit, cmd_improve, cmd_judge, cmd_measure, cmd_project, cmd_proposals
 from .parts import cmd_part
-from .record import cmd_compact, cmd_event, cmd_item, cmd_reset, cmd_residual, cmd_why
+from .record import cmd_compact, cmd_event, cmd_held_up, cmd_item, cmd_reset, cmd_residual, cmd_why
 from .running import cmd_chat, cmd_projects, cmd_run, cmd_snapshot, cmd_web
 from .spec_cmds import cmd_block, cmd_convert, cmd_discover, cmd_explain, cmd_findings
 from .status import cmd_check, cmd_status
@@ -224,6 +224,8 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--about", dest="about_item", action="store_true", help="with an item: what relates to it or names its id")
     topic("why", cmd_why, "Why an item is not done: its state for how long, the cause followed to its root, who must "
                           "act and how, the evidence")
+    topic("held-up", cmd_held_up, "What holds the work up: every unfinished item grouped by its root cause, the roots "
+                                  "ranked by what they hold, a stall told from normal queueing", named=False)
     ls = topic("lease", cmd_lease, "The leases on items: who holds what, until when; the dead letters; one item's attempts")
     ls.add_argument("--redrive", action="store_true", help="with ITEM: give a dead letter another go (its attempts from nothing)")
     ls.add_argument("--to", metavar="STATE", help="with --redrive: the state it goes back to (default: where it was taken from)")

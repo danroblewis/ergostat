@@ -1547,6 +1547,30 @@ time and durations differ at every poll. The engine is read from its run lock an
 watcher's limit). An item's own state is never folded from its events; only the evidence is looked up, a few events
 at most per item. On a record of 3,000 items it answers in under 100 ms (`tests/test_why.py`).
 
+**What holds the work up.** `ergostat held-up [--json]`, `GET /api/held-up` and MCP's `held_up` answer for the whole
+system, as the record is now (`ergostat/why/held.py`). Every unfinished item of the model's own kinds (not in a
+finished state, of a kind that does not live on; the `ergostat.*` kinds are left out) is followed to its roots as
+`why` follows one, each item's roots worked out once (an item that waits on another takes that one's roots; a link
+back to an item still being followed is a `cycle`). Items with the same root are grouped: a root about one item (a
+lease, work going on, a parked or missing item, an action asked of the owner) is that item's; a block's, a gate's or
+the budget's is the same root for every item it holds. Each root is a **stall** (something that should be moving and
+is not: a dead or stale lease, the budget refusing runs, a block failing or no engine running, a cycle, a missing
+item, a dead letter, a state nothing takes, a parked item others wait on), **held** on purpose (a gate reading 0, a
+closed goal or intake, a person to answer, a parked item nothing waits on), **queue** (ordinary queueing: work going
+on, a full pool of live runs, a give-back's wait) or **unknown** (the record cannot tell). The roots are ranked stalls
+first, then unknown, held and queue, and within each by the items waiting on it, the items it holds and their hours
+of waiting (in their state); each names its first 5 items in the order its block would take them (`takes: order:`,
+then the longest waiting). A goal is off by its last recorded crossing (`loop.off`); one whose stock or auxiliary
+counts items (`items:` sensor) is folded under the root holding most of the unfinished items it counts, and one that
+counts none is said as *not traced to an unfinished item*. The answer's `line`, also the header's line on every
+page (`/api/status`'s `held_up`, red for a stall, worked out again when the record moves or after 30 s, a failure
+said in it rather than failing the status), is the first stall in words with how much waits on it and its next
+step, or else *No stall found, but what holds N items is not known* (N over every unknown root, `unknown`), and
+*Nothing is stuck* only when no root is a stall or unknown, naming the most held root (most items waiting on it, then
+most held, over every root: `most` is its place in `roots`). The first 20 roots are listed, and the most held after
+them when it ranks lower (`more` counts the rest, none holding more than it). On a record of 3,000 items (about 2,400
+unfinished) it answers in under 200 ms (`tests/test_held_up.py`).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:
@@ -1793,6 +1817,23 @@ index cannot answer for a kind (no index, or a moment so long past that most of 
 says so instead of its numbers. `/items?kind=KIND` goes to `/items/KIND`, which is the list, graph and timeline below
 for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, as before.
 
+**A kind's page.** `/items/KIND`'s list is a page of the kind's items, 25 rows by default (100 or 300 by choice), with
+a pager in the kind's bar and under its table: *1-25 of 1200 · Prev · Next* (*of 3 matches* with a search, *of 77
+review* with a state chosen). Each page is asked of the server, `GET /api/items?kind=KIND` with `state` (one, when
+chosen), `offset`, `n` (1..500) and, when given, `q` and `sort` (`items.kind_page`, read from the item index: the ids,
+states and times of the kind's rows, then only the items shown). `q` keeps the items whose id holds it or whose text
+(*Search*) holds each of its words (1 to 8), out of every item of the kind, finished ones too; the answer's `total` is
+how many match and `finished` how many of them are in one of the kind's finished states, said beside the search box
+(*3 matches, 1 finished*). `sort=FIELD` (up) or `sort=-FIELD` (down) orders the whole filtered set by that field
+before the page is cut: numbers as numbers, then text, a missing or non-finite value last, the newest first among
+equals. Up to 5,000 items are read for it (`items.SORTED_MOST`, without their moves); past that it is the newest 5,000
+that are sorted and paged, and the answer's `cut` (5000) says so, as the pager and the table's caption do. Without
+`sort`, the newest first. An `offset` past the end answers the last page, and says its `offset`. The page, the size
+and the sort are in the address, the page and sort named by their kind (`page=gap:3`, `sort=gap:-ai_cost_usd`,
+`size=100`); a new search, sort, state or size starts at page 1, and the poll asks again for the page shown. In a
+snapshot (no server) the kind's list is the snapshot's, as before. A set (`where`, `moved` and the process map's
+filters) is listed as before, its newest 300.
+
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
 (`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
@@ -1963,6 +2004,9 @@ The Items page's filters, in its address (`/items?...`) and in `GET /api/items`:
 | `where=FIELD:VALUE` | the field equals the value (repeated: any of the values for one field, all the fields) |
 | `moved=FROM>TO` | moved from one of `FROM` to one of `TO` (states joined by commas); an empty side is any other state, or none (an arrival): `>done` entering done, `briefed>` leaving briefed |
 | `moved_since`, `moved_until` | the span of `moved` (after since, up to until): `2026-11-18T10:00:00Z` (UTC) or seconds since 1970; default the hour before now |
+| `offset`, `n` | with one kind and no set: the page of its items from `offset`, `n` of them (1..500; past the end, the last page); in the address `page=KIND:N` and `size=25`, `100` or `300` (*A kind's page*) |
+| `sort=FIELD`, `sort=-FIELD` | with one kind and no set: the whole filtered set ordered by the field before the page is cut (the newest 5,000 of a larger one, said by `cut`); in the address `sort=KIND:-FIELD` |
+| `q=TEXT` | with one kind and no set: the items whose id holds it or whose text holds each of its words, every item of the kind; `total` and `finished` count them |
 | `remote=NAME` | a remote's items instead, asked there within its budget (§4c, *Its items and events in the pages*); with it only `kind`, `state`, `n` and `offset` |
 
 The page shows the set as one chip with its count (for moves, the items and the moves), removed with its ×;

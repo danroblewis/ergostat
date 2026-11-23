@@ -84,6 +84,19 @@ def cmd_why(args) -> int:
     return 0 if got["known"] else 2
 
 
+def cmd_held_up(args) -> int:
+    """``ergostat held-up``: what holds the work up, ranked (SPEC §5a, *What holds the work up*)."""
+    if getattr(args, "at", None):
+        print("ergostat held-up answers as of now: leave out --at", file=sys.stderr)
+        return 2
+    from ..why.held import answer, lines
+    got = answer(open_project(args))
+    if args.json:
+        return out_json(got)
+    print("\n".join(lines(got)))
+    return 0
+
+
 def cmd_item(args) -> int:
     from ..spec import items as its
     from ..spec.item_sets import BadSet
