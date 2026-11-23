@@ -773,7 +773,9 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const relAsked = {};
     await Promise.all((view === "list" ? [] : systems).map(async (g) => {
       if (!isOpen(g.name) || (d.set && !g.kinds.includes(kind))) return;
-      const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : g.kinds.filter((n) => relKinds.has(n));
+      const related = g.kinds.filter((n) => relKinds.has(n));     // none: the Timeline still draws each item's states
+      const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : related.length || view === "graph" ? related
+        : g.kinds.filter((n) => Object.values(kindOf[n]?.counts || {}).some(Boolean));
       relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }, signal).catch((err) => ({ err })) : null };
     }));
     const trust = await trustAsked, classes = (await classesAsked)?.asked ?? null;
@@ -893,7 +895,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
     const relPart = async (g) => {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
-      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no critical path.")];
+      if (!want.length) return kind || view !== "graph" ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);
@@ -918,8 +920,11 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       if (!open) { groups.push(h("section", { class: "sys-group folded", "data-system": g.name, key: g.name }, head, charts)); continue; }   // the charts, not the lists
       const t = view === "list" ? await tables(names) : await relPart(g);
       anyRows ||= t.length > 0;
-      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name }, head, charts, ...t));
+      groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name, ...(relAsked[g.name]?.want.length ? { "data-draws": "" } : {}) }, head, ...(view === "list" ? [charts, ...t] : [...t, charts])));   // a mode's own drawing first
     }
+    // and the systems it draws first, the project's before ergostat's own upkeep (List: none drawn, its order kept)
+    const rank = (e) => (e.hasAttribute("data-draws") ? (e.getAttribute("data-system") === "ergostat" ? 1 : 0) : 2);
+    groups.sort((a, b) => rank(a) - rank(b));
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
     const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
