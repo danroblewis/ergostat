@@ -63,6 +63,25 @@ def test_state_a_loop_is_unknown_holding_or_off(project):
     assert lp["status"] == "off" and lp["error"] == -3
 
 
+def test_each_goal_says_its_word_and_its_row_once(repo):
+    """state.snapshot gives every goal the one word a reader sees and its row's columns (goalrow.js draws them)."""
+    from ergostat import model
+    from ergostat.store import Project
+    from tests.conftest import FOUR_GOALS
+    (repo.path / "ergostat.toml").write_text(FOUR_GOALS)
+    project = Project(model.load(repo.path))
+    project.measurements.add("sensor/disk-usage", 70)
+    loops = state.snapshot(project)["loops"]
+    words = {n: lp["word"] for n, lp in loops.items()}
+    assert words == {"disk-under-80": "holding", "disk-under-50": "off", "disk-cleaned-nightly": "open",
+                     "inodes-under-90": "unknown"}, words
+    assert all(lp["word"] == lp["status"] for lp in loops.values())
+    assert loops["disk-under-80"]["row"] == {"measure": "disk-used", "value": 70, "unit": "%", "bound_words": "<= 80 (+2)",
+                                             "trend": None, "expected": None}
+    assert loops["inodes-under-90"]["row"]["value"] is None and loops["disk-under-50"]["row"]["bound_words"] == "<= 50"
+    assert state.goal_row({"status": "something new", "stock": "s", "value": 1, "setpoint": "<= 2"})["word"] == "unknown"
+
+
 def test_an_estimated_disturbance_explains_what_the_valve_does_not(project):
     t = time.time() - 600
     project.measurements.add("sensor/disk-usage", 60, at=t)
@@ -136,8 +155,11 @@ def test_a_controller_deciding_the_same_thing_is_a_hint_to_move_down_the_ladder(
     assert d["count"] == 12 and d["kinds"][0] == ("under # (#%): nothing to do", 11)
     snap = state.snapshot(p)
     (hint,) = snap["hints"]
-    assert hint["controller"] == "disk-under-80" and "a decision or a rule could fill controller disk-under-80" in hint["says"]
-    assert any(a["level"] == "hint" for a in state.attention(snap))
+    assert hint["controller"] == "disk-under-80" and hint["says"].endswith("a decision or a rule could fill it")
+    (entry,) = [a for a in state.attention(snap) if a["level"] == "hint"]
+    from ergostat.dynamics import attention
+    for a in (entry, *attention([entry], snap)):                          # Blocks, and Dynamics' words: the goal once
+        assert (a["what"] + " " + a["says"]).count("disk-under-80") == 1, a
     assert state.ladder_hints(project, state.snapshot(project)) == []      # a program is low enough already
 
 
@@ -226,7 +248,41 @@ def test_a_loop_whose_valve_cannot_keep_up_is_called_saturated(project):
         project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 20 + i * 290, data={"decision": "free 2"})
     project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 30, data={})
     (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
-    assert "falling behind" in hint["says"] and "at its limit (saturated)" in hint["says"]   # every opening moved 2
+    assert "of the time: saturated, moving its most each run." in hint["says"]   # every opening moved 2
+
+
+def test_a_suggestion_waits_for_its_verdict_and_names_its_goal_once(project):
+    """Too little record to tell why a loop is off: no suggestion, its goal's entry says when; once
+    there is, the suggestion is headed by the loop and its text does not name it again."""
+    t = time.time() - 300
+    project.events.add("ergostat.started", source="ergostat", at=t)
+    project.measurements.add("sensor/disk-usage", 90, at=t + 10)
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 10, data={})
+    project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 290, data={"decision": "x"})
+    snap = state.snapshot(project)
+    assert not [h for h in snap["hints"] if h["controller"] == "disk-under-80"]
+    att = state.attention(snap, True, project.model)
+    (entry,) = [a for a in att if a["what"] == "loop disk-under-80"]
+    assert entry["level"] == "bad" and 250 < entry["diagnosis_in"] <= 300
+    snap["hints"] = [{"controller": "disk-under-80", "about": "loop", "says": "loop disk-under-80 was off 90% of the time: x"}]
+    snap["loops"]["disk-under-80"].pop("diagnosis_in")
+    (hint,) = [a for a in state.attention(snap, True, project.model) if a["level"] == "hint"]
+    assert (hint["what"], hint["says"]) == ("loop disk-under-80", "was off 90% of the time: x")
+
+
+def test_a_loop_whose_valve_moves_nothing_acts_but_moves_nothing_not_more_per_run(project):
+    t = time.time() - 1200
+    project.events.add("ergostat.started", source="ergostat", at=t)
+    for i, v in enumerate([60, 70, 80, 90, 100]):               # the stock climbs; its controller decides, its valve never opens
+        project.measurements.add("sensor/disk-usage", v, at=t + 10 + i * 290)
+        project.events.add("controller.decided", item="disk-under-80", source="cleaner", at=t + 20 + i * 290, data={"decision": "free 2"})
+    project.events.add("loop.off", item="disk-under-80", source="ergostat", at=t + 30, data={})
+    (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
+    assert "nothing ran to move any" in hint["says"] and "per run" not in hint["says"].lower()   # its cleaner never ran
+    for i in range(4):
+        project.events.add("agent.ran", item="cleaner", source="ergostat", at=t + 25 + i * 290, data={"exit": 0, "seconds": 1})
+    (hint,) = [h for h in state.snapshot(project)["hints"] if h["controller"] == "disk-under-80"]
+    assert "acts but moves nothing" in hint["says"] and "per run" not in hint["says"].lower()    # it ran, and moved nothing
 
 
 def test_a_disturbance_that_would_run_backwards_is_not_hidden(project):

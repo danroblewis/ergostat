@@ -17,6 +17,11 @@ const AV = { mode: null, loading: null, core: null, worker: null, seq: 0, waitin
    for a part moved, the routes that changed. Self-contained: the worker gets it as source text */
 function avoidCore(A) {
   const D = A.ConnDirFlag, dirs = { up: D.ConnDirUp, down: D.ConnDirDown, left: D.ConnDirLeft, right: D.ConnDirRight };
+  // a pin given as a share of its part's size, clamped to it: libavoid works the size out again from the corners, at
+  // times a hair under the width, so a pin at the right edge in pixels lay past it ("xOffset ... greater than shape width")
+  const share = (v, len) => (len > 0 ? Math.min(1, Math.max(0, v / len)) : 0);
+  const pinOn = (s, p) => ({ classId: p.cls, x: p.abs ? share(p.x, s.w) : p.x, y: p.abs ? share(p.y, s.h) : p.y,
+                             proportional: true, directions: dirs[p.dir] });
   // (one router per group of lines: each open system's own lines, and the rest; every one has every part in its way)
   let routers = [], conns = {}, pos = {};
   const dirty = new Set();
@@ -51,7 +56,7 @@ function avoidCore(A) {
         const x = r1.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
         sh[s.id] = x;
         for (const p of s.pins1 || s.pins) {
-          const pin = x.addPin({ classId: p.cls, x: p.x, y: p.y, proportional: !p.abs, directions: dirs[p.dir] });
+          const pin = x.addPin(pinOn(s, p));
           if (p.shared) pin.setExclusive(false);
         }
         for (const l of s.labels || []) r1.addShape({ x: l.x, y: l.y, width: l.w, height: l.h });
@@ -187,7 +192,7 @@ function avoidCore(A) {
           const sh = router.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
           shapes[s.id] = sh;
           for (const p of s.pins) {
-            const pin = sh.addPin({ classId: p.cls, x: p.x, y: p.y, proportional: !p.abs, directions: dirs[p.dir] });
+            const pin = sh.addPin(pinOn(s, p));
             if (p.shared) pin.setExclusive(false);
           }
           labels[s.id] = (s.labels || []).map((l) => router.addShape({ x: l.x, y: l.y, width: l.w, height: l.h }));
@@ -250,7 +255,7 @@ function avoidCore(A) {
           const x = r.addShape({ x: s.x, y: s.y, width: s.w, height: s.h });
           sh[s.id] = x;
           for (const p of s.pins) {
-            const pin = x.addPin({ classId: p.cls, x: p.x, y: p.y, proportional: !p.abs, directions: dirs[p.dir] });
+            const pin = x.addPin(pinOn(s, p));
             if (p.shared) pin.setExclusive(false);
           }
           for (const l of s.labels || []) r.addShape({ x: l.x, y: l.y, width: l.w, height: l.h });

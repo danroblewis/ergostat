@@ -7,7 +7,6 @@ a flow of it. Systems are named selections that may overlap."""
 
 from __future__ import annotations
 
-import math
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -173,6 +172,7 @@ class Agent:
     cron: str | None = None
     timeout: float = 300.0
     parse: str | None = None           # a regex with one group: the number in a line of its own text
+    kind_set: bool = field(default=False, metadata={"history": False})   # its kind written, not the default
 
     @property
     def schedule(self) -> str:
@@ -405,26 +405,23 @@ COMMON = {"name", "description", "systems"}
 
 
 def _budget(raw):
-    """``[budget]``: ``daily`` and ``max-cost``, both required, finite numbers within ``RunBudget.problem``'s bounds."""
-    from .spec.ir import RunBudget
+    """``[budget]``: ``daily`` and ``max-cost``, both required, 0 < daily ≤ 10000 and 0 < max-cost ≤ daily."""
+    from .spec.ir import BUDGET_MOST, RunBudget
     if not isinstance(raw, dict):
-        raise ModelError("[budget]: a table with daily and max-cost")
+        raise ModelError("[budget]: a table, with daily = and max-cost =")
     if extra := sorted(set(raw) - {"daily", "max-cost"}):
-        raise ModelError(f"[budget].{extra[0]}: unknown key (known: daily, max-cost)")
-    got = []
+        raise ModelError(f"[budget]: unknown key {extra[0]!r} (known: daily, max-cost)")
     for k in ("daily", "max-cost"):
-        v = raw.get(k)
-        try:
-            ok = isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(float(v))
-        except OverflowError:                       # (an integer of hundreds of digits)
-            ok = False
-        if not ok:
-            raise ModelError(f"[budget].{k}: " + (f"a finite number of dollars, not {v!r}"[:120] if k in raw else "missing"))
-        got.append(float(v))
-    b = RunBudget(*got)
-    if why := b.problem():
-        raise ModelError(f"[budget] {why}")
-    return b
+        if k not in raw:
+            raise ModelError(f"[budget]: missing {k} (dollars{' over the trailing day' if k == 'daily' else ' a run reserves'})")
+        if isinstance(raw[k], bool) or not isinstance(raw[k], int | float) or raw[k] != raw[k]:
+            raise ModelError(f"[budget].{k}: a number of dollars, not {raw[k]!r}")
+    d, m = raw["daily"], raw["max-cost"]          # (compared before float(): a huge int never overflows)
+    if not 0 < d <= BUDGET_MOST:
+        raise ModelError(f"[budget].daily: out of bounds: above 0 and at most {BUDGET_MOST:g}, not {str(d)[:40]}")
+    if not 0 < m <= d:
+        raise ModelError(f"[budget].max-cost: out of bounds: above 0 and at most daily ({d:g}), not {str(m)[:40]}")
+    return RunBudget(float(d), float(m))
 
 
 def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") -> Model:
@@ -433,7 +430,8 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
         raise ModelError(f"unknown table {extra[0]!r} (known: {', '.join(sorted(known - {'name'}))})")
     m = Model(name=str(data.get("name") or default_name), path=path,
               keep=parse_duration(data["keep"], "keep") if data.get("keep") is not None else 30 * 86400.0)
-    m.budget = _budget(data["budget"]) if "budget" in data else None
+    if "budget" in data:
+        m.budget = _budget(data["budget"])
     seen: dict[str, str] = {}
 
     def rows(key):
@@ -526,7 +524,7 @@ def parse(data: dict, path: Path | None = None, default_name: str = "ergostat") 
                                     _names(r.get("on"), f"{w}.on"), str(r.get("description", "")),
                                     str(cron) if cron is not None else None,
                                     parse_duration(r["timeout"], f"{w}.timeout") if r.get("timeout") is not None else 300.0,
-                                    str(parse) if parse is not None else None)
+                                    str(parse) if parse is not None else None, kind_set="kind" in r)
     for v in m.valves.values():                       # a valve a person fills is manual unless the file says otherwise
         if v.agent in m.agents and m.agents[v.agent].kind == "person" and not v.mode_set:
             v.mode = "manual"

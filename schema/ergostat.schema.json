@@ -39,6 +39,14 @@
         "max-cost": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
       }
     },
+    "runs": {
+      "description": "How a machine block's run is held (SPEC 9.1). Main file or ergostat.local.yaml only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outlive_engine": {"type": "boolean", "description": "true: each run is kept by a detached keeper and writes its own journal, so stopping ergostat (or a crash) leaves it going; default false"}
+      }
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -1252,6 +1260,12 @@
           "required": ["input", "output"],
           "additionalProperties": false
         },
+        "law": {
+          "type": "object",
+          "description": "An external block's known law, declared with identify: (SPEC §12d, Known laws): kubernetes-hpa or alert-rule and its parameters",
+          "properties": {"kind": {"enum": ["kubernetes-hpa", "alert-rule"]}},
+          "required": ["kind"]
+        },
         "integral-time": {
           "$ref": "#/$defs/duration",
           "description": "A machine block's integral time, when its law is PI (passed in its params)"
@@ -1625,6 +1639,11 @@
         },
         "lease": {
           "$ref": "#/$defs/lease_terms"
+        },
+        "runs-on": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "A program block: the compute pool its runs are for (a name under compute:), or local (here, as with none). Refused on an ai, person or daemon's block, on a command that calls ergostat, and for a pool whose blocks are in two shards (SPEC §12k)"
         }
       },
       "additionalProperties": false,
@@ -2029,6 +2048,13 @@
           "type": "string",
           "description": "The field that names the parts of the model each item is about (goal.x, stock.y, flow.z, auxiliary.w, block.v), folded by replace (SPEC section 5a, About). explain, check and status point at the open items about a part"
         },
+        "final": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "States no event moves an item out of: a later move is ignored and said (SPEC section 5a)"
+        },
         "relations": {
           "type": "object",
           "description": "Its typed relations to other items (SPEC section 5a, Relations): each a field holding the ids it names, folded as a set. A kind, a list of kinds, or {kind, precedence, inverse, group}. blocked_by, after and depends_on are precedence (the item is ready once each item it names is finished); parent is a group. Never enforced",
@@ -2080,6 +2106,20 @@
                   "group": {
                     "type": "boolean",
                     "description": "A parent: the Graph view hangs its children off it"
+                  },
+                  "starts_at": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ],
+                    "description": "A precedence relation's target states (neither finished nor paused) at which it no longer blocks: the item is unblocked, and takes: {unblocked: true} may take it. The critical path and the schedule stay finish-to-start"
                   },
                   "description": {
                     "type": "string"
@@ -2795,6 +2835,19 @@
         "unblocked": {
           "type": "boolean",
           "description": "Only items whose precedence relations name only finished items, the critical first (SPEC section 5a, Relations)"
+        },
+        "faults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["healthy"],
+          "description": "The queue's shared environment (SPEC section 9.5): while healthy reads unhealthy or unknown the block takes nothing new, and a run failing through the outage is given back uncounted",
+          "properties": {
+            "healthy": {
+              "type": "string",
+              "pattern": "^(sensor|stock|flow|auxiliary|variable|goal|block)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+              "description": "A sensor (sensor.NAME, the part it reads), a stock, flow or auxiliary (healthy above 0), a goal (healthy while it holds) or a block's output"
+            }
+          }
         }
       }
     },

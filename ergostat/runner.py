@@ -286,30 +286,27 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
     if version is None:
         from .history import version as model_version
         version = model_version(project.model)
-    started, cmd, b = time.time(), agent.command, getattr(project.model, "budget", None)
-    run_id = uuid.uuid4().hex if b is not None else None
+    from .costs import budget
+    started, run_id, spec, cmd = time.time(), uuid.uuid4().hex, budget.of(project.model), agent.command
 
     def write(more: dict | None = None) -> dict:
         return project.events.add("agent.started", item=agent.name, source=SOURCE, id=run_id,
                                   causedby=trigger.get("id") if trigger else None,
                                   data={"trigger": trigger["type"] if trigger else why, "model": version, **(more or {})})
-    if b is None:
-        return _ran(project, agent, trigger, why, version, started, write(), cmd)
-    from .costs import ai as costs_ai
-    from .costs import budget
-
-    # the permissive (SPEC §9.9): asked under its flock; the run is the agent, typed by its kind
-    spec, blk = SimpleNamespace(budget=b, agents={agent.name: agent}), SimpleNamespace(
-        name=agent.name, agent=agent.name, type=agent.kind)          # (free only for budget.FREE's kinds)
-    begun, no = budget.permit(project, spec, blk, write, run_id)
-    if begun is None:
-        return {"budget_refused": no, "note": f"refused: budget: {no}"}
-    if costs_ai.is_claude(cmd):                     # T1: its reserve as its cap, ours wins
-        cmd = re.sub(r"\s--max-budget-usd(?:=|\s+)\S+", "", cmd) + f" --max-budget-usd {budget.reserve_of(spec, blk)}"
+    if spec is None or spec.budget is None:
+        begun = write()
+    else:                                       # the permissive (SPEC §9.9): the agent's declared kind, none charged
+        blk = SimpleNamespace(name=agent.name, agent=agent.name, type=None)
+        begun, no = budget.permit(project, spec, blk, write, run_id)
+        if begun is None:
+            return {"budget": no, "note": f"refused: budget: {no}"}
+        from .costs import ai as costs_ai
+        if costs_ai.is_claude(cmd):             # T1: its reserve as its cap, ours replacing any in the command
+            cmd = re.sub(r"\s--max-budget-usd(?:=|\s+)\S+", "", cmd) + f" --max-budget-usd {budget.reserve_of(spec, blk)}"
     try:
         return _ran(project, agent, trigger, why, version, started, begun, cmd)
     except BaseException:
-        if begun["id"] in budget.OPEN:              # raised before its end: its reserve stays charged
+        if begun["id"] in budget.OPEN:          # raised before its end: its reserve stays charged
             with contextlib.suppress(Exception):
                 budget.close(project, agent.name, begun["id"], None, "the run raised before its end")
         raise
@@ -471,7 +468,6 @@ class Runner:
             if model is not self.p.model:                    # swapped: the new model's schedules from now
                 model = self.p.model
                 timed, crons, next_cron = self._plan(model, crons, next_cron)
-            self._recover()
             now = time.monotonic()
             for a in timed:
                 if now >= due.get(a.name, 0):
@@ -486,15 +482,16 @@ class Runner:
                         self.say(f"{n}: its cron no longer matches ({e}); it will not run again")
                         next_cron[n] = None
                     self._due(n)
+            self._recover()
             self.stop.wait(TICK)
 
-    def _recover(self) -> None:
-        """Under ``[budget]``: a reserved run whose process is gone is closed (``budget.recover``: once a minute)."""
-        if getattr(self.p.model, "budget", None) is None:
-            return
+    def _recover(self, every: float | None = None) -> None:
+        """The reserves of runs whose process is gone closed (SPEC §9.9): at most once a minute, or ``every``."""
         from .costs import budget
+        spec = budget.of(self.p.model)
         try:
-            budget.recover(self.p, self.p.model)
+            if spec is not None and spec.budget is not None:
+                budget.recover(self.p, spec, budget.RECOVER_EVERY if every is None else every)
         except Exception as e:
             self.say(f"budget: recovery: {type(e).__name__}: {e}")
 
@@ -543,6 +540,7 @@ class Runner:
         seq = self.p.events.last_seq()
         if not RELOADED.is_set():
             self._still_off()
+        self._recover(every=0)
         for name in list(self.queues):
             self._worker(name)
         threading.Thread(target=self._schedule, daemon=True).start()

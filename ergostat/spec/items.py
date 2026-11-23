@@ -454,7 +454,7 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     q = s.items or {}
     now = now or time.time()
     where = q.get("where") or {}
-    if s.of.kind != "flow":                         # a stock, or an auxiliary: how many there are now
+    if not (q.get("entering") or q.get("leaving")):  # a stock, or an auxiliary: how many there are now
         if q.get("measure") == "age":                   # since it was first seen, whatever states it passed through
             _, _, got = in_states(events, spec, q["kind"], q.get("state") or None, where, until=now, items=True)
             return (max((now - i.first) / 3600 for i in got) if got else 0.0), ""
@@ -465,10 +465,11 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     over = q.get("over") or 3600.0
     since = now - over
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
+    per = 3600.0 / over if s.of.kind == "flow" else 1.0   # a flow: per hour; an auxiliary: how many over the window
     if q.get("sum"):                                # a field summed over the items moving, not how many moved
-        return sum(x for _, x in summed(events, spec, q, since, now)) * 3600.0 / over, ""
+        return sum(x for _, x in summed(events, spec, q, since, now)) * per, ""
     n = sum(1 for t in moved(events, spec, q["kind"], key, state, since, now, where, at=now) if t > since)
-    return n * 3600.0 / over, ""
+    return n * per, ""
 
 
 def summed(events, spec: Spec, q: dict, since: float, until: float) -> list[tuple[float, float]]:
@@ -551,10 +552,23 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
     return {"kinds": [{"name": k.name, "title": TITLES.get(k.name), "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "relations": {r: x.kinds for r, x in k.relations.items()},
-                       "counts": counts.get(k.name, {})} for k in kinds.values()],
+                       "counts": counts.get(k.name, {}), **finishes(events, spec, k.name)} for k in kinds.values()],
             "systems": systems, "unkinded": unkinded,
             "total": total, "offset": offset,
             "items": [_listed(i, kinds, where) for i in page]}
+
+
+def finishes(events, spec, kind: str) -> dict:
+    """A kind's finished and paused states as the listing gives them (``finished.finish_of``), from the states its
+    items have left by now (none known for a record kept nowhere on disk)."""
+    from .finished import finish_of
+    ix = _index(events, spec, False)
+    if ix is not None:
+        with ix.lock:
+            left = set(ix.left(kind))
+    f = finish_of(spec, kind, left if ix is not None else set())
+    return {"finished": f["finished"], "paused": f["paused"], "dead": f["dead"], "finished_from": f["from"],
+            "lives_on": f["lives_on"]}
 
 
 def _paged(events, spec, kind: str | None, state: str | None, until: float | None, n: int, offset: int, ws=()):
@@ -589,6 +603,77 @@ def _paged(events, spec, kind: str | None, state: str | None, until: float | Non
         c[i.state or ""] = c.get(i.state or "", 0) + 1
     shown = [i for i in its if want(i)]
     return shown[offset:offset + n], counts, len(shown)
+
+
+SORTED_MOST = 5_000    # the most items a kind's page reads to sort by a field: past it, the newest of them (``kind_page``)
+
+
+def _hit(i: Item, q: str | None, ws) -> bool:
+    return not q or q in i.id or all(w in text_of(i.fields) for w in ws)
+
+
+def _by_field(its: list[Item], sort: str) -> list[Item]:
+    """``its`` ordered by a field (``-f``: down): numbers as numbers, then text; a missing or non-finite value last, the
+    newest first among equals."""
+    import math
+    f, down = sort.lstrip("-"), sort.startswith("-")
+    v = lambda i: field_at(i.fields, f)   # noqa: E731
+    num = [i for i in its if isinstance(v(i), (int, float)) and not isinstance(v(i), bool) and math.isfinite(v(i))]
+    seen = {id(i) for i in num}
+    text = [i for i in its if id(i) not in seen and v(i) is not None and not isinstance(v(i), float)]
+    seen |= {id(i) for i in text}
+    word = lambda x: x if isinstance(x, str) else json.dumps(x, sort_keys=True, default=str)   # noqa: E731
+    return sorted(num, key=v, reverse=down) + sorted(text, key=lambda i: word(v(i)), reverse=down) + \
+        [i for i in its if id(i) not in seen]
+
+
+def kind_page(events, spec, kind: str, state: str | None = None, until: float | None = None, n: int = LISTED,
+              offset: int = 0, q: str | None = None, sort: str | None = None) -> dict:
+    """One page of ``kind``'s items (in ``state``, when given), as a kind's own page lists them (SPEC §5a, *A kind's
+    page*): with ``q``, only those whose id holds it or whose fields hold each of its words, out of every item of the
+    kind, finished or not; newest first, or by a field (``sort``: ``f`` up, ``-f`` down) over the whole filtered set,
+    the newest ``SORTED_MOST`` of it when larger (``cut``). ``offset`` past the end is the last page's. How many match
+    (``total``), and how many of them are finished (``finished``, of the kind's finished states)."""
+    k = spec.items[kind]
+    ws = words(q) if q else ()
+    states = None if state is None else [state]
+    done = set(finishes(events, spec, kind)["finished"])
+    transcript = asks_transcript([k], tuple(k.show))
+
+    def paged(rows, fetch):                               # rows: (id, last, state, the item when already folded)
+        total = len(rows)
+        reach = min(total, SORTED_MOST) if sort else total
+        at = max(0, min(offset, (reach - 1) // max(1, n) * max(1, n) if reach else 0))
+        page = _by_field(fetch(rows[:SORTED_MOST]), sort)[at:at + n] if sort else fetch(rows[at:at + n])
+        return {"items": page, "total": total, "offset": at, "finished": sum(r[2] in done for r in rows),
+                "cut": SORTED_MOST if sort and total > SORTED_MOST else None}
+    ix = _index(events, spec, transcript)
+    if ix is not None:
+        with ix.lock:
+            late = _late(ix, events, spec, kind, until, transcript)
+            if late is not None:
+                def read():
+                    got = {}
+                    for ww, has in ([((), None)] if not q else [(ws, None), ((), q)]):
+                        w, a = ix._where(kind, states, until, ww)
+                        if has is not None:
+                            w, a = (w + " and " if w else " where ") + "instr(id, ?) > 0", [*a, has]
+                        for i, last, st in ix.db.execute(f"select id, last, state from items{w}", a):
+                            got[i] = (i, last, ix.name(st), None)
+                    return got
+                got = ix.guard(read)
+                for i in late.values():
+                    got.pop(i.id, None)
+                    if i.kind == kind and (state is None or i.state == state) and _hit(i, q, ws):
+                        got[i.id] = (i.id, i.last, i.state, i)
+
+                def fetch(rs):
+                    have = {i.id: i for i in ix.items(kind, until=until, moves=False, ids=[r[0] for r in rs if r[3] is None])}
+                    return [r[3] or have[r[0]] for r in rs if r[3] or r[0] in have]
+                return paged(sorted(got.values(), key=lambda r: -r[1]), fetch)
+    its = [i for i in project(events, spec, kind, until=until, fields=tuple(k.show), transcript=transcript)
+           if (state is None or i.state == state) and _hit(i, q, ws)]
+    return paged([(i.id, i.last, i.state, i) for i in its], lambda rs: [r[3] for r in rs])
 
 
 def _listed(i: Item, kinds: dict, where: dict | None = None) -> dict:
@@ -656,13 +741,14 @@ def related(events, spec, it: Item, k) -> dict | None:
         seen = {}
     if not out["out"] and not out["in"]:
         return None
-    from ..precedence import Kinds, status
+    from ..precedence import Kinds, starts, status
     info = Kinds(spec, ix)
     title = lambda x: x.fields.get("title") if isinstance(x.fields.get("title"), str) else ""      # noqa: E731
     out["items"] = {i: {"kind": x.kind, "state": x.state, "title": title(x), "done": status(x, info[x.kind], []) == "done"}
                     for i, x in seen.items()}
-    prec = {r for r, rel in (k.relations.items() if k else []) if rel.precedence}
-    out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")]
-    out["relations"] = {r: {"kinds": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group}
-                        for r, rel in (k.relations.items() if k else [])}
+    prec = {r: rel for r, rel in (k.relations.items() if k else []) if rel.precedence}
+    out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")
+                      and not (i in seen and starts(seen[i], prec[r]))]
+    out["relations"] = {r: {"kinds": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group,
+                            "starts_at": rel.starts_at} for r, rel in (k.relations.items() if k else [])}
     return out

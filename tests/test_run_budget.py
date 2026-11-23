@@ -298,7 +298,7 @@ def test_only_known_start_paths():
         rel = f.relative_to(root).as_posix()
         scan(ast.parse(f.read_text()), [])
     assert found == {"agent.started": {"spec/engine.py:Engine.run_block", "spec/engine.py:Engine.judge",
-                                       "runner.py:run_agent.write"},
+                                       "runner.py:run_agent.write"},     # (its writer, called inside the permit)
                      "lease.taken": {"leases/dispatch.py:Dispatcher.take"}}
 
 

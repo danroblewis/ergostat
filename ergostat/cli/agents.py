@@ -137,10 +137,10 @@ def run_now(args) -> int:
     seq = p.events.last_seq()
     began = time.time()
     r = run_agent(p, a, why="by hand")
-    said = p.events.query(n=None, after_seq=seq)
-    if r.get("budget_refused"):                         # (refused by the day's budget: never started, SPEC §9.9)
-        out_json({"run": r, "events": said}) if args.json else print(c(r["note"], "bad"))
+    if r.get("budget"):                               # refused by the day's budget: nothing started (SPEC §9.9)
+        print(c(r["note"], "bad"), file=sys.stderr)
         return 1
+    said = p.events.query(n=None, after_seq=seq)
     if args.json:
         return out_json({"run": r, "events": said})
     ok = not r.get("note")

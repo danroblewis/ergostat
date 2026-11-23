@@ -45,6 +45,41 @@ def _wait_for_a_model_that_runs(args) -> None:
         time.sleep(0.5)
 
 
+def _stop(p, pid) -> int:
+    from .. import runner
+    if not pid:
+        print("not running")
+        return 0
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(100):
+        if not runner.running_pid(p):
+            print(f"stopped ({pid})")
+            return 0
+        time.sleep(0.1)
+    print(f"{pid} did not stop within 10s; it still holds {runner.pid_file(p)}", file=sys.stderr)
+    return 1
+
+
+def _stop_runs(p, rc: int) -> int:
+    """``--stop --runs``: the runs left going by their keepers (``runs: outlive_engine``, SPEC §9.1) stopped too, each
+    whole process group (SIGTERM, SIGKILL past the grace), engine or none; waited for, a grace and 5 s at most."""
+    from ..compute.worker import keeper
+    from ..leases.kill import grace
+    root, g = str(p.dir.resolve()), grace()
+    asked = keeper.stop_all(root, g)
+    end = time.monotonic() + g + 5
+    left = asked
+    while left and time.monotonic() < end:
+        time.sleep(0.1)
+        left = [r for r in left if keeper.ended(os.path.join(root, "runs", r)) is None]
+    if asked:
+        print(f"stopped {len(asked) - len(left)} of {len(asked)} runs left going")
+    if left:
+        print(f"still going: {', '.join(r[:8] for r in left)}", file=sys.stderr)
+        return 1
+    return rc
+
+
 def cmd_run(args) -> int:
     from .. import runner
     if args.foreground and os.environ.get("ERGOSTAT_LOCK_FD") and not args.stop:
@@ -54,17 +89,8 @@ def cmd_run(args) -> int:
     if args.stop:
         from ..watcher import STOPPED
         (p.dir / STOPPED).touch()                       # on purpose: the outer watcher leaves it stopped
-        if not pid:
-            print("not running")
-            return 0
-        os.kill(pid, signal.SIGTERM)
-        for _ in range(100):
-            if not runner.running_pid(p):
-                print(f"stopped ({pid})")
-                return 0
-            time.sleep(0.1)
-        print(f"{pid} did not stop within 10s; it still holds {runner.pid_file(p)}", file=sys.stderr)
-        return 1
+        rc = _stop(p, pid)
+        return _stop_runs(p, rc) if getattr(args, "runs", False) else rc
     if (args.install or args.uninstall) and not args.service:
         print("--install and --uninstall go with --service: ergostat run --service --install", file=sys.stderr)
         return 2
@@ -98,7 +124,7 @@ def cmd_run(args) -> int:
     stopping = []
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
     from ..spec.watchdog import heartbeat, startup
-    heartbeat(p.dir, time.time())                       # this process's, before its slow start
+    heartbeat(p.dir, time.time(), start=True)         # this process's, before its slow start (the last stale kept)
     eng: list = []                                      # the engine, once made: its dispatch closed by a hard restart
     hard = lambda why: _restart_hard(p, args, why, *eng)                  # noqa: E731
     started = startup(p.dir, lambda s: print(time.strftime("%H:%M:%S"), s, flush=True),

@@ -5,7 +5,8 @@ docs/MODEL-TOOLS.md), claims and trust (``claims``, docs/CLAIMS.md), the owner's
 (``decisions``, docs/DECISIONS.md), messages (``messages``, docs/MESSAGES.md), adding a small control system from
 templates (``adding``, docs/ADDING.md), the guide for an agent modelling someone's work (``agent-guide``,
 docs/AGENT-GUIDE.md), the craft that makes each diagram look as a professional would draw it
-(``modelling-well``, docs/MODELLING-WELL.md), and the skills for AI agents (``skills/NAME/SKILL.md``, and
+(``modelling-well``, docs/MODELLING-WELL.md), making sensible dashboards and panels (``dashboards``,
+docs/DASHBOARDS.md), and the skills for AI agents (``skills/NAME/SKILL.md``, and
 docs/skills/NAME/SKILL.md). An
 installed ergostat has the three documents copied into ``help/``; a clone reads them from ``docs/``."""
 
@@ -16,7 +17,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DOCS = {"spec": "SPEC.md", "modelling": "MODELLING.md", "model-tools": "MODEL-TOOLS.md",   # a guide that is a document in docs/
         "claims": "CLAIMS.md", "decisions": "DECISIONS.md", "messages": "MESSAGES.md", "adding": "ADDING.md",
-        "agent-guide": "AGENT-GUIDE.md", "modelling-well": "MODELLING-WELL.md"}
+        "agent-guide": "AGENT-GUIDE.md", "modelling-well": "MODELLING-WELL.md",
+        "dashboards": "DASHBOARDS.md"}
 
 
 def guides() -> dict[str, Path]:
