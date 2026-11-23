@@ -111,3 +111,17 @@ the branch. The cut-offs happened at different points (113 results, 36, then non
 own. Both point to the build step's container (4 CPUs, 4 GB, -n 8), which is outside this gap (lesson-13). No code
 was changed on a guess. Refused here: writing the run's output to a /tmp log, and reading the running tests' processes
 with ps.
+
+Next build failure, named this time: tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine
+(`assert 'switcher' not in e.running` after its 120 s wait; 1 failed, 204 passed, 2 skipped in 558 s). Run alone on
+this branch it passed: 1 passed in 146 s for both switcher runs and the switch together, so each run finishes well
+inside 120 s on its own. The switcher runs dev/bin/drain.py, which makes a dozen or so `ergostat item` calls. Each
+one is a new process that loads the model. This gap's code is not on that path. stack.py is never started (the test
+starts only the switcher, and the engine's loop does not run). The only thing this gap adds to that path is a sensor,
+an expr block and a program block in the model each call loads (about 29 lines of YAML). That points to lesson-10, not
+to this branch: a fixed 120 s wait on a run made of many subprocesses, overrun under `-n 8` load. Two commands were
+refused, so this could not be measured: running the same test on main in a /tmp worktree
+(`git worktree add -q /tmp/mainwt main`), and timing `uv run ergostat item --kind upgrade` on this model. No code was
+changed and the test's bound was left alone. No cause was found in this gap, so a change would be a guess, or would be
+outside the gap (lesson-13). If it fails again, it should be run on clean main under the same load. If it fails there
+too, the failure is main's, not this gap's.
