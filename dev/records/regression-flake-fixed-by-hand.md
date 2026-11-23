@@ -78,3 +78,11 @@ or the test is outside this gap's Files (lesson-13), and the test's bound is not
 It is left for the factory's rerun on clean main. Not run: this test on main's tree (`git archive main | tar -x -C
 /tmp/mainsrc` and running it there was refused in this session), so it is not shown that main fails it under the
 same load.
+
+Round 4. There was no new review finding. main (7a44d730) is already merged into the branch (a2b6d673), and local
+main is not ahead of it. Run here, serially, after the merge: the three acceptance tests (3 passed, 22.4 s), and
+test_an_approved_switch_drains_and_switches_through_the_engine alone (1 passed, 116.0 s). ruff is clean. No code
+changed. Not run: the whole of tests/test_factory.py, because the background command `timeout 1500 uv run python
+scripts/named_tests.py tests/test_factory.py > /tmp/tf.log 2>&1` was refused in this session. The switch test's
+120 s wait under -n 8 is still main's load-dependent bound (lesson-10) and outside this gap (lesson-13), as round 3
+says.
