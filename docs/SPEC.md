@@ -7902,13 +7902,16 @@ A frame with an unknown `type` is answered `error` and the worker goes on, as it
 | `memory` | bytes (`/proc/meminfo`, or `sysctl hw.memsize` on macOS), or null when it can't be read |
 | `disk` | `{"root": free bytes of the root's file system}`, or null |
 | `arch`, `os` | `platform.machine()`, `platform.system()` in lower case |
-| `backends`, `images`, `runs` | `[]` (the process and Docker backends and the runs it holds come with sections 12s.3, 12s.6 and 12s.9) |
+| `backends`, `images` | `[]` (the process and Docker backends come with sections 12s.3 and 12s.9) |
+| `runs` | each run folder found in the root at start, `{"run", "state", ...}`: `running`, `gone` or `unknown` (section 12s.6); `[]` with none |
 | `labels` | the root's `labels.json`, an object of strings (what the owner says the node has); missing, `{}`; unreadable or of another shape, `{}`, said on standard error |
 | `slots` | the most runs it takes at once: its CPUs, at most 64; CPUs unknown, 0 |
 
 Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs`, `{"RUN": {...}}` (`{}` with
 none; section 12s.3): each run whose output it follows with the offsets the engine has taken, `"out": N, "err": N`,
-and each run folder in the root with its latest readings, `"resources": {...}` (12s.3, *Readings*).
+and each run folder in the root with its latest readings, `"resources": {...}` (12s.3, *Readings*), and each run
+listed in `hello` with its state read again for that beat (`"state"` and its other fields, 12s.6) until its folder
+is removed.
 `ping` is answered `pong` with its `id`. Every other type is a table, `serve.HANDLERS`, of message type to handler:
 each later part of the protocol is one module of the folder and one line registering it there. Standard input
 closed, the worker ends (0).
@@ -7926,9 +7929,8 @@ closed, the worker ends (0).
 Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`), and the
 run's output by offset with `attach`, `ack`, `ended` and `done` (`output.py`), both registered in `serve.HANDLERS` once
 `hello` is said, each run's readings, `ended`'s `resources` (`sampler.py`, below), and the keeper's wall and lease
-deadlines (`deadline.py`, section 12s.5) and the node's side of the lease's renewals (`leaseclock.py`, 12s.5). Still
-to come: the runs listed in `hello`
-(`backends` stays `[]` until then).
+deadlines (`deadline.py`, section 12s.5) and the node's side of the lease's renewals (`leaseclock.py`, 12s.5). The
+runs listed in `hello` are in section 12s.6 (`backends` stays `[]`, as in the `hello` table above).
 
 **`start`** `{"run", "command", "input", "env", "block", "limits", "lease"}`: `command` a non-empty string, `input`
 (the run's standard input) a string, `env` an object of strings, `lease` absent or `{"left", "ttl"}` (seconds to its
@@ -7952,7 +7954,13 @@ from `/dev/null`, its output to `runs/RUN/keeper.log`, SIGHUP ignored), and answ
 `keeper` (its pid). The worker reaps its keepers; nothing ties a keeper to the worker, so closing the worker's
 standard input, or killing its session, leaves every run going.
 
-**The keeper** forks the run. The child takes its own process group (the keeper sets it too, so a stop never
+**The keeper** forks the run, then writes `runs/RUN/proc` `{"pid", "start", "keeper", "keeper_start", "boot"}` (the
+run's pid and start time, its own pid and start time, as the system gives them: `/proc/PID/stat` field 22 on Linux,
+`ps -o lstart=` elsewhere, which prints by the caller's locale and time zone, so every `ps` and `sysctl` of the keeper
+and the worker runs with `LC_ALL=C`, `LANG=C` and `TZ=UTC` set over its own, and a start time of any other form, read
+or recorded, is no reading; and the boot, a UUID made at each boot, `/proc/sys/kernel/random/boot_id` on Linux,
+`sysctl -n kern.bootsessionuuid` elsewhere, never `kern.boottime`, a time of day that moves with the clock; a reading
+not of a UUID's form is no reading; best effort: without it the run reads `unknown`, section 12s.6). The child takes its own process group (the keeper sets it too, so a stop never
 precedes it), writes `runs/RUN/pgid` before anything else, sets `RLIMIT_AS` to `memory`, `RLIMIT_NPROC` to `pids`
 and `RLIMIT_CPU` to `cpus × wall` (rounded up) when given, and on Linux `PR_SET_PDEATHSIG = SIGKILL` (by `ctypes`;
 the run is not started if that fails or the keeper has already gone) and `oom_score_adj` 500 (best effort: it
@@ -8149,7 +8157,45 @@ SIGTERM there and SIGKILL `K` later.
 
 ### 12s.6 Runs that outlive the connection
 
-(To be filled: `attach`, the runs listed in `hello`, unknown never read as gone.)
+Built so far: the runs a starting worker finds, their states and the sweep (`states.py`). Still to come: the
+engine's side (attaching the runs it holds a lease for, killing the others).
+
+**The runs found at start.** A worker reads every folder of `runs/` in its root named exactly 32 lower-case hex
+digits that is a real folder (never a link) resolved inside `runs/`, and lists each in `hello`'s `runs` with one of
+three states. **Gone** needs a reading made, one of an allowlist:
+
+- `running`: its `proc` pid is alive with the start time recorded, and so is its keeper's;
+- `gone`, with `code` and `how`: its keeper's `exit` is written (an unreadable one reads `code` 127, never 0); or its
+  `proc` names another boot UUID than this one's, both read as UUIDs (every process of that boot has ended); or its pid is another process
+  (another start time): the run leads its own group (its pgid is its pid) and the kernel does not give a pid number
+  again while any process has it as its pid or its group, so the run's group is empty and any process now in a group
+  of that number is a stranger's; or its pid is absent or a zombie *and* the group of that number is read as having
+  no process that has not ended (`/proc` on Linux, one `ps -A -o pgid=,state=` elsewhere). Then, when its keeper is
+  still alive, `code` and `how` are null (the keeper writes the exit within a quarter second); when its keeper is
+  gone too, the worker writes the exit itself, `{"code": null, "how": "keeper gone"}` (`"rebooted"` for another
+  boot; `code` reads 127), and the folder is left for the engine's `done` and the sweep;
+- `unknown`, with `why`: anything else: `record unreadable` (no `proc`, or not of that shape, its boot
+  not a UUID or a start time not of its form among them), `ps failed` (a start time or this boot's UUID not read, or
+  read in another form), `group not read`, `group not empty` (its pid absent while a group of that number still
+  has a process), `keeper gone` (the run alive, its keeper not), `not read` (an unexpected fault, said on standard
+  error). Unknown is never gone and never fine: the worker stops it by name at once by writing its `stop` (so a
+  keeper still there acts on it as for a `kill`), and itself sends SIGTERM to the run's group, then SIGKILL 2 seconds
+  later, each only when, read again just before it is sent, the record's boot is this one and its pid (the group's
+  leader) is alive with the start time recorded; else that signal is not sent. Never to the worker's own group; one
+  stopping thread at a time. A group whose leader is not shown so (a `group not empty`, a `proc` unreadable, a ps
+  still failing) is left to its keeper's `stop` and listed `unknown` until a reading puts it in one of the other two
+  states. Left open: the leader ending and its number taken again between that reading and the signal.
+
+Each `beat` reads the state of each run listed in `hello` again (the process groups listed once a beat), carries it
+in that run's object, and stops again each run still unknown. A run started in this session is not read so: its
+state is its `started` and `ended`. A folder another worker on the same root is making at the instant this one
+starts (no `proc` yet) reads `unknown` and its `stop` is written (its keeper stops it; the worker sends no signal).
+
+**The sweep** (`states.sweep`), once just after `hello` and then every hour, removes a run folder (of the form
+above) only when its run has ended (its `exit` is there) and it has `done` or its `exit` is a day old or more. It
+removes nothing else in the root, never all-but-a-list: another name, a link of a run's name (wherever it points),
+a run not ended and one ended under a day ago without `done` are left. A `runs/` that resolves outside the root is not
+swept at all.
 
 ### 12s.7 The work in and out
 
