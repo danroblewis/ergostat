@@ -117,7 +117,7 @@ After it, main's line `snap = pinned if pinned is not None else live.snapshot(..
 snapshot) replaces the branch's plain `live.snapshot(...)`. No other code changed in this round.
 After the merge: ruff clean; tests/test_module_sparklines.py 3 passed; tests/test_series.py,
 tests/test_parity.py and tests/test_spec_schema.py 62 passed. The two sparkline acceptance tests in
-tests/test_diagram_rendering.py, run with Playwright under suite_watch, gave 3 passed, rc 0. The whole of
+tests/test_diagram_rendering.py, run with Playwright under suite_watch, gave 3 passed, rc 0. tests/test_page_polling.py (Playwright, suite_watch): 22 passed, rc 0. The whole of
 tests/test_diagram_rendering.py was not run again in this round (57 min last time). Done item 5 stands as round 1
 left it: the failures listed above, which also failed with this branch's page hooks off. These failures
 are for the factory's rerun on clean main to confirm.
