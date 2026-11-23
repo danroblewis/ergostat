@@ -792,6 +792,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
             a = m.agents.get(name)
             if a is None:
                 return None
+            from . import agent_spec
+            if len(parts) > 2:                    # its files' text, each from inside the project only
+                return agent_spec.files(p, name) if parts[2] == "files" and len(parts) == 3 else None
             runs = [e for e in p.events.query(n=400, item=name, type="agent.*", until=snap["at"])
                     if e["type"] in ("agent.ran", "agent.failed")]
             from ..runner import log_path
@@ -815,6 +818,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
+                    "spec": agent_spec.spec(p, snap, name),          # what it is: its block as written, law, files
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
         from ..costs import record as costs
         use = costs.per_block(p, snap["at"] - snap["window"], snap["at"])
