@@ -50,7 +50,7 @@ def test_a_clean_batch_is_tested_once_lands_and_ends_landed(tmp_path):
     assert run | {"minutes": 0} == {"run": 1, "kind": "full", "gaps": ["gap/a", "gap/b"], "outcome": "passed",
                                     "failed": 0, "passed": 3, "counted": ["unit"], "first_failing": [], "minutes": 0}
     assert fl["runs_n"] == 1                                                     # (browser said no counts: not counted)
-    assert said(settle_push(f)) == ["batch.ended.landed"]
+    assert said(settle_push(f)) == ["batch.ended-landed"]
     b = batch(f)
     assert b["state"] == "landed" and b["fields"]["given_back"] == [] and b["fields"]["why"] == "its push ran"
     assert merges(f) == ["a", "b"] and suite_runs(f) == 1
@@ -71,7 +71,7 @@ def test_a_batch_with_one_bad_merge_isolates_it_and_ends_partial(tmp_path):
     assert fl["runs"][0]["counted"] == []                                         # no pytest summary: none counted
     assert fl["isolated"] == [{"gap": "gap/a", "how": "halves", "tests": ["tests/test_b.py::test_b"]}]
     assert fl["landed"] == ["gap/b"]
-    assert said(settle_push(f)) == ["batch.ended.partial"]
+    assert said(settle_push(f)) == ["batch.ended-partial"]
     b = batch(f)
     assert b["state"] == "partial" and b["fields"]["failed"] == ["gap/a"] and b["fields"]["given_back"] == []
 
@@ -85,7 +85,7 @@ def test_a_crashed_run_says_its_cause_and_the_batch_is_given_back(tmp_path):
     _, lines = f.run("queue.py", "gap/a")
     assert merges(f) == [] and suite_runs(f) == 3                                # the whole, then both halves
     assert said(lines) == ["batch.started", "batch.run-started", "batch.run-finished", "batch.run-started",
-                           "batch.run-finished", "batch.ended.given-back"]
+                           "batch.run-finished", "batch.ended-given-back"]
     b = batch(f)
     assert b["state"] == "given-back"
     runs = b["fields"]["runs"]
@@ -122,7 +122,7 @@ def test_a_denied_push_ends_the_batch_failed(tmp_path):
     f = Factory(tmp_path, unit="true")
     approved_gaps(f, {"a": 1}, batch=1)
     f.run("queue.py", "gap/a")
-    assert said(settle_push(f, "denied")) == ["batch.ended.failed"]
+    assert said(settle_push(f, "denied")) == ["batch.ended-failed"]
     assert batch(f)["state"] == "failed" and batch(f)["fields"]["why"] == "its push denied"
 
 
@@ -333,7 +333,7 @@ def test_a_batch_whose_run_was_killed_ends_given_back_when_the_next_run_recovers
     later, _, said_later, _ = batches_module(monkeypatch, tmp_path)               # the next queue run's process
     later.abandoned(cfg)
     (event, item, data, _), = said_later
-    assert (event, item) == ("batch.ended.given-back", "batch/a-20261123T100000Z") and data["runs_n"] == 1
+    assert (event, item) == ("batch.ended-given-back", "batch/a-20261123T100000Z") and data["runs_n"] == 1
     assert [x["gap"] for x in data["given_back"]] == ["gap/a", "gap/b"] and "stopped part way" in data["why"]
     later.abandoned(cfg)
     assert len(said_later) == 1                                                   # ended once

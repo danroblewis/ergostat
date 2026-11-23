@@ -62,3 +62,9 @@ Not run here: the whole unit suite, the four browser files and the rest of tests
 Timeline test with `batch.run-finished` moving to `testing` (one bar, not three). The browser test is not mutated
 separately: it checks the same bars as drawn. Without Playwright, as in the unit suite, it skips, as
 tests/test_export.py's do.
+
+Renamed after `ergostat check` (round 1, `event-names-mixed items.batch`): the four end events are now
+`batch.ended-<outcome>` (`batch.ended-landed`, `-partial`, `-failed`, `-given-back`), not `batch.ended.<outcome>`.
+The check reads an event as the kind, a dot, then a past-tense verb, so `batch.ended.landed` had the head
+`batch.ended` and was flagged. The bullet on event names above should read with that change. The finding is fixed in
+the model, not allowed: the definition has no `allows-findings` line.

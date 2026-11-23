@@ -9,7 +9,7 @@ carry no logs (the logs stay in run/queue/):
   runs follow one another (a round of halves is one run), so the Timeline draws one testing bar for each;
 - `batch.isolated`: a gap found failing, how (named: its tests on each prefix; halves; alone: a batch of one), the tests;
 - `batch.landed` (pushing): the gaps landed, main's commit, the minutes and runs so far;
-- `batch.ended.<outcome>` (landed, partial, failed, given-back): what was given back and why. A batch that landed
+- `batch.ended-<outcome>` (landed, partial, failed, given-back): what was given back and why. A batch that landed
   something ends when its push settles (queue.settle(): the push ran, was denied, or the coordinator settled it).
 
 A batch killed part way ends given back when the next queue run recovers (abandoned()). A run under way is written to
@@ -179,7 +179,7 @@ def end(outcome: str, why: str) -> None:
 
 
 def _said(bid: str, outcome: str, why: str, back: list, failed: list, minutes: float, runs: int) -> None:
-    _say(f"batch.ended.{outcome}", bid, outcome=outcome, why=why, given_back=back, failed=failed,
+    _say(f"batch.ended-{outcome}", bid, outcome=outcome, why=why, given_back=back, failed=failed,
          minutes=minutes, runs_n=runs, ended_at=time.time())
 
 

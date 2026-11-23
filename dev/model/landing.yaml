@@ -15,10 +15,10 @@ items:
       batch.run-finished: isolating   # between runs: a red run's tests checked alone and on main, the next run chosen
       batch.isolated: isolating       # a gap found failing: how, and its tests
       batch.landed: pushing           # merged on main, its push asked for
-      batch.ended.landed: landed      # every gap landed and pushed
-      batch.ended.partial: partial    # some landed and pushed, the rest failed or given back
-      batch.ended.failed: failed      # none landed and a gap failed, or its push was denied
-      batch.ended.given-back: given-back   # none landed and none blamed: a stall, main red, out of time, an error
+      batch.ended-landed: landed      # every gap landed and pushed
+      batch.ended-partial: partial    # some landed and pushed, the rest failed or given back
+      batch.ended-failed: failed      # none landed and a gap failed, or its push was denied
+      batch.ended-given-back: given-back   # none landed and none blamed: a stall, main red, out of time, an error
     show: [size, run, outcome, base, main_sha, runs_n, minutes, why]
     fold: {runs: append, isolated: append}
     relations:
