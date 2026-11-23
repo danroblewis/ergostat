@@ -73,7 +73,8 @@ class Dispatcher:
         self.going: dict[str, dict[str, dict]] = {}   # block → item → {run, fence, block}: the runs going here
         self.ours: set[str] = set()                   # the runs this engine took whose leases have not ended
         self.holding = False                          # whether the last watch found a lease held (one outlives its block)
-        self.watched = False                          # whether a watch has read every lease (the engine's start behind it)
+        self.me = run_gone.me(self)                   # the engine its leases name (gone.py)
+        self.watched = False                         # whether a watch has read every lease (the engine's start behind it)
         self.lock = threading.RLock()
         self.ends = threading.Lock()                  # finish's read and its write of lease.ended, as one
         self.seq = 0
@@ -296,7 +297,7 @@ class Dispatcher:
             bounds.hold(self.e, key, b)
             self.ours.add(run)                                    # (before its write: a lease of ours is never missed)
         data = {"item": it.id, "run": run, "block": b.name, "fence": fence, "ttl": t["ttl"], "max": t["attempts"],
-                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1}
+                "back": it.state, "tier": t["tier"], "attempt": int(lease.get("attempts") or 0) + 1, "engine": self.me}
         spec = self.spec
         try:
             def write(more: dict | None = None) -> dict:

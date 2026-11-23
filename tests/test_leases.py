@@ -12,7 +12,7 @@ import pytest
 
 from ergostat import model as mdl
 from ergostat import runner as old
-from ergostat.leases import ENDED, EXPIRED, REDRIVEN, RENEWED, TAKEN
+from ergostat.leases import ENDED, EXPIRED, REDRIVEN, RENEWED, TAKEN, gone
 from ergostat.leases.terms import terms
 from ergostat.spec import items as its
 from ergostat.spec.engine import Engine
@@ -577,6 +577,7 @@ def test_leases_survive_a_restart_the_fold_is_the_truth(tmp_path):
     first.dispatch.finish = lambda *a, **k: None             # it dies: no lease is ended (nor given back: no close)
     first.stop.set()
     old.kill_all()
+    gone.closed(first.dispatch)                              # (as its process ending would: its id no live engine's)
     held = item(p, "ticket/1").fields["lease"]
     second = start(Project(mdl.load(tmp_path)))
     try:                     # (no fixed sleep: what the record says, in its order, holds however late a look comes)

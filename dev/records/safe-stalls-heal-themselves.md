@@ -137,3 +137,30 @@ records name this same failure on main's code (continue-branch2, code-health-sim
 daemons-left-over, library-trust-folders, quarantine-list-honest, a-lease-end-is-never-dropped). Changing the
 watchdog's renewal belongs in a gap of its own: either its quarantine (tests/quarantine.txt, added to by hand), or a
 renewal that does not depend on a CLI's start-up time. This branch waits for neither.
+
+Round 8. One blocking finding (lessons 1 and 8), fixed. 'Gone' was decided from the run's process alone, so a second
+engine's run (`ergostat block NAME --now`, a trial, a steptest) could be released while its owner was still ending it.
+Its process has exited but its record is not yet removed, or it is between its TAKEN and its RUN.in. When that
+happened, its counted end was dropped and the item could be taken twice. Fix: the taken event now names the engine
+that took it (`engine`: pid, that pid's start time, and an id per engine, because one process may hold several), and
+the fold keeps it on the lease. `gone.owner_gone` reads it, and a lease is released (as gone, or as "no longer
+exists") only when that owner is gone too. Another process's engine is gone when its process is (`runrecord.state`).
+An engine in this process is gone once it has closed (`Engine.close` unregisters it) or the process was exec'd over (a
+hard restart keeps the pid, and the id is no longer registered). The owner is put on the lease, not on `RUN.json` as
+the finding suggested, because the lease also covers the window before any run file exists. The more reversible
+choices: a lease naming no engine (taken before this change) and a lease naming this engine are left to their TTL,
+and unknown is never gone. Test: `tests/test_lease_gone.py::test_another_engines_run_ending_is_its_own_counted_end_and_nothing_is_taken_twice`
+opens the window: a second Engine's `dispatch.once` runs `exit 3`, with `runrecord.remove` held for 2.5 s while the
+serving engine's watchdog loops (at least 5 passes inside the window). It checks that the one end is the run's own
+counted nack (attempts 1) and that there is one TAKEN. `::test_at_start_a_lease_of_a_run_that_no_longer_exists_is_ended`
+now checks that the first pass leaves a lease with no record when its owner is a live engine in this process, a live
+other process, or not named. Both tests failed with `or not owner_gone(d, lease)` taken out and pass with it. The
+hand-made leases in that file name a closed engine. `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`
+unregisters its "dead" first engine, as its process ending would. About 45 net lines more outside tests/, docs/ and
+dev/ (about 230 in all, budget 600). SPEC §9.5 (the taken event's `engine`, *A run gone*) is updated. Ran, one file at a
+time: tests/test_lease_gone.py (7 passed); tests/test_leases.py, tests/test_resilience.py and
+tests/test_leased_workspaces.py (81 passed); tests/test_runs_outlive_engine.py, tests/test_factory_outage.py and
+tests/test_faults_healthy.py (38 passed); tests/test_engine_shard.py, tests/test_runner_and_state.py and
+tests/test_finding_attention.py (70 passed); tests/test_daemons_restart.py, tests/test_shards.py and
+tests/test_agents.py (43 passed); tests/test_daemons.py (34 passed). ruff is clean. The browser files were not run,
+because no page code changed.

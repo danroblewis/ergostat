@@ -3297,7 +3297,7 @@ block the model lacks, a `sensor.NAME` no sensor reads, or the block's own comma
 
 | Event | Data | The item |
 |---|---|---|
-| `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt` | moves to `leased`. Caused by the event that brought it to its state |
+| `ergostat.lease.taken` | `item`, `run` (the holder), `block`, `fence`, `ttl`, `max` (attempts), `back` (the state it was taken from), `tier`, `attempt`, `engine` (the engine that took it: `pid`, that pid's `start` time, an `id` of its own) | moves to `leased`. Caused by the event that brought it to its state |
 | `ergostat.lease.renewed` | `run`, `fence`, `seen` (`activity` or `asked`) | its lease expires a TTL after this |
 | `ergostat.lease.ended` | `run`, `fence`, `how` (`ack` or `nack`), `why`, `exit`, `note`; a nack's `after` (seconds), `count` and `news`; `item`, `state` (where it leaves the item) and `terminal` | ack: it stays where the work moved it. Nack: back to `back`, the attempt counted unless `count` is false, not taken again before `after`, or, with `news`, before the first event about it its own runs did not cause |
 | `ergostat.lease.expired` | `run`, `fence`, `block`, `silent` (seconds), `ttl`, `expires` (the expiry it judged); `count` (false: its holder was not a run this engine process took); `item`, `state`, `terminal` | back to `back`, the attempt counted unless `count` is false; refused when the lease was renewed after that `expires` was judged (it expires later now): the watchdog reads the lease again just before it writes and writes none then, and one written in the moment between is no expiry to anything that reads the record (workspaces, measures, estimates) |
@@ -3347,7 +3347,12 @@ is looked at in that record (`runs/RUN.json`, section 9.1): when no process has 
 the pid is another process's now (its start time differs), the run is gone and its lease is **ended** at once, a nack
 uncounted (`count: false`; its why says the run's process is gone), its item back where it was taken from and taken
 again on the same pass's dispatch. On the engine's first pass, a lease whose run has no record at all is ended so too
-(the run no longer exists: its end was read and its files removed, or it never started). Left alone, to its TTL: a
+(the run no longer exists: its end was read and its files removed, or it never started). Either only when **the
+engine that took the lease is gone too**, as its `engine` on the taken event says: another process's when that
+process is (its pid and start time, as a run's are told), one in this same process once it has closed (or the
+process was exec'd over, a hard restart). Another engine's run (`ergostat block NAME --now`, a trial) is ended by
+that engine, whose run's process is gone a moment before it writes the end, so its own counted end stands. Left
+alone, to its TTL, too: a lease naming no engine (taken before engines were named), or one naming this engine. Left alone, to its TTL: a
 live run (pid and start time both match), a record that cannot be read or has no start time, a pid that is not one,
 a run with no record yet whose input or output file is there, or a kept run's journal or keeper folder
 (`runs/RUN.jsonl`, `runs/RUN/`; its process may have started before its record was written) (unknown is never gone), a run with no record after the first pass, a daemon's run, and a lease on a block this
