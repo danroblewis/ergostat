@@ -133,3 +133,23 @@ new-tab test (whose merge conflict was resolved to main's side), the loading-hea
 split test (split.js's `OTHER_PAGES`).
 The three new tests were each seen to fail with the code they guard broken: the view switch drawn on `/items`, the
 grouped chart turned off, and every unread answer called "no such kind". The 404 case rightly passed under the last.
+
+Round 3, 2026-11-23. Main (f086f76e) merged in. That merge brought in items-pages-through-a-kind, which pages a
+kind's list on the server, and it conflicted in docs/SPEC.md and static/pages.js.
+
+**How the conflicts were resolved.** Main's paging is kept whole: `page=`, `sort=` and `size=` named by kind,
+`go(load)`, the search's match count (`found`), and the pager above and below the table. Main dropped the
+"N older items not loaded" note and the "All N" link, and the merge drops them from the branch's code too. The
+branch's code is kept on top: `one`, `shut`, `unpick`, the kind's page's own layout (bar and model first, then the
+list under the filters), `?states=all`, `kindHref` in the address, no remote items asked on a kind's page, and the
+cycle chart only on `/items`. In SPEC §5a, main's paragraph is now titled *A kind's page's list*, so it no longer
+clashes with the branch's *The kind's page*. The branch's views paragraph replaces main's older one, which still said
+`/items` has Graph and Timeline.
+
+**Tests run after the merge.** ruff is clean. Unit tests: tests/test_item_search.py (11), tests/test_graph_cli_web.py
+and tests/test_footprint.py (56) passed. tests/test_items_page.py under the watchdog with Playwright: 70 passed and
+2 failed. The two failures are the same two round 2 reported as not this branch's:
+test_actions_say_per_class_asked_approved_denied_and_whether_held (bare `/items` is main's overview) and
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (the project switcher). Neither was run on main
+here. Not run: tests/test_diagram_rendering.py and the other browser files. `node --check` on pages.js was refused, but
+the page tests load it.
