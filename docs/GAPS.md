@@ -6,8 +6,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
 
 ## Remote systems and libraries
 
-- **Remote systems** (first slice done, 72da4e1, merged from `remote`; what is left below is open;
-  `docs/proposals/remote-systems.md`, SPEC §4c): a system run by
+- **Remote systems** (done, 72da4e1, merged from `remote`, and the sub-gaps below; only serving the IR is left,
+  an item of *The IR and a Rust runtime*; `docs/proposals/remote-systems.md`, SPEC §4c): a system run by
   another ergostat instance, composed into a local model. Its model is served by the remote instance and changes
   while it runs; its event log and metrics are queried where they live; its agents run on the remote machine,
   never locally. The local model reads it, links to its parts, and draws it as a subsystem; it never runs it.
@@ -21,36 +21,27 @@ review into *Done recently*). Newest decisions from the owner first within each 
     (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`, `remote-stale`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
-    `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
-    parts written as text for its owner, in its names, against the version read, never applied or sent
-    (`remote-proposals-text`; `ergostat remote proposals`, SPEC §4c "Proposals for its owner"). A remote's
-    measures on its closed box (done on `remote-box-measures`): its top systems' served `show:`, or a `show:`
-    on its `remotes:` entry in its own names (`remote-show-unresolved` for one it does not serve), each marked
-    stale with its age when the remote or the reading is not current. A remote composed of remotes (done on
-    `remote-of-remotes`): instance ids, each served part's `via` chain, cycles cut, depth (3), parts (2,000),
-    via length (8) and answer size (16 MB) capped, local names winning, and readings served on with their age
-    at the origin. Mutual TLS (done on `remote-mtls`): `web: mtls:` serves the remote API alone on its own
+    `examples/remote-pair/` and its two-instance test (`tests/test_remote.py`, `tests/test_remote_pair.py`); a
+    parameter estimate or an equation for one remote's parts written as text for its owner, in its names,
+    against the version read, never applied or sent (`remote-proposals-text`; `ergostat remote proposals`,
+    SPEC §4c "Proposals for its owner"; `tests/test_remote_proposals.py`). A remote's measures on its closed box
+    (done on `remote-box-measures`, `tests/test_remote_box_measures.py`): its top systems' served `show:`, or a
+    `show:` on its `remotes:` entry in its own names (`remote-show-unresolved` for one it does not serve), each
+    marked stale with its age when the remote or the reading is not current. A remote composed of remotes
+    (done on `remote-of-remotes`, `tests/test_remote_chain.py`): its imported parts served on with instance
+    ids and each part's `via` chain, cycles cut, depth (3), parts (2,000), via length (8) and answer size
+    (16 MB) capped, local names winning, and readings served on with their age at the origin. Mutual TLS (done
+    on `remote-mtls`, `tests/test_remote_mtls.py`): `web: mtls:` serves the remote API alone on its own
     listener (16 connections, 10 s handshake and idle, GET of `/remote/v1/` only, the token still needed) to
     certificates `client-ca` signed; a `remotes:` entry's `tls:` reads it (`mtls-unreadable`). Lines in the
-    process map between our items and theirs (done on `remote-process-lines`): a relation may name a remote's
-    kind (`blocked_by: incidents-incident`, never precedence); the remote says the step each named item was
-    last at (`at=`, at most 200 ids, chosen by id), and a link not drawn is counted by its reason
-    (`unlinked`), never dropped.
-  - *Left*: the remote's events in the Items and Record pages (the cursor cache exists, only the CLI reads
-    it); serving the IR beside `ergostat-model/1` once it exists.
-    measures on its closed box (done on `remote-box-measures`): its top systems' served `show:`, or a
-    `show:` on its `remotes:` entry in its own names (`remote-show-unresolved` for one it does not serve),
-    each marked stale with its age when the remote or the reading is not current. Mutual TLS (done on
-    `remote-mtls`): `web: mtls:` serves the remote API alone on its own listener (16 connections, 10 s
-    handshake and idle, GET of `/remote/v1/` only, the token still needed) to certificates `client-ca` signed;
-    a `remotes:` entry's `tls:` reads it (`mtls-unreadable`). Lines in the process map between our items and
-    theirs (done on `remote-process-lines`): a relation may name a remote's kind (`blocked_by:
-    incidents-incident`, never precedence); the remote says the step each named item was last at (`at=`, at
-    most 200 ids, chosen by id), and a link not drawn is counted by its reason (`unlinked`), never dropped. A
-    remote's items in the Items page and its events in the Record page (`remote=NAME`), read in place within 8
-    requests a remote a period, failing closed (`remote-items-record`).
-  - *Left*: serving the IR beside `ergostat-model/1` once it exists; a remote that is itself composed of
-    remotes (its imported parts are not served).
+    process map between our items and theirs (done on `remote-process-lines`, `tests/test_remote_lines.py`): a
+    relation may name a remote's kind (`blocked_by: incidents-incident`, never precedence); the remote says the
+    step each named item was last at (`at=`, at most 200 ids, chosen by id), and a link not drawn is counted by
+    its reason (`unlinked`), never dropped. A remote's items in the Items page and its events in the Record
+    page (done on `remote-items-record`, `tests/test_remote_items.py`): `remote=NAME`, read in place within 8
+    requests a remote a period, failing closed.
+  - *Left*: only serving the IR beside `ergostat-model/1` (`?format=ir`), once the IR exists; it is an item
+    of *The IR and a Rust runtime*.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
   and reference models shared between projects and people, by git URL or package, with versions, bringing their own
   scripts. For people modelling their own real systems. **Unblocked on the sandbox side** (`sandbox`, SPEC §12q): an
@@ -103,13 +94,15 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `identify: {input, output}` fits on-off, proportional, PI and three-position step (floating) laws with a delay from the
   record, picks one by held-out error with a parsimony penalty, runs it in the closed-loop projection, draws it in the
   block, and says `external-unidentified` and `external-not-run`. Validated on a synthetic HPA-like stepper and an alert
-  rule (`~/orchestra-kube-sim` is not on this machine). *Left*: **`external-law-changed`** (someone retuned the
+  rule (`~/orchestra-kube-sim` is not on this machine). A demo, `examples/autoscaler` (done on
+  `demo-observed-external-controller`): a simulated HPA with the documented rule, drawn, identified (mostly as a
+  stepper, with a modest fit) and judged, `/api/loop-control` giving the external law. *Left*: **`external-law-changed`** (someone retuned the
   controller): comparing each half's numbers fired on unchanged controllers (alert 24/30 seeds, HPA 7/30), and a
   held-out test of two laws against one still did on a few, so it was dropped; it needs a test on counts of moves
   mistold, with a false-positive rate measured over seeds. Also the library of known laws (`law: kubernetes-hpa`,
   declared and tested against the record), the HPA's multiplicative rule as its own family, the risk sampling the law's
-  numbers, a closed-loop identification free of the bias (an instrument, or the delay told apart), and a run against the
-  kube sim.
+  numbers, a closed-loop identification free of the bias (an instrument, or the delay told apart), margins worked out
+  from an identified external law, and a run against the kube sim.
 
 ## Running code ergostat does not trust
 
@@ -462,11 +455,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   whole model. Also done (`route-one-large-system-in-parts`): a line group of more than 100, one system's view
   included, routed in parts of at most 100 (`static/routeparts.js`; `docs/layout-rules.md`), the shared group past
   100 lines routed free. Also done (`shard-moved-flow-read-by-owner`): a moved flow's stocks are read at once by the
-  shard engine that owns each, the others following the run's ended event by `seq`. Left: the wires carried between
-  shards, and refused until then (`shard-wires`); a process per shard (`shard-supervisor`); `daemons.json` per shard;
-  the measurements; for the lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's
+  shard engine that owns each, the others following the run's ended event by `seq`. Also done
+  (`shard-daemons-file-each`): each shard engine writes `daemons.SHARD.json`, and the pages' daemon status merges
+  every shard's file, a dead writer's daemons read as stopped. Left: the wires carried between shards, and refused
+  until then (`shard-wires`); a process per shard (`shard-supervisor`); the measurements; for the lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's
   one-system view measured again. A reshard on swap is not needed: a swap clears what moved out.
-- **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
+- **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner). One of
+  its items, handed over by *Remote systems*: serving the IR on `/remote/v1/model?format=ir` beside
+  `ergostat-model/1` (SPEC §4c, `docs/proposals/remote-systems.md`).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5
   *Fencing*): TERM to its process tree, KILL after a grace, `ergostat.run.killed`; its cost recorded, its item retried.
 

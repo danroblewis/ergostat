@@ -86,6 +86,56 @@ def went_away(path: str, size: int, e: BaseException) -> None:
           f"({size // 1024} KB, {type(e).__name__})", file=sys.stderr, flush=True)
 
 
+SLOW_S = 2.0                         # an answer longer than this (queue wait and work) is a line in the runner's log
+WAITED_MOST = 60.0                   # a GET queued longer than this is dropped: whoever asked has given up
+
+
+class WebLog:
+    """The page server's slow answers and dropped requests: one line each on stderr (the runner's log), and the
+    last ten minutes' counts by path for ``/api/status`` (``web``), kept for the newest 2,000 at most."""
+
+    def __init__(self):
+        import collections
+        self._seen: collections.deque = collections.deque(maxlen=2000)     # (monotonic time, "slow" or "dropped", path)
+        self._lock = threading.Lock()
+
+    def note(self, kind: str, path: str, said: str) -> None:
+        import sys
+        print(f"{time.strftime('%H:%M:%S')} web: {kind} GET {path.split('?')[0]}: {said}", file=sys.stderr, flush=True)
+        with self._lock:
+            self._seen.append((time.monotonic(), kind, path.split("?")[0]))
+
+    def recent(self, span: float = 600.0) -> dict | None:
+        """``{"slow": {path: n}, "dropped": {path: n}}`` over ``span`` seconds, or None when nothing was slow."""
+        cut, out = time.monotonic() - span, {"slow": {}, "dropped": {}}
+        with self._lock:
+            for at, kind, path in self._seen:
+                if at >= cut:
+                    out[kind][path] = out[kind].get(path, 0) + 1
+        return out if out["slow"] else None
+
+
+def left(conn) -> bool:
+    """The client sent its request and then closed (FIN): a peek that does not wait finds the end, not bytes (a
+    pipelined request's bytes are no end; nothing yet is BlockingIOError). Read before the answer is made, so nothing
+    is built for nobody. No select(): it refuses sockets numbered 1024 and up. The timeout is 0 for the peek (with one
+    set, Python waits for it before any recv, MSG_DONTWAIT or not). A check that cannot run serves the GET."""
+    import socket
+    try:
+        was = conn.gettimeout()
+        conn.settimeout(0)
+        try:
+            return conn.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT) == b""
+        finally:
+            conn.settimeout(was)
+    except BlockingIOError:
+        return False
+    except ConnectionError:                           # reset: gone
+        return True
+    except Exception:                                 # (cannot tell: answer it)
+        return False
+
+
 def md_page(name: str, text: str) -> bytes:
     """A Markdown file opened in the browser, rendered with the page's own Markdown and styles: raw HTML in
     it is shown as text, never run; its relative links stay relative, so they open the files beside it."""
@@ -114,6 +164,7 @@ class Live:
 
         from ..reload import Settled
         self.p = project
+        self.web = WebLog()
         self.mtime = self._mtime()
         self.watch = Settled(project.model)            # the files followed: taken once they settle (reload.py)
         self.errors: list[str] = []                    # the edited model's errors, while the last good one is shown
@@ -593,6 +644,11 @@ def _answer(live: Live, path: str, q: dict, project=None):
             return None
         except ig.Bad as e:
             raise BadSet(str(e)) from e
+    if head == "why":                             # why an item is not done (SPEC §5a), as the record is now
+        if not one("item") or one("at"):
+            raise BadSet("why: item=ID, as the record is now (never at=)")
+        from ..why import answer
+        return answer(p, one("item"))
     at = None
     if one("at"):
         try:
@@ -618,7 +674,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 "at": snap["at"], "window": snap["window"], "recorded": snap.get("recorded"),   # the window's span on record
                 "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
-                            for e in history.changes(p, snap["at"] - snap["window"])][-5:]}
+                            for e in history.changes(p, snap["at"] - snap["window"])][-5:],
+                **({"web": w} if (w := live.web.recent()) else {})}
     if head == "coherence":                          # the three views held against each other (the Check page)
         from .numbers_api import coherence
         return coherence(live, p, snap, _window(q) if one("since") else None)
@@ -677,16 +734,18 @@ def _answer(live: Live, path: str, q: dict, project=None):
             if getattr(m.spec, "remotes", None):     # when what remotes' boxes show last read (SPEC §4c)
                 from ..remote.measures import read_times
                 reads = read_times(p, m.spec, snap["at"])
-            if sd:
-                return {**finish(fold(dynamics(g, m), m, want, system, reads)), "attention": att}
-            return {**fold(g, m, want, system, reads), "attention": att}
+            g = finish(fold(dynamics(g, m), m, want, system, reads)) if sd else fold(g, m, want, system, reads)
+            for n in g.get("nodes", []):             # a closed system's sentence when every goal of it holds (state.quiet)
+                if n.get("kind") == "system":
+                    n["quiet"] = st.quiet(p, snap, n["label"])
+            return {**g, "attention": att}
         sel = graph.select(m, system, around, int(one("depth") or 1))
         g = graph.control(m, snap, sel, graph.readings(p, at))
         return {**(dynamics(g, m) if sd else g), "attention": att}
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",
-                 "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)]}
-                for s in m.system_names()]
+                 "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)],
+                 "quiet": st.quiet(p, snap, s)} for s in m.system_names()]
     if head == "loops":
         if name:
             lp = snap["loops"].get(name)
@@ -717,7 +776,25 @@ def _answer(live: Live, path: str, q: dict, project=None):
             for v in lp["valves"]:
                 parts.append({"kind": "valve", "name": v, "agent": agent(m.valves[v].agent), "mode": m.valves[v].mode,
                               "max": m.valves[v].max, "last": p.events.last_opening(v, snap["at"])})
-            return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
+            # who acts for it, counted as Agents and the Record count them: commanded, ran, and what its valves moved
+            from ..runner import log_path
+            blocks = getattr(getattr(m, "spec", None), "blocks", {})
+            actors = []
+            for a in dict.fromkeys([m.valves[v].agent for v in c.drives if v in m.valves] + [
+                    b.name for b in blocks.values() if b.goal == name and b.machine and not b.implied]):
+                if a not in snap["agents"]:
+                    continue
+                mine = [x for x in m.valves.values() if x.agent == a]
+                opened = [e["data"].get("amount") or 0 for x in mine
+                          for e in p.events.query(n=None, type="valve.opened", item=x.name, since=since, until=snap["at"])]
+                got = [st.moved(p, x.flow, since, snap["at"]) for x in mine]     # else what its flows measured (None: unknown)
+                moved = sum(opened) if opened else (sum(got) if got and None not in got else None)
+                tail = _tail(log_path(p, a), 20)             # its last run's entry in its log: its last line
+                said = [x for x in tail[max((i for i, x in enumerate(tail) if x.startswith("--- ")), default=-1) + 1:] if x.strip()]
+                actors.append({"name": a, "ran": snap["agents"][a]["runs"], "moved": moved, "log": said[-1] if said else None,
+                               "commanded": len(p.events.query(n=None, type="block.commanded", item=a, since=since,
+                                                               until=snap["at"]))})
+            return {**lp, "actors": actors, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
                     "crossings": [{**e, "off_by_words": st.off_by_words(e["data"].get("setpoint") or c.setpoint, e["data"].get(
                         "error"), c.tolerance, getattr(m.stocks.get(c.holds), "unit", ""),
@@ -725,6 +802,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     "crossings_total": len(in_window),
                     "description": c.description, "parts": parts,
                     "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
+                    "moves": {m.valves[v].flow: snap["flows"].get(m.valves[v].flow, {}).get("rate")     # its own valves'
+                              for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves},
                     "decisions": st.decisions(p, name, since, snap["at"]),
                     "hints": [h for h in snap["hints"] if h["controller"] == name]}
         # each loop with its stock's trend (the snapshot's), and with perf=1 how it is doing, from the background
@@ -1025,6 +1104,7 @@ def handler(project):
             time (``no-cache``), so an answer that did not change since is a 304 with no body: the page
             refreshes every few seconds, and an item's images and files are drawn again each time. A static
             file asked for with its current version is kept for good instead (``cache``)."""
+            self.sent = len(body)
             try:
                 tag = f'"{hashlib.blake2b(body, digest_size=12).hexdigest()}"' if tagged and code == 200 else None
                 same = tag is not None and tag in (self.headers.get("If-None-Match") or "")
@@ -1207,6 +1287,25 @@ def handler(project):
             return None
 
         def do_GET(self):
+            """A GET, read: dropped unanswered when its client has left or it waited past WAITED_MOST in the queue
+            (the pooled server's; web/__init__.py), and one line in the log when it took longer than SLOW_S."""
+            job = getattr(self.server, "local", None)
+            taken = getattr(job, "taken", None) or time.monotonic()
+            waited = taken - (getattr(job, "queued", None) or taken)
+            if job is not None and (waited > WAITED_MOST or left(self.connection)):
+                self.close_connection = True
+                return live.web.note("dropped", self.path, f"{'the client left' if waited <= WAITED_MOST else 'too old'}"
+                                     f" after {waited:.1f}s in the queue")
+            self.sent = 0
+            try:
+                return self._get()
+            finally:
+                worked = time.monotonic() - taken
+                if waited + worked > SLOW_S:
+                    live.web.note("slow", self.path, f"waited {waited:.1f}s in the queue, {worked:.1f}s working, "
+                                                     f"{self.sent // 1024} KB")
+
+        def _get(self):
             u = urlsplit(self.path)
             if u.path.startswith("/remote/"):                # read only, behind its token: from any machine (SPEC §4c)
                 return self._remote(u)

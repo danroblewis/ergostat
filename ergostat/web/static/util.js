@@ -33,6 +33,14 @@ function h(tag, attrs = {}, ...kids) {
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
 }
+/* a data table's name, for those who hear it (each data table has one) */
+const tableCaption = (text) => h("caption", { class: "sr-only" }, text);
+/* a data table's header row, in its thead: each th a column's header, a sorted column's order on it */
+function headRow(...ths) {
+  const row = h("tr", {}, ...ths);
+  for (const th of row.children) { th.setAttribute("scope", "col"); const by = th.querySelector("[data-sort]"); if (by) th.setAttribute("aria-sort", by.dataset.sort); }
+  return h("thead", {}, row);
+}
 function s(tag, attrs = {}, ...kids) {
   const el = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs || {})) if (v != null && v !== false) {
@@ -316,8 +324,21 @@ function snapKey(path, params) {
   return path + (kept.length ? "?" + kept.map(([k, v]) => `${k}=${v}`).join("&") : "");
 }
 
+/* the page shown's fetches, aborted when its page element leaves the document (route() replaces it, leavePage()):
+   the server then drops what it has not begun (web/server.py left()). The left page's fetch fails with an
+   AbortError (``pageLeft(e)``), so its callers' ``finally`` still runs; one no caller catches is not reported
+   as an error. The header's (``kept``) are no page's */
+let PAGE = { el: null, c: null };
+function pageSignal() {
+  const el = document.querySelector("#main > *");
+  if (el !== PAGE.el) { leavePage(); PAGE = { el, c: el ? new AbortController() : null }; }
+  return PAGE.c?.signal;
+}
+function leavePage() { if (PAGE.el && !PAGE.el.isConnected) PAGE.c?.abort(); }
+const pageLeft = (e) => e?.name === "AbortError";
+window.addEventListener("unhandledrejection", (ev) => { if (pageLeft(ev.reason)) ev.preventDefault(); });
 /* an answer as its text, and the address it came from */
-async function apiText(path, params = {}, signal = null) {   // ``signal``: an AbortController's, to let it go
+async function apiText(path, params = {}, kept = false) {   // ``kept``: true (the header's), or an AbortSignal of the page's own, to let it go sooner
   if (SNAP) {
     const k = snapKey(path, params);
     if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
@@ -326,11 +347,14 @@ async function apiText(path, params = {}, signal = null) {   // ``signal``: an A
   const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
   for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
   const url = `/api/${path}?${q}`;
-  const r = await fetch(url, signal ? { signal } : undefined);
+  const own = kept instanceof AbortSignal ? kept : null;
+  const page = kept === true ? undefined : pageSignal();
+  const signal = own && page ? AbortSignal.any([own, page]) : own || page;
+  const r = await fetch(url, { signal });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return [url, await r.text()];
 }
-async function api(path, params = {}) { return JSON.parse((await apiText(path, params))[1]); }
+async function api(path, params = {}, kept = false) { return JSON.parse((await apiText(path, params, kept))[1]); }
 /* a page's answers, remembered: ``changed`` says whether any asked since ``begin()`` differed from the last
    time it was asked (an unchanged answer is a 304, given as the same body): a refresh that changed nothing
    then draws nothing */
@@ -339,7 +363,7 @@ function answers() {
   const a = {
     changed: true,
     begin() { a.changed = false; },
-    async api(path, params = {}, signal = null) {
+    async api(path, params = {}, signal = null) {   // ``signal``: an AbortController's, to let it go
       const [key, text] = await apiText(path, params, signal);
       if (last.get(key) !== text) { last.set(key, text); a.changed = true; }
       return JSON.parse(text);
@@ -381,7 +405,7 @@ function toWaiting() {
 
 async function refreshHeader() {
   try {
-    const st = await api("status");
+    const st = await api("status", {}, true);
     S.status = st;
     const sel = $("#project");
     if (!sel.dataset.filled) {
@@ -412,7 +436,8 @@ async function refreshHeader() {
       : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
     const waits = $("#waits"), n = (st.attention || []).filter(waitsOnYou).length;   // the side list's "Waiting for you"
     if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
-    setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43)
+    setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43); written only when N
+                                                         // changes, so its polite live region (index.html) says only that
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
@@ -424,7 +449,7 @@ async function refreshHeader() {
    for, and not changed while the list is open */
 function refreshProjects(sel) {
   S.projectsAt = Date.now();
-  api("projects").then((ps) => {
+  api("projects", {}, true).then((ps) => {
     if (ps.at == null) S.projectsAt = 0;             // not listed yet: asked again the next time the reader comes to it
     const name = S.status?.name || "";
     const opts = [h("option", { value: "" }, name)];
@@ -546,13 +571,18 @@ async function route() {
   oldAddress();
   const { path, q } = parseRoute();
   const top = path.split("/").slice(0, 2).join("/");
-  for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", routeOfHref(a.getAttribute("href")) === top);
+  for (const a of document.querySelectorAll("#nav a")) {
+    const on = routeOfHref(a.getAttribute("href")) === top;
+    a.classList.toggle("on", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
   S.timer?.stop?.();
   closeDetail();
   if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
   S.was = path === "/diagram" ? main.querySelector(":scope > .diagram") : null;   // the diagram left: shown, dimmed, until the next is drawn
   main.replaceChildren();
+  leavePage();
   const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names

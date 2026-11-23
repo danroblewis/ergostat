@@ -760,6 +760,9 @@ class Block:
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
     untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
     law: KnownLaw | None = None  # an external block's declared law (``law: {kind: ...}``); None when it declares none
+    # ``runs-on: POOL``: the compute pool its runs are for (SPEC §12k); None: here. Left out of its plain form while None,
+    # so a model that names no pool hashes as it did before the key existed (numbers/version._plain).
+    runs_on: str | None = field(default=None, metadata={"unset": None})
 
     @property
     def builtin(self) -> bool:

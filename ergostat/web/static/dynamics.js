@@ -499,7 +499,7 @@ function sdApply(name) {
 
 /* ------------------------------------------------------------------ the side panel, the legend */
 
-function sdLoopList(side, g) {
+function sdLoopList(panel, g) {
   const order = { R: 0, B: 1 };
   const num = (c) => parseInt(c.label.slice(1)) || 0;
   const sort = (xs) => xs.sort((a, b) => (order[a.polarity] ?? 2) - (order[b.polarity] ?? 2) || num(a) - num(b));
@@ -507,7 +507,9 @@ function sdLoopList(side, g) {
   const unknown = sort(sdLoopGroups(g, null, true).flatMap((x) => x.loops).filter((c) => !c.polarity));
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
   const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
-  side.append(h("h3", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
+  // folded, its count in the summary (the legend comes first)
+  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
+  panel.append(side);
   const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
     h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
@@ -759,7 +761,7 @@ function sdOpenSystem(n) {
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   const inside = (S.graph?.causalLoops || []).filter((c) => c.nodes.includes(n.id) && sdVisible(c, S.graph).length < 2);
   showDetail(h("div", { class: "kind" }, n.remote ? "Module, remote" : "Module"), h("h2", {}, n.label),
-    moduleCharts(n),
+    quietLine(n), moduleCharts(n),
     n.description ? h("p", { class: "muted" }, n.description) : null,
     remoteNote(n.remote), remoteMeasures(n), n.size ? dl([["size", n.size]]) : null, sdAggregate(n.label),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
