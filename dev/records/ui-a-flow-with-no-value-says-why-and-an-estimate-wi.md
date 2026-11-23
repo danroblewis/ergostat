@@ -83,3 +83,13 @@ selects only `tests/test_diagram_rendering.py`, and the build step's environment
 was changed for this. Changing the selection script, or the build step's environment, is outside this gap (lesson 13).
 With Playwright, under the watchdog, the acceptance test and
 `test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves` pass (2 passed, rc 0). Ruff is clean.
+
+Third `build` (rc 5, nothing run, for the same reason): the merge of main was already committed (b99bea11), with
+no conflict left. The calibration table's rewrite finds the server's words "Nothing says the value written is wrong"
+by a pattern, so if the server rewords them the page would keep the old claim and no test would fail. That contract
+now has a unit check that runs without a browser:
+`tests/test_identify.py::test_the_words_the_calibration_page_rewrites_are_the_words_the_record_writes` reads the
+pattern from `equations.js` and matches it against the notes written by `identify.too_short` and `estimate.judged`.
+It failed when the words in `identify.py` were changed ("says" → "shows"), and passes with them back. The build step
+now selects that file too. `tests/test_identify.py` passes (5), the acceptance test passes with Playwright (rc 0),
+and ruff is clean. No code outside tests changed in this round.
