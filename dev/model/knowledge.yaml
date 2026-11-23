@@ -456,7 +456,8 @@ blocks:
       replan: goal.replans-taken.off
       planning: auxiliary.planning-open
       over: goal.ai-budget.off
-    expr: max(open, replan) * min(planning, 1) * (1 - over)
+      held: goal.ai-not-held.off
+    expr: max(open, replan) * min(planning, 1) * (1 - over) * (1 - held)
     out: block.planner
   planner:
     type: ai
@@ -529,7 +530,8 @@ blocks:
     in:
       waiting: goal.questions-answered.off
       over: goal.ai-budget.off
-    expr: waiting * (1 - over)
+      held: goal.ai-not-held.off
+    expr: waiting * (1 - over) * (1 - held)
     out: block.researcher
   researcher:
     type: ai

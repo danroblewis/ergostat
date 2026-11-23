@@ -178,8 +178,8 @@ def test_gates_respect_headroom(res):
     assert env_of(spec, "machine-full", calm) == 0
     for k in calm:
         assert env_of(spec, "machine-full", calm | {k: 1}) == 1, k
-    build = dict(ready=1, fixes=0, open=1, over=0, busy=1, pool=3, room=2, full=0)
-    review = dict(waiting=1, over=0, busy=1, pool=2, room=2, full=0)
+    build = dict(ready=1, fixes=0, open=1, over=0, busy=1, pool=3, room=2, full=0, held=0)
+    review = dict(waiting=1, over=0, busy=1, pool=2, room=2, full=0, held=0)
     assert env_of(spec, "implement-when", build) == 1
     assert env_of(spec, "implement-when", build | {"room": 0}) == 0                  # no headroom: closed
     assert env_of(spec, "implement-when", build | {"full": 1}) == 0                  # past a goal, or stale: closed
@@ -187,6 +187,8 @@ def test_gates_respect_headroom(res):
     assert env_of(spec, "review-when", review) == 1
     assert env_of(spec, "review-when", review | {"room": 0}) == 0
     assert env_of(spec, "review-when", review | {"busy": 2, "room": 9}) == 0
+    for when, given in (("implement-when", build), ("review-when", review)):      # the AI held (aihold.py): closed
+        assert env_of(spec, when, given | {"held": 1}) == 0, when
 
 
 def test_my_turn_respects_headroom(res, monkeypatch):

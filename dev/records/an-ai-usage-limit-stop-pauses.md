@@ -19,3 +19,23 @@ depends-on: []
 
 ## Size budget
 180 net lines
+
+## Where it stopped
+
+Built, round 1. Choices taken with nobody to ask (the most reversible each):
+
+- The hold is a file, `run/ai_hold.json` (dev/bin/aihold.py), read by a sensor (`aihold.py held`) and the goal
+  `ai-not-held` (on-stale off), which shuts implement-, review-, plan- and research-when; every AI program that holds a
+  lease also gives its item back through `fac.drain_holds` while it stands. Deleting the file lifts it by hand.
+- A limit stop is recognised only when a session's result *begins* with "You've hit your ... limit" (so a review that
+  quotes the message is not a stop), or a failed session's own output holds it anywhere.
+- An unreadable reset time (or an unreadable hold file) holds for one hour, said in the nack and on stderr; then the
+  next session finds out again, and a probe that meets the limit again is itself uncounted.
+- The run ends through `aihold.Limited` (a SystemExit with code 0, its uncounted nack printed first), so no
+  `except Exception` (fac.guarded, the kill rule) can count it.
+- "SPEC/dev README": the paragraph is in dev/README.md only; SPEC says nothing of the factory's drain or budget either.
+- Item 4: drain nacks were already `count: false` (fac.drain_holds, drain.give_back); the test pins both, through
+  ergostat's own lease fold.
+- Not changed: plan.py's `except BaseException` still records the planner's whole reservation as its cost for a limit
+  stop, as it does for any failure (an overstatement, never an attempt).
+- Net lines outside tests/, docs/ and dev/: 0 (the code is all in dev/bin and dev/model).

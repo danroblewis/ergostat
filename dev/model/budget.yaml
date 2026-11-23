@@ -12,8 +12,18 @@ auxiliaries:
     description: what the AI sessions cost over the last day, as Claude Code reported it
     driven-by: [+stock.gaps-building, +stock.gaps-in-review, +stock.situations-raised]
     sensor: {builtin: ergostat.cost.usd, every: 5m, description: AI sessions' cost over a day}
+  ai-held:
+    unit: switch
+    description: 1 while the provider's usage limit holds the AI till its reset (run/ai_hold.json, dev/bin/aihold.py; a hold file that cannot be read holds), else 0
+    sensor: {run: python3 dev/bin/aihold.py held, every: 30s, timeout: 25s, description: the AI hold}
 
 goals:
+  ai-not-held:
+    auxiliary: ai-held
+    hold: "<= 0"
+    tolerance: 0
+    on-stale: "off"                    # a hold not read is counted as standing: the gates close
+    description: no AI-role lease is taken while a usage-limit stop holds the AI (implement-, review-, plan- and research-when read it); the merge queue and the suites never do
   ai-budget:
     auxiliary: ai-spend
     hold: "<= 3000"
