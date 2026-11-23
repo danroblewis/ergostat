@@ -243,6 +243,7 @@ def handle(cfg: dict, sit: dict) -> int:
                for t in trig]
     told = [x["print"] for x in answers if x["print"] in a["answers"]]      # (a trigger left unanswered comes back)
     fac.say("situation.handled", handled_at=time.time(), summary=a["summary"][:2000], actions=done, answers=answers,
+            finding=a["summary"][:2000],                   # (the attention list's: ergostat.yaml `attention: finding`)
             prints=told + [x for x in sit["fields"].get("prints") or [] if x.startswith("broken-")],
             actions_n=sum(d["ok"] for d in done), velocity=record, context=context,
             ai_cost_usd=round(float(got.get("total_cost_usd") or 0), 4))
