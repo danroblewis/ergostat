@@ -280,6 +280,49 @@ def _edges(project, causedby, sensor) -> list[dict]:
     return out
 
 
+def _first_words(cmd: str) -> list[tuple[int, int]]:
+    """The spans of the shell words of ``cmd``'s first simple command: up to its first unquoted ``|``, ``&``, ``;``,
+    ``(``, ``)``, backquote or line end (a quote, a backslash and ``$(…)`` keep what they hold inside the word)."""
+    words, i, n = [], 0, len(cmd)
+    while i < n and cmd[i] not in "|&;()`\n":
+        if cmd[i].isspace():
+            i += 1
+            continue
+        start, quote, depth = i, None, 0
+        while i < n and (quote or depth or not (cmd[i].isspace() or cmd[i] in "|&;()`\n")):
+            c = cmd[i]
+            if c == "\\" and quote != "'":
+                i += 1
+            elif quote:
+                quote = None if c == quote else quote
+            elif c in "'\"":
+                quote = c
+            elif c == "$" and cmd[i + 1:i + 2] == "(":
+                depth, i = depth + 1, i + 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        words.append((start, min(i, n)))
+    return words
+
+
+def capped(cmd: str, usd) -> str:
+    """``cmd``, whose first word is ``claude``, with ``--max-budget-usd usd`` right after that word and the flag's own
+    words in that claude call removed, so the cap reaches the claude call however the shell line goes on (``| jq``,
+    ``&& git``, ``;``, more lines) and nothing after it is given the flag."""
+    words, drops, skip = _first_words(cmd), [], False
+    for k, (s, e) in enumerate(words[1:], 1):
+        word = cmd[s:e]
+        flag = not skip and (word == "--max-budget-usd" or word.startswith("--max-budget-usd="))
+        if skip or flag:
+            drops.append((words[k - 1][1], e))          # the word with the space before it
+        skip = flag and word == "--max-budget-usd"      # its value is the next word
+    out, at = cmd[:words[0][1]] + f" --max-budget-usd {usd}", words[0][1]
+    for a, b in drops:
+        out, at = out + cmd[at:a], b
+    return out + cmd[at:]
+
+
 def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule", version: str | None = None) -> dict:
     """One run: start the command, feed it its context, record its lines, and record the run. ``version``: the
     model it starts under (recorded on the run; it finishes under that agent's definition whatever changes)."""
@@ -302,7 +345,7 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
             return {"budget": no, "note": f"refused: budget: {no}"}
         from .costs import ai as costs_ai
         if costs_ai.is_claude(cmd):             # T1: its reserve as its cap, ours replacing any in the command
-            cmd = re.sub(r"\s--max-budget-usd(?:=|\s+)\S+", "", cmd) + f" --max-budget-usd {budget.reserve_of(spec, blk)}"
+            cmd = capped(cmd, budget.reserve_of(spec, blk))
     try:
         return _ran(project, agent, trigger, why, version, started, begun, cmd)
     except BaseException:

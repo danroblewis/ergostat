@@ -143,3 +143,44 @@ Tests run after the merge (`scripts/named_tests.py`, serially): `tests/test_toml
 `tests/test_ai_calls_budget.py`, `tests/test_run_budget_trip.py`, `tests/test_agents.py` (48 passed);
 `tests/test_model.py`, `tests/test_reload_in_place.py`, `tests/test_modeller_budget.py` (38 passed). ruff clean.
 Not run here: the whole unit suite and the four browser files (left to the factory). No page changed.
+
+### Round 3: the cap goes to the claude call, not the end of the shell line
+
+The review's finding (blocking): the cap was added to the end of the whole shell command. So with
+`claude -p … | jq .result`, `&& git …`, `; echo` or a second line, claude ran with no cap, and the last command got
+an unknown flag. Fixed in `runner.py`. `capped(cmd, usd)` puts `--max-budget-usd <reserve>` right after the leading
+`claude` word. `_first_words` reads the words of that first simple command, up to its first unquoted `|`, `&`, `;`,
+`(`, `)`, backquote or line end. A quote, a backslash (and a backslash-newline) and `$(…)` keep what they hold inside
+one word. Only words of that call that are exactly `--max-budget-usd` (with the word after it) or begin
+`--max-budget-usd=` are removed. So a prompt that quotes the flag, or a later command's own `--max-budget-usd`, is
+left alone. `runner.py` is now +52 −6 against main, net +46 lines, within the 90 budget.
+
+Choice made alone (the most reversible): a command whose first word is not `claude` (`cd x && claude …`,
+`FOO=1 claude …`) is still not capped, as on main and in the engine's T1 (`costs/ai.is_claude` reads the first
+word). It is still charged its reserve under the permit. Refusing such commands would break agents that work on
+main. SPEC §9.9, the guide and GAPS now say exactly this, and the guide tells the writer to start the command with
+`claude`. The wide sentence the review named ("A command whose first word is `claude` gets `--max-budget-usd` at its
+reserve") now says where the flag goes, what is removed, and what is not capped.
+
+Tests added or changed (in `tests/test_toml_models_budget.py`):
+- `test_toml_claude_command_capped` now checks claude's whole argv (`--max-budget-usd 0.5 -p hello --model haiku`).
+- `test_toml_claude_capped_in_a_shell_line` (5 cases: a pipe, `&&`, `;`, a second line, a backslash-newline): a real
+  run through the shell with a fake `claude` that writes its argv. Claude gets the cap once, and its quoted prompt
+  `'a | b --max-budget-usd 3'` comes through whole. The command after it runs and writes its file (with `&&`, keeping
+  its own `--max-budget-usd 7`).
+- `test_toml_cap_words_of_the_claude_call_only` (3 cases, `capped` directly): `$(cat p)` before the flag, a bare
+  trailing flag, and a flag on a second line that is not claude's.
+
+Breaks (each applied by hand, then restored, and the file seen green again, 19 passed):
+- the old rewrite put back (`re.sub(…) + " --max-budget-usd …"`): 6 failed. All 5 shell-line cases failed (exit 2:
+  the last command got the flag), and so did `test_toml_claude_command_capped` (the flag was at the end).
+- quotes ignored in `_first_words`: 5 failed (the quoted prompt was split, and its quoted flag removed).
+- `$(` not kept inside a word: `test_toml_cap_words_of_the_claude_call_only` failed on its `$(cat p)` case.
+
+Earlier findings: the review gave only this one, and it is answered above. Round 2's notes stand.
+
+Tests run (`scripts/named_tests.py`, serially): `tests/test_toml_models_budget.py`, `tests/test_toml_budget.py`,
+`tests/test_runner_and_state.py` (84 passed); `tests/test_run_budget.py`, `tests/test_run_budget_trip.py`,
+`tests/test_agents.py` (73 passed); `tests/test_gapsdoc.py` (23 passed). ruff clean. `main` is the clone's base, so
+there was nothing new to merge. Not run here: the whole unit suite and the four browser files (left to the factory).
+No page changed.

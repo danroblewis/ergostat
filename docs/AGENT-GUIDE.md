@@ -545,8 +545,9 @@ budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charge
 - In `ergostat.toml`, write `[budget]` with `daily = 5` and `max-cost = 0.5` (same bounds). Each `[[agent]]` run
   then asks first, and `ergostat agent NAME --now` says `refused: budget: …`. Write each agent's `kind`: one
   without it is charged, even though it shows as a program. `decisions extract` reads this budget too (SPEC §9.9).
-  A `claude` command gets `--max-budget-usd` at its reserve, replacing any it had; there is no `ERGOSTAT_MAX_COST`
-  and no T1 kill for these runs.
+  A command that starts with `claude` gets `--max-budget-usd` at its reserve right after `claude`, replacing any in
+  that call; a pipe or `&&` after it is kept. Start the command with `claude` (not `cd x && claude`), or it runs
+  uncapped while still charged its reserve. There is no `ERGOSTAT_MAX_COST` and no T1 kill for these runs.
 - A new place that starts `claude` or `$ERGOSTAT_AI` fails
   `tests/test_modeller_budget.py::test_only_listed_ai_starts`. Route the call through `decisions/ai.call` or `numbers/modeller.asked`; don't add the place to the allowlist.
 

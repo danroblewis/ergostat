@@ -3990,7 +3990,10 @@ spends more than its reserve is charged what it spent.
   process and writes no `agent.started`, only `budget.refused` (item: the agent); `ergostat agent NAME --now`
   prints `refused: budget: …` and exits 1, and the runner logs it. A run that raises after its `agent.started`
   and before its end is closed there, cost null. A command whose first word is `claude` gets `--max-budget-usd` at
-  its reserve, replacing any it had; `ERGOSTAT_MAX_COST` and the T1 kill on a reported cost are not given to these
+  its reserve, put right after that word. Any `--max-budget-usd` it had in that claude call (up to its first unquoted
+  `|`, `&`, `;`, `(`, `)`, backquote or line end) is removed. What follows in the shell line (`| jq`, `&& git`, more
+  lines) is left as it was. A claude that is not the first word (`cd x && claude …`) gets no cap, though its run is
+  still charged its reserve. `ERGOSTAT_MAX_COST` and the T1 kill on a reported cost are not given to these
   runs. The toml runner (`ergostat run`) runs recovery when it starts
   and on its schedule loop, at most once a minute. In a toml project ergostat's own calls (below) read this
   `[budget]`: a call whose caller gave no reserve reserves `max-cost`, and `ergostat.budget.left` reads it too.

@@ -1,6 +1,8 @@
 """SPEC §9.9 for ``ergostat.toml`` models: ``[budget]`` is read and bounded, and every ``runner.run_agent`` asks the
 permit under its flock (dev/records/ergostat-s-own-ai-calls-under.md)."""
 
+import json
+import os
 import subprocess
 import threading
 import time
@@ -20,7 +22,7 @@ from tests.conftest import DISK
 def project(tmp_path, kind="ai", command="touch ran.marker", daily=1.0, most=0.5, name="cleaner"):
     d = tmp_path / f"{name}-{kind}"
     d.mkdir()
-    toml = DISK.replace('kind = "program"', f'kind = "{kind}"').replace('"python3 clean.py"', repr(command)) \
+    toml = DISK.replace('kind = "program"', f'kind = "{kind}"').replace('"python3 clean.py"', json.dumps(command)) \
         .replace('"cleaner"', f'"{name}"')
     (d / "ergostat.toml").write_text(toml + f"\n[budget]\ndaily = {daily}\nmax-cost = {most}\n")
     return Project(mdl.load(d))
@@ -127,17 +129,48 @@ def test_toml_run_raised_is_closed_at_reserve(tmp_path, monkeypatch):
     assert s["id"] not in budget.OPEN and not ran(p)
 
 
-def test_toml_claude_command_capped(tmp_path, monkeypatch):
+def fake_claude(tmp_path, monkeypatch):
+    """A ``claude`` on PATH that writes its argv, one per line, to args.txt and says "said" on stdout."""
     bin_ = tmp_path / "bin"
     bin_.mkdir()
-    (bin_ / "claude").write_text('#!/bin/sh\necho "$@" > args.txt\n')
+    (bin_ / "claude").write_text('#!/bin/sh\nprintf "%s\\n" "$@" > args.txt\necho said\n')
     (bin_ / "claude").chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_}:{__import__('os').environ['PATH']}")
+    monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
+
+
+def args_of(p):
+    return (p.repo / "args.txt").read_text().splitlines()
+
+
+def test_toml_claude_command_capped(tmp_path, monkeypatch):
+    fake_claude(tmp_path, monkeypatch)
     p = project(tmp_path, command="claude -p hello --max-budget-usd 99 --model haiku")
     assert run(p)["exit"] == 0
-    args = (p.repo / "args.txt").read_text().split()
-    assert args.count("--max-budget-usd") == 1 and "99" not in args
-    assert args[args.index("--max-budget-usd") + 1] == "0.5" and args[:2] == ["-p", "hello"]
+    assert args_of(p) == ["--max-budget-usd", "0.5", "-p", "hello", "--model", "haiku"]
+
+
+@pytest.mark.parametrize("command, after", [
+    ("claude -p 'a | b --max-budget-usd 3' --max-budget-usd=99 | tr a-z A-Z > after.txt", "SAID"),
+    ("claude -p 'a | b --max-budget-usd 3' && echo next --max-budget-usd 7 > after.txt", "next --max-budget-usd 7"),
+    ("claude -p 'a | b --max-budget-usd 3' --max-budget-usd 99; echo next > after.txt", "next"),
+    ("claude -p 'a | b --max-budget-usd 3' --max-budget-usd 99\necho next > after.txt", "next"),
+    ("claude -p 'a | b --max-budget-usd 3' \\\n  --max-budget-usd 99 | cat > after.txt", "said"),
+])
+def test_toml_claude_capped_in_a_shell_line(tmp_path, monkeypatch, command, after):
+    fake_claude(tmp_path, monkeypatch)                       # the cap goes to claude, not the command after it
+    p = project(tmp_path, command=command)
+    assert run(p)["exit"] == 0
+    assert args_of(p) == ["--max-budget-usd", "0.5", "-p", "a | b --max-budget-usd 3"]
+    assert (p.repo / "after.txt").read_text().strip() == after
+
+
+@pytest.mark.parametrize("command, want", [
+    ("claude -p $(cat p) --max-budget-usd 9 | tr a b", "claude --max-budget-usd 0.5 -p $(cat p) | tr a b"),
+    ('claude -p "x; y" --max-budget-usd', 'claude --max-budget-usd 0.5 -p "x; y"'),
+    ("/opt/claude -p x\n--max-budget-usd 9", "/opt/claude --max-budget-usd 0.5 -p x\n--max-budget-usd 9"),
+])
+def test_toml_cap_words_of_the_claude_call_only(command, want):
+    assert runner.capped(command, 0.5) == want
 
 
 def test_toml_orphan_recovered(tmp_path, monkeypatch):
