@@ -7578,7 +7578,7 @@ line rejoins by offset. Its files are looked at again soon after output and at m
 ### 12s.4 Pools in the model, and the engine's connection
 
 `compute:`, `runs-on:` and their `check` findings and ceilings are in section 12k, *Compute pools*. (Still to be
-filled: running on a node, the `ergostat.compute.*` measures, and the round trips and status shown.)
+filled: running on a node, and the `ergostat.compute.*` measures.)
 
 **The engine's connection** (`ergostat/compute/connection.py`). When the engine starts, it opens a session with
 every node of every pool the model declares; a swap closes the sessions of a pool changed or removed and opens those
@@ -7620,6 +7620,24 @@ pool's list (from 1), and never by its host.
   hello is said only when its session has held three beats, and a lost reason the same as the last one said is not
   said again, so a worker that keeps saying hello and dying is said up and lost once. Their data, what the engine says and ergostat's own lines of the pool's log
   name a node only as `POOL/N`: no host name, address or user (a `connect:` command's own standard error aside).
+- **Round trips.** While a node is in service a second thread of its own sends it a `ping` every 2 s (one at a
+  time: the next waits for the pong, or for the session's end or 30 s) and times each pong on the engine's monotonic
+  clock. `least_rtt(window=60)` is the least round trip, in seconds, of the pongs heard in the last `window`
+  seconds of the current session: none (None) before its first pong, and none once the session ends (a new session
+  starts with no round trips). A ping thread's fault is said in the pool's log and the pings go on.
+- **A pool's status.** `Pools.status()` gives, for each pool connected, `in_service` (nodes in service), `lost`
+  (every other node: lost, refused, or still connecting), `slots` (the hello's slots of the nodes in service),
+  `free` (the `free` of each such node's last `beat`, counted 0 until its first beat, or when it is not a whole
+  number from 0 to its slots), `error` (`{node, why}`: of the nodes out of service with a reason, the one whose
+  reason was set last, by the order they were set, never by time; None when there is none) and `least_rtt` (the
+  least of its in-service nodes' `least_rtt`, in seconds to 6 places, or None). Each value is read as the node is
+  at that moment, so a lost node's slots and free leave the next reading. Nodes are named only as `POOL/N`, and a
+  reason is ergostat's own words (above): no host name, address or user. The engine's heartbeat (`heartbeat.json`,
+  or the lead shard's `heartbeat.SHARD.json`, every 5 s) carries it as `compute` when the engine has pools
+  connected, and leaves the key out otherwise (a status that cannot be read is said and left out; the heartbeat is
+  written all the same). `/api/status` has `compute` only when the model declares pools: for each pool, the status
+  the running engine's last heartbeat gives (up to 5 s old), or None when no engine runs or its heartbeat gives
+  none for that pool. No page shows it yet.
 
 ### 12s.5 The lease on a node
 
