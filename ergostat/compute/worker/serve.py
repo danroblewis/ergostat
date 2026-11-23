@@ -14,6 +14,7 @@ import traceback
 
 import frames
 import keeper
+import sampler
 
 WORKER = "1"
 BEAT = 10.0
@@ -117,10 +118,10 @@ def hello(root: str) -> dict:
             "labels": labels(root), "slots": min(n or 0, MOST_SLOTS), "runs": []}
 
 
-def beats(w: frames.Writer, root: str, slots: int, every: float, stop: threading.Event) -> None:
+def beats(w: frames.Writer, root: str, slots: int, every: float, stop: threading.Event, readings) -> None:
     while not stop.wait(every):
         try:
-            w.send("beat", free=slots, disk={"root": disk_free(root)}, runs={})
+            w.send("beat", free=slots, disk={"root": disk_free(root)}, runs=readings.latest())
         except (OSError, ValueError):
             stop.set()
 
@@ -141,7 +142,9 @@ def serve(root: str, inp, w: frames.Writer, every: float) -> int:
     w.send("hello", **said)
     HANDLERS.update(keeper.handlers(root, said))
     stop = threading.Event()
-    threading.Thread(target=beats, args=(w, root, said["slots"], every, stop), daemon=True).start()
+    readings = sampler.Readings(root, w)
+    threading.Thread(target=readings.loop, args=(stop,), name="ergostat-worker-sampler", daemon=True).start()
+    threading.Thread(target=beats, args=(w, root, said["slots"], every, stop, readings), daemon=True).start()
     want = 1
     try:
         while not stop.is_set():

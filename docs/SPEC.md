@@ -6975,7 +6975,8 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 
 A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
 and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
-the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper (12s.3). Nothing in the engine speaks to it yet, and no
+the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper, with its CPU
+and memory read (12s.3). Nothing in the engine speaks to it yet, and no
 model says `compute:` or `runs-on:` yet; a model is unchanged by any of this.
 
 **The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
@@ -7015,7 +7016,8 @@ A frame with an unknown `type` is answered `error` and the worker goes on, as it
 | `labels` | the root's `labels.json`, an object of strings (what the owner says the node has); missing, `{}`; unreadable or of another shape, `{}`, said on standard error |
 | `slots` | the most runs it takes at once: its CPUs, at most 64; CPUs unknown, 0 |
 
-Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs` (`{}` until runs exist).
+Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs`: each run folder in the root
+as `{RUN: {"resources": ...}}`, its latest readings (12s.3, *Readings*), `{}` while there are none.
 `ping` is answered `pong` with its `id`. Every other type is a table, `serve.HANDLERS`, of message type to handler:
 each later part of the protocol is one module of the folder and one line registering it there. Standard input
 closed, the worker ends (0).
@@ -7030,9 +7032,10 @@ closed, the worker ends (0).
 
 ### 12s.3 A run on a node: start, limits, output and its keeper
 
-Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`,
-registered in `serve.HANDLERS` once `hello` is said). Still to come: the keeper's wall and lease deadlines, `out`
-by offset, `ended`, `done` and the runs listed in `hello` (`backends` stays `[]` until then).
+Built so far: `start` and `kill`, the run's folder, the per-run keeper's process control (`keeper.py`,
+registered in `serve.HANDLERS` once `hello` is said), and each run's readings with a first `ended` (`sampler.py`,
+below). Still to come: the keeper's wall and lease deadlines, `out` by offset, the rest of `ended` (offsets,
+`done`), and the runs listed in `hello` (`backends` stays `[]` until then).
 
 **`start`** `{"run", "command", "input", "env", "block", "limits"}`: `command` a non-empty string, `input` (the
 run's standard input) a string, `env` an object of strings, else an `error`. It is answered `refused` with `why`:
@@ -7074,6 +7077,26 @@ read stops the run all the same, with the 10-second grace.
 
 After the exit is written the keeper waits for `runs/RUN/done` or a day (`--day SECONDS`, hidden, for tests),
 removes its run folder (by its name, after resolving it under the root's `runs/`), and ends.
+
+**Readings** (`sampler.py`, one thread started with the beat, for every run at once, never one per run). Each
+second it looks at the root's `runs/`, so it finds runs an earlier worker started as well. A run with a `pgid` is sampled once a second
+for its first ten seconds seen, then every ten seconds. Each sample is one listing of the processes (`/proc` on Linux; one
+`ps -A -o pid=,ppid=,pgid=,rss=,utime=,stime=` elsewhere, a failed one no sample) and the run's tree in it: its
+process group and its descendants by parent, whatever their group. Per run it keeps each process's last CPU seen,
+the most resident memory the tree held at once (summed), the most processes and, where cheap (`/proc`; `libproc`
+on macOS), the most open files. On Linux it also reads the run's keeper (the leader's parent, taken only when its
+command line is `--keep RUN`) and its reaped children's CPU: the run and every descendant waited for, exact once
+the keeper has reaped the run. The resources have the keys a local run's carry (`ergostat/costs/sampler.py`,
+`Tracker.result`): `cpu`, `cpu_user`, `cpu_system` (each the larger of the sampled sum and what the keeper reaped),
+`memory_peak` (bytes), `processes_peak`, `open_files_peak` when known, `samples`, `method` (`keeper+sampled`,
+`keeper`, `sampled` or `none`) and `sampler_cpu` (the thread's CPU and its `ps`'s, reaped with `wait4`, shared
+out among the runs it saw). What lives less than a sample's gap, and memory between samples, is not seen; off Linux
+the CPU is the sampled sum alone, which can miss up to the last gap of the run.
+
+Once a run's `exit` can be read, a last sample is taken and the worker says **`ended`** `{"run", "code", "how",
+"resources"}` (`code` and `how` as in the exit file), once a run in each worker session: a worker started again
+says it again for a run whose folder is still there. A run never started (an exit and no `pgid`) is said with
+`method` `none`. Readings are measurements: no beat and no reading is an event.
 
 ### 12s.4 Pools in the model, and the engine's connection
 
