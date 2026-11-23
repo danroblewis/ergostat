@@ -208,6 +208,51 @@ def test_an_unreachable_remote_is_drawn_from_its_cache_with_a_finding(tmp_path):
     assert [p for p in problems if p.code == "remote-unreachable" and "did not answer" in p.message]
 
 
+def _plant(local, **reads):
+    """The remote's status as readings would leave it (``cache.note``), on top of what the model fetch wrote."""
+    d = cache.folder("support", local, "incidents")
+    st = {k: v for k, v in cache.status(d).items() if not k.startswith("read")}
+    (d / cache.STATUS).write_text(json.dumps({**st, **reads}))
+
+
+def _checked(local, monkeypatch):
+    """The model read as ``ergostat check`` reads it (``fresh()``), the remote's model answering unchanged."""
+    monkeypatch.setattr(cache, "refresh", lambda d, *a, **k: cache.status(d))
+    with compose.fresh():
+        _, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    return problems
+
+
+def test_remote_stale_finding(tmp_path, monkeypatch):
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    served_into(local, tmp_path)
+    now = time.time()
+    _plant(local, read=now - 600, read_ok=False, read_why="unreachable (timed out)", read_failing_since=now - 300)
+    problems = _checked(local, monkeypatch)
+    stale = [p for p in problems if p.code == "remote-stale"]
+    assert len(stale) == 1 and stale[0].about == "system.incidents" and stale[0].level == "finding"
+    assert stale[0].message == ("remote incidents: its readings fail (unreachable (timed out)) since 5m ago; "
+                                "its measures here are 10m old"), stale[0].message
+    assert not [p for p in problems if p.code == "remote-unreachable"]
+    _plant(local, answered=now - 60, read_ok=False, read_why="refused", read_failing_since=now - 300)   # never read
+    stale = [p for p in _checked(local, monkeypatch) if p.code == "remote-stale"]
+    assert len(stale) == 1 and stale[0].message.endswith("; none of its measures has been read here"), stale
+    _plant(local, read=now, read_ok=True)
+    assert not [p for p in _checked(local, monkeypatch) if p.code == "remote-stale"]
+    _plant(local)                                                      # never read: nothing to say of its readings
+    assert not [p for p in _checked(local, monkeypatch) if p.code == "remote-stale"]
+
+
+def test_unreachable_wins_over_stale(tmp_path, monkeypatch):
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    served_into(local, tmp_path, ok=False)
+    _plant(local, read_ok=False, read_why="unreachable (refused)", read_failing_since=time.time() - 30)
+    problems = _checked(local, monkeypatch)
+    assert [p.code for p in problems if p.code in ("remote-unreachable", "remote-stale")] == ["remote-unreachable"]
+
+
 def test_a_remote_never_read_still_loads(tmp_path, monkeypatch):
     local = tmp_path / "support"
     write(local, LOCAL)
