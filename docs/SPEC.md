@@ -6975,7 +6975,7 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 
 A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
 and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
-the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper (12s.3). Nothing in the engine speaks to it yet, and no
+the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper with its output sent by offset (12s.3). Nothing in the engine speaks to it yet, and no
 model says `compute:` or `runs-on:` yet; a model is unchanged by any of this.
 
 **The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
@@ -7015,7 +7015,8 @@ A frame with an unknown `type` is answered `error` and the worker goes on, as it
 | `labels` | the root's `labels.json`, an object of strings (what the owner says the node has); missing, `{}`; unreadable or of another shape, `{}`, said on standard error |
 | `slots` | the most runs it takes at once: its CPUs, at most 64; CPUs unknown, 0 |
 
-Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs` (`{}` until runs exist).
+Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs`, each run whose output it
+follows with the offsets the engine has taken, `{"RUN": {"out": N, "err": N}}` (`{}` with none; section 12s.3).
 `ping` is answered `pong` with its `id`. Every other type is a table, `serve.HANDLERS`, of message type to handler:
 each later part of the protocol is one module of the folder and one line registering it there. Standard input
 closed, the worker ends (0).
@@ -7030,18 +7031,20 @@ closed, the worker ends (0).
 
 ### 12s.3 A run on a node: start, limits, output and its keeper
 
-Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`,
-registered in `serve.HANDLERS` once `hello` is said). Still to come: the keeper's wall and lease deadlines, `out`
-by offset, `ended`, `done` and the runs listed in `hello` (`backends` stays `[]` until then).
+Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`), and the
+run's output by offset with `attach`, `ack`, `ended` and `done` (`output.py`), both registered in `serve.HANDLERS` once
+`hello` is said. Still to come: the keeper's wall and lease deadlines, `ended`'s `resources`, and the runs listed
+in `hello` (`backends` stays `[]` until then).
 
 **`start`** `{"run", "command", "input", "env", "block", "limits"}`: `command` a non-empty string, `input` (the
 run's standard input) a string, `env` an object of strings, else an `error`. It is answered `refused` with `why`:
 
 - `bad name`: `run` is not exactly 32 lower-case hex digits, or a run of that id has a folder here already (never
   made again over it);
-- `limits over the node`: a limit other than `cpus`, `memory` (bytes), `pids` and `wall` (seconds), or one not a
-  positive number within the node (`cpus` and `memory` at most what `hello` said, and over when that was null;
-  `pids` at most 32768; `wall` at most a day). `network` is refused on this backend rather than pretended;
+- `limits over the node`: a limit other than `cpus`, `memory` (bytes), `pids`, `wall` (seconds) and `log` (bytes),
+  or one not a positive number within the node (`cpus` and `memory` at most what `hello` said, and over when that
+  was null; `pids` at most 32768; `wall` at most a day; `log` at most 1 GiB). `network` is refused on this backend
+  rather than pretended;
 - `full`: as many runs going as `slots` (a run folder with no `exit` yet counts as going), counted and the folder
   made under one lock (`runs/.lock`), so two workers on one root can't both take the last slot;
 - `no keeper`: the folder's files could not be written or the keeper could not be started; the folder is removed.
@@ -7074,6 +7077,40 @@ read stops the run all the same, with the 10-second grace.
 
 After the exit is written the keeper waits for `runs/RUN/done` or a day (`--day SECONDS`, hidden, for tests),
 removes its run folder (by its name, after resolving it under the root's `runs/`), and ends.
+
+**The output, by offset** (`output.py`). One follower thread, whatever the number of runs, follows each run started
+in this session (from offset 0, once it is `started`) and each run attached, and sends what is new in its `out` and
+`err` files as `out` `{"run", "stream", "offset", "text"}`: `stream` is `out` or `err`, `offset` the byte offset in
+that file of the frame's first byte, so each byte is in exactly one frame of a pass and frames of a stream follow one
+another by offset (never by time: the engine's side, still to come, drops what is below what it has taken). A frame carries at most 64 KiB:
+the whole lines of what it read, split at the last line end; a line longer than 64 KiB goes in pieces of exactly
+64 KiB, and a part line is otherwise held back until the run has ended, when it is sent as it is. `text` is the
+bytes as UTF-8, any byte that is not (a character cut at a split included) as a lone surrogate escape (`\udcXX`,
+Python's `surrogateescape`), so `text.encode("utf-8", "surrogateescape")` gives back the bytes exactly and a split
+line rejoins by offset. Its files are looked at again soon after output and at most every 50 ms when there is none.
+
+- **`attach`** `{"run", "out", "err"}` (byte offsets, integers from 0, else an `error`) follows the run from
+  there, in this session or a later one, resending what it has already sent; it is the engine's taken offsets, so
+  they count as acknowledged. Answered only when `refused`: `no such run` (no folder or no readable `run.json`
+  here) or `offset past the output` (beyond what the file holds). A worker started again sends nothing for a run
+  until it is attached.
+- **Flow control.** The engine says what it has taken with `ack` `{"run", "out", "err"}` (byte offsets, else an
+  `error`; answered only when `refused` `no such run`, a run not followed); an offset below one already taken, or
+  past what was sent, counts for nothing. The worker's `beat` says each followed run's taken offsets, from its last
+  `attach` or `ack`. Over all runs, at most 4 MiB is sent and not taken: the follower reads another chunk
+  only while 64 KiB of that is free, so a stalled engine stalls the node's output, never its memory (the test
+  measures the worker's RSS within 12 MiB of its start while 24 MiB goes through; it measured 21 MiB throughout). A run that ended with more unsent waits for room, its
+  `ended` with it.
+- **`limits.log`** (64 MiB when not given) caps each of the two files: a file past it while the run goes has the
+  worker write the run's `stop` (`{"grace": 1, "why": "log over its cap"}`, unless a stop is there already), so the
+  keeper stops it as for a `kill`. Nothing past the cap is sent; what the run wrote meanwhile stays in the file.
+- **`ended`** `{"run", "code", "how"}` is sent once the run's `exit` is written and every byte of both files up to
+  it (or its cap) has been sent: after the run's last `out`. `code` and `how` are the exit's, `how` being `log
+  over its cap` when the worker's cap stop ended it (TERM or KILL). The exit is looked at before the files' sizes,
+  so nothing written before it is missed; what a process left behind writes after the exit is not sent. An
+  unreadable exit is waited for, never read as an end. A run attached again sends `ended` again after its resend.
+- **`done`** `{"run"}` writes `runs/RUN/done` and stops following the run, unanswered (`refused` `no such run`
+  when it has no folder); the keeper then removes the folder.
 
 ### 12s.4 Pools in the model, and the engine's connection
 

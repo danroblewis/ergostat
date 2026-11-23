@@ -27,3 +27,32 @@ definition above, unchanged, once compute-worker-keeper is on main. Start this b
 Parked by the factory (review/compute-worker-output-1, 2026-11-22 18:05).
 
 Nothing built: only the definition of done and its 'Where it stopped' are committed (dev/records/compute-worker-output.md). On main, ergostat/compute/worker/serve.py:32 registers only `ping`, there is no keeper.py, no start/kill handler, no runs/RUN/ folder, and docs/SPEC.md §12s.3 is still 'To be filled'. Every part of this gap acts on a run made by compute-worker-keeper: the follower's out/err files, limits.log from `start`, the stop for 'log over its cap', and `ended` after the last out. Left: the whole definition (output.py, serve.py registrations, tests/compute_pipe.py, the six tests in tests/test_compute_output.py, SPEC text). Restart the branch from main once compute-worker-keeper has landed.
+
+## Where it stopped
+
+Round 1 continued (2026-11-23): built. compute-worker-keeper is on main (39c32ecc) and already merged into this
+branch (abfd7fff), so the branch was continued, not restarted. Built: `ergostat/compute/worker/output.py` (one
+follower thread for all runs; `out` by offset, `attach`, `ack`, `ended`, `done`, the 4 MiB window, the log cap), its
+registration in `serve.py` (and the worker's `beat` now carries each run's taken offsets), SPEC §12s and §12s.3,
+and the six tests in `tests/test_compute_output.py`, named as in the plan
+(docs/research/2026-11-22-design-and-planning/plan/wave2-compute.md, compute-worker-output). 205 net lines.
+
+Where the definition was silent, the most reversible option, taken and said in SPEC:
+- The acknowledgement is `ack {run, out, err}`, a request of its own. The plan says the beat's taken offsets come
+  "from the engine's last attach/ack", and `attach` can't also be the acknowledgement: it resends from its offsets.
+  The worker's `beat` says those taken offsets per run.
+- `attach`, `ack` and `done` are answered only when refused (`no such run`, `offset past the output`). An answer
+  can be added later without changing what is sent now.
+- `ended` is `{run, code, how}` from the keeper's exit, `how` being `log over its cap` when the worker's cap stop
+  (the keeper's `stop` file, grace 1 s, that `why`) ended it with TERM or KILL. `resources` is left to
+  compute-worker-readings.
+- Text that is not UTF-8, and a character cut by a 64 KiB split, travel as surrogate escapes, so the bytes rejoin
+  exactly by offset.
+- A worker started again follows a run only once it is attached; runs listed in `hello` belong to
+  compute-worker-restart-states.
+- Outside the Files list, two small changes this needed: `keeper.py` accepts `limits.log` (at most 1 GiB, 2 lines:
+  without them every `start` carrying `log` was refused `limits over the node`), and the keeper tests' `Node` helper
+  moved into `tests/compute_pipe.py` (with `alive` and `until`), so `tests/test_compute_keeper.py` changes only in its
+  imports. `compute_pipe.Taken` is the engine's drop-below-taken rule as a test helper, as the plan asks.
+
+Left: nothing in this definition. The engine's own use of the frames comes with compute-remote-backend.
