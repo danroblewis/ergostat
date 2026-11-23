@@ -300,7 +300,7 @@ def test_fifo_in_copy_refused_without_hanging(tmp_path, capsys):
             "print([(p.code, p.message) for p in ps if p.level == 'error'])")
     p = subprocess.run([sys.executable, "-c", code, str(d / "ergostat.yaml")], cwd=ROOT, capture_output=True,
                        text=True, timeout=20)
-    assert "library-altered" in p.stdout and "not a regular file" in p.stdout, p.stdout + p.stderr
+    assert "library-altered" in p.stdout and "a FIFO, socket or device" in p.stdout, p.stdout + p.stderr
 
 
 def _tar(*members) -> io.BytesIO:
@@ -337,34 +337,33 @@ def test_symlink_hashed_not_followed(tmp_path, capsys, monkeypatch):
     git(out, "tag", "-f", "v1")
     d2 = model(fresh(tmp_path, "two"), {"a": lib(out)})
     rc, _, err = run_fetch(d2, capsys)
-    assert rc == 1 and "a link out of the copy" in err and not (d2 / ".libraries" / "a").exists()
+    assert rc == 1 and "leaves the copy" in err and not (d2 / ".libraries" / "a").exists()
     assert not (d2 / "libraries.lock").exists()
-    for members, said in [([("l", tarfile.SYMTYPE, "sub"), ("l/x.yaml", tarfile.REGTYPE, b"x")], "members under it"),
-                          ([("x.yaml", tarfile.REGTYPE, b"x"), ("h", tarfile.LNKTYPE, "x.yaml")], "not a folder"),
-                          ([("p", tarfile.FIFOTYPE, None)], "not a folder"),
-                          ([("/abs", tarfile.REGTYPE, b"x")], "not a plain relative path"),
-                          ([("a/../../b", tarfile.REGTYPE, b"x")], "not a plain relative path"),
+    for members, said in [([("l", tarfile.SYMTYPE, "sub"), ("l/x.yaml", tarfile.REGTYPE, b"x")], "under a link"),
+                          ([("x.yaml", tarfile.REGTYPE, b"x"), ("h", tarfile.LNKTYPE, "x.yaml")], "hardlink"),
+                          ([("p", tarfile.FIFOTYPE, None)], "FIFO"),
+                          ([("/abs", tarfile.REGTYPE, b"x")], "an absolute name"),
+                          ([("a/../../b", tarfile.REGTYPE, b"x")], "an absolute name"),
                           # each reads as the copy's top, but x/y goes through x/s: two levels up on disk
                           ([("x", tarfile.DIRTYPE, None), ("x/s", tarfile.SYMTYPE, ".."),
-                            ("x/y", tarfile.SYMTYPE, "s/../..")], "through another link"),
-                          ([("x/y", tarfile.SYMTYPE, "s/../.."), ("x/s", tarfile.SYMTYPE, "..")], "through another link"),
-                          ([("x/y", tarfile.SYMTYPE, "./../.."), ("x/s", tarfile.SYMTYPE, "..")], "out of the copy"),
+                            ("x/y", tarfile.SYMTYPE, "s/../..")], "passes through a link"),
+                          ([("x/y", tarfile.SYMTYPE, "s/../.."), ("x/s", tarfile.SYMTYPE, "..")], "passes through a link"),
+                          ([("x/y", tarfile.SYMTYPE, "./../.."), ("x/s", tarfile.SYMTYPE, "..")], "leaves the copy"),
                           # the same on a case- or normalization-insensitive disk (APFS): x/s opens x/S, NFC opens NFD
-                          ([("x/S", tarfile.SYMTYPE, ".."), ("x/y", tarfile.SYMTYPE, "s/../..")], "through another link"),
+                          ([("x/S", tarfile.SYMTYPE, ".."), ("x/y", tarfile.SYMTYPE, "s/../..")], "passes through a link"),
                           ([("x/" + NFD_E, tarfile.SYMTYPE, ".."), ("x/y", tarfile.SYMTYPE, NFC_E + "/../..")],
-                           "through another link"),
-                          ([("L", tarfile.SYMTYPE, "sub"), ("l/x.yaml", tarfile.REGTYPE, b"x")], "members under it")]:
-        with pytest.raises(tree.Refused, match=said):
+                           "passes through a link"),
+                          ([("L", tarfile.SYMTYPE, "sub"), ("l/x.yaml", tarfile.REGTYPE, b"x")], "under a link")]:
+        with pytest.raises(files.TreeError, match=said):
             tree.extract(_tar(*members), str(tmp_path / f"x{len(os.listdir(tmp_path))}"))
     with monkeypatch.context() as m:                       # the text check gone, where it resolves still refuses
         m.setattr(tree, "_inside", lambda *a: None)
-        with pytest.raises(tree.Refused, match="out of the copy on disk"):
+        with pytest.raises(files.TreeError, match="its realpath leaves the copy"):
             tree.extract(_tar(("x", tarfile.DIRTYPE, None), ("x/s", tarfile.SYMTYPE, ".."),
                               ("x/y", tarfile.SYMTYPE, "s/../..")), str(tmp_path / "bypass"))
-    ok = tmp_path / "ok"                                   # a link to a link inside, and one up to the top: kept
-    tree.extract(_tar(("x/s", tarfile.SYMTYPE, ".."), ("x/y", tarfile.SYMTYPE, "s"), ("g", tarfile.REGTYPE, b"g")),
-                 str(ok))
-    assert os.path.realpath(ok / "x" / "y") == str(ok.resolve())
+    ok = tmp_path / "ok"                                   # a link up to the top: kept
+    tree.extract(_tar(("x/s", tarfile.SYMTYPE, ".."), ("g", tarfile.REGTYPE, b"g")), str(ok))
+    assert os.path.realpath(ok / "x" / "s") == str(ok.resolve())
 
 
 def _clean(d: Path) -> None:
@@ -400,17 +399,17 @@ def test_caps_refuse_large(tmp_path, capsys, calls, monkeypatch):
     monkeypatch.setattr(fetch, "CEILING", 100 << 20)
     small = upstream(tmp_path, {"greet.yaml": GREET, "b.yaml": OTHER, "c.yaml": OTHER}, "small")
     d = model(fresh(tmp_path, "s"), {"a": lib(small)})
-    for attr, value, said in [("MAX_ENTRIES", 2, "entries in the archive"), ("MAX_BYTES", 60, "by the headers")]:
+    for attr, value, said in [("ENTRIES", 2, "more than 2 entries"), ("BYTES", 60, "byte cap (declared)")]:
         with monkeypatch.context() as m:
             m.setattr(tree, attr, value)
             rc, _, err = run_fetch(d, capsys)
             assert rc == 1 and said in err, err
             _clean(d)
     with monkeypatch.context() as m:
-        m.setattr(tree, "declared", lambda _: 0)
-        m.setattr(tree, "MAX_BYTES", 60)
+        m.setattr(tree, "_declared", lambda _: 0)
+        m.setattr(tree, "BYTES", 60)
         rc, _, err = run_fetch(d, capsys)
-        assert rc == 1 and "as written" in err, err
+        assert rc == 1 and "byte cap (written)" in err, err
         _clean(d)
     many = model(fresh(tmp_path, "m"), {f"l{i}": lib(small) for i in range(17)})
     assert [c for c, _ in errors(many)] == ["too-many-libraries"]
@@ -418,9 +417,9 @@ def test_caps_refuse_large(tmp_path, capsys, calls, monkeypatch):
     assert run_fetch(many, capsys)[0] == 2 and calls == []
     _, d = owned(fresh(tmp_path, "o"), capsys)
     (d / ".libraries" / "a" / "planted.yaml").write_bytes(b"#" * 2000)
-    monkeypatch.setattr(tree, "MAX_BYTES", 1000)
+    monkeypatch.setattr(tree, "BYTES", 1000)
     got = dict(errors(d))
-    assert "bytes (the cap)" in got["library-altered"] and "hash" not in got["library-altered"]
+    assert "past the byte cap" in got["library-altered"] and "hash" not in got["library-altered"]
 
 
 def test_stalled_git_is_killed_by_the_timeout(tmp_path, capsys, calls, monkeypatch):
@@ -513,14 +512,16 @@ def test_fallback_reads_library_from_snapshot(tmp_path, capsys):
 
 def test_sources_are_whole_matches():
     """Each allowlist matches the whole value: a good one with anything after it is refused."""
-    assert sources.url("https://h.example:8443/a/b.git") and sources.url("file:///srv/lib")
-    assert sources.ref("v1.2/x") and sources.ref("a" * 40) and sources.sub("sub/dir") == "sub/dir"
+    def field(**e):
+        try:
+            sources.check({"a": {"git": "file:///srv/lib", "version": "main", **e}})
+        except sources.SourceError as x:
+            return x.field
+    assert field(git="https://h.example:8443/a/b.git") is None and field(version="v1.2/x") is None
+    assert field(version="a" * 40) is None and field(version="a" * 64) is None and field(path="sub/dir") is None
     for bad in ("https://h/r\n", "https://h/r ", "https://h:/r", "https://h:x/r", "file://h/r", "HTTPS://h/r"):
-        with pytest.raises(sources.Bad):
-            sources.url(bad)
+        assert field(git=bad) == "libraries.a.git", bad
     for bad in ("main\n", "/main", "main/", ".main", "main.", "a//b", "A" * 201, "v 1"):
-        with pytest.raises(sources.Bad):
-            sources.ref(bad)
+        assert field(version=bad) == "libraries.a.version", bad
     for bad in ("/abs", "a//b", "a/", "a/../b", "a\n"):
-        with pytest.raises(sources.Bad):
-            sources.sub(bad)
+        assert field(path=bad) == "libraries.a.path", bad

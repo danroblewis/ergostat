@@ -15,12 +15,13 @@ import signal
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
 
 from ..sandbox.git import ENV, SAFE
-from ..spec.files import TreeRefused
+from ..spec.files import TreeError
 from . import sources, tree
 
 CEILING = 100 << 20                 # a clone's folder, and any one file git writes (RLIMIT_FSIZE)
@@ -125,7 +126,7 @@ def _archive(tmp: str, commit: str, path: str) -> None:
     timer = threading.Timer(TIMEOUT, lambda: (late.append(True), _kill(p)))
     timer.start()
     try:
-        tree.extract(p.stdout, os.path.join(tmp, "copy"), path)
+        tree.extract(p.stdout, os.path.join(tmp, "copy"), tree.ENTRIES, tree.BYTES, path)
         p.stdout.read()
         _exited(p, block=True)
     except BaseException:
@@ -156,7 +157,7 @@ def clone(tmp: str, e: dict, locked: dict | None) -> tuple[str, str]:
                       (want if sources.SHA.fullmatch(want) else "FETCH_HEAD") + "^{commit}", out=True)
     if rc or not sources.SHA.fullmatch(commit) or sources.SHA.fullmatch(want) and commit != want:
         raise FetchError(f"{want}: no such commit fetched from {e['git']}")
-    _archive(tmp, commit, e["path"])
+    _archive(tmp, commit, e.get("path", ""))
     return commit, tree.read(os.path.join(tmp, "copy"))[1]
 
 
@@ -239,7 +240,7 @@ def run(main_dir: str, cfg: dict, names: list[str], update: bool) -> int:
             fcntl.flock(fd, fcntl.LOCK_EX)
         entries, rc = _read_lock(main_dir), 0
         for name in names or list(cfg):
-            e, lk = cfg[name], entries.get(name)
+            e, lk = {"path": "", **cfg[name]}, entries.get(name)
             same = lk is not None and all(lk.get(k) == e[k] for k in ("git", "version", "path"))
             locked = lk if same and sources.SHA.fullmatch(str(lk.get("commit"))) and isinstance(lk.get("tree"), str) \
                 else None                          # (a commit not 40 or 64 hex never reaches git: resolved again)
@@ -251,7 +252,7 @@ def run(main_dir: str, cfg: dict, names: list[str], update: bool) -> int:
                     if tree.read(dest)[1] == locked["tree"]:
                         print(f"library {name}: up to date at {locked['commit'][:12]}")
                         continue
-                except (OSError, TreeRefused):
+                except (OSError, TreeError):
                     pass
             else:
                 locked = None
@@ -264,7 +265,7 @@ def run(main_dir: str, cfg: dict, names: list[str], update: bool) -> int:
                 _swap(root, tmp, name, main_dir, entries, {"git": e["git"], "version": e["version"], "path": e["path"],
                                                            "commit": commit, "tree": h})
                 print(f"library {name}: {e['version']} at {commit[:12]} ({h[:19]})")
-            except (FetchError, tree.Refused, TreeRefused, OSError) as x:
+            except (FetchError, TreeError, tarfile.TarError, OSError) as x:
                 print(f"library {name}: not fetched: {x}", file=sys.stderr)
                 rc = 1
             finally:

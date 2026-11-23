@@ -29,8 +29,9 @@ from .expand import B as MB
 
 S, L, M, D, A, NO = "one value", "values", "map of values", "data", "anything", "refused"
 RUN = "a run: the owner's own command, or ergostat's program with checked arguments (R1, R2)"
+SBX = "a sensor's run: on the owner's shell only as R1, R2 allow (owner_runs), else in ergostat.sandbox (runs.py)"
 W = "written by the owner or a trusted template, never a library"
-T = "text read or shown to an agent: no piece of it, at any depth, written by a library (R3)"
+T ="text read or shown to an agent: no piece of it, at any depth, written by a library (R3)"
 
 
 class Text(str):
@@ -90,7 +91,7 @@ SENSOR = {     # where sensors live: stocks.X.sensor(s), flows.X.sensor(s), auxi
     "changes": (S, "a flow read from its stock's own readings"),
     "unit": (S, "the unit it is shown in"),
     "description": (S, "words shown with it"),
-    "run": (RUN, "runs only the owner's own command, or ergostat's program with checked arguments"),
+    "run": (SBX, "runs on the owner's shell only as R1, R2 allow; any other run, only in ergostat.sandbox"),
     "query": (T, "reads an outside source: only as the owner or a trusted template wrote every piece of it"),
     "daemon": (NO, "starts and keeps a process"),
     "push": (NO, "takes readings pushed from outside"),
@@ -100,6 +101,7 @@ SENSOR = {     # where sensors live: stocks.X.sensor(s), flows.X.sensor(s), auxi
     "timeout": (W, "how long a command runs: only as the owner or a trusted template wrote it"),
     "builtin": (NO, "runs ergostat's own measure as a process of its own, on a timer"),
     "manual": (NO, "asks a person for readings"),
+    "runs-on": (NO, "names the machine it runs on, which only the owner says (and a sensor is refused it anyway)"),
     "averages": (W, "the window a command's readings are averaged over: only as the owner or a trusted template wrote it"),
 }
 SENSORS = {"sensors": (each(SENSOR), "its sensors, by name"), "sensor": (SENSOR, "its one sensor")}
@@ -117,10 +119,12 @@ JOIN = {"children": (S, "the relation children name it by"), "all": (L, "the sta
 SYSTEM = {"description": (S, "words shown with it"), "within": (S, "the system it is drawn in"),
           "show": (L, "parts shown on its box")}
 ITEM = {**COMMON, "id": (S, "which ids are this kind"), "states": (L, "its states"),
+        "final": (L, "its states no event moves it out of"),
         "on": (M, "which event moves it to which state"), "show": (L, "fields shown"), "formats": (M, "how fields are shown"),
         "fold": (M, "how events' fields fold into it"), "relations": (each(one_of(L, REL)), "relations to other items"),
         "join": (one_of(JOIN, list_of(JOIN)), "a parent moved on by its children's states"),
         "about": (S, "the field naming the parts it is about; only check reads it"),
+        "attention": (S, "the field whose latest item's words are shown on the attention list"),
         "lease": (NO, "makes its items a work queue that blocks take and run")}
 STOCK = {**COMMON, **CLAIMED, **SENSORS, "unit": (S, "its unit"), "limit": (S, "its most"), "initial": (S, "its first value"),
          "cumulative": (S, "a running total"), "rate-unit": (S, "how its rate is shown"),
@@ -171,6 +175,7 @@ MACHINE_NO = {k: (NO, why) for why, ks in (
     ("how many runs, items, attempts and how much each may take", ("max", "min", "takes", "pool", "lease", "on")),
     ("a controller's law, which only the owner tunes", ("gain", "integral-time", "deadband", "resolution", "limits")),
     ("what is run, kept running or parsed from its output", ("run", "daemon", "parse", "timeout", "until")),
+    ("the machine it runs on, which only the owner names", ("runs-on",)),
     ("what it may read, write and reach", ("workdir", "workspace", "read", "tools", "actions", "read-only", "network")),
     ("what it is given or judged by", ("context", "review")),
     ("the text of another type of block", ("prompt", "ask"))) for k in ks}
@@ -269,7 +274,23 @@ def writer_ok(v, tw: str) -> bool:
     return segs is not None and all(m[0] != LIBRARY if m else (t == "" or tw != LIBRARY) for m, t in segs)
 
 
-NAMED = "named"     # a template's own text that may hold its instance's name (``named``): only owner pieces are known
+def owner_runs(marked: dict, tw: str) -> list[str]:
+    """``section.part.sensor`` of each sensor whose ``run:`` R1 or R2 lets run on the owner's shell (an allowlist: a
+    shape not read here, or a check that raises, leaves it out, and it runs sandboxed)."""
+    out = []
+    for section, entries in marked.items():
+        for name, x in entries.items():
+            got = (x.get("sensors") if x.get("sensor") is None else {"main": x["sensor"]}) if isinstance(x, dict) else None
+            for n, s in (got.items() if isinstance(got, dict) else ()):
+                try:
+                    if isinstance(s, dict) and run_ok(s.get("run"), tw):
+                        out.append(f"{section}.{strip(name)}.{strip(n)}")
+                except Exception:   # noqa: S112 (lesson-3: a verdict that raises proves nothing)
+                    continue
+    return out
+
+
+NAMED = "named"  # a template's own text that may hold its instance's name (``named``): only owner pieces are known
 
 
 def fine(tt: str) -> tuple:
@@ -333,6 +354,8 @@ def _match(spec, v, path: str, tw: str = LIBRARY, tt: str = LIBRARY) -> str | No
         return None if (run_ok if spec == RUN else writer_ok)(v, tw) else path
     if spec == T:
         return None if text_ok(v, tt) else Text(path)
+    if spec == SBX:                     # text, holding no mark character outside a mark (fail closed)
+        return None if isinstance(v, str) and _segments(v) is not None else path
     if isinstance(v, Given):         # a value given whole: all of it is its writer's (none known: the library's)
         tt = v.meta[0] if v.meta and v.meta[0] in fine(tt) else LIBRARY
     v = v.value if isinstance(v, Given) else v

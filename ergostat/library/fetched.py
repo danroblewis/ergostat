@@ -35,7 +35,7 @@ def _one(doc, name: str, e: dict, entries) -> list[tp.Template]:
         raise Refusal("library-unlocked", f"there is no {LOCK} (ergostat library fetch writes it)")
     if not isinstance(lk, dict):
         raise Refusal("library-unlocked", f"{LOCK} has no entry for it (ergostat library fetch)")
-    if any(lk.get(k) != e[k] for k in ("git", "version", "path")):
+    if any(lk.get(k) != e.get(k, "") for k in ("git", "version", "path")):
         raise Refusal("library-unlocked", f"its git, version or path is not {LOCK}'s (ergostat library fetch)")
     if not isinstance(lk.get("tree"), str) or not isinstance(lk.get("commit"), str):
         raise Refusal("library-unlocked", f"its {LOCK} entry has no tree or commit (ergostat library fetch)")
@@ -44,16 +44,16 @@ def _one(doc, name: str, e: dict, entries) -> list[tp.Template]:
         listing, h = tree.read(root)
     except FileNotFoundError:
         raise Refusal("library-missing", f"{DIR}/{name} does not exist (ergostat library fetch)") from None
-    except (files.TreeRefused, OSError) as x:
+    except (files.TreeError, OSError) as x:
         raise Refusal("library-altered", f"{DIR}/{name}: {x}") from None
     if h != lk["tree"]:
         raise Refusal("library-altered", f"{DIR}/{name} is not what {LOCK} pinned (its tree hash differs)")
     out = []
     for rel, (kind, data) in sorted(listing.items()):
         top = "/" not in rel and rel.endswith((".yaml", ".yml"))
-        if kind in tree.FILE_KINDS and (top or rel.count("/") == 1 and posixpath.basename(rel) == "template.yaml"):
+        if kind in ("file", "exec") and (top or rel.count("/") == 1 and posixpath.basename(rel) == "template.yaml"):
             try:
-                t = tp.read(root / rel, False, "owner" if e["trust"] == "owner" else "untrusted",
+                t = tp.read(root / rel, False, "owner" if e.get("trust") == "owner" else "untrusted",
                             text=data.decode("utf-8"))
             except (tp.TemplateError, UnicodeDecodeError) as x:
                 doc.problems.append(Problem("finding", f"library {name}: {x}", None, "template-library"))
@@ -74,8 +74,8 @@ def take(doc, data) -> None:
     libs = data["libraries"]
     try:
         cfg = sources.check(libs)
-    except sources.Bad as x:
-        doc.problems.append(Problem("error", str(x), data.at("libraries"), x.code))
+    except sources.SourceError as x:
+        doc.problems.append(Problem("error", f"{x.field}: refused, {x.code} (SPEC §2a)", data.at("libraries"), x.code))
         return
     try:
         entries, broken = _lock(doc), None

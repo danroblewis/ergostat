@@ -40,6 +40,7 @@ function choose(parts, how = "only") {
   else if (how === "toggle" && parts.length && parts.every((p) => S.sel.has(p))) for (const p of parts) S.sel.delete(p);
   else for (const p of parts) S.sel.add(p);
   markChosen();
+  if (parseRoute().path === "/diagram") setQuery({ select: [...S.sel].join(",") });   // in the address: a reload rings them
   if (typeof peerSay === "function") peerSay({ type: "sel", parts: [...S.sel] });
 }
 function chooseShape(id, how = "only") { choose(partsOf(id), how); if (how === "only") whereElse(partsOf(id)); }
@@ -134,6 +135,7 @@ function markInteraction(svg) {
   const stale = new Set((S.layout?.edges || []).filter((le) => le.stale).map((le) => le.id));
   for (const el of svg.querySelectorAll(".edge")) el.classList.toggle("stale", stale.has(el.dataset.id));
   sideChartsChanged();                                 // the side panel charts what is chosen (charts.js)
+  if (typeof keyable === "function") keyable(svg);    // each clickable part a button, by keyboard too (keys.js)
 }
 
 /* a line with a slanted piece (a stand-in from part to part, until libavoid's way comes) drawn square

@@ -38,8 +38,8 @@ def cmd_library(args) -> int:
         return 0
     try:
         cfg = sources.check(data["libraries"])
-    except sources.Bad as e:
-        print(f"{main.name}: {e} ({e.code}): nothing fetched", file=sys.stderr)
+    except sources.SourceError as e:
+        print(f"{main.name}: {e.field}: refused, {e.code}: nothing fetched", file=sys.stderr)
         return 2
     unknown = [n for n in args.names if n not in cfg]
     if unknown:

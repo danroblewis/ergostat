@@ -73,7 +73,8 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         doc.problems.append(Problem(
             "error", f"use {inst}: refused, and nothing of it is in the model: it makes {path}, under template {u.name} "
             f"from {u.path.parent}, a library folder not marked trusted, and {why} (SPEC §2a). Only the owner can "
-            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-untrusted",
+            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-unsandboxed"
+            if path.endswith(".daemon") else "library-untrusted",
             f"system.{inst}"))
         return
     for step in chain.steps:
@@ -88,9 +89,10 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
 
 
 def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, depth: int, within: str | None,
-         under: tp.Template | None, writers: dict | None = None) -> None:
+         under: tp.Template | None, writers: dict | None = None, above: str | None = None) -> None:
     """One instance of the chain; ``under``: the first untrusted template above it (or it), from which all is untrusted.
-    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a)."""
+    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a); ``above``: the
+    instance whose template uses this one."""
     def err(msg, where=None, code="bad-use"):
         chain.steps.append(("problem", Problem("error", f"use {inst}: {msg}", where or w, code, f"system.{inst}")))
 
@@ -167,7 +169,9 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
             chain.steps.append(("put", section, name, as_map(got, via), via))
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
-                                      "depth": depth, "trust": t.trust, "untrusted": untrusted, "library": t.library}))
+                                      "depth": depth, "trust": t.trust, "untrusted": untrusted, "above": above,
+                                      "owner_runs": trust.owner_runs(made.marked or {}, author(t)) if untrusted else [],
+                                      "library": t.library}))
     if made.standins:
         chain.steps.append(("problem", Problem("finding", f"use {inst}: runs on free stand-ins "
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "
@@ -176,4 +180,4 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         given_on = made.writers.get(sub, {})
         if under is not None and named:                     # what it gives may hold the name: only the owner's known
             given_on = {k: w if w in trust.fine(trust.NAMED) else LIBRARY for k, w in given_on.items()}
-        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on)
+        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on, inst)

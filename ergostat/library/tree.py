@@ -1,143 +1,171 @@
-"""A fetched library's copy (SPEC §2a): ``extract`` writes ``git archive``'s tar stream into a new folder, allowing only
-folders, regular files (their exec bit kept) and links that stay inside it (by their text, names compared as a
-case-insensitive file system sees them, and then by where they resolve on disk); ``read`` lists a copy and hashes it. Fetch
-and load share one walker (``files.tree``, which ``read`` wraps) and one hash (``digest``), under the same caps."""
+"""A library's copy (SPEC §2a): ``extract`` reads a tar stream into a new folder, keeping it all inside; ``read`` and
+``digest`` list a copy (``files.tree``, the one walker fetch and load share) and hash it (``hashed``, the one hash).
+A link's target is walked step by step from its folder, names case- and NFC-folded, and refused if a ``..`` leaves the
+copy or a step lands on any link; walked as it arrives and again once all links exist (so member order does not
+matter), then each link's realpath is checked."""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
-import stat
+import shutil
 import tarfile
 import unicodedata
 
-from ..spec import files
+from ergostat.spec import files
+from ergostat.spec.files import TreeError
 
-MAX_ENTRIES = 2000
-MAX_BYTES = 20 << 20
-FILE_KINDS = ("file", "exec")
-
-
-class Refused(Exception):
-    """The archive holds what a copy may not: the member and why."""
+ENTRIES, BYTES = 2000, 20_000_000
+_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
-def digest(listing: dict) -> str:
-    """``sha256:`` of the entries in sorted path order, each its kind, then its path and its bytes (or link target),
-    each length-prefixed: no two listings encode the same."""
+def hashed(walked: dict) -> str:
+    """The sha256 of a listing (``files.tree``): for each path in byte order, the path, its kind (``dir``, ``file``,
+    ``exec``, ``link``), then its bytes or link target, each length-prefixed."""
     h = hashlib.sha256()
-    for rel in sorted(listing):
-        kind, v = listing[rel]
-        r, b = rel.encode("utf-8", "surrogateescape"), v if isinstance(v, bytes) else os.fsencode(v)
-        h.update(kind.encode() + b"\0" + len(r).to_bytes(8, "big") + r + len(b).to_bytes(8, "big") + b)
-    return "sha256:" + h.hexdigest()
+    for p in sorted(walked, key=os.fsencode):
+        kind, body = walked[p]
+        for b in (os.fsencode(p), kind.encode(), body if isinstance(body, bytes) else os.fsencode(body or "")):
+            h.update(len(b).to_bytes(8, "big") + b)
+    return h.hexdigest()
+
+
+def digest(root, max_entries: int = ENTRIES, max_bytes: int = BYTES) -> str:
+    """The sha256 of the copy at ``root``."""
+    return hashed(files.tree(root, max_entries, max_bytes))
 
 
 def read(root) -> tuple[dict, str]:
-    """The copy's listing (``files.tree``, noted at load) and its hash; raises ``files.TreeRefused`` past a cap."""
-    got = files.tree(root, MAX_ENTRIES, MAX_BYTES)
-    return got, digest(got)
+    """The copy's listing (noted at load) and its ``sha256:`` hash, under the caps as they are now."""
+    got = files.tree(root, ENTRIES, BYTES)
+    return got, "sha256:" + hashed(got)
 
 
-def declared(m: tarfile.TarInfo) -> int:
-    """The size a member's header says it has (checked before it is read)."""
+def _fold(s: str) -> str:
+    return unicodedata.normalize("NFC", unicodedata.normalize("NFC", s).casefold())
+
+
+def _declared(m: tarfile.TarInfo) -> int:
     return m.size
 
 
-def _name(m: tarfile.TarInfo, strip: str) -> str | None:
-    """The member's path in the copy (None: the stripped folder itself), or refused."""
-    n = m.name.rstrip("/") if m.isdir() else m.name
-    if strip:
-        if n == strip:
-            return None
-        if not n.startswith(strip + "/"):
-            raise Refused(f"{m.name}: outside {strip}")
-        n = n[len(strip) + 1:]
-    parts = n.split("/")
-    if n.startswith("/") or any(p in ("", ".", "..") for p in parts) or "\0" in n:
-        raise Refused(f"{m.name}: not a plain relative path")
-    return n
+def extract(stream, dest, max_entries: int = ENTRIES, max_bytes: int = BYTES, strip: str = "") -> None:
+    """Read the tar ``stream`` into ``dest``, made here, ``strip/`` taken off each name. Refused (TreeError, ``dest``
+    removed): any kind but folder, file and link; a name outside ``strip``; an absolute name or a ``.``/``..``/empty
+    step; two names folding the same; a member under a link or file; a link leaving the copy or passing through a link;
+    past either cap, by bytes declared or written; a stream that is not a tar (git wrote nothing)."""
+    os.mkdir(dest, 0o700)
+    try:
+        links = _extract(stream, dest, max_entries, max_bytes, strip)
+        for at, target in links.items():
+            _inside(at, target, links)
+        top = os.path.realpath(dest)
+        for at in links:
+            real = os.path.realpath(os.path.join(dest, *at[1]))
+            if real != top and not real.startswith(top + os.sep):
+                raise TreeError("bad-library-tree", "/".join(at[1]), "its realpath leaves the copy")
+    except (tarfile.TarError, OSError) as e:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise TreeError("bad-library-tree", str(getattr(e, "filename", "") or ""), str(e)) from e
+    except BaseException:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
 
 
-def _folders(dest: str, rel: str) -> None:
-    """The folders above ``rel``, made in ``dest`` as needed; one that is not a plain folder is refused."""
-    at = dest
-    for p in rel.split("/")[:-1]:
-        at = os.path.join(at, p)
-        try:
-            if not stat.S_ISDIR(os.lstat(at).st_mode):
-                raise Refused(f"{rel}: under {p}, which is not a folder")
-        except FileNotFoundError:
-            os.mkdir(at, 0o755)
+def _strip(m: tarfile.TarInfo, name: str, strip: str) -> str | None:
+    """``name`` without ``strip/`` (None: a folder at or above ``strip``); refused when it is outside."""
+    if m.isdir() and (strip + "/").startswith(name + "/"):
+        return None
+    if not name.startswith(strip + "/"):
+        raise TreeError("bad-library-tree", name, f"outside the path {strip}")
+    return name[len(strip) + 1:]
 
 
-def _key(rel: str) -> str:
-    """A name as a case- and normalization-insensitive file system (APFS) sees it: ``x/S`` and ``x/s`` are one."""
-    return unicodedata.normalize("NFC", rel).casefold()
-
-
-def _inside(rel: str, to: str, linked: set) -> None:
-    """``rel``'s target walked a step at a time from ``rel``'s folder: refused if a step goes above the copy or passes
-    through another link member (``linked`` holds their ``_key``s; that link's own target would move the walk)."""
-    at, steps = rel.split("/")[:-1], [p for p in to.split("/") if p not in ("", ".")]
-    for i, p in enumerate(steps):
-        if p != "..":
-            at.append(p)
-            if i < len(steps) - 1 and _key("/".join(at)) in linked:
-                raise Refused(f"{rel}: a link through another link ({to})")
-        elif not at:
-            raise Refused(f"{rel}: a link out of the copy ({to})")
-        else:
-            at.pop()
-
-
-def extract(stream, dest: str, strip: str = "") -> None:
-    """``stream`` (a tar, read once, mode ``r|``) into the new folder ``dest``, ``strip/`` taken off each name."""
-    os.mkdir(dest, 0o755)
-    links: list[tuple[str, str]] = []
-    names: list[str] = []
-    count = said = wrote = 0
-    with tarfile.open(fileobj=stream, mode="r|") as tf:
+def _extract(stream, dest, cap: int, most: int, strip: str) -> dict:
+    seen: dict[tuple, tuple] = {}      # folded steps -> (kind, the steps as written)
+    links: dict[tuple, str] = {}       # (folded steps, steps as written) -> target
+    declared = written = 0
+    with tarfile.open(fileobj=stream, mode="r|*") as tf:
         for m in tf:
-            count += 1
-            if count > MAX_ENTRIES:
-                raise Refused(f"more than {MAX_ENTRIES} entries in the archive (the cap)")
-            rel = _name(m, strip)
-            if rel is None:
+            name = m.name.rstrip("/") if m.isdir() else m.name
+            if strip and (name := _strip(m, name, strip)) is None:
                 continue
-            names.append(rel)
-            path = os.path.join(dest, rel)
-            if m.isdir():
-                _folders(dest, rel)
-                os.mkdir(path, 0o755)
-            elif m.isreg():
-                said += declared(m)
-                if said > MAX_BYTES:
-                    raise Refused(f"{m.name}: more than {MAX_BYTES} bytes (the cap), by the headers")
-                _folders(dest, rel)
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755 if m.mode & 0o111 else 0o644)
-                src = tf.extractfile(m)
-                with os.fdopen(fd, "wb") as out:
-                    while chunk := src.read(1 << 16):
-                        wrote += len(chunk)
-                        if wrote > MAX_BYTES:
-                            raise Refused(f"{m.name}: more than {MAX_BYTES} bytes (the cap), as written")
-                        out.write(chunk)
-            elif m.issym():
-                if m.linkname.startswith("/"):
-                    raise Refused(f"{m.name}: a link out of the copy ({m.linkname})")
-                links.append((rel, m.linkname))
-            else:
-                raise Refused(f"{m.name}: not a folder, a regular file or a link")
-    linked, keys = {_key(rel) for rel, _ in links}, [_key(n) for n in names]
-    for rel, to in links:
-        if any(n.startswith(_key(rel) + "/") for n in keys):
-            raise Refused(f"{rel}: a link with members under it")
-        _inside(rel, to, linked)
-    for rel, to in links:                                  # last: nothing is written through one
-        _folders(dest, rel)
-        os.symlink(to, os.path.join(dest, rel))
-    top = os.path.realpath(dest)                           # then where each leads on this disk, every link resolved
-    for rel, to in links:
-        if os.path.commonpath([top, os.path.realpath(os.path.join(dest, rel))]) != top:
-            raise Refused(f"{rel}: a link out of the copy on disk ({to})")
+            parts = tuple(name.split("/"))
+            if name.startswith("/") or any(s in ("", ".", "..") for s in parts):
+                raise TreeError("bad-library-tree", name, "an absolute name or a '.', '..' or empty step")
+            folded = tuple(_fold(s) for s in parts)
+            for i in range(1, len(parts)):
+                was = seen.setdefault(folded[:i], ("dir", parts[:i]))
+                if was != ("dir", parts[:i]):
+                    raise TreeError("bad-library-tree", name, "under a link, a file or a folder named otherwise")
+            kind = "dir" if m.isdir() else "file" if m.isreg() else "link" if m.issym() else None
+            if kind is None:
+                raise TreeError("bad-library-tree", name, "a hardlink, device, FIFO or other kind not allowed")
+            if folded in seen and not (kind == "dir" and seen[folded] == ("dir", parts)):
+                raise TreeError("bad-library-tree", name, "a second entry for one name (case- and NFC-folded)")
+            seen[folded] = (kind, parts)
+            if len(seen) > cap:
+                raise TreeError("library-too-big", name, f"more than {cap} entries")
+            fd = _parent(dest, parts[:-1])
+            try:
+                if kind == "dir":
+                    try:
+                        os.mkdir(parts[-1], 0o755, dir_fd=fd)
+                    except FileExistsError:
+                        os.close(os.open(parts[-1], _DIR, dir_fd=fd))
+                elif kind == "link":
+                    if not m.linkname or m.linkname.startswith("/"):
+                        raise TreeError("bad-library-tree", name, "an empty or absolute link target")
+                    links[(folded, parts)] = m.linkname
+                    _inside((folded, parts), m.linkname, links)
+                    os.symlink(m.linkname, parts[-1], dir_fd=fd)
+                else:
+                    declared += _declared(m)
+                    if declared > most:
+                        raise TreeError("library-too-big", name, "past the byte cap (declared)")
+                    src, h = tf.extractfile(m), os.open(parts[-1], _NEW, 0o600, dir_fd=fd)
+                    try:
+                        while b := src.read(1 << 20):
+                            written += len(b)
+                            if written > most:
+                                raise TreeError("library-too-big", name, "past the byte cap (written)")
+                            os.write(h, b)
+                        os.fchmod(h, 0o755 if m.mode & 0o111 else 0o644)
+                    finally:
+                        os.close(h)
+            finally:
+                os.close(fd)
+    return links
+
+
+def _parent(dest, steps: tuple) -> int:
+    """A handle on ``dest``/``steps``, each folder made if missing and opened O_NOFOLLOW (a link on the way fails)."""
+    fd = os.open(dest, _DIR)
+    for s in steps:
+        try:
+            with contextlib.suppress(FileExistsError):
+                os.mkdir(s, 0o755, dir_fd=fd)
+            nxt = os.open(s, _DIR, dir_fd=fd)
+        finally:
+            os.close(fd)
+        fd = nxt
+    return fd
+
+
+def _inside(at: tuple, target: str, links: dict) -> None:
+    """Refuse the link ``at`` if walking ``target`` from its folder steps above the copy or onto any link."""
+    folded = {k[0] for k in links}
+    here = list(at[0][:-1])
+    for s in target.split("/"):
+        if s in ("", "."):
+            continue
+        if s == "..":
+            if not here:
+                raise TreeError("bad-library-tree", "/".join(at[1]), "its target leaves the copy")
+            here.pop()
+        else:
+            here.append(_fold(s))
+            if tuple(here) in folded:
+                raise TreeError("bad-library-tree", "/".join(at[1]), "its target passes through a link")
