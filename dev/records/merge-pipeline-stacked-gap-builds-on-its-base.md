@@ -123,3 +123,13 @@ Resumed 2026-11-23 after the two factory parks (the reviewer's weekly limit, the
 this gap's fault, and nothing in the code changed. main (2a97eafb) is already merged in. The four acceptance tests
 and test_finish_refuses_a_head_that_no_longer_holds_a_base pass again. `ruff check ergostat tests scripts` is clean.
 Built, waiting for review.
+
+## Where it stopped
+
+Build step failure, answered (2026-11-23): its tail ends part way through the dots, with no FAILED line, no pytest
+summary and no suite_watch JSON line. So the whole suite container was stopped from outside mid-run (a memory kill
+or a Docker restart, like the one at 17:01). No test failed. Run again serially
+(`scripts/named_tests.py tests/test_factory.py`), the file gives 190 passed and 2 skipped (both need Docker and the
+agent image). ruff is clean on ergostat, tests and scripts, and on the three dev/bin files this gap touches. No code
+changed: nothing in the tail points to the branch's code. The `-n 8` run was not reproduced here, because the
+house rules allow only serial runs of named files.
