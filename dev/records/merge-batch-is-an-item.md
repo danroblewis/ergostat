@@ -150,3 +150,14 @@ tests/test_queue_halves.py (55), tests/test_queue_host.py (12), tests/test_facto
 `ruff check ergostat tests scripts`. A shell `for` loop over the three queue files was refused, so each was run on its
 own. Not run here: the unit suite, the four browser files, the rest of tests/test_factory.py, and the browser test
 under Playwright since the merge.
+
+Round 4: the review's blocking finding. The seven queue tests in tests/test_queue_batch_item.py were marked `serial`
+only to keep them away from test_factory's switch test. That test has been `serial` itself since round 3, so it already
+runs with nothing beside it, and these tests have no time bound of their own. Under CLAUDE.md they are `slow` (10 s+),
+not `serial`. `QUEUE` is now `pytest.mark.slow`, and the module docstring says why. Round 2's reason for unmarking
+them from `slow` (they started beside the switch test) no longer holds, for the same reason. There was nothing else in
+the review. Main is still 8a27f9e3 and was already merged (71fbc4b2), so there was nothing to merge. Run here, serially, with rc 0:
+tests/test_queue_batch_item.py (15 passed, 1 skipped without Playwright, 207 s) and
+`ruff check ergostat tests scripts`. Not run here: the unit suite, the four browser files, the rest of
+tests/test_factory.py and the browser test under Playwright. Only the mark and the docstring changed, so code
+behaviour is the same as in round 3.

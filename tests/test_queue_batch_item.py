@@ -3,10 +3,9 @@ says its start, each run, the gaps it isolates, what lands and how it ends, and 
 Timeline show it. The queue's own runs here use the fixture's fake suites (tests/test_factory.py); the item index and
 the Timeline are fed the events batches.py says, in this process.
 
-The seven tests that run the queue (about 25 CPU-s each) are marked serial, not slow: in a parallel run they run with
-nothing else alongside, so they never load the machine under test_factory's switch test, whose 120 s bound on each
-switcher run (about 43 CPU-s, the same on main's model) went red twice beside them in the implementor's build (-n 8 on
-4 CPUs). Marked slow, conftest._slow_first would start them first, beside it."""
+The seven tests that run the queue (about 25 CPU-s each) are marked slow, so a parallel run starts them first. They
+have no time bound of their own, so they are not serial: test_factory's switch test, whose 120 s bound holds only on a
+quiet machine, is the one marked serial, and it already runs with nothing beside it."""
 
 from __future__ import annotations
 
@@ -19,7 +18,7 @@ import pytest
 
 from tests.test_factory import ANY_BAD, BIN, CLOCKED, ROOT, Factory, approved_gaps, git, merges, module, suite_runs
 
-QUEUE = pytest.mark.serial          # (see above: a run of the queue, alone in a parallel run)
+QUEUE = pytest.mark.slow            # (see above: a run of the queue, 10 s+)
 
 
 def said(lines: list[dict]) -> list[str]:
