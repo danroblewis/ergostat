@@ -47,6 +47,19 @@ def _connect(deadline: float, held: list):
     return connect
 
 
+def _tls(conn, host: str, held: list, late: threading.Event):
+    """``HTTPSConnection.connect``, with the TLS socket kept in ``held`` before its handshake: wrapping takes the plain
+    socket's file over (it is left with none), so a cut that reached only the plain socket would end nothing."""
+    def connect():
+        http.client.HTTPConnection.connect(conn)
+        conn.sock = s = conn._context.wrap_socket(conn.sock, server_hostname=host, do_handshake_on_connect=False)
+        held.append(s)
+        if late.is_set():                           # (cut between the wrap and the hold: the cut missed this socket)
+            raise TimeoutError("past the deadline")
+        s.do_handshake()
+    return connect
+
+
 def _cut(held: list, late: threading.Event) -> None:
     """At the deadline: end the connection, so a source that stalls or trickles stops holding the request."""
     late.set()
@@ -72,6 +85,8 @@ def _get(src, params: dict, seconds: float) -> dict:
     held: list = []
     conn._create_connection = _connect(deadline, held)
     late = threading.Event()
+    if u.scheme == "https":
+        conn.connect = _tls(conn, u.hostname, held, late)
     cut = threading.Timer(seconds, _cut, (held, late))
     cut.daemon = True
     cut.start()

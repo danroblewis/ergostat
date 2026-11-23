@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import json
+import ssl
 import textwrap
 import threading
 import time
@@ -22,6 +23,7 @@ from ergostat import model as mdl
 from ergostat.datasources import prometheus
 from ergostat.store import Project
 from ergostat.web.server import Live, api
+from tests import tlscerts
 from tests.ports import free_port
 
 T = 1_795_400_400.0         # a multiple of 120
@@ -163,6 +165,38 @@ def test_a_source_that_is_slow_to_answer_is_cut_off_at_the_time_bound(p, monkeyp
     [r] = ask(p, {"source": "prom", "text": how})
     took = time.monotonic() - t0
     assert r["error_kind"] == "limit" and "source 'prom' did not answer within 1 s" in r["error"], r
+    assert took < 2.5, took                                               # (the stub would go on for 30 s)
+
+
+@pytest.fixture(scope="module")
+def certs(tmp_path_factory):
+    return tlscerts.make(tmp_path_factory.mktemp("tls"))
+
+
+@pytest.fixture(scope="module")
+def proms(certs):
+    """The stub Prometheus over https, its certificate a test CA's (``tests/tlscerts``)."""
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+    tls = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    tls.load_cert_chain(certs["server"], certs["server_key"])
+    srv.socket = tls.wrap_socket(srv.socket, server_side=True)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    yield f"https://127.0.0.1:{srv.server_address[1]}"
+    srv.shutdown()
+    srv.server_close()
+
+
+@pytest.mark.parametrize("how", ["stall", "trickle"])
+def test_an_https_source_that_trickles_is_cut_off_at_the_time_bound(tmp_path, proms, certs, monkeypatch, how):
+    monkeypatch.setattr(ssl, "_create_default_https_context", lambda: ssl.create_default_context(cafile=certs["ca"]))
+    p = project(tmp_path, f'proms: {{type: prometheus, url: "{proms}"}}')
+    [ok] = ask(p, {"source": "proms", "text": "up"})
+    assert "error" not in ok and len(ok["series"]) == 2, ok              # (the certificate is trusted: TLS is spoken)
+    monkeypatch.setattr(datasources, "MOST_SECONDS", 1.0)
+    t0 = time.monotonic()
+    [r] = ask(p, {"source": "proms", "text": how})
+    took = time.monotonic() - t0
+    assert r["error_kind"] == "limit" and "source 'proms' did not answer within 1 s" in r["error"], r
     assert took < 2.5, took                                               # (the stub would go on for 30 s)
 
 

@@ -147,3 +147,33 @@ sending. Fixed in the code. About 50 net lines more, so about 340 (budget 600).
 Run here, round 4, one file at a time: test_data_sources (16), test_query_engine (52), test_web_lanes (11) and
 test_web_access (26) all passed. test_data_source_panels (3) passed under the watchdog (rc 0, none skipped). ruff is
 clean. Not run here: the whole unit suite and the four browser files. `main` (28ad5c4a) is already merged in.
+
+### Round 5
+
+First, the factory's merge of main (8a27f9e3) conflicted in `ergostat/web/server.py`. Main added `pinned=` to `_answer`
+(dashboards answer every panel from one snapshot); the branch added `_query` just above it. Both are kept. Main's
+`dashboard_api` calls `_answer` only on its panels' paths (`series`, `items`, `loops`, ...), never `query`, so it gives an
+anonymous reader no way to a data source.
+
+The finding (blocking): the deadline did not hold for an https source. Round 4's record said the timer cuts "a TLS
+handshake". It did not. Wrapping the socket in TLS takes the plain socket's file over, so the socket the timer held had
+no file, and the cut did nothing. Fixed in the code. About 15 net lines more, so about 355 (budget 600).
+- `prometheus._tls` replaces `HTTPSConnection.connect` for an https source. It connects as before, then wraps the
+  socket with the handshake put off. It adds the TLS socket to the timer's handles, and only then does the handshake.
+  So the cut reaches the socket actually being read: during the handshake, a stalled header or a trickled body.
+- If the cut fires between the wrap and the hold, the check right after the hold sees it, and the query is refused with
+  `limit`.
+- Certificates are verified as before (the default context, with the host name checked).
+- SPEC §4e (*Data sources*) now names the TLS handshake and https in the time bound.
+- Test: `tests/test_data_sources.py::test_an_https_source_that_trickles_is_cut_off_at_the_time_bound` (`stall`,
+  `trickle`). It uses the stub over https, with a certificate from a test CA (`tests/tlscerts.make`, the openssl CLI).
+  The test trusts that CA by patching `ssl._create_default_https_context`. First an ordinary query must be answered, so
+  TLS is really spoken. Then, with the bound at 1 s, each case must be refused with `limit` within 2.5 s.
+- With `_tls` not installed, `trickle` failed (30.0 s, the stub's whole length) and `stall` passed (each read's timeout
+  catches it). This is the finding as reviewed. With `_tls` back, both passed.
+- Not tested: a handshake that trickles. No stub here sends a slow TLS handshake. A handshake that stalls is ended by
+  each read's timeout anyway. The cut covers a trickling one by the construction above, but no test shows it.
+
+Run here, round 5, one file at a time: test_data_sources (18), test_query_engine (52), test_web_lanes (11),
+test_web_access (26) and test_dashboards (32) all passed. test_data_source_panels (3) passed under the watchdog (rc 0,
+none skipped). ruff is clean. Not run here: the whole unit suite and the four browser files.

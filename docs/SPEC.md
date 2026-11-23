@@ -1260,8 +1260,9 @@ reads the event log.
   its address or credentials) over the request's window, one value per bucket, and answers in the same shape as the rest
   (`times`, `step`, `series`). It is bounded whatever the source's type: at most 4,000 characters of text, 50 series, 1,000
   points, a 400-day window and 10 s (less what the request has used); past one it is refused with `error` naming the bound
-  and `error_kind: limit`. The time bound is the whole request's: connecting, waiting for the answer and reading it,
-  however slowly the source sends (the connection is cut at the bound). Only looking up the source's host name is left
+  and `error_kind: limit`. The time bound is the whole request's: connecting, the TLS handshake of an `https` source,
+  waiting for the answer and reading it, over http or https, however slowly the source sends (the connection, or its
+  TLS socket, is cut at the bound). Only looking up the source's host name is left
   to the system's resolver, which ergostat cannot interrupt. An unreachable source is `error_kind: unreachable` (never with its address), a query the source
   refuses `refused` with the source's own words. It is asked again each time, nothing kept. `/api/query/fields` lists these
   sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
