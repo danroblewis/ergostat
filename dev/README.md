@@ -83,6 +83,20 @@ hold a slot (`[suites] slot`), the queue's lock being its own (the load interloc
 it reruns the failed tests in its own worktree, on the main the run failed on (`pre`), so neither its rerun nor its
 wait for a quiet machine holds the queue.
 
+**A usage-limit stop is a pause, not a failure** (`dev/bin/aihold.py`). A session whose result is the provider's
+usage-limit message ("You've hit your weekly limit · resets Nov 25, 3pm (UTC)"; or a failed session whose output holds
+it) records one factory-wide AI hold till the reset it names, in `run/ai_hold.json` (under its lock; a later hold is
+never shortened by an earlier one). Its run ends at once, its lease given back uncounted and put off till the reset: no
+attempt, nothing toward the kill rule, never parked or a dead letter. While the hold stands the goal `ai-not-held`
+(the sensor `aihold.py held`, in its own system `ai-hold`; a stale reading counts as held) shuts implement-, review-
+and research-when, and plan- and plan-review-when through `ai-stopped` (planning's one read of it and the budget), so no
+AI-role lease is taken, and every AI program that took one in the sensor's lag gives it back the same way
+(`fac.drain_holds`); the groomer and the plan review start no session. The merge queue, triage and the suites read
+neither and run on. At the reset the hold lifts by itself and the items given back are taken again in their blocks'
+order. A reset time that cannot be read (no time, an unknown zone, a date that does not exist, more than 8 days off),
+or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit again or
+not. A switch's drain nacks are uncounted too (`count: false`), whether a run gives its item back or the switcher does.
+
 ## Submit a gap
 
 A GAPS.md entry is taken in by itself (`gap.found`, open). It is **ready** once it has a definition of done:
@@ -205,6 +219,13 @@ lesson 13). If every failing test fails on main, the failure is not counted and 
 is given back with `waits_on_main`, the implementor skips it, and the intake releases it once main is another commit.
 At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
 failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
+
+Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) goes through `dev/bin/flakes.py`, which
+reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
+`main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
+adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
+the gaps and times said, `main_fixed_at`, `fixed_by` and `green_passes` removed). An item it cannot read is written as
+said, the failure on stderr.
 
 ## The backlog: ranked, groomed
 
@@ -517,7 +538,9 @@ pending push carries as stuck at once.
 its pages drew nothing). The first of them to fail is the one reported, and it stops the rest: a unit failure kills
 the browser run still going (and the other way round), which is recorded `stopped_by` it, its own result not judged.
 
-**Which tests run where.** With `[suites] queue_container`, ruff, unit, browser and demo run in containers, where
+**Which tests run where.** With `[suites] queue_container`, ruff, unit, browser and demo run in containers, each on a
+copy of the checkout (tarred into the container's stdin, never bind-mounted: Docker Desktop's file sharing keeps a
+handle open on every file read through a mount; `vm-open-files` in `dev/model/resources.yaml` watches that count), where
 bwrap cannot make its namespaces and there is no kqueue: `tests/test_repair2.py` and `tests/test_sandbox_attacks.py`
 (the AI repair sandbox's tests) and `tests/test_notify.py`'s kqueue test skip there. `[suites] host` runs those three
 files on the Mac, outside any container, after unit and browser and before demo, under the queue's lock: a required
@@ -580,9 +603,22 @@ found on that prefix, a run that never started) runs every suite instead. A fail
 (order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a
 killed run) are bisected with every suite, as before. A green on the named tests alone never lands anything: the
 merges before the failing one are merged again with those after it, and the lot lands only on a full green run of
-that very tree; the failing gap's `pre` is then main's head before them, so its triage runs it on main alone. Each
-failing merge costs at most `2 + 2 ceil(log2 m)` runs (the red run, the rerun on its tree, and each step, two when a
-named run cannot tell), most of them its failing tests rather than the suites. A
+that very tree; the failing gap's `pre` is then main's head before them, so its triage runs it on main alone. When
+the named tests fail alone on the red tree (or ruff failed), the bisect is made in **parallel rounds** instead of
+steps: the named tests (or ruff) run on every prefix of the batch at once (`dev/bin/prefixes.py`, each in a worktree
+and container of its own, `[suites] prefix_most` at a time). The first failing prefix's last merge is the failing one;
+it goes to triage (its stacked descendants given back with it), the others are merged again without it, and another
+round runs at once only if a later prefix failed a test the failing one did not (a second failing merge); then the
+full suites run once on the survivors: green lands them, red starts again. A prefix that cannot tell (unknown) is
+never a pass: that round goes back to the serial steps, from the prefixes that passed up to the first that failed.
+The allowance is checked before each round, and the prefixes a round passed land only on a full green run. Each run
+says `batch_rounds` and `prefix_runs` in its gaps' `suites_queue`. A test that fails only when two merges are both in
+blames the later one, as the serial steps do; a later merge failing the same test as the one found is caught by the
+full run. **Cost per failing merge:** in rounds, one round (minutes: a few tests on each prefix) and a share of the
+one full run on the survivors, so a batch of 8 with one failing merge is the red run, its tests on its tree, the
+check on main, one round and one full run; with k independent ones, k rounds and one full run. Serially, at most
+`2 + 2 ceil(log2 m)` runs (the red run, the rerun on its tree, and each step, two when a named run cannot tell), most
+of them its failing tests rather than the suites. A
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
 
@@ -647,7 +683,13 @@ included: it stops bisecting, the prefix a full green run proved lands, and the 
 (`cap` in `run/queue.json`, cleared by the first run that settles one), down to a batch of 1, which is one suite run.
 So, whatever the batch, the block's 3 hour timeout is reached only by a suite run begun inside the allowance that
 lasts past it (over 60 minutes at 120, 30 at 150); nothing here bounds a suite run that hangs. Each run's
-`queue_runs` entry says how many it `tried`, `landed` and `given_back`. `merges-per-hour` (gaps merged over the hours
+`queue_runs` entry says how many it `tried`, `landed` and `given_back`. Each pytest suite's result in `suites_queue`
+(`unit`, `browser`, `host`; never `ruff` or `demo`) has `counts: {passed, failed, skipped, deselected, errors}`, read
+from the last pytest summary line in its whole log (`fac.counts`), or `"unknown"` when it has none, was stopped by a
+failing sibling or could not be read; never zeros; `"not_run"` is kept for a suite not run by a rule, neither unknown
+nor zero (no such rule is on main yet; a suite turned off, as an empty `host`, has no entry at all). A landed run's
+`queue_runs` entry has `counts` summed over the pytest suites that ran in the green run main ends at, `suites` naming
+them, and `"unknown"` if any of them is. The browser's `skipped` field is unchanged. `merges-per-hour` (gaps merged over the hours
 of every queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
@@ -751,6 +793,9 @@ else its moves), unless it waits on main, its dependencies, a full pool or a hel
 `intervention_hours` (12), not the manager's own and not a record of a decision (`operator-decision`, `factory-tuning`,
 `factory: false`). With them (`dev/bin/manager.py`): the first gaps' history, reviews, sessions and log tails, the
 queue, main's commits, the open interventions, the flakes, the pipeline by state, the velocity record and the knowledge.
+While approved gaps wait and nothing merged for 20 minutes, it also carries what holds the merge queue: each lease the
+merge-queue block holds (item, run, taken, renewed, expires, the item's state, whether the run's process is alive, from
+the engine's run record) and queue-when's inputs read now (`queue_holder()`).
 It answers per trigger what it did or why it left it; a trigger it did not answer comes back in the next session.
 Situations of the earlier one-trigger watch (a `print`, no `prints`) count as looked at once handled or failed; one
 still `raised` is closed `superseded`, never run, and its trigger, if it still stands, goes to the next session. Each

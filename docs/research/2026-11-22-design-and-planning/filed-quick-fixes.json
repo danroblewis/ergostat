@@ -1,0 +1,576 @@
+[
+ {
+  "gap": "gap/ui-each-closed-system-box-says-what-the-system-is",
+  "q": "Q01",
+  "title": "Each closed system box says what the system is",
+  "pages": "/diagram (Dynamics, top level and any level with closed systems)",
+  "change": "Under the box name print the system's description ('textkit and its customers'). Remove 'N feedback loops inside' from the box; keep the count in the system's panel."
+ },
+ {
+  "gap": "gap/ui-a-caption-names-the-diagram-the-model-s-purpose",
+  "q": "Q02",
+  "title": "A caption names the diagram, the model's purpose and the verdict",
+  "pages": "/diagram (all views)",
+  "change": "One line under the view switch, which is the page's h1 and the SVG's accessible name: 'Stock-and-flow diagram (system dynamics) \u00b7 the-job: <purpose> \u00b7 2 systems \u00b7 28 goals, 2 off' and 'Block diagram (control) \u00b7 \u2026 \u00b7 16 control loops, 2 off'."
+ },
+ {
+  "gap": "gap/ui-the-view-switch-says-what-each-view-shows",
+  "q": "Q03",
+  "title": "The view switch says what each view shows",
+  "pages": "/diagram toolbar",
+  "change": "Visible labels: 'Dynamics \u00b7 what is', 'Blocks \u00b7 what is controlled', 'Process \u00b7 what happened'. Keep the hover titles. At 390 px the second half may wrap under the first."
+ },
+ {
+  "gap": "gap/ui-no-leftover-in-a-panel",
+  "q": "Q04",
+  "title": "No leftover '\u2026' in a panel",
+  "pages": "/diagram side panel (system panel, stock panel, loop panel)",
+  "change": "Show the description, or nothing. While a value is being worked out say 'being worked out'; when it cannot be, say why ('no loop is dominant in this window')."
+ },
+ {
+  "gap": "gap/ui-the-navigation-shows-every-page-at-phone-width-a",
+  "q": "Q05",
+  "title": "The navigation shows every page at phone width and at 200% zoom",
+  "pages": "all pages, header",
+  "change": "Below 760 px wrap the tabs onto two rows (no sideways scroll). Keep the current page underlined."
+ },
+ {
+  "gap": "gap/ui-guide-s-last-frame-uses-the-theme-s-box-fill-and",
+  "q": "Q06",
+  "title": "Guide's last frame uses the theme's box fill, and says it is loading",
+  "pages": "/guide?frame=12",
+  "change": "Draw the thumbnail with the page's theme tokens (the same fill as the live diagram). Until both thumbnails have rendered show 'Drawing your system\u2026' on the stage."
+ },
+ {
+  "gap": "gap/ui-guide-frames-stack-their-two-diagrams-on-a-narro",
+  "q": "Q07",
+  "title": "Guide frames stack their two diagrams on a narrow screen",
+  "pages": "/guide (frames 2 and 13)",
+  "change": "Below 760 px place the two diagrams one above the other at full width."
+ },
+ {
+  "gap": "gap/ui-guide-sections-and-step-dots-are-links",
+  "q": "Q08",
+  "title": "Guide sections and step dots are links",
+  "pages": "/guide",
+  "change": "Section names jump to their first frame. Dots get a 24 px hit area, aria-label 'Step n of 13' and aria-current='step'."
+ },
+ {
+  "gap": "gap/ui-an-unknown-address-gives-a-page-with-the-navigat",
+  "q": "Q09",
+  "title": "An unknown address gives a page with the navigation",
+  "pages": "any unknown path, /item/<unknown>",
+  "change": "Serve unknown paths inside the normal page frame: 'Nothing at this address', with a link to the Diagram. An unknown item stops polling after its first answer."
+ },
+ {
+  "gap": "gap/ui-a-view-with-nothing-to-draw-says-so-on-the-canva",
+  "q": "Q10",
+  "title": "A view with nothing to draw says so on the canvas",
+  "pages": "/diagram?view=process (big); /diagram top level of big",
+  "change": "Centre the empty-state text in the canvas at every width, with the reason and where to look instead ('No kinds of item in big: its parts are counted by sensors. See Dynamics.'). Draw the 'No flows at this level' line under the boxes."
+ },
+ {
+  "gap": "gap/ui-open-into-and-every-panel-link-show-that-somethi",
+  "q": "Q11",
+  "title": "Open, Into and every panel link show that something is happening",
+  "pages": "/diagram (Open, Into, links that open a panel), /loops, /items",
+  "change": "Keep the old diagram, dimmed, until the new one is ready, and draw 'Opening api\u2026' on the canvas at once. Never blank the side list. A panel opening shows its title and 'Loading\u2026'. Loops and Items show 'Loading\u2026' under the heading."
+ },
+ {
+  "gap": "gap/ui-no-command-yaml-line-or-spec-section-on-the-read",
+  "q": "Q12",
+  "title": "No command, YAML line or SPEC section on the reader's pages",
+  "pages": "/diagram side panel, /loops, /agents, /items, loop and controller panels",
+  "change": "Replace each with what the reader can see or do: the waiting acts are listed in the row itself; 'These items do not wait on one another, so there is no critical path'; drop the SPEC references; the Harris row says what is missing ('needs the loop's dead time'). Absolute log paths in an agent's panel shorten to the file name."
+ },
+ {
+  "gap": "gap/ui-modelling-is-drawn-last-set-apart-and-labelled",
+  "q": "Q13",
+  "title": "modelling is drawn last, set apart and labelled",
+  "pages": "/diagram top level (Dynamics and Blocks)",
+  "change": "Lay modelling out last (bottom right), with a dashed outline and the line 'ergostat's upkeep of this model, not the system'. Same place in Blocks, below a thin rule."
+ },
+ {
+  "gap": "gap/ui-the-headline-counts-the-system-s-goals-and-the-m",
+  "q": "Q14",
+  "title": "The headline counts the system's goals, and the model's upkeep apart",
+  "pages": "header on all pages; project switcher",
+  "change": "Header reads '0 goals off \u00b7 model upkeep 2' (the second part in the muted colour, not red). The switcher uses the same definition, and states unknown goals separately ('7 off, 1 unknown') instead of adding them."
+ },
+ {
+  "gap": "gap/ui-a-system-alone-at-its-level-opens-whatever-model",
+  "q": "Q15",
+  "title": "A system alone at its level opens, whatever modelling does",
+  "pages": "/diagram top level (the-job)",
+  "change": "When the level holds one system besides modelling, start with that system open."
+ },
+ {
+  "gap": "gap/ui-every-name-in-a-list-carries-its-system",
+  "q": "Q16",
+  "title": "Every name in a list carries its system",
+  "pages": "/loops, /diagram side list and Suggestions, request item pages",
+  "change": "Group the Loops rows under system headings (modelling last, collapsed). In the side list and Suggestions write 'modelling \u00b7 requests-handled'. Inside a system's own view use the short name ('q0', not 'api-q0'). On a request's item page 'about: stock.api-q0' is a link to that part on the diagram."
+ },
+ {
+  "gap": "gap/ui-the-headline-count-is-a-link-to-the-goals-it-cou",
+  "q": "Q17",
+  "title": "The headline count is a link to the goals it counts",
+  "pages": "header on all pages; /loops",
+  "change": "Make it a link to /loops?status=off, which shows only those goals and says so with a 'show all' link."
+ },
+ {
+  "gap": "gap/ui-a-goal-s-behaviour-label-does-not-flip-between-r",
+  "q": "Q18",
+  "title": "A goal's behaviour label does not flip between reloads, and flapping has a name",
+  "pages": "/loops, loop detail",
+  "change": "Apply hysteresis to the behaviour class (it changes only after the new class has held for a set share of the window). Write '<1%', never '0%', for a non-zero share. When crossings pass a threshold the label is 'flapping (23 crossings in 32m)'. Show one share in the row ('time off'), and define 'past its bound' beside it in the detail."
+ },
+ {
+  "gap": "gap/ui-the-window-in-the-header-never-claims-more-than",
+  "q": "Q19",
+  "title": "The window in the header never claims more than the record",
+  "pages": "header window menu; /loops footnote; charts",
+  "change": "When the record is shorter than the window the header reads 'Last 1h (33m recorded)', and every 'of the time' figure says 'of the 33m recorded'."
+ },
+ {
+  "gap": "gap/ui-one-rate-per-flow-with-its-window-the-same-in-th",
+  "q": "Q20",
+  "title": "One rate per flow, with its window, the same in three places",
+  "pages": "/diagram Dynamics labels; stock and flow panels",
+  "change": "The flow's figure is its mean over the header's window, shown identically on the diagram, in the chart heading and in the table, with a suffix ('13.2 users/min, mean of 33m'). If the latest value is also shown it is on its own row labelled 'now (last 15 s)'."
+ },
+ {
+  "gap": "gap/ui-rates-in-one-system-share-one-time-base-and-no-v",
+  "q": "Q21",
+  "title": "Rates in one system share one time base, and no value prints a bare '1'",
+  "pages": "/diagram Dynamics; stock and flow panels; loop panel",
+  "change": "Choose one time unit per system (the one that suits its median rate) and use it for every rate drawn or listed for that system. Hide the unit '1'; the u axis prints its unit ('1 run')."
+ },
+ {
+  "gap": "gap/ui-a-system-s-loop-count-is-the-same-on-its-box-in",
+  "q": "Q22",
+  "title": "A system's loop count is the same on its box, in its panel and in its parent",
+  "pages": "/diagram Dynamics: system boxes, system panel, 'Feedback loops' list",
+  "change": "One definition everywhere: a system's count is the loops with at least one part inside it. The panel prints it once ('18 feedback loops: 5 through other systems'). A parent's count is the de-duplicated union, with '13 cross systems' when the parts' counts sum to more. R + B always equals the total (unsigned loops counted as '? n')."
+ },
+ {
+  "gap": "gap/ui-a-goal-s-bound-is-written-the-same-way-everywher",
+  "q": "Q23",
+  "title": "A goal's bound is written the same way everywhere",
+  "pages": "/diagram side list (Dynamics), stock panel, /loops",
+  "change": "Build every mention from the goal's own bound text: 'desired users \u2265 180', 'desired quality 0.93 \u00b10.01', 'desired unanswered-requests \u2264 0: 37 over'. The magnitude is positive with a word for the direction ('over', 'short'); the signed e stays in Blocks and the scope."
+ },
+ {
+  "gap": "gap/ui-a-stock-s-panel-never-says-nothing-acts-on-a-goa",
+  "q": "Q24",
+  "title": "A stock's panel never says nothing acts on a goal that has an actor",
+  "pages": "stock panel (Dynamics)",
+  "change": "The 'Desired level' row names the goal and what serves it ('goal users-growing, served by product-manager in factory'). Say 'nothing acts on its gap' only when the goal has no controller anywhere."
+ },
+ {
+  "gap": "gap/ui-each-polarity-sign-sits-on-its-own-arrow-and-eve",
+  "q": "Q25",
+  "title": "Each polarity sign sits on its own arrow, and every top-level link has one",
+  "pages": "/diagram Dynamics, links between systems",
+  "change": "Place each sign beside its own arrowhead, offset along that link, at 13 px or more, never within 10 px of another sign. Give every drawn link a sign or a '?'. Draw driven-by links dashed."
+ },
+ {
+  "gap": "gap/ui-every-goal-name-is-a-link-to-its-evidence-and-th",
+  "q": "Q26",
+  "title": "Every goal name is a link to its evidence, and the part is marked",
+  "pages": "/diagram side list and Suggestions; /loops",
+  "change": "Every goal name is a button that opens the same evidence panel 'Evidence' opens, and rings the goal's stock (Dynamics) or its summing junction (Blocks), opening the system that holds it if needed. On Loops the name is a button."
+ },
+ {
+  "gap": "gap/ui-a-system-box-that-holds-an-off-goal-says-so-with",
+  "q": "Q27",
+  "title": "A system box that holds an off goal says so, without colour alone",
+  "pages": "/diagram, closed and open system boxes, Dynamics and Blocks",
+  "change": "In the box's title row print '1 off' (the word, in the alarm colour) and draw the outline heavier. In Blocks print 'off: 1 of 4' as text under the block name; lines stay monochrome."
+ },
+ {
+  "gap": "gap/ui-the-evidence-says-in-one-line-whether-the-actor",
+  "q": "Q28",
+  "title": "The evidence says in one line whether the actor was commanded, ran and moved anything",
+  "pages": "goal evidence panel; /agents rows of rules",
+  "change": "Build the actor lines from the same counts Agents and the Record use: 'fixer: commanded 34 times, ran 34, moved nothing (its log: no open request the rule tier answers)'. Show 'Moves' only for what this goal's own valve moved. When it moved nothing the suggestion says 'acts but moves nothing', not 'more per run'. Give each keep-* rule its controller role on Agents. Drop 'unfilled' when a reading e"
+ },
+ {
+  "gap": "gap/ui-the-evidence-gives-how-long-the-goal-has-been-of",
+  "q": "Q29",
+  "title": "The evidence gives how long the goal has been off against how long it usually takes",
+  "pages": "goal evidence panel; /loops 'back in' column",
+  "change": "First line under the status: 'Off for 1m10s \u00b7 usually back in 30s (slowest 41s, 4 times)', with 'longer than usual' when it is. 'back in' while off reads 'expected about 04:12'. Replace 'no one process' with its consequence: 'no single process to predict recovery from; using its past recoveries'."
+ },
+ {
+  "gap": "gap/ui-a-goal-a-person-serves-links-to-that-person-s-wa",
+  "q": "Q30",
+  "title": "A goal a person serves links to that person's waiting ask; a goal an agent serves links to its items",
+  "pages": "goal evidence panel",
+  "change": "Under the actor: 'Waiting on: person/run-commands@2066, asked 6m ago' (a link to that entry) or 'no one has been asked'. For an agent: 'holding: ticket/SCRUM-7 (leased 03:26, 40s left)' as links."
+ },
+ {
+  "gap": "gap/ui-from-a-crossing-to-the-record-narrowed-to-that-g",
+  "q": "Q31",
+  "title": "From a crossing to the Record, narrowed to that goal and time",
+  "pages": "goal evidence panel; /record",
+  "change": "Each crossing row links to /record?about=<goal>&from=\u2026&to=\u2026, which shows events of the goal, its controller, its actor and its valve. The filter box also matches item and source. The filter and the window live in the address."
+ },
+ {
+  "gap": "gap/ui-a-filter-that-matches-nothing-says-so-with-a-way",
+  "q": "Q32",
+  "title": "A filter that matches nothing says so, with a way to clear it",
+  "pages": "/record, /items",
+  "change": "Record: 'Nothing matches \"x\" \u00b7 clear'. Items: print the match count or 'nothing matches' beside the search box, and hide kinds (with their charts) that have no match while a search is active."
+ },
+ {
+  "gap": "gap/ui-the-record-folds-runs-of-identical-events",
+  "q": "Q33",
+  "title": "The Record folds runs of identical events",
+  "pages": "/record",
+  "change": "Consecutive events with the same type, source, item and data become one row with '\u00d7N' and the first and last time; clicking it lists them."
+ },
+ {
+  "gap": "gap/ui-one-time-format-everywhere-with-the-date-and-the",
+  "q": "Q34",
+  "title": "One time format everywhere, with the date and the zone",
+  "pages": "/record, loop panel crossings, /items, /item/\u2026, request pages",
+  "change": "One formatter: '2026-11-22 04:03:55 PST' (the zone's short name; the date dropped only inside a table whose caption gives it). Format every *_at, raised, since and started field with it. Print event data unrounded."
+ },
+ {
+  "gap": "gap/ui-doubt-about-a-stock-is-drawn-on-the-stock",
+  "q": "Q35",
+  "title": "Doubt about a stock is drawn on the stock",
+  "pages": "/diagram Dynamics; side list",
+  "change": "Show the mark in the diagram's own idiom: a dashed outline on the stock and, under its value, '\u22121 ticket unexplained in 44m'. Add one line to 'How to read it'. Move the side-list line to the model-housekeeping group, written '\u0394 stock = in \u2212 out + residual' with unit and window."
+ },
+ {
+  "gap": "gap/ui-the-address-holds-what-is-selected-and-the-windo",
+  "q": "Q36",
+  "title": "The address holds what is selected and the window",
+  "pages": "/loops, /diagram, /record, /items",
+  "change": "Write ?select=, ?window= (and ?filter= on Record) with replaceState and read them on load. Changing the window keeps the panel open and shows 'Loading\u2026' in the table."
+ },
+ {
+  "gap": "gap/ui-agents-a-group-heading-counts-its-rows",
+  "q": "Q37",
+  "title": "Agents: a group heading counts its rows",
+  "pages": "/agents",
+  "change": "Headings read 'person \u00b7 2', 'ai \u00b7 4' with the rung as small text ('rung 0, the most general'). The summary chips drop the arrows or say 'most general \u2192 most specific' once."
+ },
+ {
+  "gap": "gap/ui-agents-each-row-says-how-it-is-engaged-and-which",
+  "q": "Q38",
+  "title": "Agents: each row says how it is engaged and which goal it serves",
+  "pages": "/agents; agent panel",
+  "change": "'runs when' reads 'on demand, per item (leased)' when blank. The panel line becomes 'started per item by its lease, not on a schedule'. Roles read 'valve work \u2192 goal located-worked'. The run tally reads '28 runs: 9 done, 19 refused (workspace pool full), 0 failed'."
+ },
+ {
+  "gap": "gap/ui-an-agent-s-recent-runs-name-the-item-the-outcome",
+  "q": "Q39",
+  "title": "An agent's recent runs name the item, the outcome and what it asked to do outside",
+  "pages": "agent panel 'Recent runs'; /items Actions table; item 'Gated actions'",
+  "change": "Columns: when, item (link), outcome (done or refused, with why), outward actions asked (links), cost. Move CPU and memory behind a 'resources' disclosure so the table fits. Fill 'by' with the block that asked and 'approved by' with who answered ('owner (offline stand-in)')."
+ },
+ {
+  "gap": "gap/ui-cost-is-stated-with-its-unit-or-the-page-says-wh",
+  "q": "Q40",
+  "title": "Cost is stated, with its unit, or the page says why it is zero",
+  "pages": "/agents; agent panel; item header",
+  "change": "A cost cell for an agent on a stand-in reads 'free stand-in, $0'. Add a total row for the window. The item header shows 'cost $0 (stand-in)' as the sum of its sessions. Hide a column that is empty for every row."
+ },
+ {
+  "gap": "gap/ui-an-agent-that-never-ran-is-behind-schedule-or-la",
+  "q": "Q41",
+  "title": "An agent that never ran, is behind schedule or last failed stands out",
+  "pages": "/agents",
+  "change": "Mark such rows with a word in the alarm colour ('never ran', 'behind: 10 of ~120', 'last run failed') and a one-line reason under the row. The top line counts them ('2 behind schedule'). The list and the panel take their run count from one source."
+ },
+ {
+  "gap": "gap/ui-needs-attention-is-three-headed-groups-in-a-fixe",
+  "q": "Q42",
+  "title": "Needs attention is three headed groups in a fixed order",
+  "pages": "/diagram side list",
+  "change": "Three headings, always in this order, each with its count: 'Waiting for you 3', 'Goals off 2' (the system's first, modelling's after a rule), 'Model housekeeping 25' (collapsed). Each entry starts with its state word ('off \u00b7', 'unknown \u00b7') so colour is not the only cue. The count in the header equals the 'Goals off' group."
+ },
+ {
+  "gap": "gap/ui-what-waits-for-me-is-one-step-from-every-page-an",
+  "q": "Q43",
+  "title": "What waits for me is one step from every page, and first on a phone",
+  "pages": "header on all pages; /loops at 390 px",
+  "change": "Beside the goals count the header shows 'N wait for you', a link to /diagram#waiting, which scrolls to and focuses the 'Waiting for you' group. At phone width it is the first thing in the header."
+ },
+ {
+  "gap": "gap/ui-a-request-reads-as-a-sentence-what-will-happen-t",
+  "q": "Q44",
+  "title": "A request reads as a sentence: what will happen, to what, who asks and why",
+  "pages": "/diagram side list; action and request item pages",
+  "change": "First line from fields the entry already has: '{description} {target}, for {item}, asked by {block} because {why}', for example 'Move SCRUM-7 to Done in Jira, for ticket/SCRUM-7, asked by close'. Person asks print in full (a <details> for anything past three lines). The exact command sits in a collapsed <details>. A modelling request reads 'api-q0 has no unit: modelling cannot decide one. Deny tel"
+ },
+ {
+  "gap": "gap/ui-a-number-or-reason-asked-of-a-person-has-a-full",
+  "q": "Q45",
+  "title": "A number or reason asked of a person has a full label and a unit",
+  "pages": "/diagram side list inputs",
+  "change": "A visible label above each input, from the ask: 'Ramps you decided (number)', 'Reason for denying (required)'. Inputs take the row's width. An ask whose answer is yes or no gets two buttons, not a number box."
+ },
+ {
+  "gap": "gap/ui-the-vocabulary-rewrite-never-touches-an-identifi",
+  "q": "Q46",
+  "title": "The vocabulary rewrite never touches an identifier",
+  "pages": "/diagram side list (Dynamics wording)",
+  "change": "Translate only the sentence's own words, never codes, ids or part names (render them as separate tokens). The tier named comes from the request, not the view."
+ },
+ {
+  "gap": "gap/ui-the-list-holds-still-while-i-am-in-it-and-a-requ",
+  "q": "Q47",
+  "title": "The list holds still while I am in it, and a request stays until it is answered",
+  "pages": "/diagram side list; /agents table",
+  "change": "While the pointer or focus is inside the side list (or the Agents table) do not reorder or remove rows; show '3 updates waiting' at its top and apply them on leave. A request stays in place until answered or withdrawn, and then says so in its row."
+ },
+ {
+  "gap": "gap/ui-approve-and-deny-say-what-they-answer-in-an-orde",
+  "q": "Q48",
+  "title": "Approve and Deny say what they answer, in an order the keyboard can use",
+  "pages": "/diagram side list",
+  "change": "Buttons carry their object in the accessible name and, where it fits, visibly ('Approve the push', 'Deny the push'). Order in the row: sentence, reason field, Approve, Deny, with equal weight. Deny is disabled until a required reason is typed."
+ },
+ {
+  "gap": "gap/ui-after-i-answer-the-row-says-what-was-done-and-by",
+  "q": "Q49",
+  "title": "After I answer, the row says what was done and by whom, and the item shows it",
+  "pages": "/diagram side list; /item/\u2026 'Gated actions'",
+  "change": "The answered row is replaced in place by 'Denied by you at 04:02, reason: \u2026 \u00b7 see ticket/SCRUM-2' and stays until the next visit. The item's Gated actions line reads 'jira-transition: approved by owner (offline stand-in) 03:24, ran 03:24' or 'denied by \u2026 : reason'."
+ },
+ {
+  "gap": "gap/ui-requests-that-are-alike-fold-into-one-with-a-cou",
+  "q": "Q50",
+  "title": "Requests that are alike fold into one, with a count and one answer",
+  "pages": "/diagram side list; /items 'Modelling requests'",
+  "change": "Group by (code, asker): one <details> row '24 stocks have no unit (api, billing, build, data, support, web) \u00b7 Deny all', whose body lists the members, each with its own control. /model's 'Changes to review' counts the same held requests."
+ },
+ {
+  "gap": "gap/ui-per-class-of-action-asked-approved-denied-and-wh",
+  "q": "Q51",
+  "title": "Per class of action: asked, approved, denied, and whether it is held",
+  "pages": "/items \u203a oversight \u203a Actions",
+  "change": "Above the Actions rows, one line per class: 'jira-transition: 24 asked, 24 approved (by the offline stand-in), 0 denied this week \u00b7 held for approval'. The search matches class and command."
+ },
+ {
+  "gap": "gap/ui-the-items-table-fits-at-1440-px",
+  "q": "Q52",
+  "title": "The Items table fits at 1440 px",
+  "pages": "/items",
+  "change": "Show pr_url as a short link ('PR #7'). If columns still overflow, wrap the row's secondary fields onto a second line. At phone width keep id, state and time in state."
+ },
+ {
+  "gap": "gap/ui-an-item-s-header-and-its-latest-change-read-as-w",
+  "q": "Q53",
+  "title": "An item's header and its latest change read as words",
+  "pages": "/item/\u2026; /items 'latest' column",
+  "change": "Header is one sentence: 'done for 28m \u00b7 held by nobody \u00b7 cost $0 (stand-in) \u00b7 15 outward actions'. 'Latest' is the last change of state in words ('waiting for review, 3m'). The header's state is read at the same moment as the rest of the page."
+ },
+ {
+  "gap": "gap/ui-an-item-s-history-shows-its-states-not-its-lease",
+  "q": "Q54",
+  "title": "An item's history shows its states, not its leases",
+  "pages": "/item/\u2026 'How it moved', Lease table",
+  "change": "'How it moved' lists changes of state only, with who or what made each in a 'by' column (from the lease). The Lease table is a collapsed <details> 'Attempts (26)'; '(not counted)' is explained once in its caption."
+ },
+ {
+  "gap": "gap/ui-the-lifecycle-strip-shows-the-path-taken-and-doe",
+  "q": "Q55",
+  "title": "The lifecycle strip shows the path taken, and does not draw alternatives as next steps",
+  "pages": "/item/\u2026",
+  "change": "Draw the states this item passed through, joined by arrows, ending at its present state. Other endings sit apart with no arrow ('could also have ended: stopped, dead'), in muted text of at least 4.5:1. Final states carry a mark (a double border)."
+ },
+ {
+  "gap": "gap/ui-every-band-of-the-state-chart-is-labelled-in-lig",
+  "q": "Q56",
+  "title": "Every band of the state chart is labelled, in light and in dark",
+  "pages": "/items (state chart per kind)",
+  "change": "Label each non-empty band at its right edge with its state and count ('done 6'). Fold states that are zero over the whole window into '+9 empty states'. Finished states take an outlined or hatched fill instead of a darker grey. Keep the same lightness order against the background in both themes. Give the chart an aria-label summarising the counts."
+ },
+ {
+  "gap": "gap/ui-from-items-to-the-process-map-and-the-map-says-h",
+  "q": "Q57",
+  "title": "From Items to the process map, and the map says how many are there now",
+  "pages": "/items; /diagram?view=process (States)",
+  "change": "Each kind's name on Items has a 'process map' link to /diagram?view=process&kind=<kind>&mode=states. In States mode each node shows 'now 3' before the visit count. The map fits at no less than 11 px text and says which way more lies."
+ },
+ {
+  "gap": "gap/ui-an-item-says-where-it-is-counted-in-the-model-wi",
+  "q": "Q58",
+  "title": "An item says where it is counted in the model, with a link back",
+  "pages": "/item/\u2026",
+  "change": "In the header: 'counted in: done (factory \u203a shipping)', a link to /diagram?view=dynamics&system=factory&open=shipping&select=stock/done."
+ },
+ {
+  "gap": "gap/ui-timeline-draws-each-item-s-states-over-time-rela",
+  "q": "Q59",
+  "title": "Timeline draws each item's states over time, relations or not",
+  "pages": "/items Timeline and Graph",
+  "change": "Without relations, Timeline draws one bar per item, split by state over time. Graph says 'These items do not wait on one another, so there is no dependency graph'. In both modes the mode's own content comes first, above the per-kind charts."
+ },
+ {
+  "gap": "gap/ui-the-finish-estimate-is-a-clock-time-that-agrees",
+  "q": "Q60",
+  "title": "The finish estimate is a clock time that agrees with the critical path",
+  "pages": "/items Graph and Timeline (roadmap)",
+  "change": "One sentence, present on first paint (or 'being worked out'): 'last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)', not earlier than the critical path's end. The Timeline opens scrolled to 'now' with finished epics collapsed."
+ },
+ {
+  "gap": "gap/ui-each-kind-of-item-says-what-it-is-and-whether-it",
+  "q": "Q61",
+  "title": "Each kind of item says what it is, and whether its items finish or live on",
+  "pages": "/items; /item/\u2026",
+  "change": "Under each kind name: its one-line meaning and a tag, 'finishes (kept, dropped)' or 'lives on'. Built-in kinds get a plain name with one casing. 'Send a note' shows only on an item that is held or waiting, and sits below the header and history."
+ },
+ {
+  "gap": "gap/ui-in-dynamics-a-goal-is-called-a-goal-loop-means-a",
+  "q": "Q62",
+  "title": "In Dynamics a goal is called a goal; 'loop' means an R or B loop",
+  "pages": "/diagram side list and Suggestions in Dynamics",
+  "change": "In Dynamics write 'goal requests-handled' and 'what serves it'. Keep 'Feedback loops' for R and B. In Blocks write 'control loop'. Where an R or B loop closes a goal, its row says 'serves goal model-fits'."
+ },
+ {
+  "gap": "gap/ui-what-i-selected-stays-selected-with-its-panel-wh",
+  "q": "Q63",
+  "title": "What I selected stays selected, with its panel, when I switch view",
+  "pages": "/diagram (Dynamics \u2194 Blocks)",
+  "change": "Keep the panel open across the switch, titled in the target discipline's words: 'output y_quality of P_service', 'actuating signal u_tuner', 'reference r = 0.93 and its summing junction'. Map a stock to y at the process output. A plain click on a flow's label opens the flow's panel."
+ },
+ {
+  "gap": "gap/ui-a-loop-is-called-r-or-b-only-when-every-link-has",
+  "q": "Q64",
+  "title": "A loop is called R or B only when every link has a sign",
+  "pages": "/diagram Dynamics markers; loop panel",
+  "change": "Fill the signs that hold by definition (inflow \u2192 stock +, outflow \u2192 stock \u2212, stock \u2192 its gap +, desired \u2192 gap \u2212). If any link is still unsigned the marker reads '?' and the panel says which link. One sign per link across panels. Plain names, all links. '+1' becomes '2 alike' with a title naming the other loop."
+ },
+ {
+  "gap": "gap/ui-every-block-carries-a-function-with-the-agent-s",
+  "q": "Q65",
+  "title": "Every block carries a function, with the agent's name as its caption",
+  "pages": "/diagram Blocks",
+  "change": "Main label is the function: the known law ('u = max(0, y \u2212 r/2)'), 'f(\u00b7), law not stated' for an unknown one, 'H = 1, every 3 s' for a counting sensor. The agent's name and kind go in small text above the block, where the kind badge is."
+ },
+ {
+  "gap": "gap/ui-a-one-sided-limit-is-drawn-and-named-as-a-limit",
+  "q": "Q66",
+  "title": "A one-sided limit is drawn and named as a limit",
+  "pages": "/diagram Blocks; controller panel; /loops",
+  "change": "Label the reference 'r \u2264 0' and call it a limit in the panel and on Loops ('limit \u2264 20', 'setpoint 0.93 \u00b10.01'). The relay panel says 'ideal relay' unless it has a band, and the drawn glyph matches."
+ },
+ {
+  "gap": "gap/ui-sensors-polled-alike-are-drawn-alike",
+  "q": "Q67",
+  "title": "Sensors polled alike are drawn alike",
+  "pages": "/diagram Blocks",
+  "change": "Draw every polled sensor with a sampler and its period; draw the sampler in the muted stroke when T is negligible against the loop's time constant and print the ratio in the sensor's panel."
+ },
+ {
+  "gap": "gap/ui-the-blocks-legend-defines-every-symbol-and-a-nam",
+  "q": "Q68",
+  "title": "The Blocks legend defines every symbol, and a name is printed once",
+  "pages": "/diagram Blocks 'How to read it'; subsystem blocks",
+  "change": "The legend adds the subsystem symbol in use and 'p\u00d7m: outputs \u00d7 inputs (disturbances counted)'. One typeface for the letter at every level. Drop the repeated plain name beside the symbol."
+ },
+ {
+  "gap": "gap/ui-a-loop-s-panel-starts-with-a-table-law-process-h",
+  "q": "Q69",
+  "title": "A loop's panel starts with a table: law, process, held-out fit, performance",
+  "pages": "controller and process panels (Blocks)",
+  "change": "First: a table of law / process model with \u00b1\u03c3 (or 'not identified: needs a step of u') / fit on held-out data ('NRMSE fit, 100% is perfect, below 0 is worse than the mean') for estimation and validation / time off / settling / saturation. Then the charts, then prose, with the step-test paragraph behind 'how it is sized'. Only this loop's text. The matrix scrolls sideways inside the panel; each <ma"
+ },
+ {
+  "gap": "gap/ui-the-exported-picture-is-fit-for-a-document",
+  "q": "Q70",
+  "title": "The exported picture is fit for a document",
+  "pages": "/diagram Export (PNG, SVG)",
+  "change": "Rasterise from the same SVG the page shows (halos as paint-order strokes, fonts embedded), in light mode whatever the theme. Include title, date, window and the legend in both views."
+ },
+ {
+  "gap": "gap/ui-open-frames-what-was-opened-fit-includes-every-w",
+  "q": "Q71",
+  "title": "Open frames what was opened, Fit includes every wire, and the edge hint says which way",
+  "pages": "/diagram (Open, Into, Fit)",
+  "change": "After Open or Into, pan and zoom so the opened system's bounds are in view (at no less than the minimum text size). Fit uses the bounds of every node, wire and label. The hint reads 'more to the right / below' and is clickable to pan there. Keep the toolbar off the drawing's bounds."
+ },
+ {
+  "gap": "gap/ui-on-a-phone-each-goal-is-a-card-value-against-bou",
+  "q": "Q72",
+  "title": "On a phone each goal is a card: value against bound, and how long off",
+  "pages": "/loops at \u2264 760 px",
+  "change": "Below 760 px each row is a two-line card: 'requests-handled \u00b7 off' then '36 against \u2264 0 \u00b7 off 36m \u00b7 usually back in 30s'. Off goals first. No sideways scroll."
+ },
+ {
+  "gap": "gap/ui-on-a-phone-the-diagram-opens-fitted-to-the-scree",
+  "q": "Q73",
+  "title": "On a phone the diagram opens fitted to the screen",
+  "pages": "/diagram at 390 px",
+  "change": "On load and on every change of view at narrow width, fit the drawing to the canvas (down to the minimum text size, then centred on the first off part with a direction hint)."
+ },
+ {
+  "gap": "gap/ui-everything-clickable-in-the-diagram-can-be-reach",
+  "q": "Q74",
+  "title": "Everything clickable in the diagram can be reached and acted on by keyboard",
+  "pages": "/diagram (all views); side panel 'Feedback loops' rows",
+  "change": "Give each system box's Open and Into, each stock, flow, block and loop marker tabindex=0, role=button and an aria-label ('stock api-q0, 13, desired \u2264 20, holding'); Enter and Space do what a click does. Side-panel loop rows become buttons. Opening a panel moves focus to its heading; Escape returns focus to the part."
+ },
+ {
+  "gap": "gap/ui-the-current-page-view-and-mode-are-announced-tab",
+  "q": "Q75",
+  "title": "The current page, view and mode are announced; tables and controls have names",
+  "pages": "all pages",
+  "change": "aria-current='page' on the nav; aria-pressed on Dynamics/Blocks/Process and on Items' List/Graph/Timeline; <thead>, scope and a caption on each data table; aria-hidden on glyphs; aria-labels 'Zoom out', 'Zoom in', 'More diagram options', 'Sort by author'; row name added to repeated links; side panel as <aside aria-label>; 24 px hit areas on Evidence links, legend links and the Record checkbox."
+ },
+ {
+  "gap": "gap/ui-off-in-a-chart-is-a-mark-as-well-as-a-colour",
+  "q": "Q76",
+  "title": "'Off' in a chart is a mark as well as a colour",
+  "pages": "loop evidence scope charts; /item lifecycle; /agents tier arrows",
+  "change": "Hatch the off bands and label them 'off' on the time axis; the key is a hatched swatch labelled 'off'. Raise arrows and Guide dot borders to at least 3:1."
+ },
+ {
+  "gap": "gap/ui-new-requests-and-a-changed-count-are-announced",
+  "q": "Q77",
+  "title": "New requests and a changed count are announced",
+  "pages": "/diagram side list; header counts",
+  "change": "The header counts and the 'Waiting for you' heading sit in an aria-live='polite' region that announces only a change of count ('1 new request waits for you')."
+ },
+ {
+  "gap": "gap/ui-check-and-the-model-page-say-each-thing-once-in",
+  "q": "Q78",
+  "title": "Check and the Model page say each thing once, in a table",
+  "pages": "/check, /model",
+  "change": "Check: one table per kind of warning (part, R\u00b2 or 'never moved', scaled error, points), sorted worst first, the advice once above it, each part a link to the diagram; notes as a list at body size. Model: group rows with the same identification ('12 loops: an integrator, not yet tested'); each link opens that loop's panel with its system framed."
+ },
+ {
+  "gap": "gap/ui-a-flow-with-no-value-says-why-and-an-estimate-wi",
+  "q": "Q79",
+  "title": "A flow with no value says why, and an estimate with no basis says so",
+  "pages": "/diagram Dynamics; flow panel",
+  "change": "A flow that did not move in the window shows '0' with 'no movement in 33m' in its panel; one that is not measured shows 'not measured'. An interval wider than ten times its estimate prints 'not enough record yet'. When the declared value lies outside the interval say 'the record so far rejects 2 but cannot yet settle a value'."
+ },
+ {
+  "gap": "gap/ui-a-suggestion-appears-when-it-has-a-verdict",
+  "q": "Q80",
+  "title": "A suggestion appears when it has a verdict",
+  "pages": "/diagram side list Suggestions",
+  "change": "Hide a suggestion until its verdict exists; until then its goal's entry carries 'diagnosis in 8m'. Name the goal once. One phrase for the cause on every page."
+ },
+ {
+  "gap": "gap/ui-the-diagram-loads-without-console-errors",
+  "q": "Q81",
+  "title": "The diagram loads without console errors",
+  "pages": "/diagram (all views, all demos)",
+  "change": "Clamp the pin offset to the shape width (an off-by-one at the right edge). Find the input that makes ELK throw and fix it or report the fallback on the page ('simplified layout')."
+ },
+ {
+  "gap": "gap/ui-counts-read-as-words",
+  "q": "Q82",
+  "title": "Counts read as words",
+  "pages": "side panels, /items Graph, /item/\u2026",
+  "change": "One plural helper for every count; separate the two statements with ' \u00b7 '."
+ }
+]

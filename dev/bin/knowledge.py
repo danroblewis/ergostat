@@ -1,6 +1,7 @@
 """The factory's knowledge in its briefs (dev/knowledge/README.md), put together by priority within a size budget
 ([knowledge] in dev/factory.toml): the house rules and the review lessons always (the files' and the
-record's applied lesson items, lesson.py); then, as they fit, the owner's
+record's applied lesson items, lesson.py); then, as they fit, the gap's answered research (an implementor's, a
+reviewer's and a planner's), the owner's
 decisions (ergostat.decision items, confirmed or proposed) whose scope the gap's text names, related gaps, past review
 findings on the files it touches, and the module map of main. Each brief records the ids it carried and dropped, so
 the model can relate what a brief carried to how its gap did.
@@ -33,10 +34,11 @@ STOP = set("a an the and or but of to in on for with at by from is are be it thi
            "not no do does don't dont never always should must".split())      # ergostat.decisions.kinds.STOP
 ABOUT = re.compile(r"^\*About:\*\s*(.+)$", re.M)      # the parts of the root model an entry bears on: goal.x, stock.y
 FILES = re.compile(r"\b((?:ergostat|dev|scripts|tests|docs|examples)/[\w./-]+\.(?:py|md|yaml|toml|sh))\b")
-MORE = {"implementor": ("decisions", "related", "findings", "modules"),   # beyond the rules and the lessons, in order
-        "reviewer": ("decisions", "findings", "related", "modules"), "planner": ("decisions", "related", "findings",
-        "modules"), "researcher": ("decisions", "modules"), "pipeline_manager": ("decisions",)}
-HEADS = {"decisions": "The owner's decisions this gap touches", "related": "Related gaps", "findings": "Past review "
+MORE = {"implementor": ("research", "decisions", "related", "findings", "modules"),   # beyond the rules and lessons
+        "reviewer": ("research", "decisions", "findings", "related", "modules"), "planner": ("research", "decisions",
+        "related", "findings", "modules"), "researcher": ("decisions", "modules"), "pipeline_manager": ("decisions",)}
+HEADS = {"research": "Research for this gap",
+         "decisions": "The owner's decisions this gap touches", "related": "Related gaps", "findings": "Past review "
          "findings on the files this gap touches", "modules": "The module map (main; the packages it touches in full)"}
 
 
@@ -248,6 +250,35 @@ def related(cfg: dict, gap: dict) -> list[tuple[str, str]]:
     return out
 
 
+def answered(cfg: dict, gap: dict) -> list[tuple[str, str]]:
+    """The answered research of the gap and its parents (their `research` fields, and the items whose `gap` names one),
+    each its question, summary and report in <report> tags, the report cut at a line to ``[knowledge] research_chars``.
+    An item asked or dead, or whose report cannot be read (research.report gives ""), is not carried."""
+    import research as rs
+    most = int((cfg.get("knowledge") or {}).get("research_chars") or 6000)
+    gaps = {**{g["id"]: g for g in fac.items("gap")}, gap["id"]: gap}
+    line, todo = [], [gap["id"]]
+    while todo:                                            # the gap, its parents and theirs, each once
+        gid = todo.pop(0)
+        if gid in gaps and gid not in line:
+            line.append(gid)
+            todo += fac.ids(gaps[gid]["fields"].get("parent"))
+    items = {r["id"]: r for r in fac.items("research")}
+    mine = [r for gid in line for r in fac.ids(gaps[gid]["fields"].get("research"))]
+    mine += [i for i, r in items.items() if set(fac.ids(r["fields"].get("gap"))) & set(line)]
+    out = []
+    for rid in dict.fromkeys(mine):
+        r = items.get(rid)
+        text = rs.report(cfg, r).strip() if r and r["state"] == "answered" else ""
+        if text:
+            text = text if len(text) <= most else text[:most].rsplit("\n", 1)[0] + "\n(cut to research_chars)"
+            f = r["fields"]
+            out.append((rid, f"### {rid}: {' '.join(str(f.get('question') or '').split())}\n\n**Summary:** "
+                             f"{f.get('summary') or '(none)'}\n\n<report>\n{text.replace('</report>', '</ report>')}"
+                             "\n</report>\n"))
+    return out
+
+
 def findings(touched: list[str]) -> list[tuple[str, str]]:
     """Past reviews' findings naming a file this gap touches (by path, or a .py by its name), the latest first."""
     keys = set(touched) | {Path(t).name for t in touched if t.endswith(".py")}
@@ -290,7 +321,8 @@ def block(cfg: dict, role: str, gap: dict, text: str) -> tuple[str, dict]:
             got = [(f"modules@{sha[:12]}", render_map(mods, touched, budget - used - 80))] if budget - used > 500 \
                 else [(f"modules@{sha[:12]}", " " * budget)]
         else:
-            got = related(cfg, gap) if name == "related" else findings(touched) if touched else []
+            got = answered(cfg, gap) if name == "research" else related(cfg, gap) if name == "related" \
+                else findings(touched) if touched else []
         took = []
         for eid, body in got:
             fits = used + len(body) + len(HEADS[name]) + 8 <= budget

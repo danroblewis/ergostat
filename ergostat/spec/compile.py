@@ -572,8 +572,8 @@ class Compiler:
         for k in ("entering", "leaving"):
             if s.get(k) is not None:
                 q[k] = str(s[k])
-        if of.kind != "flow":
-            for k in ("entering", "leaving", "over", "sum"):
+        if of.kind != "flow" and not (of.kind == "auxiliary" and ("entering" in q or "leaving" in q)):
+            for k in ("entering", "leaving", "over", "sum"):   # (an auxiliary may count the moves over a window)
                 if s.get(k) is not None:
                     self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving:, over: and "
                              f"sum: measure a flow", s.at(k), "items-on-stock")
@@ -1065,6 +1065,8 @@ class Compiler:
         from ..actions import compile as gated
         from ..workspaces import compile as pools
         pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
+        from ..compute import compile as compute
+        compute.compute(self, spec)                          # compute: the pools of nodes runs may execute on (§12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
         from ..inbox import config as notify
