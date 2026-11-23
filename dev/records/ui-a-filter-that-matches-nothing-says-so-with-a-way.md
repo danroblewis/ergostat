@@ -225,3 +225,18 @@ kept: `total` for `found`, and main's `[flows, gps]`. pages.js is still +19/-8 a
   (lesson 13). Not run: the unit suite, the other three browser files, demo_check (no example touched).
 - Refused here: one compound `git add … && git commit -q -m "…" && git status --short | … ; git log --oneline -2`
   (the add, the commit and the log were run one at a time instead).
+
+Round 10: the factory's merge of main (2f08c24e) conflicted in pages.js and tests/test_graph_cli_web.py, resolved in
+fd1c5987. In pages.js main added the `mayDo` line ("what a person may do", `MAY_DO`) after the filter bar, and the
+branch had added `hitsSaid` to the bar. Both are kept: the bar is `search, hitsSaid, found, showFin, viewBar, chip`,
+then `mayDo`. In the test file both sides added tests at the same place; all are kept (the branch's two and main's
+`test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_may_do`). pages.js is still +19/-8
+against main. Nothing else changed.
+
+- Run: ruff clean; tests/test_graph_cli_web.py 57 passed. tests/test_items_page.py with Playwright under the
+  watchdog: 74 passed, 1 failed, nothing skipped, so the gap's three browser tests pass. The failure is
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, timing out at the `#project` switcher wait
+  (tests/test_items_page.py:2408), as in rounds 3 to 9. This branch does not touch the header or the switcher
+  (lesson 13). Not run: the unit suite, the other three browser files, demo_check (no example touched).
+- Refused here: the same browser run with its output redirected to /tmp/items.out and filtered by `grep` (it was run
+  without them instead).
