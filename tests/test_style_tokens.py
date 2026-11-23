@@ -71,6 +71,16 @@ def test_no_important():
     assert "!important" not in CSS.read_text()
 
 
+def test_a_loop_row_made_a_button_keeps_the_rows_look():
+    """The side panel's loop rows are buttons (for the keyboard): the stylesheet takes off the button's own border,
+    fill and centring, so a row still reads as a row of the list."""
+    _, rules = split()
+    found = [dict(declarations("{" + body + "}")) for body in re.findall(r"button\.looprow\s*\{([^{}]*)\}", rules)]
+    assert found, "style.css has no button.looprow rule"
+    rule = found[0]
+    assert rule.get("border") == "0" and rule.get("background") == "none" and rule.get("text-align") == "left", rule
+
+
 def test_the_gate_catches_what_it_should():
     lits = {"color: #fff": True, "padding: 0 var(--sp-2)": False, "margin: -1px": True, "gap: 6px 10px": True,
             "font-size: 12.5px": True, "font-size: var(--text-sm)": False, "top: 50%": False}
