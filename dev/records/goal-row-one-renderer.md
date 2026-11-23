@@ -97,3 +97,19 @@ Round 4: the merge of main (5411f137) conflicted in diagram.js and pages.js.
   passed). The whole suites are left to the factory.
 - Refused in this session: a `git diff $(git merge-base HEAD MERGE_HEAD) MERGE_HEAD ... | head; cat goalrow.js`
   compound, and the browser run when given with `| tail -8; echo rc=$?` (it was run again without them).
+
+Round 5: the merge of main (e43046dc) conflicted in pages.js.
+- Main (quiet-system-says-all-holding) gave the Loops page its quiet-systems lines (asks `systems`, draws
+  `.quiet-line` per quiet system above the table). Kept as main has it; the rows stay goalRow's. Main's local
+  performance `word` is dropped, since goalrow.js's `goalPerf` is the same function, and main's RANK sort becomes the
+  branch's goalRank.
+- Ran: ruff (clean); the three unit acceptance tests (passed); in the browser, under the watchdog, the goals-page
+  acceptance test, main's test_a_quiet_system_says_so_on_the_loops_page_and_in_its_panel_until_a_goal_goes_off and
+  test_other_pages_left_open_change_nothing: 4 passed, 1 failed (rc 1).
+- The failure is not this gap's: test_other_pages_left_open_change_nothing[diagram?view=process&by=events] sees 6
+  attribute mutations over 3 refreshes, a DIV's class and the H1's title. Both are written on every refresh by main's
+  diagram.js `show()`: `shell.classList.remove("opening")` (c2d3deac) and `caption.title = caption.textContent`
+  (302de41b). The branch does not change `show()`. Its loops and agents cases pass. That it fails on clean main is read
+  from blame and the diff, not seen (no run on main in this container). Left alone (lesson 13).
+- Refused in this session: `sed -n 140,150p tests/test_page_refresh.py | grep -n "def " ; grep -n "^def test" ... | awk`
+  (it was done with the search tool instead).
