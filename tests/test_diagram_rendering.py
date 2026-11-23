@@ -3668,6 +3668,135 @@ def test_a_loops_state_is_printed_on_its_error_in_its_word_bold_when_off_and_nev
     assert "a loop's state, on its error" in legend, legend                        # 4
 
 
+SD_GAPS = """() => { const bad = getComputedStyle(document.body).getPropertyValue('--bad').trim(), probe = document.createElement('i');
+  probe.style.color = bad; document.body.append(probe); const badRgb = getComputedStyle(probe).color; probe.remove();
+  const gaps = Object.fromEntries([...document.querySelectorAll('svg.canvas g.node[data-id^="gap:"]')].map((n) => {
+    const g = n.querySelector('.gap-word'), w = n.querySelector('.sd-word'), r = n.querySelector('.hit.sd-aux').getBBox();
+    const spill = Math.max(0, ...[...n.querySelectorAll('text')].map((t) => t.getBBox())
+      .map((b) => Math.max(r.x - b.x, b.x + b.width - r.x - r.width)));
+    return [n.dataset.id.slice(4), { word: g?.dataset.word || 'holding', text: n.textContent, off: !!n.querySelector('.gap-off'), spill,
+      stroke: getComputedStyle(n.querySelector('.hit.sd-aux')).stroke, fill: w ? getComputedStyle(w).fill : null }]; }));
+  const markers = [...document.querySelectorAll('svg.canvas .loop-marker')].map((m) => ({ loops: m.dataset.loops.split('|'),
+    off: m.classList.contains('goal-off'), stroke: getComputedStyle(m.querySelector('.marker-arc')).stroke }));
+  const lit = [...document.querySelectorAll('svg.canvas .edge.in-loop .sd-connector')].map((e) => getComputedStyle(e).stroke);
+  return { badRgb, gaps, markers, lit, layouts: S.layouts }; }"""
+
+
+THREE_GOALS = """
+name: three-goals
+stocks:
+  backlog: {unit: tickets, sensor: {manual: true}}
+  queue: {unit: jobs, sensor: {manual: true}}
+  inbox: {unit: mails, sensor: {manual: true}}
+flows:
+  arriving: {to: backlog}
+  finishing: {from: backlog}
+  queued: {to: queue}
+  served: {from: queue}
+  mailed: {to: inbox}
+  read: {from: inbox}
+goals:
+  short-backlog: {stock: backlog, hold: "<= 5", tolerance: 1}
+  short-queue: {stock: queue, hold: "<= 5", tolerance: 1}
+  short-inbox: {stock: inbox, hold: "<= 5", tolerance: 1}
+blocks:
+  worker: {type: program, run: echo 1, goal: short-backlog, max: 3, out: flow.finishing}
+  server: {type: program, run: echo 1, goal: short-queue, max: 3, out: flow.served}
+  reader: {type: program, run: echo 1, goal: short-inbox, max: 3, out: flow.read}
+"""
+
+
+def test_a_goals_gap_in_dynamics_says_its_word_and_an_off_one_is_red_never_the_accent(browser, tmp_path, monkeypatch):
+    """Acceptance (dynamics-off-status-on-the-part): a goal off, one holding and one never read (unknown), each
+    closing a balancing loop, ?view=dynamics&open=*. 1: the off goal's gap says 'off' and how far, and its outline,
+    its word and its balancing loop's marker compute to --bad; the holding goal's has no word and is not red. 2: the
+    word on each gap is /api/loops' word. 3: a lit loop's lines and an off gap's outline differ in colour, light and
+    dark. 4: a goal going off between polls is marked with no new layout."""
+    from ergostat import model as mdl
+    from ergostat.guide import FRAMES
+    from ergostat.store import Project
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    d = tmp_path / "three"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(THREE_GOALS)
+    p, now = Project(mdl.load(d)), time.time()
+    for i in range(6):
+        p.measurements.add("sensor/backlog.main", 12, at=now - 50 + i * 10)
+        p.measurements.add("sensor/queue.main", 2, at=now - 50 + i * 10)
+    p.events.add("loop.off", item="short-backlog", data={"value": 12}, at=now - 50)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        loops = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        assert {n: lp["word"] for n, lp in loops.items()} == {"short-backlog": "off", "short-queue": "holding",
+                                                              "short-inbox": "unknown"}, loops
+        off, holding = "short-backlog", "short-queue"
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics&open=*", 0)
+        pg.wait_for_function("() => document.querySelector('svg.canvas .gap-off')", timeout=DRAWN_S * 1000)
+        # the drawing's text at the width the sizes assume (CH, 6.7 px a character): this container's fallback font
+        # is narrower than the owner's, and would hide a word overrunning its box
+        pg.evaluate("""() => { const svg = document.querySelector('svg.canvas');
+          const t = s('text', { 'font-family': 'monospace', 'font-size': 10 }, 'x'.repeat(40));
+          svg.append(t); const px = 10 * CH / (t.getBBox().width / 40); t.remove();
+          const st = document.createElement('style'); document.head.append(st);
+          st.textContent = `svg.sd text, svg.sd tspan { font-family: monospace !important; font-size: ${px}px !important; }`; }""")
+        got = pg.evaluate(SD_GAPS)
+        assert set(got["gaps"]) == set(loops), (got["gaps"], loops)
+        for name, lp in loops.items():                                                   # 2: the server's word
+            assert got["gaps"][name]["word"] == lp["word"], (name, got["gaps"][name], lp)
+        g = got["gaps"][off]                                                             # 1: off, and how far, in --bad
+        assert g["off"] and " · off" in g["text"] and g["stroke"] == g["fill"] == got["badRgb"], (g, got["badRgb"])
+        assert g["text"].endswith(" · off by 7 tickets") and loops[off]["off_by_words"] == "off by 7 tickets", (g, loops[off])
+        u = got["gaps"]["short-inbox"]                                                   # a neutral word: printed, muted
+        assert u["text"].endswith(" · unknown") and not u["off"] and u["fill"] not in (None, got["badRgb"]), u
+        h = got["gaps"][holding]
+        assert not h["off"] and h["fill"] is None and h["stroke"] != got["badRgb"] and " · " not in h["text"], h
+        mine = [m for m in got["markers"] if any(f"gap:{off}" in c["nodes"] and c["polarity"] == "B" and c["name"] in m["loops"]
+                                                 for c in pg.evaluate("() => S.graph.causalLoops"))]
+        assert mine and all(m["off"] and m["stroke"] == got["badRgb"] for m in mine), got["markers"]
+        assert not [m for m in got["markers"] if m["off"] and m not in mine], got["markers"]
+        assert "a goal not holding: its word under its gap" in pg.evaluate("() => sdLegend().textContent")
+        assert "'off by 36' in red" in next(f["text"] for f in FRAMES if f["id"] == "between")
+        loop = next(m["loops"][0] for m in mine)                                         # 3: lit, it is the accent
+        pg.evaluate("(n) => sdHighlight(n)", loop)
+        for theme in ("light", "dark"):
+            pg.emulate_media(color_scheme=theme)
+            lit = pg.evaluate(SD_GAPS)
+            assert lit["lit"] and lit["gaps"][off]["stroke"] == lit["badRgb"], (theme, lit)
+            assert lit["gaps"][off]["stroke"] not in lit["lit"], (theme, lit["lit"], lit["gaps"][off])
+        pg.evaluate("() => sdHighlight(null)")
+        pg.emulate_media(color_scheme="light")
+        layouts = got["layouts"]                                                         # 4: off between polls
+        p.measurements.add("sensor/queue.main", 12)
+        p.events.add("loop.off", item=holding, data={"value": 12})
+        pg.wait_for_function(f"() => document.querySelector('svg.canvas g.node[data-id=\"gap:{holding}\"] .gap-off')",
+                             timeout=60000)
+        now = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        after = pg.evaluate(SD_GAPS)
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    assert not errors, errors
+    assert now[holding]["word"] == "off" and after["gaps"][holding]["word"] == "off", (now[holding], after["gaps"][holding])
+    assert after["layouts"] == layouts, (after["layouts"], layouts)
+    # with no new layout, each gap's box still holds its text: a word come since the layout widens it, never spills out
+    assert all(gp["spill"] <= 0.5 for gp in (*got["gaps"].values(), *after["gaps"].values())), (got["gaps"], after["gaps"])
+
+
 def pg_number(x: float) -> str:
     """A number as the page's fmt writes it: integers as they are, others to three figures, a real minus."""
     t = str(int(x)) if float(x).is_integer() else str(round(x)) if abs(x) >= 100 else f"{float(f'{x:.3g}'):g}"
