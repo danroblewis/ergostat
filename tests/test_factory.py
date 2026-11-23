@@ -82,6 +82,10 @@ elif args[0] == "lease":
         db.setdefault("nacks", []).append({k: os.environ.get(f"ERGOSTAT_{k.upper()}") for k in ("item", "lease", "run")}
                                           | {"count": "--no-count" not in args})
         rec.write_text(json.dumps(db))
+    else:                                                          # (the listing, as acts.listing: every leased item)
+        print(json.dumps([{"item": i["id"], "kind": i["kind"], "state": i["state"],
+                           "held": bool(i["fields"]["lease"].get("holder")), **i["fields"]["lease"]}
+                          for i in db["items"].values() if isinstance(i["fields"].get("lease"), dict)]))
 elif args[0] == "actions" and "--deny" in args:
     db["actions"][args[1]] = "denied"
     db.setdefault("notes", {})[args[1]] = args[args.index("--note") + 1]

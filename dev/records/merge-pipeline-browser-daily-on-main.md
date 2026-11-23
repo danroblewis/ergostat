@@ -258,3 +258,23 @@ likelier cause. I could not reproduce the zombie window: a shell command that ch
 its last command (`cat /proc/1/comm; ls -l /bin/sh; sh -c 'sh -c "echo \$\$ \$PPID"; echo $$'`) was refused. Run
 here: ruff is clean, and test_browser_daily_holds_the_queue_lock, test_browser_daily_green_records_main and
 test_browser_daily_failure_names_tests_and_suspects pass (3 passed, 201 s).
+
+## Where it stopped
+
+The factory's `build` step failed on test_an_approved_switch_drains_and_switches_through_the_engine again (the
+switcher still running after the test's 120 s wait; 1 failed, 194 passed, 2 skipped, 814 s). This time the factory
+asked for the code to be fixed, not the test's bound, so I changed main's drain.py, which is outside this gap's files.
+That is a deliberate exception to lesson-13, at the factory's request, and it is small and easy to undo (one
+function). drain.py's under_way() listed items per kind (gap, research, situation) and then per state, at least six
+ergostat CLI calls in each switcher step, each one loading the whole factory model. It now makes one
+`ergostat lease --json` call (acts.listing: every leased item with its kind, holder, block and fence, with no 500
+cap) and keeps the held leases of AI blocks on those kinds, in the same shape give_back() reads. A failed call still
+raises (check=True), so nothing reads as "no runs under way" (lesson-3). The test stand-in CLI in tests/test_factory.py
+(FAKE) now answers `lease --json` the same way. The test's bounds are unchanged.
+- Run here: test_a_switch_waits_for_the_runs_under_way, test_a_drain_past_its_bound_gives_the_runs_back_uncounted and
+  the engine switcher test pass (3 passed, 225 s). With under_way() broken to return nothing,
+  test_a_switch_waits_for_the_runs_under_way failed (line 3847). Ruff is clean.
+- Not measured: how much faster each step is now under `-n 8`. A `time` of one CLI call was refused earlier. A shell
+  command that copied drain.py to /tmp, broke it with sed, ran the test and restored it was refused this round, so I
+  did the break with the file editor instead.
+- drain.py is 2 net lines longer, inside the size budget.

@@ -88,9 +88,11 @@ def locked(cfg: dict):
 
 
 def under_way() -> list[dict]:
-    """The AI runs under way: the items whose lease an AI block holds."""
-    return [i for k in KINDS for i in fac.items(k)
-            if (i["fields"].get("lease") or {}).get("holder") and i["fields"]["lease"].get("block") in AI]
+    """The AI runs under way: the items whose lease an AI block holds. One `ergostat lease` listing (every leased
+    item, uncapped), not one item listing per kind and state: each call loads the whole model. A failed call raises."""
+    got = json.loads(fac.ergostat("lease", "--json").stdout)
+    return [{"id": x["item"], "fields": {"lease": x}} for x in got
+            if x.get("kind") in KINDS and x.get("held") and x.get("holder") and x.get("block") in AI]
 
 
 def window_passed(at: tuple[int, int], since: float, now: float) -> bool:
