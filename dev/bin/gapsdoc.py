@@ -215,11 +215,14 @@ def write(s: dict, where: Path) -> list[Path]:
     return list(files)
 
 
-def with_entry(record: str, e: dict) -> str:
-    """The record with its `## Entry` section (wherever it was) made ``e``'s, at its end."""
+def with_entry(record: str, e: dict | None) -> str:
+    """The record with its `## Entry` section (wherever it was) made ``e``'s, at its end; ``e`` None: removed ("" when
+    nothing else is left)."""
     lines = record.split("\n")
     if at := [n for n, ln in enumerate(lines) if ln.rstrip() == "## Entry"][:1]:
         lines = lines[:at[0]] + list(itertools.dropwhile(lambda ln: not ln.startswith("## "), lines[at[0] + 1:]))
+    if e is None:
+        return "\n".join(lines).rstrip("\n") + "\n" if "".join(lines).strip() else ""
     keys = [f"{k}: {e[k.replace('-', '_')]}" for k in KEYS if e[k.replace("-", "_")]]
     body = ["## Entry", "", *keys, *[f"done: {d} {s}" for d, s in e["done"]], *[""] * bool(e["bullet"]), *e["bullet"]]
     return ("\n".join(lines).rstrip("\n") + "\n\n" if "".join(lines).strip() else "") + "\n".join(body) + "\n"
@@ -233,19 +236,25 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
     still has its block, to a new `<branch>-N`, else to the record its branch names (the gap id cut to 32; made when
     there is none), its section and bullet replacing that Entry's; each done line (as done_lines() draws it) is added
     to the record it names in backticks. An entry with any part that cannot be placed (another title's Entry, a
-    sub-gap's under another umbrella) is placed in no part. When the batch changed GAPS.md outside the entries (its
+    sub-gap's under another umbrella) is placed in no part. A block whose text a record draws, moved to another section,
+    goes back to that record with the new section. A record whose drawn block the batch removed, when no block of its
+    title was left unplaced or stale (not carried), has its Entry removed, and its sub-gaps' too, said by name (a record
+    left empty is deleted by regenerate()). When the batch changed GAPS.md outside the entries (its
     head, as split() cuts it), GAPS-head.md becomes that head, each `@entry` naming the record that draws (or now
     holds) the entry there; an entry no record holds loses its slot."""
     drawn: dict[str, str] = {}
     have = set(split(pre)["records"].values()) | set(split(render(records, gaps_head, drawn)[0])["records"].values())
     tops, out, said, lost, at = {}, {}, [], [], {}     # at: {split()'s name for a block of head: the record holding it}
+    title, kids, keep = {}, {}, set()                  # keep: titles of blocks not placed (stale or lost): never removed
     for name, text in records.items():
         try:
             e = parse(text)
         except ValueError:
             continue
         if e and not e["entry_of"]:
-            tops.setdefault(gap_id(ENTRY.match(e["bullet"][0]).group(1)), []).append(name)
+            tops.setdefault(title.setdefault(name, gap_id(ENTRY.match(e["bullet"][0]).group(1))), []).append(name)
+        elif e:
+            kids.setdefault(e["entry_of"], []).append(name)
     cut = split(head)
     shown = {"\n".join(r.split("\n")[4:-1]) for r in cut["records"].values()}
     gone = {n for t, n in drawn.items() if t not in shown}   # records whose drawn block the batch changed or removed
@@ -256,9 +265,12 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
         same = tops.get(gid, [])                       # (two records may hold entries of one title: never one of them)
         if rec in have:
             at[slot] = drawn.get("\n".join(block)) or (same[0] if len(same) == 1 else None)
+            keep |= {gid} - {title.get(drawn.get("\n".join(block)))}   # (drawn by a record: that one's, no other's)
             continue
-        if len(ns := [n for n in same if n in gone]) > 1:   # which of them it replaces is not known: kept, said
+        owner = drawn.get("\n".join(block))           # its text unchanged, its section moved: the record that draws it
+        if len(ns := [owner] if owner else [n for n in same if n in gone]) > 1:   # which it replaces is not known
             lost.append("\n".join(block))
+            keep.add(gid)
             continue
         for ln in block:
             if m := DONE_AT.match(ln):
@@ -288,10 +300,15 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
                 trial[who] = with_entry(trial.get(who, records.get(who, "")), e)
         except ValueError:
             lost.append("\n".join(block))
+            keep.add(gid)
             continue
         out, at[slot] = trial, name
         gone.discard(name)
         said += [f"{name}: {block[0][:80]}"]
+    for name in sorted(n for n in gone if title[n] not in keep):   # the batch removed the entry: its Entry goes too
+        for who in [name, *kids.get(name, [])]:                    # (with its sub-gaps' done lines, drawn under it)
+            out[who] = with_entry(out.get(who, records[who]), None)
+        said += [f"{name}: its Entry removed, as the batch removed it from GAPS.md"]
     new_head = gaps_head
     if cut["head"] != split(pre)["head"]:            # the batch's edits outside the entries: kept, in GAPS-head.md
         lines, listed = [], set()
@@ -335,8 +352,8 @@ def regenerate(root: Path, pre: str) -> dict:
         p = where / UNPLACED.name
         files[p] = (p.read_text() if p.is_file() else "# GAPS.md text no record took (gapsdoc.carry)\n") + "".join(
             f"\n{b}\n" for b in unplaced)
-    for p, t in files.items():
-        p.write_text(t)
+    for p, t in files.items():                         # (a record left empty by a removed Entry: deleted)
+        p.write_text(t) if t or p == gaps else p.unlink()
     return {"files": [str(p.relative_to(root)) for p in files], "carried": carried, "unplaced": unplaced,
             "problems": problems}
 

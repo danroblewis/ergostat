@@ -5989,6 +5989,20 @@ def test_an_approved_branch_that_edited_gaps_md_lands_with_its_text_in_a_record(
         "delta", "epsilon", "GAPS-head.md"]
 
 
+def test_an_approved_branch_that_deleted_a_gaps_md_entry_lands_with_it_gone_from_the_records(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, GAPS_RECORDS)
+    gone = GAPS.replace("- **Delta** (parked on `delta`, *Where it stopped*): stopped.\n", "")
+    assert gone != GAPS
+    approved_editing(f, "deleted", {"docs/GAPS.md": gone})
+    head, run = landed_head(f, "deleted")
+    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "docs/GAPS.md from the records"
+    assert git(f.checkout, "show", f"{head}:docs/GAPS.md") == gone.strip()        # never drawn again on the push
+    assert f"{NEW}/delta.md" not in git(f.checkout, "ls-tree", "-r", "--name-only", head, f"{NEW}/").splitlines()
+    assert "@entry delta" not in git(f.checkout, "show", f"{head}:{NEW}/GAPS-head.md")
+    assert run["gaps_md_carried"][0] == "delta: its Entry removed, as the batch removed it from GAPS.md"
+
+
 def test_no_record_change_makes_no_commit_and_a_malformed_record_lands_without_one(tmp_path):
     for name, files in (("plain", {"plain.txt": "x\n"}),
                         ("bad", {"docs/GAPS.md": CARRIED, f"{NEW}/bad.md": "## Entry\n\nsection: Modelling\n"})):

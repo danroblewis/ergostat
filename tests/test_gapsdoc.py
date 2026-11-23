@@ -447,6 +447,54 @@ def test_a_batchs_edit_outside_the_entries_is_carried_into_the_head(tmp_path):
     assert (tmp_path / "dev" / "records" / "GAPS-head.md").read_text() == prose(HEAD)
 
 
+def test_an_entry_the_batch_deleted_loses_its_entry_in_the_records_and_stays_gone(tmp_path):
+    nobody = f"## Entry\n\nsection: Remote\n\n{NOBODY}"
+    mtls = sub("remote-mtls", "2026-11-21", "Mutual TLS.")
+    pre = tree(tmp_path, {"remote-systems": UMBRELLA, "remote-mtls": mtls, "nobody-s-gap": nobody})
+    batch = "\n".join(ln for ln in pre.split("\n") if not ln.startswith(("- **", "  ")))   # both entries deleted
+    (tmp_path / "docs" / "GAPS.md").write_text(batch)
+    got = gapsdoc.regenerate(tmp_path, pre)
+    assert got["carried"] == ["nobody-s-gap: its Entry removed, as the batch removed it from GAPS.md",
+                              "remote-systems: its Entry removed, as the batch removed it from GAPS.md",
+                              "GAPS-head.md: the batch's GAPS.md text outside the entries"] and not got["unplaced"]
+    rec = tmp_path / "dev" / "records"
+    assert "dev/records/nobody-s-gap.md" in got["files"] and not (rec / "nobody-s-gap.md").exists()  # Entry-only: gone
+    assert (rec / "remote-systems.md").read_text() == "# remote-systems: the umbrella\n"   # its definition kept
+    assert (rec / "remote-mtls.md").read_text() == "# remote-mtls: a sub-gap\n\nSome definition.\n"   # (its done line)
+    assert (tmp_path / "docs" / "GAPS.md").read_text() == batch and "Remote systems" not in batch   # never drawn again
+
+
+def test_one_of_two_records_of_a_title_deleted_removes_only_its_entry():
+    records = {"remote-systems": UMBRELLA, "remote-systems-2": TWIN}
+    pre = gapsdoc.render(records, HEAD)[0]
+    batch = pre.replace("- **Remote systems** (mirroring done): the second entry.\n  - *Left*: nothing.\n", "")
+    changed, carried, lost, head = gapsdoc.carry(pre, batch, records, HEAD)
+    assert changed == {"remote-systems-2": "# remote-systems: the umbrella\n"} and lost == []
+    assert carried[0].startswith("remote-systems-2: its Entry")
+    assert gapsdoc.render({**records, **changed}, head)[0] == batch
+
+
+def test_an_entry_the_batch_left_stale_or_unplaced_is_never_removed():
+    records = {"remote-systems": UMBRELLA}
+    pre = gapsdoc.render(records, HEAD)[0]
+    newer = {"remote-systems": UMBRELLA.replace("the IR.", "the IR, in the record.")}   # the batch edited the record
+    assert gapsdoc.carry(pre, pre, newer, HEAD) == ({}, [], [], HEAD)   # and left GAPS.md as it was: not a deletion
+
+
+def test_an_entry_moved_to_another_section_moves_its_record_and_is_drawn_once():
+    records = {"remote-systems": UMBRELLA}
+    pre = gapsdoc.render(records, HEAD)[0]
+    block = "\n".join(gapsdoc.split(pre)["records"]["remote-systems"].split("\n")[4:-1])
+    batch = pre.replace(block + "\n", "").rstrip("\n") + f"\n\n{block}\n"    # under Done recently, its text the same
+    changed, carried, lost, head = gapsdoc.carry(pre, batch, records, HEAD)
+    assert list(changed) == ["remote-systems"] and lost == []           # never a second record (remote-systems-2)
+    assert gapsdoc.parse(changed["remote-systems"])["section"] == "Done recently"
+    assert changed["remote-systems"].startswith("# remote-systems: the umbrella\n")
+    assert [c.split(":")[0] for c in carried] == ["remote-systems", "GAPS-head.md"]
+    text, problems = gapsdoc.render(changed, head)
+    assert problems == [] and text == batch and text.count("- **Remote systems**") == 1
+
+
 def test_regenerate_on_a_malformed_record_writes_nothing(tmp_path):
     pre = tree(tmp_path, {"remote-systems": UMBRELLA})
     (tmp_path / "dev" / "records" / "no-date.md").write_text(MALFORMED["no-date"])
