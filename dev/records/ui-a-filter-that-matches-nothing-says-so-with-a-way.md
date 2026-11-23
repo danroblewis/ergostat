@@ -124,3 +124,27 @@ main's `test_every_page_header_links_to_the_diagrams_waiting_for_you_heading`). 
   BUTTON across refreshes) and passed when its two cases were rerun alone; the branch's diff touches no button and
   not the graph view, so it is reported as a load-dependent flake not of this change (lessons 10, 13), not fixed here.
   Not run: the unit suite, the other three browser files, demo_check (no example touched).
+
+Round 5: the factory's merge of main (dc47a763) conflicted in pages.js and tests/test_graph_cli_web.py.
+
+- tests/test_graph_cli_web.py: both sides added tests at the same place. All are kept: the branch's two and main's
+  `test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas`.
+- pages.js: main removed the `more` note ("N older items not loaded.") and added `found` beside the search box, a
+  kind's page's "N matches, M finished". Both spans are kept, `hitsSaid` then `found`. Main's `const hits = d.total`
+  clashed with the branch's `const hits` in the same function, so main's is renamed `total`. On a kind's own paged page
+  (`paged()`), `.search-hits` now stays empty because main's `found` already gives the count there. This is the most
+  reversible choice: one count beside the box, not two.
+- Main moved the bare /items to an overview (kinds.js, `pageKinds`). Its search box goes to `/items?q=…` on Enter, and
+  that page is still `pageItems`, where the branch's count and hiding live. No code was added to kinds.js. The browser
+  test now types 'zzqx' into the overview's box, presses Enter and waits for `?q=zzqx`; the rest of the test is
+  unchanged. Its initial "the count is empty" check, which the overview has no box for, was dropped; the test's last
+  step (search emptied, count empty) still covers it.
+- Break seen to fail (lesson 9): drawing every kind during a search (`hit` always true) failed the Items test.
+- Run: ruff clean; tests/test_graph_cli_web.py 49 passed. tests/test_items_page.py with Playwright under the watchdog:
+  61 passed, 2 failed. The gap's two browser tests pass. The two failures are not this branch's (lesson 13). The
+  tests are unchanged from main, and the branch's diff against main does not touch what they check:
+  `test_actions_say_per_class_asked_approved_denied_and_whether_held` waits on the bare /items for
+  `.action-classes`, which main's new overview (kinds.js) does not draw. `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
+  times out at the `#project` switcher wait (tests/test_items_page.py:1924), as in rounds 3 and 4.
+- Refused here: `node --check ergostat/web/static/pages.js` and a python one-off that edits the test file (Edit was
+  used instead). Not run: the unit suite, the other three browser files, demo_check (no example touched).

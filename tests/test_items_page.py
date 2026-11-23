@@ -537,8 +537,9 @@ def test_a_search_says_its_count_beside_the_box_and_draws_only_the_kinds_it_matc
     pg.goto(f"{site}/items")
     pg.wait_for_selector('section.sys-group[data-system="lab"] .kind-flow .uplot')
     box, said = pg.locator('input[aria-label="Search"]'), pg.locator(".search-hits")
-    assert said.inner_text() == ""
-    box.fill("zzqx")
+    box.fill("zzqx")                                    # the overview's box: a search goes to /items?q=, the lists
+    box.press("Enter")
+    pg.wait_for_function("() => location.search === '?q=zzqx'")
     pg.wait_for_function("() => document.querySelector('.search-hits').textContent === 'nothing matches'")
     pg.wait_for_function("() => !document.querySelector('section.sys-group')")
     a, b = box.bounding_box(), said.bounding_box()
