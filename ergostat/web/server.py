@@ -539,6 +539,32 @@ def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
     return got
 
 
+def _sizes(p, fields: dict, most: int = 200) -> dict:
+    """How big each file the fields name (``file:PATH``) is, found where ``/file/`` finds it but never in the state
+    folder: the page names a closed file by it without asking for the file. One not found is left out."""
+    found: list[str] = []
+
+    def walk(v):
+        if isinstance(v, str) and v.startswith("file:") and len(found) < most:
+            found.append(v[5:])
+        elif isinstance(v, dict | list):
+            for x in v.values() if isinstance(v, dict) else v:
+                walk(x)
+    walk(fields)
+    roots = [Path(r).resolve() for r in (p.model.path.parent if p.model.path else None, p.dir) if r]
+    state, out = Path(p.dir).resolve(), {}
+    for rel in found:
+        for root in roots:
+            try:                                      # unreadable (no permission, a loop of links): left out, unsized
+                f = (root / rel).resolve()
+                if (root == f or root in f.parents) and f != state and state not in f.parents and f.is_file():
+                    out[rel] = f.stat().st_size
+                    break
+            except (OSError, RuntimeError, ValueError):
+                continue
+    return out
+
+
 def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
     """A kind's footprint (``footprint.py``, the model's alone) with what is so now: its count per state, how many each
     block has taken now (a lease holder, whatever state the run has moved it to), and each goal's word."""
@@ -1005,7 +1031,13 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             from ..rollup import archived
             return archived(p, name, offset=int(one("offset") or 0), n=min(int(one("n") or 200), EVENTS_MOST))
         if name:
-            d = its.detail(p.events, spec, name, until=snap["at"], history=None if one("history") == "all" else its.HISTORY_SHOWN)
+            hist = one("history")                 # FIELD, or all, or none at all: the counts always (SPEC §5a, History)
+            d = its.detail(p.events, spec, name, until=snap["at"], history=None if hist else its.HISTORY_SHOWN)
+            if d:
+                if hist != "all":
+                    d = {**d, "history": {hist: d["history"].get(hist, [])}} if hist else \
+                        {k: v for k, v in d.items() if k != "history"}
+                d["file_sizes"] = _sizes(p, d["fields"])
             est = _estimates(p, m, snap, one("whatif"))
             if d and est and name in est.get("items", {}):
                 d["eta"] = {**est["items"][name], "at": est["at"], "runs": est["runs"]}
