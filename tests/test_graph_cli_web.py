@@ -357,6 +357,27 @@ def test_status_and_projects_print_the_one_count_api_status_gives(tmp_path, monk
     assert json.loads(out)["goals_off"] == g
 
 
+def test_status_of_one_system_counts_only_that_systems_goals(tmp_path, monkeypatch, capsys):
+    """`ergostat --system shop` lists shop's goals, and its goals line and --json `goals_off` count those and no
+    other system's (the modelling and upkeep goals off stay out), the one count over the narrowed map."""
+    from types import SimpleNamespace
+
+    from tests.test_goal_upkeep import MODEL, seeded
+    monkeypatch.setattr("tests.test_goal_upkeep.MODEL", MODEL.replace("goals:\n", "goals:\n" + OPEN_GOAL))
+    seeded(tmp_path, monkeypatch)
+    ns = SimpleNamespace(path=tmp_path / "repo")
+    rc, out = run_cli(ns, "--json", capsys=capsys)
+    whole = json.loads(out)["goals_off"]
+    rc, out = run_cli(ns, "--json", "--system", "shop", capsys=capsys)
+    got = json.loads(out)
+    assert set(got["loops"]) == {"queue-short", "queue-watched"}, sorted(got["loops"])
+    assert got["goals_off"] == state.goals_off({"loops": got["loops"]}), got["goals_off"]
+    assert got["goals_off"]["system"] == 1 and got["goals_off"]["open"] == 1 and not sum(got["goals_off"]["own"].values())
+    assert whole["system"] > 1 and whole["own"] == {"modelling": 2}, whole     # the whole project's differs: a real narrowing
+    rc, out = run_cli(ns, "--system", "shop", capsys=capsys)
+    assert rc == 0 and "1 goal off · 1 open" in out.splitlines(), out
+
+
 def test_no_page_code_counts_goals_by_their_status():
     """The page prints the server's count (state.goals_off) and never makes its own: every comparison of a goal's
     status or state with 'off' in util.js, pages.js and diagram.js is one of the allowed lines (row grouping or styling),
@@ -367,6 +388,8 @@ def test_no_page_code_counts_goals_by_their_status():
     allowed = {                                          # the line, as it is; why it is not a count
         'const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);',  # rows grouped
         'const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");',  # whether suggestions start open
+        ': Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)'
+        '   // the goals the count counts',                  # the header's tooltip: the names, not a count
     }
     seen = []
     for f in ("util.js", "pages.js", "diagram.js"):

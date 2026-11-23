@@ -165,3 +165,22 @@ by main's own lines in diagram.js `show()` (`shell.classList.remove("opening")` 
 changes neither line. On the process view its caption code is skipped, and its side heading changes only a SPAN's text.
 It is left alone (lesson 13). A run with main's diagram.js put back was refused here, so this rests on reading the
 code, not on a run.
+
+## Where it stopped
+
+Round 7: main (7a905955) merged in. Two conflicts, both where main's goal-row-one-renderer replaced `status === "off"`
+with `goalWord(l) === "off"` in a count this branch had already removed (the Dynamics/Blocks caption and the header's
+fallback for a status without `goals_off`). Both are resolved to this branch's form, which prints the server's count
+and makes none of its own. Main's other changes are kept. The header's tooltip line now reads `goalWord(l) === "off"`.
+It lists the names of the goals off and counts nothing, so the grep test's allowlist now has it in place of the old
+`status` form.
+
+The review's finding is answered. Under `--system X`, `ergostat status` now counts the narrowed map,
+`st.goals_off({"loops": loops})`, the same way server.py does for `controlled_off`. Its goals line and its --json
+`goals_off` both use it, so `goals_off` agrees with `loops`. Test:
+tests/test_graph_cli_web.py::test_status_of_one_system_counts_only_that_systems_goals (`--system shop` on the fixture
+with its shop, modelling and upkeep systems: 1 off, 1 open, no upkeep, where the whole project has 9 off and upkeep 2).
+Seen to fail with the old `st.goals_off(snap)` (9 against 1).
+
+Runs: ruff is clean. tests/test_graph_cli_web.py passed whole (50 passed), and so did
+tests/test_items_page.py::test_every_surface_prints_the_servers_one_count_of_goals_off under the watchdog.
