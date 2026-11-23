@@ -19,3 +19,9 @@ left: once that gap is on main, move the status snapshot's event-log reads (`sta
 the folding code they replace, and write the three acceptance tests: no segment query once the index is current, and
 an answer in under 100 ms, on a record of the factory's size; field-by-field equality with the old answer; the
 answer's age.
+
+## Where it stopped
+
+Parked by the factory (review/status-reads-the-projections-1, 2026-11-23 01:18).
+
+Nothing is done beyond the definition of done and a 'Where it stopped' note. The branch was cut from ead497d1, before status-projections-in-the-index landed, so the tables it depends on did not exist in its clone. Still to do, all of it: merge origin/main (which now holds 38d367b4); move the status snapshot's event-log reads onto the tables in ergostat/spec/projections.py; delete the folding code those reads replace; write the three acceptance tests (no segment query once the index is current plus under 100 ms on a factory-sized record; field-by-field equality with the old answer; the answer says its age). It stops because the dependency was missing when the work ran. That dependency is now on main, so the gap can resume immediately.
