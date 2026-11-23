@@ -1291,6 +1291,123 @@ def test_quarantine_small_holds_on_main_and_is_off_with_one_test_added(tmp_path)
     assert e.signals["goal.quarantine-small.off"] == 1
 
 
+# ---- flakes open, the hours main stays broken and a flake stays unfixed (dev/records/regression-flake-measures.md)
+
+def moved(*steps) -> list[dict]:
+    """Moves as `ergostat item ID --json` gives them, in the record's order: (to, hour) each."""
+    out, was = [], None
+    for to, h in steps:
+        out.append({"from": was, "to": to, "time": 1000.0 + h * 3600})
+        was = to
+    return out
+
+
+def test_main_repair_hours_from_the_first_break(tmp_path, monkeypatch):
+    """Two breaks, one fix: the stay is measured from the first break (a repeat move into main-broken, as a record may
+    carry it, keeps the clock); and the real record's moves of break, break, fix are one stay, from its first move."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    assert flakes.stays(moved(("main-broken", 0), ("main-broken", 5), ("fixed", 10)), "main-broken") == [
+        (1000.0 + 36000, 10.0)]
+    iid = f"flake/{flakes.fac.slug(FLAKY, 80)}"
+    flakes.say("flake.main-broken", FLAKY, main="m1", gaps=["gap/a"], main_broken_at=10.0)
+    flakes.say("flake.main-broken", FLAKY, main="m2", gaps=["gap/b"], main_broken_at=50.0)
+    flakes.fac.add("flake.main-fixed", iid, main_fixed_at=60.0, fixed_by="main-mend")
+    moves = flake_now(flakes)["moves"]
+    assert [m["to"] for m in moves][-1] == "fixed"
+    got = flakes.stays(moves, "main-broken")
+    assert got == [(float(moves[-1]["time"]), (float(moves[-1]["time"]) - float(moves[0]["time"])) / 3600)]
+    monkeypatch.setattr(flakes, "read", lambda iid: {"moves": moved(("main-broken", 0), ("main-broken", 5),
+                                                                    ("fixed", 10))})
+    monkeypatch.setattr(flakes.fac, "items", lambda kind, state=None: [{"id": iid}])
+    assert flakes.reading("main-repair-hours", 1000.0 + 11 * 3600) == 10.0
+
+
+def test_a_remake_is_a_new_stay(tmp_path, monkeypatch):
+    """A flake fixed then broken (or seen) again starts a new stay: two stays, each its own hours; a seen stay that
+    went to main-broken ended unfixed, and the main-broken stay starts at that move."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    m = moved(("main-broken", 0), ("fixed", 2), ("main-broken", 10), ("fixed", 13))
+    assert [h for _, h in flakes.stays(m, "main-broken")] == [2.0, 3.0]
+    m = moved(("seen", 0), ("seen", 1), ("fixed", 4), ("seen", 20), ("main-broken", 22), ("fixed", 30))
+    assert [h for _, h in flakes.stays(m, "seen")] == [4.0]
+    assert [h for _, h in flakes.stays(m, "main-broken")] == [8.0]
+    iid = f"flake/{flakes.fac.slug(FLAKY, 80)}"                      # the real record: break, fix, break again, fix
+    for n in (1, 2):
+        flakes.say("flake.main-broken", FLAKY, main=f"m{n}", gaps=[f"gap/{n}"], main_broken_at=float(n))
+        flakes.fac.add("flake.main-fixed", iid, main_fixed_at=float(n), fixed_by="main-mend")
+    moves = flake_now(flakes)["moves"]
+    assert len(flakes.stays(moves, "main-broken")) == 2, moves
+    monkeypatch.setattr(flakes, "read", lambda iid: {"moves": moved(("main-broken", 0), ("fixed", 2),
+                                                                    ("main-broken", 10), ("fixed", 14))})
+    monkeypatch.setattr(flakes.fac, "items", lambda kind, state=None: [{"id": iid}])
+    assert flakes.reading("main-repair-hours", 1000.0 + 15 * 3600) == 3.0         # the median of 2 and 4
+
+
+def test_no_ended_stay_has_no_value(tmp_path, monkeypatch, capsys):
+    """Nothing ended fixed (a flake seen, one main-broken), nothing ended inside the 14 days, or a flake that cannot
+    be read: no value (SystemExit), never 0; past READ_MOST flakes it says so."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    flakes.say("flake.main-broken", "tests/test_x.py::test_z", main="m1", gaps=["gap/b"], main_broken_at=1.0)
+    for name in ("main-repair-hours", "flake-fix-hours"):
+        with pytest.raises(SystemExit, match="no value"):
+            flakes.reading(name, time.time())
+    flakes.fac.add("flake.fixed", f"flake/{flakes.fac.slug(FLAKY, 80)}", fixed_by="green-runs")
+    assert flakes.reading("flake-fix-hours", time.time()) >= 0
+    with pytest.raises(SystemExit, match="no value"):
+        flakes.reading("flake-fix-hours", time.time() + 15 * 86400)       # (ended, but before the window)
+    real = flakes.read
+    monkeypatch.setattr(flakes, "read", lambda iid: None if iid.endswith("z") else real(iid))
+    with pytest.raises(SystemExit, match="could not be read"):
+        flakes.reading("flake-fix-hours", time.time())
+    monkeypatch.setattr(flakes, "READ_MOST", 1)
+    monkeypatch.setattr(flakes, "read", real)
+    assert flakes.reading("flake-fix-hours", time.time()) >= 0            # (the fixed one, test_y, first by id)
+    with pytest.raises(SystemExit, match="no value"):
+        flakes.reading("main-repair-hours", time.time())
+    assert "2 flakes, the first 1 by id read" in capsys.readouterr().err
+
+
+def test_flakes_few_names_the_oldest(tmp_path):
+    """check finds no error on the parts; each setpoint is its parameter; and flakes-few, on the real model's parts
+    and flake kind, goes off naming the seen flakes past it, oldest first (a fixed or main-broken one never)."""
+    import yaml
+
+    from ergostat import model as mdl
+    from ergostat.spec.goal_per import worst
+    from ergostat.store import Project
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    mine = {"stock.flakes-open", "stock.flakes-open-hours", "flow.flakes-seen", "flow.flakes-fixed",
+            "auxiliary.main-repair-hours", "auxiliary.flake-fix-hours", "parameter.flake-hours-most",
+            "parameter.main-repair-hours-most", "goal.flakes-few", "goal.main-repaired-fast"}
+    known = {("missing-feedback", "goal.flakes-few"), ("missing-feedback", "goal.main-repaired-fast"),
+             ("stock-without-flows", "stock.flakes-open-hours"), ("parameter-unused", "parameter.flake-hours-most"),
+             ("parameter-unused", "parameter.main-repair-hours-most")}     # (no block yet; setpoints; an age stock)
+    got = [f"{p.code} {p.level} {p}" for p in problems if p.about in mine and (p.code, p.about) not in known]
+    assert not got, "\n".join(got)
+    assert mine <= {f"{k}.{n}" for k, d in (("stock", spec.stocks), ("flow", spec.flows), ("auxiliary",
+                    spec.auxiliaries), ("parameter", spec.parameters), ("goal", spec.goals)) for n in d}
+    few, fast = spec.goals["flakes-few"], spec.goals["main-repaired-fast"]
+    assert (few.per, few.on_stale, fast.on_stale, fast.of.name) == ("item", "off", "off", "main-repair-hours")
+    assert few.hold.value == spec.parameters["flake-hours-most"].value
+    assert fast.hold.value == spec.parameters["main-repair-hours-most"].value
+    parts = yaml.safe_load((ROOT / "dev" / "model" / "guarantees-flakes.yaml").read_text())
+    text = (ROOT / "ergostat.yaml").read_text()                      # (the kind as text: YAML 1.1 reads `on:` as true)
+    (tmp_path / "ergostat.yaml").write_text("name: f\nitems:" + text[text.index("\n  flake:\n"):
+                                                                     text.index("\n  intervention:\n")] + "\n" +
+                                            yaml.safe_dump({"stocks": parts["stocks"], "goals": {
+                                                "flakes-few": parts["goals"]["flakes-few"]}}, sort_keys=False))
+    p = Project(mdl.load(tmp_path))
+    now = time.time()
+    for n, (event, hours) in enumerate((("flake.seen", 50), ("flake.seen", 1), ("flake.seen", 80),
+                                        ("flake.main-broken", 90), ("flake.seen", 20)), 1):
+        p.events.add(event, item=f"flake/t{n}", data={"test": f"t{n}"}, at=now - hours * 3600)
+    p.events.add("flake.fixed", item="flake/t5", at=now - 3600)
+    value, breaking, n = worst(p.model.spec, p.model.spec.goals["flakes-few"], None, p.events, now)
+    assert [b["item"] for b in breaking] == ["flake/t3", "flake/t1"] and n == 2 and round(value) == 80
+
+
 def pools_module():
     sys.modules.setdefault("fac", module("fac"))       # (pools.py imports fac and risk from beside it)
     sys.modules.setdefault("risk", module("risk"))
