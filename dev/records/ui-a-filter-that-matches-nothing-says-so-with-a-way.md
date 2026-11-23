@@ -89,3 +89,22 @@ acceptance check. No page code changed this round.
   scripts/affected_tests.py -- uv run python -m pytest -q -rfEs -n 8 --dist worksteal`), so the selection was run
   through named_tests instead. Not run: the unit suite and the other three browser files (the merge queue runs them),
   and demo_check (no example was touched).
+
+Round 3: the factory's merge of main (2a97eafb) conflicted in tests/test_graph_cli_web.py, where both sides added tests
+at the same place. Kept both: the branch's two tests and main's
+`test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis`. Main had also renamed the Record's filter
+box: it now matches type, item or source, is read from `match=` or `type=`, and has the aria-label "Event type, item or
+source". The branch's `Nothing matches “x” · clear` merged cleanly into main's code and still works. Only the browser
+test's selector for the box was stale (`aria-label="Event type"`). It is now `aria-label^="Event type"`. No page code
+changed this round.
+
+- Run: tests/test_graph_cli_web.py (42 passed). ruff is clean. tests/test_items_page.py with Playwright under the
+  watchdog: 28 passed, 2 failed. One failure was the stale selector above; after the fix
+  `test_a_record_filter_that_matches_nothing_says_so_and_clears` passes. The other,
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, still fails when run alone: it times out at
+  tests/test_items_page.py:1298 waiting for the other project's entry in the `#project` switcher. This branch's only
+  code change is the Record's and the Items page's search answers in pages.js. It does not touch the header or the
+  switcher, so the failure is not this change's (lesson 13) and is left alone.
+- Refused here: `mkdir -p /tmp/mainsrc && git archive main | tar -x -C /tmp/mainsrc`, which was meant to run that
+  header test on clean main. So it was not shown to fail on main too. The factory's rerun on clean main will settle
+  it. Not run: the unit suite, the other three browser files and demo_check (no example was touched).

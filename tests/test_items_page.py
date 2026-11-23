@@ -430,7 +430,7 @@ def test_a_record_filter_that_matches_nothing_says_so_and_clears(browser, site):
     assert "Nothing matches “zzz”" in body and "Nothing recorded yet." not in body
     pg.click("a.clear-filter")
     pg.wait_for_function("() => !document.body.innerText.includes('Nothing matches')")
-    assert pg.input_value('input[aria-label="Event type"]') == ""
+    assert pg.input_value('input[aria-label^="Event type"]') == ""
     pg.wait_for_selector("table tr td")                                           # the record's events, unfiltered
     assert not errors, errors
     pg.close()
