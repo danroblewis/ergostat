@@ -151,14 +151,15 @@ def test_without_the_budget_the_dead_lease_cannot_be_told_from_live_work(tmp_pat
 
 def test_a_working_state_names_whoever_records_the_move_on_to_the_next_state(tmp_path):
     """The review is a person's working state: ``why`` names the event that moves it on to the next state
-    (change.reviewed), before a side exit or a move back (change.dropped, change.held, change.proposed)."""
+    (change.reviewed), before a side exit or a move back (change.dropped, change.held); a move back to the kind's
+    first state (change.proposed, made again) is not one of its ways on."""
     from ergostat.why import answer
     p = project(tmp_path)
     p.events.add("change.proposed", item="change/c9")
     p.events.add("change.built", item="change/c9")
     r = answer(p, "change/c9")["root"]
     assert r["kind"] == "work" and r["owner"] == "whoever records change.reviewed", r
-    assert "recorded: change.reviewed, change.released, change.held, change.dropped, change.proposed" in r["says"], r
+    assert r["says"].endswith("recorded: change.reviewed, change.released, change.held, change.dropped"), r
 
 
 # ---- every command in the section runs
@@ -175,7 +176,8 @@ def test_every_command_in_the_section_runs_on_the_worked_example(engine, tmp_pat
     todo = [out for line, out in said if line == "ergostat why todo/t1"]
     assert len(todo) == 2
     assert "It waits on batch/lab-1124" in todo[0] and "Next: whoever records batch.opened" in todo[0], todo[0]
-    assert "Next: whoever records todo.done" in todo[1] and "batch/lab-1124" not in todo[1].split("\n")[0], todo[1]
+    assert "Next: whoever records todo.done" in todo[1] and "It waits on batch/lab-1124" not in todo[1], todo[1]
+    assert "what it waits on is finished (batch/lab-1124)" in todo[1], todo[1]
     upd = why(tmp_path, "todo/u48", capsys)
     assert upd["root"]["kind"] == "work" and upd["root"]["path"] == ["todo/u48"], "covers says, never waits"
     held = next(json.loads(out) for line, out in said if line == "ergostat held-up --json")

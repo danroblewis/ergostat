@@ -7,7 +7,9 @@ items:
   batch:
     id: batch/*
     description: one merge queue run's batch (batch/<run tag>) - its gaps tested together, each run of the suites (full, named, halves) with its outcome, the gaps isolated, what landed and was given back (dev/bin/batches.py)
-    states: [testing, isolating, pushing, landed, partial, failed, given-back]
+    states: [new, testing, isolating, pushing, landed, partial, failed, given-back]
+                                    # new: no event puts one there; it arrives testing, a working state the merge
+                                    # queue moves on (batch.run-finished), so why names it (AGENT-GUIDE 3m)
     final: [landed, partial, failed, given-back]
     on:
       batch.started: testing

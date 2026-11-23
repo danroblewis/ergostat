@@ -102,3 +102,32 @@ assertion is still `0.667`, and it now checks the mean the comment claims, not t
 reversible one: one test, six lines, no code. Passes alone (1 passed in 64 s); ruff clean. Not break-tested: the
 command that broke `hours()`'s `approved_at` fallback with `sed -i`, ran the test and restored the file with
 `git checkout dev/bin/lesson.py` was refused.
+
+Round 3: the merge of main (dc8ad98d) conflicted in `ergostat/why/blocks.py`. Main moved the list of a working state's
+onward events into `_onward` (in the order written, never back to the kind's first state, and respecting
+`moves-from:`). The branch's order (the move on to the next state first, nearest first, then moves back) now sorts
+inside `_onward`, and both callers' rules are kept. Three tests failed after the merge, each fixed:
+`test_a_working_state_names_whoever_records_the_move_on_to_the_next_state` expected `change.proposed` (a move back to
+the first state, which main now leaves out) at the end of the list. The worked example's second `why todo/t1` check
+was too blunt for main's new wording ("what it waits on is finished (batch/lab-1124)"): it now checks that the to-do
+no longer *waits on* the batch and that the batch is named as finished. And main's new `batch` kind
+(`dev/model/landing.yaml`) had `wait-unexplained`: items rest in its first state `testing` and nothing takes them
+from there. As with knowledge and lesson, it gains a first state `new` that no event puts an item in, so a batch
+arrives in `testing` and `why` names whoever records `batch.run-finished`. `test_queue_batch_item`'s pin of the
+states follows. The guide's to-do paragraph said that ergostat ships no `todo` kind, which main's `todo` template has
+made false. It now sends whoever reads it to that template for a person's hand work, and to the declared kind of the
+worked example when the to-dos wait on items of the model.
+
+Run after the merge, each passing: `tests/test_why_guide.py`, `tests/test_why.py`, `tests/test_held_up.py`,
+`tests/test_spec_items.py`, `tests/test_factory_knowledge.py`, `tests/test_coherence.py`,
+`tests/test_faults_healthy.py`, `tests/test_item_about.py`, `tests/test_chains.py`, `tests/test_dashboards_doc.py`,
+`tests/test_queue_batch_item.py` (unit); ruff clean. Not passing, and not this branch's:
+`tests/test_queue_batch_item.py::test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run`, run with
+Playwright, times out at line 306 (the snapshot's Items list never draws a row). It fails the same way with this
+round's `landing.yaml` change taken out. With that change out, the branch differs from main in `ergostat/` only in
+`spec/findings.py`, `spec/waits.py` and `why/blocks.py`, and none of them is on the snapshot page's path. It is
+reported, not fixed (lesson 13). Not confirmed on clean main: the command that would have made a worktree of main
+to run it there (`git worktree add --detach /tmp/mainwt main`) was refused. Also refused this round: a Python
+one-liner to resolve the conflict (done with edits instead), a grep across docs, a wait loop on a background output
+file, and a `ps` check for running pytest processes. The whole unit suite and the four browser files were not run
+here (the factory runs them).

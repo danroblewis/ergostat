@@ -220,7 +220,7 @@ def test_the_root_model_has_the_batch_kind_and_its_finished_states():
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []
     k = spec.items["batch"]
-    assert k.states == ["testing", "isolating", "pushing", "landed", "partial", "failed", "given-back"]
+    assert k.states == ["new", "testing", "isolating", "pushing", "landed", "partial", "failed", "given-back"]
     assert spec.messages.done["batch"] == ["landed", "partial", "failed", "given-back"] == list(k.final)
     assert {"batch-run-percent", "batch-run-failures"} <= set(spec.auxiliaries)
 

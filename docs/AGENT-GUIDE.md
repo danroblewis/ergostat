@@ -905,7 +905,9 @@ not finished, so what waits on it says so.
 
 ### Personal to-dos, access-context batches and stakeholder updates
 
-The person's own to-dos are items too, of a kind you declare (`todo`: ergostat ships none):
+The person's own to-dos are items too. For their hand work as a whole, use the `todo` template (*Work the person does
+by hand, on purpose*, above), which batches ready to-dos by place itself. When the to-dos must wait on items of this
+model (a sitting it plans, a change), declare the kind yourself, as the worked example below does:
 
 - **To-dos.** States `[new, todo, done, dropped]`, with `todo.added: todo`: a to-do arrives straight in `todo`, a
   working state the person moves on, so `why` names whoever records `todo.done`.
