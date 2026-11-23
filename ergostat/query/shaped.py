@@ -12,7 +12,7 @@ from . import frequency as fr
 from . import transforms as tf
 from .buckets import Grid, aggregate, grid
 from .parse import NO_AGG, RATE_PER, Query
-from .sources import OHLC_SOURCES, READERS, Unanswerable
+from .sources import OHLC_SOURCES, READERS, Unanswerable, overhangs, series_grid
 
 FINE = 4096                 # buckets a frequency response reads its two signals on, before resampling
 MOST_GROUPS = 12
@@ -27,6 +27,7 @@ class Asking:
     until: float
     points: int
     one: Callable               # (query, points) -> a time result
+    read: Callable              # (query, grid) -> what its source holds, under the request's budget
 
 
 def label(q: Query) -> str:
@@ -51,10 +52,27 @@ def _base(q: Query, x: dict, series: list[dict], unit: str, capped: int, read_lo
     return got
 
 
+def _grid_of(a: Asking, q: Query, points_: int, asked: float | None) -> Grid:
+    if q.source == "series":
+        return series_grid(a.p.measurements, q.series, a.since, a.until, points_, asked)
+    return grid(a.since, a.until, points_, asked)
+
+
+def _common(a: Asking, qs: tuple[Query, Query], points_: int) -> float:
+    """One bucket width both can be read on: the coarser asked for, and a multiple of any roll-up tier that answers
+    either (a series may need a wider step than the other query asked for)."""
+    step = max(_grid_of(a, q, points_, q.bucket).step for q in qs)
+    for _ in range(6):
+        wider = max(_grid_of(a, q, points_, step).step for q in qs)
+        if wider == step:
+            return step
+        step = wider
+    raise Unanswerable("the two series' roll-ups share no bucket width")
+
+
 def _both(a: Asking, q: Query, xq: Query) -> tuple[dict, dict]:
-    """The two on one time grid: the coarser of the buckets they ask for."""
-    steps = [grid(a.since, a.until, a.points, b).step for b in (q.bucket, xq.bucket)]
-    step = max(steps)
+    """The two on one time grid."""
+    step = _common(a, (q, xq), a.points)
     return (_time(a, replace(q, x=None, bucket=step)), _time(a, replace(xq, x=None, bucket=step)))
 
 
@@ -178,7 +196,7 @@ def category(a: Asking, q: Query) -> dict:
         raise Unanswerable(f"this query groups by {q.group_by} and takes its X from {by}: use one of them")
     g = grid(a.since, a.until, a.points)
     wanted = replace(q, x=None, group_by=by)
-    read = READERS[q.source](a.p, a.spec, wanted, g)
+    read = a.read(wanted, g)
     groups = read.rows if read.rows is not None else read.levels
     size = len if read.rows is not None else (lambda r: abs(next((v for v in reversed(r) if v is not None), 0.0)))
     ranked = sorted(groups, key=lambda n: (-size(groups[n]), n))
@@ -209,8 +227,11 @@ def category(a: Asking, q: Query) -> dict:
         unit = f"{unit}/{tf.SHORT[per]}" if unit else f"/{tf.SHORT[per]}"
     elif q.transform != "none":
         notes.append(f"transform {q.transform} does not apply to categories")
-    return _base(q, _x_meta("category", by, "", "category"), [{"name": label(q), "xs": order, "values": row, "ids": None}],
-                 unit, len(rest), read.read_log, notes)
+    got = _base(q, _x_meta("category", by, "", "category"), [{"name": label(q), "xs": order, "values": row, "ids": None}],
+                unit, len(rest), read.read_log, notes)
+    if read.truncated:
+        got["truncated"] = True
+    return got
 
 
 def _binned(q: Query, name_rows: list[tuple[str, list, list]], bins: int, x_meta: dict, unit: str, left: int, read_log: bool,
@@ -271,14 +292,18 @@ def ohlc(a: Asking, q: Query, first_time) -> dict:
         raise Unanswerable(f"{q.source} has no values in time to open and close: candles are for {', '.join(OHLC_SOURCES)}")
     if q.source == "moves" and q.measure != "time_in_state":
         raise Unanswerable("candles of moves are of time_in_state: entries and exits are counts, with no open or close")
-    g = grid(a.since, a.until, a.points, q.bucket)
+    g = _grid_of(a, q, a.points, q.bucket)
     notes = [f"transform {q.transform} does not apply to candles"] if q.transform != "none" else []
     if q.source == "series":
         read = READERS["series"](a.p, a.spec, replace(q, agg="last"), g)
         try:
-            rows = {q.series: candles.of_series(a.p.measurements, q.series, g)}
+            got_rows = candles.of_series(a.p.measurements, q.series, g)
         except candles.TooMany as e:
             raise Unanswerable(str(e)) from e
+        if 0 in got_rows and overhangs(a.p.measurements, q.series, g):
+            del got_rows[0]                           # its open is from before the window
+            notes.append("the first bucket is left empty: its roll-up began before the window")
+        rows = {q.series: got_rows}
         folded, order, unit, log_read = 0, [q.series], read.unit, False
     else:
         read = READERS[q.source](a.p, a.spec, replace(q, agg="last"), g)
@@ -301,10 +326,8 @@ def ohlc(a: Asking, q: Query, first_time) -> dict:
     return got
 
 
-def _signal(a: Asking, q: Query, side: str) -> tuple[list, str, bool]:
-    if q.x is not None or q.agg == "ohlc":
-        raise Unanswerable(f"the {side} must be a plain query in time")
-    r = _time(a, replace(q, bucket=None), FINE)
+def _signal(a: Asking, q: Query, side: str, step: float) -> tuple[list, str, bool]:
+    r = _time(a, replace(q, bucket=step), FINE)
     if len(r["series"]) != 1:
         raise Unanswerable(f"the {side} has {len(r['series'])} series: a response needs one (filter it, or drop group_by)")
     return r["series"][0]["values"], r["unit"], r["read_log"]
@@ -313,9 +336,13 @@ def _signal(a: Asking, q: Query, side: str) -> tuple[list, str, bool]:
 def response(a: Asking, q: Query) -> dict:
     if q.model:
         return _model(a, q)
-    g: Grid = grid(a.since, a.until, FINE)
-    xs, xu, xl = _signal(a, q.input, "input")
-    ys, yu, yl = _signal(a, q.output, "output")
+    for side, sub in (("input", q.input), ("output", q.output)):
+        if sub.x is not None or sub.agg == "ohlc":
+            raise Unanswerable(f"the {side} must be a plain query in time")
+    step = _common(a, (replace(q.input, bucket=None), replace(q.output, bucket=None)), FINE)   # one grid, whatever answers each
+    g: Grid = grid(a.since, a.until, FINE, step)
+    xs, xu, xl = _signal(a, q.input, "input", step)
+    ys, yu, yl = _signal(a, q.output, "output", step)
     lo = 1 if g.spans[0] < g.step else 0          # a bucket cut by the window holds part of its sum: not a sample
     hi = g.n - 1 if g.spans[-1] < g.step else g.n
     try:

@@ -7,7 +7,7 @@ import random
 
 import pytest
 
-from ergostat.query import BadQuery, axes, candles
+from ergostat.query import axes, candles
 from ergostat.query.buckets import grid
 from ergostat.store import Measurements
 from ergostat.web.server import Live, api
@@ -183,13 +183,12 @@ def test_an_empty_histogram_is_empty_not_an_error(p):
                                     ({"type": "bins", "bins": 0}, "x.bins"), ({"type": "bins", "bins": 201}, "x.bins"),
                                     ({"type": "time", "nope": 1}, "nope"), ({"type": "bins", "field": "a", "query": "b"}, "not both")])
 def test_a_malformed_x_is_refused(p, x, word):
-    with pytest.raises(BadQuery, match=word):
-        ask(p, {**COST, "x": x})
+    got = ask(p, {**COST, "x": x}, COST)
+    assert word in got[0]["error"] and "series" in got[1]
 
 
 def test_agg_none_is_only_for_a_field_x(p):
-    with pytest.raises(BadQuery, match="only for an x of type field"):
-        ask(p, {**COST, "agg": "none"})
+    assert "only for an x of type field" in ask(p, {**COST, "agg": "none"})[0]["error"]
 
 
 def test_candles_of_item_values_by_hand(p):
@@ -327,8 +326,31 @@ def test_a_model_response_of_no_goal_is_refused(p):
                                     ({"source": "frequency", "input": {"source": "frequency"},
                                       "output": {"source": "events"}}, "cannot be")])
 def test_a_malformed_frequency_query_is_refused(p, q, word):
-    with pytest.raises(BadQuery, match=word):
-        ask(p, q)
+    assert word in ask(p, q)[0]["error"]
+
+
+def test_a_pair_of_series_on_different_tiers_is_read_on_one_grid(tmp_path):
+    from ergostat.query import engine
+    from ergostat.query.shaped import Asking, _common
+    m = Measurements(tmp_path, raw=60.0, tiers=[(600.0, 1e9)])
+    at = 20_000 * 86400.0
+    m.add_many([("rolled", at + i * 30.0, float(i)) for i in range(2880)])
+    m.roll(now=at + 86400 + 1200)
+    m._marks = (0.0, {})
+    m.add_many([("raw", at + 86400 + i, 1.0) for i in range(5)])
+    a = Asking(type("P", (), {"measurements": m})(), None, at, at + 86400, 120, None, None)
+    one = engine.Query(id="a", source="series", agg="avg", series="rolled")
+    two = engine.Query(id="b", source="series", agg="avg", series="raw")
+    assert _common(a, (one, two), 120) % 600 == 0
+
+
+def test_an_events_category_goes_through_the_requests_budget(p, monkeypatch):
+    from ergostat.query import engine
+    gate = engine._kept(live := Live(p)).log_gate
+    for _ in range(engine.LOG_AT_ONCE):
+        gate.acquire(blocking=False)
+    r = api(live, "query", {"q": [_q({"source": "events", "x": {"type": "category", "by": "type"}})]})["results"][0]
+    assert "busy" in r["error"]
 
 
 def test_the_fields_say_what_each_source_can_take(p):
