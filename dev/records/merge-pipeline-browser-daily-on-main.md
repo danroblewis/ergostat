@@ -91,3 +91,16 @@ test_browser_daily_goal_closes_in_landing and test_ergostat_check_on_the_factory
 and ruff is clean. `uv run ergostat check --json` was refused again in this session, so done item 6's "no new
 finding" is still unverified against main. The unit suite and the four browser files were not run here (the
 factory's and the queue's steps).
+
+## Where it stopped
+
+The factory's `build` step failed (unit tests for tests/test_factory.py, `-n 8`). The tail it sent back stops at
+"bringing up nodes...", so it does not name the failing test. Run again serially here
+(`uv run python scripts/named_tests.py tests/test_factory.py`): 1 failed, 203 passed, 2 skipped (Docker). All five
+browser_daily tests passed. The one failure was
+test_an_approved_switch_drains_and_switches_through_the_engine: `SystemExit: 143` inside `e.close()`, raised by a
+`fac.stop_on_term` SIGTERM handler that was already installed in the pytest process itself. It passed when run alone
+(1 passed, 149 s). This branch changes nothing that test touches: no switcher, engine or fac.py code. Its tests run
+browserday.py only as a subprocess (Factory.run, Popen), so they cannot install that handler in pytest. So I left the
+failure alone and changed no code (lesson-13). I did not run it on main to compare, because the worktree of main was
+refused in an earlier round. If the build fails again, the test it names is the place to start.
