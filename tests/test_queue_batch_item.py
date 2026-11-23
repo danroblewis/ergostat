@@ -268,6 +268,50 @@ def test_the_timeline_draws_one_bar_per_run_and_the_gaps_link_to_their_batch(tmp
     assert "batch/a-20261123T100000Z" in {i["id"] for i in data["items-graph?kinds=batch"]["items"]}
 
 
+@pytest.fixture(scope="module")
+def browser():
+    pw = pytest.importorskip("playwright.sync_api")                              # (as tests/test_export.py)
+    with pw.sync_playwright() as p:
+        try:
+            b = p.chromium.launch()
+        except Exception:
+            b = p.chromium.launch(channel="chrome")
+        yield b
+        b.close()
+
+
+def test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run(browser, tmp_path, monkeypatch):
+    """The page itself, from a snapshot of it (nothing asked of a server): the kind's list, and its Timeline with the
+    batch's row holding one testing bar for each of its three runs."""
+    import time
+
+    from ergostat.web.snapshot import build
+    b, clock, out, cfg = batches_module(monkeypatch, tmp_path)
+    clock[0] = time.time() - 2400                                                # (in the page's window: real times)
+    three_runs(b, clock, cfg)
+    page = tmp_path / "snapshot.html"
+    page.write_text(build(project(tmp_path, out)))
+    pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+    errors = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:")) else rt.abort())
+    bid = "batch/a-20261123T100000Z"
+    pg.goto(f"file://{page}#/items?kind=batch")
+    pg.wait_for_function("() => document.querySelectorAll('table.items tr.click').length >= 1", timeout=60000)
+    listed = [t.strip() for t in pg.locator("table.items tr.click td:first-child").all_inner_texts()]
+    assert listed == [bid], listed                                               # the kind's list
+    pg.goto(f"file://{page}#/items?kind=batch&view=timeline")
+    pg.wait_for_selector(".rg-timeline[data-drawn]", timeout=60000)
+    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()  # (it ended: a finished row, and
+    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()       # no unfinished one waits on it)
+    pg.wait_for_selector(f".rg-timeline[data-drawn] .rg-row[data-id='{bid}'] .rg-seg", timeout=20000)
+    bars = pg.locator(f".rg-row[data-id='{bid}'] .rg-seg title").all_text_contents()
+    assert [t.split(",")[0] for t in bars] == [f"{bid}: {s}" for s in
+                                               ("testing", "isolating", "testing", "isolating", "testing", "pushing")]
+    assert not errors, errors
+    pg.close()
+
+
 def test_a_failure_to_say_inside_a_run_still_raises_the_run_s_own_error(tmp_path, monkeypatch):
     b, clock, out, cfg = batches_module(monkeypatch, tmp_path)
     b.begin(cfg, "a-20261123T100000Z", ["gap/a"], "0" * 40)
