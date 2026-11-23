@@ -34,6 +34,7 @@ from . import gate as gt
 from . import memory as mem
 from . import observe as ob
 from . import proposals as pr
+from . import requests as rq
 from . import trial as tr
 from . import version as ver
 from . import yamledit as ye
@@ -260,7 +261,7 @@ def _found(path: Path, files) -> tuple[dict[str, str], set[str]]:
     if got is None:
         _, problems = read(path)
         got = ({finding_id(x.code, x.about): x.message for x in problems if x.level != "error"},
-               {finding_id(x.code, x.about) for x in problems if x.level == "note"})
+               {finding_id(x.code, x.about) for x in problems if rq.as_note(x)})
         with _FOUND_LOCK:
             if len(_FOUND) > 8:
                 _FOUND.clear()
@@ -595,7 +596,7 @@ def validate(p, spec: Spec, by: str, raw: dict, data: ob.Data | None = None) -> 
         after, problems = tr.compiled(p.model.path, texts, findings=True)
     before_f = set(ev.findings())
     after_f = {finding_id(x.code, x.about) for x in problems if x.level != "error"}
-    notes = {finding_id(x.code, x.about) for x in problems if x.level == "note"} | ev.notes()   # the craft: not findings
+    notes = {finding_id(x.code, x.about) for x in problems if rq.as_note(x)} | ev.notes()   # the craft: not findings
     kind = kind_of(spec, after, said_kind)
     if kind == "rename":                                   # the same findings under the new names are not new
         before_f = {_renamed_id(f, ver.renamed_parts(spec, after) or {}) for f in before_f}

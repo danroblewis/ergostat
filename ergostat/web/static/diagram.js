@@ -882,6 +882,14 @@ function fit(svg, lay, legible = false) {
   applyView(svg);
 }
 
+/* a part clicked (or pressed with Enter: keys.js): its panel, or the level it stands for */
+function partClick(n) {
+  if (!n || (n.kind === "cloud" && !n.beyond)) return;
+  const orig = n.orig && S.graph.nodes.find((x) => x.id === n.orig);    // a shadow of a part drawn here too: that part's panel
+  if (orig) { chooseShape(n.id); openNode(orig); }               // (what it is chosen: interact.js)
+  else if (n.kind === "terminal" || n.kind === "cloud") S.drill?.(n.in || ""); else { chooseShape(n.id); openNode(n); }
+}
+
 function panZoom(svg) {
   let drag = null;
   svg.addEventListener("wheel", (ev) => {      // like a map: scroll pans; Command+scroll or a pinch (Ctrl+wheel) zooms at the pointer
@@ -906,11 +914,7 @@ function panZoom(svg) {
     S.downOn = null;
     const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".node");
     if (!was || !under || under.dataset.id !== was || ev.target.closest?.(".sys-btn")) return;
-    const n = S.graph?.nodes.find((x) => x.id === was);
-    if (!n || (n.kind === "cloud" && !n.beyond)) return;
-    const orig = n.orig && S.graph.nodes.find((x) => x.id === n.orig);    // a shadow of a part drawn here too: that part's panel
-    if (orig) { chooseShape(n.id); openNode(orig); }               // (what it is chosen: interact.js)
-    else if (n.kind === "terminal" || n.kind === "cloud") S.drill?.(n.in || ""); else { chooseShape(n.id); openNode(n); }
+    partClick(S.graph?.nodes.find((x) => x.id === was));
   });
   window.addEventListener("pointercancel", () => { S.pressed = false; }, true);
   svg.addEventListener("pointerdown", (ev) => {
@@ -1519,7 +1523,7 @@ function renderSide(side, g, view) {
     if (!loops.length) side.append(h("div", { class: "muted" }, "No loops in view."));
     const rank = { off: 0, open: 1, unknown: 2, holding: 3 };       // the ones that need someone first
     for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {
-      side.append(h("div", { class: "looprow", "data-loop": name,
+      side.append(h("button", { class: "looprow", "data-loop": name,
                               onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
                               onclick: () => { choose(g.corr?.loops?.[name] || []); openLoop(name); } },
         h("b", {}, name), exceptional(lp.status) ? statusEl(lp.status) : h("span"),
