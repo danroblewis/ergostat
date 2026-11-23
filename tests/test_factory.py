@@ -3359,6 +3359,96 @@ def test_a_batch_whose_one_failed_test_passes_alone_twice_lands_as_a_flake(tmp_p
     assert "flake/tests-test-b-py-test-b" not in h.db()["items"]
 
 
+# ---- the browser step only on its paths (dev/records/merge-pipeline-browser-only-on-its-paths.md)
+
+NOT_RUN = {"not_run": "no browser path changed", "counts": "not_run"}
+
+
+def browser_on_paths(f: Factory, paths: list[str] | None = None) -> Path:
+    """``f``'s browser step logging each run in browser-runs, and ``paths`` as `[suites] browser_paths` (None: the
+    factory's own default, read from dev/factory.toml). The log's path."""
+    runs = f.tmp / "browser-runs"
+    if paths is None:
+        paths = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]["browser_paths"]
+    text = f.config.read_text().replace('\nbrowser = "true"', f'\nbrowser = "echo run >> {runs}"')
+    f.config.write_text(text + f"browser_paths = {json.dumps(paths)}\n")       # ([suites] is the fixture's last table)
+    return runs
+
+
+def gaps_editing(f: Factory, edits: dict[str, str], bad: str = "", batch: int | None = None) -> None:
+    """approved_gaps, one at a time, each gap writing its file (its folders made first: git drops empty ones)."""
+    for i, (name, path) in enumerate(edits.items()):
+        (f.checkout / path).parent.mkdir(parents=True, exist_ok=True)
+        approved_gaps(f, {name: i + 1}, bad=bad if bad == name else "", batch=batch, edits={name: path})
+
+
+def runs_of(p: Path) -> int:
+    return len(p.read_text().splitlines()) if p.exists() else 0
+
+
+def test_a_batch_without_browser_paths_skips_browser_and_says_so(tmp_path):
+    from tests.test_queue_host import queue_module  # (dev/bin on the path, never the stdlib's queue)
+
+    queue = queue_module()
+    f = Factory(tmp_path)
+    runs = browser_on_paths(f)
+    gaps_editing(f, {"a": "dev/bin/a.py", "b": "dev/bin/b.py"}, batch=2)
+    said, _ = f.run("queue.py", "gap/a")
+    assert said.count("gap.merged") == 2 and runs_of(runs) == 0                    # done 1: no browser step
+    a = f.item("gap/a")["fields"]
+    assert a["suites_queue"]["browser"] == NOT_RUN and a["suites_queue"]["unit"]["rc"] == 0
+    assert a["queue_runs"][-1]["suites"] == ["unit"]                               # not counted as a suite that ran
+    # done 3: a red unit run with no browser path: browser is finished (not_run), so the rest of a flake's run skips it
+    t = "tests/test_b.py::test_b"
+    g = flaky_stand_ins(tmp_path / "red", [t])
+    runs = browser_on_paths(g)
+    gaps_editing(g, {"p": "dev/bin/p.py", "q": "docs/q.md"}, bad="q", batch=2)
+    said, _ = g.run("queue.py", "gap/p")
+    assert said.count("gap.merged") == 2 and len(reruns(g)) == 2 and runs_of(runs) == 0
+    got = g.item("gap/q")["fields"]["suites_queue"]
+    assert got["excused"]["tests"] == [t] and got["browser"] == NOT_RUN and got["demo"]["rc"] == 0
+    red = {"ruff": {"rc": 0}, "unit": {"rc": 1}, "browser": dict(NOT_RUN), "failed": "unit", "tests": [t]}
+    assert queue.rest(red) == ("host", "demo") and "browser" in queue.rest({**red, "browser": {"stopped_by": "unit"}})
+
+
+def test_a_batch_touching_the_web_runs_browser(tmp_path):
+    f = Factory(tmp_path)
+    runs = browser_on_paths(f)
+    gaps_editing(f, {"a": "dev/bin/a.py", "w": "ergostat/web/w.js"}, batch=2)
+    said, _ = f.run("queue.py", "gap/a")
+    assert said.count("gap.merged") == 2 and runs_of(runs) == 1                    # done 2: as today
+    assert f.item("gap/w")["fields"]["suites_queue"]["browser"]["rc"] == 0
+    # its halves keep the batch's decision: the half with only dev/bin still runs browser
+    g = Factory(tmp_path / "halves", unit=RED.format(runs=tmp_path / "halves" / "runs"))
+    runs = browser_on_paths(g)
+    gaps_editing(g, {"a": "dev/bin/a.py", "w": "examples/w/w.yaml"}, bad="a", batch=2)
+    said, _ = g.run("queue.py", "gap/w")                    # (the run's own gap lands: a's failure is said at once)
+    assert said.count("gap.queue-failed") == 1 and merges(g) == ["w"]
+    assert suite_runs(g) == 3 and runs_of(runs) == 3                               # the batch, then each half
+    assert "not_run" not in g.item("gap/a")["fields"]["suites_queue"]["browser"]
+
+
+def test_an_empty_browser_paths_runs_browser_always(tmp_path):
+    from tests.test_queue_host import queue_module  # (dev/bin on the path, never the stdlib's queue)
+
+    queue = queue_module()
+    f = Factory(tmp_path)
+    runs = browser_on_paths(f, [])
+    gaps_editing(f, {"a": "dev/bin/a.py"})
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and runs_of(runs) == 1   # done 4
+    assert f.item("gap/a")["fields"]["suites_queue"]["browser"]["rc"] == 0
+    # absent, not a list of globs, or a diff that cannot be read: browser runs (the worst case, never a skip)
+    head = git(f.checkout, "rev-parse", "HEAD")
+    for paths in (None, "ergostat/web/**", [""], [3]):
+        cfg = {"suites": {} if paths is None else {"browser_paths": paths}}
+        assert queue.browser_wanted(cfg, f.checkout, f"{head}~1") is True, paths
+    cfg = {"suites": {"browser_paths": ["ergostat/web/**"]}}
+    assert queue.browser_wanted(cfg, f.checkout, f"{head}~1") is False                     # (dev/bin/a.py only)
+    assert queue.browser_wanted(cfg, f.checkout, "no-such-commit") is True
+    assert queue.browser_wanted({"suites": {"browser_paths": ["dev/**"]}}, f.checkout, f"{head}~1") is True
+
+
 def test_a_test_that_fails_alone_on_either_rerun_still_bisects(tmp_path):
     # the first rerun failing is test_bisect_reruns_only_the_failing_tests; here the second fails, then a rerun that
     # says no PASSED line (rc 0, lesson-3), each bisecting on the named tests as before

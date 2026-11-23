@@ -27,3 +27,34 @@ dev/bin/queue.py, dev/factory.toml, dev/README.md, tests/test_factory.py.
 40 net lines in dev/bin.
 
 Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1. 23 net lines in dev/bin (queue.py +31/-8, onmain.py's docstring reflowed, net 0), budget 40.
+
+- `queue.browser_wanted(cfg, repo, pre)`: `git diff --name-only --no-renames -z pre HEAD` (a move out of a listed path
+  counts both paths) matched by `fnmatch.fnmatchcase`, so `*` crosses `/` and `ergostat/web/**` and `tests/layout_*`
+  mean what they say. `queue.suites(..., browser=)` takes the decision; not run, the step is left out and
+  `suites_queue.browser` is `{not_run: "no browser path changed", counts: "not_run"}`: the `counts` key is the one
+  regression-queue-test-counts' `summed()` already reads, so the landed run's sum leaves browser out, neither unknown nor 0.
+  The entry is written before the steps run, so a red run always has it and `rest()` (unchanged: an entry with no
+  `stopped_by` is finished) never lists browser; `excused()` takes the rest as it was.
+- The batch's decision is made once in `land()`, on its first full run (the whole batch, in the checkout), under the
+  `counting` lock, and every later full run (halves, the rest of an excused run) is handed it. Prefixes run only
+  named tests (`named()`), never the browser step, so they need no decision.
+- Choices taken with nobody to ask, each the reversible, fail-safe one (lesson-3): `browser_paths` absent (as in the
+  tests' fixture) runs browser always, the same as `[]`; a value that is not a list of non-empty strings, or a diff
+  that cannot be read (a missing `pre`), runs it too. The default list is exactly the one in the definition; it does
+  not list tests/conftest.py or the page tests' helpers, so a change only there reaches the pages only through the
+  daily run on main, the net the docs name.
+- Outside the Files list, two docstring/comment lines that would otherwise overclaim (lesson-8): dev/bin/onmain.py's
+  "the merge queue runs unit, browser and demo in full either way", and the same sentence twice in dev/factory.toml.
+- Tests broken on purpose (lesson-9), each failed and was restored: the halves deciding for themselves
+  (`browser=None`) failed test_a_batch_touching_the_web_runs_browser (2 browser runs, not 3); `[]` read as "never"
+  failed test_an_empty_browser_paths_runs_browser_always; browser always run failed
+  test_a_batch_without_browser_paths_skips_browser_and_says_so; rest() listing a `not_run` suite failed that test's
+  direct rest() check (its queue half still held, since the rest run is handed the batch's decision too).
+- Run here: the three acceptance tests (3 passed); test_queue.py's three counts tests; the flake-excuse, red-tree
+  and suite-watch-command tests (3 passed each). ruff clean on ergostat, tests, scripts. Not run here: the whole unit
+  suite and the four browser files (the factory and queue run them). The clone is made from main, with no new commits
+  on it, so there was nothing to merge.

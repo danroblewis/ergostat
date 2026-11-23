@@ -20,6 +20,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    dry-merged; one that conflicts on a new base goes back to `approved` uncounted;
 5. ruff, then the unit suite (-n 8) and the four browser files (-n 4) at once under scripts/suite_watch.py (the first
    to fail stops the other), then demo_check, once for the batch; a browser test skipped counts as a failure. The
+   browser files run only when the batch (`git diff --name-only pre HEAD`) touches a `[suites] browser_paths` glob
+   (an empty list, or one unreadable: always); else `browser: {not_run: ...}`, finished, never stopped (rest()), and
+   the batch's halves keep its decision. The daily browser run on main (browserday.py) is the net for the rest. The
    tests in tests/quarantine.txt are deselected from unit and browser and run after them (`alone`), their results
    recorded and never blocking (fac.beside()). With `[suites] queue_container` (the default) each suite runs in a
    container of the agent image on `[agents] queue_cpuset` with no network (agents.queued); one that does not start
@@ -68,6 +71,7 @@ branch that moved since. A conflict is a failed gate (the second parks).
 from __future__ import annotations
 
 import fcntl
+import fnmatch
 import json
 import re
 import shlex
@@ -124,7 +128,19 @@ def crashed(rc: int, text: str) -> str:
     return m.group(0) if rc and (m := CRASH.search(text)) else ""
 
 
-def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | None = None, cover: bool = True) -> dict:
+def browser_wanted(cfg: dict, repo, pre: str) -> bool:
+    """Whether `git diff --name-only pre HEAD` (renames as both paths) names a path a `[suites] browser_paths` glob
+    matches. Absent, empty, not a list of globs, or a diff that cannot be read: True, the browser step runs."""
+    globs = cfg["suites"].get("browser_paths")
+    if not globs or not isinstance(globs, list) or not all(isinstance(g, str) and g for g in globs):
+        return True
+    r = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", "--no-renames", "-z", pre, "HEAD"],
+                       capture_output=True, text=True)
+    return bool(r.returncode) or any(fnmatch.fnmatchcase(p, g) for p in r.stdout.split("\0") if p for g in globs)
+
+
+def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | None = None, cover: bool = True,
+           browser: bool | None = None) -> dict:
     """ruff; then unit and browser at once; then host (when set); then demo (under the other two's load its pages drew
     nothing). The first to fail is the one reported; it stops its sibling (killed, `stopped_by` it, its own failure
     unsaid) and the later steps. With `[suites] queue_coverage`, the
@@ -132,7 +148,8 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
     main's (``pre``), never the batch's: a branch's own line in tests/quarantine.txt holds nothing back in its run.
     ``only``: just those suites (the rest of a run whose failures were excused, excused()). ``cover`` False: no coverage
     (a half's run, beside another: coverage_kept prunes one shared folder). A failure stops this call's suites only
-    (``mine``), never another half's."""
+    (``mine``), never another half's. ``browser``: whether the browser step runs (None: browser_wanted()); not run,
+    it is said as `not_run` and counts as finished (rest())."""
     held, mine = fac.quarantine(repo, pre), set()
 
     def one(name: str) -> dict:
@@ -194,9 +211,11 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
     def quarantined(tests: list[str]) -> None:
         fac.suite(cfg, "alone", repo, logs / f"{tag}-quarantined.txt", slot=False, box="queue", tests=tests)
 
-    out = {}
+    out = {} if (browser_wanted(cfg, repo, pre) if browser is None else browser) else \
+        {"browser": {"not_run": "no browser path changed", "counts": "not_run"}}
     for step in (("ruff",), ("unit", "browser"), ("host",), ("demo",)):
-        if not (step := tuple(n for n in step if (only is None or n in only) and (n != "host" or host_on(cfg)))):
+        if not (step := tuple(n for n in step if (only is None or n in only) and (n != "host" or host_on(cfg))
+                              and n not in out)):
             continue
         got = together(step)
         if step[0] == "unit":                          # the quarantined tests after them, whatever they said
@@ -295,7 +314,8 @@ def passed(alone: dict | None) -> bool:
 
 
 def rest(red: dict) -> tuple:
-    """The suites a red run did not finish: stopped by its failure, or never reached."""
+    """The suites a red run did not finish: stopped by its failure, or never reached (one not run by rule, `not_run`,
+    is finished)."""
     return tuple(n for n in SUITES if n not in red or red[n].get("stopped_by"))
 
 
@@ -804,7 +824,7 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
     those failed are said here."""
     base, landed, back, tag = pre, [], [], fac.run_tag(fac.branch_of(batch[0][0]), began)
     logs, until = fac.run_dir(cfg, "queue"), began + allowance(cfg) if until is None else until
-    runs, rounds, gone, checked, reds, counting = [0], [], {}, set(), {}, threading.Lock()
+    runs, rounds, gone, checked, reds, counting, wants = [0], [], {}, set(), {}, threading.Lock(), []
     tree_of = lambda c: fac.git(repo, "rev-parse", f"{c}^{{tree}}")                 # noqa: E731
     linked = lambda x, y: reaches(x[0], y[0]["id"], batch) or reaches(y[0], x[0]["id"], batch)   # noqa: E731
 
@@ -826,7 +846,9 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         tests fail alone says which (`reproduced`), for the path by name."""
         conf = conf or cfg
         counted()
-        red = suites(conf, work, t, logs, pre, cover=cover)
+        with counting:                                   # (the batch's decision, made on its first, whole, run)
+            wants[:] = wants or [browser_wanted(cfg, work, pre)]
+        red = suites(conf, work, t, logs, pre, cover=cover, browser=wants[0])
         tests = red.get("tests") or []
         if red.get("crashed") or not tests or len(tests) > NAMED_MOST or (len(ids) == 1 and not excusable(red)):
             return red
@@ -835,7 +857,8 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             alone = ask(red, work, f"{t}-again", conf)
             if passed(alone):
                 counted()
-                return excused(red, suites(conf, work, t, logs, pre, only=rest(red), cover=cover), t, ids)
+                return excused(red, suites(conf, work, t, logs, pre, only=rest(red), cover=cover, browser=wants[0]),
+                               t, ids)
         return red | ({"reproduced": alone["tests"]} if alone and alone.get("failed") else {})
 
     def timing(g: dict, got: dict) -> dict:
