@@ -244,7 +244,13 @@ item), `keep-under` (a level held under a limit by a corrective action), `steps`
 of steps, a block each), `collect` (the event collector) and `modelling` (the model improved as a loop of its
 own, section 12e: its fit held by a goal, what `check` finds held as requests, a rule tier and an AI tier that answer
 them, and the judge; once a model, every model should have it), `upkeep` (ergostat's own upkeep as loops of
-the model, below), and `todo` (a person's own to-dos, each with its instructions, its requester, its due date and
+the model, below), `regressions` (regression guarantees for the model, once a model, each part only when its parameter
+is given: `every:` runs the model's `claims: tests` command on that schedule through `python -m ergostat.regressions
+counts`, which prints the failed and errors of its pytest-style summary as `tests-failing`, held by `tests-green` `<= 0`;
+a run past its time, with no summary, with nothing run, or exiting non-zero with no failure counted gives no value, and
+`tests-green` is `on-stale: off`; `block:` holds `ergostat.trust.contradicted@BLOCK` at `escape-share` (`claims-kept`);
+`changes: true` holds `ergostat.model.regressed` at 0 (`changes-hold`); `repair: NAME` reads repair's `fixes-hold`,
+not made again; each goal served by a person block, `agent:` naming who; flakes and quarantine are not in it), and `todo` (a person's own to-dos, each with its instructions, its requester, its due date and
 where it must be done, `where`: a host, a bastion, a VPN or anywhere; states new, ready, in-progress, waiting,
 done and dropped, its own `finished: [done, dropped]`; what one waits on in `waits_on`, a precedence relation to
 another to-do or to a `KIND-wait` item, something someone else does; two person blocks, one asked while new to-dos
