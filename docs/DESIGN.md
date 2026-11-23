@@ -127,7 +127,7 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
     by its schedule) is named. For a job emptying a stock under an upper setpoint, the longest
     period that can hold it is said (the room under the setpoint over the load), and when cron
     cannot run that often.
-- **Attention**: problems first (loops off, loops open or unknown past two minutes of record,
+- **Attention**: problems first (goals off, goals open or unknown past two minutes of record,
   agents failing, lines refused or unreadable, missing readings while running, unexplained
   residuals), then the hints. What a run by hand refused is not kept as a problem.
 
@@ -269,7 +269,7 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
-`/diagram?view=blocks`, `/loops`, `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
+`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
 `%2F`), `/record?type=T`, `/model`, `/check`, `/guide?frame=N`. The server answers each with the page
 (`UI_PAGES` in `web/server.py` and `util.js`, one list); `/api/*`, `/static/*` and `/file/PATH` are never
 shadowed. The page routes with the History API: a plain click on one of its links draws the page in
@@ -286,7 +286,7 @@ only when addressed to the server by its own name (the Host header is `127.0.0.1
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
 page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and process views; the side panel:
-attention, loops or the process map's kinds, model changes, legend), Loops, Agents (one list, by rung), Items (the
+attention, goals and their control loops, feedback loops or the process map's kinds, model changes, legend), Goals, Agents (one list, by rung), Items (the
 record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
 its old address `/fit` goes there; first **What's available**: each loop, whether its process is
 identified and what would identify it, or that it closes through queues; each parameter to estimate,
@@ -319,11 +319,11 @@ provenance, its calibrations side by side, and any proposal for it, with Accept 
 typed over: a what-if, drawn on every chart until put back, its fit shown beside it, saved only by
 Propose these and then Accept), a feedback loop's panel how much of the behaviour it drives over the
 window at each stock it runs through, beside the loops competing there (loop dominance), parts chosen with
-Shift chart in the side panel (with none chosen, no chart); a loop's panel, its
-comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
-scope (y with r, u, e), and under it how the loop is doing (Harris index or, for a ceiling or a floor,
+Shift chart in the side panel (with none chosen, no chart); a goal's panel, its
+comparator, controller or output in the blocks view, and its sparkline on the Goals page open its
+scope (y with r, u, e), and under it how its control loop is doing (Harris index or, for a ceiling or a floor,
 how often and how far past it, oscillation, settling and overshoot, saturation, step tests and starts
-left out; the Loops page says it in a word, or what it lacks); in the blocks view, the process block a
+left out; the Goals page says it in a word, or what it lacks); in the blocks view, the process block a
 loop's y comes out of shows that loop's process identified (K, τ, θ, how sure, how tested, its step
 response and Bode plot, with Accept, or a step test to Approve, or why none is offered yet), and its
 controller's panel the closed loop with it (margins, at the worst the process could be too, its own

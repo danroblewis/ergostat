@@ -40,7 +40,8 @@ function sdRateSaid(now, rate, unit, flow) {
 }
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
-  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText];
+  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText,
+    ...(n.attempts ? [`${n.attempts} attempt${n.attempts === 1 ? "" : "s"}`] : [])];      // an item's: the runs that took it
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   if (n.kind === "cloud" && n.from) return [`from ${n.from}`];        // an inflow from outside: where it comes from, where the model knows it
   return [];
@@ -64,6 +65,8 @@ function sdStock(n, w, hgt) {
   g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
   if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v,
     sdNoUnit(n) ? s("tspan", { class: "sd-nounit" }, " unit ?") : null));
+  if (n.path?.length) g.append(s("text", { x: 4, y: 11, class: "t-sub sd-path", "data-path": n.path.join(",") },   // an item's steps here, in move order
+    n.path.join(", ")));
   return g;
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
