@@ -248,7 +248,9 @@ done and dropped, its own `finished: [done, dropped]`; what one waits on in `wai
 another to-do or to a `KIND-wait` item, something someone else does; two person blocks, one asked while new to-dos
 wait to be written up, one while ready ones wait to be done, each answered with the inbox's `--done N`; and the
 batcher, a program on the rule rung, `todo batches`, which says a waiting to-do ready again once everything it
-waits on is finished and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
+waits on has happened (done, or answered: `--met`; only what its `waits_on` named since it last entered waiting
+counts, so a wait over before does not free a new one), keeps one whose prerequisite was dropped waiting and says
+so once in its `stuck` field (`KIND.stuck`), and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
 due first, every one's instructions in order in its `sitting`; it reads the record and prints events, and the
 template adds no action, workspace or daemon, so nothing it adds acts outside ergostat (the optional `command` is
 the owner's own, run by `collect` as a source); a freeing is `KIND.freed`, which `moves-from:` lets move a to-do

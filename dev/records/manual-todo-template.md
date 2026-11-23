@@ -52,3 +52,21 @@ on a copy. No page changed, so no browser file was run. The unit suite was not r
 step). Run one file at a time, all passing: test_todo_template, test_templates, test_why, test_finished_states,
 test_footprint, test_library_trust, test_library_provenance, test_library_tree, test_library_untrusted; ruff clean.
 Main had not moved since the branch began (nothing to merge).
+
+Round 2 (the review's two blocking findings; it raised no others):
+
+- A dropped prerequisite no longer frees its to-do. The batcher takes `--met done,answered`, which the template
+  passes. It is required, so a call without it is refused instead of guessed. A wait is over only when everything
+  it names is in a met state. A to-do whose prerequisite ended any other way (dropped) stays waiting. The batcher
+  says why once, in the to-do's `stuck` field (event `todo.stuck`, no move; shown on the Items tab; cleared when the
+  to-do is freed). Test: `test_a_todo_whose_prerequisite_was_dropped_stays_waiting_and_says_why`.
+- A to-do waiting again is not freed by its old wait. Only the `waits_on` ids named by the event that last moved it
+  into waiting, or by an event after it, count. That event is found by its id among the to-do's events in seq
+  order, not by time. If the move cannot be found (rolled up), the to-do stays waiting and `stuck` says so. The
+  fold is unchanged (waits_on still folds as a relation), the most reversible choice, since the generic fold and
+  every other kind stay as they are; so `why` still lists the old link, skipped as finished. Test:
+  `test_a_todo_waiting_again_is_not_freed_by_the_wait_it_had_before`.
+- Both new tests failed with the code they guard broken (freeing on any declared finished state; counting every
+  `waits_on` id). Run one file at a time, all passing: test_todo_template, test_templates, test_library_trust,
+  test_why, test_finished_states; ruff clean. demo_check, the whole unit suite and the browser files were not run
+  here (no page changed). Main has not moved since the round-1 merge.

@@ -24,7 +24,7 @@ params:
   kind:
     type: name
     default: ${name}
-    description: 'the kind of item; ids KIND/<id>; its events KIND.added (new), KIND.ready, KIND.done, KIND.started, KIND.waiting, KIND.dropped; its fields title, requester, where, instructions (a list of steps, each a text or {do, run, check}), due, waits_on and notes'
+    description: 'the kind of item; ids KIND/<id>; its events KIND.added (new), KIND.ready, KIND.done, KIND.started, KIND.waiting, KIND.dropped; its fields title, requester, where, instructions (a list of steps, each a text or {do, run, check}), due, waits_on and notes; stuck, KIND.stuck, is the batcher''s: why a waiting one stays waiting though its wait ended (what it waited on was dropped)'
   wait-kind:
     type: name
     default: ${name}-wait
@@ -72,7 +72,7 @@ items:
       waits_on:
         kind: ["${kind}", "${wait-kind}"]
         precedence: true
-    show: [title, where, due, requester]
+    show: [title, where, due, requester, stuck]
   ${wait-kind}:
     id: ${wait-kind}/*
     description: something a to-do waits on that someone else does (a person's answer, an outside change), recorded by hand
@@ -197,7 +197,7 @@ blocks:
     out: flow.doing
   batcher:
     type: program
-    description: frees the waiting to-dos whose wait is over, then regroups the ready ones by place, one batch item a place (it reads the record and prints events; it runs nothing else)
-    run: ${lib} todo batches --kind ${kind} --batch-kind ${batch-kind} --flow flow.freed
+    description: frees the waiting to-dos whose wait is over (what they wait on done or answered; one dropped keeps them waiting, said in their stuck field), then regroups the ready ones by place, one batch item a place (it reads the record and prints events; it runs nothing else)
+    run: ${lib} todo batches --kind ${kind} --batch-kind ${batch-kind} --met done,answered --flow flow.freed
     every: ${regroup}
     out: flow.freed

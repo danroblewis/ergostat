@@ -48,7 +48,8 @@ def add(p, iid, event, at, **data):
 
 def batcher(p, capsys, record=True) -> list[dict]:
     """One pass of the batcher, as its block runs it; what it says is recorded, as the engine records a block's lines."""
-    assert todo.main(["batches", "--kind", "todo", "--batch-kind", "todo-batch", "--flow", "flow.todo-freed"]) == 0
+    assert todo.main(["batches", "--kind", "todo", "--batch-kind", "todo-batch", "--met", "done,answered",
+                      "--flow", "flow.todo-freed"]) == 0
     lines = [json.loads(x) for x in capsys.readouterr().out.splitlines() if x.startswith("{")]
     for x in lines:
         if record and "event" in x:
@@ -145,6 +146,48 @@ def test_a_waiting_todo_is_freed_once_everything_it_waits_on_is_finished(tmp_pat
     assert [x["item"] for x in lines if x.get("event") == "todo.freed"] == ["todo/open"]
     assert {"out": "flow.todo-freed", "moved": 1} in lines
     assert [x["data"]["todos"] for x in batcher(p, capsys) if x.get("item") == "todo-batch/bastion-b"] == [["todo/open"]]
+
+
+def test_a_todo_whose_prerequisite_was_dropped_stays_waiting_and_says_why(tmp_path, monkeypatch, capsys):
+    """Dropped is finished but did not happen: the person is not sent to a place they cannot reach."""
+    p = project(tmp_path, monkeypatch)
+    add(p, "todo/access", "todo.ready", 300, title="Request access to build-host")
+    add(p, "todo/clean", "todo.waiting", 290, title="Clean the cache", where="build-host", waits_on="todo/access")
+    add(p, "todo/access", "todo.dropped", 200, notes="access refused")
+    lines = batcher(p, capsys)
+    assert not [x for x in lines if x.get("event") == "todo.freed"] and {"out": "flow.todo-freed", "moved": 0} in lines
+    assert all(x["item"] != "todo-batch/build-host" for x in lines if "event" in x)
+    stuck = [x for x in lines if x.get("event") == "todo.stuck"]
+    assert [x["item"] for x in stuck] == ["todo/clean"] and "todo/access ended dropped" in stuck[0]["data"]["stuck"]
+    assert [x for x in batcher(p, capsys) if "event" in x] == [], "said once, not every pass"
+    c = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/clean"]
+    assert c.state == "waiting" and "todo/access ended dropped" in c.fields["stuck"]
+    assert not why(p, "todo/clean")["done"]
+    add(p, "todo/access2", "todo.done", 100)                     # waited again, on a new prerequisite, which happened
+    add(p, "todo/clean", "todo.waiting", 90, waits_on={"set": ["todo/access2"]})
+    lines = batcher(p, capsys)
+    assert [x["item"] for x in lines if x.get("event") == "todo.freed"] == ["todo/clean"]
+    c = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/clean"]
+    assert c.state == "ready" and c.fields["stuck"] is None
+
+
+def test_a_todo_waiting_again_is_not_freed_by_the_wait_it_had_before(tmp_path, monkeypatch, capsys):
+    """The same to-do waits a second time with only a note: the earlier, finished waits_on is not this wait."""
+    p = project(tmp_path, monkeypatch)
+    add(p, "todo/a", "todo.ready", 300, title="a")
+    add(p, "todo/b", "todo.waiting", 290, title="b", waits_on="todo/a")
+    add(p, "todo/a", "todo.done", 280)
+    assert [x["item"] for x in batcher(p, capsys) if x.get("event") == "todo.freed"] == ["todo/b"]
+    add(p, "todo/b", "todo.waiting", 100, notes="waiting on a phone call")
+    for _ in range(2):
+        lines = batcher(p, capsys)
+        assert not [x for x in lines if x.get("event") == "todo.freed"], lines
+    b = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"]
+    assert b.state == "waiting" and b.fields["waits_on"] == ["todo/a"]
+    add(p, "todo/b", "todo.noted", 50, waits_on="todo/c")           # a wait named after it entered waiting counts
+    add(p, "todo/c", "todo.done", 40)
+    lines = batcher(p, capsys)
+    assert [x["item"] for x in lines if x.get("event") == "todo.freed"] == ["todo/b"]
 
 
 def test_a_todo_dropped_while_the_batcher_frees_it_stays_dropped(tmp_path, monkeypatch, capsys):
