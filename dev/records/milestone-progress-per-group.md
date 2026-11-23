@@ -60,3 +60,13 @@ header's project switcher to list a second ergostat site in the same home. This 
 switcher or project discovery. It was not run on clean main here because making a worktree of main was refused in
 this session, so whether main fails it too is not known; the factory's rerun on clean main decides. Not run here: the
 other three browser files and the whole unit suite (the factory's).
+
+Round 2. The one finding (relations.py: `done_when` checked only when truthy, so null, `[]`, `false`, `0` or `""`
+crashed model load with AttributeError) is fixed: the key is checked whenever it is present, and anything but a
+non-empty map on a group relation is refused as bad-relation at `done_when`. An empty map `{}` is now refused too
+(SPEC already said "an empty map" is refused). The test `test_done_when_is_a_groups_map_of_its_states` adds null,
+`[]`, `false`, `0`, `""` and `{}` and asserts the refusal names `done_when`; with the old check it was seen to fail
+(AttributeError at relations.py:116). SPEC §5a's sentence names the case. No other findings were raised.
+Run here: tests/test_group_progress.py, tests/test_relations.py, tests/test_spec_schema.py (73 passed),
+tests/test_milestones.py, tests/test_milestone_frames.py (42 passed), ruff clean. The browser file was not run again
+(no page code changed this round).

@@ -1416,7 +1416,7 @@ record is not known to be finished), and its set (`where=REL:ID`; none: `REL:nul
 Two kinds of member leave the total, counted apart: one in a finished state the relation's `done_when` names whose
 fields do not match it (`milestone: {kind: milestone, group: true, done_when: {closed: {end: done}}}`: a gap closed as
 a duplicate, or abandoned, or with no end said, is no done work; `check` refuses a state the kind lacks, an empty map,
-a value that is not a string, number, boolean or null, or a list of them, and `done_when` on a relation that is not a
+a key given with no map (null, `[]`, `false`, `0`, `""`: refused at the key, never a crash), a value that is not a string, number, boolean or null, or a list of them, and `done_when` on a relation that is not a
 group), and one that is itself a group of members of its kind by another group relation (a split parent: counted as
 its parts, wherever they are). A member whose field holds anything but one id (a list) is in no row, and said. Rows run
 by the group's status (active first, then queued, unblocked, blocked, paused, dead, done), then when it was first

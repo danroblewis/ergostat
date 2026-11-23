@@ -180,13 +180,15 @@ def test_done_when_is_a_groups_map_of_its_states(tmp_path):
         fold: {epic: replace}
     """
     for ok, v in ((True, "{done: {why: [fixed, shipped]}}"), (False, "{nowhere: {why: x}}"), (False, "{done: {}}"),
-                  (False, "{done: {why: {a: 1}}}"), (False, "[done]")):
+                  (False, "{done: {why: {a: 1}}}"), (False, "[done]"), (False, "null"), (False, "[]"),
+                  (False, "false"), (False, "0"), (False, '""'), (False, "{}")):
         d = tmp_path / str(len(list(tmp_path.iterdir())))
         d.mkdir()
         (d / "ergostat.yaml").write_text(textwrap.dedent(base % v))
-        _, problems = read(d / "ergostat.yaml")
+        _, problems = read(d / "ergostat.yaml")                       # refused at the key: never a crash
         errors = [str(x) for x in problems if x.level == "error"]
         assert (not errors) is ok, (v, errors)
+        assert ok or any("done_when" in e for e in errors), (v, errors)
 
 
 TICKETS = """
