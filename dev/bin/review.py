@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
+import aihold  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
 import implement  # noqa: E402
@@ -196,6 +197,9 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
     except fac.OverBudget as e:
         fac.nack(f"budget: {e}", after="1h", count=False)
         return 0
+    except aihold.Limited:                       # a limit stop is no review round: review-started's count taken back
+        fac.say("gap.measured", reviews_n=-1)
+        raise
     v = verdict(str(got.get("result", "")))
     v["blocking"] = blocking + v["blocking"]
     if v["blocking"] and v["verdict"] == "merge":

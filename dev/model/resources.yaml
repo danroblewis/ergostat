@@ -72,6 +72,11 @@ auxiliaries:
     unit: GB
     description: the memory the Docker VM may use (docker info)
     sensor: {run: python3 dev/bin/resources.py vm-memory, every: 10m, timeout: 25s, description: the resources sensor}
+  vm-open-files:
+    unit: files
+    description: the files Docker Desktop's VM holds open (macOS only); its file sharing keeps one for each file a container read through a bind mount, and its limit is 245,760
+    driven-by: [+stock.gaps-queued, +stock.gaps-building]
+    sensor: {run: python3 dev/bin/resources.py vm-open-files, every: 10m, timeout: 3m, description: the resources sensor}
   vm-cpu-utilisation:
     unit: share
     description: every container's CPU (docker stats) against the VM's CPUs
@@ -124,6 +129,11 @@ goals:
     hold: "<= 10000"
     tolerance: 0
     description: the host's threads well below where this Mac panicked (no new session past it)
+  vm-open-files-within:
+    auxiliary: vm-open-files
+    hold: "<= 150000"
+    tolerance: 0
+    description: Docker's VM well below its 245,760 open files (shown, never gating; a leak is seen before the engine fails)
   sessions-fit:
     auxiliary: session-headroom
     hold: ">= 1"
@@ -149,6 +159,11 @@ blocks:
       disk: goal.disk-free-enough.off
     expr: max(fit, cpu, memory, vm, threads, disk)
     out: [block.implement-when, block.review-when]
+  restart-docker:
+    type: external
+    description: the coordinator restarts Docker Desktop while its VM holds too many files open, which drops them (and restarts every container); nothing in the factory does it, and no gate reads the goal
+    in: goal.vm-open-files-within
+    out: auxiliary.vm-open-files
   cleanup-when:
     type: expr
     description: clean up while the factory's folders are past their size or the disk is short
