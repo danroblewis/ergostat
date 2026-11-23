@@ -319,6 +319,13 @@ def without_landed(text: str) -> str:
         "entering: merged, where: {merged_by: null}, over: 1d", "entering: merged, over: 1d")
 
 
+def without_stack_forward(text: str) -> str:
+    """A model file as main had it before merge-pipeline-stacks-merged-forward: no block stack-forward, nor its
+    sensor stale-stacks, its gate stack-forward-when or its flow sent-back-by-stack-forward."""
+    return re.sub(r"(?m)^  (?:stack-forward|stale-stacks|stack-forward-when|sent-back-by-stack-forward):\n(?:    .*\n)*",
+                  "", text)
+
+
 def factory_copy(where: Path, edit=lambda text: text) -> Path:
     """The factory's model in a folder of its own, each model file passed through ``edit``."""
     (where / "dev" / "model").mkdir(parents=True)
@@ -388,7 +395,8 @@ def test_a_joined_gap_that_lands_enters_the_landed_stock_once(tmp_path):
 @pytest.mark.slow
 def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, capsys, monkeypatch):
     """gaps-landed-stock: `ergostat check` on the model with gaps-landed says nothing it did not say without it, and
-    the Dynamics diagram draws the stock with the pipes into it."""
+    the Dynamics diagram draws the stock with the pipes into it. merge-pipeline-stacks-merged-forward: nor with the
+    block stack-forward and its sensor, goal and flow (removed from the model checked before, too)."""
     from ergostat import model as mdl
     from ergostat.cli import main, spec_cmds
     from ergostat.numbers import extremes_cache
@@ -403,9 +411,10 @@ def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, ca
         got = json.loads(capsys.readouterr().out)
         assert got["ok"], [x for x in got["found"] if x["level"] == "error"]
         return {x["id"] for x in got["found"] if x["level"] != "error"}
-    before = factory_copy(tmp_path / "before", without_landed)
+    before = factory_copy(tmp_path / "before", lambda t: without_stack_forward(without_landed(t)))
     old = "".join(x.read_text() for x in (before / "dev" / "model").iterdir())
     assert "\n  gaps-landed:" not in old and "to: gaps-landed" not in old and "merged_by: null" not in old
+    assert "stack-forward" not in old and "stale-stacks" not in old
     now = found(factory_copy(tmp_path / "now"))
     assert not [x for x in now if x.startswith(("extremes-running", "extremes-skipped"))]
     assert sorted(now - found(before)) == []
@@ -5314,6 +5323,132 @@ def test_finish_refuses_a_head_that_no_longer_holds_a_base(tmp_path):
     assert r.returncode == 0, r.stderr[-800:]
     said = json.loads(r.stdout.strip().splitlines()[-1])
     assert said.startswith(f"the branch no longer holds main or a base, merged in before it {sha[:12]}: refused"), said
+
+
+# ---- merge-pipeline-stacks-merged-forward: a moved base merged forward into the gaps stacked on it (dev/bin/stack.py)
+
+def commit_on(f: Factory, name: str, files: dict[str, str], approve: bool = True) -> str:
+    """A commit of ``files`` on factory/<name> in the drop; ``approve``: its gap approved again at it. (the commit)"""
+    drop = f.tmp / "live" / "drop.git"
+    git(f.checkout, "fetch", "-q", str(drop), f"refs/heads/factory/{name}")
+    git(f.checkout, "checkout", "-q", "--detach", "FETCH_HEAD")
+    for p, text in files.items():
+        (f.checkout / p).write_text(text)
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", f"{name} again")
+    sha = git(f.checkout, "rev-parse", "HEAD")
+    git(f.checkout, "push", "-q", str(drop), f"HEAD:refs/heads/factory/{name}")
+    git(f.checkout, "checkout", "-q", "main")
+    if approve:
+        f.fold([{"event": "gap.approved", "item": f"gap/{name}", "data": {"reviewed_head": sha}}], None)
+    return sha
+
+
+def tip(f: Factory, name: str) -> str:
+    return git(f.tmp / "live" / "drop.git", "rev-parse", f"refs/heads/factory/{name}")
+
+
+def parents(f: Factory, sha: str) -> list[str]:
+    return git(f.tmp / "live" / "drop.git", "log", "-1", "--format=%P", sha).split()
+
+
+def stale_stacks(f: Factory) -> str:
+    """The sensor stale-stacks' reading (`stack.py stale`)."""
+    r = subprocess.run([sys.executable, str(BIN / "stack.py"), "stale"], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+def test_a_moved_base_is_merged_forward_into_an_approved_descendant(tmp_path):
+    f = Factory(tmp_path)
+    old = stacked_gaps(f, {"a": 1, "b": 2})
+    assert stale_stacks(f) == "0"
+    new = commit_on(f, "a", {"a2.txt": "a's fix round"})                  # a re-approved at a new head
+    assert stale_stacks(f) == "1"
+    said, _ = f.run("stack.py")
+    assert said == ["gap.measured"]
+    b, head = f.item("gap/b"), tip(f, "b")
+    assert parents(f, head) == [old["b"], new]                            # a merge of a's new head, --no-ff
+    assert git(tmp_path / "live" / "drop.git", "log", "-1", "--format=%s", head) == \
+        f"Merge gap/a ({new[:12]}) forward into the branch"
+    assert b["state"] == "approved" and b["fields"]["reviewed_head"] == head
+    assert b["fields"]["reviewed_by"] == "stack-forward" and b["fields"]["stacked_on"] == [{"gap": "gap/a", "sha": new}]
+    assert stale_stacks(f) == "0"
+    said, _ = f.run("stack.py")                                           # done: a pass more does nothing
+    assert said == [] and tip(f, "b") == head
+    f.fold([{"event": "gap.merged", "item": "gap/a", "data": {}}], None)  # a lands: nothing to do but stacked_on
+    said, _ = f.run("stack.py")
+    assert said == ["gap.measured"] and tip(f, "b") == head and f.item("gap/b")["fields"]["stacked_on"] == []
+    assert f.item("gap/b")["fields"]["reviewed_head"] == head
+
+
+def test_a_conflicting_merge_forward_sends_the_descendant_to_fix(tmp_path):
+    f = Factory(tmp_path)
+    stacked_gaps(f, {"a": 1, "b": 2})
+    mine = commit_on(f, "b", {"a.txt": "b's own a"}, approve=False)
+    f.fold([{"event": "gap.measured", "item": "gap/b", "data": {"reviewed_head": mine}}], None)
+    new = commit_on(f, "a", {"a.txt": "a's fix round"})
+    said, _ = f.run("stack.py")
+    assert said == ["gap.sent-back"]
+    b = f.item("gap/b")["fields"]
+    assert f.item("gap/b")["state"] == "fix" and b["stack_conflict"] == ["a.txt"] and b["sent_back_by"] == "stack-forward"
+    assert "failed_gates" not in b and "gap/a" in b["findings"][0] and "a.txt" in b["findings"][0]   # uncounted
+    assert tip(f, "b") == mine and not holds(tmp_path / "live" / "drop.git", new, mine)              # aborted
+    assert stale_stacks(f) == "0"                     # in fix: its next round merges the bases itself (implement.py)
+    said, _ = f.run("stack.py")                       # a pass more: no clone, no second sent-back
+    assert said == [] and f.item("gap/b")["fields"] == b
+    review = ["a blocking finding of its review"]     # a fix gap with a review's findings, its base moved again
+    f.fold([{"event": "gap.measured", "item": "gap/b", "data": {"findings": review}}], None)
+    commit_on(f, "a", {"a3.txt": "a's next fix round"})
+    said, _ = f.run("stack.py")
+    assert said == [] and f.item("gap/b")["fields"]["findings"] == review and tip(f, "b") == mine
+
+
+def test_a_leased_descendant_is_not_merged_forward(tmp_path):
+    for state in ("leased", "building", "in-review"):
+        (tmp_path / state).mkdir()
+        f = Factory(tmp_path / state)
+        old = stacked_gaps(f, {"a": 1, "b": 2})
+        db = f.db()
+        db["items"]["gap/b"]["state"] = state
+        f.record.write_text(json.dumps(db))
+        before = f.item("gap/b")
+        commit_on(f, "a", {"a2.txt": "a's fix round"})
+        said, _ = f.run("stack.py")
+        assert said == [] and tip(f, "b") == old["b"] and f.item("gap/b") == before, state
+        assert stale_stacks(f) == "0"
+
+
+def test_a_stack_of_three_moves_forward_in_one_pass(tmp_path):
+    f = Factory(tmp_path)
+    old = stacked_gaps(f, {"c": 1, "b": 2, "a": 3})                       # c on b on a... named so the ids sort top-down
+    new = commit_on(f, "c", {"c2.txt": "c's fix round"})                  # the bottom moves
+    said, _ = f.run("stack.py")
+    assert said == ["gap.measured"] * 2                                   # b, then a, in the one pass
+    b, a = tip(f, "b"), tip(f, "a")
+    assert parents(f, b) == [old["b"], new] and parents(f, a) == [old["a"], b]
+    assert f.item("gap/a")["fields"]["stacked_on"] == [{"gap": "gap/b", "sha": b}]
+    assert f.item("gap/a")["fields"]["reviewed_head"] == a and f.item("gap/a")["state"] == "approved"
+    assert holds(tmp_path / "live" / "drop.git", new, a)
+
+
+def test_a_branch_moved_during_the_merge_forward_is_refused_and_theirs_kept(tmp_path):
+    f = Factory(tmp_path)
+    stacked_gaps(f, {"a": 1, "b": 2})
+    commit_on(f, "a", {"a2.txt": "a's fix round"})
+    theirs = commit_on(f, "b", {"theirs.txt": "x"}, approve=False)        # made now, pushed during the merge
+    git(tmp_path / "live" / "drop.git", "update-ref", "refs/heads/factory/b", f"{theirs}^")
+    code = (f"import sys, subprocess; sys.path[:0] = [{str(BIN)!r}]; import agents, stack\n"
+            "clone = agents.clone\n"
+            "def moved(*a, **k):\n    got = clone(*a, **k)\n"
+            f"    subprocess.run(['git', '-C', {str(tmp_path / 'live' / 'drop.git')!r}, 'update-ref', "
+            f"'refs/heads/factory/b', {theirs!r}], check=True)\n    return got\n"
+            "agents.clone = moved\nsys.exit(stack.main([]))")
+    r = subprocess.run([sys.executable, "-c", code], cwd=f.model, env=f.env, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert '"event"' not in r.stdout and "moved from" in r.stderr and "refused (theirs kept)" in r.stderr
+    assert tip(f, "b") == theirs and "reviewed_by" not in f.item("gap/b")["fields"]
 
 
 # ---- the suites' -r: pytest's -r replaces its default fE, so a -r without f and E prints no FAILED or ERROR line
