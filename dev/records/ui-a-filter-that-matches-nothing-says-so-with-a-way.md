@@ -223,3 +223,5 @@ kept: `total` for `found`, and main's `[flows, gps]`. pages.js is still +19/-8 a
   `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out at the `#project` switcher wait
   (tests/test_items_page.py:2342), as in rounds 3 to 8. This branch does not touch the header or the switcher
   (lesson 13). Not run: the unit suite, the other three browser files, demo_check (no example touched).
+- Refused here: one compound `git add … && git commit -q -m "…" && git status --short | … ; git log --oneline -2`
+  (the add, the commit and the log were run one at a time instead).
