@@ -16,7 +16,7 @@ from .store import home
 # of its record, and the page's header asks for the list while it is open.
 RUNNING_FRESH = 60.0
 STOPPED_FRESH = 600.0
-_ROWS: dict = {}                 # state folder: (key, row, files, when)
+_ROWS: dict = {}                 # state folder: (key, row, files, when, model kept when it runs)
 _ONE_AT_A_TIME = threading.Lock()
 
 
@@ -30,15 +30,16 @@ def _times(files) -> tuple:
     return tuple(out)
 
 
-def _row(d: Path, note: dict, pid: int | None) -> tuple[dict, list]:
+def _row(d: Path, note: dict, pid: int | None, m=None) -> tuple[dict, list, object]:
+    """The folder's row, its model's files and its model (``m``: the one already loaded, its files unchanged)."""
     from . import model as mdl
     from . import state as st
     from .runner import web_url
     from .store import Project
     try:
-        m = mdl.load(Path(note["repo"]))
+        m = m if m is not None else mdl.load(Path(note["repo"]))
     except Exception as e:                       # a repository moved or its model broken: say so, don't stop
-        return {"name": d.name, "repo": None, "error": f"{type(e).__name__}: {e}"}, []
+        return {"name": d.name, "repo": None, "error": f"{type(e).__name__}: {e}"}, [], None
     p = Project(m, d, note=False)                # read only: another project's note is its own to write
     snap = st.snapshot(p)
     g = st.goals_off(snap, names=True)
@@ -47,7 +48,7 @@ def _row(d: Path, note: dict, pid: int | None) -> tuple[dict, list]:
             "loops": len(snap["loops"]), "off": sorted(g["system"] + g["open"]), "unknown": g["unknown"],
             "upkeep_off": sorted(n for v in g["own"].values() for n in v),
             "goals_off": g["system"],          # the header's first figure: the system's goals off, upkeep apart
-            "attention": len([a for a in st.attention(snap, bool(pid), m) if a["level"] != "hint"])}, files
+            "attention": len([a for a in st.attention(snap, bool(pid), m) if a["level"] != "hint"])}, files, m
 
 
 def known(fresh: bool = False) -> list[dict]:
@@ -65,18 +66,44 @@ def known(fresh: bool = False) -> list[dict]:
             except (OSError, ValueError) as e:
                 out.append({"name": d.name, "repo": None, "error": f"{type(e).__name__}: {e}"})
                 continue
-            pid = running_pid(SimpleNamespace(dir=d), wait=False)
-            was = _ROWS.get(d)
-            key = (text, pid, _times(was[2]) if was else None)
-            if not fresh and was and was[0] == key and now - was[3] < (RUNNING_FRESH if pid else STOPPED_FRESH):
-                out.append(was[1])
-                continue
-            row, files = _row(d, note, pid)
-            _ROWS[d] = ((text, pid, _times(files)), row, files, now)
-            out.append(row)
+            out.append(_cached(d, text, note, running_pid(SimpleNamespace(dir=d), wait=False), now, fresh))
         for d in [x for x in _ROWS if x not in seen]:      # forgotten (ergostat reset): let go of it
             del _ROWS[d]
         return out
+
+
+def _cached(d: Path, text: str, note: dict, pid, now: float, fresh: bool) -> dict:
+    """A folder's row from ``_ROWS`` while it holds (see ``RUNNING_FRESH``), else worked out again: a running project's
+    model is kept while its files are unchanged, so only its snapshot is taken again. Under ``_ONE_AT_A_TIME``."""
+    was = _ROWS.get(d)
+    key = (text, pid, _times(was[2]) if was else None)
+    if not fresh and was and was[0] == key and now - was[3] < (RUNNING_FRESH if pid else STOPPED_FRESH):
+        return was[1]
+    row, files, m = _row(d, note, pid, was[4] if was and was[0] == key and pid and not fresh else None)
+    _ROWS[d] = ((text, pid, _times(files)), row, files, now, m if pid else None)
+    return row
+
+
+def running() -> dict:
+    """The header's list: each project whose engine runs (``running_pid``), with its row as ``known`` gives it (its page
+    from ``web.json``, its goals off; kept as ``known`` keeps it), and how many are stopped: those are counted by their
+    folders, no model loaded. Worked out off the request path (the page server's lister, ``web/server.py``)."""
+    from .runner import running_pid
+    rows, stopped = [], 0
+    with _ONE_AT_A_TIME:
+        for f in sorted(home().glob("*/repo.json")):
+            d = f.parent
+            pid = running_pid(SimpleNamespace(dir=d), wait=False)
+            if not pid:
+                stopped += 1
+                continue
+            try:
+                text = f.read_text()
+                row = _cached(d, text, json.loads(text), pid, time.monotonic(), False)
+            except Exception as e:                   # its note or its record unreadable: listed, with why
+                row = {"name": d.name, "repo": None, "error": f"{type(e).__name__}: {e}"}
+            rows.append(dict(row, running=True) if "error" in row else row)   # listed with why it has no page
+    return {"running": rows, "stopped": stopped, "at": time.time()}
 
 
 def orphans() -> list[dict]:

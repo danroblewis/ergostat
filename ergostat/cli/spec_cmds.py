@@ -353,14 +353,19 @@ def backfill(args) -> int | None:
             return out_json(got)
         for b in got:
             day = [time.strftime("%Y-%m-%d %H:%M", time.localtime(b[k])) if b[k] else "" for k in ("written_at", "first", "last")]
+            gone = time.strftime("%Y-%m-%d %H:%M", time.localtime(b["replaced"])) if b.get("replaced") else None
             print(f"{day[0]}  {b['count']} readings{f', {day[1]} to {day[2]}' if b['count'] else ''}"
-                  f"  from {b['from'] or '(not said)'}")
+                  f"  from {b['from'] or '(not said)'}" + (f"  (replaced {gone})" if gone else ""))
         print(f"{len(got)} backfill{'' if len(got) == 1 else 's'} of {name}")
         return 0
     derived = "items" if s.items else "changes" if s.changes else "builtin" if s.builtin else None
     if derived:
         print(f"sensor {name} is derived by ergostat ({derived}): only a sensor that records a value (run, query, "
               f"manual, daemon) takes backfilled readings", file=sys.stderr)
+        return 2
+    replace = getattr(args, "replace", False)
+    if replace and not args.from_:
+        print("refused, nothing written: --replace sets readings aside, and says why with --from TEXT", file=sys.stderr)
         return 2
     try:
         text = sys.stdin.read() if args.backfill == "-" else Path(args.backfill).read_text()
@@ -383,16 +388,18 @@ def backfill(args) -> int | None:
             return 2
         rows.append((at, value))
     try:
-        got = p.measurements.backfill(s.series, rows, args.from_)
+        got = p.measurements.backfill(s.series, rows, args.from_, replace=replace)
     except ValueError as e:                              # more than the store takes at once
         print(f"refused, nothing written: {e}", file=sys.stderr)
         return 2
     p.events.add("sensor.backfilled", source="ergostat", data={
         "sensor": name, "written": got["count"], "skipped": got["skipped"], "repeated": got["repeated"],
-        "first": got["first"], "last": got["last"], "from": args.from_, "backfill": got["id"]})
+        "first": got["first"], "last": got["last"], "from": args.from_, "backfill": got["id"],
+        **({"replaced": got["replaced"] or 0} if replace else {})})
     if args.json:
-        return out_json({k: got[k] for k in ("id", "count", "skipped", "repeated", "first", "last", "from")})
-    print(f"backfilled {name}: {got['count']} written, {got['skipped']} skipped (backfilled before)"
+        return out_json({k: got[k] for k in ("id", "count", "skipped", "repeated", "first", "last", "from", "replaced")})
+    print(f"backfilled {name}: " + (f"{got['replaced'] or 0} set aside, " if replace else "")
+          + f"{got['count']} written, {got['skipped']} skipped (backfilled before)"
           + (f", {got['repeated']} at a time another line had (the last kept)" if got["repeated"] else ""))
     return 0
 

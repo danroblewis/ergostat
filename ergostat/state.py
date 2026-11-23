@@ -316,6 +316,8 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         if held:
             loops[lp.name].update(per=g.per, breaking=held[1], breaking_n=held[2],
                                   **({"setpoint": f"{g.hold.op} {r:g}"} if r is not None else {}))
+        loops[lp.name]["off_by_words"] = off_by_words(loops[lp.name]["setpoint"], error, c.tolerance,
+                                                      getattr(m.stocks.get(c.holds), "unit", ""), status == "off")
 
     contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
@@ -616,6 +618,27 @@ LEVELS = {"bad": 0, "warn": 1, "hint": 2}
 UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
 
 
+def off_by_words(setpoint: str, error, tolerance: float = 0.0, unit: str = "", off: bool = False) -> str | None:
+    """How far a goal is from its bound, the one phrase every surface outside Blocks prints (Blocks says
+    e = r − y with its sign): ``off by 36 tickets`` past a <= or >= bound, ``28 short of 180`` below a
+    setpoint and ``12 over 80%`` above it, ``within its band`` inside its tolerance; None when not known.
+    ``off`` is the loop's status (Controller.status, with its hysteresis): an off loop is never worded as
+    inside, so it gets its distance even within its tolerance, and ``at its bound`` on a strict bound at e = 0."""
+    import re
+    got = re.match(r"\s*(<=|>=|==|[<>=≤≥])\s*(-?[\d.]+(?:e[-+]?\d+)?)", setpoint or "")
+    if error is None or not got:
+        return None
+    d, at = abs(error), float(got.group(2))
+    say = (lambda x: f"{fmt(x)}%") if unit == "%" else (lambda x: f"{fmt(x)} {unit}" if unit else fmt(x))
+    if off and not d:
+        return "at its bound"
+    if d and d <= tolerance and not off:
+        return "within its band"
+    if got.group(1) not in ("==", "="):
+        return f"off by {say(d)}" if d else "within its bound"
+    return f"{fmt(d)} {'short of' if error > 0 else 'over'} {say(at)}" if d else "on its setpoint"
+
+
 def goals_off(snap: dict, names: bool = False) -> dict:
     """The only count of goals not holding: ``system`` (off) and ``open`` count the goals no upkeep template made,
     ``own`` each upkeep template's goals off or open, ``unknown`` every goal without a reading (an upkeep goal's
@@ -662,7 +685,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                         "once each is back within the setpoint"})
         elif lp["status"] == "off":
             out.append({"level": "bad", "what": f"loop {name}", "says": f"{lp['stock']} is {fmt(lp['value'])}, "
-                        f"setpoint {setpoint_text(lp)} (off by {fmt(abs(lp['error']))})"})
+                        f"setpoint {setpoint_text(lp)} ({lp.get('off_by_words')})"})
         elif lp["status"] == "stale":
             does = {"act": "its controllers act on it as it was", "hold": "what it commands is held",
                     "off": "it counts as off"}[lp["on_stale"]]
@@ -754,8 +777,11 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
-             + (f". {en.command(e)}" if e["verbs"] else "")}
-            for e in snap.get("inbox", [])]
+             + (f". runs: {e['run']}" if e.get("run") else "") + (f". {en.command(e)}" if e["verbs"] else ""),
+             "first": e["summary"] + (f" because {by}" if by else ""), "age": human(e["age"]), "run": e.get("run"),
+             "cli": en.command(e), "record": e.get("record"), "suggest": e.get("suggest"),
+             "more": None if by else e.get("why") or None}         # an action's reason ends its sentence, said once
+            for e in snap.get("inbox", []) for by in [e["kind"] == "action" and not e.get("warn") and e.get("why")]]
     out = sorted(out, key=lambda a: LEVELS.get(a["level"], 1))           # problems first, then what waits on a person
     return [a for a in out if a["level"] == "bad"] + asks + [a for a in out if a["level"] != "bad"]
 
