@@ -651,7 +651,8 @@ class _Diagram:
                         f"({sensing.every_words(loop_T)}): a reading is up to T old, T/2 on average, so the feedback path is "
                         "drawn as a sampler, a delay of up to T.")
             else:
-                fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True}
+                fn = {"sym": "H", "sub": name, "arg": None, "expr": "1", "linear": True,
+                      **({"every": sensing.every_words(ex.every)} if ex.every and not (ex.manual or ex.cron) else {})}
                 math = [eq(sym("H", name), mn(1)), eq(sym("y", f"m,{name}"), sym("y", name))]
                 says = (f"the sensor on y_{name}: it reads {reads}. What it reads goes back to the loop as it is (H = 1): "
                         "the model gives it no dynamics" + (f", and its period ({Tw}"
