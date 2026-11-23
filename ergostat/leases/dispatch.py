@@ -87,6 +87,8 @@ class Dispatcher:
         self.dropped: dict[str, tuple] = {}           # run → (item, since, let go at|None): the ends given up (``failing``)
         self.holds = faults.Holds(eng)                # each queue held while its shared environment is not healthy
         self.marks: dict[str, int] = {}               # run → its block's count of unhealthy looks when it was taken
+        self.keeping: set[str] = set()                # runs their keepers hold (SPEC §9.1): never given back as we stop
+        self.adopted: set[str] = set()                # of those, the ones taken up from an engine before this one
 
     @property
     def spec(self):
@@ -367,17 +369,49 @@ class Dispatcher:
                 mine = self.going.get(b.name, {}).get(item["id"], {}).get("run") == run
                 if mine:
                     self.going[b.name].pop(item["id"], None)
-            if mine:                         # (its lease still held in the fold: a look counts it till it ends)
+                if out.get("left"):          # we stop, its keeper goes on: its lease stays held, for the next engine
+                    self.mine.pop(run, None)
+            if mine and not out.get("left"):  # (its lease still held in the fold: a look counts it till it ends)
                 try:
                     self.finish(b, item["id"], lease["fence"], run, out)
                 except Exception as e:                         # the watchdog ends it later
                     self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
+            if not out.get("left"):
+                self.keeping.discard(run)
+                if out.get("done"):          # a kept run's files, once its lease's end is written (SPEC §9.1)
+                    out["done"]()
             with self.e.lock:
                 self.e._read_moved(moved, run)              # (its shard's; another's reads them itself)
                 self.e.running.discard(f"{b.name} {item['id']}")
                 self.e.finished[b.name] = time.time()
         self.e.poke(b.name)
         return moved
+
+    def adopt(self, b, item: str, fence: int, run: str, live: bool) -> None:
+        """A kept run an engine before this one started, taken up (``spec/adopt.py``): its lease is ours to end, and
+        never given back as we stop. Still going, its lease is renewed now: the time no engine was up is not held
+        against it (a lease held by another, a newer fence, is left as it is: the fold refuses its run's lines)."""
+        with self.lock:
+            self.ours.add(run)
+            self.mine[run] = (b, item, fence)
+            self.keeping.add(run)
+            self.adopted.add(run)
+            self.going.setdefault(b.name, {})[item] = {"run": run, "fence": fence, "block": b}
+        if live:
+            self.renew(item, run, fence, "taken up")
+
+    def renew(self, item: str, run: str, fence: int, seen: str) -> None:
+        it = its.one(self.p.events, self.spec, item)
+        lease = held(it.fields) if it else None
+        if lease and lease.get("holder") == run and lease.get("fence") == fence:
+            self.p.events.add(RENEWED, item=item, source=SOURCE, data={"run": run, "fence": fence, "seen": seen})
+
+    def taken_up_ended(self, block: str, item: str | None, run: str) -> None:
+        with self.lock:
+            if item and self.going.get(block, {}).get(item, {}).get("run") == run:
+                self.going[block].pop(item, None)
+            self.keeping.discard(run)
+            self.adopted.discard(run)
 
     def give_back(self, block: str | None = None, item: str | None = None) -> None:
         """Ergostat stopping: each lease taken here and still going (or the one named) is given back, not counted, so
@@ -390,6 +424,7 @@ class Dispatcher:
                     if (block, item) in ((None, None), (name, i)) and (g := runs.pop(i))]
             if block is None:                                  # and every lease taken here not ended yet (its run's
                 back += [(b, i, f, run) for run, (b, i, f) in self.mine.copy().items()]   # own end failed, or under way)
+            back = [x for x in back if x[3] not in self.keeping]   # (a run its keeper holds goes on, its lease with it)
         finally:
             self.lock.release()
         for b, i, fence, run in back:
@@ -527,6 +562,11 @@ class Dispatcher:
                 self.e.say(f"leases: ending the lease on {it.id}: {type(e).__name__}: {e}: it expires")
             self.ending.pop(lease["holder"], None)
             return self.expire(it, lease, now, ttl)
+        if lease["holder"] in self.adopted:                # taken up: its keeper says whether it lives (SPEC §9.1)
+            proc = self.e.live.get(lease["holder"])
+            if proc is not None and proc.poll() is None:
+                return self.renew(it.id, lease["holder"], lease["fence"], "keeper")
+            return                                         # (ended: its end is being written, by its own thread)
         seen = self.activity(it.id, lease)
         if seen is not None and seen > now - ttl:
             self.p.events.add(RENEWED, item=it.id, source=SOURCE, at=seen,

@@ -35,7 +35,7 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from .. import mirror
+from .. import mirror, store
 from .. import runner as old
 from ..compute.worker import keeper
 from ..costs import ai as costs_ai
@@ -45,8 +45,8 @@ from ..costs.sampler import SAMPLER, Measured
 from ..library import bounds, reap
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
+from . import adopt, runrecord, stream, triggers
 from . import blocks as bl
-from . import runrecord, stream, triggers
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
 from .observer import KEEP, PORTS, RUN, Observer, estimated, opted, stale_age
@@ -1078,9 +1078,7 @@ class Engine:
 
         trip: list[bool] = []
 
-        def take(got: list[str]) -> None:                       # its lines, as they arrive (SPEC §9.1)
-            n = len(usage.parts)
-            got = costs_ai.expand(usage, got)                   # (what its AI sessions cost, taken as they say it)
+        def logged(got: list[str], n: int) -> None:             # (after its AI usage was taken: it had n parts before)
             if reserve is not None and len(usage.parts) > n and budget.tripped(usage.parts, reserve):
                 from ..leases import kill as lease_kill
                 trip.append(True)                               # T1: its process group stopped (SPEC §9.9)
@@ -1089,8 +1087,14 @@ class Engine:
                 if not raw.strip().startswith("{"):
                     lf.write(raw if raw.endswith("\n") else raw + "\n")
             lf.flush()
+
+        def take(got: list[str]) -> None:                       # its lines, as they arrive (SPEC §9.1)
+            n = len(usage.parts)
+            got = costs_ai.expand(usage, got)                   # (what its AI sessions cost, taken as they say it)
+            logged(got, n)
             said.lines(got)
         lf, back, tail, unread = rl.file if rl else None, None, "", ""
+        kept_end = None                                          # a kept run's files and keeper, let go once it ended
         try:
             if rl is None:                                       # (no log of its own: not started)
                 pass
@@ -1103,9 +1107,9 @@ class Engine:
             else:
                 kept = spec.outlive_engine                   # held by a keeper, never stopped with us (SPEC §9.1)
                 name = begun["id"] if not kept or keeper.RUN.fullmatch(begun["id"]) else uuid.uuid4().hex
-                files, proc = runrecord.files(self.p.dir, name), None   # its input, output, exit, record
+                # its input, output, exit, record; kept: its output its journal, appended, and the offset read to
+                files, proc = (adopt.files if kept else runrecord.files)(self.p.dir, name), None
                 if kept:
-                    files["out"] = files["out"].with_suffix(".jsonl")    # its journal: what it prints, appended
                     env["ERGOSTAT_JOURNAL"] = str(files["out"])
                 try:
                     if refused:
@@ -1132,6 +1136,8 @@ class Engine:
                 else:
                     if not kept:                                 # (kill_all's: a kept run is left going)
                         old.LIVE.add(proc)
+                    elif item:                                   # (and its lease with it, as we stop)
+                        self.dispatch.keeping.add(begun["id"])
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
@@ -1141,16 +1147,17 @@ class Engine:
                     tracked, left = SAMPLER.track(proc), False      # its process tree's CPU and memory, sampled
                     try:
                         proc.watch = reap.Watch(proc.pid)            # what it starts, for a lease kill (leases/kill.py)
-                        got = (stream.follow(proc, files["out"], b.timeout, take, self.stop) if kept
-                               else stream.follow(proc, files["out"], b.timeout, take))    # (off: the call as before)
+                        got = (stream.follow(proc, files["out"], b.timeout,
+                                             adopt.taker(said, usage, files["offset"], logged), self.stop, start=0)
+                               if kept else stream.follow(proc, files["out"], b.timeout, take))   # (off: as before)
                         left = got is None                           # we stop, it goes on: its end is not ours
                         if got or kept and not left and proc.how() == "timeout":   # (its keeper's, should that
                             note = f"stopped after its timeout of {b.timeout:g}s"     # come first)
                     finally:
-                        if not left:
+                        if kept and not left:                        # (kept till its end is recorded: SPEC §9.1)
+                            kept_end = (files, proc)
+                        elif not left:
                             runrecord.remove(files)                  # read to its end: nothing left to take again
-                            if kept:
-                                proc.release()
                         resources = SAMPLER.finish(tracked)
                         if getattr(proc, "watch", None):
                             proc.watch.close(look=False)         # (its run is over: no last ps)
@@ -1164,7 +1171,9 @@ class Engine:
                             killed = self.killing.pop(begun["id"], None)
                     if left:                                     # no agent.ran: its journal and its keeper's exit
                         self.say(f"{b.name}: its run {begun['id'][:8]} goes on without us ({files['out']})")
-                        return []                                # are what is left of it (SPEC §9.1)
+                        if outcome is not None:                  # are what is left of it, for the next engine to
+                            outcome["left"] = True               # take up, its lease still held (SPEC §9.1)
+                        return []
                     code = proc.returncode
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
@@ -1218,8 +1227,13 @@ class Engine:
                 outcome["nack"] = {**back, "why": back.get("why") or note}
             if ready.full:                                       # no workspace free: given back, put off, not counted
                 outcome["nack"] = {"why": note, "after": POOL_FULL_AFTER, "count": False}
-        ended = ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data)
+        ended = ev.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=begun["id"], data=data,
+                       id=adopt.end_id(begun["id"]) if kept_end else None)   # (a kept run's: one end, SPEC §9.1)
         budget.OPEN.discard(begun["id"])                          # (ended: nothing after this closes it again)
+        if kept_end and item and outcome is not None:            # its files go once its lease's end is written too
+            outcome["done"] = lambda: adopt.let_go(*kept_end)
+        elif kept_end:
+            adopt.let_go(*kept_end)
         try:                                                     # its numbers as series of its block (SPEC §9.1)
             costs_record.write_series(self.p, b.name, data, ended["time"])
         except Exception as e:
@@ -1862,7 +1876,8 @@ class Engine:
         self.following = True                                    # it runs the actions programs ask for (SPEC §12k)
         if lead:
             threading.Thread(target=old.Runner._prune, args=(self,), daemon=True).start()   # it reads p, say and stop
-        self.dispatch.holding = True                             # leases held when it last stopped are watched at once
+        self.adopted = adopt.scan(self)                          # runs left going by the engine before: taken up, their
+        self.dispatch.holding = True                             # leases kept (before any look); the rest watched at once
         threading.Thread(target=self.dispatch.run, daemon=True).start()   # blocks that take items, their leases (SPEC §9.5)
         threading.Thread(target=self._record_follow, name="ergostat-record", daemon=True).start()
         self._ingest()
@@ -2092,19 +2107,28 @@ class Said:
         self.fence_why: str | None = None        # why its lease has ended: once it has, it stays ended
         self.fence_at: int | None = None         # the newest lease event about its item when it was last folded
 
-    def lines(self, raws: list[str]) -> None:
+    def lines(self, raws: list[str], ends: list[int] | None = None) -> None:
         """A batch of its lines, as they arrived: each taken in turn, the events among them recorded by the end of it.
-        One bad line never leaves the rest untaken."""
+        One bad line never leaves the rest untaken. ``ends``: where each line ends in its journal (a kept run's, SPEC
+        §9.1): the events a line makes have ids of that place (``store.line_id``), so a line taken again adds none."""
         self.fence_seen = False
-        for raw in raws:
-            try:
-                self.line(raw)
-            except Exception as err:
-                self.refuse(raw.strip()[:200], f"could not record it ({type(err).__name__}: {err})")
+        seed = [None, 0]
+        token = store.LINE.set(seed) if ends is not None else None
         try:
-            self.flush()
-        except Exception as err:                 # (the record could not take them: said, and the run goes on)
-            self.refuse(f"{len(raws)} lines", f"could not record them ({type(err).__name__}: {err})")
+            for i, raw in enumerate(raws):
+                if ends is not None and seed[0] != f"{self.run_id}:{ends[i]}":
+                    seed[:] = [f"{self.run_id}:{ends[i]}", 0]
+                try:
+                    self.line(raw)
+                except Exception as err:
+                    self.refuse(raw.strip()[:200], f"could not record it ({type(err).__name__}: {err})")
+            try:
+                self.flush()
+            except Exception as err:             # (the record could not take them: said, and the run goes on)
+                self.refuse(f"{len(raws)} lines", f"could not record them ({type(err).__name__}: {err})")
+        finally:
+            if token is not None:
+                store.LINE.reset(token)
 
     def flush(self) -> None:
         """The event lines waiting, recorded, in one write."""
@@ -2112,13 +2136,13 @@ class Said:
             return
         rows, self.pending = self.pending, []
         from ..store import ChangesetError
-        try:
-            self.e.p.events.add_many(rows, new=True)
+        try:                                     # (ids of a journal's lines: looked for, kept once)
+            self.e.p.events.add_many(rows, new=not any(r.get("id") for r in rows))
         except ChangesetError:                   # (each was checked when taken: one by one, each refused alone)
             for r in rows:
                 try:
                     self.e.p.events.add(r["type"], item=r.get("item"), source=r["source"], causedby=r["causedby"],
-                                        data=r.get("data"), patch=r.get("patch"), set=r.get("set"))
+                                        data=r.get("data"), patch=r.get("patch"), set=r.get("set"), id=r.get("id"))
                 except ChangesetError as err:
                     self.counts["events"] -= 1
                     self.refuse({k: r.get(k) for k in ("type", "item")}, str(err))
@@ -2307,7 +2331,7 @@ class Said:
                 self.refuse(obj, str(err))
                 return
             self.pending.append({"type": t, "item": obj.get("item"), "source": self.b.name, "causedby": self.run_id,
-                                 "data": data, **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None}})
+                                 "data": data, "id": store.line_id(), **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None}})
             self.counts["events"] += 1
             return
         r = self.target(obj)
