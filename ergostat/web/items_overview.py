@@ -36,6 +36,19 @@ def grouped(counts: dict[str, list[int]], groups: dict[str, str], n: int) -> dic
     return out
 
 
+def finished_in(ix, kind: str, finished: list[str], late: list, since: float, until: float) -> int:
+    """How many of ``kind``'s items first reached one of the card's ``finished`` states (``finish_of``'s, the same the
+    card counts unfinished by, so a paused, leased or queue state is never among them) between ``since`` and ``until``:
+    from the index, and the items changed since from their own moves."""
+    with ix.lock:
+        n = len(ix.finished(kind, finished, since, until, until_newest=until))
+    for i in late:
+        end = next((mv["time"] for mv in sorted(i.moves, key=lambda m: m["time"]) if mv["to"] in finished), None)
+        if end is not None and since <= end <= until:
+            n += 1
+    return n
+
+
 def overview(p, at: float, window: float, n: int = POINTS) -> dict:
     """The overview's answer, as of ``at`` over the ``window`` before it (from where the record starts, when younger)."""
     from ..spec.item_systems import OTHER, TITLES, groups, kind_systems
@@ -88,8 +101,9 @@ def overview(p, at: float, window: float, n: int = POINTS) -> dict:
         if k.states and flow is None:
             card["why"] = "most items changed since this moment: open the kind's own page"
         elif flow is not None:
-            fc, _, _, fin = flow
-            card.update({"counts": fc, "by_group": grouped(fc, sg, n), "left": len(fin), "rate_out": len(fin) / hours,
+            fc = flow[0]
+            gone = finished_in(ix, k.name, f["finished"], mine, since, until)
+            card.update({"counts": fc, "by_group": grouped(fc, sg, n), "left": gone, "rate_out": gone / hours,
                          "now_by_group": {g: v[0] for g, v in grouped({s: [now.get(s, 0)] for s in k.states}, sg, 1).items()}})
         card["quiet"] = active == 0 and total - done == 0 and "why" not in card
         out.append(card)

@@ -1628,7 +1628,8 @@ out when one fails.
 a dense grid (at 1440x900, sixteen or more in view on a record of the factory's shape), each with the kind's name (a link to its own page,
 `/items/KIND`), how many of its items are unfinished (not in a finished state) and how many in all, its states over the
 window as a small stacked chart with its legend at its right (under it on a phone), and its rate in (items that
-arrived in the window, per hour) and out (items that first reached a finished state in it, per hour). A kind with no
+arrived in the window, per hour) and out (items that first reached a finished state in it, per hour: the same finished states the unfinished count uses, so
+never a paused, `leased` or waiting state). A kind with no
 item that had an event in the window and none unfinished is not a card: such kinds are named on one line at the end.
 The overview lists no item and has no List, Graph or Timeline: those are on each kind's own page. By default each
 chart shows the kind's **state groups**: *done* its finished states, *stopped* its paused states and `dead`, *waiting*

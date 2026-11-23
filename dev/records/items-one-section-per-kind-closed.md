@@ -60,3 +60,15 @@ ruff clean. Not run here: the unit suite and the four browser files as wholes, a
 Unrelated failure: `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
 times out waiting for the header's project switcher to list the other running project (line 1455); it fails the same
 way when the test opens `/loops` instead of `/items`, so it is not this change (the project lister in this container).
+
+Round 2 (answering the one finding of the review, blocking):
+- Rate out and `left` were counted by `series._flow_indexed`'s finished set (`itemindex.done_states`: ignores
+  `messages: done:`, never excludes queue, `leased`, `dead` or paused states) while the card's unfinished count used
+  `finish_of`. Now `items_overview.finished_in` counts the items that first reached one of the card's own
+  `f["finished"]` states in the window (`ix.finished`, plus the items changed after the moment from their own moves).
+  New test `test_out_counts_only_the_cards_finished_never_a_paused_or_leased_state_never_left`: a kind with a `leased`
+  and a paused state that no item leaves, and an item finished in the window and changed after the moment; it was seen
+  failing (4 counted, not 2) with the old count put back. SPEC §5a's *out* sentence now says it uses the same finished
+  states as the unfinished count. Main (ead497d1) was already merged in; nothing newer.
+- Run here: `tests/test_items_overview.py` (7 passed); ruff clean. Not run here: the browser files and the unit suite
+  (this round changes no page script; the merge queue runs them).
