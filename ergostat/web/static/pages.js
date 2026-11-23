@@ -557,13 +557,18 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const p = page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
-  const more = h("p", { class: "note" });
+  const found = h("span", { class: "muted search-said", "aria-live": "polite" });   // a kind's: its matches, the finished apart
   let kind = q.get("kind"), state = q.get("state");
+  // a kind's page (SPEC §5a): a page of its items asked of the server, searched and sorted there; in the address as
+  // page=KIND:3, sort=KIND:-field and size=100 (a value for another kind is not this one's)
+  const ofKind = (v) => { const i = (v || "").indexOf(":"); return i < 0 ? v || "" : v.slice(0, i) === kind ? v.slice(i + 1) : ""; };
+  let pg = Math.max(1, parseInt(ofKind(q.get("page")), 10) || 1), size = [100, 300].includes(+q.get("size")) ? +q.get("size") : 25;
+  let asked = null;                                   // what the page shown was asked with: anything else starts at 1
   // how the items are shown (relations.js): as lists, as a graph of their relations, or as a timeline; the graph's
   // and the timeline's choices, in the address too
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
-  let sort = q.get("sort") || "";
+  let sort = ofKind(q.get("sort"));
   // both show the frontier (the unfinished, and what they wait on) with the finished collapsed, so the timeline opens
   // at now; unless asked otherwise
   const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
@@ -580,10 +585,11 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
                              ...Object.fromEntries(Object.entries(pm).filter(([, v]) => v && v.length)),
                              ...(spanned() && movedSince ? { moved_since: movedSince } : {}), ...(spanned() && movedUntil ? { moved_until: movedUntil } : {}) });
   const dropSet = () => { where = []; moved = movedSince = movedUntil = null; pm = { by: null, through: null, followed: null, caused: [] }; };
+  const paged = () => !!kind && !SNAP && !where.length && !spanned();
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
-  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), compose, box, rbox, more);
+  p.append(notes, h("div", { class: "filters" }, search, found, viewBar, chip), compose, box, rbox);
   let rbusy = false;
   const remoteTick = async (rs) => {
     if (rbusy || SNAP || !rs.length) return;
@@ -616,17 +622,20 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     try { await busy; } finally { busy = null; }
   }
   const ans = answers();
-  const go = () => { const u = new URLSearchParams(); if (state) u.set("state", state);
+  const go = (load = true) => { const u = new URLSearchParams(); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
-                     if (sort && view === "list") u.set("sort", sort);
+                     if (sort && view === "list") u.set("sort", paged() ? `${kind}:${sort}` : sort);
+                     if (paged() && view === "list" && pg > 1) u.set("page", `${kind}:${pg}`);
+                     if (paged() && view === "list" && size !== 25) u.set("size", String(size));
                      if (view !== "list") { u.set("view", view); for (const k of ["frontier", "collapse"]) if (ask[k] != null) u.set(k, ask[k] ? "1" : "0");
                                             if (view === "graph" && ro.group === "kind") u.set("group", "kind");
                                             if (ro.status) u.set("status", ro.status);
                                             if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
                      if (only && !kind) return navigate("/items" + (u.toString() ? "?" + u : ""));   // the kind let go
                      if (!kind && !u.toString()) u.set("view", "list");      // every kind's list (bare, /items is the overview)
-                     replaceRoute((kind ? `/items/${encodeURIComponent(kind)}` : "/items") + (u.toString() ? "?" + u : "")); refresh(); };
+                     const qs = u.toString().replace(/%3A/g, ":");      // page=gap:3, as it is read
+                     replaceRoute((kind ? `/items/${encodeURIComponent(kind)}` : "/items") + (qs ? "?" + qs : "")); if (load) refresh(); };
   search.addEventListener("input", () => go());
   let sysOf = {};                                      // each kind's system, as last listed
   const toggle = (sys) => {                            // a chosen kind's system is open: folding it lets the kind go
@@ -645,8 +654,16 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const needle = search.value.trim().toLowerCase();
     const folded = foldedSystems();
     let d;
+    const sortAsked = sort && view === "list" ? sort : "";
+    const sig = JSON.stringify([kind, state, search.value.trim(), sortAsked, size]);
+    if (asked != null && sig !== asked && pg !== 1) { pg = 1; go(false); }      // a new search, sort or filter: page 1
+    asked = sig;
+    const wanted = pg, per = size;
     try {
-      d = await ans.api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
+      d = paged() ? await ans.api("items", { kind, ...(state ? { state } : {}), n: size, offset: (pg - 1) * size, shown: 1,
+                                             ...(search.value.trim() ? { q: search.value.trim() } : {}),
+                                             ...(sortAsked ? { sort: sortAsked } : {}), ...whatifParams() })
+        : await ans.api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}), ...whatifParams(),
                                                      ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) });
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
@@ -656,6 +673,10 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       return;
     }
     remoteTick(d.remotes || []);                        // (not waited on)
+    const got = paged() && d.offset != null ? Math.floor(d.offset / per) + 1 : wanted;   // past the end: the last page
+    if (got !== wanted && pg === wanted && size === per) { pg = got; go(false); }   // (unless another was asked meanwhile)
+    const hits = d.total ?? 0;
+    setText(found, paged() && search.value.trim() ? `${hits} match${hits === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "");
     const flowsWere = JSON.stringify(flows);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
@@ -733,14 +754,14 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       const etaCol = its.some((i) => i.eta);              // each open item's completion estimate (eta.py): p50, p90 in its title
       show = show.filter((f) => f !== "lease");
       const by = sort.replace(/^-/, ""), down = sort.startsWith("-") ? -1 : 1;
-      if (show.includes(by)) {                             // missing last; numbers as numbers, else as text
+      if (show.includes(by) && !paged()) {                 // missing last; numbers as numbers, else as text (a kind's: the server's)
         const v = (i) => i.fields[by];
         its = [...its].sort((a, b) => (v(a) == null) - (v(b) == null) || (v(a) == null ? 0
           : down * (nums.has(by) ? v(a) - v(b) : String(val(v(a))).localeCompare(String(val(v(b)))))));
       }
       const sortName = (f) => `Sort by ${f === "by" ? "author" : f}`;    // (a field named by: not 'Sort by by')
       const head = (f) => h("button", { class: "ghost sort", title: sortName(f), "aria-label": sortName(f),
-        "data-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none", onclick: () => { sort = by !== f ? f : down > 0 ? `-${f}` : ""; go(); } },
+        "data-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none", onclick: () => { sort = sort.replace(/^-/, "") !== f ? f : !sort.startsWith("-") ? `-${f}` : ""; go(); } },   // from the sort now
         f, by === f ? h("span", { "aria-hidden": "true" }, down > 0 ? " \u25b4" : " \u25be") : "");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [head(f), "num"] : head(f))),
         ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
@@ -752,7 +773,20 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
           ...(etaCol ? [etaCell(i.eta)] : []),
           h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
-          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items", `${its[0]?.kind || "No kind"} items`);
+          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items",
+        `${its[0]?.kind || "No kind"} items${paged() && d.cut ? `, sorted among the newest ${d.cut} of ${d.total}` : ""}`);
+    };
+    // a kind's pager, in its bar and under its table: "1-25 of 77 · Prev · Next", and how many a page
+    const pager = (name, shown, at) => {
+      const reach = d.cut ? Math.min(d.total, d.cut) : d.total, last = Math.max(1, Math.ceil(reach / size));
+      const turn = (by) => () => { pg = Math.max(1, pg + by); go(); };   // from the page shown now, never a render's
+      return h(at === "top" ? "span" : "div", { class: `pager ${at}`, key: `pager:${at}:${name}`, role: "navigation", "aria-label": `Pages of ${name}, ${at}` },
+        h("span", { class: "pager-says" }, `${d.offset + 1}-${d.offset + shown} of ${d.total}${search.value.trim() ? ` match${d.total === 1 ? "" : "es"}` : state ? ` ${state}` : ""}`,
+          d.cut ? h("span", { class: "muted" }, `, sorted among the newest ${d.cut}`) : null),
+        " · ", h("button", { class: "ghost", disabled: pg <= 1, onclick: turn(-1) }, "Prev"),
+        " · ", h("button", { class: "ghost", disabled: pg >= last, onclick: turn(1) }, "Next"),
+        h("select", { "aria-label": "Rows a page", sig: String(size), onchange: (ev) => { size = +ev.target.value; pg = 1; go(); } },
+          [25, 100, 300].map((x) => h("option", { value: String(x), selected: x === size }, `${x} a page`))));
     };
     const tables = async (names) => {                    // one table per kind, each with its own columns
       const parts = [];
@@ -760,17 +794,17 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
         if (kind && name !== kind) continue;
         const its = rows.filter((i) => (i.kind || "") === name);
         if (!its.length) continue;
-        const limit = kind ? 300 : 25, many = d.matched?.[name] ?? its.length;
+        const limit = paged() ? size : kind ? 300 : 25, many = paged() ? d.total : d.matched?.[name] ?? its.length;
         const title = kindOf[name]?.title;
         parts.push(h("h3", { class: "kind-head", key: `head:${name}` }, title || name || "No kind",
-          title ? h("span", { class: "muted small mono" }, ` ${name}`) : null, h("span", { class: "muted" }, ` ${many}`)));
+          title ? h("span", { class: "muted small mono" }, ` ${name}`) : null, h("span", { class: "muted" }, ` ${many}`),
+          paged() ? pager(name, its.length, "top") : null));
         if (name === ACTION_KIND && classes) parts.push(keyed(actionClasses(classes, (c, x) => !needle || c.toLowerCase().includes(needle) || its.some((i) => x.actions.includes(i.fields.action))), "action-classes"));
         parts.push(keyed(tableOf(its, kindOf[name]?.show || [], limit), `table:${name}`));
+        if (paged()) parts.push(pager(name, its.length, "foot"));
         if (name === CLAIM_KIND && trust) parts.push(keyed(trustView(trust), "trust"));   // how far each block's claims held
         const fl = flows[name];                            // under its table: how long its finished items took
         if (fl) parts.push(keyed(keep(`cycle:${name}`, JSON.stringify([fl.times[0], fl.finished]), () => cycleChart(fl, group), (el) => el.update?.(fl)), `cycle:${name}`));
-        if (many > limit && !d.set?.params?.where && !d.set?.params?.moved)
-          parts.push(h("p", { class: "note", key: `all:${name}` }, h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); kind = name; state = null; go(); } }, `All ${many}`)));
       }
       return parts;
     };
@@ -811,7 +845,6 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const none = !anyRows && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
     patch(box, ...groups, ...(none ? [none] : []));
     sweepPlots();                                         // the charts just replaced (or folded away) let go now, not at the next one drawn
-    setText(more, d.total > listed ? `${d.total - listed} older items not loaded.` : "");
   }
   await refresh();
   S.timer = poll(() => refresh(false), 4000, p);
@@ -1101,7 +1134,7 @@ async function pageModel(main) {
     patch(notes, ...d.notes.map((n) => h("p", { class: "muted small" }, n)));
     const why = Object.entries(d.not_proposed || {});
     const q = d.queue || [];
-    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length, x.state])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed +
+    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length, x.state])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed + d.held +
       JSON.stringify([d.redesigns?.asked, d.redesigns?.last?.id, d.redesigns?.last?.result]);
     if (sig !== propSig && !answering()) {
       propSig = sig;
@@ -1117,7 +1150,8 @@ async function pageModel(main) {
       const all = h("button", { onclick: () => simulateAll(sims, allBox, all), disabled: sims.length < 1 ? "" : null }, "Simulate all pending");
       const kinds = {};
       for (const x of q) kinds[x.what] = (kinds[x.what] || 0) + 1;
-      qHead.replaceChildren("Changes to review", h("span", { class: "muted" }, q.length ? ` ${q.length} waiting` : ""));
+      const held = d.held ? h("p", { class: "muted" }, `${d.held} modelling request${d.held > 1 ? "s" : ""} held for you: answered in `, h("a", { href: "/diagram" }, "Needs attention"), ".") : null;
+      qHead.replaceChildren("Changes to review", h("span", { class: "muted" }, q.length + (d.held || 0) ? ` ${q.length + (d.held || 0)} waiting` : ""));
       qActions.replaceChildren(...[SNAP ? null : all, SNAP ? null : btn, SNAP ? null : pick,
         h("span", { class: "muted small" }, d.to_estimate.length
           ? `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`
@@ -1125,7 +1159,7 @@ async function pageModel(main) {
         d.loops_analysed < d.loops ? h("span", { class: "muted small" }, `loops analysed for proposals: ${d.loops_analysed} of ${d.loops}`) : null,
         said, redesignAsk(d.redesigns, () => { propSig = null; setTimeout(tick, 600); })].filter(Boolean));
       queueBox.replaceChildren(...(q.length ? q.map((x) => reviewEntry(x, { onDone: () => { propSig = null; allBox.replaceChildren(); setTimeout(tick, 600); } }))
-        : [h("p", { class: "muted" }, "Nothing waiting.")]));
+        : held ? [] : [h("p", { class: "muted" }, "Nothing waiting.")]), ...(held ? [held] : []));
       whyBox.replaceChildren(...(why.length ? [h("h3", {}, "Estimates not proposed"),
         table(["parameter", "why"], why.map(([n, w]) => h("tr", {}, h("td", {}, h("b", {}, n)), h("td", { class: "small" }, w))), "can")] : []),
         ...(d.open_loops?.length ? [h("p", { class: "muted small" }, `Every stock integrated still leaves open ${d.open_said}, since the replay takes what a decision sets as measured.`)] : []));
