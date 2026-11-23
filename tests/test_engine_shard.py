@@ -588,7 +588,7 @@ def test_daemon_files_merged_dead_writer_stopped(tmp_path):
     (tmp_path / "daemons.e.json").write_text("{not json")
     (tmp_path / "daemons.f.json").write_text("[1, 2]")
     for odd in ("daemons.x.tmp", "daemons.x.json.tmp", "daemons.X.json", "daemons.-x.json", "daemons..json",
-                "daemonsx.json", f"daemons.{'x' * 65}.json"):
+                "daemonsx.json", "daemons.z.daemons.a.json", f"daemons.{'x' * 65}.json"):
         put(tmp_path, odd, me, **{odd: "running"})
     got = read_status(tmp_path)
     assert set(got) == {"whole", "solo", "probe", "nopid"}, got
@@ -601,13 +601,14 @@ def test_daemon_files_merged_dead_writer_stopped(tmp_path):
 
 def test_daemon_in_two_files_given_once(tmp_path, monkeypatch):
     me = os.getpid()
-    put(tmp_path, "daemons.a.json", me, moved="stopped", both="stopped")
-    put(tmp_path, "daemons.b.json", me, moved="running", both="stopped")
-    put(tmp_path, "daemons.json", me, both="stopped")
+    put(tmp_path, "daemons.a.json", me, moved="stopped", both="stopped", up="running")
+    put(tmp_path, "daemons.b.json", me, moved="running", both="stopped", up="running")
+    put(tmp_path, "daemons.json", me, both="stopped", up="running")
     listed = pathlib.Path.glob
     for order in (sorted, lambda fs: sorted(fs, reverse=True)):         # whatever order the directory lists them in
         monkeypatch.setattr(pathlib.Path, "glob", lambda self, pat, order=order: iter(order(listed(self, pat))))
         got = read_status(tmp_path)
-        assert set(got) == {"moved", "both"}
+        assert set(got) == {"moved", "both", "up"}
         assert got["moved"]["state"] == "running" and got["moved"]["why"] == "daemons.b.json"
         assert got["both"]["state"] == "stopped" and got["both"]["why"] == "daemons.a.json", "first by name"
+        assert got["up"]["state"] == "running" and got["up"]["why"] == "daemons.a.json", "neither stopped: first"

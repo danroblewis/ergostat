@@ -454,10 +454,8 @@ def _alive(pid) -> bool:
         return False
     try:
         os.kill(pid, 0)
-    except PermissionError:
-        return True
-    except (OSError, OverflowError):
-        return False
+    except (OSError, OverflowError) as err:
+        return isinstance(err, PermissionError)
     return True
 
 
