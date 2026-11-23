@@ -4,6 +4,9 @@ model with no law compiles as it did."""
 
 from __future__ import annotations
 
+import hashlib
+import io
+import json
 import textwrap
 
 from ergostat.control import laws
@@ -133,3 +136,57 @@ def test_a_model_with_no_law_compiles_to_an_identical_ir(tmp_path):
     assert declared.blocks["hpa"].law is not None and "law" not in declared.blocks["hpa"].params
     declared.blocks["hpa"].law = None
     assert declared == plain and repr(declared) == repr(plain)
+
+
+# the whole Blocks answer of KUBE with no law, as main drew it before declared laws were drawn: sha256 of its JSON
+GOLDEN = "f36112a7505b7c091f36011e0100178e52468ce49e8722c8be6b8410607dbebe"
+HPA = "law: {kind: kubernetes-hpa, target: 0.6, min: 2, max: 10}\n"
+SAID = "scales to ceil(replicas x utilisation / 0.6), within 2..10, down only after 5m"
+
+
+def blocks(tmp_path, law: str = "", snap: dict | None = None) -> dict:
+    from types import SimpleNamespace
+
+    from ergostat import blockdiagram as bd
+    return bd.diagram(SimpleNamespace(spec=load(model(tmp_path, law))), snap or {})
+
+
+def hpa_node(g: dict) -> dict:
+    return next(n for n in g["nodes"] if n["id"] == "blk:hpa")
+
+
+def said_row(n: dict) -> bool:
+    return any(k == "declared" and v.startswith(f"kubernetes-hpa: {SAID}") for k, v in n["rows"])
+
+
+def test_a_declared_law_is_drawn_as_its_blocks_function_and_a_block_without_one_as_before(tmp_path):
+    plain = blocks(tmp_path)
+    assert hashlib.sha256(json.dumps(plain, sort_keys=True, default=str).encode()).hexdigest() == GOLDEN
+    assert "declared" not in hpa_node(plain) and hpa_node(plain)["fn"].get("law") is None
+    n = hpa_node(blocks(tmp_path, HPA))
+    assert n["declared"] == "declared kubernetes-hpa" and not n.get("identified"), n
+    assert n["fn"]["law"] == "⌈u x / 0.6⌉" and n["fn"]["kind"] == "declared kubernetes-hpa" and SAID in n["says"], n
+    assert said_row(n), n["rows"]
+    a = hpa_node(blocks(tmp_path, "law: {kind: alert-rule, threshold: 300, side: above, for: 45s}\n"))
+    assert a["declared"] == "declared alert-rule" and a["fn"]["law"] == "on > 300, off < 300", a
+    assert "fires once utilisation is above 300 for 45s" in a["says"], a
+    # a law identified from the record (evidence) is drawn over the declared one (an assumption), still said in its rows
+    law = {"family": "ratio", "params": {"lo": 2, "hi": 10}, "said": "ratio: found", "short": "⌈u x / 0.58⌉"}
+    m = hpa_node(blocks(tmp_path, HPA, {"laws": {"hpa": law}}))
+    assert m["identified"] and "declared" not in m and m["fn"]["law"] == "⌈u x / 0.58⌉" and said_row(m), m
+
+
+def test_explain_says_a_declared_law_in_words_and_the_mcp_tool_says_the_same(tmp_path):
+    from ergostat.mcp import serve
+    from ergostat.spec.explain import explain
+    text = explain(load(model(tmp_path, HPA)), "hpa")
+    assert f"declared kubernetes-hpa: {SAID}" in text and "an assumption until tested against the record" in text, text
+    assert "declared" not in explain(load(model(tmp_path)), "hpa")
+    model(tmp_path, HPA)
+    out = io.StringIO()
+    call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "explain", "arguments": {"part": "hpa"}}}
+    serve(tmp_path, io.StringIO(json.dumps(call) + "\n"), out)
+    got = json.loads(out.getvalue().splitlines()[0])["result"]["content"][0]["text"]
+    assert got == text, got
+    alert = explain(load(model(tmp_path, "law: {kind: alert-rule, threshold: 5, side: below, for: 0}\n")), "hpa")
+    assert "declared alert-rule: fires as soon as utilisation is below 5, resolves as soon as it is back" in alert, alert

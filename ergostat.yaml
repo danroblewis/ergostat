@@ -123,7 +123,9 @@ items:
       duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
       milestone: {kind: milestone, group: true, precedence: false, inverse: gaps}
                                      # the milestone it is finished with (milestones.py assign); folded by replace, so a
-                                     # gap is in one, and the old free-text labels (not ids) stay as they were written
+                                     # gap is in one, and the old free-text labels (not ids) stay as they were written;
+                                     # with [milestones] enforce, one not active holds the gap by its field
+                                     # waits_on_milestone (gap.milestone-held, no state), unless it is pulled
     fold:
       milestone: replace
       rounds: sum
@@ -280,12 +282,15 @@ items:
 
   research:
     id: research/*
-    description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report
-    states: [asked, answered]
+    description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report whose sources were checked (dev/bin/research.py); an answer with none checked is asked again once, then dead
+    states: [asked, unsourced, answered, dead]
     on:
       research.asked: asked
-      research.answered: answered
-    show: [question, gap, summary, report]
+      research.unsourced: unsourced  # no source checked: given back (counted), asked again with the why in its brief
+      research.answered: answered    # at least one source checked (sources_checked; the rest in sources_unchecked)
+      research.dead-lettered: dead   # unsourced a second time: its lease's last attempt, a dead letter
+    show: [question, gap, summary, report, sources_checked, sources_unchecked, unsourced_why]
+    fold: {unsourced: sum}           # how many answers had no source checked
 
   lesson:
     id: lesson/*

@@ -42,9 +42,11 @@ def answer(p, spec, eid: str, verb: str, n: float | None = None, note: str | Non
         raise AnswerError(f"{e['id']} is answered with " + " or ".join(f"--{v}" + (" N" if v == "done" else "")
                                                                       for v in e["verbs"]))
     kind, key, yes = e["kind"], e["id"].split("/", 1)[1], verb == "approve"
+    item = None                                           # an action's: the item it is for, shown with the answer
     try:
         if kind == "action":
-            said = (gate.approve(p, spec, key, by=by, note=note) if yes else gate.deny(p, key, by=by, note=note))["state"]
+            a = gate.approve(p, spec, key, by=by, note=note) if yes else gate.deny(p, key, by=by, note=note)
+            said, item = a["state"], a.get("item")
         elif kind == "person":
             if n is None:
                 raise AnswerError("--done N: how much they moved")
@@ -66,4 +68,5 @@ def answer(p, spec, eid: str, verb: str, n: float | None = None, note: str | Non
             said = (pr.accept(p, key, snap, by=by) if yes else pr.dismiss(p, key, note, by=by))["status"]
     except (gate.GateError, cp.ProposalError, pr.ProposalError, rq.RequestError, KeyError) as x:
         raise AnswerError(str(x)) from None
-    return {"id": e["id"], "kind": kind, "verb": verb, "said": said, "summary": e["summary"]}
+    return {"id": e["id"], "kind": kind, "verb": verb, "said": said, "summary": e["summary"], "link": e["link"],
+            "item": item}
