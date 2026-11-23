@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import re
 import socket
 import threading
@@ -155,19 +156,35 @@ def _number(v) -> float | None:
         return None
 
 
+def _histogram(metrics: list) -> bool:
+    """An answer is a histogram's buckets when every series has a numeric ``le``, and they span two bounds or more with
+    a finite one. One bound (``rate(x_bucket{le="0.3"}[5m])``, an SLO's numerator, by instance) stays plain series."""
+    if not metrics or not all("le" in m for m in metrics):
+        return False
+    bounds = {_number(m["le"]) for m in metrics}
+    if None in bounds or any(math.isnan(b) for b in bounds):
+        return False
+    return len(bounds) >= 2 and any(math.isfinite(b) for b in bounds)
+
+
 def query(src, text: str, w) -> list:
     data = _get(src, {"query": text, "start": f"{w.start:.3f}", "end": f"{w.end:.3f}", "step": f"{w.step:g}",
                       "timeout": f"{w.seconds:g}s"}, w.seconds)
     if data.get("resultType") != "matrix" or not isinstance(data.get("result"), list):
         raise SourceError("refused", f"source {src.name!r} answered {data.get('resultType')!r}, not a range of series")
-    out = []
+    out, metrics = [], []
     for s in data["result"]:
         pts = s.get("values") if isinstance(s, dict) else None
         if not isinstance(pts, list):
             raise SourceError("refused", f"source {src.name!r} answered a series with no values")
-        out.append((_name(s.get("metric") or {}, text),
+        metrics.append(s.get("metric") if isinstance(s.get("metric"), dict) else {})
+        out.append((_name(metrics[-1], text),
                     [(t, _number(v)) for p in pts if isinstance(p, list) and len(p) == 2
                      for t, v in [p] if isinstance(t, int | float)]))
+    if _histogram(metrics):                          # a histogram's buckets: a distribution (_frames.py)
+        name = str(metrics[0].get("__name__", "")).removesuffix("_bucket")
+        return {"shape": "distribution", "name": name, "buckets": [
+            {"labels": m, "time": [t for t, _ in pts], "values": [v for _, v in pts]} for m, (_, pts) in zip(metrics, out, strict=True)]}
     return out
 
 
