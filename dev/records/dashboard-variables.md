@@ -233,3 +233,28 @@ Run here:
 - Not run: the whole unit suite and the four browser files (the factory's job). No Python or example was touched.
 
 Refused here: the watchdog command with `; echo rc=$?` appended. It was run again without that.
+
+### Round 6
+
+The only finding was the conflicts with main (278f54a4) in `docs/SPEC.md` and `ergostat/datasources/__init__.py`. They
+are answered by the merge at a9a9a9bc. Main had added result shapes: a type may answer with a typed frame
+(`_frames.py`). Each conflict keeps both sides:
+- `datasources/__init__.py`: only the module docstring conflicted. It now says a type answers with series or a typed
+  frame (main), and that it may offer `suggest` and `values`, the only three operations (branch). The code merged
+  cleanly: `query()` writes the variables in through `_text()` and then reads a typed frame as main does.
+- SPEC §4e: the branch's *Variables* paragraph and main's *Result shapes*, *Which charts apply* and *Reshaping*
+  paragraphs are all kept, in that order.
+
+No code changed beyond the merge. The size is 418 net lines outside tests, docs and dev (477 added, 59 removed,
+measured against main; budget 600).
+
+Run here, after the merge:
+- ruff is clean.
+- Unit files: test_dashboard_variables, test_data_sources and test_query_engine (89 passed), test_result_shapes and
+  test_promql_suggest (22 passed).
+- Under the watchdog, all with rc 0 and none skipped: test_dashboard_variables_page and test_result_shapes_page
+  (12 passed), test_dashboard_page and test_dashboard_layout (62 passed).
+- Not run: the whole unit suite and the four browser files (the factory's job).
+
+Refused here: a `grep -rn` over SPEC, ergostat and tests for stale wording and leftover conflict markers. The Grep tool
+was used instead, and it found neither.
