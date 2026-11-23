@@ -102,7 +102,7 @@ def test_the_items_lists_wrap_their_fields_and_keep_three_columns_on_a_phone():
     assert re.search(r"@media \(max-width: 700px\) \{\s*table\.kind-items tr > :nth-child\(n\+3\):not\(\.keep\) "
                      r"\{ display: none; \}", rules), "the phone rule keeps item, state and .keep"
     js = (CSS.parent / "pages.js").read_text()
-    assert '"items kind-items")' in js and '["in state", "num keep"]' in js and 'class: "num nowrap keep"' in js
+    assert '"items kind-items",' in js and '["in state", "num keep"]' in js and 'class: "num nowrap keep"' in js
 
 
 def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():

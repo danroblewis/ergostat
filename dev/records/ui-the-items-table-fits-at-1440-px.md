@@ -69,3 +69,22 @@ is not the cause. This branch's diff (fieldView's PR link, the kinds' lists' `ki
 rules scoped to `table.kind-items`) does not touch the header, `#upkeep` or the switcher, so it is reported here
 and left alone (lesson 13). Not confirmed on clean main here: a run with main's static files checked out was refused
 in this session. The acceptance test `test_the_items_table_fits_at_1440_px` passes after the merge.
+
+Round 3: main (7a905955) merged. In `pages.js`, main gave `table()` a fourth argument (a caption, `<kind> items`) and
+kept 'latest' `nowrap`. The resolution keeps the branch's cells (`.keep` on 'in state', 'latest' allowed to wrap) and
+class `items kind-items`, and passes main's caption. In `tests/test_items_page.py` both sides had added tests at the
+same place; both are kept whole. `tests/test_style_tokens.py`'s static check looked for the literal
+`"items kind-items")`, which stopped matching once the caption argument followed it, so it now looks for
+`"items kind-items",`. No other change. After the merge: ruff clean; `tests/test_style_tokens.py` 12 passed;
+`tests/test_items_page.py` with Playwright under the watchdog 57 passed, 2 failed, the same two in both full runs.
+`test_the_items_table_fits_at_1440_px` passes. The failures:
+- `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: the same failure as round 2 (the
+  `#project` switcher never lists the other project).
+- `test_actions_say_per_class_asked_approved_denied_and_whether_held`: new with this merge, and it fails when run
+  alone too. It times out waiting for `.action-classes li[data-class="jira-transition"]` to be visible. The test,
+  `actionClasses` and `/api/actions?classes=1` all came from main, and this branch does not touch any of them.
+  Main also brought `items-one-section-per-kind-closed` and "/items is an overview of the kinds" (06317712), and
+  either could leave the Actions section closed or never draw it. That cause is a guess and was not traced. Reported,
+  not fixed (lesson 13).
+Neither failure has been confirmed on clean main here: `git worktree add --detach /tmp/mainwt main` was refused in
+this session.
