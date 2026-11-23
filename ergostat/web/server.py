@@ -34,7 +34,7 @@ FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this 
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
+UI_PAGES = ("diagram", "dashboard", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
 
 
 _VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)
@@ -371,6 +371,18 @@ def _window(q) -> float:
         return st.WINDOW
 
 
+def _set_alone(p, spec, q, one, at: float) -> dict:
+    """A set of items and nothing of the page (the side panel's list, a chart's "still waiting"): from the index, as of
+    ``at``, without the whole state, whose first estimate on a long record takes many seconds."""
+    from ..spec import item_sets
+    from ..spec import items as its
+    want = item_sets.parse(q, at)
+    n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
+    got = item_sets.select(p.events, spec, want, until=at, n=n, offset=offset)
+    k = spec.items[want.kind]
+    return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))), "kinds": []}
+
+
 def _tail(path, n: int) -> list[str]:
     """The last ``n`` lines of a file, read from its end."""
     try:
@@ -591,6 +603,11 @@ def _answer_with(live: Live, path: str, q: dict, model):
     return _answer(live, path, q2, p)
 
 
+def _held_up(p) -> dict:
+    from ..why.held import headline
+    return headline(p)
+
+
 def _answer(live: Live, path: str, q: dict, project=None):
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
         got = _LISTED
@@ -604,6 +621,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
+        from ..query import answer, fields
+        return fields(live, p) if name == "fields" else answer(live, p, one("q")) if name is None else None
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
         from ..spec import itemgraph as ig
         asked = [k for k in ("near", "path", "about") if one(k) is not None]
@@ -622,12 +642,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
             raise BadSet("why: item=ID, as the record is now (never at=)")
         from ..why import answer
         return answer(p, one("item"))
+    if head == "held-up":                         # what holds the work up, ranked (SPEC §5a), as the record is now
+        if one("at"):
+            raise BadSet("held-up: as the record is now (never at=)")
+        from ..why import held
+        return held.answer(p)
     at = None
     if one("at"):
         try:
             at = float(one("at"))
         except ValueError:
             at = None
+    if head == "items" and name is None and one("alone") and one("kind") and "search" not in q:
+        return _set_alone(p, getattr(m, "spec", None), q, one, time.time() if at is None else at)
     if head == "items-overview":                  # the Items page's overview: from the item index, with no snapshot
         from .items_overview import overview
         return overview(p, at if at is not None else time.time(), _window(q))
@@ -644,6 +671,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 **({"edited": edited} if edited else {}),
+                **({"held_up": _held_up(p)} if at is None and spec is not None else {}),   # the header's first line
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
@@ -893,15 +921,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
                               search=one("search"))
             return _as_listed(got, None, 0, bool(one("shown")))
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
-        if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
+        if want is not None and item_sets.asked(q):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
-            if one("alone"):                              # the side panel's list: the set, and nothing of the page
-                k = spec.items[want.kind]
-                return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))),
-                        "kinds": []}
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
-        got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
+        paged = bool(one("kind")) and one("kind") in its.kinds_of(spec)   # a kind's page (SPEC §5a): searched, sorted
+        if paged:
+            from ..spec.item_systems import kind_systems
+            page = its.kind_page(p.events, spec, one("kind"), one("state"), snap["at"], n, max(0, offset),
+                                 (one("q") or "").strip() or None, one("sort") or None)
+            frame = its.listing(p.events, spec, kind=one("kind"), state="\0", until=snap["at"], n=1)
+            got = {**frame, **page, "items": [its._listed(i, its.kinds_of(spec), kind_systems(spec)) for i in page["items"]]}
+        else:
+            got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
         pk = int(one("per_kind") or 0)
         if pk and not one("kind") and not one("state") and spec is not None:   # each kind's newest, however busy the rest
             have = {}
@@ -913,7 +945,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     got["items"] = [i for i in got["items"] if i.get("kind") != k["name"]] + more
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
-        out = _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        out = _as_listed(got, None if paged else one("q"), 0 if paged else int(one("per_kind") or 0), bool(one("shown")),
+                         one("hide"))
         if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
             out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
         est = _estimates(p, m, snap, one("whatif"))
