@@ -119,6 +119,9 @@ def test_a_run_reports_its_exit_code(node):
     assert int((d / "pgid").read_text()) > 1
     run2, _ = node.start('kill -s USR1 $$')            # a run ended by a signal says which
     assert node.exit(run2) == {"code": -signal.SIGUSR1, "how": "USR1"}
+    run3, _ = node.start('yes | head -n1')              # the run's signals are not left ignored (SIGPIPE ends yes)
+    assert node.exit(run3) == {"code": 0, "how": "exit"}
+    assert (node.dir(run3) / "out").read_text() == "y\n" and (node.dir(run3) / "err").read_text() == ""
     (d / "done").write_text("")                         # done: the keeper removes its folder by name, and ends
     assert _until(lambda: not d.exists()) and _until(lambda: not _alive(node.keepers[0]))
     assert node.dir(run2).exists()

@@ -138,3 +138,15 @@ and reads it with `fac.findings`, which found it readable, with no errors. The f
 would show why that run printed nothing readable. This clone does not have it. The run fell around the Docker
 daemon restart noted above, so a container or slot failure is the likely cause. Not run: `uv run ergostat check` as a
 direct command (refused in this session).
+
+## Where it stopped
+
+Round 2, answering the one finding (keeper.py `child()`, before `os.execve`: SIGPIPE, SIGXFSZ and SIGHUP were
+inherited as ignored by the run). Fixed: `child()` sets the three back to `SIG_DFL` just before the exec, and
+docs/SPEC.md §12s.3 says so. Test: `test_a_run_reports_its_exit_code` gains a third run, `yes | head -n1`, which must
+end `{"code": 0, "how": "exit"}` with `out` `y\n` and an empty `err`. It was added inside an existing test to keep
+the definition's five tests (more reversible than a sixth). It was seen to fail before the fix (`err` held
+`yes: standard output: Broken pipe`) and passes after. That test stays within 8 processes: the worker, three
+keepers, and the third run's sh, yes and head (the first two runs have ended by then).
+
+Overrun reason: keeper.py grows by 2 lines for this fix, on top of the round-1 overrun explained above (the fail-closed checks the review lessons ask for).

@@ -7028,7 +7028,9 @@ standard input, or killing its session, leaves every run going.
 precedes it), writes `runs/RUN/pgid` before anything else, sets `RLIMIT_AS` to `memory`, `RLIMIT_NPROC` to `pids`
 and `RLIMIT_CPU` to `cpus × wall` (rounded up) when given, and on Linux `PR_SET_PDEATHSIG = SIGKILL` (by `ctypes`;
 the run is not started if that fails or the keeper has already gone) and `oom_score_adj` 500 (best effort: it
-orders the OOM killer's choice, run before keeper). It then execs `/bin/sh -c COMMAND` in `cwd/` with the keeper's
+orders the OOM killer's choice, run before keeper). It sets `SIGPIPE`, `SIGXFSZ` and `SIGHUP` back to their
+default (Python and the keeper ignore them, and an ignored signal stays ignored across exec, so `yes | head` would
+not end on its broken pipe). It then execs `/bin/sh -c COMMAND` in `cwd/` with the keeper's
 environment and `env` over it, standard input from `in`, output to `out` and `err`. The keeper waits for it and
 writes `runs/RUN/exit` (whole, by a replace) as `{"code", "how"}`: the exit code, or `-N` for signal N, and `how`,
 `exit` or the signal's name (`USR1`), or `TERM`/`KILL` when it was stopped; `{"code": null, "how": "not started"}`

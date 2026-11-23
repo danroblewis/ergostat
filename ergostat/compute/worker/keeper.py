@@ -131,6 +131,8 @@ def child(d: str, spec: dict, keeper: int) -> None:
                                (2, "err", os.O_WRONLY | os.O_CREAT | os.O_TRUNC)):
             os.dup2(os.open(os.path.join(d, name), mode, 0o600), fd)
         os.chdir(os.path.join(d, "cwd"))
+        for s in (signal.SIGPIPE, signal.SIGXFSZ, signal.SIGHUP):   # ignored by Python and the keeper; SIG_IGN
+            signal.signal(s, signal.SIG_DFL)                        # would pass through exec to the whole run
         os.execve("/bin/sh", ["/bin/sh", "-c", spec["command"]], {**os.environ, **spec.get("env", {})})
     except BaseException:
         traceback.print_exc()
