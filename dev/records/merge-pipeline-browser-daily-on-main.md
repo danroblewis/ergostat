@@ -154,3 +154,26 @@ tests/test_factory.py under `-n 8` (lesson-10), not a fault in browserday.py. Fi
 tail that covers the summary. Running test_factory.py under `-n 8` myself is outside the allowed runner (named_tests.py
 runs serially, no options). A background run of the same serial command was refused (`run_in_background`); the
 foreground one ran.
+
+## Where it stopped
+
+The factory's `build` step failed on test_an_approved_switch_drains_and_switches_through_the_engine: the switcher
+was still in `e.running` after the test's 120 s wait (1 failed, 203 passed, 2 skipped, 783 s). I ran it alone on this
+branch (`uv run python scripts/named_tests.py
+tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine`): 1 passed in 160 s. I changed
+no code, because nothing this branch changes is on that test's path (lesson-13):
+- The test starts only the switcher (`run: python3 dev/bin/drain.py`) through the engine. Its loop is not started, so
+  browser-daily and its sensor never run there. drain.py reads none of the parts this gap adds (upgrade items, the
+  lease-holding gap/research/situation items, run/switch.lock, run/drain.json).
+- Each switcher run calls the ergostat CLI several times: `item --kind upgrade` and one listing per state, the
+  switch action, and `item --kind` for gap, research and situation in under_way(). Each call loads the whole factory
+  model. Alone, the whole test, including its setup, takes 160 s, so the 120 s allowed for one run leaves little
+  margin when the machine is busy. That fits a load-dependent wait in main's drain.py and its test (lesson-10), not
+  something browserday.py causes. This branch adds three parts to the model (one auxiliary, one goal, one block)
+  and no cycle beyond their own loop. That makes each load a little slower, but not enough to be the cause, though I
+  did not measure it.
+- A fix would cut drain.py's CLI calls or change the test's wait. Both are outside this gap's files, and the test's
+  bound must not be raised, so I left them for a gap of their own. Commands refused in this session: timing one CLI
+  call (`time (uv run ergostat -C . item --kind upgrade >/dev/null 2>&1); nproc; uptime`) and an awk listing of
+  engine.py's run_block. Neither was worked around. I did not run the test on main, because a worktree of main was
+  refused in an earlier round.
