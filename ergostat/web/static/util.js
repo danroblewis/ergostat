@@ -215,6 +215,9 @@ const ofRecorded = (x) => { const r = recordedShort(); return r == null ? x : St
 /* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠; a share of the time, of what is recorded */
 const op = (x) => x == null ? "" : ofRecorded(String(x)).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
   .replace(/(^|[\s(=:])-(?=\.?\d)/g, "$1\u2212");                // and a negative number's real minus
+/* a goal's reference as control names it: one-sided, a limit ("limit ≤ 20"); two-sided, a setpoint ("setpoint 0.93 ±0.01") */
+const isLimit = (sp) => /^\s*[<>]/.test(sp ?? "");
+const holdText = (sp, band = "") => `${isLimit(sp) ? "limit" : "setpoint"} ${op(sp).replace(/^\s*=\s*/, "")}${(band || "").replace(/^ \((±.*)\)$/, " $1")}`;
 /* raw data, shown: every float to the precision that means something (the event's panel keeps it whole) */
 const tidy = (v) => typeof v === "number" && !Number.isInteger(v) ? +v.toPrecision(6)
   : Array.isArray(v) ? v.map(tidy) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, tidy(x)])) : v;
@@ -365,6 +368,17 @@ async function apiSend(path, body) {
 
 /* ------------------------------------------------------------------ header and routing */
 
+/* an entry that waits on a person: the side list's first group, and the header's "N wait for you" */
+const waitsOnYou = (a) => a.level !== "hint" && ((Array.isArray(a.answer) && a.kind !== "request") || !!a.waiting);
+/* the header's link followed: the Diagram's "Waiting for you" scrolled to and focused, once it is drawn (renderSide) */
+function toWaiting() {
+  const hd = $("#waiting");
+  if (!hd) return;
+  S.toWaiting = false;
+  hd.scrollIntoView({ block: "start" });
+  hd.focus({ preventScroll: true });
+}
+
 async function refreshHeader() {
   try {
     const st = await api("status");
@@ -396,6 +410,9 @@ async function refreshHeader() {
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
       : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
+    const waits = $("#waits"), n = (st.attention || []).filter(waitsOnYou).length;   // the side list's "Waiting for you"
+    if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
+    setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43)
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
