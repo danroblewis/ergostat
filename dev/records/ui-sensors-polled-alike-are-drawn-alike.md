@@ -35,3 +35,13 @@ Its runs failed past their attempts (a dead letter):
 - attempt 9: nack exited 1
 - attempt 10: nack exited 1
 - attempt 11: nack exited 1
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 18:21).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 9: nack exited 1
+- attempt 10: nack exited 1
+- attempt 11: nack exited 1
+- attempt 12: nack a switch drains the runs under way (run/drain.json): taken again after it
