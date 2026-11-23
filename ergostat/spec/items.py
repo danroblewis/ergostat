@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from ..leases import PREFIX as LEASE_PREFIX
 from ..leases import fold as lease_fold
 from .changes import fold_event, form_of
-from .ir import ItemKind, Sensor, Spec
+from .ir import DEAD, ItemKind, Sensor, Spec
 
 REOPENED = "ergostat.item.reopened"   # any item moved back, by ergostat, to a state its data names (SPEC §12h)
 JOINED = "ergostat.item.joined"       # a parent moved on by its kind's join: to the state its data names (SPEC §5a)
@@ -516,9 +516,9 @@ def kinds_of(spec) -> dict:
 
 
 def listing(events, spec, kind: str | None = None, state: str | None = None, until: float | None = None,
-            n: int = LISTED, offset: int = 0, search: str | None = None) -> dict:
+            n: int = LISTED, offset: int = 0, search: str | None = None, states=None) -> dict:
     """What the Items page and ``ergostat item`` show: each kind with its count per state, and
-    the items themselves (newest first), filtered by kind and state, and by ``search`` (``words``: items
+    the items themselves (newest first), filtered by kind and state (or any of ``states``), and by ``search`` (``words``: items
     whose ``text_of`` holds every word): ``n`` of them from ``offset``.
     Counted and paged by the item index: only the items shown are read."""
     kinds = kinds_of(spec)
@@ -535,7 +535,7 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         page = [i for i in page if (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state)]
         total = len(every)
     else:
-        page, counts, total = _paged(events, spec, kind, state, until, n, offset, ws)
+        page, counts, total = _paged(events, spec, kind, state, until, n, offset, ws, states)
     from ..transcripts import FIELDS
     lines = events.counted(TRANSCRIPT_TYPES, until=until)            # left out of the fold: counted, not read
     page = [copy.copy(i) for i in page]                                # what the index lent: changed only as copies
@@ -571,13 +571,22 @@ def finishes(events, spec, kind: str) -> dict:
             "lives_on": f["lives_on"]}
 
 
-def _paged(events, spec, kind: str | None, state: str | None, until: float | None, n: int, offset: int, ws=()):
-    """The listing's page of items, its counts per kind and state, and how many match."""
+def hidden_states(k: dict) -> list[str]:
+    """The states the Items list leaves out unless asked (SPEC §5a, *Finished items*): a listed kind's finished
+    states and ``dead``; none for a kind that lives on. Paused states stay."""
+    return [] if k.get("lives_on") else [*k.get("finished", []), *([DEAD] if k.get("dead") else [])]
+
+
+def _paged(events, spec, kind: str | None, state: str | None, until: float | None, n: int, offset: int, ws=(),
+           states=None):
+    """The listing's page of items, its counts per kind and state, and how many match: in ``state``, or any of
+    ``states`` (a list; the index pages them)."""
     kinds = kinds_of(spec)
     transcript = asks_transcript(list(kinds.values()), tuple(f for k in kinds.values() for f in k.show))
+    states = list(states) if states is not None else None if state is None else [state]
 
     def want(i: Item) -> bool:
-        return (kind is None or (i.kind or "") == kind) and (state is None or (i.state or "") == state) and \
+        return (kind is None or (i.kind or "") == kind) and (states is None or (i.state or "") in states) and \
             all(w in text_of(i.fields) for w in ws)
     ix = _index(events, spec, transcript)
     if ix is not None:
@@ -588,7 +597,6 @@ def _paged(events, spec, kind: str | None, state: str | None, until: float | Non
                 for i in late.values():
                     c = counts.setdefault(i.kind or "", {})
                     c[i.state or ""] = c.get(i.state or "", 0) + 1
-                states = None if state is None else [state]
                 extra = [i for i in late.values() if want(i)]
                 if extra:
                     page = sorted(ix.items(kind, states, until, n=offset + n, words=ws) + extra,
@@ -628,15 +636,15 @@ def _by_field(its: list[Item], sort: str) -> list[Item]:
 
 
 def kind_page(events, spec, kind: str, state: str | None = None, until: float | None = None, n: int = LISTED,
-              offset: int = 0, q: str | None = None, sort: str | None = None) -> dict:
-    """One page of ``kind``'s items (in ``state``, when given), as a kind's own page lists them (SPEC §5a, *A kind's
+              offset: int = 0, q: str | None = None, sort: str | None = None, states=None) -> dict:
+    """One page of ``kind``'s items (in ``state``, or any of ``states``, when given), as a kind's own page lists them (SPEC §5a, *A kind's
     page*): with ``q``, only those whose id holds it or whose fields hold each of its words, out of every item of the
     kind, finished or not; newest first, or by a field (``sort``: ``f`` up, ``-f`` down) over the whole filtered set,
     the newest ``SORTED_MOST`` of it when larger (``cut``). ``offset`` past the end is the last page's. How many match
     (``total``), and how many of them are finished (``finished``, of the kind's finished states)."""
     k = spec.items[kind]
     ws = words(q) if q else ()
-    states = None if state is None else [state]
+    states = list(states) if states is not None else None if state is None else [state]
     done = set(finishes(events, spec, kind)["finished"])
     transcript = asks_transcript([k], tuple(k.show))
 
@@ -664,7 +672,7 @@ def kind_page(events, spec, kind: str, state: str | None = None, until: float | 
                 got = ix.guard(read)
                 for i in late.values():
                     got.pop(i.id, None)
-                    if i.kind == kind and (state is None or i.state == state) and _hit(i, q, ws):
+                    if i.kind == kind and (states is None or i.state in states) and _hit(i, q, ws):
                         got[i.id] = (i.id, i.last, i.state, i)
 
                 def fetch(rs):
@@ -672,7 +680,7 @@ def kind_page(events, spec, kind: str, state: str | None = None, until: float | 
                     return [r[3] or have[r[0]] for r in rs if r[3] or r[0] in have]
                 return paged(sorted(got.values(), key=lambda r: -r[1]), fetch)
     its = [i for i in project(events, spec, kind, until=until, fields=tuple(k.show), transcript=transcript)
-           if (state is None or i.state == state) and _hit(i, q, ws)]
+           if (states is None or i.state in states) and _hit(i, q, ws)]
     return paged([(i.id, i.last, i.state, i) for i in its], lambda rs: [r[3] for r in rs])
 
 

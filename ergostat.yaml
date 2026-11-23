@@ -249,6 +249,7 @@ items:
       situation.failed: failed
       situation.superseded: superseded   # one raised by the one-trigger watch (no prints): closed, never run
     show: [reason, triggers_n, actions_n, summary, ai_cost_usd]
+    attention: finding               # the latest session's finding, on the page's attention list (not only stored here)
     relations:
       gap: gap                       # the gaps its triggers are about: each gap's page lists it
     lease: {attempts: 2}
