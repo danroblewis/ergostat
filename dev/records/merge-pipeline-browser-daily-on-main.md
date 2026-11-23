@@ -83,3 +83,11 @@ auxiliary's `driven-by: +flow.gaps-merged`.
   factory-model tests that pass: test_ergostat_check_on_the_factory_model_reports_no_new_finding and
   test_the_time_goals_have_no_check_findings. tests/test_factory_manager.py passed (35 tests) while the manager
   variant was still in place. It was not run again after the revert, which put manager.yaml back as it is on main.
+
+## Where it stopped
+
+After main (ead497d1) was merged in, with no code change: the four acceptance tests,
+test_browser_daily_goal_closes_in_landing and test_ergostat_check_on_the_factory_model_reports_no_new_finding pass,
+and ruff is clean. `uv run ergostat check --json` was refused again in this session, so done item 6's "no new
+finding" is still unverified against main. The unit suite and the four browser files were not run here (the
+factory's and the queue's steps).
