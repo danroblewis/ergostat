@@ -1,6 +1,6 @@
 template: repair
 once: true
-description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report (SPEC §12r).
+description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report, answered by a person or, with approver ai, by an AI behind a guard in code.
 reading: |
   System dynamics: an aging chain of failures (the built-in kind ergostat.failure, one item a signature), filled as
   programs fail (failures-found) and drained through a fix, its test and its approval; a fix that fails its test flows
@@ -9,7 +9,9 @@ reading: |
   regresses it (fixes-regressed) and revert-fix is asked for; an approved revert drains it (fixes-reverted).
   Control: no-open-failures holds the open failures at 0 through the fixer (an AI, haiku by default, no tools: a clone
   of its own, the fix tested in the sandbox, apply-fix asked for with its impact report); fixes-answered holds the
-  fixes waiting at 0 through their approver, the ladder's first rung: the person. repair-settle judges the applied
+  fixes waiting at 0 through their approver: the person (the ladder's first rung), or with approver: ai the second,
+  an AI (the same model, no tools) asked only about a fix a guard in code reads as computing with plain values and
+  printing; whatever the guard or the AI does not approve stays held for the person. repair-settle judges the applied
   fixes, and asks the person for each regressed one's revert.
   It is used once a model, and its parts keep the names written here.
 example: |
@@ -22,7 +24,7 @@ params:
   model: {default: haiku, description: "the fixer's model"}
   budget: {type: number, default: 0.25, description: "the most one AI call may cost, in dollars (claude --max-budget-usd)"}
   daily: {type: number, default: 2, description: "the most the loop's AI calls may cost in a day, in dollars: past it, none starts"}
-  approver: {default: person, choices: [person, ai], description: "who answers apply-fix: the person (ai: not yet, refused by check)"}
+  approver: {default: person, choices: [person, ai], description: "who answers apply-fix: the person, or ai (behind the guard of SPEC §12r; what it does not approve stays held for the person)"}
   approve: {default: approve, choices: [approve, deny], description: "the gate on apply-fix (auto is not offered: approval is the ladder's)"}
   test: {type: command, description: "the project's tests, run in the sandbox for a program that is not read-only"}
   timeout: {type: duration, default: 5m, description: how long one AI call, or one test, may take}

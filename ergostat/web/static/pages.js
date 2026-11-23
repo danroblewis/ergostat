@@ -9,8 +9,8 @@ function page(main, title) {
 }
 const RANK = { off: 0, open: 1, unknown: 2, holding: 3 };   // the loops that need someone first
 const windowNote = () => {
-  const st = S.status, recorded = st?.first ? st.at - st.first : null;
-  return st?.window ? (recorded != null && recorded < st.window * 0.95 ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
+  const st = S.status, recorded = recordedShort();       // the header's own measure of it
+  return st?.window ? (recorded != null ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
 };
 const table = (head, rows, cls = "") => h("div", { class: "table-wrap" }, h("table", { class: cls },
   h("tr", {}, head.map((x) => (Array.isArray(x) ? h("th", { class: x[1] }, x[0]) : h("th", {}, x)))), rows));
@@ -19,7 +19,7 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 
 async function pageLoops(main) {
   const p = page(main, "Loops");
-  const box = h("div"), cap = h("p", { class: "note" });
+  const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
   const perf = {};
   let pts = {}, ptsAt = 0;
   p.append(box, cap);
@@ -51,7 +51,7 @@ async function pageLoops(main) {
     }
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["error", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
-        h("td", { class: "nowrap" }, h("b", {}, n), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
+        h("td", { class: "nowrap" }, h("button", { class: "name", type: "button", onclick: (ev) => { ev.stopPropagation(); openLoop(n); } }, h("b", {}, n)), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
         h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
         h("td", { class: "num nowrap" }, op(lp.setpoint) + (lp.band || "")),
         h("td", { class: "num", title: "e = r − y" }, lp.error != null ? fmt(lp.error) : ""),
@@ -83,37 +83,41 @@ async function pageAgents(main) {
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const cols = [...RUNG_NAMES, "retired"];
     const of = (i) => Object.entries(agents).filter(([, a]) => a.rung === i);
-    patch(ladder, ...cols.flatMap((k, i) => [i ? h("span", { class: "arrow" }, "→") : null,
-      h("span", { class: "step", title: RUNG_HINT[i] }, of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)]).filter(Boolean));
+    patch(ladder, ...cols.map((k, i) => h("span", { class: "step", "data-kind": k, title: RUNG_HINT[i] },
+      of(i).length ? h("b", {}, String(of(i).length)) : "0", ` ${k}`)), h("span", { class: "muted" }, "most general → most specific"));
     const last = (a) => a.runs_itself ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
       : a.kind === "person" ? "a person" : "not run here";
     const groups = cols.map((k, i) => [i, k, of(i)]).filter(([, , xs]) => xs.length);
     const use = (a) => a.use || {};
-    patch(box, h("div", { class: "table-wrap" }, h("table", {},
+    const table = h("div", { class: "table-wrap" }, h("table", {},
       h("tr", {}, h("th", {}, "agent"), h("th", {}, "roles"), h("th", { class: "num" }, "runs"), h("th", {}, "last run"), h("th", {}, "runs when"),
         h("th", { class: "num", title: "What its AI sessions cost in the window, in USD" }, "cost"),
         h("th", { class: "num", title: "Tokens its AI sessions used in the window: input, output, cache reads and writes" }, "tokens"),
         h("th", { class: "num", title: "CPU time of its runs' processes in the window, user and system" }, "CPU"),
         h("th", { class: "num", title: "The most memory one of its runs held (its processes together)" }, "peak memory")),
       groups.map(([i, k, xs]) => h("tbody", { class: "group", key: k },
-        h("tr", {}, h("th", { colspan: 9 }, `${i} ${k}`, h("span", { class: "muted" }, `  ${RUNG_HINT[i]}`))),
-        xs.map(([name, a]) => h("tr", { class: "click", key: name, onclick: () => openAgent(name) },
+        h("tr", {}, h("th", { colspan: 9, "data-kind": k }, `${k} · `, h("span", { class: "count" }, String(xs.length)),
+          h("small", { class: "muted" }, `  rung ${i}, ${RUNG_HINT[i]}`))),
+        xs.map(([name, a]) => h("tr", { class: "click", key: name, "data-row": name, onclick: () => openAgent(name) },
           h("td", { class: "nowrap" }, h("b", {}, name), a.failing ? h("span", { class: "s-off" }, " failing") : null),
-          h("td", {}, (a.roles || []).map((r) => `${r.kind} ${r.name}`).join(", ") || h("span", { class: "muted" }, "no roles"),
+          h("td", {}, rolesText(a.roles) || h("span", { class: "muted" }, "no roles"),
             (a.hints || []).length ? h("ul", { class: "hints" }, a.hints.map((hint) => h("li", { class: hint.about === "loop" ? "warn" : "", title: hint.says },
               hint.about === "loop" ? op(hint.says)
                 : `${hint.controller}: “${hint.decision}” ${Math.round(hint.share * 100)}% of ${hint.count}; a cheaper rung could fill it`))) : null),
           h("td", { class: "num" }, a.runs_itself ? String(a.runs) : ""),
           h("td", { class: "nowrap muted" }, last(a)),
-          h("td", { class: "muted" }, a.schedule || a.every || ""),
+          h("td", { class: "muted" }, a.schedule || a.every || (a.leased ? "on demand, per item (leased)"
+            : a.runs_itself ? "on demand" : a.kind === "person" ? "by a person" : "not run here")),
           h("td", { class: "num nowrap", "data-use": "cost", title: use(a).cost ? `${use(a).cost}, over ${use(a).ai_runs} runs` : "" },
             usd(use(a).cost_usd), use(a).cost && use(a).cost !== "reported" ? h("span", { class: "muted" }, " est.") : null),
           h("td", { class: "num", "data-use": "tokens" }, tokensText(use(a).ai_runs ? use(a).tokens : null)),
           h("td", { class: "num", "data-use": "cpu" }, cpuText(use(a).cpu)),
-          h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak)))))))));
+          h("td", { class: "num", "data-use": "memory" }, bytesText(use(a).memory_peak))))))));
+    if (heldStill(box)) holdStill(box, table, () => tick());      // the reader in the table: its rows stay as they are
+    else patch(box, table);
     const ds = Object.entries(daemons || {});
     patch(dbox, ...(ds.length ? [h("h3", {}, "Daemons"), h("p", { class: "note" }, "Long-lived processes the blocks' runs and the " +
-      "sensors' readings are handed to (SPEC §9.7). Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
+      "sensors' readings are handed to. Their CPU and memory are the process's, sampled; an item's run is charged its wall time only."),
       h("div", { class: "table-wrap" }, h("table", { "data-daemons": "" },
         h("tr", {}, ["daemon", "state", "serves", "restarts", "last line", "in flight", "CPU", "memory"].map((c, i) => h("th", i > 2 ? { class: "num" } : {}, c))),
         ds.map(([n, d]) => h("tr", { key: n, "data-daemon": n },
@@ -131,24 +135,42 @@ async function pageAgents(main) {
 
 async function pageRecord(main, q) {
   const p = page(main, "Record");
-  const filt = h("input", { type: "search", placeholder: "Type, e.g. valve.* or ticket.*", value: q.get("type") || "", "aria-label": "Event type" });
-  const runs = h("input", { type: "checkbox" });
+  // the filter matches an event's type (valve.*), item or source; it and the scope below stay in the address
+  const filt = h("input", { type: "search", placeholder: "Type, item or source, e.g. valve.* or fixer", value: q.get("match") || q.get("type") || "", "aria-label": "Event type, item or source" });
+  const runs = h("input", { type: "checkbox", checked: q.get("runs") === "1" });
   const box = h("div");
   // one machine's events (its instances too), in the page's window: a sensor's observations link here
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
-  const scope = machine || inWindow || item ? h("span", { class: "muted" }, [item ? `about ${item}` : "", machine ? `from ${machine}` : "", inWindow ? "in the window" : ""].filter(Boolean).join(", "),
-    " ", h("a", { href: "/record" + (filt.value ? "?type=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
-  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "Filter"), scope,
+  const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's
+  const about = q.get("about") || "", from = q.get("from") || "", to = q.get("to") || "";   // a goal's, from its crossing
+  const at = (t) => new Date(t * 1000).toLocaleString([], { hour12: false });
+  const scope = machine || inWindow || item || remote || about || from || to ? h("span", { class: "muted" }, [item ? `about ${item}` : "", about ? `of goal ${about}` : "", machine ? `from ${machine}` : "", remote ? `of remote ${remote}` : "", inWindow ? "in the window" : "", from ? `from ${at(from)}` : "", to ? `to ${at(to)}` : ""].filter(Boolean).join(", "),
+    " ", h("a", { href: "/record" + (filt.value ? "?match=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
+  const kept = () => Object.fromEntries([["match", filt.value], ["runs", runs.checked ? "1" : ""], ["about", about], ["from", from], ["to", to],
+    ["machine", machine], ["item", item], ["remote", remote], ["window", inWindow ? "1" : ""]].filter(([, v]) => v));
+  const remotes = h("span", { class: "remote-links" });
+  if (!SNAP) api("items", { n: 1 }).then((d) => patch(remotes, ...(d.remotes || []).map((r) => h("a", { key: r.name, class: r.name === remote ? "on" : "",
+    href: `/record?remote=${encodeURIComponent(r.name)}`, title: `${r.url}: its events, read there` }, `remote ${r.name}`)))).catch(() => {});
+  p.append(h("div", { class: "filters" }, filt, h("button", { onclick: () => tick() }, "Filter"), scope, remotes,
                 h("label", { class: "check" }, runs, "Show runs", h("span", { class: "muted" }, "(agent.started, agent.ran)"))), box);
   runs.addEventListener("change", () => tick());
   filt.addEventListener("keydown", (ev) => { if (ev.key === "Enter") tick(); });
   const ans = answers();
   async function tick(force = true) {
+    const u = new URLSearchParams(kept()).toString();
+    if (p.isConnected && parseRoute().path === "/record") replaceRoute("/record" + (u ? "?" + u : ""));
+    if (remote) {                                       // what failed said, with how old what is shown is; never "nothing"
+      const d = await remoteApi("events", { remote, n: 80, ...(filt.value ? { type: filt.value } : {}) });
+      if (!p.isConnected) return;
+      const list = d.failed ? null : d.events.length ? eventsTable(d.events, false) : d.ok ? h("p", { class: "muted" }, "Nothing recorded yet.") : null;
+      patch(box, ...[remoteSaid(remote, d), list].filter(Boolean));
+      return;
+    }
     let evs;
     ans.begin();
     try {
-      evs = await ans.api("events", { n: 80, ...(runs.checked ? { runs: 1 } : {}), ...(filt.value ? { type: filt.value } : {}),
-                                  ...(machine ? { machine } : {}), ...(item ? { item } : {}), ...(inWindow ? { window: 1 } : {}) });
+      const { remote: _r, ...asked } = kept();
+      evs = await ans.api("events", { n: 80, ...asked });
     } catch (err) { patch(box, h("p", { class: "muted" }, String(err.message || err))); return; }
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     patch(box, evs.length ? eventsTable(evs, false) : h("p", { class: "muted" }, "Nothing recorded yet."));
@@ -168,8 +190,10 @@ function formatOf(path, declared) {                      // how a file is shown:
   return IMAGE.test(path) ? "image" : ext === "md" ? "markdown" : ext === "json" ? "json" : CODE[ext] ? "code" : "text";
 }
 const LIST_SHOWN = 40;      // a long list (a session's messages) shows its latest; the API and the CLI give all of it
-function fieldView(v, small = false, depth = 0, declared = null) {
+function fieldView(v, small = false, depth = 0, declared = null, there = "") {
   if (v == null || v === "") return h("span", { class: "muted" }, "–");
+  // a remote's file: is a file in its own project, never ours: text, never fetched from our /file/ (SPEC §4c)
+  if (there && typeof v === "string" && v.startsWith("file:")) return h("span", { class: "mono remote-file", title: `a file at remote ${there}, not read here` }, v);
   if (typeof v === "string" && v.startsWith("file:")) {
     const path = v.slice(5), name = path.split("/").pop(), fmt = formatOf(path, declared);
     if (SNAP) return h("span", { class: "mono muted", title: path }, name);
@@ -187,11 +211,11 @@ function fieldView(v, small = false, depth = 0, declared = null) {
       const shown = v.slice(-LIST_SHOWN), cols = [...new Set(shown.flatMap((x) => Object.keys(x)))];
       return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
         h("table", { class: "sub" }, h("tr", {}, cols.map((c) => h("th", {}, c))),
-          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1)))))));
+          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1, null, there)))))));
     }
-    return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1)]) : h("span", { class: "muted" }, "none");
+    return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1, null, there)]) : h("span", { class: "muted" }, "none");
   }
-  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1)))));
+  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1, null, there)))));
 }
 
 /* a file's contents, shown as what they are: one view of each file, kept across refreshes and asked for again
@@ -448,6 +472,8 @@ function messageView(d, refresh) {
    work item's page the actions asked for about it, with Approve and Deny on each one held; on an action's own page,
    its command, where it runs, its answer and its output */
 const ACTION_KIND = "ergostat.action";
+const actionSays = (f) => `${f.description || f.action}${Object.keys(f.args || {}).length ? ` (${Object.entries(f.args).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}`;
+const commandBox = (c) => h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, c || ""));
 function actionAnswer(a, done) {
   if (a.state !== "requested" || SNAP) return null;
   const note = h("input", { type: "text", placeholder: "why (optional)", "aria-label": "Why" });
@@ -464,19 +490,20 @@ function actionAnswer(a, done) {
 function actionsAbout(as, done) {
   if (!as.length) return h("p", { class: "muted" }, "No gated actions asked for about it.");
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, a.action)), " ",
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), " ",
       h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
-      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}`)),
-    h("pre", { class: "mono small" }, a.command || ""),
+      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` + (a.state === "requested" ? "" : a.state === "denied" ? `, ${a["approved by"]}` : `, approved by ${a["approved by"]}`))),
+    commandBox(a.command),
     actionAnswer(a, done))));
 }
 function actionView(d, refresh) {
   const f = d.fields;
   const by = f.approved_by ? `approved by ${f.approved_by}` : f.denied_by ? `denied by ${f.denied_by}` : "";
   return h("div", { class: "claim" },
+    h("p", { class: "action-says" }, h("b", {}, actionSays(f)), f.item ? `, for ${f.item}` : "", f.block ? `, asked by ${f.block}` : ""),
     h("p", {}, h("span", { class: d.state === "requested" ? "s-open" : d.state === "denied" || d.state === "failed" ? "s-off" : "status" }, d.state === "requested" ? "waiting for approval" : d.state),
       h("span", { class: "muted" }, ` ${f.action}, class ${f.class}, gate ${f.gate}`), by ? `: ${by}` : "", f.note ? ` (${f.note})` : ""),
-    h("pre", { class: "mono small" }, f.command || ""),
+    commandBox(f.command),
     h("p", { class: "muted" }, `in ${f.in || "?"}`, f.item ? [", for ", itemLink(f.item)] : null, f.session ? [", asked by ", itemLink(f.session)] : f.block ? `, asked by block ${f.block}` : ""),
     actionAnswer(d, refresh),
     d.state === "ran" || d.state === "failed" ? [h("h3", {}, `Output (exit ${f.exit ?? "none"})`), h("pre", { class: "mono small" }, f.output || "")] : null,
@@ -502,9 +529,42 @@ function setSpan(params) {
   return a != null && b != null ? `, ${when(a)} to ${when(b)}` : "";
 }
 
+/* a remote's items and events, read there (SPEC §4c): an answer, or what failed (never taken as nothing) */
+async function remoteApi(path, params) {
+  if (SNAP) return { failed: true, why: "a remote is not in a snapshot" };
+  try {
+    const r = await fetch(`/api/${path}?${new URLSearchParams(params)}`);
+    const b = await r.json().catch(() => ({}));
+    return r.ok ? b : { failed: true, code: r.status, why: b.error || `${r.status}` };
+  } catch (err) { return { failed: true, why: String(err.message || err) }; }
+}
+/* how a remote answered: not at all, or with what it said before, and how old that is */
+function remoteSaid(name, d) {
+  const old = d.read != null ? `; these were read ${dur(d.age)} ago` : "";
+  if (d.failed || !d.ok) return h("p", { class: "note remote-says bad" }, d.code === 503 ? `${name}: ${d.why}` : `${name} does not answer (${d.why})${old}`);
+  return d.why ? h("p", { class: "note remote-says" }, `${d.why}${old}`) : null;
+}
+/* the ids that may be opened here: as remote/items.py's openable, an allowlist (/-separated segments, no "..") */
+const REMOTE_ID = /^[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*(\/[A-Za-z0-9_][A-Za-z0-9_.:@#+=-]*)*$/;
+function remoteItemLink(id, name) {
+  return typeof id === "string" && id.length <= 200 && REMOTE_ID.test(id) && !id.includes("..") ? h("a", { href: `/item/${encodeURIComponent(id)}?remote=${encodeURIComponent(name)}` }, id)
+    : h("span", { title: "its id cannot be opened here: on its own page only" }, id);
+}
+/* a remote's section of the Items page, framed and marked remote: its counts by kind and state, its newest items */
+function remoteSection(r, d) {
+  const head = h("h2", { class: "sys-head" }, `remote ${r.name}`, h("span", { class: "muted" }, ` · ${r.url}`));
+  const counts = d.failed ? null : h("div", { class: "kind-flows" }, Object.entries(d.counts).map(([k, st]) => h("div", { class: "kind-flow", key: k },
+    h("span", { class: "kname" }, k), h("div", { class: "states" }, Object.entries(st).map(([s, n]) =>
+      h("span", { class: `stbox${n ? " some" : ""}` }, h("span", { class: "n" }, String(n)), s || "items"))))));
+  const rows = d.failed ? null : table(["item", "kind", "state", "there"], d.items.map((i) => h("tr", { key: i.id },
+    h("td", { class: "nowrap" }, remoteItemLink(i.id, r.name)), h("td", {}, i.kind || ""), h("td", {}, stateWord(i.state)),
+    h("td", {}, h("a", { href: `${r.url}/item/${encodeURIComponent(i.id)}`, target: "_blank", rel: "noopener" }, "its own page")))), "items");
+  return h("section", { class: "sys-group remote", "data-remote": r.name, key: `remote:${r.name}` }, head, remoteSaid(r.name, d), counts, rows);
+}
+
 async function pageItems(main, q) {
   const p = page(main, "Items");
-  const notes = h("div"), box = h("div", { class: "item-systems" });
+  const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const more = h("p", { class: "note" });
   let kind = q.get("kind"), state = q.get("state");
@@ -513,11 +573,11 @@ async function pageItems(main, q) {
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
   let sort = q.get("sort") || "";
-  // both show the frontier (the unfinished, and what they wait on); the graph collapses the finished, the timeline
-  // keeps them as what happened; unless asked otherwise
+  // both show the frontier (the unfinished, and what they wait on) with the finished collapsed, so the timeline opens
+  // at now; unless asked otherwise
   const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
   const ask = { frontier: said("frontier"), collapse: said("collapse") };
-  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? view === "graph"; },
+  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? true; },
                group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
   const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
@@ -531,7 +591,17 @@ async function pageItems(main, q) {
   const dropSet = () => { where = []; moved = movedSince = movedUntil = null; pm = { by: null, through: null, followed: null, caused: [] }; };
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
-  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), compose, box, more);
+  const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
+  p.append(notes, h("div", { class: "filters" }, search, viewBar, chip), compose, box, rbox, more);
+  let rbusy = false;
+  const remoteTick = async (rs) => {
+    if (rbusy || SNAP || !rs.length) return;
+    rbusy = true;
+    try {
+      const got = await Promise.all(rs.map(async (r) => [r, await remoteApi("items", { remote: r.name, n: 25 })]));
+      if (p.isConnected) patch(rbox, ...got.map(([r, d]) => remoteSection(r, d)));
+    } finally { rbusy = false; }
+  };
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   let used = new Set();
   const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
@@ -587,10 +657,12 @@ async function pageItems(main, q) {
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}), ...whatifParams(),
                                                      ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) });
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
+      box.querySelector(".page-loading")?.remove();
       patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
       return;
     }
+    remoteTick(d.remotes || []);                        // (not waited on)
     const flowsWere = JSON.stringify(flows);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
@@ -652,7 +724,7 @@ async function pageItems(main, q) {
              (el) => el.update?.(fl, chosen)));
     };
     patch(notes, ...[
-      d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind under items: in ergostat.yaml; shown with their fields, no state.`) : null,
+      d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
@@ -706,7 +778,7 @@ async function pageItems(main, q) {
     const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
     const relPart = async (g) => {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
-      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "No relations among these kinds: a kind declares them under relations: (blocked_by: ticket).")];
+      if (!want.length) return kind ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no critical path.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);
@@ -826,7 +898,33 @@ function relationsView(r, k) {
     graph ? h("p", { class: "note" }, "All of them in ", graph, ".") : null];
 }
 
-async function pageItem(main, id) {
+/* a remote's item, read there (SPEC §4c): its fields, its moves and its events, read only: no message box, no actions */
+async function pageRemoteItem(main, id, name) {
+  const p = page(main, id);
+  p.querySelector("h1").append(h("span", { class: "muted remote-mark" }, ` remote ${name}`));
+  const body = h("div");
+  p.append(body);
+  async function tick() {
+    const d = await remoteApi(`items/${encodeURIComponent(id)}`, { remote: name });
+    if (!p.isConnected) return;
+    if (d.failed) { patch(body, d.code === 404 ? h("p", { class: "muted" }, d.why) : remoteSaid(name, d)); return; }
+    const it = d.item, f = it.fields || {};
+    const pair = (label, value) => h("span", {}, h("span", {}, label), value);
+    const evs = (it.record || []).map((e) => ({ ...e, remote: name }));
+    patch(body, remoteSaid(name, d), h("div", { class: "meta" }, pair("Remote", name), pair("Kind", it.kind_of?.name || it.kind || "–"),
+      pair("State", stateWord(it.state)), pair("Events", String(it.events ?? evs.length))),
+      h("h2", {}, "Fields"), Object.keys(f).length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, Object.keys(f).sort().map((k) =>
+        h("tr", { key: k }, h("th", {}, k), h("td", {}, fieldView(f[k], false, 0, null, name)))))) : h("p", { class: "muted" }, "No fields."),
+      h("h2", {}, "How it moved"), (it.moves || []).length ? table(["when", "from", "to", "by event"], it.moves.map((m) => h("tr", { key: `${m.time}|${m.to}` },
+        h("td", { class: "nowrap" }, when(m.time)), h("td", {}, m.from || "arrived"), h("td", {}, m.to), h("td", { class: "muted" }, m.type)))) : h("p", { class: "muted" }, "No moves."),
+      h("h2", {}, "Events"), eventsTable(evs, true));
+  }
+  await tick();
+  S.timer = poll(() => tick(), 4000, p);
+}
+
+async function pageItem(main, id, q) {
+  if (q?.get("remote")) return pageRemoteItem(main, id, q.get("remote"));
   const p = page(main, id);
   const body = h("div");
   p.append(body);
@@ -855,8 +953,13 @@ async function pageItem(main, id) {
         + (d.eta.start != null && d.eta.start > nowS() + 60 ? `; started about ${etaWhen(d.eta.start)}` : "")
         + (d.eta.dead ? `; a dead letter in ${Math.round(d.eta.dead * 100)}% of runs` : "") + ")"))) : null,
       pair("Events", String(d.events)), pair("First", ago(d.first)), pair("Latest", h("span", {}, d.latest, h("span", { class: "muted" }, `, ${ago(d.last)}`))));
-    const track = k && k.states.length ? h("div", { class: "track" }, k.states.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null,
-      h("span", { class: `stbox${st === d.state ? " on" : ""}${d.moves.some((m) => m.to === st) || (i === 0) ? " been" : ""}` }, st)])) : null;
+    // the path it took, arrow by arrow, to where it is now; the other states apart, with no arrow (its endings double-bordered)
+    const fin = new Set(k?.final || []), box = (st) => h("span", { class: `stbox${st === d.state ? " on" : ""}${fin.has(st) ? " final" : ""}` }, st);
+    const path = d.moves.map((m) => m.to).filter((s, i, a) => s && s !== a[i - 1]);
+    if (d.state && path[path.length - 1] !== d.state) path.push(d.state);
+    const ended = fin.has(d.state), rest = (k?.states || []).filter((s) => !path.includes(s) && (!ended || fin.has(s)));
+    const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow" }, "→") : null, box(st)]),
+      rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");

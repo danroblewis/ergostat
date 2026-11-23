@@ -671,3 +671,40 @@ def test_budget_left_fails_closed(tmp_path, monkeypatch):
     e.run_block(p.model.spec.blocks["solo"], "test", outcome=out)
     monkeypatch.undo()
     assert "could not be read" in out["refused"] and not evs(p, "agent.started")
+
+
+# ---- from run-budget-ledger: the allowlist, the window by run id, an empty budget:
+
+
+def test_free_run_allowlist():
+    from ergostat.spec.ir import Agent, Block, Spec
+    spec = Spec("m", None, [], agents={k: Agent(k, kind=k if k != "bare" else None)
+                                       for k in ("program", "person", "decision", "rule", "ai", "narrow-ai", "bare")})
+    for k in ("program", "person", "decision", "rule"):
+        assert budget.free(spec, Block(name="b", type="program", agent=k)), k
+    assert not budget.free(spec, Block(name="b", type="program", agent=None))          # no agent
+    assert not budget.free(spec, Block(name="b", type="program", agent="nobody"))      # not declared
+    assert not budget.free(spec, Block(name="b", type="program", agent="bare"))        # no kind
+    for k in ("ai", "narrow-ai"):
+        assert not budget.free(spec, Block(name="b", type="program", agent=k)), k      # a kind not on the allowlist
+    assert not budget.free(spec, Block(name="b", type="ai", agent="program"))          # an ai block, whatever its agent
+
+
+def test_window_by_run_id(tmp_path):
+    p = project(tmp_path, bud="budget: {daily: 10, max-cost: 1}")
+    spec, now, day = p.model.spec, time.time(), 86400.0
+    started(p, "old", reserve=0.5, at=now - 3 * day)
+    ended(p, "old", {"cost_usd": 0.5}, at=now - 2 * day)                # ended more than a day ago: 0
+    started(p, "going", reserve=0.75, at=now - 2 * day)                 # started 2 d ago, no end: its reserve
+    started(p, "long", reserve=1.0, at=now - 8 * day)                   # its start is before the 7 days read
+    ended(p, "long", {"cost_usd": 0.3}, at=now - 3600)
+    assert budget.fold(p, spec, now) == pytest.approx((0.3, 0.75))
+    started(p, "several", reserve=1.0, at=now - 3 * 3600)
+    for c, ago in ((0.2, 2), (0.9, 1), (5.0, 30)):                      # the one 30 h ago is outside the day
+        ended(p, "several", {"cost_usd": c}, at=now - ago * 3600)
+    assert budget.fold(p, spec, now) == pytest.approx((1.2, 0.75)), "several ends: the largest within the day"
+
+
+def test_empty_budget_is_two_errors(tmp_path):
+    got = [m for m in errors(tmp_path, "budget:") if "budget" in m]
+    assert len(got) == 2 and all("missing" in m for m in got), got

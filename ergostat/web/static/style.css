@@ -56,7 +56,7 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.export-light) {   /* (a saved picture is drawn light, whatever the theme: export.js) */
     --bg: #171a1d;            /* oklch(0.215 0.008 250) */
     --chrome: #121518;        /* oklch(0.19 0.007 250) */
     --fill: #22262a;          /* oklch(0.26 0.009 250) */
@@ -117,6 +117,9 @@ button:disabled { color: var(--muted); cursor: default; }
 button.on { background: var(--fill); border-color: var(--line-strong); color: var(--ink); font-weight: 600; }
 button.ghost, .menu-btn { border-color: transparent; background: transparent; }
 button.ghost:hover, .menu-btn:hover { background: var(--fill); }
+/* a name that opens its evidence: read as the name it is (its colour and weight kept), pressed as a button */
+button.name { border: 0; background: none; padding: 0; min-height: 0; color: inherit; font-weight: inherit; text-align: inherit; }
+button.name:hover:not(:disabled) { background: none; text-decoration: underline; }
 label.check { display: inline-flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
 
 /* a menu: a button and what it holds, floating; the one thing with a shadow */
@@ -168,6 +171,9 @@ main { grid-column: 1; min-height: 0; min-width: 0; display: flex; flex-directio
 .page > p, .page .note { max-width: 72ch; }
 .note { color: var(--muted); font-size: var(--text-sm); margin: var(--sp-2) 0; }
 .empty { color: var(--muted); padding: var(--sp-7); text-align: center; }
+/* a diagram being opened: the one left, dimmed and still, under what is being opened; the side list dimmed with it */
+svg.canvas g.was, .diagram.opening > .side { opacity: 0.4; pointer-events: none; }
+svg.canvas .opening-note { fill: var(--ink); font-size: var(--text-lg); font-weight: 600; }
 
 /* tables: hairlines between rows, nothing else; numbers to the right */
 .table-wrap { overflow-x: auto; max-width: 100%; }
@@ -181,6 +187,8 @@ tr.click:hover td { background: var(--fill); }
 tbody.group th { color: var(--ink); font-size: var(--text); font-weight: 600; padding-top: var(--sp-4); border-bottom-color: var(--line); }
 tbody.group th .muted { font-weight: 400; }
 td.cell { max-width: 18em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.runs-table td.cell { max-width: none; white-space: normal; overflow-wrap: anywhere; }   /* an agent's recent runs: wrapped, to fit the panel */
+details.runs-resources summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); }
 td.data { overflow-wrap: anywhere; min-width: 16em; }
 td.data details summary { cursor: pointer; list-style: none; }
 td.data pre, table.fields pre { margin: var(--sp-2) 0 0; white-space: pre-wrap; font-size: var(--text-sm); background: var(--chrome); padding: var(--sp-2); border-radius: var(--radius); }
@@ -213,6 +221,16 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .more, .att .none { color: var(--muted); }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
 .att .inbox-act input { width: 6em; }
+/* a list held still while the reader is in it: what waits for them to leave, above it, moving none of its rows */
+:has(> .waiting) { position: relative; }
+.waiting { position: absolute; right: 0; top: 0; transform: translateY(-100%); font-size: var(--text-sm); color: var(--muted); background: var(--bg); }
+.waiting:empty { display: none; }
+.att .ask { white-space: pre-line; }
+.att details.cmd pre, .claim details.cmd pre { white-space: pre-wrap; margin: var(--sp-1) 0 0; }
+.att .att-word { color: var(--ink-2); }
+.att .att-word + .ask-first { display: inline; }
+.att hr.att-rule { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
+details.housekeeping > summary h3 { display: inline; }
 details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }
 details > summary { cursor: pointer; color: var(--ink-2); }
 details > summary:hover { color: var(--ink); }
@@ -245,6 +263,7 @@ body:has(#detail:not([hidden])) .diagram > .side { display: none; }
 .toolbar select:hover { background: var(--fill); }
 .toolbar .sep { width: var(--hair); align-self: stretch; background: var(--line); margin: var(--sp-0) var(--sp-1); }
 .seg { display: inline-flex; gap: var(--sp-0); }
+.seg .what { display: block; font-size: var(--text-sm); color: var(--muted); }   /* under the name: the toolbar no wider, clear of the top grip */
 .strip p.risk { margin: var(--sp-1) 0 0; }
 .block-models ul { margin: var(--sp-1) 0; padding-left: var(--sp-4); }
 .block-models summary { cursor: pointer; }
@@ -252,6 +271,9 @@ body:has(#detail:not([hidden])) .diagram > .side { display: none; }
 .toolbar .crumbs { color: var(--muted); padding: 0 var(--sp-1); }
 .toolbar .crumbs b { color: var(--ink); font-weight: 600; }
 .toolbar .around { color: var(--muted); padding: 0 var(--sp-1); }
+/* the caption, one line under the view switch: as wide as the toolbar's controls, never wider (the rest elided) */
+.toolbar h1.caption { flex: 1 0 100%; contain: inline-size; margin: 0; padding: 0 var(--sp-1); font-size: inherit;
+  font-weight: 400; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zoom .z { min-width: var(--sp-5); font-variant-numeric: tabular-nums; }
 .panhint { font-size: var(--text-sm); color: var(--muted); padding: 0 var(--sp-1); }
 svg.canvas { width: 100%; height: 100%; display: block; cursor: grab; background-color: var(--bg); }
@@ -452,6 +474,8 @@ svg.dragging-part .edge { opacity: .25; }
 svg.bd { color: var(--ink); }
 .bd text { pointer-events: none; fill: var(--ink); font-family: var(--font); }
 .bd .bd-line { fill: none; stroke: var(--ink); stroke-width: 1.3; }
+.bd .bd-upkeep-rule { fill: none; stroke: var(--line); stroke-width: 1; }
+.sys-upkeep { font-style: italic; }
 .bd .bd-fill { fill: transparent; pointer-events: all; }
 .bd .bd-bar { fill: var(--ink); stroke: none; }
 .bd .bd-ghost { fill: transparent; stroke: none; }
@@ -521,6 +545,7 @@ svg.sd .sys-hull text { font-size: var(--canvas-sm); font-weight: 500; fill: var
 svg.sd .edge .pipe-out { stroke: var(--sd-ink); stroke-width: 8; }
 svg.sd .edge .pipe-in { stroke: var(--sd-paper); stroke-width: 4.4; }
 svg.sd .edge .sd-connector { stroke: var(--sd-ink); stroke-width: 1.1; }
+svg.sd .edge .sd-connector.driven-by { stroke-dasharray: 6 4; }
 svg.sd .edge .sd-head { fill: var(--sd-ink); stroke: none; }
 svg.sd .edge .polarity { fill: var(--sd-ink); font-size: var(--canvas-lg); font-weight: 700; stroke: var(--sd-paper); stroke-width: 3px; stroke-linejoin: round; }
 svg.sd .node:hover .hit, svg.sd .node.sel .hit { stroke: var(--accent); }
@@ -561,7 +586,7 @@ details.sd-unknown > summary { color: var(--muted); margin: var(--sp-2) 0; }
 /* Agents: one list, by rung; the ladder as a line of counts */
 .ladder-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); margin: 0 0 var(--sp-5); color: var(--muted); }
 .ladder-line .step b { color: var(--ink); }
-.ladder-line .arrow { color: var(--line-strong); }
+tbody.group th small { font-weight: normal; font-size: var(--text-sm); }
 .hints { margin: var(--sp-1) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .hints li { color: var(--ink-2); margin-top: var(--sp-0); }
 .hints li.bad { color: var(--bad); }
@@ -578,8 +603,8 @@ details.sd-unknown > summary { color: var(--muted); margin: var(--sp-2) 0; }
 a.stbox:hover { text-decoration: none; background: var(--fill); }
 .stbox.on { color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
 .track .stbox.on { color: var(--ink); font-weight: 600; box-shadow: none; }
-.track .stbox:not(.been) { color: var(--line-strong); }
-.meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-5); margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); color: var(--ink); }
+.track .stbox.final { border: 3px double currentColor; }
+.track .alt { display: inline-flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-2); align-items: baseline; margin-left: var(--sp-5); color: var(--muted); }.meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-5); margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); color: var(--ink); }
 .meta span > span:first-child { color: var(--muted); margin-right: var(--sp-1); }
 img.thumb { max-height: 44px; max-width: 72px; border-radius: var(--radius); border: var(--hair) solid var(--line); background: var(--bg); vertical-align: middle; }
 img.pic { max-height: 220px; max-width: 100%; border-radius: var(--radius); border: var(--hair) solid var(--line); background: var(--bg); }
@@ -591,13 +616,16 @@ dl.counts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums;
 
 /* the Guide (guide.js): frames, one line each, the diagram doing the explaining */
 .g-deck { outline: none; max-width: 1280px; }
-.g-steps { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1); margin: 0 0 var(--sp-5); }
+.g-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin: 0 0 var(--sp-5); }
 .g-part { font-size: var(--text-sm); color: var(--muted); margin: 0 var(--sp-1) 0 var(--sp-3); }
 .g-part:first-child { margin-left: 0; }
-.g-part.on { color: var(--ink); }
-.g-dot { width: var(--sp-3); height: var(--sp-3); min-height: 0; padding: 0; border-radius: 50%; border: var(--hair) solid var(--line-strong); background: transparent; }
-.g-dot:hover { border-color: var(--ink-2); }
-.g-dot.on { background: var(--ink); border-color: var(--ink); }
+.g-part:hover, .g-part.on { color: var(--ink); }
+/* a 24px target, the 12px dot drawn inside it */
+.g-dot { width: var(--sp-5); height: var(--sp-5); min-height: 0; padding: 0; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; }
+.g-dot::before { content: ""; width: var(--sp-3); height: var(--sp-3); box-sizing: border-box; border-radius: 50%; border: var(--hair) solid var(--line-strong); }
+.g-dot:hover::before { border-color: var(--ink-2); }
+.g-dot.on { background: transparent; }
+.g-dot.on::before { background: var(--ink); border-color: var(--ink); }
 .g-text { font-size: var(--text-lg); margin: 0 0 var(--sp-4); min-height: 1.5em; max-width: 60em; }
 .g-stage { display: flex; gap: var(--sp-5); align-items: center; min-height: 380px; flex-wrap: wrap; }
 .g-views { flex: 1 1 480px; min-width: 0; display: flex; gap: var(--sp-4); justify-content: center; align-items: center; }
@@ -662,10 +690,13 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .side { border-left: 0; border-top: var(--hair) solid var(--line); }
   .detail { position: fixed; inset: 0; width: auto; z-index: 20; border-left: 0; }
 }
+/* a phone, or 200% zoom: the tabs on a row of their own, wrapped onto two rows, never scrolled sideways */
+@media (max-width: 759px) {
+  .bar nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow-x: visible; }
+  .bar nav a { min-height: var(--sp-6); }
+}
 @media (max-width: 700px) {
   .bar { gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3) 0; }
-  .bar nav { order: 3; flex: 1 0 100%; min-height: var(--sp-6);
-    -webkit-mask-image: linear-gradient(to right, var(--ink) 85%, transparent); mask-image: linear-gradient(to right, var(--ink) 85%, transparent); }
   #when { margin-left: auto; }
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
@@ -705,7 +736,8 @@ svg.canvas rect.hull-mark.xhover { stroke-width: 4px; vector-effect: non-scaling
    several), drawn always and shown only when asked (the menu's toggle, or C held). Pointed at in the other
    pane, the ring is thick, haloed and pulses once, in the accent (or its groups' colours, when shown), and
    the rest of that pane steps back. The rings keep their width on the screen at any zoom */
-svg.canvas g .corr-ring.corr-ring, svg.canvas g .corr-halo.corr-halo {   /* (over what styles an outline's rect) */
+svg.canvas g .corr-ring.corr-ring, svg.canvas g .corr-halo.corr-halo,   /* (over what styles an outline's rect) */
+svg.g-canvas g .corr-ring.corr-ring, svg.g-canvas g .corr-halo.corr-halo {   /* (the Guide's drawings: never shown) */
   display: none; fill: none; stroke: var(--ring); stroke-dasharray: var(--dash, none); stroke-dashoffset: var(--dash-at, 0);
   pointer-events: none; vector-effect: non-scaling-stroke; stroke-linecap: butt; }
 body.corr-on svg.canvas g .corr-ring.corr-ring { display: inline; stroke-width: 3px; }

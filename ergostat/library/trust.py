@@ -18,17 +18,23 @@ checked themselves). A map is a table of its own keys; ``each(T)`` a map of name
 
 from __future__ import annotations
 
+import json
 import re
 
 from ..spec.ir import Ref
 from .bounds import UNTRUSTED_EVERY
-from .expand import COMMAND, ERGOSTAT, LIB, LIBRARY, MARK, F, Given, H, hours, strip
+from .expand import COMMAND, ERGOSTAT, FOLDER, LIB, LIBRARY, MARK, OWNER, REF, VAR, F, Given, H, hours, strip
 from .expand import A as MA
 from .expand import B as MB
 
 S, L, M, D, A, NO = "one value", "values", "map of values", "data", "anything", "refused"
 RUN = "a run: the owner's own command, or ergostat's program with checked arguments (R1, R2)"
 W = "written by the owner or a trusted template, never a library"
+T = "text read or shown to an agent: no piece of it, at any depth, written by a library (R3)"
+
+
+class Text(str):
+    """A path refused by R3 (``untrusted-text``) rather than by the allowlist (``library-untrusted``)."""
 
 # R2: the only text not ergostat's own that may land in a built-in ``${lib} `` run slot, by its parameter's type.
 # fullmatch, so no trailing newline or space is let through (``NAME.match`` and ``hours`` would let them).
@@ -85,7 +91,7 @@ SENSOR = {     # where sensors live: stocks.X.sensor(s), flows.X.sensor(s), auxi
     "unit": (S, "the unit it is shown in"),
     "description": (S, "words shown with it"),
     "run": (RUN, "runs only the owner's own command, or ergostat's program with checked arguments"),
-    "query": (NO, "reads an outside source over the network"),
+    "query": (T, "reads an outside source: only as the owner or a trusted template wrote every piece of it"),
     "daemon": (NO, "starts and keeps a process"),
     "push": (NO, "takes readings pushed from outside"),
     "parse": (NO, "only means something on a command's or query's output"),
@@ -158,17 +164,32 @@ BLOCK_TYPES = {      # computed by ergostat itself from its inputs: none runs, c
     "alarm": {"above": (S, "a threshold"), "below": (S, "a threshold"),
               "for": (S, "how long past it before raised; raised, it outputs 1, shown on the page; it sends nothing")},
 }
-# A program block: refused by type, but for one whose keys are all here and whose run is allowed (R1).
-PROGRAM = {"goal": (S, "the setpoint it holds"), "run": (RUN, "the owner's own command, or ergostat's program"),
-           "every": (W, "its timer"), "cron": (W, "its schedule"), "timeout": (W, "how long it runs")}
-REFUSED_TYPES = {"program": "runs a command, other than the owner's own or ergostat's program with checked arguments",
-                 "ai":"starts an AI session", "person": "asks a person to act",
-                 "external": "stands for something acting outside", "judge": "judges and applies changes to the model"}
+# A machine block (program, ai, person): made only when its keys are all allowed below. Every other key a machine
+# block may have is refused by name: who acts and how much, what it runs, reads, is given or may do.
+MACHINE_NO = {k: (NO, why) for why, ks in (
+    ("who acts, on which rung, and in which mode", ("agent", "mode", "model")),
+    ("how many runs, items, attempts and how much each may take", ("max", "min", "takes", "pool", "lease", "on")),
+    ("a controller's law, which only the owner tunes", ("gain", "integral-time", "deadband", "resolution", "limits")),
+    ("what is run, kept running or parsed from its output", ("run", "daemon", "parse", "timeout", "until")),
+    ("what it may read, write and reach", ("workdir", "workspace", "read", "tools", "actions", "read-only", "network")),
+    ("what it is given or judged by", ("context", "review")),
+    ("the text of another type of block", ("prompt", "ask"))) for k in ks}
+GOAL_UNTIL = {"goal": (S, "the setpoint it holds"), "until": (S, "a setpoint it stops at"),
+              "every": (W, "its timer"), "cron": (W, "its schedule")}
+MACHINE_TYPES = {
+    "program": {**MACHINE_NO, **GOAL_UNTIL, "until": MACHINE_NO["until"], "timeout": (W, "how long it runs"),
+                "run": (RUN, "the owner's own command, or ergostat's program")},
+    "ai": {**MACHINE_NO, **GOAL_UNTIL, "prompt": (T, "what the AI session is asked (R3)")},
+    "person": {**MACHINE_NO, **GOAL_UNTIL, "ask": (T, "what the person is asked (R3)")}}
+REFUSED_TYPES = {"external": "stands for something acting outside", "judge": "judges and applies changes to the model"}
+SOURCE = {k: (T, why) for k, why in (("type", "the kind of source"), ("url", "where it is read from"),
+                                     ("token-file", "the file its token is read from"), ("tls", "its certificates"))}
 
 ALLOWED = {"systems": SYSTEM, "items": ITEM, "parameters": PARAMETER, "auxiliaries": AUXILIARY, "stocks": STOCK,
-           "flows": FLOW, "goals": GOAL, "blocks": BLOCK, "uses": USE}
+           "flows": FLOW, "goals": GOAL, "blocks": BLOCK, "uses": USE, "sources": SOURCE}
 REFUSED = {"agents": "who acts, and on which rung", "workspaces": "folders and repositories runs work in",
-           "actions": "outward acts a session may ask for", "sources": "outside sources read over the network",
+           "compute": "the machines runs execute on",
+           "actions": "outward acts a session may ask for",
            "claims": "commands that check claims", "contexts": "what an AI session is given to read",
            "leases": "terms of work queues", "daemons": "processes kept running", "loops": "loops declared by hand",
            "variables": "the old name of auxiliaries, kept for the owner's own files"}
@@ -248,13 +269,72 @@ def writer_ok(v, tw: str) -> bool:
     return segs is not None and all(m[0] != LIBRARY if m else (t == "" or tw != LIBRARY) for m, t in segs)
 
 
-def _match(spec, v, path: str, tw: str = LIBRARY) -> str | None:
+NAMED = "named"     # a template's own text that may hold its instance's name (``named``): only owner pieces are known
+
+
+def fine(tt: str) -> tuple:
+    """The writers whose pieces R3 lets through, by who wrote the template's own text: an allowlist."""
+    return (OWNER, COMMAND) if tt == NAMED else (OWNER, COMMAND, FOLDER, ERGOSTAT)
+
+
+def text_ok(v, tt: str) -> bool:
+    """R3: ``ask``, ``prompt``, ``query``, a source's values: every key and value in it, at any depth, by a writer
+    ``fine`` lets through. ``tt``: who wrote the template's own text: LIBRARY when that text may hold a value unmarked
+    (``blind``), NAMED when it may hold the instance's name (``named``), which a held chain's library chose."""
+    if isinstance(v, dict):
+        return all(text_ok(k, tt) and text_ok(x, tt) for k, x in v.items())
+    if isinstance(v, list):
+        return all(text_ok(x, tt) for x in v)
+    if isinstance(v, Given):
+        return bool(v.meta) and v.meta[0] in fine(tt)
+    segs = _segments(v) if isinstance(v, str) else [(None, v)]
+    return segs is not None and all(m[0] in fine(tt) if m else (t == "" or tt in fine(LIBRARY)) for m, t in segs)
+
+
+def _keyed(x) -> bool:
+    return isinstance(x, list) and any(map(_keyed, x)) or isinstance(x, dict) and any(
+        isinstance(k, str) and "${" in k or _keyed(v) for k, v in x.items())
+
+
+def _texts(x) -> list:
+    """The values of every ``ask``, ``prompt``, ``query`` and ``sources`` key in it, at any depth."""
+    if isinstance(x, list):
+        return [y for v in x for y in _texts(v)]
+    return [y for k, v in x.items() for y in ([v] if k in TEXT_KEYS else _texts(v))] if isinstance(x, dict) else []
+
+
+TEXT_KEYS = ("ask", "prompt", "query", "sources")
+
+
+def blind(t) -> bool:
+    """A template whose own text puts in a field (``${p.x}``, ``${it.name}``), an ``each:`` element or a key made
+    from a value, or whose R3 text names a part (``block.x``, which rename() makes ``block.<instance>-x``): expand
+    leaves those unmarked, so whose words they are can't be told and R3 reads them as a library's."""
+    raw = json.dumps(t.body, default=str)
+    return '"each":' in raw or any("." in m.group(1) for m in VAR.finditer(raw)) or _keyed(t.body) or \
+        any(REF.search(json.dumps(x, default=str)) for x in _texts(t.body))
+
+
+def named(t) -> bool:
+    """A template whose text or defaults use ``${name}``, ``${here}`` or ``${folder}``. In a held chain the instance's
+    name holds the library's ``uses:`` keys, and expand puts it in unmarked: in the template's own text, and in its
+    defaults and nested ``with:`` values, marked as the template's (``expand.wrote``). So R3 lets through only the
+    owner's pieces of its text (NAMED), and the values it gives a nested use count as a library's (uses.plan)."""
+    raw = json.dumps([t.body, *(p.default for p in t.params.values())], default=str)
+    return any(m.group(1) in ("name", "here", "folder") for m in VAR.finditer(raw))
+
+
+def _match(spec, v, path: str, tw: str = LIBRARY, tt: str = LIBRARY) -> str | None:
     """The first refused path in ``v`` under ``spec``, or None when all of it is allowed. ``tw``: who wrote the
-    template that made it (expand.author)."""
+    template that made it (expand.author); ``tt``: who wrote its own text, for R3."""
     if spec == A:
         return None
     if spec in (RUN, W):
         return None if (run_ok if spec == RUN else writer_ok)(v, tw) else path
+    if spec == T:
+        return None if text_ok(v, tt) else Text(path)
+    if isinstance(v, Given):         # a value given whole: all of it is its writer's (none known: the library's)
+        tt = v.meta[0] if v.meta and v.meta[0] in fine(tt) else LIBRARY
     v = v.value if isinstance(v, Given) else v
     if spec == S:
         return None if v is None or isinstance(v, str | int | float | bool) else path
@@ -281,19 +361,19 @@ def _match(spec, v, path: str, tw: str = LIBRARY) -> str | None:
             got = spec.get(k)
             if got is None or got[0] == NO:
                 return f"{path}.{k}"
-            if p := _match(got[0], x, f"{path}.{k}", tw):
+            if p := _match(got[0], x, f"{path}.{k}", tw, tt):
                 return p
         return None
     if spec[0] == "each":
         if not isinstance(v, dict):
             return path
-        return next((p for k, x in v.items() if (p := _match(spec[1], x, f"{path}.{k}", tw))), None)
+        return next((p for k, x in v.items() if (p := _match(spec[1], x, f"{path}.{k}", tw, tt))), None)
     if spec[0] == "list":
         if not isinstance(v, list):
             return path
-        return next((p for i, x in enumerate(v) if (p := _match(spec[1], x, f"{path}.{i}", tw))), None)
+        return next((p for i, x in enumerate(v) if (p := _match(spec[1], x, f"{path}.{i}", tw, tt))), None)
     if spec[0] == "or":
-        got = [_match(s, v, path, tw) for s in spec[1:]]
+        got = [_match(s, v, path, tw, tt) for s in spec[1:]]
         return None if None in got else max(got, key=len)
     return path                                     # a shape not known here: refused
 
@@ -313,18 +393,19 @@ def _out(entry: dict, path: str, made: set) -> str | None:
     return None
 
 
-def refused(section: str, name: str, entry, made: set = frozenset(), tw: str = LIBRARY) -> str | None:
-    """The first path in this part a held chain may not make (``blocks.x-fetch.run``), or None. ``made``: the
-    (section, name) of every part the held chain makes, the only parts its blocks' ``out:`` may name. ``entry`` as
-    expanded with its marks (expand.Made.marked), ``tw`` who wrote the template that made it (expand.author)."""
+def refused(section: str, name: str, entry, made: set = frozenset(), tw: str = LIBRARY, tt: str = LIBRARY) -> str | None:
+    """The first path in this part a held chain may not make (``blocks.x-fetch.run``), or None; a ``Text`` when R3
+    refused it. ``made``: the (section, name) of every part the held chain makes, the only parts its blocks' ``out:``
+    may name. ``entry`` as expanded with its marks (expand.Made.marked), ``tw`` who wrote the template that made it
+    (expand.author), ``tt`` who wrote its own text (LIBRARY when ``blind``)."""
     path = f"{section}.{name}"
     table = ALLOWED.get(section)
     if table is None:
         return section
     if section == "blocks":
         t = strip(entry.get("type")) if isinstance(entry, dict) else None
-        if not isinstance(t, str) or t not in (*BLOCK_TYPES, "program"):
+        if not isinstance(t, str) or t not in (*BLOCK_TYPES, *MACHINE_TYPES):
             return f"{path}.type"
-        table = {**table, **(PROGRAM if t == "program" else BLOCK_TYPES[t])}
-        return _match(table, entry, path, tw) or _out(entry, path, made)
-    return _match(table, entry, path, tw)
+        table = {**table, **(BLOCK_TYPES.get(t) or MACHINE_TYPES[t])}
+        return _match(table, entry, path, tw, tt) or _out(entry, path, made)
+    return _match(table, entry, path, tw, tt)

@@ -36,7 +36,7 @@
       "required": ["daily", "max-cost"],
       "properties": {
         "daily": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "US dollars over the trailing 24 hours"},
-        "max-cost": {"type": "number", "exclusiveMinimum": 0, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
+        "max-cost": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
       }
     },
     "defaults": {
@@ -2080,6 +2080,20 @@
                   "group": {
                     "type": "boolean",
                     "description": "A parent: the Graph view hangs its children off it"
+                  },
+                  "starts_at": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ],
+                    "description": "A precedence relation's target states (neither finished nor paused) at which it no longer blocks: the item is unblocked, and takes: {unblocked: true} may take it. The critical path and the schedule stay finish-to-start"
                   },
                   "description": {
                     "type": "string"

@@ -17,9 +17,9 @@ FILE = "ergostat.yaml"
 LOCAL = "ergostat.local.yaml"     # beside the main file, untracked: this machine's settings only (SPEC §2)
 PER_MACHINE = {"web": None, "intake": {"bind", "allow"}}   # what LOCAL may set (and, for a map, which of its keys)
 SECTIONS = ("sources", "systems", "items", "parameters", "auxiliaries", "variables", "stocks", "flows", "goals", "blocks", "agents",
-            "loops", "claims", "contexts", "actions", "workspaces", "leases", "daemons")
+            "loops", "claims", "contexts", "actions", "workspaces", "compute", "leases", "daemons")
 SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "check",   # variables: the old name of auxiliaries
-            "contexts": "context", "actions": "action", "workspaces": "workspace", "leases": "lease terms of",
+            "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
             "daemons": "daemon"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
        "defaults", "uses", "library", "remotes", "budget", *SECTIONS}
@@ -223,8 +223,9 @@ def load(main: Path) -> Document:
             else:
                 doc.problems.append(Problem("error", "notify: belongs in the main file only", data.at("notify"), "notify-in-include"))
         if "budget" in data:
-            if top:
-                doc.budget, doc.budget_at = data["budget"], data.at("budget")
+            if top:                          # written but empty: {} (its keys missing, each an error), never no budget
+                doc.budget = data["budget"] if data["budget"] is not None else {}
+                doc.budget_at = data.at("budget")
             else:
                 doc.problems.append(Problem("error", "budget: belongs in the main file only", data.at("budget"),
                                             "budget-in-include"))

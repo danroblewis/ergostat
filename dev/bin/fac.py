@@ -468,9 +468,11 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
     shell, as the coordinator does, inside [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is
     False (the queue: its lock is its slot); ``quarantined``: deselected from unit and browser. The suite's whole
-    process group is killed if this one is stopped. ``box`` ("queue", "triage"): with [suites] queue_container (true
-    unless false), in a container of its own (agents.queued), killed by name on any way out; one that did not start
-    raises agents.NotStarted (an infrastructure failure, never read as the suite's result)."""
+    process group is killed if this one is stopped. ``box`` ("queue", "triage", "host"): under limits() (stall, wall,
+    faulthandler); "host" (the queue's and triage's `[suites] host`) on the Mac, never boxed; the others, with
+    [suites] queue_container (true unless false), in a container of its own (agents.queued), killed by name on any
+    way out; one that did not start raises agents.NotStarted (an infrastructure failure, never read as the suite's
+    result)."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
     cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
     stall, wall = limits(cfg) if box else (600.0, 600.0)  # (again at run time: the queue's and triage's only)
@@ -478,7 +480,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     if box:                                             # a test running past half the stall limit: its stack, logged
         env["PYTEST_ADDOPTS"] = f"{env.get('PYTEST_ADDOPTS', '')} -o faulthandler_timeout={stall / 2:g}".strip()
     boxed = None
-    if box and cfg["suites"].get("queue_container", True) is not False:
+    if box and box != "host" and cfg["suites"].get("queue_container", True) is not False:
         boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box, (f"PYTEST_ADDOPTS={env['PYTEST_ADDOPTS']}",))
         BOXES.add(boxed)
     held = None
@@ -584,6 +586,26 @@ def outcomes(text: str, tests: list[str]) -> dict[str, str]:
     for word, t in OUTCOME.findall(text):
         said[t] = "fail" if word != "PASSED" or said.get(t) == "fail" else "pass"
     return {t: said.get(t, "unknown") for t in tests}
+
+
+# pytest's summary line, -q or not, xdist's too: `1 failed, 3 passed, 2 warnings in 2.10s (0:00:02)`, `no tests ran in`
+SUMMARY = re.compile(r"^=*\s*((?:\d+ [a-z]+, )*\d+ [a-z]+|no tests ran) in \d+(?:\.\d+)?s(?: \([\d:]+\))?\s*=*\s*$", re.M)
+COUNTS = ("passed", "failed", "skipped", "deselected", "errors")
+COUNTED_AS = {**{k: k for k in COUNTS}, "error": "errors"}
+
+
+def counts(text: str) -> dict[str, int] | None:
+    """A pytest log's counts (passed, failed, skipped, deselected, errors) from its last summary line, anywhere in the
+    whole log; None without one (killed, stopped, not pytest): unknown, never zeros. Other words (warnings, xfailed)
+    are not counted."""
+    found = SUMMARY.findall(re.sub(r"\x1b\[[0-9;]*m", "", text))
+    if not found:
+        return None
+    got = dict.fromkeys(COUNTS, 0)
+    for n, word in re.findall(r"(\d+) ([a-z]+)", found[-1]):
+        if word in COUNTED_AS:
+            got[COUNTED_AS[word]] += int(n)
+    return got
 
 
 def beside(tests: list[str], log: Path, run) -> dict[str, str]:

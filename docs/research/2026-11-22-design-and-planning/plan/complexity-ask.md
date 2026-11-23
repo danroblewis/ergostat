@@ -1,0 +1,5 @@
+# The owner's request (2026-11-22): measure the code's complexity
+
+"We are up to 81,000 lines of code now, and we need to start thinking about ways to distill our code. There are many easy ways to shrink code, some easy tricks; we should explore what it would be to reduce those. There is the topic of Kolmogorov complexity, and I know that there are some heuristic ways to approximate K-complexity. We currently don't have any measures of complexity, so we should start with that. We have a large enough codebase that we can add many stocks to represent the different kinds of complexity on the main branch, and we can backfill from the git history. We are starting by measuring complexity, as many forms as we can, in as many ways as we can, and different ways to slice the codebase's code."
+
+Related work already filed: gap/code-reduction-map (a map of what to remove, with evidence; docs/proposals/code-reduction.md), gap/regression-guarantees-proposal (landed), the Dashboard work (the owner's item 18, being planned).
