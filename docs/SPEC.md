@@ -4960,7 +4960,13 @@ Approve records a step test's approval; a dismissed one is not offered again unt
 on in the model changes. Shown where the loop is: the process block's panel in the blocks view (the
 identification, its step response and Bode plot, the process and step-test proposals), the
 controller's panel (its law with that process, margins, closed-loop step and Bode, the tuning), the
-scope (performance), and a loop's panel on the Loops page (all of it).
+scope (performance), and a loop's panel on the Loops page (all of it). The process block's and the
+controller's panels start with a table per loop: law, process (each parameter ± σ, or "not identified:
+needs a step of u"), held-out fit (the NRMSE fit on the record fitted and on the record held out; 100% is
+perfect, below 0 worse than the mean), time off, settling and saturation; then the charts, then the words,
+a step test's sizing behind "how it is sized". A proposal of the loop accepted or dismissed in the panel
+draws its table again too, from the loop's fresh answer. A process block leaves out its loops with no one process
+when it has others; each `<math>` carries its text as `alttext`, and a wide one scrolls sideways in its box.
 
 **Existing controllers** (`numbers/extlaw.py`, `numbers/external.py`; the gap in `docs/proposals/external-systems.md`):
 a controller ergostat does not run (an autoscaler, an alert rule, a vendor's limiter) is an `external` block, and

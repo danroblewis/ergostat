@@ -565,6 +565,10 @@ svg.bd.dragging-part .bd-node { cursor: grabbing; }
 .bd text.bd-lit, .bd text.bd-lit tspan { fill: var(--accent); }
 .bd-math { margin: var(--sp-2) 0 var(--sp-3); overflow-x: auto; }
 .bd-math math { font-size: var(--text-lg); }
+.bd-math::-webkit-scrollbar { height: 6px; }                  /* a wide matrix scrolls inside the panel, and shows it does */
+.bd-math::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--radius); }
+table.loop-table caption { text-align: left; font-weight: 600; padding-bottom: var(--sp-1); }
+table.loop-table th { text-align: left; font-weight: normal; color: var(--muted); white-space: nowrap; vertical-align: top; }
 .bd-legend svg { color: var(--ink); }
 
 /* the system dynamics view (dynamics.js) */

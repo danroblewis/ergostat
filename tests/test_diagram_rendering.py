@@ -1960,6 +1960,128 @@ def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definit
         proc.wait(10)
 
 
+LOOP_PANEL = """() => {
+  // the side panel: its first table, whether it comes before every <p>, its rows, its text, and each <math> against its edge
+  // (a <math> wider than its box: whether that box, inside the panel, scrolls sideways)
+  const d = document.querySelector('#detail'), t = d.querySelector('table'), right = d.getBoundingClientRect().right;
+  const before = [...d.querySelectorAll('p')].every((p) => t && (t.compareDocumentPosition(p) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const scrolls = (m) => { const b = m.parentElement;
+    return m.scrollWidth <= b.clientWidth + 1 || (b !== d && ["auto", "scroll"].includes(getComputedStyle(b).overflowX)
+                                                  && b.getBoundingClientRect().right <= right + 0.5); };
+  return { before, rows: t ? [...t.rows].map((r) => [r.cells[0].textContent, r.cells[1].textContent]) : [], text: d.textContent,
+           maths: [...d.querySelectorAll('math')].map((m) => ({ over: m.getBoundingClientRect().right - right,
+                                                               alt: m.getAttribute('alttext'), scrolls: scrolls(m) })) };
+}"""
+SETTLED = """() => { const d = document.querySelector('#detail');
+  return !d.hidden && d.querySelector('table.loop-table') && d.querySelector('.strip.scope .chart') && d.querySelector('.control h3')
+    && ![...d.querySelectorAll('.control')].some((c) => !c.children.length); }"""
+
+
+def test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_inside(browser, tmp_path):
+    """C_tuner clicked in Blocks: the panel's first table precedes any <p> and has the rows law, process, held-out fit,
+    time off, settling, saturation, the fit naming its measure (NRMSE); only its own loop's text (no small-images, a
+    loop it is only on the path of); each <math> has alttext and none reaches past the panel's right edge, the process
+    block's 4 × 4 matrix included."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.locator('g.node[data-id="blk:tuner"] .hit').first.click()
+        pg.wait_for_function(SETTLED, timeout=60000)
+        got = pg.evaluate(LOOP_PANEL)
+        assert got["before"], got["text"][:400]
+        assert [k for k, _ in got["rows"]] == ["law", "process", "held-out fit", "time off", "settling", "saturation"], got["rows"]
+        fit = dict(got["rows"])["held-out fit"]
+        assert "NRMSE" in fit and "100% is perfect" in fit and "validation" in fit, fit
+        assert dict(got["rows"])["process"].startswith("not identified: needs a step of u"), got["rows"]
+        assert "small-images" not in got["text"], got["text"]
+        assert got["maths"] and all(m["alt"] and m["over"] <= 0.5 and m["scrolls"] for m in got["maths"]), got["maths"]
+        own = pg.evaluate("""async () => {   // a table for each loop the tuner holds, none for a loop it is only on the path of
+          const n = S.graph.nodes.find((x) => x.id === 'blk:tuner'), ds = [];
+          for (const l of (n.loops || []).filter((x) => S.status?.loops?.[x])) ds.push(await loopControl(l));
+          const mine = ds.filter((d) => d && !d.why && (d.controller?.block === 'tuner' || (d.controllers || []).includes('tuner')));
+          return [mine.length, document.querySelectorAll('#detail table.loop-table').length];
+        }""")
+        assert own[0] >= 1 and own[0] == own[1], own
+        pg.evaluate("() => { const d = document.querySelector('#detail'); d.hidden = true; d.replaceChildren(); }")
+        pg.evaluate("() => openBlock(S.graph.nodes.find((n) => n.id === 'proc:service'))")
+        pg.wait_for_function("""() => document.querySelector('#detail table.loop-table') && document.querySelector('#detail .bd-math math')
+          && document.querySelectorAll('#detail .control h3').length >= 3
+          && ![...document.querySelectorAll('#detail .control')].some((c) => !c.children.length)""", timeout=60000)
+        pg.evaluate("() => { document.querySelector('#detail').style.width = '300px'; }")    # narrow: the matrix is wider
+        got = pg.evaluate(LOOP_PANEL)
+        assert got["before"] and got["rows"][0][0] == "law", got
+        assert "small-images" not in got["text"], got["text"]       # a loop with no one process: not this block's to identify
+        assert got["maths"] and all(m["alt"] and m["over"] <= 0.5 and m["scrolls"] for m in got["maths"]), got["maths"]
+        assert pg.evaluate(PROC_ORDER), "the process panel's identification charts come after its words"
+        # one loop's answer failing leaves only that loop unknown: the others keep their tables and identification
+        goals = pg.evaluate("() => S.graph.nodes.find((n) => n.id === 'proc:service').y_of || []")
+        assert len(goals) >= 2, goals
+        from urllib.parse import parse_qs, urlparse
+        pg.route(lambda u: "/api/loop-control" in u and parse_qs(urlparse(u).query).get("goal") == [goals[0]],
+                 lambda r: r.fulfill(status=500, body="no"))
+        tables = pg.evaluate("() => document.querySelectorAll('#detail table.loop-table').length")
+        pg.evaluate("() => { CTL.clear(); openBlock(S.graph.nodes.find((n) => n.id === 'proc:service')); }")
+        pg.wait_for_function("""() => { const cs = [...document.querySelectorAll('#detail .control')];
+          return cs.some((c) => c.textContent.includes('loop-control: 500')) && cs.some((c) => c.querySelector('h3')); }""",
+                             timeout=60000)
+        left = pg.evaluate("() => document.querySelectorAll('#detail table.loop-table').length")
+        assert 1 <= left <= tables, (left, tables)
+        assert not errors, errors
+        pg.close()
+
+
+def test_a_loops_table_is_drawn_again_when_a_proposal_below_it_is_accepted(browser, tmp_path):
+    """The tuner's panel: a tuning proposal accepted in its controller section redraws the panel's first table too,
+    so the law row says the new law, as the section below it does. (The loop's answer is routed: before the accept it
+    carries a proposal, after it a new law; the accept itself is answered without an edit.)"""
+    import json
+    accepted: list[str] = []
+
+    def answer(route):
+        got = route.fetch()
+        d = got.json()
+        if d and not d.get("why"):
+            if accepted:
+                d["controller"] = {**(d.get("controller") or {}), "says": "the new law, accepted"}
+                d["proposals"] = []
+            else:
+                d["proposals"] = [{"id": "tune-test", "kind": "tuning", "title": "a new gain", "reason": "a test's"}]
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(d))
+
+    def accept(route):
+        accepted.append(route.request.url)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"edit": {"files": []}}))
+
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/loop-control?*", answer)
+        pg.route("**/api/control/tune-test/accept?*", accept)
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.locator('g.node[data-id="blk:tuner"] .hit').first.click()
+        pg.wait_for_function(SETTLED, timeout=60000)
+        law = "() => document.querySelector('#detail table.loop-table tr td').textContent"
+        assert "the new law" not in pg.evaluate(law)
+        pg.locator("#detail .proposal button", has_text="Accept").first.click()
+        pg.wait_for_function(law + ".includes('the new law, accepted')", timeout=20000)
+        assert accepted, "the accept was not posted"
+        assert not errors, errors
+        pg.close()
+
+
+PROC_ORDER = """() => {
+  // the process panel: its identification (the first .control) before the block's words and headings outside it
+  const d = document.querySelector('#detail'), c = d.querySelector('.control');
+  const words = [...d.querySelectorAll('p.what, h3')].filter((x) => !x.closest('.control'));
+  return !!c && words.length > 0 && words.every((w) => c.compareDocumentPosition(w) & Node.DOCUMENT_POSITION_FOLLOWING);
+}"""
+
+
 # ---- the Blocks view in hand: the same dragging, pinning and unpinning as the dynamics view (interact.js, places.js)
 
 BD_SLANTED = """() => {
