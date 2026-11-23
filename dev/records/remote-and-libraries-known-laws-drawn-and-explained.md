@@ -1,0 +1,7 @@
+# remote-and-libraries-known-laws-drawn-and-explained: A declared law is drawn as its block's function in Blocks and said in words by explain
+
+depends-on: [remote-and-libraries-known-controller-laws]
+
+Problem: after known-controller-laws a declared law is in the IR but the Blocks view still draws an external block as an unknown function and explain says nothing of it. Change: ergostat/blockdiagram.py draws the declared law as the block's function, in the block diagram's own notation, marked 'declared kubernetes-hpa' (or 'declared alert-rule'), where an identified law is marked identified today; no new panel or element kind. ergostat/spec/explain.py says the law in words with its parameters ('scales to ceil(replicas x utilisation / 0.6), within 2..10, down only after 5m'). AGENT-GUIDE says when to declare a law and that a declared law is an assumption until tested against the record. Done: the Blocks answer for a block with `law:` carries the function and its mark; a block without one is drawn exactly as today (golden); the MCP explain tool returns the same words; the browser test for the Blocks view passes with one fixture using a declared law. Files: ergostat/blockdiagram.py, ergostat/spec/explain.py, docs/AGENT-GUIDE.md, tests/test_known_laws.py (three tests). Budget: 70 net lines.
+
+Area: remote-and-libraries. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
