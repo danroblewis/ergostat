@@ -2,7 +2,7 @@ alert-triage: 7 stocks, 11 flows, 1 auxiliary, 6 goals, 10 blocks (ergostat.yaml
 Systems (explain system.NAME for one):
   - alerts: 2 in, 3 out; 24 parts, 14 feedback loops inside and 54 through it
   - investigation: 3 in, 2 out; 6 parts, 2 feedback loops inside and 54 through it
-Items: alert (alert/*: new → leased → triaged → investigating → summarising → escalated → closed → dismissed → dead); facet (facet/*: open → leased → done → dead); ergostat.model-change (ergostat.model-change/*: made → checked → testing → passed → accepted → refused → failed → dismissed → superseded → verified → regressed → inconclusive); ergostat.modelling-request (ergostat.modelling-request/*: open → proposed → held → answered → dismissed); ergostat.claim (ergostat.claim/*: made → verified → contradicted → unchecked); ergostat.message (ergostat.message/*: received → unrouted → routed → delivered → answered); ergostat.verdict (ergostat.verdict/*: asked → met → unmet → contradicted → unjudged → overruled → missed); ergostat.decision (ergostat.decision/*: proposed → confirmed → superseded → dismissed); ergostat.correction (ergostat.correction/*: proposed → confirmed → retired → dismissed); ergostat.context (ergostat.context/*: started → succeeded → failed); ergostat.report (ergostat.report/*: drafted → reviewed → submitted → dismissed).
+Items: alert (alert/*: new → leased → triaged → investigating → summarising → escalated → closed → dismissed → dead); facet (facet/*: open → leased → done → dead).
 
 Goal new-alerts-triaged: stock.new-alerts <= 0.
   Measured: stock.new-alerts.main counts the alert items in new every 2s.
@@ -56,13 +56,6 @@ Feedback loops (18 balancing, 52 reinforcing; R reinforces, B balances):
   B escalations-answered via escalations-handled: stock.alerts-escalated → goal.escalations-answered → block.keep-escalations-answered → block.on-call → flow.escalations-handled
   ... and 58 more.
 
-Modes at the start (eigenvalues of the stocks' Jacobian, one evaluation of the equations, no run; a delay's stages are not states here: its time is in time-scales):
-  λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  λ 0/h: no decay (a conserved quantity, or a stock nothing drains): elasticities are not defined at λ = 0
-  λ -347/h (τ 10s): stock.alerts-escalated (its own) ε 1.07; stock.alerts-summarising (its own) ε 0.30; stock.alerts-triaged (its own) ε 0.30; most in stock.alerts-escalated
-  λ -1.58e+03 ± 587i/h (τ 2s, period 39s): stock.alerts-summarising (its own) |ε| 0.35 (0.30+0.17i); stock.alerts-triaged (its own) |ε| 0.35 (0.30+0.17i); stock.open-facets (its own) |ε| 0.35 (0.30+0.17i); most in stock.alerts-triaged
-  λ -1.8e+03/h (τ 2s): stock.new-alerts (its own) ε 1.00; stock.alerts-escalated (its own) ε -0.00; stock.alerts-summarising → stock.alerts-escalated ε -0.00; most in stock.new-alerts
-  λ -2.35e+03/h (τ 2s): stock.alerts-summarising (its own) ε 0.23; stock.alerts-triaged (its own) ε 0.23; stock.open-facets (its own) ε 0.23; most in stock.open-facets
 
 Goal escalations-answered: stock.alerts-escalated <= 0.
   Owner: on-call.
@@ -298,10 +291,6 @@ System alerts: the alert's way from the pager to closed - triage, the fan-out, t
     block.fan-out → flow.facets-opened (action)
     flow.facets-opened-for → flow.facets-opened (influence)
     block.investigate reads stock.alerts-investigating
-  Modes most in it (at the start, of the stocks' Jacobian; explain for all):
-    λ -347/h (τ 10s): stock.alerts-escalated (its own) ε 1.07; stock.alerts-summarising (its own) ε 0.30; stock.alerts-triaged (its own) ε 0.30; most in stock.alerts-escalated
-    λ -1.58e+03 ± 587i/h (τ 2s, period 39s): stock.alerts-summarising (its own) |ε| 0.35 (0.30+0.17i); stock.alerts-triaged (its own) |ε| 0.35 (0.30+0.17i); stock.open-facets (its own) |ε| 0.35 (0.30+0.17i); most in stock.alerts-triaged
-    λ -1.8e+03/h (τ 2s): stock.new-alerts (its own) ε 1.00; stock.alerts-escalated (its own) ε -0.00; stock.alerts-summarising → stock.alerts-escalated ε -0.00; most in stock.new-alerts
 
 System investigation: the facets each alert is investigated along, one item each, worked in parallel and joined.
   Holds 2 stocks, 1 goals, 1 blocks.
@@ -313,5 +302,3 @@ System investigation: the facets each alert is investigated along, one item each
   Out:
     block.investigate → flow.alerts-investigated (action)
     flow.facets-done → flow.alerts-investigated (influence)
-  Modes most in it (at the start, of the stocks' Jacobian; explain for all):
-    λ -2.35e+03/h (τ 2s): stock.alerts-summarising (its own) ε 0.23; stock.alerts-triaged (its own) ε 0.23; stock.open-facets (its own) ε 0.23; most in stock.open-facets

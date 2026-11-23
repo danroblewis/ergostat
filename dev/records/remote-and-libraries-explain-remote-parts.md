@@ -54,3 +54,19 @@ Round 3 (the queue: test_explain_without_remotes_unchanged failed alone after ma
   changed.
 - Refused in this session: a python heredoc editing the test, a scratch script under /tmp (both writing and running
   it), and `git checkout main -- ergostat/spec/explain.py ergostat/remote/__init__.py`.
+
+Round 4 (the review: the golden still held text that isn't explain's own):
+- (a) The Items line: the test's new _own_text keeps only the model's own item kinds (alert, facet) and drops the
+  `ergostat.*` built-in kinds and their state lists (spec/ir.py), so a change there on main no longer moves the golden.
+- (b) The Modes sections ("Modes at the start" and every "Modes most in it" block, with their indented λ/ε lines)
+  are cut before comparing, so a host's maths library can't change the golden through eigenvalue signs, ties or order.
+  The goal, loop, block, part and system text, where the remote markings show, is still compared word for word.
+- The golden was edited by hand to match: line 5 cut to the two own kinds, and the three Modes blocks removed. It was
+  not rewritten by running code, because `uv run python -c` (to apply _own_text to the golden) was refused in this
+  session. Tests only; no code outside tests changed. Easy to undo: _own_text and the golden.
+- Seen failing: with "  Holds " changed to "  Holds  " in explain.py, test_explain_without_remotes_unchanged failed
+  (AssertionError). Restored, all 17 tests of tests/test_remote.py pass and ruff is clean.
+- Not run here: the unit suite and the browser files (no page changed), and demo_check (no example changed). Main was
+  not merged again: the clone's main is still 2a97eafb, which is already merged.
+- Refused in this session: `uv run python -c` (rewriting the golden through _own_text), and a bash heredoc appending
+  this section together with the commit.

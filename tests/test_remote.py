@@ -372,7 +372,27 @@ def _every_explanation(spec):
     # this host's interpreter and checkout paths (library/expand.py PY, library/templates.py HERE) become placeholders
     from ergostat.library.expand import PY
     from ergostat.library.templates import HERE
-    return "\n\n".join(out).replace(PY, "<python>").replace(str(HERE), "<templates>") + "\n"
+    return _own_text("\n\n".join(out).replace(PY, "<python>").replace(str(HERE), "<templates>")) + "\n"
+
+
+def _own_text(text):
+    # explain's own words only: the Items line keeps the model's own kinds (ergostat's built-in kinds and their
+    # states come from spec/ir.py, which main changes on its own), and the Modes sections go (eigenvalue and
+    # elasticity numbers whose signs, ties and order can differ with a host's maths library)
+    out, cut = [], None
+    for line in text.split("\n"):
+        depth = len(line) - len(line.lstrip(" "))
+        if cut is not None and line.strip() and depth > cut:
+            continue
+        cut = None
+        if line.lstrip(" ").startswith("Modes"):
+            cut = depth
+            continue
+        if line.startswith("Items: "):
+            own = [k for k in line[len("Items: "):].rstrip(".").split("; ") if not k.startswith("ergostat.")]
+            line = "Items: " + "; ".join(own) + "."
+        out.append(line)
+    return "\n".join(out)
 
 
 def _alert_triage_without_uses(tmp_path):
