@@ -227,3 +227,24 @@ what main changed.
 - **Refused:** a `python3 - <<EOF` script to resolve `diagram.js` (done with edits instead), and one `cat >> ... && git
   commit` command (done as an edit and a separate commit).
 - **Not run:** the rest of `tests/test_diagram_rendering.py`, the other browser files, the unit suite.
+
+Continued, round 2: the queue's finding (conflicts with main in `tests/test_diagram_rendering.py`), answered by
+finishing the factory's merge of main (7cb97857, ff2a7daa). No code outside tests changed this round.
+
+- **Merge:** both sides had added tests at the same place. The branch's two fold tests are kept whole, then main's
+  `NO_UNIT` and `test_a_stock_with_no_unit_reads_unit_query_after_its_value_and_the_legend_explains_it`.
+- **Main changed what the fold was first seen on:** main's `missing-unit-is-a-check-finding` made a stock's missing unit
+  a check finding that raises no request (`requests.CHECK_ONLY`). So the 24 "no unit" requests in the problem no
+  longer exist on big, and the acceptance's "'24' and 'no unit'" can't be met by any request. The fold is not tied to
+  a code (it groups by code and asker), so nothing in the page changed. **Choice taken (nobody to ask; the most
+  reversible):** the tests now use codes that are still requests. The acceptance test uses 24 stocks with a unit but
+  no description over the six systems ("24 stocks: no description (api, billing, build, data, support, web)").
+  Everything else it checks is as before. The two-fold test uses 3 undescribed stocks (`no-description`) and 3 flows
+  with no equation (`no-equation`). Each test holds only its own parts' requests. The final check reads only the
+  fold's code, because the same stocks have other open requests.
+- **Seen to fail:** with `folded` made a pass-through by hand, both fold tests failed (the acceptance test timed out
+  waiting for the `no-description` fold, and the two-fold test waiting for two folds). Put back.
+- **Runs:** ruff clean. The two fold tests and main's no-unit browser test: 3 passed (the fold tests after the change
+  above). `tests/test_inbox.py`: 34 passed. `tests/test_inbox_page.py`: 7 passed, rc 0.
+- **Not run:** the rest of `tests/test_diagram_rendering.py` (its earlier failures on main's header and on timing
+  bounds are as reported above), the other browser files, the unit suite.

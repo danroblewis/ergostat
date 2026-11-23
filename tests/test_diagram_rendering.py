@@ -4713,7 +4713,7 @@ def leave_list(pg) -> None:
 
 
 FOLD_SYSTEMS = ["api", "billing", "build", "data", "support", "web"]
-FOLD_ROW = '.side .att > [data-fold^="no-unit|"]'
+FOLD_ROW = '.side .att > [data-fold^="no-description|"]'
 IN_VIEW = """() => {
   // every entry of Needs attention inside the side panel's visible box, the panel not scrolled
   const side = document.querySelector('.side'), box = side.getBoundingClientRect();
@@ -4728,7 +4728,9 @@ IN_VIEW = """() => {
 def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answer(browser, tmp_path, home):
     """Design review Q50: 24 stocks with no unit, each its own held request with its own Deny, filled the side list and
     pushed the one real alarm away, while /model said 'Nothing waiting'. Alike requests (one code, one asker) are one
-    entry: the count, the systems, and Deny all; opened, each with its own answer. /model counts them as waiting."""
+    entry: the count, the systems, and Deny all; opened, each with its own answer. /model counts them as waiting.
+    (A missing unit is a check finding now, not a request (dev record missing-unit-is-a-check-finding), so the 24 alike
+    requests here are stocks with no description: the same fold, another code.)"""
     from ergostat import model as mdl
     from ergostat.actions import gate
     from ergostat.numbers import requests as rq
@@ -4736,7 +4738,8 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
 
     from .test_inbox import MODEL
     from .test_modelling_core import MODELLING
-    stocks = "".join(f"  {s}-{i}:\n    system: {s}\n    description: what waits in {s}, part {i}\n    sensor: {{manual: true}}\n"
+    mine = {f"stock.{s}-{i}" for s in FOLD_SYSTEMS for i in range(4)}
+    stocks = "".join(f"  {s}-{i}:\n    system: {s}\n    unit: things\n    sensor: {{manual: true}}\n"
                      for s in FOLD_SYSTEMS for i in range(4))
     systems = "systems:\n" + "".join(f"  {s}:\n    description: the {s} work\n" for s in FOLD_SYSTEMS)
     (tmp_path / "ergostat.yaml").write_text(MODEL.replace("stocks:\n", systems + "stocks:\n" + stocks, 1) + MODELLING)
@@ -4744,7 +4747,7 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
     assert not [x for x in p.model.problems if x.level == "error"], [str(x) for x in p.model.problems]
     gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None})      # the real alarm, held for the owner
     rq.sync(p)
-    held = [r for r in rq.current(p, ("open",)) if r["code"] == "no-unit"]
+    held = [r for r in rq.current(p, ("open",)) if r["code"] == "no-description" and r["about"] in mine]
     assert len(held) == 24, sorted(r["about"] for r in held)
     for r in held:
         rq.mark(p, r, "held", "no tier has a change for it")
@@ -4773,7 +4776,7 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
         pg.locator(FOLD_ROW).wait_for(timeout=20000)
         assert pg.locator(".side .att > [data-fold]").count() == 1
         summary = pg.locator(f"{FOLD_ROW} > details.fold > summary").inner_text()
-        assert "24" in summary and "no unit" in summary and "(api, billing, build, data, support, web)" in summary, summary
+        assert "24 stocks" in summary and "no description" in summary and "(api, billing, build, data, support, web)" in summary, summary
         assert pg.locator('.side .att > [data-inbox^="request/"]').count() == 0     # no member left as a row of its own
         got = pg.evaluate(IN_VIEW)
         assert got == {"scrolled": 0, "out": []}, got
@@ -4787,7 +4790,7 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
         text = model.locator(".page").first.inner_text()
         assert "Nothing waiting" not in text and "24 modelling requests held" in text, text[:2000]
         model.close()
-        pg.locator(f"{FOLD_ROW} > .inbox-act input").fill("units are not this model's concern")
+        pg.locator(f"{FOLD_ROW} > .inbox-act input").fill("these stocks say what they are by name")
         # as a person types: the side list is rebuilt and patched in between (a poll asked after the first one's
         # answer was drawn), so Deny all must read the reason from the row on the page, not from an earlier build;
         # the reader steps out of the list meanwhile, as it holds still while they are in it
@@ -4799,7 +4802,7 @@ def test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answe
         pg.locator(f"{FOLD_ROW} > .inbox-act .note").filter(has_text="24 denied").wait_for(timeout=60000)
         leave_list(pg)
         pg.wait_for_function(f"() => !document.querySelector('{FOLD_ROW}')", timeout=60000)
-        assert {r["state"] for r in rq.stored(p).values() if r["code"] == "no-unit"} == {"dismissed"}
+        assert {r["state"] for r in rq.stored(p).values() if r["about"] in mine and r["code"] == "no-description"} == {"dismissed"}
         assert pg.locator('.side .att [data-inbox^="action/"]').count() == 1            # the alarm still waits
         pg.close()
         assert not errors, errors
@@ -4817,10 +4820,13 @@ def test_two_folds_each_keep_their_own_reason_across_a_refresh(browser, tmp_path
 
     from .test_inbox import MODEL
     from .test_modelling_core import MODELLING
-    mine = {f"stock.d-{i}": "no-unit" for i in range(3)} | {f"stock.u-{i}": "no-description" for i in range(3)}
-    stocks = "".join(f"  d-{i}:\n    description: what waits, part {i}\n    sensor: {{manual: true}}\n"
-                     f"  u-{i}:\n    unit: things\n    sensor: {{manual: true}}\n" for i in range(3))
-    (tmp_path / "ergostat.yaml").write_text(MODEL.replace("stocks:\n", "stocks:\n" + stocks, 1) + MODELLING)
+    # (no-unit is a check finding now, raising no request: the second fold is flows with no equation)
+    mine = {f"flow.e-{i}": "no-equation" for i in range(3)} | {f"stock.u-{i}": "no-description" for i in range(3)}
+    stocks = "".join(f"  u-{i}:\n    unit: things\n    sensor: {{manual: true}}\n" for i in range(3))
+    flows = "".join(f"  e-{i}:\n    from: queue\n    to: u-{i}\n    description: what moves on, part {i}\n"
+                    f"    sensor: {{manual: true}}\n" for i in range(3))
+    text = MODEL.replace("stocks:\n", "stocks:\n" + stocks, 1).replace("flows:\n", "flows:\n" + flows, 1)
+    (tmp_path / "ergostat.yaml").write_text(text + MODELLING)
     p = Project(mdl.load(tmp_path))
     rq.sync(p)
     held = [r for r in rq.current(p, ("open",)) if mine.get(r["about"]) == r["code"]]
@@ -4850,7 +4856,7 @@ def test_two_folds_each_keep_their_own_reason_across_a_refresh(browser, tmp_path
         if not house.evaluate("(d) => d.open"):
             house.locator(":scope > summary").click()
         a, b = folds.nth(0).get_attribute("data-fold"), folds.nth(1).get_attribute("data-fold")
-        assert {a.split("|")[0], b.split("|")[0]} == {"no-unit", "no-description"}, (a, b)
+        assert {a.split("|")[0], b.split("|")[0]} == {"no-equation", "no-description"}, (a, b)
         row = lambda f: pg.locator(f'.side .att > [data-fold="{f}"]')       # noqa: E731
         row(b).locator(":scope > .inbox-act input").fill("reason B")        # typed in B while A is answered
         row(a).locator(":scope > .inbox-act input").fill("reason A")
