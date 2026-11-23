@@ -5,14 +5,17 @@
 
 (() => {
   const F = plotFrame, M = plotMath, N = () => panelNumbers;
-  const COHERENCE_MIN = 0.6;
   const PLAIN = () => N().parseUnit("");
   const hzText = (v) => `${+v.toPrecision(3)} Hz`;
+  /* the server decides whether the record supports a response at all (query/frequency.py); the page only says so */
+  const refusal = (r) => (r.supported === false ? `This data cannot support a frequency response: ${r.refused || "the server gave no reason"}.` : "");
+  const floorText = (r) => (Number.isFinite(r.coherence_floor) ? r.coherence_floor.toFixed(2) : "the server's floor (none sent)");
 
-  function pointsOf(fr, mode) {
-    const co = fr.coherence;
+  /* a point is unreliable under the server's coherence floor; with coherence and no floor, every point is */
+  function pointsOf(r, mode) {
+    const fr = r.frequency, co = fr.coherence, bar = Number.isFinite(r.coherence_floor) ? r.coherence_floor : Infinity;
     const out = fr.hz.map((hz, i) => ({ i, hz, db: fr.magnitude_db?.[i] ?? null, deg: fr.phase_deg?.[i] ?? null, re: fr.re?.[i] ?? null, im: fr.im?.[i] ?? null,
-                                        coh: co ? co[i] ?? null : null, low: !!co && mode !== "off" && (co[i] == null || co[i] < COHERENCE_MIN) }))
+                                        coh: co ? co[i] ?? null : null, low: !!co && mode !== "off" && !(co[i] >= bar) }))
       .filter((p) => p.hz > 0).sort((a, b) => a.hz - b.hz);
     return out;
   }
@@ -49,12 +52,12 @@
     });
     return bands;
   }
-  const lowNote = (pts, mode) => {
+  const lowNote = (pts, mode, r) => {
     const n = pts.filter((p) => p.low).length;
     if (!n || mode === "off") return [];
     return [{ mark: F.svgLine({ "stroke-dasharray": "4 2" }),
-              text: mode === "hide-low" ? `${n} of ${pts.length} points hidden: coherence under ${COHERENCE_MIN}`
-                : `dashed, shaded: unreliable, coherence under ${COHERENCE_MIN} (${n} of ${pts.length})` }];
+              text: mode === "hide-low" ? `${n} of ${pts.length} points hidden: coherence under ${floorText(r)}`
+                : `dashed, shaded: unreliable, coherence under ${floorText(r)} (${n} of ${pts.length})` }];
   };
   const methodNote = (r) => ({ text: r.method === "model" ? `from the identified model${r.delay_seconds ? `, delay ${+r.delay_seconds.toPrecision(3)} s` : ""}` : `estimated from ${r.samples ?? "?"} samples (Welch)` });
   const readPoint = (p) => `${hzText(p.hz)}  ${p.db == null ? "–" : p.db.toFixed(1)} dB  ${p.deg == null ? "–" : p.deg.toFixed(1)}°${p.coh == null ? "" : `  coherence ${p.coh.toFixed(2)}`}${p.low ? " (unreliable)" : ""}`;
@@ -62,7 +65,7 @@
   function drawBode(target, first, config, opts) {
     const o = opts.options, d = config.display || {};
     return F.view(target, first, opts, (result) => {
-      const all = pointsOf(result.frequency, o.coherence);
+      const all = pointsOf(result, o.coherence);
       const unwrapped = M.unwrapPhase(all.map((p) => p.deg), (k) => !all[k].low);
       all.forEach((p, k) => { p.deg = o.phase_wrap === "wrapped" ? M.wrapPhase(p.deg) : unwrapped[k]; });
       const pts = o.coherence === "hide-low" ? all.filter((p) => !p.low) : all;
@@ -132,7 +135,7 @@
         if (p.deg != null) marks.push({ x: px, y: low.Y.at(p.deg), colour });
         return { lines: [[px, top.box.top, px, low.box.bottom]], marks, text: readPoint(p) };
       };
-      const notes = [methodNote(result), ...lowNote(all, o.coherence)];
+      const notes = [methodNote(result), ...lowNote(all, o.coherence, result)];
       if (o.phase_wrap !== "wrapped") notes.push({ text: "phase unwrapped" });
       return { paint, pick, notes, model };
     });
@@ -173,7 +176,7 @@
   function drawNyquist(target, first, config, opts) {
     const o = opts.options;
     return F.view(target, first, opts, (result) => {
-      const all = pointsOf(result.frequency, o.coherence).filter((p) => p.re != null && p.im != null);
+      const all = pointsOf(result, o.coherence).filter((p) => p.re != null && p.im != null);
       const pts = o.coherence === "hide-low" ? all.filter((p) => !p.low) : all;
       const res = [...pts.map((p) => p.re), -1, 0], ims = [...pts.flatMap((p) => (o.mirror === "on" ? [p.im, -p.im] : [p.im])), 0];
       if (o.unit_circle !== "off") { res.push(1); ims.push(-1, 1); }
@@ -224,7 +227,7 @@
       notes.push({ mark: F.svgDot({ fill: "none" }), text: `lowest, ${pts.length ? hzText(pts[0].hz) : "–"}` });
       notes.push({ mark: F.svgDot({}), text: `highest, ${pts.length ? hzText(pts[pts.length - 1].hz) : "–"}` });
       if (o.mirror === "on") notes.push({ mark: F.svgLine({ "stroke-dasharray": "1 2" }), text: "mirror: negative frequencies" });
-      notes.push(...lowNote(all, o.coherence), methodNote(result));
+      notes.push(...lowNote(all, o.coherence, result), methodNote(result));
       return { paint, pick, notes, model };
     });
   }
@@ -280,12 +283,12 @@
 
   const coherence = { key: "coherence", label: "Low coherence", type: "choice", choices: ["shade", "hide-low", "off"], default: "shade" };
   const frequency = (text) => ({ source: "frequency", text });
-  registerPlotForm("bode", { label: "Bode plot", group: "dynamics", needs: frequency("a frequency response query"), draw: drawBode, options: [
+  registerPlotForm("bode", { label: "Bode plot", group: "dynamics", needs: frequency("a frequency response query"), draw: drawBode, check: refusal, options: [
     coherence,
     { key: "phase_wrap", label: "Phase", type: "choice", choices: ["unwrapped", "wrapped"], default: "unwrapped" },
   ] });
   registerPlotForm("nyquist", { label: "Nyquist plot", group: "dynamics", needs: frequency("a frequency response query"), draw: drawNyquist,
-    check: (r) => (r.frequency?.re?.some((v) => v != null) ? "" : "This response has no real and imaginary parts to draw."),
+    check: (r) => refusal(r) || (r.frequency?.re?.some((v) => v != null) ? "" : "This response has no real and imaginary parts to draw."),
     options: [
       { key: "unit_circle", label: "Unit circle", type: "choice", choices: ["on", "off"], default: "on" },
       { key: "mirror", label: "Negative frequencies", type: "choice", choices: ["off", "on"], default: "off" },

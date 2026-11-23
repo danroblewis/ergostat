@@ -22,7 +22,7 @@ SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "che
             "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
             "daemons": "daemon"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
-       "defaults", "uses", "library", "remotes", "budget", "runs", *SECTIONS}
+       "defaults", "uses", "library", "remotes", "budget", "runs", "dashboards", *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -150,6 +150,7 @@ class Document:
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
     local: dict[str, Where] = field(default_factory=dict)    # each per-machine setting LOCAL set: where it was written
+    dashboards: dict[str, tuple] = field(default_factory=dict)   # dashboards: name (SYSTEM.NAME) → (its map, where, system)
 
 
 def read_file(path: Path, problems: list[Problem]):
@@ -282,6 +283,9 @@ def load(main: Path) -> Document:
                 continue
             for name, entry in body.items():
                 put(section, name, entry, body.at(name), defaults)
+        if data.get("dashboards") is not None:
+            from .dashboards import take as dashboards
+            dashboards(doc, data, defaults)
         if data.get("uses") is not None:
             from ..library import uses
             uses.take(doc, data, defaults, put)

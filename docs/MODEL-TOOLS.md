@@ -500,8 +500,9 @@ K e^(−θs)/(τs + 1), or an integrator with dead time, k e^(−θs)/s, driven 
 **What you get.** The loop's gain, time constant and dead time, how sure each is, and how it was tested:
 what every other control tool needs.
 
-**Where.** Diagram → **Blocks** → click the process block **P** that the loop's y comes out of → **The
-loop NAME, from u to y**: the process in MathML, gain K, time constant τ, dead time θ, fit, what it
+**Where.** Diagram → **Blocks** → click the process block **P** that the loop's y comes out of (or the
+controller **C**): first a table of the loop (law, process ± σ, held-out NRMSE fit for estimation and
+validation, time off, settling, saturation), then → **The loop NAME, from u to y**: the process in MathML, gain K, time constant τ, dead time θ, fit, what it
 leaves of the record held out, where it came from, the whiteness and independence of its errors, and y
 against the model's own simulation ŷ. Goals page → click a goal → the same, with the controller's.
 Model page → **What's available** → a loop's **process** link opens it.

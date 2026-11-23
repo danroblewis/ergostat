@@ -371,6 +371,7 @@ def cmd_chat(args) -> int:
 
 def cmd_projects(args) -> int:
     """``ergostat projects``: every project on this machine ergostat has seen."""
+    from .. import state as st
     from ..projects import known
     found = known()
     if args.json:
@@ -381,11 +382,9 @@ def cmd_projects(args) -> int:
             rows.append([x["name"], c("cannot load", "bad"), "", "", x["error"][:60]])
             continue
         state = c("running", "ok") if x["running"] else c("stopped", "dim")
-        names = ", ".join(x["off"][:3]) + (f" +{len(x['off']) - 3}" if len(x["off"]) > 3 else "")
-        unknown = f", {len(x.get('unknown', []))} unknown" if x.get("unknown") else ""
-        held = x["loops"] - len(x["off"]) - len(x.get("unknown", []))
-        off = (c(f"{len(x['off'])} off: {names}", "bad") + unknown if x["off"] else
-               (c(f"{held} holding", "ok") if held else "") + (unknown.lstrip(", ") if not held else unknown) if x["loops"] else "no goals")
+        g, sys_off = x["goals"], x["goals_off"]           # the one count (state.goals_off), as `ergostat` says it
+        names = ", ".join(sys_off[:3]) + (f" +{len(sys_off) - 3}" if len(sys_off) > 3 else "")
+        off = c(st.goals_said(g) + (f": {names}" if names else ""), "bad" if g["system"] else "ok") if x["loops"] else "no goals"
         rows.append([x["name"], state, off, x["web"] or "", x["repo"]])
     print(table(["PROJECT", "STATE", "GOALS", "PAGE", "REPOSITORY"], rows, "no projects yet: ergostat run in a repository"))
     return 0
