@@ -64,29 +64,24 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `query` and `sources` entries stand only when no piece of them is the library's (a piece whose writer can't be told
   counts as the library's, the instance's name and a part's renamed name included), else the use is refused as `untrusted-text`; `ai` and `person` blocks may say only that
   text, `goal`, `until`, `every` and `cron`, every other key refused by name (SPEC §2a, R3). **Built**
-  (`library-fetch`): `libraries:` (main file, at most 16) fetched by git URL (https or file, every field on an
-  allowlist) by `ergostat library fetch` into `.libraries/NAME`, under one flock across read, clone, swap and lock
-  write, pinned in `libraries.lock` by commit and tree hash; each load checks the copy against the lock, refusing a
-  lock entry without a tree, hashing symlinks explicitly by their target (never followed), and parses the bytes it
-  hashed; a library without `trust: owner` is listed, its templates never expanded (SPEC §2a, *Libraries fetched by
-  git URL*; SECURITY *Libraries you did not write*).
-  *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
-  descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
-  them, and the `library-untrusted` refusal's folder path); fetch by package; the provenance gate and the sandbox for
-  fetched libraries without `trust: owner` (today never expanded); then running untrusted library scripts through
-  `ergostat.sandbox` and the rebase onto main.
   (`library-sandbox-sensors-proven`): a sensor `run:` runs on the owner's shell only when compile proved it the owner's
   or ergostat's (an allowlist: `Sensor.run_in`, `ergostat/library/runs.py`); any other, a library's own script
   included, is no longer refused but runs only through `ergostat.sandbox` with no hosts, an empty environment, only its
   template folder readable, a work folder `<state>/library-work/<instance>` cleared when the chain above it changes, at
   most 120 s and 4 at once; with no sandbox nothing runs, and a library's sensor daemon is refused
   `library-unsandboxed` (SPEC §2a, *Sandboxed sensor runs*). Proven on the captured `Policy`; enforcement is the
-  attack suite's. *Left*: library blocks in the sandbox (`library-sandbox-blocks`).
+  attack suite's. *Left*: library blocks in the sandbox (`library-sandbox-blocks`). **Built** (`library-fetch`):
+  `libraries:` (main file, at most 16) fetched by git URL (https or file, every field on an allowlist) by
+  `ergostat library fetch` into `.libraries/NAME`, under one flock across read, clone, swap and lock write, pinned in
+  `libraries.lock` by commit and tree hash (a missing or altered copy is fetched again at the locked commit); each
+  load checks the copy against the lock, refusing a lock entry without a tree, hashing symlinks explicitly by their
+  target (never followed), and parses the bytes it hashed; a library without `trust: owner` is listed, its templates
+  never expanded (SPEC §2a, *Libraries fetched by git URL*; SECURITY *Libraries you did not write*).
   *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
   descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
-  them, and the `library-untrusted` refusal's folder path); `fetch` by git URL or package, refusing a lock entry
-  without a tree, symlinks hashed explicitly; then running untrusted library blocks' scripts through
-  `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
+  them, and the `library-untrusted` refusal's folder path); `fetch` by package; the provenance gate and the sandbox
+  for fetched libraries without `trust: owner` (today never expanded); then running untrusted library blocks' scripts
+  through `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.

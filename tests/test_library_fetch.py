@@ -200,6 +200,23 @@ def test_update_remake_drops_deleted_files(tmp_path, capsys):
     assert errors(d) == []
 
 
+def test_refetch_restores_the_locked_commit_after_the_branch_moved(tmp_path, capsys, calls):
+    up, d = owned(tmp_path, capsys, version="main")
+    copy, was, text = d / ".libraries" / "a", entries(d)["a"], (d / "libraries.lock").read_text()
+    commit(up, {"greet.yaml": GREET.replace("Greetings waiting.", "Moved on.")})   # main moved upstream
+    shutil.rmtree(copy)
+    calls.clear()
+    rc, _, err = run_fetch(d, capsys)                     # no --update: the copy comes back as it was locked
+    assert rc == 0, err
+    assert (copy / "greet.yaml").read_text() == GREET and tree.read(copy)[1] == was["tree"]
+    assert (d / "libraries.lock").read_text() == text and errors(d) == []
+    args = next(a for a, _ in calls if a[0] == "rev-parse")
+    assert args[-1] == was["commit"] + "^{commit}"
+    rc, _, err = run_fetch(d, capsys, "--update")         # --update moves the pin
+    assert rc == 0 and entries(d)["a"]["commit"] != was["commit"], err
+    assert "Moved on." in (copy / "greet.yaml").read_text()
+
+
 def test_failed_lock_write_keeps_old_copy_and_entry(tmp_path, capsys, monkeypatch):
     up, d = owned(tmp_path, capsys, version="main")
     was, text = entries(d)["a"], (d / "libraries.lock").read_text()

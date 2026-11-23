@@ -453,10 +453,10 @@ starting with `.` or `-` or ending `.lock`, not ending with `/` or `.` (`fetch` 
 a main file that does not read stops it with rc 2, before any git process) and, holding an exclusive lock on
 `.libraries/.flock` across the whole read, clone, swap and write (a second fetch says `waiting for the libraries
 lock` and waits), fetches each: nothing when its `libraries.lock` entry has the same `git`, `version` and `path` and
-the copy's tree hash is the lock's; fetched again when the copy is missing or altered, refused (`lock-mismatch`, the
-copy left as it was) when `version` now gives a commit or tree that is not the lock's; `version` resolved from scratch
-when the entry changed, is new, or with `--update`. The repository is cloned bare, `version` resolved with
-`rev-parse --verify`, and `git archive COMMIT[:PATH]` written to a file beside it. Git runs with ergostat's own git
+the copy's tree hash is the lock's; the locked commit fetched again when the copy is missing or altered (even if
+`version` has moved upstream since), refused (`lock-mismatch`, the copy left as it was) when that commit's tree is not
+the lock's; `version` resolved from scratch when the entry changed, is new, or with `--update`. The repository is
+cloned bare, `version` (or the locked commit) resolved with `rev-parse --verify`, and `git archive COMMIT[:PATH]` written to a file beside it. Git runs with ergostat's own git
 environment, `https` and `file` only, no redirects, no credential helper, no ssh, the URL and ref after
 `--end-of-options` (the ref also passes `git check-ref-format`), one process at a time, each in its own process group
 with a 100 MB cap on any file it writes (`RLIMIT_FSIZE`). The temporary folder (clone and archive) is summed every

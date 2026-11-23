@@ -432,3 +432,40 @@ touched), and anything on macOS.
 
 Size: `git diff main --shortstat -- ergostat schema` gives 304 added and 53 removed, so 251 net against main, within
 560. Counted whole, with what main now holds of it, the reasons from rounds 1 to 3 stand.
+
+### Round 8: the review's two findings
+
+1. **A re-fetch resolved `version` again instead of the locked commit (blocking).** When the entry is unchanged and
+   `--update` is not given, but the copy is missing or altered, `fetch._one` now passes the locked commit to `_get`.
+   `_get` resolves it with `rev-parse --verify --end-of-options COMMIT^{commit}` in the full clone and archives it.
+   The commit has already passed the hex check, so it never reaches git as an option. If that commit's tree is not
+   the lock's, the fetch is still refused (`lock-mismatch`), and the copy and lock are left as they were. If the
+   locked commit is gone upstream, git's own failure is reported (`git-failed: rev-parse`).
+   - New test `test_refetch_restores_the_locked_commit_after_the_branch_moved`: `version: main` is fetched, main
+     moves upstream, and the copy is deleted. `fetch` without `--update` brings the copy back at the locked commit and
+     tree, the lock is byte for byte unchanged, `rev-parse` was given the locked commit, and load succeeds. Then
+     `--update` moves the pin.
+   - Main's `tests/test_library_fetch_git.py::test_fetch_writes_lock` pinned the old behaviour (a moved tag gave
+     `lock-mismatch`). It contradicts this definition, so the definition wins, as in round 6. That case now asserts
+     that the copy comes back at the locked commit with the lock unchanged. Its `lock-mismatch` case is kept: a lock
+     entry whose tree is not the locked commit's is refused, with no copy made and the lock untouched. The rest of
+     that test is unchanged.
+   - Mutant: with `_get` given `version` again, both tests fail (`lock-mismatch` on the moved branch).
+   - SPEC §2a now says the locked commit is fetched again, even if `version` has moved since.
+2. **The GAPS.md splice (lesson 7).** The `library-fetch` clause had been put inside main's text, between
+   "**Built**" and `(library-sandbox-sensors-proven)`. Main's text is now restored as it was, and the `library-fetch`
+   *Built* clause follows its *Left* line. There is one *Still needed* clause. It no longer lists fetch by git URL, a
+   lock entry without a tree, or hashed symlinks, and it keeps fetch by package, the provenance gate and the sandbox
+   for libraries without `trust: owner`.
+
+Tests run, each through `scripts/named_tests.py`:
+- `tests/test_library_fetch.py`, `tests/test_library_fetch_git.py` and `tests/test_library_tree.py`: 41 pass.
+- `tests/test_cli_fallback.py`, `tests/test_templates.py` and `tests/test_modelling_template.py`: 61 pass, unchanged.
+- `tests/test_spec_schema.py`, `tests/test_spec_structure.py` and `tests/test_compute_worker_protocol.py`: 58 pass.
+
+Ruff is clean. `git merge main`: already up to date. Not run here: the whole unit suite, the four browser files (no
+page changed), `demo_check` (no example touched), and anything on macOS. One command was refused in this session: a
+`python3 - <<'EOF'` heredoc that edited `fetch.py`. I made the same edits with the editor instead.
+
+Size: `git diff main --shortstat -- ergostat schema` gives 315 added and 61 removed, so 254 net against main, within
+560.

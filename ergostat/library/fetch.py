@@ -48,8 +48,9 @@ def _say(line: str) -> None:
 def fetch(root, libraries: dict, update: bool = False, say=_say) -> dict[str, str]:
     """Fetch each library in ``libraries`` (checked by ``sources.check``) under ``root``; returns name -> ``fetched``
     or ``kept``. An entry whose ``git``, ``version`` and ``path`` match the lock and whose copy is there with the
-    locked tree hash is kept, unless ``update``. Otherwise its version is resolved again; without ``update``, a commit
-    or tree other than the locked one is refused (``lock-mismatch``). The first refusal stops the fetch, with what was
+    locked tree hash is kept, unless ``update``; with its copy missing or altered, the locked commit is fetched again,
+    and a tree other than the locked one is refused (``lock-mismatch``). A changed or new entry, or ``update``,
+    resolves the version from scratch. The first refusal stops the fetch, with what was
     done before it kept."""
     wanted = sources.check(libraries)
     root = os.path.realpath(root)
@@ -93,9 +94,10 @@ def _one(root: str, folder: str, name: str, src: dict, update: bool) -> str:
         return "kept"
     tmp = tempfile.mkdtemp(prefix=".tmp-", dir=folder)
     try:
-        commit, digest = _get(tmp, src)
-        if same and not update and (commit, digest) != (old.get("commit"), old.get("tree")):
-            raise FetchError("lock-mismatch", name, f"resolved {commit} {digest}, locked {old.get('commit')} "
+        again = same and not update                     # the copy is missing or altered: the locked commit again
+        commit, digest = _get(tmp, src, old["commit"] if again else src["version"])
+        if again and (commit, digest) != (old.get("commit"), old.get("tree")):
+            raise FetchError("lock-mismatch", name, f"got {commit} {digest}, locked {old.get('commit')} "
                              f"{old.get('tree')}; fetch with update to move it")
         had = os.path.isdir(dest)
         if had:
@@ -128,9 +130,10 @@ def _remove(folder: str, tmp: str) -> None:
         shutil.rmtree(_inside(folder, name))
 
 
-def _get(tmp: str, src: dict) -> tuple[str, str]:
-    """Check the version with ``git check-ref-format``, clone ``src`` bare into ``tmp``, resolve the version, archive
-    it (or its ``path``) and extract it to ``tmp``/copy; returns the commit and the copy's digest."""
+def _get(tmp: str, src: dict, want: str) -> tuple[str, str]:
+    """Check the version with ``git check-ref-format``, clone ``src`` bare into ``tmp``, resolve ``want`` (the version,
+    or the locked commit), archive it (or its ``path``) and extract it to ``tmp``/copy; returns the commit and the
+    copy's digest."""
     try:
         _run(["check-ref-format", "--allow-onelevel", src["version"]], tmp, tmp)
     except FetchError as e:
@@ -141,11 +144,11 @@ def _get(tmp: str, src: dict) -> tuple[str, str]:
     _run(["clone", "--bare", "--quiet", "--template=", "--end-of-options", src["git"], repo], tmp, tmp)
     out = os.path.join(tmp, "out")
     with open(out, "w+b") as f:
-        _run(["rev-parse", "--verify", "--quiet", "--end-of-options", src["version"] + "^{commit}"], tmp, tmp, repo, f)
+        _run(["rev-parse", "--verify", "--quiet", "--end-of-options", want + "^{commit}"], tmp, tmp, repo, f)
         f.seek(0)
         commit = f.read().decode().strip()
     if not _HEX.fullmatch(commit):
-        raise FetchError("git-failed", src["version"], f"resolved to {commit[:80]!r}")
+        raise FetchError("git-failed", want, f"resolved to {commit[:80]!r}")
     with open(out, "w+b") as f:
         what = commit + (":" + src["path"] if "path" in src else "")
         _run(["archive", "--format=tar", "--end-of-options", what], tmp, tmp, repo, f)
