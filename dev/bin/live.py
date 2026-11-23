@@ -304,8 +304,8 @@ def switch(cfg: dict, sha: str) -> dict:
             if h["healthy"]:
                 record(cfg, sha, "upgrade.kept", health=h, healthy_at=time.time())
                 forget_previous(cfg)
-                if kept:
-                    edits_as_gap(cfg, sha, kept)
+                if kept and (cfg.get("instance") or {}).get("edits_as_gaps", True):   # (false: an operator's live-only
+                    edits_as_gap(cfg, sha, kept)                                     # edits stay in run/model-edits/)
                 return h
         h["why"] = f"not healthy within {wait:g}s"
     except Exception as e:  # noqa: BLE001 - whatever failed, the instance goes back to what ran

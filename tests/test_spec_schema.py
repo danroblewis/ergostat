@@ -37,6 +37,18 @@ def test_a_block_s_pool_is_a_number_or_a_stock_with_its_most(pool, ok):
     assert (not list(VALIDATOR.iter_errors(model))) == ok
 
 
+@pytest.mark.parametrize("faults, ok", [
+    ({"healthy": "sensor.reviewers"}, True), ({"healthy": "goal.inbox-short"}, True), ({"healthy": "block.check.up"}, True),
+    ({"healthy": "stock.reviewers", "after": "1m"}, False), ({}, False), ({"healthy": "reviewers"}, False),
+    ({"healthy": 1}, False), ("sensor.reviewers", False),
+])
+def test_a_queue_s_faults_say_what_reads_healthy(faults, ok):
+    """SPEC §9.5: ``takes: {..., faults: {healthy: sensor.NAME}}``, the one key ``healthy``, a reference."""
+    model = yaml.safe_load((ROOT / "docs/spec-examples/relations.yaml").read_text())
+    model["blocks"]["reviewer"]["takes"]["faults"] = faults
+    assert (not list(VALIDATOR.iter_errors(model))) == ok
+
+
 @pytest.mark.parametrize("starts_at, ok", [(["review"], True), ("review", True), ([3], False), ({"x": 1}, False)])
 def test_a_relation_may_say_the_states_its_targets_stop_blocking_at(starts_at, ok):
     """SPEC §5a, *Relations*: ``starts_at``, a state or a list of them."""
