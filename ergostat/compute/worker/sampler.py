@@ -5,6 +5,7 @@ sampled once a second for its first ten seconds seen, then every ten. Its resour
 (``ergostat/costs/sampler.py``, ``Tracker.result``). The latest is in each ``beat``; once the keeper's exit is
 there, the whole is said once in ``ended``. Readings are measurements: nothing here writes an event."""
 
+import functools
 import json
 import os
 import re
@@ -84,7 +85,7 @@ def open_files(pid: int) -> int | None:
             return len(os.listdir(f"/proc/{pid}/fd"))
         if MACOS:
             import ctypes
-            lib = ctypes.CDLL("/usr/lib/libproc.dylib")
+            lib = _libproc()
             size = lib.proc_pidinfo(pid, 1, 0, None, 0)                 # PROC_PIDLISTFDS
             buf = ctypes.create_string_buffer(max(size, 1))
             got = lib.proc_pidinfo(pid, 1, 0, buf, size) if size > 0 else 0
@@ -92,6 +93,12 @@ def open_files(pid: int) -> int | None:
     except (OSError, AttributeError):
         pass
     return None
+
+
+@functools.cache
+def _libproc():
+    import ctypes
+    return ctypes.CDLL("/usr/lib/libproc.dylib")
 
 
 class Run:
@@ -114,7 +121,7 @@ class Run:
         if self.keeper is None and LINUX and self.pgid in rows and self._keeper(rows[self.pgid][0]):
             self.keeper = rows[self.pgid][0]
         k = rows.get(self.keeper)
-        if k is not None and k[5] is not None:
+        if k is not None and k[5] is not None and self._keeper(self.keeper):   # (still its keeper: pids are reused)
             self.reaped, self.kept = (max(self.reaped[0], k[5]), max(self.reaped[1], k[6])), True
         if not tree:
             return False
@@ -167,8 +174,8 @@ class Readings:
                     self.w.send("ended", **frame)
             except (OSError, ValueError):                 # (the stream closed: the worker is ending)
                 stop.set()
-            except Exception:                             # (one look's fault: the next may not have it)
-                pass
+            except Exception as e:                        # (one look's fault: said, and the next may not have it)
+                print(f"sampler: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
     def look(self, now: float) -> list[dict]:
         """One look: new runs found, the due and ended ones sampled from one listing; the ``ended`` frames to say."""
@@ -199,8 +206,9 @@ class Readings:
                 r.overhead += (time.thread_time() - c0 + cost) / len(seen)
             out = []
             for n, e in ends.items():
-                if isinstance(e, dict) and (r := self.runs.pop(n, None)):
+                if r := self.runs.pop(n, None):           # (an exit of another shape: said, its code unknown)
                     self.said.add(n)
+                    e = e if isinstance(e, dict) else {}
                     out.append({"run": n, "code": e.get("code"), "how": e.get("how"), "resources": r.result()})
             return out
 

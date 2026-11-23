@@ -24,4 +24,15 @@ Decisions taken alone (the most reversible option each time):
   claim holds every time. Off Linux the keeper's reaped CPU is not in `ps`, so the burn test is skipped there with
   that reason (SPEC says so).
 
-Overrun reason: 217 net lines against 150. Four things the definition implies but did not count: the keeper's reaped CPU (what makes the 1.5 s claim hold, rather than depend on where a sample lands), the minimal `ended` frame that `ended.resources` needs, macOS `libproc` open files so the keys equal a local run's on macOS too, and `ps` reaped with `wait4` so `sampler_cpu` counts the listing's cost.
+Round 2 (no review findings came to it). A self-review against the lessons hardened three fail-open spots (lesson 3), and SPEC
+now says each one:
+- the keeper's reaped CPU is read only while that pid's command line still says `--keep RUN`, so a reused pid
+  cannot add a stranger's CPU;
+- an exit file that is whole JSON but not an object is said as `ended` with `code` and `how` null, instead of keeping
+  the run sampled every second and never ended;
+- a look that raises is said on the worker's standard error rather than swallowed.
+`libproc` is now loaded once. Each test was seen to fail with the code broken: the keeper never recognised (the burn
+test's `method`), memory halved (the 100 MB test), `sampler_cpu` dropped (the keys test), `ended` not marked said
+(the four-runs test says 12 frames, not 4).
+
+Overrun reason: 225 net lines against 150 (round 2 added 8 lines for the three fail-closed reads above). Four things the definition implies but did not count: the keeper's reaped CPU (what makes the 1.5 s claim hold, rather than depend on where a sample lands), the minimal `ended` frame that `ended.resources` needs, macOS `libproc` open files so the keys equal a local run's on macOS too, and `ps` reaped with `wait4` so `sampler_cpu` counts the listing's cost.

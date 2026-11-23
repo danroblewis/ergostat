@@ -7096,7 +7096,10 @@ the CPU is the sampled sum alone, which can miss up to the last gap of the run.
 Once a run's `exit` can be read, a last sample is taken and the worker says **`ended`** `{"run", "code", "how",
 "resources"}` (`code` and `how` as in the exit file), once a run in each worker session: a worker started again
 says it again for a run whose folder is still there. A run never started (an exit and no `pgid`) is said with
-`method` `none`. Readings are measurements: no beat and no reading is an event.
+`method` `none`; an exit file that is whole JSON but not an object is said with `code` and `how` null. The keeper's
+reaped CPU is read only while its command line still says `--keep RUN` (a pid is reused). A look that fails is
+said on the worker's standard error and the next look tried. Readings are measurements: no beat and no reading is
+an event.
 
 ### 12s.4 Pools in the model, and the engine's connection
 
