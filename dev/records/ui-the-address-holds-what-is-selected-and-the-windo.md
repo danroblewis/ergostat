@@ -337,3 +337,32 @@ test_two_folds_each_keep_their_own_reason_across_a_refresh, 3 passed, rc 0.
 A refused command: a python3 heredoc that would have resolved the conflict markers in place (done with the editor
 instead). Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs
 them.
+
+## Where it stopped
+
+Round 11 (continued gap, round 2), answering the queue's finding: conflicts with main (28ad5c4a) in pages.js,
+tests/test_diagram_rendering.py and tests/test_graph_cli_web.py. The merge was finished (74121d0b), each resolved by
+keeping both sides:
+- pages.js, Loops: main's steadyWord (a behaviour word with hysteresis) and its "goals off" heading span are kept.
+  The page still takes `q`, opens the address's `select=` loop, and the row and goalRow's name button call pick.
+  goalRow gets main's `behaviour: word(...)` and the branch's `open: pick`.
+- The two test files: both sides added tests at the same place. All are kept.
+
+A merge interaction (lesson 7): main's new
+test_a_change_of_window_shows_that_windows_behaviour_at_once copied main's old window menu by hand (S.since set, then
+route()). On the branch, route() reads the window from the address (round 6), so that copy was put back to 1h and the
+test timed out. The real menu calls setWindow, which also writes `window=`. The test's switch now calls
+`setWindow(k)`. No code outside tests/ changed beyond the merge. `git diff main --shortstat -- ergostat/` is 58
+insertions and 22 deletions (about 36 net, within 60).
+
+Run here: ruff clean. tests/test_graph_cli_web.py, 53 passed. With Playwright under the watchdog, all rc 0:
+- test_the_address_holds_what_is_chosen_and_the_window, test_on_a_phone_... (both params) and
+  test_pages_are_ordinary_links_..., 4 passed.
+- test_a_change_of_window_shows_that_windows_behaviour_at_once (seen to fail before the test change, and to pass after
+  it), test_a_past_moment_shows_its_own_behaviour_..., and
+  tests/test_page_refresh.py::test_a_quiet_system_says_so_on_the_loops_page_..., 3 passed.
+- test_a_goals_behaviour_holds_across_reloads_... and ..._refreshes_of_an_open_page, 2 passed.
+- tests/test_page_polling.py::test_the_loops_page_asks_once_for_every_goal, 1 passed.
+Refused: a python3 heredoc that would have resolved the pages.js conflict in place. It was resolved with the editor
+instead. Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs
+them.

@@ -3757,7 +3757,7 @@ def test_a_change_of_window_shows_that_windows_behaviour_at_once(browser, tmp_pa
         pg.goto(url + "/loops")
         cell = "() => document.querySelector('td[data-perf=\"steady\"]')?.textContent || ''"
         pg.wait_for_function(f"() => ({cell})().startsWith('within')", timeout=20000)
-        switch = "(k) => { S.since = k; S.graphSig = ''; showAt(); route(); refreshHeader(); }"   # as the window menu does
+        switch = "(k) => setWindow(k)"                   # what the window menu calls (it puts window= in the address)
         pg.evaluate(switch, "10m")                       # (the record is longer than ten minutes, shorter than a day)
         pg.wait_for_function("() => S.status.window === 600 && S.status.at - S.status.first > 700", timeout=10000)
         pg.wait_for_function(f"() => ({cell})().startsWith('within')", timeout=5000)
