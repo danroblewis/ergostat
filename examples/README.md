@@ -15,6 +15,7 @@ folder (each ignores what it writes), and their records in `~/.ergostat/` like a
 | [`git-hygiene`](git-hygiene/) | Branches pruned on a real repository | real git, event-triggered agents |
 | [`backups`](backups/) | Nightly backups and off-site copies | events between agents, `on`, a declared disturbance rate |
 | [`docs-fresh`](docs-fresh/) | Docs kept in step with the code | AI agents, the ladder, feedforward |
+| [`todo-list`](todo-list/) | A person's own to-dos, done by hand on a bastion, a VPN, a host or anywhere | `use: todo`: instructions in order, batches by place, `waits_on`, `why` as a stakeholder update, read-only toward the outside |
 | [`deps`](deps/) | Two loops in series, a person behind | people filling roles, valve `max`, saturation, work piling up downstream |
 | [`this-mac`](this-mac/) | This machine, measured for real | a person filling several loops, manual valves, read-only measurement |
 | [`ops`](ops/) | A small platform, several systems | systems and outlines, a weekly status, snapshots |

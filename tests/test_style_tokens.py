@@ -91,6 +91,20 @@ def test_the_gate_catches_what_it_should():
         assert hit == caught, decl
 
 
+def test_the_items_lists_wrap_their_fields_and_keep_three_columns_on_a_phone():
+    """The static half of tests/test_items_page.py::test_the_items_table_fits_at_1440_px, which needs a browser: in
+    the kinds' lists a field's cell wraps and is never cut, and at phone width only the item, state and 'in state'
+    (.keep) stay; pages.js gives the lists their class and the 'in state' header and cells their .keep."""
+    _, rules = split()
+    cell = dict(declarations(" ".join(re.findall(r"table\.kind-items td\.cell\s*(\{[^{}]*\})", rules))))
+    assert cell.get("white-space") == "normal" and cell.get("overflow") == "visible", cell
+    assert "text-overflow" not in cell, "a field's text is wrapped, not cut with an ellipsis"
+    assert re.search(r"@media \(max-width: 700px\) \{\s*table\.kind-items tr > :nth-child\(n\+3\):not\(\.keep\) "
+                     r"\{ display: none; \}", rules), "the phone rule keeps item, state and .keep"
+    js = (CSS.parent / "pages.js").read_text()
+    assert '"items kind-items",' in js and '["in state", "num keep"]' in js and 'class: "num nowrap keep"' in js
+
+
 def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():
     """The narrow-width half of tests/test_items_page.py's phone/200% check, readable without a browser: below 760 px
     the nav wraps onto its own rows, nothing in the sheet makes it scroll sideways, and the current page keeps its
