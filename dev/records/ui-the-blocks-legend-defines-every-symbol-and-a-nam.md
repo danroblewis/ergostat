@@ -102,3 +102,35 @@ for a moment in `blockdiagram.fold`, it failed (coordinator's observer: m 2, not
 - Tests run: `tests/test_blockdiagram.py` (68 passed) and ruff (clean). Refused: `uv run python scripts/affected_tests.py
   -- uv run python -m pytest -q` (run to check the build's selection gives rc 0 without Playwright), and a scratch probe
   written under /tmp. The browser file was not run again this round: the change since round 1 is this unit test alone.
+
+Round 3: main (2f08c24e) merged in (3b299fa1), with conflicts in `blocks.js` and `tests/test_diagram_rendering.py`.
+Main had landed blocks-subsystems-classified-c-p in the meantime. Q is gone: a system is now C_name, P_name or a
+named block, with the same fn and p×m on the closed block and the open frame. Main's legend has a row defining C_name,
+P_name, the named block and "p × m, its p outputs by its m inputs, disturbances counted". How each conflict was
+resolved:
+- Legend: main's version taken whole. The branch's Q row is dropped, since main's row covers this gap's legend
+  acceptance ('×', 'outputs', 'inputs', the letter drawn defined).
+- Frame title: main's version, plus this gap's rule. A C or P frame no longer prints its name after the letter,
+  because the name is already the letter's subscript. Main drew 'Cfactory factory 1×3'; now it is 'Cfactory 1×3'. A
+  named frame still prints its name once, and a cascade's title is unchanged.
+- One typeface: kept, because main still makes a closed box's fn bold when p or m > 1 (`blockdiagram.py`, fold), and
+  the frame's fn is not. So on main, factory is drawn bold and upright closed but italic when opened. The `bdBody` line
+  draws a subsystem's letter unbolded, so it is italic 400 at both levels. Only its comment changed (it named Q). The
+  side panel's MathML still sets a vector system's letter bold, as before.
+- Tests: both sides kept. The acceptance test now reads C, P or a named block's upright name: the letter drawn must be
+  C or P, defined in the legend as `C_name` or `P_name`, or named and defined by 'its name alone'.
+- The round-2 unit test `test_a_subsystems_m_counts_every_input_from_outside_it_a_disturbance_included` is removed.
+  Main's m also counts disturbances that arise inside a system (on purpose: see its record), so the test's count of
+  only the crossing signals no longer holds (alert-triage's alerts: m 2, 1 crossing). Main's own
+  `test_every_system_has_the_same_letter_and_p_by_m_closed_and_open` pins m. `tests/test_blockdiagram.py` is now the
+  same as main's.
+- Net code outside tests: 1 line (`blocks.js`, +3 −2).
+
+Tests run: ruff is clean. `tests/test_blockdiagram.py`: 95 passed. With Playwright under the watchdog, rc 0, 4
+passed: the acceptance test, main's `test_a_system_is_drawn_c_p_or_named_with_the_same_p_by_m_closed_and_open`, and
+`test_the_requests_group_opens_by_saying_what_a_person_may_do` [waiting, none]. To show the acceptance test can fail
+(lesson 9), each fix was undone for a moment. Always printing the frame name failed it ('Cfactoryfactory1×3'), and
+dropping `bold: false` failed it ({italic 400, normal 700}). Both edits were undone. Refused: the whole browser file
+in the background (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python
+scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/dr.log 2>&1`), so it was not run this round. That is
+left to the merge queue.

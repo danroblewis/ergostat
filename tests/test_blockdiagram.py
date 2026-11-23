@@ -125,28 +125,6 @@ def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     assert ports and {p["port_of"] for p in ports} == {"in", "out"}
 
 
-def test_a_subsystems_m_counts_every_input_from_outside_it_a_disturbance_included():
-    """The Blocks legend reads 'p×m: outputs × inputs (disturbances counted)': m is every signal that enters the
-    system from outside once it is opened, a disturbance's included. (p counts the wires that leave it: a signal sent
-    to two subsystems in two vectors is counted in each, so it is not checked against the distinct signals here.)"""
-    with_dist = []
-    for example in EXAMPLES:
-        spec = load(ROOT / "examples" / example / "ergostat.yaml")
-        closed = {n["id"]: n for n in drawn(spec, set())["nodes"]}
-        for name in (s for s in spec.systems if not spec.within.get(s)):
-            box = closed.get(f"sys:{name}")
-            if not box or not box["fn"]["expr"]:
-                continue
-            g = drawn(spec, {name})
-            inside = {n["id"] for n in g["nodes"] if name in spec.chain(n.get("system"))}
-            keys = lambda e: e.get("keys") or [e["key"]]          # noqa: E731
-            ins = {k for e in g["edges"] if e["target"] in inside and e["source"] not in inside for k in keys(e)}
-            assert box["fn"]["expr"].split("×")[1] == str(len(ins)), (example, name)
-            if any(e["source"].startswith("dist:") and e["target"] in inside for e in g["edges"]):
-                with_dist.append((example, name))
-    assert with_dist                       # some example has a disturbance from outside a system entering it
-
-
 def test_a_cascade_draws_its_inner_loop_nested(tmp_path):
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(CASCADE))
     spec = load(tmp_path / "ergostat.yaml")
