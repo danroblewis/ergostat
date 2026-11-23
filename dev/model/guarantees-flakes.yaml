@@ -28,7 +28,7 @@ flows:
   flakes-fixed:
     from: flakes-open
     description: flakes fixed (flake.fixed, flake.main-fixed), by green runs, by hand or by main-mend
-    driven-by: [-stock.quarantined]   # a quarantined seen flake counts no green runs (flakes.py green)
+    driven-by: [+stock.flakes-open, -stock.quarantined]   # only open flakes are fixed; a quarantined one counts no green runs (flakes.py green)
     sensor: {items: flake, entering: fixed, over: 1d}
   flakes-open-hours-rise:
     to: flakes-open-hours
