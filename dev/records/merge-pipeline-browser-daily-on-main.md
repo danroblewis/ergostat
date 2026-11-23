@@ -294,3 +294,20 @@ and test_browser_daily_green_records_main, test_browser_daily_flake_is_recorded_
 test_browser_daily_failure_names_tests_and_suspects (3 passed, 92 s). Refused this round: `git checkout main --
 dev/bin/drain.py` (chained with a `git diff`). I made the revert with the file editor instead. Done item 6's
 "no new finding" against main is still unverified by a full `ergostat check`.
+
+## Where it stopped
+
+The factory's `build` step failed on test_an_approved_switch_drains_and_switches_through_the_engine again (the
+switcher still in `e.running` after the test's 120 s wait; 1 failed, 194 passed, 2 skipped, 773 s). That build ran
+with drain.py and the FAKE CLI back to main's text (31011fbd). The factory asked for the code to be fixed. But the fix
+(drain.py's under_way() in one lease listing, 8b0af3b2) is exactly what the last review's blocking finding told me to
+remove. It is main's switcher code, outside this gap's files, and it belongs to
+gap/switcher-test-within-its-deadline-under-load, which has to land it with its own evidence (20 runs with the CPU
+loaded) and take the test off the known-flakes list (lesson-13, lesson-7). Putting it back would reopen that finding.
+The two requests conflict and nobody can be asked, so I took the more reversible option and changed no code.
+`git diff main --stat` shows only this gap's five files, and nothing here touches drain.py, the engine or that test.
+- This gap waits on gap/switcher-test-within-its-deadline-under-load. Once that gap is on main, merge main in and run
+  the build again. If that gap is dropped instead, 8b0af3b2 is the fix to take there, not here.
+- Not run this round: any test. Nothing has changed since the runs recorded above for 31011fbd.
+- Refused this round: a shell heredoc append to this file chained with `git add` and `git commit`. I wrote this
+  section with the file editor instead.
