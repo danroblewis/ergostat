@@ -162,3 +162,17 @@ the build command under `-n 8` were not run. The earlier build failure
 (test_an_approved_switch_drains_and_switches_through_the_engine, its fixed 120 s bound under load) was measured in
 round 3 as no slower with this gap's model parts than without. It stays outside this gap (lesson-10, lesson-13).
 Refused this round: appending this note and committing it from the shell in one command (heredoc, git add, git commit).
+
+Round 4 build failure: the same test again (switcher still running at its 120 s wait; 1 failed, 194 passed, 2 skipped
+in 580 s, peak 911 MB, nothing killed). No code was changed. Round 3 measured the branch adding no time to it (43.0 s
+and 42.2 s with this gap's model parts, 43.6 s and 43.8 s without), and stack.py is not on its path. Where the time
+goes, from reading dev/bin/drain.py and fac.items: each switcher step starts a new `ergostat` process (and loads the
+model) for every listing. under_way() lists three kinds, and fac.items(kind) with no state makes one call for the
+kind's head plus one per state it has. Add upgrade's listing, action_state and each fac.say, and one step makes well
+over ten such calls. At a few seconds each under `-n 8` on 4 CPUs, two steps pass 120 s. The fix that would hold is
+fewer calls in drain.py: under_way() listing only the leased states, or one listing for all kinds. That is main's
+code and outside this gap's Files to touch (lesson-13), so it should be a gap of its own: "the switcher's step makes
+one ergostat call per listing". It is not built here. Until it is, this gap passes alone and fails the build only when
+that test overruns its bound under load, as it would on main. Refused this round: putting a temporary per-call timer
+in dev/bin/fac.py from the shell (python edit, then a /tmp log), so these call costs are read from the code and not
+measured.
