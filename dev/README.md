@@ -255,9 +255,9 @@ Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) g
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
-the gaps and times said, `main_fixed_at`, `fixed_by`, `green_passes` and `passed_on` removed). An item it cannot read
-is written as said, the failure on stderr. A flake is said fixed by hand with `manage.py flake-fixed TEST --why W`
-(below).
+the gaps and times said, `main_fixed_at`, `fixed_by`, `fixed_on` and `passed_on` removed, `green_passes` removed or,
+for a seen, set to 0). An item it cannot read is written as said, the failure on stderr. A flake is said fixed by hand
+with `manage.py flake-fixed TEST --why W` (below).
 
 **Out of main-broken: main-mend.** The block `main-mend` (dev/model/landing.yaml; every 30 minutes, pool 1, a lease,
 timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
@@ -270,6 +270,15 @@ reads each result from the whole log (`fac.outcomes`). A test passing both runs 
 run that stalled or left no log: unknown, and it stays main-broken. The write is decided under `run/flakes.lock` on the
 item read there, only when its `main` is the commit run on or an ancestor of it, and is a patch whose first op tests
 that `main`: a newer break written in between refuses the whole event, and a refused patch moves no state (SPEC §5a).
+
+**How a flake leaves seen.** Every `flake.seen` sets `green_passes` to 0. After each green landing, once its push
+is asked, `flakes.green` reads the unit and browser logs of the run main landed on (both print `PASSED` lines:
+`-rpfEs`) for each seen flake that is not quarantined (at most 50, by id). A test with a `PASSED` line and no `FAILED`
+or `ERROR` line raises `green_passes` by one (under the lock, a patch that tests the value it read). A test absent
+from the logs, one in a suite not run in that batch, or one in a red, stopped or unreadable log changes nothing.
+At `[gates] flake_fixed_after` (default 5, 1 to 50) green runs in a row the flake is `flake.fixed`
+(`fixed_by: green-runs`, `fixed_on`: main's head). A failure here is said on stderr and never fails or delays the
+landing. Only seen flakes are counted; nothing here moves a main-broken one.
 
 ## Regression guarantees
 
@@ -285,6 +294,16 @@ programs already there.
   the fix made.
   Once main-mend sees the test pass twice alone on the pushed main, it holds again. The loop is named `main-repair`
   and is drawn balancing.
+- **quarantine-small.** The stock `quarantined` (dev/model/guarantees-quarantine.yaml) is the number of tests listed in
+  tests/quarantine.txt on main as pushed (`held.py quarantined`: the checkout's `<remote>/<base>`, never fetched).
+  The goal `quarantine-small` holds it at or under `quarantine-most`: 8, the count on main on 2026-11-23. A setpoint is
+  a number, so the goal's `hold` writes the same 8, and a test keeps the two equal. The owner lowers both as tests are
+  released. The goal goes off only when the quarantine grows, and a list not read counts as off. Off, it asks the
+  coordinator (`release-quarantined`, a person block in the system, as `fix-main` is) to have a test released; the
+  loop is `quarantine-release`. The stock's flows are its rises and falls over a day. The auxiliary `quarantine-oldest-days` (`held.py quarantine-oldest-days`) is the
+  number of days since the oldest `when`. No goal is on it until the owner says how long a test may stay. A list, a
+  line or a date held.py cannot read gives no value (exit 1), never 0. A listed test with no flake item marked
+  `quarantined`, or such an item whose test is not listed, is named on stderr.
 
 ## The backlog: ranked, groomed
 
