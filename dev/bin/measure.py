@@ -1,5 +1,5 @@
 """The factory's measures, read from its own record: `measure.py NAME` prints one reading, over the last 14 days: 0
-when nothing in the window to measure, but for the eleven named at the end, which have no value then
+when nothing in the window to measure, but for the twelve named at the end, which have no value then
 (they exit 1, as ergostat's own measures do).
 
   cycle-hours         median hours from ready to merged, over the gaps merged
@@ -22,6 +22,9 @@ when nothing in the window to measure, but for the eleven named at the end, whic
   interventions-trend the coordinator's interventions over the last 7 days less the 7 before
   lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
   first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
+  lessons-recurring   classes reviews found (the librarian's, every round) that the reviewed gap's first implementor
+                      brief carried: the lesson failing as a guarantee. A review with no classes recorded, or whose
+                      gap's first brief is not found, is left out and counted on stderr; none counted: no value
   plan-risks-held     of planned gaps first reviewed, the share whose review found none of the lesson classes their
                       plan named as risks (the librarian's classes)
   splits-clean        of sub-gaps merged, the share approved on their first review
@@ -55,7 +58,7 @@ when nothing in the window to measure, but for the eleven named at the end, whic
                       summed over the gaps merged in the window that carry planning_cost_usd. A gap without it is left
                       out, never counted as 0; one whose planning cost is negative, not a number or above its total is
                       left out too, and named on stderr. It says where the money went, not that less planning is safe.
-Flake-rate, first-pass-yield, first-pass-with-lessons, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
+Flake-rate, first-pass-yield, first-pass-with-lessons, lessons-recurring, plan-risks-held, splits-clean, splits-covered, split-budgets-held,
 split-overhead, the two size measures and planning-cost-share have no value with nothing to measure.
 
   coverage-below-floor  the modules whose share of statements the unit suite on main ran is under [code_health]
@@ -181,7 +184,7 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
     raise SystemExit(f"measure.py: no measure {name!r}")
 
 
-KNOWLEDGE = ("lessons-per-brief", "first-pass-with-lessons", "plan-risks-held", "splits-clean")
+KNOWLEDGE = ("lessons-per-brief", "first-pass-with-lessons", "lessons-recurring", "plan-risks-held", "splits-clean")
 
 
 def share(xs: list[bool], name: str) -> float:
@@ -304,11 +307,28 @@ def knowledge_reading(name: str, since: float) -> float:
     if name == "splits-clean":
         return share([bool(g["fields"].get("first_pass")) for g in recent(list(gaps.values()), "merged_at", since)
                       if g["fields"].get("parent")], name)
+    if name == "lessons-recurring":
+        return recurring(gaps, recent(fac.items("review"), "written_at", since))
     first = [r for r in recent(fac.items("review"), "written_at", since) if r["fields"].get("round") == 1]
     if name == "first-pass-with-lessons":
         return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(review_gap(r))], name)
     risks = {r["id"]: set(gaps.get(review_gap(r), {}).get("fields", {}).get("risks") or []) for r in first}
     return share([not (risks[r["id"]] & set(r["fields"].get("classes") or [])) for r in first if risks[r["id"]]], name)
+
+
+def recurring(gaps: dict, reviews: list[dict]) -> float:
+    """lessons-recurring: each review's classes that its gap's first implementor brief carried. Classes not recorded
+    (no list: the librarian has not measured it) or no first brief: left out and said, never 0."""
+    brief = lambda g: next((c.get("knowledge") or [] for c in (g or {}).get("fields", {}).get("contexts") or []  # noqa: E731
+                            if c.get("role") == "implementor"), None)
+    got = [(set(r["fields"]["classes"]), set(brief(gaps.get(review_gap(r))))) for r in reviews
+           if isinstance(r["fields"].get("classes"), list) and brief(gaps.get(review_gap(r))) is not None]
+    if len(got) < len(reviews):
+        print(f"lessons-recurring: left out, {len(reviews) - len(got)} review(s) with no classes or no first brief",
+              file=sys.stderr)
+    if not got:
+        raise SystemExit("lessons-recurring: no value (no review in the window with its classes and brief)")
+    return float(sum(len({c for c in found & held if c.startswith("lesson-")}) for found, held in got))
 
 
 def review_gap(review: dict) -> str | None:

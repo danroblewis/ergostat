@@ -2036,3 +2036,62 @@ def test_ask_ties_a_question_to_a_known_gap(tmp_path):
     f.tool("ask.py", ok=False)                                                          # no question: refused
     researched(f, "research/tied-1", gap="gap/alpha-thing", report="# Tied\n\nThe tied answer.\n")
     assert "The tied answer." in f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "reviewer", "x")["text"]
+
+
+def briefed(f: Instance, gid: str, *carried: str) -> None:
+    """A gap whose first implementor brief carried these knowledge ids (a later brief carried more: never read)."""
+    f.fold([{"event": "gap.measured", "item": gid, "data": {"contexts": [
+        {"role": "planner", "knowledge": ["lesson-9"]}, {"role": "implementor", "knowledge": list(carried)},
+        {"role": "implementor", "knowledge": ["lesson-1", "lesson-2", "lesson-3", "lesson-4"]}]}}], None)
+
+
+def reviewed(f: Instance, rid: str, gid: str, at: float, classes: list[str] | None) -> None:
+    f.fold([{"event": "review.written", "item": rid, "data": {"gap": gid, "round": 2, "written_at": at}}], None)
+    if classes is not None:
+        f.fold([{"event": "review.measured", "item": rid, "data": {"classes": classes}}], None)
+
+
+def test_a_carried_class_found_again_counts(tmp_path):
+    f, now = Instance(tmp_path), time.time()
+    briefed(f, "gap/a", "lesson-3", "lesson-8", "house-rules")
+    reviewed(f, "review/a-1", "gap/a", now - DAY, ["lesson-3", "lesson-8", "new-odd-thing"])
+    reviewed(f, "review/a-2", "gap/a", now - 20 * DAY, ["lesson-3"])                  # before the window
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 0 and r.stdout.strip() == "2.0", r.stderr
+    reviewed(f, "review/a-3", "gap/a", now - DAY, None)                              # the librarian has not measured it
+    briefed(f, "gap/b", "lesson-3")
+    reviewed(f, "review/b-1", "gap/b", now - DAY, ["lesson-3"])
+    reviewed(f, "review/c-1", "gap/c", now - DAY, ["lesson-3"])                      # no brief recorded for gap/c
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 0 and r.stdout.strip() == "3.0", r.stderr
+    assert "left out, 2 review(s)" in r.stderr
+    from ergostat.spec import read
+    from tests.test_factory import ROOT
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    assert [p.code for p in problems if p.about in ("goal.lessons-hold", "auxiliary.lessons-recurring",
+                                                     "block.lessons-relearn", "block.librarian")] == []
+    assert spec.loop("lessons-hold").closes
+    goal, aux = spec.goals["lessons-hold"], spec.auxiliaries["lessons-recurring"]
+    assert str(goal.of) == "auxiliary.lessons-recurring" and str(goal.hold) == "<= 2" and goal.on_stale == "off"
+    assert aux.system == "guarantees" and [s.run for s in aux.sensors.values()] == [
+        "python3 dev/bin/measure.py lessons-recurring"]
+
+
+def test_a_class_not_carried_does_not_count(tmp_path):
+    f, now = Instance(tmp_path), time.time()
+    briefed(f, "gap/a", "lesson-3")
+    reviewed(f, "review/a-1", "gap/a", now - DAY, ["lesson-1", "lesson-9", "new-lesson-3"])   # lesson-1: a later brief's
+    reviewed(f, "review/a-2", "gap/a", now - DAY, [])                                # measured, found none: counted
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 0 and r.stdout.strip() == "0.0" and "left out" not in r.stderr, r.stderr
+
+
+def test_no_reviews_has_no_value(tmp_path):
+    f, now = Instance(tmp_path), time.time()
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr
+    briefed(f, "gap/a", "lesson-3")
+    reviewed(f, "review/a-1", "gap/a", now - DAY, None)                              # only a review left out
+    r = size_measure(f, "lessons-recurring")
+    assert r.returncode == 1 and r.stdout == "" and "no value" in r.stderr and "left out, 1 review(s)" in r.stderr

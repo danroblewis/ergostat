@@ -307,6 +307,12 @@ programs already there.
   number of days since the oldest `when`. No goal is on it until the owner says how long a test may stay. A list, a
   line or a date held.py cannot read gives no value (exit 1), never 0. A listed test with no flake item marked
   `quarantined`, or such an item whose test is not listed, is named on stderr.
+- **lessons-hold.** The auxiliary `lessons-recurring` (dev/model/guarantees-lessons.yaml, `measure.py
+  lessons-recurring`) counts, over 14 days of reviews (every round), the librarian's classes found that the gap's
+  first implementor brief carried. A review whose classes are not recorded, or whose gap has no first brief, is left
+  out and counted on stderr, and with none left there is no value. The goal `lessons-hold` holds it `<= 2`
+  (`on-stale: off`). Off, it commands `lessons-relearn`, an external block into the librarian that ergostat never
+  runs, so nothing changes at run time. Wiring the real loop waits for regression-guarantees-wired.
 
 ## The backlog: ranked, groomed
 
