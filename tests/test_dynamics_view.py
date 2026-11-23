@@ -27,6 +27,21 @@ def factory(tmp_path):
     return lambda **q: api(live, "graph", {k: [v] for k, v in q.items()})
 
 
+@pytest.mark.parametrize("example,box,description", [("the-job", "job", "what I am expected to do, and what I am judged on"),
+                                                    ("software-factory", "product", "textkit and its customers")])
+def test_each_closed_system_box_is_given_the_description_it_prints(tmp_path, example, box, description):
+    """A closed system's box in Dynamics prints the description its node carries (dynamics.js sdSystem); with none
+    it falls back to 'a module: open it…'. The browser half of this check, that the box shows it and counts no
+    loops, is tests/test_diagram_rendering.py::test_each_closed_system_box_says_what_the_system_is."""
+    d = tmp_path / example
+    shutil.copytree(ROOT / "examples" / example, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    g = api(Live(Project(mdl.load(d))), "graph", {"view": ["dynamics"], "open": ["-"]})
+    closed = {n["label"]: n.get("description") for n in g["nodes"] if n["kind"] == "system"}
+    assert closed.get(box) == description, closed
+
+
 def test_no_sensor_controller_or_agent_is_drawn_and_every_connector_says_its_sign(factory):
     g = factory(view="dynamics", open="*")
     assert g["kind"] == "dynamics"
@@ -38,6 +53,23 @@ def test_no_sensor_controller_or_agent_is_drawn_and_every_connector_says_its_sig
     assert conn[("stock:bugs-live", "flow:signups")] == "-" and conn[("stock:bugs-live", "flow:churn")] == "+"
     # support reads bugs-live, which a goal it serves (no-live-bugs ≤ 0) is about: it files more as bugs-live rises
     assert conn[("stock:bugs-live", "flow:filed-bugs")] == "+"
+
+
+def test_each_loop_gives_every_link_around_it_a_sign_and_a_plain_name(factory):
+    g = factory(view="dynamics", system="product")                  # (R2 runs through delivery, closed here)
+    loops = {c["label"]: c for c in g["causalLoops"]}
+    r2 = loops["R2"]["around"]
+    assert len(r2) == len(set(loops["R2"]["nodes"])) >= 4
+    assert all(x["sign"] in ("+", "-") for x in r2), r2
+    assert not [x for x in r2 if ":" in x["fromName"] + x["toName"]], r2
+    for c in loops.values():                                         # every loop's links signed alike with its polarity
+        signs = [x["sign"] for x in c["around"]]
+        if c["polarity"] and None not in signs:
+            assert (signs.count("-") % 2 == 1) == (c["polarity"] == "B"), (c["label"], c["around"])
+    # by definition: an outflow drains its stock, an inflow fills it; a ceiling's excess rises with its stock
+    every = {(x["from"], x["to"]): x["sign"] for c in loops.values() for x in c["around"]}
+    assert every.get(("flow:deployed", "stock:awaiting-deploy")) == "-" and every.get(("flow:merged", "stock:awaiting-deploy")) == "+"
+    assert every.get(("stock:awaiting-deploy", "gap:all-live")) == "+"
 
 
 def test_a_goal_is_drawn_as_a_desired_level_and_a_gap_feeding_the_flow_that_closes_it(factory):
@@ -53,14 +85,29 @@ def test_a_goal_is_drawn_as_a_desired_level_and_a_gap_feeding_the_flow_that_clos
     assert conn[("desired:backlog-clear", "gap:backlog-clear")] == "-"
     sub = next(e for e in g["edges"] if e.get("from") == "gap:backlog-clear" and e["target"] == "flow:submitted")
     assert sub["polarity"] == "+"                                      # more backlog: more is worked off
-    # a goal nothing acts on is no structure: it is said on its stock, not drawn
+    # a goal with no gap drawn here is no structure: it is said on its stock, with what serves it anywhere in the model
     assert "gap:no-live-bugs" not in ids
-    assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0", "acted": False}]
+    assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0",
+                                                "by": [{"block": "support", "system": "factory"}], "acted": True}]
+    assert ids["stock:users"]["goals"][0]["by"] == [{"block": "product-manager", "system": "factory"}]
     # ≤ and ≥, never <= and >=
     assert not [n for n in g["nodes"] if "<=" in str(n) or ">=" in str(n)]
     # the control view is untouched: the blocks view still reads its controllers from it
     ctl = factory(view="control", open="*")
     assert any(n["kind"] == "controller" for n in ctl["nodes"]) and any(n["kind"] == "sensor" for n in ctl["nodes"])
+
+
+def test_a_goal_with_no_controller_anywhere_is_the_only_one_said_unacted(tmp_path):
+    d = tmp_path / "software-factory"
+    shutil.copytree(ROOT / "examples" / "software-factory", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    intake = d / "factory" / "intake.yaml"                   # support reads users instead: nothing reads bugs-live now
+    intake.write_text(intake.read_text().replace("in: stock.bugs-live", "in: stock.users"))
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    g = api(Live(Project(mdl.load(d))), "graph", {"view": ["dynamics"], "open": ["*"]})
+    ids = {n["id"]: n for n in g["nodes"]}
+    assert ids["stock:bugs-live"]["goals"] == [{"name": "no-live-bugs", "setpoint": "≤ 0", "desired": "0", "by": [],
+                                                "acted": False}]
 
 
 def test_every_loop_is_labelled_and_runs_through_parts_drawn_and_lines_it_is_a_link_of(factory):
@@ -145,14 +192,15 @@ def test_lines_out_of_and_into_a_closed_module_end_in_a_shadow_and_a_stub_inside
 
 def test_the_attention_cards_speak_system_dynamics():
     from ergostat.dynamics import attention
-    snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0}}}
+    snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0,
+                                       "off_by_words": "off by 4"}}}
     att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
            {"level": "hint", "what": "controller backlog-clear", "says": "loop backlog-clear was off 60% of the time; why (a valve "
             "too small, or acting too seldom) is said after 10m of record"},
            {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill controller x"},
            {"level": "hint", "what": "controller a", "says": "loop a keeps feeding x: Hold a back (its controller can read x)"}]
     out = attention(att, snap)
-    assert out[0]["says"] == "backlog is 4, desired backlog = 0: excess 4"
+    assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"
     import re
     for a in out:
         text = a["what"] + " " + a["says"]
@@ -174,3 +222,14 @@ def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):
     s.flows["rain"] = Flow("rain")
     assert equation(s, "leak") == "2 per hour, declared: a constant"
     assert equation(s, "rain") == "not known: nothing in the model drives it, and it is not measured"
+
+
+def test_a_connector_declared_with_driven_by_says_so_and_no_other_does(factory):
+    """The page draws a driven-by link dashed (dynamics.js) from this flag; every connector carries it."""
+    g = factory(view="dynamics", open="*")
+    conn = {(e.get("from", e["source"]), e["target"]): e for e in g["edges"] if e["kind"] == "connector"}
+    assert all(isinstance(e["drivenBy"], bool) for e in conn.values())
+    # signups: driven-by: [-stock.bugs-live, -stock.missing-ops] (product.yaml)
+    assert conn[("stock:bugs-live", "flow:signups")]["drivenBy"] is True
+    # a goal's gap feeding the flow that closes it is no driven-by: drawn solid
+    assert conn[("gap:backlog-clear", "flow:submitted")]["drivenBy"] is False
