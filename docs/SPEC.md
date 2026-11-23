@@ -2755,8 +2755,11 @@ sample). Its exit code is the wrapper's, as above.
   loop or its leases' first look, takes up each run in `runs/` with a keeper's folder or a journal left (a run of a
   block no longer in the model, or with no `agent.started` in the record, is left as it is, said):
   - **Still going**, by its record: its pid, and that process's start time (a pid now another process's, whose
-    start time differs, is gone; a start time that cannot be read is not taken for gone). It is followed from its
-    saved offset, and is this engine's: `block NAME --stop` and a lease's kill reach it. Its lease, when it still
+    start time differs, is gone; a start time that cannot be read is not taken for gone). A run whose record was
+    never written (an engine killed just after its keeper started it) is known by its keeper's group id alone: it is
+    waited for while that pid is there, and never signalled by the engine (`run --stop --runs` still stops it). It is
+    followed from its saved offset, and, with its record, is this engine's: `block NAME --stop` and a lease's kill
+    reach it. Its lease, when it still
     holds it with its fence, is renewed as it is taken up (the time no engine was up is not held against it), and the
     watchdog renews it (`seen: keeper`) instead of expiring it while the run lives; its keeper's own deadline (its
     timeout, 5 s on) still ends it, and that is its only timeout now. A block with no timeout taken up runs until it
@@ -2771,7 +2774,8 @@ sample). Its exit code is the wrapper's, as above.
   - **Its lease taken over** while no engine was up (it expired, and the item was leased again: a newer fence): its
     lines about the item are refused (fencing, as a late run's are), its lease is neither renewed nor ended by it.
   Lines read from a journal take effect when they are read: their events are stamped with that time, not when the
-  run printed them; what the run's end writes (its `agent.ran` and series) has the time it ended. What a run taken up
+  run printed them; what the run's end writes (its `agent.ran` and series) has the time it ended, and readings a run
+  records itself (`ergostat sensor STOCK.SENSOR --read V`, a manual sensor's) go to the store as it makes them, engine or none. What a run taken up
   printed that is not JSON is not added to its run log (its errors still are: its keeper holds that file).
 - **What still stops it**, the whole process group each time, through its group's id (the run's own pid). While
   an engine that started it or took it up is up: its timeout (the keeper's, once taken up), `ergostat block NAME

@@ -358,6 +358,24 @@ def test_a_run_taken_up_is_stopped_by_its_block_s_stop(tmp_path, keepers):
     assert [(x["data"]["how"], x["data"].get("count")) for x in lease_ends(p)] == [("nack", False)]
 
 
+def test_a_run_with_no_record_is_not_taken_for_gone(tmp_path, keepers):
+    """Its record never written (the engine died between its keeper's start and it): known by its keeper's group id
+    alone, with no start time to tell it from another process, it is waited for, never signalled, and ends as it did."""
+    p = project(tmp_path)
+    keepers(p)
+    _, run = left_by_a_stop(p, tmp_path)
+    (runs_dir(p) / f"{run}.json").unlink()
+    e, threads = take_up(p)
+    assert run not in e.live
+    time.sleep(adopt.WAIT + 0.5)
+    assert threads[0].is_alive() and not ends(p), "a run still going read as gone"
+    e.dispatch.watch(now=item(p).fields["lease"]["expires"] + 3600)
+    assert not p.events.query(n=None, type=EXPIRED), "its lease expired while it went on"
+    go(tmp_path, 1, 2)
+    joined(threads)
+    ended_once(p, run)
+
+
 def test_a_lease_its_keeper_holds_is_never_given_back_as_the_engine_stops(tmp_path, monkeypatch):
     """However late the run's own thread is to say it was left going, ``give_back`` passes a run its keeper holds."""
     p = project(tmp_path)

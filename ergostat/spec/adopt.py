@@ -198,7 +198,9 @@ def take_up(eng, root: Path, name: str) -> threading.Thread | None:
         if not isinstance(kept, dict) or kept.get("out") != str(f["out"]):
             return None                                  # (not one of the engine's runs, or its keeper still making it)
     rec = _json(f["json"])
-    rec = rec if isinstance(rec, dict) else None
+    if not isinstance(rec, dict):                        # (none written: its keeper's group id, its start unknown,
+        pgid = _json(d / "pgid")                         # so never taken for gone while that pid is there)
+        rec = {"pid": pgid, "start": None} if type(pgid) is int else None
     run = rec["run"] if rec and isinstance(rec.get("run"), str) else name
     begun = eng.p.events.get(run)
     if not begun or begun.get("type") != "agent.started":
@@ -213,7 +215,8 @@ def take_up(eng, root: Path, name: str) -> threading.Thread | None:
     data = begun.get("data") or {}
     item, fence = data.get("item"), data.get("lease")
     proc = Adopted(str(d), rec)
-    live = proc.pid is not None and keeper.ended(str(d)) is None and alive(rec) is not False
+    live = proc.pid is not None and keeper.ended(str(d)) is None and alive(rec) is not False   # (signalled only by
+    live = live and bool(rec.get("start"))                                                  # a pid it is known by)
     key = f"{b.name} {item}" if item else b.name
     with eng.lock:
         if run in eng.live or key in eng.running:
