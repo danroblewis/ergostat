@@ -111,3 +111,16 @@ Choices taken where nobody could be asked (each reversible):
   longer overflows (lesson-3).
 
 Not run here: the unit suite and the four browser files; the factory runs them. No page changed.
+
+Round 2. The one finding (blocking): `program.known` (ergostat/actions/program.py:77) reused an earlier gate
+denial when `act.gate == "deny"`, which is only the normal column, so a keyed program ask never got a looser cell in
+force. It now asks `gate.in_force(p, act)[0] == "deny"`, the gate the state in force gives. New test
+`test_keyed_program_ask_takes_the_looser_cell_once_in_force`: the ask is denied under normal, asked again while
+still deny and gets the same denial back, then asked again under a maintenance lease that names it, and it runs. With
+the old line put back, the test failed. Main had nothing new to merge (`HEAD..main` is empty).
+The other readers of `Action.gate` were checked again. `server.py:52`, `inbox/interventions.py:211` (the guard
+surface, compared between model versions) and `pages.js` describe the model as declared, so they keep the `normal`
+column. None of them decides whether an act runs.
+Net lines outside tests and docs: 83 (budget 140).
+Run: `tests/test_regime_gates.py` (10 passed) and `tests/test_program_actions.py` (10 passed), and ruff is clean.
+Not run here: the unit suite and the four browser files.

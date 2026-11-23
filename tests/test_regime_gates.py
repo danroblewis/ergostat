@@ -198,3 +198,21 @@ def test_bad_gate_map_refused(tmp_path):
     ok = compiled.actions["ok"]
     assert ok.gates["away"] == "approve" and ok.gates["freeze"] == "approve" and ok.thresholds["away"] == 3.0
     assert compiled.actions["v"].gates["freeze"] == "approve"     # the refused cell left unwritten: its default
+
+
+def test_keyed_program_ask_takes_the_looser_cell_once_in_force(tmp_path):
+    """A gate denial is reused for the same keyed ask only while the cell in force is still deny (program.known)."""
+    from ergostat.actions import program
+    p = project(tmp_path, {"act": ("{normal: deny, maintenance: auto}", None)})
+    operating.enter(p, "normal")
+
+    def keyed(run):
+        c = {"block": "dev", "run": run, "item": None, "workdir": str(tmp_path), "actions": ["act"]}
+        return program.ask(p, p.model.spec, c, "act", {}, key="day-1")
+    a = keyed("r1")
+    assert a["state"] == "denied" and a["denied_by"] == "gate" and ran(tmp_path) == []
+    assert keyed("r2")["id"] == a["id"]             # still deny in force: the earlier denial stands
+    operating.enter(p, "maintenance", lease=3600, actions=["act"])
+    b = keyed("r3")
+    assert b["id"] != a["id"] and b["state"] == "ran" and b["operating"]["column"] == "maintenance"
+    assert ran(tmp_path) == ["act"]
