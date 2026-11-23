@@ -120,3 +120,32 @@ the watchdog. `test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapsh
 `tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` also passed (2 passed, rc 0).
 `tests/test_graph_cli_web.py`: 41 passed. Ruff is clean. Not run: the whole unit suite and the four browser files in
 full (left to the factory and the merge queue).
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 17:07).
+
+Stopped on its last attempt by RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 678, in session
+    out = agents.session(cfg, role, brief, work, keep=kept)
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 204, in session
+    egress(cfg)
+    ~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 117, in egress
+    _egress(cfg)
+    ~~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 124, in _egress
+    docker("network", "create", "--internal", NET)
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 106, in docker
+    raise RuntimeError(f"docker {args[0]}: {r.stderr.strip()[-300:]}")
+RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
