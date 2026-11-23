@@ -833,8 +833,9 @@ def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monk
     for path, params in want:
         k = key(path, params)
         assert k in data, k
+        every = {"finished": ["show"]} if path == "items" else {}   # a snapshot holds the finished too (SPEC §5a)
         assert _timeless(data[k]) == _timeless(json.loads(json.dumps(
-            api(live, path, {"since": ["1h"], **{a: [b] for a, b in params.items()}}), default=str))), k
+            api(live, path, {"since": ["1h"], **every, **{a: [b] for a, b in params.items()}}), default=str))), k
     ids = lambda k: sorted(i["id"] for i in data[k]["items"])                       # noqa: E731
     assert ids("items?kind=ticket") == ["ticket/a", "ticket/b"]
     assert ids("items?kind=ticket&state=doing") == ["ticket/a"]                     # ticket.started: doing
@@ -845,7 +846,8 @@ def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monk
 def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_path, monkeypatch):
     from ergostat.web import snapshot
     real = snapshot.api
-    broken = [("items", {"kind": "ticket"}), ("items", {"kind": "epic", "state": "underway"}),
+    every = {"finished": "show"}                                   # each items answer is asked with the finished too
+    broken = [("items", {"kind": "ticket", **every}), ("items", {"kind": "epic", "state": "underway", **every}),
               ("items-graph", {"kinds": "note"})]
 
     seen = []
@@ -860,8 +862,9 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     data = _snapshot_data(related_project(tmp_path))
     for path, params in broken:
         assert (path, params) in seen, (path, params)                     # asked, so its absence is the failure's
+        params = {k: v for k, v in params.items() if k != "finished"}                # held under the page's own key
         assert snapshot.key(path, params) not in data                                # absent, not empty
-    assert ("items", {"kind": "ticket", "state": "doing"}) not in seen   # no states asked without the kind's own answer
+    assert ("items", {"kind": "ticket", "state": "doing", **every}) not in seen   # no states asked without the kind's own answer
     assert not any(k.startswith("items?kind=ticket") for k in data)    # its states, from its own answer: none to be had
     assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
             "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)

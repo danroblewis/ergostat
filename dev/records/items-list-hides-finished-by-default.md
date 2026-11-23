@@ -66,3 +66,16 @@ Round 2 (answering the one finding of review 1):
   the project switcher's other project). The switcher reads `projects.running()` through `running_pid`, and no file
   this branch changes is on that path (`git diff main` touches items, item_sets, the items handler, snapshot, pages.js
   and util.js's api). 36 of the file's 37 tests pass. Not run on clean main here; the factory's rerun decides it.
+
+Round 3 (answering the queue: two `tests/test_graph_cli_web.py` snapshot tests failed alone):
+- Caused by this branch, not by load. Round 1 had the snapshot ask every `items` answer with `finished=show` (held
+  under the page's own key, so a snapshot can still show the finished when the toggle is on), but these two tests
+  still expected the old default. `test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states` now compares each
+  held `items` answer with the live answer for `finished=show`. `test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot`
+  now breaks the `items` asks as the snapshot makes them (with `finished=show`) and looks for their absence under the
+  page's key. No code changed. I kept the snapshot holding every item rather than holding the default answer, because
+  holding only the default would leave a snapshot unable to show the finished at all.
+- Seen to fail when the snapshot stops asking `finished=show` (both fail). Both pass with it.
+- I ran these files and they pass: `test_graph_cli_web.py` (42), `test_snapshot_sets.py` (4), `test_item_sets.py`
+  (16), and `test_export.py` + `test_guide.py` (14 passed and 2 skipped there because Playwright was missing; the browser run
+  is reported in the result). ruff is clean.
