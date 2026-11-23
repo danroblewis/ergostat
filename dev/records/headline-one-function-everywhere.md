@@ -114,3 +114,18 @@ the browser's `perf`/`pts` caches and this branch's heading that prints the serv
 Round 4: main (ead497d1) merged in. The one conflict, in diagram.js's side list, is resolved keeping main's
 `id: "waiting"` and `tabindex` on the "Waiting for you" heading (its one-step link target) and this branch's "Goals off"
 heading that prints the server's count (`goalsOffText()`) instead of main's `count(off)` of its rows. No other change.
+
+After the merge, tests/test_diagram_rendering.py gave 27 failed and 255 passed. All of these failures are in code the
+branch does not touch. The branch's only changes to the page are the caption's count, the side list's "Goals off"
+heading and the Loops page heading.
+`test_every_part_opens_its_panel_when_clicked_even_mid_redraw` and
+`test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[False]` passed when run again. These
+fail again when run alone: `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip[*]` (20 examples: a
+`<title>` "Drawn alike here with …" from dynamics.js:467, a file this branch does not change);
+`test_every_view_draws_cleanly_and_in_time[ticket-factory]` (satellite-far 15 against a ceiling of 14, layout);
+`test_parts_chosen_with_a_box_move_together_pinned_and_with_no_new_layout` (stock did not move);
+`test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard` (focus not on the detail heading);
+`test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known` (the loop list);
+`test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` (the Model page has no "Nothing
+waiting."). They are left alone (lesson 13). No clean worktree of main could be made here, so the claim that they fail
+on main too rests on the diff, not on a run. The acceptance tests and ruff pass.
