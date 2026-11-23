@@ -128,3 +128,14 @@ tests/test_factory.py. It does not touch queue.py, prefixes.py, drain.py, live.p
 - I did not run either test on main: a worktree of main was refused in an earlier round. A heredoc append to this file
   (`cat >> dev/records/... <<'EOF'`) and its commit were refused in this session, so I wrote this section with the
   file editor instead.
+
+## Where it stopped
+
+Round 2, with no review findings to answer and main unchanged since the last merge (ead497d1 is still main's head),
+so there was nothing to merge in and I changed no code. Run again here: ruff is clean, and these tests pass: the four
+acceptance tests, test_browser_daily_goal_closes_in_landing and
+test_ergostat_check_on_the_factory_model_reports_no_new_finding. I checked the earlier claim that the stray SIGTERM
+in the switcher test is not this branch's. Every browser_daily test runs browserday.py as a subprocess only. The one
+in-process SIGTERM handler in tests/test_factory.py (the prefix stop test, from main's 34a8a225) puts the old handler
+back in its finally. `uv run ergostat check` (as `timeout 300 uv run ergostat check`) was refused again, so done item
+6's "no new finding" against main is still unverified.
