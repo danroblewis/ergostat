@@ -616,6 +616,16 @@ class Index:
         return out
 
     @_healing
+    def in_window(self, since: float, until: float) -> dict[str, tuple[int, int]]:
+        """Per kind, of the items with no event after ``until``: how many arrived in ``[since, until]``, and how many had
+        an event in it (the Items page's overview, ``items_overview.py``)."""
+        w, a = self._where(None, until=until)
+        w = (w + " and " if w else " where ") + "last >= ? and first <= ?"
+        rows = self.db.execute(f"select kind, sum(arrived >= ? and arrived <= ?), count(*) from items{w} group by kind",
+                               (since, until, *a, since, until))
+        return {self.name(k) or "": (int(n_in or 0), n) for k, n_in, n in rows}
+
+    @_healing
     def count(self, kind: str | None, states=None, until: float | None = None, words=()) -> int:
         w, a = self._where(kind, states, until, words)
         return self.db.execute(f"select count(*) from items{w}", a).fetchone()[0]

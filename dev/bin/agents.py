@@ -52,7 +52,7 @@ TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600,
             "pipeline_manager": 2400, "suite-queue": 3600, "suite-triage": 3600,   # seconds, each below its block's
             "measure-load": 43200}   # (runs.WALL, a whole measurement: its load lives through every run)
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
-          "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
+          "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=5g"]
 SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
 TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
              join_judge=TOOLS["reviewer"], pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
@@ -427,16 +427,6 @@ def limits(cfg: dict, kind: str, cpus: float | None = None) -> list[str]:
 
 QUEUE_CPUS = {"unit": 8, "browser": 4}   # the queue's unit and browser run at once in queue_cpuset (12); others 4
 NOT_STARTED = (125, 126, 127)            # docker run's own failure, or a command that could not be run in it
-PREFIX_CPUS_MOST = 4                     # [agents] prefix_cpus' ceiling (a suite container's own --cpus)
-
-
-def prefix_cpus(cfg: dict) -> float:
-    """[agents] prefix_cpus: each prefix check's container's --cpus (prefixes.py; default 1.5), within queue_cpuset;
-    not a number above 0 and at most PREFIX_CPUS_MOST, refused."""
-    v = (cfg.get("agents") or {}).get("prefix_cpus", 1.5)
-    if isinstance(v, bool) or not isinstance(v, int | float) or not 0 < v <= PREFIX_CPUS_MOST:
-        raise ValueError(f"[agents] prefix_cpus = {v!r}: a number of CPUs above 0 and at most {PREFIX_CPUS_MOST}")
-    return float(v)
 
 
 class NotStarted(RuntimeError):
@@ -446,9 +436,8 @@ class NotStarted(RuntimeError):
 def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str, env: tuple = ()) -> tuple[str, str]:
     """(a container's name, the shell command that runs ``cmd`` in it): one of the merge queue's (``box`` "queue") or
     flake triage's ("triage") suites, in the agent image on ``work`` at /work, with no network (a demo's servers and
-    ports in its own namespace), pinned to [agents] queue_cpuset (a prefix's, on a worktree under run/queue-prefix/,
-    with [agents] prefix_cpus). The checkout is a copy, never a bind mount (Docker
-    Desktop's file sharing keeps a handle open on every file a container reads through one,
+    ports in its own namespace), pinned to [agents] queue_cpuset (each of a red batch's two halves on its own half of it). The checkout is
+    a copy, never a bind mount (Docker Desktop's file sharing keeps a handle open on every file a container reads through one,
     dev/records/suites-copy-their-checkout-into-the-container.md): tarred on the Mac (all but its .venv, with its git
     directory when that is inside it) into the container's stdin and unpacked at /work before ``cmd``, a copy that
     did not unpack exiting 125 (NotStarted); so the Mac's checkout is kept as the Mac left it. The image's own
@@ -456,8 +445,9 @@ def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str, env: tuple = (
     its own path. run/coverage/ mounted at its own path, as the unit run's ERGOSTAT_COVERAGE names it, so what it writes
     there reaches run/. ``env``: more NAME=value settings for it (fac.suite's PYTEST_ADDOPTS)."""
     name, work = container(f"suite-{box}"), work.resolve()
-    prefix = work.is_relative_to((fac.path(cfg, "run") / "queue-prefix").resolve())   # (a prefix's: prefixes.py)
-    cpus = prefix_cpus(cfg) if prefix else QUEUE_CPUS.get(suite, 4)
+    cpus = QUEUE_CPUS.get(suite, 4)
+    if suite in QUEUE_CPUS and (cfg.get("agents") or {}).get("queue_half"):     # (one of two full runs: halves.share())
+        cpus //= 2
     common = Path(fac.git(work, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
     cov = fac.run_dir(cfg, "coverage").resolve()
     git = [] if common.is_relative_to(work) else ["-v", f"{common}:{common}:ro"]
