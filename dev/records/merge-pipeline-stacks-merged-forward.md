@@ -130,3 +130,13 @@ Round 3 (no review findings; main 7a905955 already merged in at c81fbadd, nothin
 changed. Run here, serially: ruff clean; the five stack-forward tests passed, and so did
 test_an_approved_switch_drains_and_switches_through_the_engine (the earlier build failure), 3 passed in 276 s and 3 in
 200 s. The whole file and the build command under `-n 8` were not run this round.
+
+Round 3 build failure: cut off again, this time after 153 results with no `F` at all, no pytest summary and no
+suite_watch line. Nothing failed before the stop, so no test is named and nothing in this gap is shown wrong. This is
+the fourth cut-off at a different point (113, 36, none, 153). Read again for anything of this gap's that could grow
+or hang under `-n 8`: stack.py removes its scratch clone in a finally, its merge passes `-m` (no editor opens), and
+the block stack-forward never starts in the tests that run the engine on the factory's model. No code was changed on
+a guess (lesson-13). The likely cause is still the build step's container (4 CPUs, 4 GB, -n 8, tmpfs /tmp). To tell
+main's failure from this gap's, the next round needs the build log, or tests/test_factory.py run on clean main under
+the same load. Refused this round: appending this note and committing it from the shell (heredoc, then ruff and
+git commit in one command).
