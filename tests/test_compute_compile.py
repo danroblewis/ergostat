@@ -175,6 +175,7 @@ RUNS_ON_REFUSALS = [
     ("runs-on-calls", '  build: {type: program, run: "nc -U $ERGOSTAT_SOCKET", every: 1h, runs-on: farm}\n', "runs-on"),
     ("runs-on-calls", '  build: {type: program, run: "ergostat item x", every: 1h, runs-on: farm}\n', "runs-on"),
     ("runs-on-calls", SCRIPTED, "runs-on"),                                   # go.sh calls, written below
+    ("runs-on-calls", '  build: {type: program, run: "./go\\0.sh", every: 1h, runs-on: farm}\n', "runs-on"),  # a NUL
 ]
 
 

@@ -122,3 +122,13 @@ in MACHINE_NO and SENSOR: only the owner names the machine a block runs on. That
 2 lines. Refusing is the more reversible choice, because allowing it later loosens nothing already written. SPEC §2a
 says so. The test failed before the change and passes after it (48 passed in the file).
 Overrun reason: 97 net lines against 90; five are round 2's folder check on the script read, and two are the trust-table lines that classify `runs-on` for library templates.
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, gap/compute-runs-on-config-continued-continued round 4). The finding is answered:
+`calls()` in ergostat/compute/compile.py now catches ValueError too. A NUL in the run's first word (YAML
+`run: "./go\0.sh"`) now counts as calling and is refused at its key with `runs-on-calls` instead of crashing `check`.
+The case is in RUNS_ON_REFUSALS. It failed with `ValueError: lstat: embedded null character in path` before the
+change and passes after it. Only one line was edited, so the net lines are the same as in round 3. Main (ead497d1) is
+already merged.
+Overrun reason: 97 net lines against 90; five are round 2's folder check on the script read, and two are the trust-table lines that classify `runs-on` for library templates.

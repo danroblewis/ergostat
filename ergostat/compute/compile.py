@@ -153,7 +153,7 @@ def calls(c, run) -> str | None:
             return None
         with f.open("rb") as h:
             body = h.read(MAX_SCRIPT + 1)
-    except (OSError, RuntimeError):                          # RuntimeError: a link loop, before Python 3.13
+    except (OSError, RuntimeError, ValueError):     # RuntimeError: a link loop (Python < 3.13); ValueError: a NUL
         return f"its script {text.split()[0]} (which cannot be read)"
     if len(body) > MAX_SCRIPT:
         return f"its script {text.split()[0]} (over {MAX_SCRIPT >> 20} MiB, so not read whole)"
