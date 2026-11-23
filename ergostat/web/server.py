@@ -715,6 +715,8 @@ def api(live: Live, path: str, q: dict, reader: bool = False):
         from ..correspond import table
         shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
         got["corr"] = table(got, shown)
+        from .snapshot import untrusted
+        untrusted(got, shown)                         # what an untrusted template made, said on its box (SPEC §2a)
         if q.get("have"):                             # a page polling: only the values, when it holds this structure
             from .graph_poll import answer
             return answer(got, q["have"][0])

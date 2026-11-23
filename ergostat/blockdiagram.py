@@ -41,6 +41,7 @@ What each part of the model becomes:
 from __future__ import annotations
 
 from . import rates, sensing
+from .library.untrusted import Shown
 from .spec.ir import KIND_OF_TYPE, Ref, Spec
 
 WORLD_NOTE = "a block that reads nothing and is commanded by nothing: the world, from the control system's side"
@@ -121,6 +122,7 @@ class _Diagram:
         self.prod: dict[str, tuple[str, str]] = {}     # signal key -> (node, port) that produces it
         self.sig: dict[str, dict] = {}                 # signal key -> how it is written
         self.frames: list[dict] = []
+        self.shown = Shown(spec)                       # what an untrusted template made: its text marked (SPEC §2a)
         self._classify()
 
     # -- what each part of the model is to the control system
@@ -317,8 +319,25 @@ class _Diagram:
             said = self.inferred(kw.get("part"))
             if said and isinstance(kw.get("rows"), list):        # a part a model change added: said, quietly, last
                 kw["rows"] = [*kw["rows"], ["origin", said]]
+            self.untrusted(f"block.{id[4:]}" if id.startswith("blk:") else kw.get("part"), kw)
             n = self.nodes[id] = {"id": id, "ins": [], "outs": [], **kw}
         return n
+
+    def untrusted(self, ref, kw: dict) -> None:
+        """A part an untrusted template made: its words as the panel and the export write them marked (its description
+        whole, its name wherever it stands as a word), and its name, marked, first."""
+        got = self.shown.parts.get(str(ref))
+        if got is None:
+            return
+        sh, name, where = self.shown, str(ref).split(".", 1)[1], got[1].where
+        kw["says"] = sh.names(kw.get("says"))
+        kw["rows"] = [["untrusted library", sh.mark(name, where)]] + [
+            [k, sh.mark(v, where) if k == "description" else sh.names(v)] for k, v in kw.get("rows") or []]
+
+    def system_says(self, name: str) -> str:
+        """A system's description, marked when an untrusted template made it."""
+        t = self.s.systems.get(name) or ""
+        return self.shown.mark(t, name) if name in self.shown.systems else t
 
     def inferred(self, ref) -> str | None:
         """"added by ergostat, from model change X" for a part a model change added (``inferred:``, SPEC §12e)."""
@@ -1366,7 +1385,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
             boxes[r] = {"id": r, "kind": "block", "role": "subsystem", "system": spec.within.get(name), "label": name,
                         "ins": [], "outs": [], "parts": 0, "loops": [],
                         "fn": {**sysfn(name), "linear": None}, "ports": cls[name]["ports"],
-                        "says": (spec.systems.get(name) or "") and spec.systems.get(name) + ". ",
+                        "says": d.system_says(name) and d.system_says(name) + ". ",
                         "subsystems": spec.subsystems(name), "inner": inner, "system_name": name,
                         "remote": remote_box(spec, name), "upkeep": upkeep(spec, name)}
         if r.startswith("sys:"):
@@ -1484,7 +1503,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
             name = f.split(":", 1)[1]
             if f not in frames:
                 frames[f] = {"id": f, "kind": "frame", "frame": "system", "label": name, "parent": frame_of(spec.within.get(name)),
-                             "fn": sysfn(name), "ports": cls[name]["ports"], "says": spec.systems.get(name, ""),
+                             "fn": sysfn(name), "ports": cls[name]["ports"], "says": d.system_says(name),
                              "inner": spec.inner_loops(name)}
             f = frames[f]["parent"]
     for c in d.frames:

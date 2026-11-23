@@ -964,7 +964,7 @@ function bdDraw(svg, g, lay) {
   for (const n of g.nodes) {
     const c = box[n.id];
     if (!c) continue;
-    const el = bdNode(n, c);
+    const el = untrustedBox(bdNode(n, c), n);
     el.addEventListener("mouseenter", () => { if (!S.nodeDrag?.moved && !S.hullDrag?.moved) bdTrace(svg, { node: n.id }); });
     el.addEventListener("mouseleave", () => bdTrace(svg, S.bdSel || null));
     el.addEventListener("pointerdown", (ev) => {        // a drag (moved, and pinned), or a click (interact.js)
