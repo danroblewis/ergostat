@@ -164,3 +164,30 @@ putting main's six ergostat files in place for one run (`git checkout bf6dbebf -
 The factory reruns failing tests on clean main.
 tests/test_run_costs.py and tests/test_snapshot_sets.py (20 passed). Ruff is clean. Not run here:
 test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py and the whole unit suite.
+
+Round 5: built. The branch's code is unchanged since round 3 (41 net lines outside `tests/`, `docs/` and `dev/`,
+budget 60).
+
+The queue's finding (conflicts with main in `server.py`, `details.js`, `tests/test_agents_page.py`) was resolved in
+round 4's merge (a94b2210). Main has since moved to ead497d1, and the factory merged it cleanly (fdea6b40), with no
+conflict markers. The merge-base is now main. This round reran the tests on that merge.
+
+Run, with Playwright under the watchdog:
+- tests/test_agents_page.py: 8 passed, 1 failed, the same one on two runs:
+  `test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` (main's, which the branch does not change). It
+  passes alone (rc 0, and its page-error check is empty). In the file it reads `#detail` while the panel still says
+  "Loading…", because it waits only for the panel's h2, which the loading panel shows already. This is a race in that
+  test (lessons 10 and 13), not a fault of the page, so it is not fixed here. All of this gap's tests in the file pass.
+- tests/test_items_page.py: 33 passed, 1 failed: `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
+  (it waits for the project switcher to list a second project. The branch does not touch the switcher, and the test
+  failed in round 4 too). Round 4's five other failures ("Loading…" panels) pass now that main is merged. The
+  acceptance test `test_cost_is_stated_or_says_why_it_is_none_with_the_windows_total_and_on_an_item` passes.
+- tests/test_run_costs.py (16 passed), tests/test_snapshot_sets.py (4 passed). Ruff is clean.
+
+Refused commands, not worked around: the first watchdog run, given as `uv run python scripts/suite_watch.py -- uv run
+--with playwright==1.63.0 python scripts/named_tests.py tests/test_agents_page.py 2>&1 | tail -8; echo rc=$?` (it ran
+when given without the pipe). A scratch Playwright probe in /tmp (`timeout 120 uv run --with playwright==1.63.0 python
+-I /tmp/probe/probe.py`) that would have timed the panel's load was also refused, and so was appending this section
+with a shell heredoc. The run of the single test stood in for the probe. It was not confirmed that the two failures
+happen on clean main too; the factory reruns failing tests there. Not run here: test_diagram_rendering.py,
+test_page_refresh.py, test_page_polling.py and the whole unit suite.
