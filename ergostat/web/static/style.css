@@ -259,6 +259,9 @@ body:has(#detail:not([hidden])) .diagram { grid-template-columns: minmax(0, 1fr)
 body:has(#detail:not([hidden])) .diagram > .side { display: none; }
 .canvas-wrap { position: relative; min-width: 0; min-height: 0; }
 .canvas-wrap svg { user-select: none; -webkit-user-select: none; }
+/* nothing to draw: said in the middle of the canvas, not below it */
+.canvas-wrap > .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.canvas-wrap > .empty a { pointer-events: auto; }
 .toolbar, .zoom { position: absolute; z-index: 2; display: flex; gap: var(--sp-1); align-items: center; flex-wrap: wrap;
   background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius-menu); padding: var(--sp-1); }
 .toolbar { top: var(--sp-3); left: var(--sp-3); right: var(--sp-3); width: max-content; max-width: calc(100% - var(--sp-5)); }
@@ -411,6 +414,14 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
   .kind-flow .cfd-states { flex-direction: row; max-height: none; }
 }
 .kind-flow > .states { margin: var(--sp-1) 0 0; }
+/* the overview (kinds.js): a dense grid of small cards, each chart's legend at its right but on a phone */
+.kind-overview .sys-head { margin: var(--sp-1) 0; }
+.kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--sp-2) var(--sp-4); margin: 0 0 var(--sp-2); }
+.kind-card { min-width: 0; max-width: none; }
+.kind-card .kname { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kind-card .kind-counts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kind-card .cfd-states { max-height: 4.25rem; line-height: 1.25; }
+.kinds-quiet { font-size: var(--text-sm); }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
 .kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }

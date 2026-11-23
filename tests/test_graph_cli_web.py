@@ -232,6 +232,8 @@ def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals
                     ignore=shutil.ignore_patterns("run", "__pycache__"))
     f = d / "ergostat.yaml"
     f.write_text(f.read_text().replace("name: the-job\n", "name: the-job\npurpose: keep my work moving\n", 1))
+    m = d / "job" / "messages.yaml"                    # one goal no controller holds: notes-reach-work, its block gone
+    m.write_text(m.read_text().split("\nblocks:\n")[0] + "\n")
     server, url = serve(Project(model.load(d)), free_port())
     try:
         with urllib.request.urlopen(url + "/api/status", timeout=30) as r:
@@ -343,6 +345,37 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
         server.server_close()
     assert agents and all(names[a["rung"]] == a["kind"] for a in agents.values()), agents
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
+
+
+def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
+    """big has no kinds of item: its Process answer is empty, so the page takes its empty branch, whose words give the
+    reason and Dynamics, laid over the canvas (not below it). The browser half of this check, the text's box inside the
+    canvas's, is tests/test_diagram_rendering.py::test_process_view_with_no_kinds_says_so_inside_the_canvas."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import serve
+    root = Path(__file__).resolve().parents[1]
+    d = tmp_path / "big"
+    shutil.copytree(root / "examples" / "big", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    server, url = serve(Project(model.load(d)), free_port())
+    try:
+        def get(path):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                return r.read().decode()
+        g, js, css = json.loads(get("/api/graph?view=process")), get("/static/diagram.js"), get("/static/style.css")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert not g["nodes"] and not g["kinds"], g                  # nothing to draw: the empty branch
+    assert "No kinds of item in ${here}: its parts are counted by sensors. See `" in js
+    assert re.search(r'go\(\{ view: "dynamics" \}\); \} \}, "Dynamics"\), "\."', js)    # where to look instead
+    rule = re.search(r"\.canvas-wrap > \.empty \{([^}]*)\}", css)
+    assert rule and all(p in rule.group(1) for p in ("position: absolute", "inset: 0", "align-items: center",
+                                                       "justify-content: center")), rule
 
 
 def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
