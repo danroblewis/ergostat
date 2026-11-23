@@ -211,6 +211,15 @@ The control diagram is the product's main view. Conventions:
   dynamics) · NAME: PURPOSE · 2 systems · 25 goals, 0 off" (every goal), "Block diagram (control) · … ·
   16 control loops, 2 off" (the goals a controller holds). The Process view gives its type, the model and
   its systems, and no goal count: a process map holds no goals.
+- **Spoken names.** Every part Tab reaches is a button (keys.js) whose name says what a sighted reader
+  sees on it, in that view's words only. Dynamics (sdSpoken): "stock users, 152 users of desired 180,
+  off, in product, in balancing loop word of mouth and 2 others", "flow signups, 3.1 per hour, from cloud
+  to users", "connector from churn to support load, positive", "goal gap users-at-180, off, off by 28";
+  a closed system: "module NAME, its description, 2 goals holding, 1 goal off". Blocks (bdSpoken):
+  "controller C keep-located-worked, on-off, control loop located-worked, off", "summing junction of
+  located-worked, reference minus measurement", "signal e located-worked, error, minus 36, off". A goal's
+  state is always the server's word (goalWord). Each name is worked out again at every draw, so it follows
+  the values on the poll; the focus is kept on the part by keys.js, as it was before the names. The Process view keeps keys.js's own names.
 - **Two views at once.** A grip on each edge of the canvas, dragged inward, reveals a second pane
   behind a separator (left or right: side by side; top or bottom: stacked); the separator resizes it,
   a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the

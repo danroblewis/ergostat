@@ -1111,15 +1111,37 @@ function mathml(tree, display = true) {
   return m;
 }
 
+const BD_KINDS = { controller: "controller", actuator: "actuator", process: "process", sensor: "sensor (feedback path)",
+                   collector: "collector (feedback path)",
+                   subsystem: "subsystem", comparator: "summing junction", "process-sum": "summing junction", reference: "reference input",
+                   disturbance: "disturbance input", output: "output", "in-port": "In port", "out-port": "Out port",
+                   sampler: "sampler (A/D)", hold: "zero-order hold (D/A)", junction: "summing junction" };
+const bdKind = (n) => (n.kind === "frame" ? (n.frame === "cascade" ? "inner loop (cascade)" : "subsystem, open") :
+  n.kind === "mux" || n.kind === "demux" ? n.kind : BD_KINDS[n.role] || n.kind);
+/* a block's, a frame's or a signal's spoken name (its aria-label), in control's words only: what it is, its symbol
+   and name, what it computes, its control loops each with its goal's word (the server's, goalWord) */
+function bdSpoken(x, g) {
+  const fn = x.fn || {}, minus = (v) => String(fmt(v)).replace(/^[-−]/, "minus ");
+  const loop = (l) => { const lp = S.status?.loops?.[l]; return `control loop ${l}${lp ? `, ${goalWord(lp)}` : ""}`; };
+  if (x.source != null) {                              // a signal: its symbol, what it is, and a loop's error its value
+    const sg = x.signal || {}, src = (g?.nodes || []).find((n) => n.id === x.source);
+    const lp = src?.role === "comparator" ? S.status?.loops?.[(src.loops || [])[0]] : null;
+    return [`signal ${sg.sym || "unnamed"}${sg.sub ? " " + sg.sub : ""}`, sg.n > 1 ? `vector of ${sg.n}` : sg.what,
+            lp?.error != null ? minus(lp.error) : null, lp ? goalWord(lp) : null].filter(Boolean).join(", ");
+  }
+  if (x.kind === "frame") return x.frame === "cascade" ? `inner loop (cascade) of ${x.label}` : `subsystem ${x.label}, open`;
+  const name = String(x.label || "").replace(/^Σ /, "");
+  const said = [x.kind === "sum" ? `summing junction of ${name}` : x.kind === "mux" || x.kind === "demux" ? `${x.kind} of ${x.n} signals`
+    : x.kind === "sampler" ? `sampler (A/D), T = ${fn.T || "not known"}` : `${bdKind(x)}${fn.sym ? " " + fn.sym : ""} ${name}`,
+    x.role === "comparator" ? "reference minus measurement"
+      : x.kind === "sum" ? (x.ins || []).filter((p) => p.sign).map((p) => (p.sign === "+" ? "plus" : "minus")).join(" ") : fn.kind || fn.value,
+    x.role === "subsystem" ? x.description : null, ...(x.loops || []).map(loop), x.alarm ? `alarm ${x.alarm}` : null];
+  return said.filter(Boolean).join(", ");
+}
+
 function openBlock(n) {
   const fn = n.fn || {};
-  const kinds = { controller: "controller", actuator: "actuator", process: "process", sensor: "sensor (feedback path)",
-                  collector: "collector (feedback path)",
-                  subsystem: "subsystem", comparator: "summing junction", "process-sum": "summing junction", reference: "reference input",
-                  disturbance: "disturbance input", output: "output", "in-port": "In port", "out-port": "Out port",
-                  sampler: "sampler (A/D)", hold: "zero-order hold (D/A)", junction: "summing junction" };
-  const kind = n.kind === "frame" ? (n.frame === "cascade" ? "inner loop (cascade)" : "subsystem, open") :
-    n.kind === "mux" ? "mux" : n.kind === "demux" ? "demux" : kinds[n.role] || n.kind;
+  const kind = bdKind(n);
   const title = fn.sym ? mathml(["mrow", fn.sub ? ["msub", ["mi", fn.sym], ["mtext", fn.sub]] : ["mi", fn.sym],
                                   ...(fn.arg ? [["mo", "("], ["mi", fn.arg], ["mo", ")"]] : [])], false) : (fn.name || n.label);
   const defs = (n.math || []).map((m) => h("div", { class: "bd-math" }, mathml(m)));

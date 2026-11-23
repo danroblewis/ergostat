@@ -2594,6 +2594,128 @@ def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard
         pg.close()
 
 
+# the demos swept (dev/records/diagram-spoken-names.md): every focusable part's spoken name, and what the page knows
+# of it to check that name against (its name as drawn, a stock's unit)
+SPOKEN_DEMOS = ["software-factory", "ticket-factory", "image-squeeze", "first-loop", "autoscaler", "ops"]
+SPOKEN = """() => [...document.querySelectorAll('svg.canvas [tabindex="0"]:is(.node, .edge, .bd-frame)')].map((el) => {
+  const n = el.matches('.node') && S.graph.nodes.find((x) => x.id === el.dataset.id);
+  const e = el.matches('.edge') && S.graph.edges.find((x) => x.id === el.dataset.id);
+  const f = el.matches('.bd-frame') && (S.graph.frames || []).find((x) => x.id === el.dataset.hull);
+  const name = n ? (['gap', 'desired'].includes(n.role) ? n.goal : ['cloud', 'sampler', 'mux', 'demux'].includes(n.kind) ? ''
+                    : String(n.label).replace(/^Σ /, '')) : e ? e.signal?.sym || e.flow || '' : f ? f.label : '';
+  return { id: el.dataset.id || el.dataset.hull, role: el.getAttribute('role'), label: el.getAttribute('aria-label') || '',
+           name, unit: n && n.kind === 'stock' ? (n.unit || '').trim() : '' };
+})"""
+SPOKEN_KINDS = {   # each view's kind words, the first words of every name (an allowlist: a part named otherwise fails)
+    "dynamics": r"(stock|flow|pipe of flow|connector|auxiliary|exogenous input|desired level|goal gap|goal excess|decision|"
+                r"cloud|module|shadow variable)\b",
+    "blocks": r"(signal|summing junction|mux|demux|sampler|subsystem|inner loop|controller|actuator|process|sensor|collector|"
+              r"reference input|disturbance input|output|In port|Out port|zero-order hold|block)\b"}
+NOT_SPOKEN = {"dynamics": r"sensor|controller", "blocks": r"stock"}   # the other discipline's words
+
+
+@pytest.mark.parametrize("example", SPOKEN_DEMOS)
+def test_every_focusable_part_is_named_in_its_views_words_with_its_kind_and_name(browser, tmp_path, example):
+    """Done items 1-3 of diagram-spoken-names: in Dynamics and in Blocks, every part Tab reaches has a non-empty name
+    that starts with its kind word and contains its name, with no 'undefined' and no raw id; a stock's says its unit;
+    no Dynamics name says sensor or controller, no Blocks name says stock."""
+    assert example in EXAMPLES, example
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, view in enumerate(("dynamics", "blocks")):
+            drawn(pg, url, f"view={view}&open=*", i)
+            parts = pg.evaluate(SPOKEN)
+            assert len(parts) > 3, (view, parts)
+            for p in parts:
+                said = p["label"]
+                assert p["role"] == "button" and re.match(SPOKEN_KINDS[view], said), (view, p)
+                assert p["name"] in said and p["unit"] in said, (view, p)
+                assert not re.search(r"undefined|null|NaN|\w:\w", said), (view, p)
+                assert not re.search(NOT_SPOKEN[view], said, re.I), (view, p)
+        assert not errors, errors
+        pg.close()
+
+
+SPOKEN_UNIT = """() => {
+  const off = { 'users-at-180': { word: 'off', error: -28 }, 'located-worked': { word: 'off', error: -36 }, other: { word: 'holding' } };
+  S.status = { ...S.status, loops: off };
+  const sd = { kind: 'dynamics', nodes: [
+    { id: 'stock:users', kind: 'stock', label: 'users', valueText: '152', unit: 'users', systems: ['product'],
+      goals: [{ name: 'users-at-180', desired: '180' }] },
+    { id: 'flow:signups', kind: 'valve', label: 'signups', rate: 3.1, rateText: '3.1 per hour' },
+    { id: 'cloud:signups:in', kind: 'cloud' },
+    { id: 'gap:users-at-180', kind: 'auxiliary', role: 'gap', label: 'users gap', goal: 'users-at-180', of: 'users', offBy: 'off by 28' },
+    { id: 'desired:users-at-180', kind: 'auxiliary', role: 'desired', goal: 'users-at-180', of: 'users', valueText: '180' },
+    { id: 'auxiliary:churn', kind: 'auxiliary', label: 'churn', valueText: '2', unit: 'per day' },
+    { id: 'decision:route', kind: 'auxiliary', role: 'decision', label: 'route' },
+    { id: 'system:product', kind: 'system', label: 'product', description: 'what users get', loops: { holding: 2, off: 1 } },
+    { id: 'term:load', kind: 'terminal', role: 'shadow', label: 'load' }],
+    edges: [{ id: 'p1', kind: 'pipe', source: 'cloud:signups:in', target: 'flow:signups', flow: 'signups' },
+            { id: 'p2', kind: 'pipe', source: 'flow:signups', target: 'stock:users', flow: 'signups', causal: ['word of mouth'] },
+            { id: 'c1', kind: 'connector', source: 'auxiliary:churn', target: 'gap:users-at-180', polarity: '+' }],
+    causalLoops: [{ name: 'word of mouth', polarity: 'B', nodes: ['stock:users', 'flow:signups', 'gap:users-at-180'] },
+                  { name: 'l2', polarity: 'R', nodes: ['stock:users'] }, { name: 'l3', polarity: null, nodes: ['stock:users'] }] };
+  const bd = { kind: 'blocks', nodes: [
+    { id: 'blk:k', kind: 'block', role: 'controller', label: 'keep-located-worked', fn: { sym: 'C', kind: 'on-off' },
+      loops: ['located-worked'] },
+    { id: 'sum:located-worked', kind: 'sum', role: 'comparator', label: 'Σ located-worked', loops: ['located-worked'], ins: [] },
+    { id: 'psum:backlog', kind: 'sum', role: 'process-sum', label: 'Σ backlog', ins: [{ sign: '+' }, { sign: '−' }] },
+    { id: 'ref', kind: 'input', role: 'reference', label: 'r located-worked', fn: { value: '180' } },
+    { id: 'sens', kind: 'block', role: 'sensor', label: 'located', fn: {} },
+    { id: 'smp', kind: 'sampler', role: 'sampler', label: 'T', fn: { T: '5m' } },
+    { id: 'mux1', kind: 'mux', label: 'mux', n: 3 },
+    { id: 'sub', kind: 'block', role: 'subsystem', label: 'intake', description: 'takes work in', loops: ['located-worked', 'other'] },
+    { id: 'pin', kind: 'port', role: 'in-port', label: 'demand' },
+    { id: 'proc', kind: 'block', role: 'process', label: 'located', fn: { sym: 'P' } },
+    { id: 'y', kind: 'output', role: 'output', label: 'y located' }],
+    edges: [{ id: 'e1', source: 'sum:located-worked', target: 'blk:k', signal: { sym: 'e', sub: 'located-worked', what: 'error' } }],
+    frames: [{ id: 'casc:x', kind: 'frame', frame: 'cascade', label: 'located-worked' },
+             { id: 'sys:intake', kind: 'frame', frame: 'system', label: 'intake' }] };
+  return { sd: [...sd.nodes, ...sd.edges].map((x) => sdSpoken(x, sd)),
+           bd: [...bd.nodes, ...bd.edges, ...bd.frames].map((x) => bdSpoken(x, bd)) };
+}"""
+
+
+def test_each_views_name_function_speaks_every_part_kind_with_its_state_and_loops(browser, tmp_path):
+    """Done items 2 and 4 of diagram-spoken-names: each view's name function (sdSpoken, bdSpoken) on a part of every
+    kind, an off goal's saying 'off' (the server's word), a stock its value and unit, a part its loops."""
+    with served("first-loop", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=dynamics", 0)
+        said = pg.evaluate(SPOKEN_UNIT)
+        assert said["sd"] == [
+            "stock users, 152 users of desired 180, off, in product, in balancing loop word of mouth and 2 others",
+            "flow signups, 3.1 per hour, from cloud to users, in balancing loop word of mouth",
+            "cloud, outside the model's boundary",
+            "goal gap users-at-180, off, off by 28, in balancing loop word of mouth",
+            "desired level users-at-180, of users, 180",
+            "auxiliary churn, 2 per day",
+            "decision route",
+            "module product, what users get, 2 goals holding, 1 goal off",
+            "shadow variable load",
+            "pipe of flow signups, from cloud to signups",
+            "pipe of flow signups, from signups to users, in balancing loop word of mouth",
+            "connector from churn to users gap, positive"], said["sd"]
+        assert said["bd"] == [
+            "controller C keep-located-worked, on-off, control loop located-worked, off",
+            "summing junction of located-worked, reference minus measurement, control loop located-worked, off",
+            "summing junction of backlog, plus minus",
+            "reference input r located-worked, 180",
+            "sensor (feedback path) located",
+            "sampler (A/D), T = 5m",
+            "mux of 3 signals",
+            "subsystem intake, takes work in, control loop located-worked, off, control loop other, holding",
+            "In port demand",
+            "process P located",
+            "output y located",
+            "signal e located-worked, error, minus 36, off",
+            "inner loop (cascade) of located-worked",
+            "subsystem intake, open"], said["bd"]
+        pg.close()
+
+
 SD_WORDS = r"\b(controller|setpoint|rule|goal)s?\b|<=|>="   # (a valve is Sterman's word for where a rate is set)
 
 
