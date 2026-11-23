@@ -2138,6 +2138,20 @@ rework is a repeated step; a state nothing counts has `says`. The k-th move into
 lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
 answer.
 
+**Where it went, on the item's page.** Right after its header, an item of a kind the model counts or takes shows its
+`path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that
+counts it (its state beside it when the names differ, else the state alone, its `says` as the title) and how long it
+stayed; between steps the valve (the flow that counted it into the next) and the block that moved it: the step's
+block, its run and attempt, from the lease, else the block whose `out:` names that flow (`/api/kinds/K`'s
+`taken_by`). A nack or rework is a repeated step, said as *given back*, with its attempt. Each stock and flow links
+to `/diagram?view=dynamics&select=stock.S` (`flow.F`), each block to `/diagram?view=blocks&select=block.B` (no
+agent has a page of its own: its panel opens from there), each run to the Record narrowed to the item over that step.
+The final state is marked (a double border); the last step is where the item is counted now and, while a run has
+it, says *being worked by B for 4m*. This replaces the lifecycle strip. An item of a kind nothing counts or takes
+(the footprint's `why`) keeps the strip (the states it passed through, joined by arrows; its other endings apart)
+and says it is not counted anywhere in the model. Its leases follow, as a closed *Attempts (N)*: who has it now
+(taken, never "held"), the attempts counted of the most, and the table of every lease.
+
 ## 5b. The Process view: how the items really moved
 
 The Diagram page's third view, beside Dynamics and Blocks, draws the work as the record says it went:
@@ -3642,7 +3656,7 @@ engine or the machine busy), and the item is taken again. Each dead letter, and 
 last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
 dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
-attempt.
+attempt, under *Where it went* (§5a).
 
 ### 9.6 The observer: stale readings and estimated stocks
 

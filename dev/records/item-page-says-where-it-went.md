@@ -15,3 +15,50 @@ Acceptance tests: test_an_item_page_shows_its_path (one link per step, in move o
 Budget: 110 net lines.
 
 Milestone: kind-and-item-pages. Owner items: 20 (what it passed through). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. `whereView` in ergostat/web/static/pages.js draws *Where it went* right after the item page's header.
+It is drawn from `/api/items/ID`'s `path` and `/api/kinds/K`. Each stock and flow links to
+`/diagram?view=dynamics&select=stock.S` (`flow.F`) and each block to `/diagram?view=blocks&select=block.B`. Each run
+links to the Record. The final state has a double border. The current step says *being worked by B for T, run R*. A
+kind nothing counts keeps the strip, with the line "Its kind, K, is not counted anywhere in the model." The lease view
+is now a closed `details` *Attempts (N)*: "Taken by" replaces "held by", and "Not held" and the `--redrive` command are
+gone. style.css makes the strip wrap. SPEC §5a has *Where it went, on the item's page*, and §9.5 points to it.
+40 net lines outside tests and docs (budget 110).
+
+Choices I made with nobody to ask (each the easiest to undo):
+- **No page for an agent.** Ergostat has no page per agent: an agent is a panel, opened from the Agents page or a
+  diagram. So "a link to its agent page when it exists" is read as: it does not exist yet, and the block links to the
+  Blocks diagram with that block chosen.
+- **Where the block comes from.** The done tickets in the roadmap fixture were never leased. A move's block is the
+  step's lease when it has one. Otherwise it is the block whose `out:` names that flow, from the footprint's
+  `taken_by`. For that the page also asks for `/api/kinds/K`. If that answer cannot be read, the page shows the old
+  strip and makes no claim about the model.
+- **Where the run link goes.** It opens the Record narrowed to this item over that step
+  (`/record?item=ID&from=entered&to=left`). A run's own events are recorded under its agent's name, and `path` does
+  not carry the agent.
+- **Where the planner shows.** The flow that first brought the item in (roadmap: `planned`) leads the strip. The
+  planner takes no tickets, so it is not named.
+- **Q55's test moved.** Q55's lifecycle-strip test ran on image-squeeze's `session` kind, which is counted. It now runs
+  on a small fixture, `lone`, whose `session` kind nothing counts, as the amended Q55 asks.
+- **The 'How it moved' table** keeps its rows as they are. Only the Lease table part of Q54 is in this gap.
+
+Tests: test_an_item_page_shows_its_path and test_an_uncounted_item_says_so pass. Each was broken by hand and seen to
+fail:
+- with the flow-to-block lookup removed, the link list loses `developer`;
+- with the uncounted sentence removed, `.uncounted` is never drawn;
+- with `flex-wrap: nowrap`, the strip is 969 px wide inside 358;
+- with the details open, the closed-details check fails.
+
+The *given back* wording for a nack or rework is not covered by a page test. Its steps are covered by
+tests/test_footprint.py (`test_a_nack_is_a_repeated_step_with_its_attempts`).
+
+tests/test_items_page.py: 69 pass and 1 fails, the same one in two runs:
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` times out waiting for the other project's
+`#project` switcher entry on `/items`. That test reads the header and the project registry, which this branch does not
+touch. kind-and-item-footprint-api's record reports the same failure. Running it on clean main was refused in this
+session (`git worktree add --detach /tmp/maincheck main`).
+
+test_diagram_rendering.py::test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_both_themes
+passes: it reads the strip's arrows on an uncounted kind. Ruff is clean. Main is merged in: already up to date.

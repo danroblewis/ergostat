@@ -341,12 +341,13 @@ def test_leases_are_shown_on_the_items_page_and_the_items(browser, site):
     assert "developer" in pg.locator('td[data-lease="held"]').first.inner_text()
     assert "dead letter" in pg.locator('td[data-lease="dead"]').first.inner_text()
     pg.goto(f"{site}/item/hypothesis/2")
-    pg.wait_for_selector(".lease")
-    text = pg.locator(".lease").inner_text()
-    assert "A dead letter" in text and "--redrive" in text and text.count("expired") >= 2, text
+    pg.wait_for_selector("details.lease")
+    text = pg.locator("details.lease").text_content()                      # (closed: its rows are not drawn)
+    assert "A dead letter" in text and "--redrive" not in text and text.count("expired") >= 2, text   # no command (Q12)
+    assert pg.locator("details.lease > summary").inner_text() == "Attempts (2)"
     pg.goto(f"{site}/item/hypothesis/1")
-    pg.wait_for_selector(".lease")
-    assert "held by developer" in pg.locator(".lease").inner_text()
+    pg.wait_for_selector("details.lease")
+    assert "Taken by developer" in pg.locator("details.lease").text_content()
     assert not errors, errors
     pg.close()
 
@@ -775,11 +776,73 @@ STRIP = """() => {
 }"""
 
 
-def test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apart(browser, site):
-    """A done session's strip is 'open → done', ending at its present state; its other endings (failed, lost) sit apart
+LONE = """
+name: lone
+items:
+  ticket: {id: ticket/*, states: [todo, done]}
+  session: {id: session/*, states: [open, done, failed, lost], on: {session.ran: done}}
+stocks:
+  todo:
+    sensor: {items: ticket, state: todo, every: 3s}
+"""
+
+
+@pytest.fixture(scope="module")
+def lone(tmp_path_factory):
+    """A model whose sensors count tickets and nothing counts sessions: a done session and an open one."""
+    d = tmp_path_factory.mktemp("lone") / "lone"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(LONE)
+    home = d.parent / "home"
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+ev = Project(mdl.load(Path({str(d)!r}))).events
+ev.add("session.started", item="session/strip", data={{"role": "researcher"}})
+ev.add("session.ran", item="session/strip")
+ev.add("session.started", item="session/s1")
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def test_an_uncounted_item_says_so(browser, lone):
+    """An item of a kind no sensor counts and no block takes keeps the lifecycle strip, says it is not counted
+    anywhere in the model, and draws no path."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{lone}/item/session/strip")
+    pg.wait_for_selector(".uncounted", timeout=20000)
+    assert "not counted anywhere in the model" in pg.locator(".uncounted").inner_text()
+    assert pg.locator(".track").count() == 1 and not pg.locator(".went, .wv-path").count()
+    assert "Where it went" not in pg.locator("main").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apart(browser, lone):
+    """Of a kind nothing counts (Q55, amended: a counted kind's item shows where it went instead): a done session's
+    strip is 'open → done', ending at its present state; its other endings (failed, lost) sit apart
     with no arrow element between 'done' and them, each ending double-bordered, and every state label is at least
     4.5:1 against its background in light and dark. An open session draws only 'open', its other states apart."""
-    add_events(("session.started", "session/strip", {"role": "researcher"}), ("session.ran", "session/strip", {}))
+    site = lone
     errors: list[str] = []
     for theme in ("light", "dark"):
         pg = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme=theme)
@@ -926,6 +989,52 @@ def open_view(browser, roadmap, route: str, ready: str):
     pg.wait_for_selector(ready, timeout=20000)
     pg.wait_for_timeout(800)
     return pg, errors
+
+
+PATH_LINKS = """() => [...document.querySelectorAll('.went .wv-path a')].map((a) => [a.textContent, a.getAttribute('href')])"""
+
+
+def test_an_item_page_shows_its_path(browser, roadmap):
+    """A done ticket's 'Where it went' is one line through the model, in move order, every stock, valve and block a
+    link (stocks and valves to the Dynamics diagram, blocks to the Blocks diagram, each with that part chosen), the
+    final state marked; it replaces the lifecycle strip. A taken ticket's current step says which block works it and
+    for how long; no text of the section says 'held', and the attempts are a closed details. At 390 px it wraps."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{roadmap}/item/ticket%2Fe1-design")
+    pg.wait_for_selector(".went .wv-step.final", timeout=20000)
+    links = pg.evaluate(PATH_LINKS)
+    dyn, blk = "/diagram?view=dynamics&select=", "/diagram?view=blocks&select="
+    assert links == [["planned", dyn + "flow.planned"], ["todo", dyn + "stock.todo"],
+                     ["started", dyn + "flow.started"], ["developer", blk + "block.developer"],
+                     ["in-progress", dyn + "stock.in-progress"], ["submitted", dyn + "flow.submitted"],
+                     ["developer", blk + "block.developer"], ["in-review", dyn + "stock.in-review"],
+                     ["finished", dyn + "flow.finished"], ["reviewer", blk + "block.reviewer"]], links
+    steps = pg.locator(".went .wv-step").evaluate_all("els => els.map((e) => [e.dataset.state, e.className])")
+    assert [s for s, _ in steps] == ["todo", "doing", "review", "done"] and "final" in steps[-1][1], steps
+    assert not pg.locator(".track").count()                                   # the path replaces the strip
+    assert "held" not in pg.locator(".went").inner_text()
+    pg.goto(f"{roadmap}/item/ticket%2Fe2-docs")                               # taken by developer 10 s before the fixture
+    pg.wait_for_selector(".went .wv-step.on", timeout=20000)
+    now = pg.locator(".went .wv-step.on").inner_text()
+    assert re.search(r"being worked by developer for \d+(s|m)", now), now
+    text = pg.locator(".went").inner_text()
+    assert "held" not in text.lower() and "run r1aaaaaa" in text, text
+    run = pg.locator(".went a", has_text="run r1aaaaaa").get_attribute("href")
+    assert run.startswith("/record?item=ticket%2Fe2-docs&from="), run                # the Record, of it over the run
+    assert "Not held Attempts" not in pg.locator("main").inner_text()
+    assert pg.locator("details.lease:not([open]) table").count() == 1
+    assert pg.locator("details.lease > summary").inner_text() == "Attempts (1)"
+    pg.set_viewport_size({"width": 390, "height": 844})                     # the longer path, on a phone: it wraps
+    pg.goto(f"{roadmap}/item/ticket%2Fe1-design")
+    pg.wait_for_selector(".went .wv-step.final", timeout=20000)
+    wide = pg.evaluate("""() => { const p = document.querySelector('.went .wv-path'), r = p.getBoundingClientRect();
+        return [document.documentElement.scrollWidth, document.documentElement.clientWidth, p.scrollWidth, p.clientWidth,
+                Math.max(...[...p.children].map((c) => c.getBoundingClientRect().right)), r.height]; }""")
+    assert wide[0] <= wide[1] and wide[2] <= wide[3] and wide[4] <= 390 and wide[5] > 40, wide
+    assert not errors, errors
+    pg.close()
 
 
 def test_the_graphs_status_counts_filter_it(browser, roadmap):

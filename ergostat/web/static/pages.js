@@ -960,17 +960,46 @@ function leaseCells(l, state) {
 }
 function leaseView(l, state) {
   const left = l.holder ? l.expires - nowS() : null;
-  const says = l.holder ? [h("b", {}, `held by ${l.block}`), ` (run ${l.holder.slice(0, 8)}, lease ${l.fence}, ${l.tier}), `,
-      left < 0 ? h("b", { class: "bad" }, `overdue ${dur(-left)}`) : `expires in ${dur(left)}`, `; renewed ${ago(l.renewed)} (TTL ${dur(l.ttl)})`]
-    : state === "dead" ? [h("b", { class: "bad" }, "A dead letter"), `: given up on after ${l.attempts} attempts. `,
-        h("code", {}, "ergostat lease ITEM --redrive"), " gives it another go."]
-    : ["Not held", l.not_before && l.not_before > nowS() ? `; not taken again for ${dur(l.not_before - nowS())}` : ""];
+  const says = l.holder ? [h("b", {}, `Taken by ${l.block}`), ` (run ${l.holder.slice(0, 8)}, lease ${l.fence}, ${l.tier}), `,
+      left < 0 ? h("b", { class: "bad" }, `overdue ${dur(-left)}`) : `expires in ${dur(left)}`, `; renewed ${ago(l.renewed)} (TTL ${dur(l.ttl)}).`]
+    : state === "dead" ? [h("b", { class: "bad" }, "A dead letter"), `: given up on after ${l.attempts} attempts.`]
+    : [l.not_before && l.not_before > nowS() ? `Not taken again for ${dur(l.not_before - nowS())}.` : ""];
   const rows = (l.history || []).slice().reverse().map((x) => h("tr", { key: `${x.fence}|${x.run || ""}` }, h("td", { class: "num" }, String(x.fence)), h("td", {}, x.block || ""),
     h("td", { class: "mono small" }, (x.run || "").slice(0, 8)), h("td", { class: "nowrap" }, when(x.taken)),
     h("td", { class: x.how === "ack" ? "" : "bad" }, x.how || "holding"), h("td", { class: "num nowrap" }, dur((x.ended || nowS()) - x.taken)),
     h("td", { class: "num" }, x.exit == null ? "" : String(x.exit)), h("td", {}, (x.why || "") + (x.silent ? ` (silent ${dur(x.silent)})` : "") + (x.counted === false ? " (not counted)" : ""))));
-  return h("div", { class: "lease" }, h("p", {}, ...says, ` Attempts ${l.attempts || 0} of ${l.max ?? "?"}.`),
+  return h("details", { class: "lease" }, h("summary", {}, `Attempts (${rows.length})`),
+    h("p", {}, ...says, ` ${l.attempts || 0} of ${l.max ?? "?"} attempts counted.`),
     rows.length ? table(["lease", "block", "run", "taken", "how", ["for", "num"], ["exit", "num"], "why"], rows, "leases") : null);
+}
+
+/* where an item went in the model (SPEC §5a, *What a kind touches*): its path the stock-and-flow way, each stock it
+   was counted in and for how long, each valve that moved it and the block (its run, its attempt), each a link to the
+   diagram with that part chosen; the last step is where it is counted now. ``fp``: its kind's footprint */
+function whereView(d, fp) {
+  const steps = d.path, fin = new Set(d.kind_of?.final || []), lease = d.fields.lease?.holder ? d.fields.lease : null;
+  const part = (kind, name, view = "dynamics") => `/diagram?view=${view}&select=${encodeURIComponent(`${kind}.${name}`)}`;
+  const mover = Object.fromEntries(fp.taken_by.flatMap((t) => t.out.map((f) => [f.replace(/^flow\./, ""), t.block])));
+  const runLink = (s, run) => h("a", { href: `/record?item=${encodeURIComponent(d.id)}&from=${s.entered}${s.left ? `&to=${s.left}` : ""}` }, `run ${run.slice(0, 8)}`);
+  const box = (s, i) => {
+    const last = i === steps.length - 1, until = s.left ?? nowS();
+    const name = s.stock ? h("a", { href: part("stock", s.stock), title: `counted in ${s.stock} while ${s.state}` }, s.stock)
+      : h("span", { title: s.says || "" }, s.state);
+    const said = last && lease ? [h("b", {}, ` being worked by ${lease.block} for ${dur(nowS() - lease.taken)}`), ", ", runLink({ entered: lease.taken }, lease.holder)]
+      : fin.has(s.state) ? h("span", { class: "muted" }, " finished") : h("span", { class: "muted" }, ` ${dur(until - s.entered)}`);
+    return h("span", { class: `wv-step${last ? " on" : ""}${fin.has(s.state) ? " final" : ""}`, "data-state": s.state },
+      name, s.stock && s.stock !== s.state ? h("span", { class: "muted" }, ` ${s.state}`) : null,
+      s.attempts > 1 ? h("span", {}, ` attempt ${s.attempts}`) : null, said);
+  };
+  const move = (s, nx) => {
+    const back = s && (nx.state === s.state || (s.ended && s.ended !== "ack"));
+    const b = s?.block || (!back && mover[nx.flow]);
+    const run = s?.run ? [", ", runLink(s, s.run)] : [];
+    return h("span", { class: "wv-move" }, back ? `given back (${s.ended || "again"})` : nx.flow ? h("a", { href: part("flow", nx.flow) }, nx.flow) : "moved",
+      b ? [" (", h("a", { href: part("block", b, "blocks"), title: `block ${b}` }, b), ...run, ")"] : null, h("span", { class: "arrow", "aria-hidden": "true" }, " ⇒"));
+  };
+  return h("section", { class: "went" }, h("h2", {}, "Where it went"),
+    h("div", { class: "wv-path" }, steps.map((s, i) => [i ? move(steps[i - 1], s) : s.flow ? move(null, s) : null, box(s, i)])));
 }
 
 /* a field's history: each change, oldest first, with the event that made it (a click opens it) */
@@ -1074,6 +1103,8 @@ async function pageItem(main, id, q) {
     // it is never a 304; what it says (its cause, owner, step and evidence) is what counts as a change, and the words'
     // durations are redrawn with the rest of the page
     const w = !S.at && !(k?.final || []).includes(d.state) ? await api("why", { item: id }).catch(() => null) : null;
+    // what its kind touches in the model (unread: the lifecycle strip, saying nothing of the model)
+    const fp = k && d.path?.length ? await ans.api(`kinds/${encodeURIComponent(k.name)}`).catch(() => null) : null;
     const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
       r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
     if (!p.isConnected) return;
@@ -1093,8 +1124,10 @@ async function pageItem(main, id, q) {
     const path = d.moves.map((m) => m.to).filter((s, i, a) => s && s !== a[i - 1]);
     if (d.state && path[path.length - 1] !== d.state) path.push(d.state);
     const ended = fin.has(d.state), rest = (k?.states || []).filter((s) => !path.includes(s) && (!ended || fin.has(s)));
-    const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
+    const where = fp && !fp.why ? whereView(d, fp) : null;   // a path through the model; else the strip, and a kind nothing counts says so
+    const track = where ? where : k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
+    const uncounted = fp?.why ? h("p", { class: "note uncounted" }, `Its kind, ${k.name}, is not counted anywhere in the model.`) : null;
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, when(m.time)), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
@@ -1102,7 +1135,7 @@ async function pageItem(main, id, q) {
     const first = (k?.show || []).filter((f) => f in d.fields);
     const hist = d.history || {}, gone = Object.keys(hist).filter((f) => f && !(f in d.fields));   // removed since: still have a history
     const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort(), ...gone.sort()].filter((f) => f !== "lease");
-    const lease = d.fields.lease && typeof d.fields.lease === "object" ? [h("h2", {}, "Lease"), leaseView(d.fields.lease, d.state)] : [];
+    const lease = d.fields.lease && typeof d.fields.lease === "object" ? [leaseView(d.fields.lease, d.state)] : [];
     const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f, key: f },
       h("th", {}, f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null),
       h("td", {}, f in d.fields ? fieldOf(f, d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
@@ -1136,7 +1169,7 @@ async function pageItem(main, id, q) {
     const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
     const why = d.eta?.why ? h("p", { class: "note eta-why" }, h("b", {}, d.eta.waits_in ? `Waiting in ${d.eta.waits_in}` + (d.eta.position ? `, ${ordinal(d.eta.position)} in its queue` : "") + ": " : ""),
       d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: `/items?kind=${encodeURIComponent(k?.name || "")}&view=timeline` }, "the timeline"), ")")) : null;
-    patch(body, whyBox(w), head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    patch(body, whyBox(w), head, track, uncounted, ...lease, why, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true));
   }
