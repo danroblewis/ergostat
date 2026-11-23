@@ -87,7 +87,7 @@ def errors(d: Path) -> list[tuple[str, str]]:
 
 
 def entries(d: Path) -> dict:
-    return json.loads((d / "libraries.lock").read_text())["libraries"]
+    return json.loads((d / "libraries.lock").read_text())
 
 
 @pytest.fixture
@@ -95,8 +95,8 @@ def calls(monkeypatch):
     """Every git process fetch starts: its argv and its pid (its process group)."""
     got, real = [], fetch._start
 
-    def rec(args, tmp, stdout):
-        p = real(args, tmp, stdout)
+    def rec(args, *rest):
+        p = real(args, *rest)
         got.append((list(args), p.pid))
         return p
     monkeypatch.setattr(fetch, "_start", rec)
@@ -148,16 +148,18 @@ def test_bad_name_and_scheme_refused(tmp_path, capsys, calls, monkeypatch):
         assert calls == [] and not (tmp_path / "x").exists() and not (d / ".libraries").exists()
     d = model(tmp_path, {"a": lib(up)})                   # the good one: URL and REF after --end-of-options
     assert run_fetch(d, capsys)[0] == 0
-    args = next(a for a, _ in calls if "fetch" in a)
+    args = next(a for a, _ in calls if a[0] == "clone")
     i = args.index("--end-of-options")
-    assert args[i + 1:] == [up.as_uri(), "v1"] and args.index("fetch") < i
+    assert args[i + 1] == up.as_uri() and len(args) == i + 3
+    args = next(a for a, _ in calls if a[0] == "rev-parse")
+    assert args[args.index("--end-of-options") + 1:] == ["v1^{commit}"]
     assert any("check-ref-format" in a and a[-1] == "v1" for a, _ in calls)
 
 
 def test_fetch_holds_lock_across_write(tmp_path, capsys, monkeypatch):
     up = upstream(tmp_path)
     d = model(tmp_path, {"a": lib(up), "b": lib(up)})
-    real, procs = fetch._swap, []
+    real, procs = fetch.write_lock, []
 
     def between(*a, **k):                    # a's copy extracted, its lock entry not yet written: b's fetch starts
         p = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "library", "fetch", "b"], cwd=ROOT,
@@ -168,7 +170,7 @@ def test_fetch_holds_lock_across_write(tmp_path, capsys, monkeypatch):
         assert "waiting for the libraries lock" in lines.get(timeout=30)
         assert p.poll() is None
         return real(*a, **k)
-    monkeypatch.setattr(fetch, "_swap", between)
+    monkeypatch.setattr(fetch, "write_lock", between)
     try:
         rc, _, err = run_fetch(d, capsys, "a")
         assert rc == 0, err
@@ -204,7 +206,7 @@ def test_failed_lock_write_keeps_old_copy_and_entry(tmp_path, capsys, monkeypatc
 
     def boom(*a):
         raise OSError("disk full")
-    monkeypatch.setattr(fetch, "_write_lock", boom)
+    monkeypatch.setattr(fetch, "write_lock", boom)
     rc, _, err = run_fetch(d, capsys, "--update")
     assert rc == 1 and "disk full" in err
     assert (d / "libraries.lock").read_text() == text and tree.read(d / ".libraries" / "a")[1] == was["tree"]
@@ -243,17 +245,17 @@ def test_missing_unlocked_and_treeless_refused(tmp_path, capsys, calls):
     shutil.copytree(save, copy, symlinks=True)
     lock.unlink()
     _refused(d, "library-unlocked")
-    lock.write_text(json.dumps({"libraries": {}}))
+    lock.write_text(json.dumps({}))
     _refused(d, "library-unlocked")
     e = json.loads(text)
-    del e["libraries"]["a"]["tree"]
+    del e["a"]["tree"]
     lock.write_text(json.dumps(e))
     _refused(d, "library-unlocked")
     lock.write_text(text[:-5])
     _refused(d, "library-lock-unreadable")
     calls.clear()                                         # fetch stops too: never read as an empty lock
     rc, _, err = run_fetch(d, capsys, "--update")
-    assert rc == 2 and "cannot be read" in err and calls == [] and lock.read_text() == text[:-5]
+    assert rc == 2 and "bad-lock" in err and calls == [] and lock.read_text() == text[:-5]
     lock.write_text(text)
     assert errors(d) == []
 
@@ -391,12 +393,12 @@ def _gone(calls) -> None:
 def test_caps_refuse_large(tmp_path, capsys, calls, monkeypatch):
     up = upstream(tmp_path, {"greet.yaml": GREET, "big.bin": os.urandom(3 << 20)})
     d = model(tmp_path, {"a": lib(up)})
-    monkeypatch.setattr(fetch, "CEILING", 1 << 20)
-    rc, _, err = run_fetch(d, capsys)
+    with monkeypatch.context() as m:
+        m.setattr(fetch, "SIZE", 1 << 20)
+        rc, _, err = run_fetch(d, capsys)
     assert rc == 1 and "not fetched" in err
     _gone(calls)
     _clean(d)
-    monkeypatch.setattr(fetch, "CEILING", 100 << 20)
     small = upstream(tmp_path, {"greet.yaml": GREET, "b.yaml": OTHER, "c.yaml": OTHER}, "small")
     d = model(fresh(tmp_path, "s"), {"a": lib(small)})
     for attr, value, said in [("ENTRIES", 2, "more than 2 entries"), ("BYTES", 60, "byte cap (declared)")]:
@@ -424,17 +426,17 @@ def test_caps_refuse_large(tmp_path, capsys, calls, monkeypatch):
 
 def test_stalled_git_is_killed_by_the_timeout(tmp_path, capsys, calls, monkeypatch):
     """A git that never ends (a stand-in that blocks, with a child in its group): past the time limit the whole group
-    is killed and the temporary folder removed; for fetch (the poll) and for archive (the timer)."""
+    is killed and the temporary folder removed; for clone and for archive."""
     up = upstream(tmp_path)
     d = model(tmp_path, {"a": lib(up)})
     monkeypatch.setattr(fetch, "TIMEOUT", 1.0)
     real = fetch.argv
-    for stalled in ("fetch", "archive"):
+    for stalled in ("clone", "archive"):
         calls.clear()
         monkeypatch.setattr(fetch, "argv", lambda *a, s=stalled: ["sh", "-c", "sleep 60 & sleep 60"] if a[0] == s
                             else real(*a))
         rc, _, err = run_fetch(d, capsys)
-        assert rc == 1 and "took longer than 1s" in err, err
+        assert rc == 1 and "still running after 1.0 s" in err, err
         _gone(calls)
         _clean(d)
 
@@ -447,16 +449,16 @@ def test_fetch_without_waitid(tmp_path, capsys, calls, monkeypatch):
     d = model(tmp_path, {"a": lib(up)})
     real = fetch.argv
     monkeypatch.setattr(fetch, "TIMEOUT", 1.0)
-    monkeypatch.setattr(fetch, "argv", lambda *a: ["sh", "-c", "sleep 60 & sleep 60"] if a[0] == "fetch" else real(*a))
+    monkeypatch.setattr(fetch, "argv", lambda *a: ["sh", "-c", "sleep 60 & sleep 60"] if a[0] == "clone" else real(*a))
     rc, _, err = run_fetch(d, capsys)
-    assert rc == 1 and "took longer than 1s" in err, err
+    assert rc == 1 and "still running after 1.0 s" in err, err
     _gone(calls)
     _clean(d)
     monkeypatch.setattr(fetch, "argv", real)
     calls.clear()
     rc, _, err = run_fetch(d, capsys)
     assert rc == 0, err
-    assert set(json.loads((d / "libraries.lock").read_text())["libraries"]) == {"a"}
+    assert set(entries(d)) == {"a"}
     _gone(calls)
 
 
@@ -533,27 +535,27 @@ def test_interrupted_git_is_killed(tmp_path, capsys, calls, monkeypatch):
     up = upstream(tmp_path)
     d = model(tmp_path, {"a": lib(up)})
     real = fetch.argv
-    monkeypatch.setattr(fetch, "argv", lambda *a: ["sh", "-c", "sleep 60 & sleep 60"] if a[0] == "fetch" else real(*a))
+    monkeypatch.setattr(fetch, "argv", lambda *a: ["sh", "-c", "sleep 60 & sleep 60"] if a[0] == "clone" else real(*a))
 
-    def interrupt(_):                                     # (only once the stalled fetch runs, not git init before it)
-        if any(a[0] == "fetch" for a, _ in calls):
+    def interrupt(_):                                     # (only once the stalled clone runs, not the git before it)
+        if any(a[0] == "clone" for a, _ in calls):
             raise KeyboardInterrupt
         return 0
     monkeypatch.setattr(fetch, "_size", interrupt)
     with pytest.raises(KeyboardInterrupt):
         run_fetch(d, capsys)
-    _gone([c for c in calls if c[0][0] == "fetch"])
+    _gone([c for c in calls if c[0][0] == "clone"])
     _clean(d)
 
 
 def test_path_fetches_its_folder_and_a_missing_one_is_reported(tmp_path, capsys):
-    """``path:`` takes one folder of the repository (nested too); a path not in the commit makes git archive write
-    nothing: said as git's failure for that library, and the libraries after it are still fetched."""
+    """``path:`` takes one folder of the repository (nested too); a path not in the commit makes git archive fail:
+    said as git's failure for that library, and the libraries after it are still fetched."""
     up = upstream(tmp_path, {"lib/sub/greet.yaml": GREET, "top.yaml": OTHER})
     d = model(tmp_path, {"a": lib(up, path="nope", trust="owner"), "b": lib(up, path="lib/sub", trust="owner"),
                          "c": lib(up, path="lib", trust="owner")})
     rc, _, err = run_fetch(d, capsys)
-    assert rc == 1 and "library a: not fetched: git archive failed" in err and "Traceback" not in err, err
+    assert rc == 1 and "library a: not fetched: git-failed: archive" in err and "Traceback" not in err, err
     assert set(entries(d)) == {"b", "c"} and entries(d)["b"]["path"] == "lib/sub"
     assert sorted(os.listdir(d / ".libraries" / "b")) == ["greet.yaml"]
     assert sorted(os.listdir(d / ".libraries" / "c")) == ["sub"]

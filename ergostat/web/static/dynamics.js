@@ -513,7 +513,9 @@ function sdLoopList(panel, g) {
   const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
     h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
-    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
+    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`,
+      ((gs) => gs.length ? `, serves goal${gs.length > 1 ? "s" : ""} ${gs.join(", ")}` : "")(      // (the goals it closes)
+        [...new Set(c.nodes.filter((x) => x.startsWith("gap:")).map((x) => x.slice(4)))])));
   if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));
   const counts = ["R", "B"].map((p) => [p, known.filter((c) => sdPol(c) === p).length]).filter(([, n]) => n);
   if (counts.length) side.append(h("div", { class: "note" }, counts.map(([p, n], i) => `${n} ${{ R: i ? "reinforcing" : "Reinforcing", B: i ? "balancing" : "Balancing" }[p]}`).join(", ")));

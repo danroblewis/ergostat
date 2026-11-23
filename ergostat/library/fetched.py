@@ -23,9 +23,9 @@ def _lock(doc):
         return None
     except (OSError, UnicodeDecodeError) as e:
         raise ValueError(str(e)) from None
-    if not isinstance(got, dict) or not isinstance(got.get("libraries"), dict):
-        raise ValueError('not {"libraries": {NAME: {...}}}')
-    return got["libraries"]
+    if not isinstance(got, dict) or not all(isinstance(v, dict) for v in got.values()):
+        raise ValueError("not a map of name to entry")
+    return got
 
 
 def _one(doc, name: str, e: dict, entries) -> list[tp.Template]:
@@ -35,7 +35,7 @@ def _one(doc, name: str, e: dict, entries) -> list[tp.Template]:
         raise Refusal("library-unlocked", f"there is no {LOCK} (ergostat library fetch writes it)")
     if not isinstance(lk, dict):
         raise Refusal("library-unlocked", f"{LOCK} has no entry for it (ergostat library fetch)")
-    if any(lk.get(k) != e.get(k, "") for k in ("git", "version", "path")):
+    if any(lk.get(k) != e.get(k) for k in ("git", "version", "path")):
         raise Refusal("library-unlocked", f"its git, version or path is not {LOCK}'s (ergostat library fetch)")
     if not isinstance(lk.get("tree"), str) or not isinstance(lk.get("commit"), str):
         raise Refusal("library-unlocked", f"its {LOCK} entry has no tree or commit (ergostat library fetch)")

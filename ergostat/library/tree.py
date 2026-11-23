@@ -29,18 +29,18 @@ def hashed(walked: dict) -> str:
         kind, body = walked[p]
         for b in (os.fsencode(p), kind.encode(), body if isinstance(body, bytes) else os.fsencode(body or "")):
             h.update(len(b).to_bytes(8, "big") + b)
-    return h.hexdigest()
+    return "sha256:" + h.hexdigest()
 
 
-def digest(root, max_entries: int = ENTRIES, max_bytes: int = BYTES) -> str:
-    """The sha256 of the copy at ``root``."""
-    return hashed(files.tree(root, max_entries, max_bytes))
+def digest(root, max_entries: int | None = None, max_bytes: int | None = None) -> str:
+    """The ``sha256:`` hash of the copy at ``root``, under the caps (as they are now, when not given)."""
+    return hashed(files.tree(root, max_entries or ENTRIES, max_bytes or BYTES))
 
 
 def read(root) -> tuple[dict, str]:
     """The copy's listing (noted at load) and its ``sha256:`` hash, under the caps as they are now."""
     got = files.tree(root, ENTRIES, BYTES)
-    return got, "sha256:" + hashed(got)
+    return got, hashed(got)
 
 
 def _fold(s: str) -> str:
@@ -51,14 +51,14 @@ def _declared(m: tarfile.TarInfo) -> int:
     return m.size
 
 
-def extract(stream, dest, max_entries: int = ENTRIES, max_bytes: int = BYTES, strip: str = "") -> None:
-    """Read the tar ``stream`` into ``dest``, made here, ``strip/`` taken off each name. Refused (TreeError, ``dest``
-    removed): any kind but folder, file and link; a name outside ``strip``; an absolute name or a ``.``/``..``/empty
-    step; two names folding the same; a member under a link or file; a link leaving the copy or passing through a link;
-    past either cap, by bytes declared or written; a stream that is not a tar (git wrote nothing)."""
+def extract(stream, dest, max_entries: int | None = None, max_bytes: int | None = None) -> None:
+    """Read the tar ``stream`` into ``dest``, made here. Refused (TreeError, ``dest`` removed): any kind but folder,
+    file and link; an absolute name or a ``.``/``..``/empty step; two names folding the same; a member under a link or
+    file; a link leaving the copy or passing through a link; past either cap (as they are now, when not given), by
+    bytes declared or written."""
     os.mkdir(dest, 0o700)
     try:
-        links = _extract(stream, dest, max_entries, max_bytes, strip)
+        links = _extract(stream, dest, max_entries or ENTRIES, max_bytes or BYTES)
         for at, target in links.items():
             _inside(at, target, links)
         top = os.path.realpath(dest)
@@ -74,24 +74,13 @@ def extract(stream, dest, max_entries: int = ENTRIES, max_bytes: int = BYTES, st
         raise
 
 
-def _strip(m: tarfile.TarInfo, name: str, strip: str) -> str | None:
-    """``name`` without ``strip/`` (None: a folder at or above ``strip``); refused when it is outside."""
-    if m.isdir() and (strip + "/").startswith(name + "/"):
-        return None
-    if not name.startswith(strip + "/"):
-        raise TreeError("bad-library-tree", name, f"outside the path {strip}")
-    return name[len(strip) + 1:]
-
-
-def _extract(stream, dest, cap: int, most: int, strip: str) -> dict:
+def _extract(stream, dest, cap: int, most: int) -> dict:
     seen: dict[tuple, tuple] = {}      # folded steps -> (kind, the steps as written)
     links: dict[tuple, str] = {}       # (folded steps, steps as written) -> target
     declared = written = 0
     with tarfile.open(fileobj=stream, mode="r|*") as tf:
         for m in tf:
             name = m.name.rstrip("/") if m.isdir() else m.name
-            if strip and (name := _strip(m, name, strip)) is None:
-                continue
             parts = tuple(name.split("/"))
             if name.startswith("/") or any(s in ("", ".", "..") for s in parts):
                 raise TreeError("bad-library-tree", name, "an absolute name or a '.', '..' or empty step")

@@ -21,6 +21,7 @@ def register(sub, common) -> None:
 
 def cmd_library(args) -> int:
     from ..library import fetch, sources
+    from ..spec.files import TreeError
     from ..spec.load import FILE, find, read_file
     main = find(here(args))
     if main is None:
@@ -45,8 +46,20 @@ def cmd_library(args) -> int:
     if unknown:
         print(f"no library {unknown[0]!r} in libraries: (there are: {', '.join(cfg)})", file=sys.stderr)
         return 2
-    try:
-        return fetch.run(str(main.parent), cfg, args.names, args.update)
-    except (fetch.FetchError, OSError) as e:
-        print(f"ergostat library fetch: {e}", file=sys.stderr)
-        return 2
+    rc = 0
+    for name in args.names or list(cfg):          # one after another; each read-decide-write under the flock
+        try:
+            got = fetch.fetch(main.parent, {name: cfg[name]}, args.update,
+                              lambda line: print(line, file=sys.stderr, flush=True))[name]
+            e = fetch.read_lock(main.parent).get(name, {})
+            print(f"library {name}: up to date at {e.get('commit', '')[:12]}" if got == "kept" else
+                  f"library {name}: {e.get('version')} at {e.get('commit', '')[:12]} ({e.get('tree', '')[:19]})")
+        except fetch.FetchError as x:
+            print(f"library {name}: not fetched: {x}", file=sys.stderr)
+            if x.code in ("bad-lock", "linked-library-folder"):
+                return 2
+            rc = 1
+        except (TreeError, OSError) as x:
+            print(f"library {name}: not fetched: {x}", file=sys.stderr)
+            rc = 1
+    return rc

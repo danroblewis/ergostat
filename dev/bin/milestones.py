@@ -23,9 +23,10 @@ waiting, active, completed (final: no event moves one out of it).
                             split parent of its sub-gaps: ergostat/precedence.py), over the unfinished ones. A
                             change that puts an item on a cycle it was not on is refused.
   milestones.py pull GAP | unpull GAP             (marks a gap pulled ahead of its milestone, or clears it)
-  milestones.py status                            (each milestone, its state, what it waits on, its gaps by state, and
-                                                   the number of unfinished gaps with no milestone, and how many of
-                                                   them the next pass places)
+  milestones.py status                            (each milestone, its state, what it waits on, its gaps by state, its
+                                                   progress as ergostat counts it (done, in progress, waiting, stopped,
+                                                   of its total: ergostat item --groups), and the number of unfinished
+                                                   gaps with no milestone, and how many of them the next pass places)
 
 What the planner and the implementor take (their `takes: where: {waits_on_milestone: null}`): the pass, and each
 command once it has written, keeps the derived field `waits_on_milestone` on every unfinished gap, as deps.py keeps
@@ -45,8 +46,10 @@ Every read-decide-write here (the pass and each command) holds run/milestones.lo
 from __future__ import annotations
 
 import fcntl
+import json
 import math
 import re
+import subprocess
 import sys
 import time
 from contextlib import contextmanager
@@ -589,6 +592,7 @@ def pull(cfg: dict, gap: str, on: bool) -> str:
 def status(cfg: dict) -> str:
     active_max, _ = settings(cfg)
     ms, gaps = read()
+    rows, why = progress_rows()
     lines, n = [], sum(1 for m in ms.values() if m["state"] == "active" and not upkeep(m))
     for m in sorted(ms.values(), key=lambda m: (ORDER.index(m["state"]) if m["state"] in ORDER else 3, rank_key(m))):
         f = m["fields"]
@@ -602,6 +606,8 @@ def status(cfg: dict) -> str:
             by.setdefault(g["state"], []).append(g["id"].split("/", 1)[1] + (" (pulled)" if g["fields"].get("pulled") else ""))
         lines.append("  gaps: " + ("; ".join(f"{s} {len(v)} ({', '.join(v)})" for s, v in sorted(by.items())) or
                                    "none (an empty milestone never completes)"))
+        if not why:
+            lines.append("  progress: " + (said(rows[m["id"]]) if m["id"] in rows else "not in ergostat's answer"))
     old: dict[str, int] = {}
     for g in gaps.values():
         for label in ids_of(g["fields"].get("milestone")):
@@ -620,6 +626,8 @@ def status(cfg: dict) -> str:
         then = f"the next pass places {sum(1 for g in homeless if 'gap/' + g in sets)} of them"
     else:
         then = "[milestones] enforce is off"
+    lines.append(f"progress: {why}" if why else "gaps naming no milestone, progress: " + (
+        said(rows[None]) if None in rows else "none"))
     lines.append(f"unfinished gaps with no milestone (none, an old label, or a completed one): {len(homeless)}" + (
         f" ({', '.join(homeless[:20])}{', ...' if len(homeless) > 20 else ''}; {then})" if homeless else ""))
     loops = {n.removesuffix(END) for n in in_cycles(pairs_of(ms, gaps))}     # (one deps.py closed: it knows no milestone)
@@ -630,6 +638,25 @@ def status(cfg: dict) -> str:
         lines.append("depends on a gap of a milestone that can only finish later (both wait forever): " +
                      ", ".join(f"{a} on {d} ({mb}, after {ma})" for a, d, mb, ma in stuck))
     return "\n".join(lines) or "no milestones"
+
+
+def progress_rows() -> tuple[dict, str]:
+    """Each milestone's progress as ergostat counts it from its item index (``ergostat item --kind gap --groups
+    milestone``: ergostat/spec/grouptally.py), by id (None: the gaps naming none); or, not read, why."""
+    try:
+        got = json.loads(fac.ergostat("item", "--kind", "gap", "--groups", "milestone", "--json").stdout)
+        return {r["id"]: r for r in got["rows"]}, ""
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as e:
+        return {}, f"not read ({e})"
+
+
+def said(r: dict) -> str:
+    """done, in progress, waiting, stopped, of its total; what left it (a duplicate, abandoned) and its split gaps."""
+    c = r["counts"]
+    apart = [f"{r['left']} closed as no work done (left the total)"] * bool(r["left"]) + \
+        [f"{r['summaries']} split (counted as its parts)"] * bool(r["summaries"])
+    return (f"{c['done']} done, {c['in progress']} in progress, {c['waiting']} waiting, {c['stopped']} stopped, "
+            f"of {r['total']}") + (f" ({'; '.join(apart)})" if apart else "")
 
 
 def waiting(m: dict, ms: dict[str, dict], n: int, active_max: int) -> str:

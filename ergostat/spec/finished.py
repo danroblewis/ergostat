@@ -1,7 +1,7 @@
 """Which of a kind's states are finished (SPEC §5a, *Items*): one rule for the Items listing, the relations
 (``precedence.py``) and the estimates (``numbers/etamodel.py``).
 
-- **Declared**: the states ``messages: {done:}`` names for the kind.
+- **Declared**: the states ``messages: {done:}`` names for the kind, else those its own ``finished:`` names.
 - **Inferred** (nothing declared): the states after the first that no item has left yet (``left``).
 - Either way never a state an item waits in to be taken (the first, or one a block takes from), ``leased``, ``dead``
   or a state declared paused (``messages: {paused:}``): paused is its own list.
@@ -24,7 +24,7 @@ def finish_of(spec, kind: str | None, left: set[str]) -> dict:
     queue = list(dict.fromkeys(states[:1] + [s for b in getattr(spec, "blocks", {}).values()
                                              if b.takes and b.takes.kind == kind for s in b.takes.at]))
     never = set(queue) | {LEASED, DEAD} | set(paused)
-    declared = list((getattr(msgs, "done", None) or {}).get(kind) or [])
+    declared = list((getattr(msgs, "done", None) or {}).get(kind) or getattr(k, "finished", None) or [])
     if declared:
         finished, how = [s for s in declared if s not in never], "declared"
     else:

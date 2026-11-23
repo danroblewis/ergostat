@@ -29,6 +29,16 @@ the egress proxy (`dev/agent/egress.py`, container `ergostat-egress`), which rea
 one secret, the session token, and nothing else of this machine. Claude Code inside still runs `--restricted` with the
 role's narrow tools.
 
+**A session may see a page.** The implementor and the designer (a read-only role, like the reviewer: the reviewer's
+tools and nothing that writes) may also run `uv run python scripts/demo_up.py` (start one demo of `examples/`, offline,
+and stop it) and `uv run --with playwright==1.63.0 python scripts/walk.py` (walk its pages in Chromium). No other
+role may. Each implementor or designer session gets a folder of its own on this machine, `run/shots/<session>/`
+(named as its transcript, `<gap>-<role>-<n>`), mounted read-write at `/shots`, and its brief tells it to pass
+`--shots /shots`: its pictures land there and outlive the container (its `/tmp` does not). A designer runs on
+`[agents] designer_cpus` CPUs (default 3, above 0 and at most 4, else the session is refused with the reason), and so
+does an implementor whose brief names `ergostat/web/` (an engine and Chromium at once); every other session keeps
+`session_cpus`. `NO_PROXY` is `127.0.0.1,localhost`, so the demo's own web is reached without the egress proxy.
+
 **Each session's conversation is kept.** Claude Code's own session file (from a folder of its own mounted as its
 projects folder, `/home/dev/.claude/projects`, and nothing else of this machine's home) is copied as it grows, the
 session token scrubbed, into `run/sessions/<gap>-<role>-<n>.jsonl` (at most 20 MB; a last line says when the rest was
@@ -251,6 +261,21 @@ reads each result from the whole log (`fac.outcomes`). A test passing both runs 
 run that stalled or left no log: unknown, and it stays main-broken. The write is decided under `run/flakes.lock` on the
 item read there, only when its `main` is the commit run on or an ancestor of it, and is a patch whose first op tests
 that `main`: a newer break written in between refuses the whole event, and a refused patch moves no state (SPEC §5a).
+
+## Regression guarantees
+
+What the factory promises of main, each a stock held at zero by a goal, in the system `guarantees` (within
+`oversight`; dev/model/guarantees.yaml). Nothing in it acts on the world: each loop closes through people and the
+programs already there.
+
+- **main-green.** The stock `main-failing-tests` counts the flake items in `main-broken` (tests failing on clean main
+  too). The flow `main-tests-broken` fills it (`flake.main-broken`). The flow `main-tests-fixed` drains it, counting
+  `flake.main-fixed` by main-mend. The goal `main-green` (`<= 0`, tolerance 0, critical) is off while any test fails on
+  main. Its `on-stale` is `off`, but an items sensor is never stale (SPEC §9.6), so today that changes nothing. Off, it
+  asks the coordinator (`fix-main`, a person block in the system, so nothing outside reaches into its loop) to have
+  the fix made.
+  Once main-mend sees the test pass twice alone on the pushed main, it holds again. The loop is named `main-repair`
+  and is drawn balancing.
 
 ## The backlog: ranked, groomed
 
@@ -759,6 +784,21 @@ them, and `"unknown"` if any of them is. The browser's `skipped` field is unchan
 of every queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
+
+Each run's batch is an item, `batch/<run tag>` (`dev/bin/batches.py`; `ergostat item --kind batch`, the Items page, its
+graph and Timeline), so what the queue is doing is read in ergostat, not in `run/queue.json` and the logs: `testing`
+while a run of the suites is under way, `isolating` between the runs of a red batch, `pushing` once something landed
+and its push waits, then `landed`, `partial`, `failed` (nothing landed and a gap failed, or the push was denied) or
+`given-back` (nothing landed and nothing blamed: a stall, main red, out of time, an error). Its `runs` list each run:
+its kind (`full`, `named`: the failing tests on each prefix, `halves`: a round of two halves, one run), the gaps it
+covered, `outcome` (passed, failed, crashed, stalled), `failed` and `passed` summed over the pytest suites that said
+counts (`counted` names them; none said: neither is known), the first ten failing tests, minutes and a crash's cause.
+`isolated` says each gap found failing, how and on which tests; `given_back` and `why`, how it ended. It links to its
+gaps, and each gap's page lists its `batches`; the events carry no logs. While a run is under way, `batch-run-percent`
+and `batch-run-failures` read its progress from its own pytest logs (the least advanced; the F and E so far), never
+from the record. Saying any of this never fails or delays a merge: a failure to write is dropped. A batch whose queue
+run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
+merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
 
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
