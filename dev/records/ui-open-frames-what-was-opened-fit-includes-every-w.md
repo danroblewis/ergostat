@@ -199,3 +199,22 @@ Round 4, after the factory merged main (dc8ad98d):
   - The other 34 are the same tests as round 3's, including `test_an_equation_…` (no "Nothing waiting." on /model, now at tests/test_diagram_rendering.py:5546).
   - None of them is about what this branch changes, as far as their messages show. I have not shown that they fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes them, or until they are shown to pass there.
 - Not run here: the other three browser files and the unit suite.
+
+## Where it stopped
+
+Round 5, after the factory merged main (2f08c24e):
+- The merge conflicted in `ergostat/web/static/diagram.js` (`applyView`) and `tests/test_graph_cli_web.py`. In `applyView` I kept main's new `sdSparksZoomed(svg)` call and the branch's edge hint. Main's side of the conflict was its own old "More beyond the edge" hint, which the branch's hint replaces. In the test file both sides had added a test at the same place, and I kept both (a141e6a3). I resolved them with the editor because a `python3 - <<'EOF'` heredoc was refused.
+- The review's finding (diagram.js:873-876): the hint's click panned by(left) − by(right), each capped at 0.8 of a screen. When the drawing ran past both sides, the two cancelled and the click did nothing. Fixed (c91bb17b): on each axis the click now pans towards the side with more beyond it (on a tie, right and below), most of a screen and no further than that edge plus 60px. It pans only if that side has more than 2px beyond it. The hint's words still name every way the rest lies.
+- New browser test: `test_the_edge_hint_pans_when_the_drawing_runs_past_every_side`. It uses software-factory with `system=modelling`: Fit, eight Zoom ins, and the drawing's middle put on the canvas's middle. It asserts the hint names all four ways, clicks it and asserts the view moved over 100px on both axes. With the old click put back it failed (`assert (0.0 > 100)`: no move). With the fix it passed.
+- The code is 37 net lines in `ergostat/web/static/diagram.js` against main (+52, -15), within the 60-line budget.
+- Ruff: clean. `tests/test_graph_cli_web.py`: 56 passed.
+- With Playwright, under the watchdog:
+  - The Fit cases, the Open cases and the new hint test: 7 passed, rc 0.
+  - `test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins` and `test_on_a_phone_…`: 3 passed, rc 0.
+- `tests/test_diagram_rendering.py` run whole, with Playwright, under the watchdog: 307 passed, 38 failed (rc 1, 62 min). All the Fit, Open, phone and new hint cases passed. From the pytest cache, the failures are round 4's 36, plus these:
+  - `test_sensors_…_no_part_has_a_tooltip` now fails for 26 examples, the same `<title>` cause as before.
+  - `test_every_view_draws_cleanly_and_in_time[coordinator]` fails alone too: "routing open=* took 20327ms", over a 20 s bound. That is the layout's routing time. The branch changes only the view's pan and zoom.
+  - `test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves` (new) passed when run alone just after. So it fails only under the whole-file run, and its cause is not found (lesson-10).
+  - The rest are the same tests as round 4's, including `test_an_equation_…` (no "Nothing waiting." on /model, now at tests/test_diagram_rendering.py:5574).
+  - I have not shown that they fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes them, or until they are shown to pass there.
+- Not run here: the other three browser files and the unit suite.
