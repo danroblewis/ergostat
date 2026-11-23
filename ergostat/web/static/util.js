@@ -436,9 +436,8 @@ async function refreshHeader() {
       refreshProjects(sel);
     }
     // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
-    // the server's one count (state.goals_off); a status without it counts every goal off, as before
-    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => goalWord(l) === "off").length, own: {} };
-    const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
+    // the server's one count (state.goals_off); a status without it (an old snapshot) shows "?", never its own count
+    const { off, upkeep } = goalsOff(st);
     setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
     const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
@@ -470,6 +469,14 @@ async function refreshHeader() {
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
   } catch (e) { /* the server may be restarting */ }
 }
+
+/* the goals off as the server counted them (state.goals_off, in the status answer), never counted here: the system's,
+   and the model's own upkeep apart. A status without it (an older snapshot): "?", not known, never read as none */
+function goalsOff(st = S.status) {
+  const g = st?.goals_off;
+  return g ? { off: g.system, upkeep: Object.values(g.own || {}).reduce((a, b) => a + b, 0) } : { off: "?", upkeep: 0 };
+}
+const goalsOffText = (o = goalsOff()) => `${o.off}${o.upkeep ? ` · model upkeep ${o.upkeep}` : ""}`;
 
 /* the other running projects on this machine, in the header's list, to switch to, with what is off or unknown; then
    one muted line counting the stopped ones (the server lists them every minute, off the request path). Not waited

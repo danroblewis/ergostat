@@ -6142,10 +6142,14 @@ def test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_
             assert got["id"] and got["label"] == got["id"], got
             assert got["visible"] and got["under"] and got["line"], got
             seen[view] = got["text"]
-        def off(names):
-            return sum(st["loops"][x].get("status") == "off" for x in names)
-        assert seen["dynamics"].endswith(f"{len(st['loops'])} goals, {off(st['loops'])} off"), seen["dynamics"]
-        assert seen["blocks"].endswith(f"{len(st['controlled'])} control loops, {off(st['controlled'])} off"), seen
+        # the system's goals and the server's count of them off (state.goals_off), model upkeep apart (an upkeep goal
+        # off: tests/test_items_page.py::test_every_surface_prints_the_servers_one_count_of_goals_off)
+        def said(names, g, word):
+            up = sum(g["own"].values())
+            return (f"{sum(not st['loops'][x].get('upkeep') for x in names)} {word}, {g['system']} off"
+                    + (f" · model upkeep {up}" if up else ""))
+        assert seen["dynamics"].endswith(said(st["loops"], st["goals_off"], "goals")), seen["dynamics"]
+        assert seen["blocks"].endswith(said(st["controlled"], st["controlled_off"], "control loops")), seen
         assert f" · {st['top']} system" in seen["blocks"], seen["blocks"]
         assert "system dynamics" not in seen["blocks"] and "(control)" not in seen["dynamics"], seen
         pg.close()
@@ -6189,7 +6193,8 @@ GROUPS = """() => [...document.querySelectorAll('.side h3.att-head')].map((hd) =
 def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_path, monkeypatch):
     """The side list (design review Q42): 'Waiting for you N', 'Goals off N' (the system's goals first, modelling's
     after a rule), 'Model housekeeping N' (folded), always in that order, each ending in its count; the 'Goals off'
-    count is the header's 'loops off'; every entry begins with its state or kind word, so colour is not the only cue."""
+    count is the header's (the server's goals_off: the system's, model upkeep apart); every entry
+    begins with its state or kind word, so colour is not the only cue."""
     from ergostat import model as mdl
     from ergostat.store import Project
     d = tmp_path / "grouped"
@@ -6224,14 +6229,17 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
         for view in ("", "diagram?view=blocks"):
             pg.goto(f"{url}/{view}")
             pg.wait_for_function("() => document.querySelectorAll('.side h3.att-head').length === 3 && "
-                                 "/loops? off/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
+                                 "/goals? off/.test(document.querySelector('#running')?.textContent || '')", timeout=30000)
             groups = pg.evaluate(GROUPS)
             heads = [g["head"] for g in groups]
-            assert [re.sub(r" \d+$", "", x) for x in heads] == ["Waiting for you", "Goals off", "Model housekeeping"], heads
-            assert [int(x.rsplit(" ", 1)[1]) for x in heads] == [len([r for r in g["rows"] if r != "---"]) for g in groups]
-            header = pg.locator("#running").inner_text()
-            assert int(heads[1].rsplit(" ", 1)[1]) == int(re.match(r"(\d+) loops? off", header).group(1)) == 2, (heads, header)
+            assert [re.sub(r" \d+( · model upkeep \d+)?$", "", x) for x in heads] == ["Waiting for you", "Goals off",
+                                                                                      "Model housekeeping"], heads
             waiting, off, house = groups
+            assert [int(heads[i].rsplit(" ", 1)[1]) for i in (0, 2)] == [len(waiting["rows"]), len(house["rows"])], heads
+            # the 'Goals off' count is the header's, the server's (state.goals_off): the system's, model upkeep apart
+            header, upkeep = pg.locator("#running").inner_text(), pg.locator("#upkeep").inner_text().strip()
+            assert int(re.match(r"(\d+) goals? off", header).group(1)) == 1 and upkeep == "· model upkeep 1", (header, upkeep)
+            assert heads[1] == "Goals off 1 · model upkeep 1", heads
             assert len(waiting["rows"]) == 1 and waiting["rows"][0].startswith("waiting · ") \
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
             held = [r for r in house["rows"] if r.startswith("request · ")]   # each read as its sentence

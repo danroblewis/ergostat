@@ -706,6 +706,12 @@ def goals_off(snap: dict, names: bool = False) -> dict:
                               "own": {t: len(v) for t, v in out["own"].items()}}
 
 
+def goals_said(g: dict) -> str:
+    """``goals_off``'s counts as the CLI says them (``ergostat`` and ``ergostat projects`` alike), as the header does."""
+    return " · ".join([f"{g['system']} goal{'' if g['system'] == 1 else 's'} off"] + [f"{g[k]} {k}" for k in ("open", "unknown") if g[k]]
+                      + ([f"model upkeep {sum(g['own'].values())}"] if sum(g["own"].values()) else []))
+
+
 def quiet(project, snap: dict, system: str) -> str | None:
     """A quiet system's sentence: every goal of ``system`` or of a system within it (as its closed box folds them in;
     the goals in ``snap["loops"]``, as /api/loops has them) holding, and how many items their blocks hold leases on

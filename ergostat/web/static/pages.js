@@ -45,7 +45,8 @@ function steadyWord(name, word, win) {
 async function pageLoops(main) {
   const p = page(main, "Loops");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
-  const qbox = h("div", { class: "quiet-systems" });
+  const head = h("span", { class: "muted" }), qbox = h("div", { class: "quiet-systems" });
+  p.firstChild.append(head);                             // the goals off, as the header has them (never its rows counted)
   p.append(qbox, box, cap);
   const ans = answers();
   async function tick(force = true) {
@@ -57,6 +58,7 @@ async function pageLoops(main) {
     const word = (n, lp, s = lp.perf) => (s == null || s.not_analysed ? "" : lp.times_off >= FLAP_AT ? steadyWord(n, `flapping (${lp.times_off} crossings in ${dur(win)})`, win)
       : s.working ? "being worked out" : s.failed ? "could not be worked out" : steadyWord(n, performanceWord(s), win));
     const w = windowNote();
+    setText(head, S.status ? ` · goals off ${goalsOffText()}` : "");
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     // each system whose goals all hold says so (state.quiet): until the rows are grouped by system, a line of its own

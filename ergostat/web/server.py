@@ -708,6 +708,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
         spec = getattr(m, "spec", None)              # the diagram's caption: what the model is for, its loops
         said = {"purpose": spec.purpose, "top": len(spec.subsystems(None)),
                 "controlled": sorted(g for g in spec.goals if spec.loop(g).controllers)} if spec else {}
+        if spec:                                     # the Blocks caption's counts: the one function's, of the controlled goals
+            held = {g: lp for g, lp in snap["loops"].items() if g in said["controlled"]}
+            said["controlled_off"] = st.goals_off({"loops": held})
         return {"name": m.name, **said, "running": running, "live": snap["live"], "first": p.events.first_time(),
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),

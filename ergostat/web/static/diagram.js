@@ -1063,9 +1063,11 @@ function captionText(st, view) {
   if (st.top) parts.push(n(st.top, "system"));
   // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
   if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
-    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
-    const off = names.filter((x) => st.loops[x] && goalWord(st.loops[x]) === "off").length;
-    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
+    // the system's goals and their off, the model's upkeep apart, as the header: the server's count (state.goals_off)
+    const names = (view === "blocks" ? st.controlled : Object.keys(st.loops)).filter((x) => !st.loops[x]?.upkeep);
+    const { off, upkeep } = goalsOff({ goals_off: view === "blocks" ? st.controlled_off : st.goals_off });
+    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off` +
+      (upkeep ? ` · model upkeep ${upkeep}` : ""));
   }
   return parts.join(" · ");
 }
@@ -1576,7 +1578,9 @@ function renderSide(side, g, view) {
     side.append(fold ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);
   }
   side.append(legendBox(view));
-  side.append(h("h3", { class: "att-head", key: "off-h" }, "Goals off", count(off)), list(off, "No goal is off.", "goals-off", "off-rows"));
+  // (its count the header's, from the server: the system's goals off, the model's upkeep apart; never its rows counted)
+  side.append(h("h3", { class: "att-head", key: "off-h" }, "Goals off", h("span", { class: "muted" }, ` ${goalsOffText()}`)),
+              list(off, "No goal is off.", "goals-off", "off-rows"));
   const house = h("details", { class: "housekeeping", key: "house", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
       h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy.", "house"));
