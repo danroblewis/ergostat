@@ -39,6 +39,9 @@ Tests (tests/test_factory.py): `test_held_counts_the_quarantine_and_the_age_of_i
 - the reverse cross-check dropped: the mismatch test failed;
 - the goal's hold set to 9: the main test failed.
 
+The whole of tests/test_factory.py, run serially: 213 passed and 2 skipped, rc 0. Both skips are at lines 2115 and
+2370 and need Docker and the agent image, which this container lacks. They have nothing to do with this change.
+
 Not run: `ergostat check ergostat.yaml` from the shell was refused in this session. The check is still made, through
 `ergostat.spec.read` in the fourth test, which asserts no errors. Its warnings on the new parts were not read. An
 unserved goal is expected to draw a missing-feedback warning until regression-guarantees-wired.
