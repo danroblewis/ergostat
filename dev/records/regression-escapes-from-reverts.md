@@ -86,3 +86,25 @@ empty states listed again. The switch test and tests/test_fac_items.py together:
 alone took 146 s before). tests/test_fac_items.py, test_backlog.py and test_factory_manager.py pass (63). ruff is
 clean. No test bound was changed. Main has the same fac.items. The fix is the reversible one (one filter on a parsed
 count).
+
+Continued, round 2 (the review's one finding, lesson 13): the fac.items change in dev/bin/fac.py and its test
+tests/test_fac_items.py::test_an_empty_state_is_not_listed are taken out. Both files are back to main's text
+(`git diff main -- dev/bin/fac.py tests/test_fac_items.py` is empty). The branch now changes only the definition's
+Files plus the two comment lines named in round 1. Nothing else changed.
+
+A gap for it is proposed here, not opened: a branch cannot make another gap's branch or item, and a definition is
+the first commit of its own branch. Proposed: "fac.items lists only the states that hold items". Problem: fac.items
+(dev/bin/fac.py:178-185) runs one `ergostat item --kind K --state S` for every state on the kind's head line, the
+empty states too. Evidence, measured in round 1 with temporary timing code since removed: one switcher step
+(dev/bin/drain.py) made 46 ergostat calls of about 0.88 s each, so about 41 s a step with nothing else running.
+The kinds behind it were upgrade (13 states), gap (19), research (5) and situation (6), read for under_way() and the
+waiting upgrades. Two such steps against the test's 120 s bound each make
+tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine fail under the build's
+parallel workers, on main as well. Change: list a state only when the head line counts it above 0, and make the head
+call alone when every state is 0. A head line that cannot be read still falls back to one listing. Test: a head line
+with empty states shows only the non-empty state queried. Round 1 had a 4-line version of this, seen to work (the
+switch test went from 146 s to within 74 s with tests/test_fac_items.py). It is in this branch's history at
+55d39de7 for that gap to take.
+
+Until that gap lands, the build's switch test may still fail under load. That failure is on main, not this
+branch's code (reasons in round 1 above), so the factory's rerun on clean main should place it there.
