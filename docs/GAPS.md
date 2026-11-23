@@ -18,7 +18,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
     reading says the version moved; parts brought in as an external subsystem, blocks never run, sensors
     reading the remote, `systems:` to narrow); source type `ergostat` (one batched request per remote a
     period, stale readings refused); local references checked against the remote's current model
-    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
+    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`, `remote-stale`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
     `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
@@ -131,10 +131,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
   program). Triage reads Python, Node, Java and Go traces and notes an error a good run swallowed (M5) without moving
-  any failure. Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
+  any failure, and (`repair-log-events`) the last error-level log line of a good run with no project trace, in Python
+  logging's default form or JSON, noted the same way. Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
   regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
-  fails). Done since (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: log
-  events; the ladder's lower rungs (program, rule) and promoting a class automatically; a program with uncommitted
+  fails). Done since (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: the
+  ladder's lower rungs (program, rule) and promoting a class automatically; a program with uncommitted
   changes is fixed from its committed text; a Python traceback more than 8,000 characters before the end of a failed
   run's output is now signed by how the run ended; a daemon's run hands back little or no standard error, so what a
   daemon swallows is not seen; Ruby and other languages are not read.
@@ -240,7 +241,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   the cap while it runs, so the reviewer and the redesigner running at once do not both start calls on one remainder.
   Open: the estimate is not a bound (`claude -p` is given no output limit), so a call that writes more than 16,000
   tokens can take the day a little past the cap.
-- **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
+- **Craft notes in `check`** (done, `modelling-core`; a stock with no unit is a finding since
+  `missing-unit-is-a-check-finding`, raising no request): a part with no description, a flow
   between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
   counted as findings).
@@ -430,8 +432,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
     180, 60 to 3600) and `no-stalls`, and the engine's watchdog and the outer watcher as `type: external` blocks;
     with `leases: true` lease expiry, with `pool: NAME` that pool's quarantined slots held at 0 by the owner. The
     engine writes `stale` into `heartbeat.json`; the watcher uses it within 60 to 3600 s, else 180. Left: the loops
-    are drawn, not closed by ergostat (their controllers are its code); the heartbeat the run writes as it starts has
-    no `stale`, so the watcher uses 180 until the watchdog's first beat (5 s); `restarts` has no goal.
+    are drawn, not closed by ergostat (their controllers are its code).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per

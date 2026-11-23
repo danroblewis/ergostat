@@ -221,6 +221,10 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .more, .att .none { color: var(--muted); }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
 .att .inbox-act input { width: 6em; }
+/* a list held still while the reader is in it: what waits for them to leave, above it, moving none of its rows */
+:has(> .waiting) { position: relative; }
+.waiting { position: absolute; right: 0; top: 0; transform: translateY(-100%); font-size: var(--text-sm); color: var(--muted); background: var(--bg); }
+.waiting:empty { display: none; }
 .att .ask { white-space: pre-line; }
 .att details.cmd pre, .claim details.cmd pre { white-space: pre-wrap; margin: var(--sp-1) 0 0; }
 .att .att-word { color: var(--ink-2); }
@@ -253,6 +257,8 @@ body:has(#detail:not([hidden])) .diagram > .side { display: none; }
   background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius-menu); padding: var(--sp-1); }
 .toolbar { top: var(--sp-3); left: var(--sp-3); right: var(--sp-3); width: max-content; max-width: calc(100% - var(--sp-5)); }
 .zoom { bottom: var(--sp-3); right: var(--sp-3); }
+.open-level { position: absolute; z-index: 2; bottom: var(--sp-3); left: var(--sp-3); max-width: 40%; background: var(--bg);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-menu); padding: var(--sp-1) var(--sp-2); font-size: var(--text-sm); }
 .toolbar button, .zoom button { border-color: transparent; background: transparent; }
 .toolbar button:hover, .zoom button:hover { background: var(--fill); }
 .toolbar select { border-color: transparent; background: transparent; }
@@ -280,6 +286,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .side h3 .muted { font-weight: 400; }
 .looprow { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); margin: 0 calc(-1 * var(--sp-2));
   border-radius: var(--radius); cursor: pointer; }
+button.looprow { width: calc(100% + 2 * var(--sp-2)); min-height: 0; border: 0; background: none; text-align: left; }   /* a row, by keyboard too */
 .looprow:hover, .looprow.hl { background: var(--fill); }
 .looprow .sub { grid-column: 1 / -1; color: var(--muted); font-size: var(--text-sm); }
 .change { font-size: var(--text-sm); padding: var(--sp-0) 0; overflow-wrap: anywhere; }
@@ -526,6 +533,7 @@ svg.sd .node .t-sub { fill: var(--sd-muted); }
 svg.sd .node .sd-name { font-weight: 500; font-size: var(--canvas); }
 svg.sd .node .sd-value { font-size: var(--canvas-sm); font-variant-numeric: tabular-nums; }
 svg.sd .node .sd-exo { font-style: italic; font-size: var(--canvas-sm); }
+svg.sd .node .sd-nounit { fill: var(--sd-muted); font-style: italic; }
 svg.sd .node .sd-shadow { fill: var(--sd-muted); font-size: var(--canvas); }
 svg.sd .sd-stock { fill: var(--sd-paper); stroke: var(--sd-ink); stroke-width: 1.6; }
 svg.sd .sd-aux { fill: var(--sd-paper); fill-opacity: 0.9; stroke: transparent; }
@@ -697,7 +705,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
   .canvas-wrap { display: flex; flex-direction: column; }
-  .toolbar, .zoom { position: static; margin: var(--sp-2) var(--sp-2) 0; width: auto; max-width: none; }
+  .toolbar, .zoom, .open-level { position: static; margin: var(--sp-2) var(--sp-2) 0; width: auto; max-width: none; }
   .toolbar { order: -1; gap: 0; }
   .toolbar button { padding: var(--sp-1) var(--sp-2); }
   .toolbar select { max-width: 8em; }
@@ -897,7 +905,7 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 .rg-tstage { overflow: visible; cursor: default; }
 .rg-svg { display: block; width: 100%; height: 100%; user-select: none; }
 .rg-gantt { height: auto; }
-.rg-note:empty { display: none; }
+.rg-note:empty, .rg-note:has(> span:empty + .rg-calibration:empty) { display: none; }
 .rg-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); font-size: var(--text-sm); color: var(--muted); margin: var(--sp-2) 0 0; }
 .rg-key { display: inline-flex; align-items: center; gap: var(--sp-1); }
 .rg-key i { display: inline-block; width: var(--sp-3); height: var(--sp-3); border: var(--hair) solid var(--ink); border-radius: var(--radius); background: var(--bg); }
