@@ -521,7 +521,7 @@ function relTimeline(open) {
       const ent = [...Object.keys(fr).map((f) => ({ f, k: start(f) })), ...loose.map((x) => ({ x, k: key(x) }))]
         .sort((p, q) => p.k - q.k || ((p.f ?? p.x.id) < (q.f ?? q.x.id) ? -1 : 1));
       const open = new Set(Object.keys(fr).filter((f) => byHand[f] ?? (f === RG_PLAIN || ["active", "queued"].includes(m.byId[f]?.status))));
-      let n = ent.reduce((a, e) => a + 1 + (e.f && open.has(e.f) ? (byF[e.f] || []).length : 0), 0);
+      let n = ent.reduce((a, e) => a + 1 + (e.f && open.has(e.f) ? (byF[e.f] || []).length : 0), apart.length ? 1 + apart.length : 0);
       for (const e of [...ent].reverse()) {             // past the bound: the frames that start last are folded first
         if (n <= RG.BARS) break;
         if (e.f && open.has(e.f) && byF[e.f]?.length) { open.delete(e.f); n -= byF[e.f].length; folds++; }

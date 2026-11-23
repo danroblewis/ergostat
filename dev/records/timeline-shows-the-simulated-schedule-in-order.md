@@ -71,3 +71,18 @@ estimates that come later redraw the Timeline, as they do on main. Run 2: 68 pas
 `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` fails alone too, waiting for the other project
 in the header's `#project` switcher. This branch does not touch the header or the project list, so it is left alone
 (not run on clean main here). Still not run: the break-to-fail check and the live check on :8798.
+
+Round 4: the review's one finding (blocking): with milestone frames the fold loop counted frame rows and open members
+against RG.BARS but not the 'Not scheduled (N)' heading and its rows, which are pushed after it, so
+`rows.slice(0, RG.BARS)` cut exactly those. Fixed: when any items are not scheduled, the count starts at 1 + their
+number (relations.js, one line), so frames fold to make room for the group. Test:
+`test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order` now also draws the 44-frame, 263-gap answer
+with estimates and 6 gaps not scheduled. It checks that the heading is 'Not scheduled (6)', the last 6 rows are those
+gaps, no more than 200 rows are drawn, and the note says rows were folded, not 'rows drawn'. Break-to-fail seen: before
+the fix the test failed (no heading drawn); with the fix it passes. If the group alone has more than RG.BARS rows it is
+still cut, and the note says '200 of N rows drawn'. 44 net lines in ergostat/ against main (budget 90).
+Ran: ruff (clean); tests/test_eta.py (24 passed); tests/test_items_page.py under Playwright and the watchdog, twice:
+71 passed, 1 failed each time. The failure is `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
+(tests/test_items_page.py:2419), the same one as round 3. It is in the header's project switcher, which this branch
+does not touch. Running it on clean main in a /tmp worktree (`git worktree add -q /tmp/mainwt main && ...`) was
+refused, so it has not been seen failing on main. Still not run: the live check on :8798.

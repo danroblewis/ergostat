@@ -2869,6 +2869,7 @@ MS_TIMELINE = """([d, o, n]) => { const m = rgModel(d, o), el = relTimeline(() =
     tx: r.querySelector('.rg-tally')?.getAttribute('x'),
     cy: +r.querySelector('.rg-id').getAttribute('y') - 4 }));
   const out = { rows: read(), note: el.querySelector('.rg-note').textContent,
+                heads: [...el.querySelectorAll('.rg-heading')].map((h) => h.textContent),
                 starts: [...el.querySelectorAll('.rg-edge path')].map((p) => +p.getAttribute('d').split(' ')[0].split(',')[1]) };
   if (n) { el.querySelector(`.rg-sumrow[data-id="${n}"] .rg-tri`).dispatchEvent(new MouseEvent('click')); out.after = read(); }
   el.remove(); return out; }"""
@@ -2903,6 +2904,18 @@ def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browse
     sums = [r for r in big["rows"] if r["sum"]]
     assert len(sums) == 45 and len(big["rows"]) <= 200                          # every milestone kept, as a row
     assert any(r["open"] == "false" and r["id"].startswith("milestone/x") for r in sums)
+    assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
+    # with estimates and 6 not scheduled: room kept for their group, its heading and every row of it, none cut
+    ans = milestone_answer(n_extra=40)
+    ans["eta"] = {"runs": 10, "capacity": {"implementor": 3}, "sources": {}}
+    parked = [x["id"] for x in ans["items"] if x["kind"] == "gap" and x["status"] != "done"][-6:]
+    for x in ans["items"]:
+        if x["id"] in parked:
+            x["eta"] = {"unscheduled": True, "said": "paused in parked"}
+    big = pg.evaluate(MS_TIMELINE, [ans, MS, None])
+    ids = [r["id"] for r in big["rows"]]
+    assert big["heads"] == ["Not scheduled (6)"], big["heads"]
+    assert len(ids) <= 200 and ids[-6:] == sorted(parked), ids[-8:]
     assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
     assert not errors, errors
     pg.close()
