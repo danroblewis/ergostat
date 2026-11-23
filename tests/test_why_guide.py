@@ -1,4 +1,4 @@
-"""The agent guide's section on models that answer "why isn't this done?" (docs/AGENT-GUIDE.md §3l) is real: its
+"""The agent guide's section on models that answer "why isn't this done?" (docs/AGENT-GUIDE.md §3m) is real: its
 worked example's model is loaded from the guide, three stalls are seeded on it as the described process would leave
 them, and ``ergostat why`` names the true root of each (the scripted acceptance); every command in the section is run,
 in order, on that record and exits 0; and ``check``'s ``wait-unexplained`` finding (spec/waits.py) is found for a kind
@@ -28,7 +28,7 @@ from ergostat.store import Project
 ROOT = Path(__file__).resolve().parent.parent
 GUIDE = ROOT / "docs" / "AGENT-GUIDE.md"
 SKILL = ROOT / "docs" / "skills" / "ergostat-author" / "SKILL.md"
-HEAD = "## 3l. "
+HEAD = "## 3m. "
 
 
 def section() -> str:
@@ -197,7 +197,7 @@ def test_every_command_named_in_the_section_is_one_it_runs():
 
 def test_the_skill_sends_every_agent_setting_up_a_model_to_the_section():
     text = SKILL.read_text(encoding="utf-8")
-    assert "section 3l" in text and "ergostat why" in text and "held-up" in text
+    assert "section 3m" in text and "ergostat why" in text and "held-up" in text
 
 
 # ---- check's wait-unexplained

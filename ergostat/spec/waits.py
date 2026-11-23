@@ -43,5 +43,5 @@ def findings(spec, say) -> None:
             + ("its first state is where items wait to be taken" if first else "no event of its kind moves it out")
             + "), so `ergostat why` cannot name who or what must act. Give the state a block that takes it, a "
             "relation its items wait through (precedence: true), or, for work done outside ergostat, let items arrive "
-            "in a later state that the event recording that work moves on (docs/AGENT-GUIDE.md, section 3l)",
+            "in a later state that the event recording that work moves on (docs/AGENT-GUIDE.md, section 3m)",
             k.where, f"items.{k.name}")
