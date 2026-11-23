@@ -36,3 +36,7 @@ What is narrower than the definition, and the choices made with nobody to ask (e
 - A gate is analysed by its top-level product of factors (`a * b * (1 - c)`); any other expression is named whole.
 - `tests/test_agents.py::test_a_rerun_is_timed_by_the_suite_that_failed` fails here with `ModuleNotFoundError:
   flakes` (imported by `dev/bin/onmain.py`): unrelated to this change, left alone.
+- `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` fails here, alone
+  too (a 30 s wait for the header's project switcher to list the other project). It reads the Items listing's header
+  and `/api/projects`, neither of which this change touches; it was not run on main here (the checkout of main's
+  files to try it was refused). The other 33 tests of the file pass.
