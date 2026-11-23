@@ -1948,8 +1948,30 @@ def test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_insid
         assert got["before"] and got["rows"][0][0] == "law", got
         assert "small-images" not in got["text"], got["text"]       # a loop with no one process: not this block's to identify
         assert got["maths"] and all(m["alt"] and m["over"] <= 0.5 and m["scrolls"] for m in got["maths"]), got["maths"]
+        assert pg.evaluate(PROC_ORDER), "the process panel's identification charts come after its words"
+        # one loop's answer failing leaves only that loop unknown: the others keep their tables and identification
+        goals = pg.evaluate("() => S.graph.nodes.find((n) => n.id === 'proc:service').y_of || []")
+        assert len(goals) >= 2, goals
+        from urllib.parse import parse_qs, urlparse
+        pg.route(lambda u: "/api/loop-control" in u and parse_qs(urlparse(u).query).get("goal") == [goals[0]],
+                 lambda r: r.fulfill(status=500, body="no"))
+        tables = pg.evaluate("() => document.querySelectorAll('#detail table.loop-table').length")
+        pg.evaluate("() => { CTL.clear(); openBlock(S.graph.nodes.find((n) => n.id === 'proc:service')); }")
+        pg.wait_for_function("""() => { const cs = [...document.querySelectorAll('#detail .control')];
+          return cs.some((c) => c.textContent.includes('loop-control: 500')) && cs.some((c) => c.querySelector('h3')); }""",
+                             timeout=60000)
+        left = pg.evaluate("() => document.querySelectorAll('#detail table.loop-table').length")
+        assert 1 <= left <= tables, (left, tables)
         assert not errors, errors
         pg.close()
+
+
+PROC_ORDER = """() => {
+  // the process panel: its identification (the first .control) before the block's words and headings outside it
+  const d = document.querySelector('#detail'), c = d.querySelector('.control');
+  const words = [...d.querySelectorAll('p.what, h3')].filter((x) => !x.closest('.control'));
+  return !!c && words.length > 0 && words.every((w) => c.compareDocumentPosition(w) & Node.DOCUMENT_POSITION_FOLLOWING);
+}"""
 
 
 # ---- the Blocks view in hand: the same dragging, pinning and unpinning as the dynamics view (interact.js, places.js)

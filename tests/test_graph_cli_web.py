@@ -354,6 +354,9 @@ def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
     blocks = (root / "ergostat" / "web" / "static" / "blocks.js").read_text()
     assert "d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4))" in blocks
     assert "held.filter(own).map(loopTable)" in blocks
+    # each loop settled on its own; a process's identification (procs) right after its tables, before its words
+    assert "mine.map((l) => loopControl(l).catch(" in blocks and "Promise.all(mine.map((l) => loopControl(l)))" not in blocks
+    assert 'h("h2", {}, title), top, ...(n.role === "process" ? [procs] : [])]' in blocks and "kids.push(procs)" not in blocks
     shutil.copytree(root / "examples" / "image-squeeze", tmp_path / "x", ignore=shutil.ignore_patterns("run", "__pycache__"))
     d = loop.analyse(Project(model.load(tmp_path / "x")), "quality-held")
     assert d and not d.get("why"), d

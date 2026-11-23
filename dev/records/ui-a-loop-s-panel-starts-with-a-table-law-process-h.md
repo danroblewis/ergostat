@@ -137,3 +137,14 @@ Round 4 (after the Docker park; the gap itself was not at fault):
   - the processSection fit put back as `Math.max(0, Math.round(o.fit_val * 100))%`: the unit test fails (the clamp check).
 - Run after the merge: ruff clean; `tests/test_graph_cli_web.py` 41 passed; with Playwright under the watchdog, the acceptance test and main's `test_no_panel_shows_a_leftover_ellipsis` 2 passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
 - Still unchanged and outside the gap: "follows −128% held out" in `ergostat/control/ident.py` (its own follow-up gap).
+
+## Where it stopped
+
+Round 5 (answering the review's two blocking findings):
+- Blocking, one loop's failed answer blanked every loop (`blocks.js`, `Promise.all`): each loop's `loopControl` now has its own `.catch`, which marks that loop `failed`. A failed loop gets no table, and its `controlBox` (process panel) or scope and controller box (controller panel) shows its own error, as before this branch. The other loops keep their tables and sections.
+- Blocking, the process panel's charts came after its words: `procs` (the identification: validation chart, step response, Bode) now sits right after the tables in `top`, before "What it computes", "In the model" and the items section. The definition's order (table, then charts, then prose) now holds for both panels, as SPEC says, so the definition, record and SPEC were not narrowed.
+- Tests: the browser acceptance test now checks the order on proc:service (every `p.what` and `h3` outside the identification follows it). It also makes one of proc:service's loops answer 500, opens the panel again, and checks that the failed loop's box names the error, another loop's box has its sections, and at least one table is left. The unit test pins both changes in `blocks.js`'s source.
+- Both breaks were seen to fail the browser test, one at a time, each reverted afterwards: the per-loop `.catch` removed (the wait for the failed loop's error and another loop's sections times out), and `procs` moved back after the items section (the order check fails).
+- About 1 net line less outside tests and docs this round (5 added, 6 removed). The total is still about 40, within the 60 budget.
+- Run: ruff clean; `tests/test_graph_cli_web.py` 41 passed; with Playwright under the watchdog, the acceptance test and `test_no_panel_shows_a_leftover_ellipsis` 2 passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
+- Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.
