@@ -122,3 +122,22 @@ build is unchanged from round 1.
   `test_other_pages_left_open_change_nothing[diagram?view=process&by=events]` again (6 mutations in 3 refreshes). It
   comes from main's lines in diagram.js `show()`, not this branch's (see round 2), so it is left alone (lesson 13). The
   branch's own browser test in that file passed.
+
+## Where it stopped
+
+Round 4 (2026-11-23): answers the review's one finding (a closed box folds in its nested subsystems' loops, but
+`quiet()` counted only goals and leases tagged with the box's own system, so an outer box could read "all N goals
+holding" beside an inner goal off or unknown).
+
+- `state.quiet` now counts every goal, and every leasing block, whose system is the given one or within it
+  (`spec.chain`), the same set the closed box folds in. One goal off, open, stale or unknown anywhere inside stops the
+  sentence. I counted the nested goals rather than only withholding the sentence, so that N matches the box's loop count.
+  Point 4 is now "/api/loops filtered by the system and the systems within it". For a system with nothing nested
+  inside, that is the same as before. SPEC §8 "A quiet system" says so.
+- New test `tests/test_quiet_system.py::test_a_system_is_quiet_only_when_the_systems_within_it_are`: plant with line
+  within it. All holding gives plant "all 3 goals holding, 1 item being worked" (the line's lease counted), and an inner
+  goal off or an inner goal unknown gives nothing for both. With `inside` put back to `s == system`, it failed.
+- Run: ruff (clean), tests/test_quiet_system.py (5 passed), tests/test_page_refresh.py (9 passed, 1 failed). The
+  failure is again `test_other_pages_left_open_change_nothing[diagram?view=process&by=events]` (6 mutations in 3
+  refreshes). It comes from main's lines in diagram.js `show()` (see round 2), not this branch's, so it is left alone
+  (lesson 13). The branch's own browser test passed.

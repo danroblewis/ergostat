@@ -73,6 +73,49 @@ def test_one_unknown_goal_and_it_says_nothing(tmp_path, monkeypatch):
     assert state.quiet(p, snap, "yard") is not None
 
 
+WHERE = (("a", "plant"), ("b", "line"), ("c", "line"))
+NESTED = "\n".join([
+    "name: nested", "systems:", "  plant: {}", "  line: {within: plant}", "items:", "  job:", "    id: job/*",
+    "    states: [waiting, done]", "    system: line", "    on: {job.done: done}", "stocks:",
+    *[f"  {s}: {{unit: jobs, system: {y}, sensor: {{run: echo 1, every: 1h}}}}" for s, y in WHERE],
+    "flows:", "  served: {from: b, system: line}", *[f"  f{s}: {{from: {s}, system: {y}}}" for s, y in WHERE],
+    "goals:", *[f"  g{s}: {{stock: {s}, hold: \"<= 5\", system: {y}}}" for s, y in WHERE],
+    "blocks:", *[f"  k{s}: {{type: onoff, goal: g{s}, out: block.a{s}, system: {y}}}\n"
+                 f"  a{s}: {{type: program, run: \"true\", in: block.k{s}, out: flow.f{s}, system: {y}}}" for s, y in WHERE],
+    "  worker: {type: program, run: \"true\", takes: {kind: job, at: waiting, to: [done]}, out: flow.served, system: line}",
+    ""])
+
+
+def nested(tmp_path, monkeypatch, read):
+    """The plant holding its own goal ga, and the line within it holding gb and gc; ``read`` each stock's reading."""
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    (repo / "ergostat.yaml").write_text(NESTED)
+    p = Project(mdl.load(repo / "ergostat.yaml"))
+    for lp in p.model.loops():
+        if read.get(lp.controller.holds) is not None:
+            for s in lp.sensors:
+                p.measurements.add(f"sensor/{s}", read[lp.controller.holds])
+    return p
+
+
+def test_a_system_is_quiet_only_when_the_systems_within_it_are(tmp_path, monkeypatch):
+    p = nested(tmp_path / "1", monkeypatch, {"a": 1.0, "b": 1.0, "c": 1.0})
+    take(p, "job/1")
+    snap = state.snapshot(p)
+    assert state.quiet(p, snap, "line") == "all 2 goals holding, 1 item being worked"
+    assert state.quiet(p, snap, "plant") == "all 3 goals holding, 1 item being worked"   # its box folds the line in
+    p = nested(tmp_path / "2", monkeypatch, {"a": 1.0, "b": 1e6, "c": 1.0})
+    snap = state.snapshot(p)
+    assert snap["loops"]["gb"]["status"] == "off"
+    assert state.quiet(p, snap, "plant") is None and state.quiet(p, snap, "line") is None
+    p = nested(tmp_path / "3", monkeypatch, {"a": 1.0, "b": 1.0})
+    snap = state.snapshot(p)
+    assert snap["loops"]["gc"]["status"] == "unknown"
+    assert state.quiet(p, snap, "plant") is None and state.quiet(p, snap, "line") is None
+
+
 def test_one_goal_off_and_it_says_nothing(tmp_path, monkeypatch):
     p = seeded(tmp_path, monkeypatch, value=1e6)
     snap = state.snapshot(p)
