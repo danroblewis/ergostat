@@ -108,3 +108,9 @@ new form.
 
 Round 3: main (7cb97857) merged in. The one conflict, in pages.js's Loops page, is resolved keeping main's removal of
 the browser's `perf`/`pts` caches and this branch's heading that prints the server's goals-off count. No other change.
+
+## Where it stopped
+
+Round 4: main (ead497d1) merged in. The one conflict, in diagram.js's side list, is resolved keeping main's
+`id: "waiting"` and `tabindex` on the "Waiting for you" heading (its one-step link target) and this branch's "Goals off"
+heading that prints the server's count (`goalsOffText()`) instead of main's `count(off)` of its rows. No other change.
