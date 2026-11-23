@@ -103,7 +103,8 @@ def kinds_key(spec) -> tuple:
     when it leaves them as they are)."""
     return tuple((k.name, k.id, tuple(k.states), tuple(sorted(k.on.items())), tuple(sorted(k.fold.items())),
                   tuple(sorted(getattr(k, "relations", None) or {})), getattr(k, "about", None),
-                  *((tuple(sorted(k.moves_from.items())),) if getattr(k, "moves_from", None) else ()))
+                  *((tuple(sorted(k.moves_from.items())),) if getattr(k, "moves_from", None) else ()),
+                  *((("final", tuple(sorted(k.final))),) if getattr(k, "final", None) else ()))
                  for k in (getattr(spec, "items", None) or {}).values())
 
 

@@ -289,6 +289,23 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_only_the_record_folds_runs_of_identical_events():
+    """Without a browser (the page test is tests/test_items_page.py::test_the_record_folds_runs_of_identical_events):
+    a run's key is the event's type, source, item and shown data, and only the Record (local and remote) asks for
+    the fold, so an item's own event list and a folded run's list show each event."""
+    import re
+
+    from ergostat.web.server import STATIC
+    details, pages = (STATIC / "details.js").read_text(), (STATIC / "pages.js").read_text()
+    assert "JSON.stringify([e.type, e.source, e.item, changeOf(e)])" in details
+    assert re.search(r"if \(fold && last && last\.sig === sig\)", details)
+    assert (details + pages).count("eventsTable(") == 6    # the definition, the Record's two, item, history, run
+    assert (details + pages).count(", false, true)") == 2 and "eventsTable(run.slice().reverse(), false)" in details
+    record = pages[pages.index("async function pageRecord"):]
+    record = record[:record.index("\n}\n")]
+    assert record.count("eventsTable(") == 2 and record.count(", false, true)") == 2
+
+
 def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_path, monkeypatch):
     from ergostat.web import serve
     from tests.test_goal_upkeep import seeded
@@ -359,6 +376,29 @@ def test_the_record_answers_a_type_that_matches_nothing_with_no_events(project):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
+    """Each page's header carries 'N wait for you' (#waits) before its nav, a link to /diagram#waiting, and the
+    Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""
+    import re
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.web.server import STATIC, handler
+    diagram = (STATIC / "diagram.js").read_text()
+    assert re.search(r'h\("h3", \{[^}]*id: "waiting"[^}]*\}, "Waiting for you"', diagram), "the heading lost its id"
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        for path in ("/items", "/agents", "/loops", "/record"):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                header = r.read().decode().split("<header", 1)[1].split("</header>", 1)[0]
+            link = re.search(r'<a id="waits"[^>]*href="/diagram#waiting"', header)
+            assert link and link.start() < header.index("<nav"), path
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():

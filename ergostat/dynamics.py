@@ -275,7 +275,7 @@ def dynamics(g: dict, model) -> dict:
             err = -err
         nodes.append({"id": f"gap:{name}", "kind": "auxiliary", "label": f"excess {of}" if over else f"{of} gap", "sd": True,
                       "role": "gap", "excess": over, "goal": name, "of": of, "setpoint": sp, "desired": want, "switching": sw,
-                      "value": err, "valueText": fmt(err) if err is not None else "", "systems": where})
+                      "value": err, "valueText": fmt(err) if err is not None else "", "offBy": c.get("offBy"), "systems": where})
     conns, decide = _connectors(spec) if spec is not None else ({}, set())
     for part in sorted(decide):                            # a decision: a machine block reading several, moving several
         b = spec.blocks[part.split(".", 1)[1]]
@@ -442,9 +442,6 @@ def shadows(g: dict) -> dict:
 
 # the control words the attention cards use, in system dynamics' (the regulator is the flow's valve)
 _WORDS = [
-    (r"\ba valve too small\b", "a flow too small to close the gap"),
-    (r"\bthe valve is at its limit \(saturated\)", "the flow is at its most (saturated)"),
-    (r"\bits valve keeps up\b", "its flow keeps up"),
     (r"\bits valve\b", "its flow"), (r"\bthe valve\b", "the flow"), (r"\bvalves?\b", "flow"),
     (r"\bits controller\b", "its decision"), (r"\bcontrollers?\b", "decision"),
     (r"\bsetpoints?\b", "desired level"), (r"\ba rule\b", "a fixed decision"), (r"\brules?\b", "decision"),
@@ -462,7 +459,7 @@ def words(text: str) -> str:
 
 def attention(att: list[dict], snap: dict) -> list[dict]:
     """The attention cards as the dynamics view says them: a loop off its goal as a gap (``backlog is
-    4, desired backlog = 0: excess 4``), the rest in system dynamics' words."""
+    4, desired backlog = 0: off by 4``), the rest in system dynamics' words."""
     out = []
     loops = snap.get("loops") or {}
     for a in att:
@@ -470,12 +467,10 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
         what = a.get("what", "")
         name = what.split(" ", 1)[1] if what.startswith(("loop ", "controller ")) else None
         lp = loops.get(name) if name else None
-        if lp and lp.get("status") == "off" and what.startswith("loop "):
+        if lp and lp.get("status") == "off" and what.startswith("loop ") and a.get("level") != "hint":
             sp = _sp(lp.get("setpoint") or "")
             want = sp.lstrip("≤≥=<> ")
-            err = lp.get("error")
-            over = sp.startswith(("≤", "<"))
-            gap = "" if err is None else f": {'excess' if over else 'gap'} {fmt(abs(err))}"
+            gap = f": {lp['off_by_words']}" if lp.get("off_by_words") else ""
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
             a["says"] = words(a.get("says", ""))

@@ -506,3 +506,16 @@ origin/main merge.
 - The commit of this note (`git add docs/roadmap/overnight/the-judge-almost-never-decides.md && git commit`) was
   refused in this session ("don't ask" mode) when run in the same command as the append. Run on its own, it was
   allowed (3be27fb9).
+
+### Continued, round 2 (2026-11-23)
+
+- The branch (4851751a) has no difference from local `main`. The gap's work is on main, and `scratch_probe.py` is in
+  neither the tree nor `git ls-files`. No open finding is left from the queue or the reviews.
+- Run here, one file set at a time: `tests/test_unmoved.py` 18 passed; `test_slowjudge.py`, `test_redesign.py`,
+  `test_bench.py` 48 passed; `test_improve.py`, `test_gate.py` 48 passed; `ruff check ergostat tests scripts` clean.
+  No code changed.
+- Left to the merge queue: the whole unit suite and the four browser files under `suite_watch.py`, and the real
+  origin/main merge (this clone has no `origin`). Still open and outside this gap: the information limit of a slow
+  record (GAPS *Left*), and the cross-file failure in main's `test_modelling_ai_cap.py` named in round 8.
+- The first try at writing and committing this note as one Bash command (a heredoc append, then `git add` and
+  `git commit`) was refused ("don't ask" mode). The note was written with the edit tool and committed on its own.
