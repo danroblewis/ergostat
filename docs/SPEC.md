@@ -1933,7 +1933,9 @@ filters) is listed as before, its newest 300.
 
 **The Items page's views.** Beside **List** (its items, newest first), a kind's page (`/items/K`) shows that kind
 and the items its relations reach, of any kind (`GET /api/items-graph?kinds=K`; `kinds=A,B` or `system=NAME` are
-still answered; worked out again only when the record changes). `/items` itself has neither:
+still answered; worked out again only when the record changes). A kind with no relations: the Timeline draws its
+items all the same, and the Graph says its items do not wait on one another, so there is no dependency graph.
+`/items` itself has neither:
 
 | View | What it shows |
 |---|---|

@@ -204,3 +204,35 @@ Round 5, 2026-11-23. Built on a1198300 (main 8a27f9e3 already merged in; `main` 
 It is the project-switcher failure reported in rounds 1 to 4, and the count matches round 4. The failing test's name
 in the whole-file run was not read, because piping that run to `grep` was refused. Not run: the unit suite,
 tests/test_diagram_rendering.py and the other browser files.
+
+Round 6, 2026-11-23. Main (ee43cf60) merged in (5304e2f4). It conflicted in docs/SPEC.md, in *The Items page's
+views*. Main had added the case of items with no relations, and the order of systems in the Graph and the Timeline on
+`/items`. The branch keeps those views only on a kind's page (the owner's addendum), so the resolution keeps the
+branch's paragraph. Main's no-relations sentence is kept, said of a kind. The systems' order is dropped, because a
+kind's page draws one kind and no system groups.
+
+**What the merge's tests found, and what changed.**
+- *Main's two new tests* (test_the_timeline_draws_each_items_states_without_relations_and_the_graph_says_there_is_none,
+  test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkeep) opened `/items?view=timeline|graph`,
+  which this branch no longer draws. They now open `/items/ticket?view=…`, with the reason written in each. Their
+  row, state and label assertions are kept. Each "view above the system's charts" assertion is now "drawn in the
+  kind's Items section". The systems' order is now "no `ergostat.message` row drawn" (the page loads only its kind).
+  The rows' top bound is now 1600 px, because the bar, Now and In the model come first. The second test keeps its name
+  for the queue's tracking, though its systems' order no longer applies.
+- *Main's rule held on the kind's page.* On a kind's page, the Graph of a kind with no relations drew its cards
+  silently, because `want` is always that kind. relPart now says main's "These items do not wait on one another, so
+  there is no dependency graph." there (pages.js, 2 lines). With that line turned off, the desk test failed
+  (timeout). test_a_snapshot_lets_a_kind_and_its_state_be_chosen expected the `note` kind's Graph to draw cards. It
+  now expects the note there, and checks that the `note` items are drawn from the snapshot in the Timeline. The
+  reason is in the test.
+- *A race made wider by the kind's page* (lesson-10). test_a_kinds_search_reaches_every_item_and_its_sort_is_the_whole_sets
+  failed in 2 of 3 runs. It read the old rows under the new "1 match, 1 finished". The count was written when the
+  answer came, and the rows only after the later awaits (the graph and the kind's model). Now the count is written
+  right after the rows it counts are patched. It then passed 2 of 2 runs.
+
+**Tests run.** ruff is clean. Unit: tests/test_items_overview.py, tests/test_graph_cli_web.py and
+tests/test_legend_memory.py, 62 passed. tests/test_items_page.py as a whole, under the watchdog with Playwright: 80
+passed and 1 failed. The failure is test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart, the project
+switcher (`#project`), reported in rounds 1 to 5 on a path this branch does not touch. Not run: the unit suite,
+tests/test_diagram_rendering.py and the other browser files. Commands refused in this session: a `python3 -` heredoc
+edit of SPEC, a whole-file run piped to `grep`, and a `for` loop running the two tests three times.

@@ -1369,9 +1369,15 @@ def test_a_snapshot_lets_a_kind_and_its_state_be_chosen(browser, tmp_path):
         pg.wait_for_selector(sel, timeout=20000)
         assert {"ticket/a", "ticket/b"} <= {n["id"] for n in drawn(pg, sel)}, (view, drawn(pg, sel))
         assert "not in this snapshot" not in said() and "not in a snapshot" not in said()
-    pg.goto(f.as_uri() + "#/items?kind=note&view=graph")                          # a kind without relations
-    pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
-    assert "note/n" in {n["id"] for n in drawn(pg, ".rg-graph[data-drawn] .rg-node")}
+    # a kind without relations: main's rule (the Graph of items that do not wait on one another says there is no
+    # dependency graph) now holds on the kind's page too, so it says that instead of drawing its cards; its
+    # Timeline still draws them, from what the snapshot holds
+    pg.goto(f.as_uri() + "#/items?kind=note&view=graph")
+    pg.wait_for_function("() => document.body.innerText.includes('do not wait on one another')", timeout=20000)
+    assert pg.locator(".rg-graph").count() == 0
+    pg.goto(f.as_uri() + "#/items?kind=note&view=timeline")
+    pg.wait_for_selector(".rg-timeline[data-drawn] .rg-row", timeout=20000)
+    assert "note/n" in {n["id"] for n in drawn(pg, ".rg-timeline[data-drawn] .rg-row")}
     assert "not in this snapshot" not in said() and "not in a snapshot" not in said()
     assert not errors, errors
     pg.goto(f.as_uri() + "#/items?kind=ticket&moved=doing")                       # a set: not held, and said so
@@ -1654,7 +1660,10 @@ def test_the_timeline_draws_each_items_states_without_relations_and_the_graph_sa
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{desk}/items?view=timeline")
+    # the-kind-page: the Timeline and the Graph live on the kind's page only (the owner, 2026-11-22), so this opens
+    # /items/ticket. Its chart sits in the page's "Now" above the Items section that draws the view, and no system
+    # heading is drawn, so the "view above the system's charts" assertions became "view inside the Items section"
+    pg.goto(f"{desk}/items/ticket?view=timeline")
     pg.wait_for_function("() => document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ticket/\"]').length >= 8",
                          timeout=20000)
     rows = pg.locator('.rg-timeline .rg-row[data-id^="ticket/"]').evaluate_all("""els => els.map((e) => ({
@@ -1663,20 +1672,17 @@ def test_the_timeline_draws_each_items_states_without_relations_and_the_graph_sa
         labels: [...e.querySelectorAll('text.rg-inbar')].map((t) => t.textContent) }))""")
     assert sorted(r["id"] for r in rows) == [f"ticket/{i}" for i in range(1, 9)], rows     # one row a ticket
     for r in rows:
-        assert r["top"] < 900, r                                                          # within the first 900 px
+        assert r["top"] < 1600, r      # within the page's first screens (its bar, Now and In the model come first)
         n = int(r["id"].split("/")[1])
         want = ["todo", "doing", "review", "doing"] if n == 1 else ["todo", "doing", "review"] if n % 2 else ["todo", "doing"]
         assert r["states"] == want and r["labels"] == want, r                            # split by state, each named
-    tl, charts = pg.locator("section.sys-group:has(.rg-timeline)").first.evaluate(
-        "(e) => [e.querySelector('.rg-timeline').getBoundingClientRect().top, e.querySelector('.kind-flows').getBoundingClientRect().top]")
-    assert tl < charts, (tl, charts)                                                     # the mode's own drawing first
+    assert pg.locator("section.kind-items .rg-timeline").count() == 1                    # the Items section draws it
     assert "relations:" not in pg.locator("#main").inner_text()
-    pg.goto(f"{desk}/items?view=graph")
+    pg.goto(f"{desk}/items/ticket?view=graph")
     said = "These items do not wait on one another, so there is no dependency graph."
     pg.wait_for_function(f"() => document.body.innerText.includes({said!r})", timeout=20000)
-    top, charts = pg.locator("p.muted", has_text=said).first.evaluate(
-        "(e) => [e.getBoundingClientRect().top, e.closest('section').querySelector('.kind-flows').getBoundingClientRect().top]")
-    assert top < charts, (top, charts)                                                   # above the charts here too
+    assert pg.locator("section.kind-items p.muted", has_text=said).count() == 1          # in its Items section
+    assert pg.locator(".rg-graph").count() == 0                                          # and no graph drawn
     assert "relations:" not in pg.locator("#main").inner_text()
     assert not errors, errors
     pg.close()
@@ -1874,8 +1880,7 @@ for i in range(1, 13):
 
 
 def _ticket_rows(pg, n):
-    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ticket/\"]').length >= {n}"
-                         " && document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ergostat.message/\"]').length >= 10",
+    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ticket/\"]').length >= {n}",
                          timeout=20000)
     return pg.locator('.rg-timeline .rg-row[data-id^="ticket/"]').evaluate_all("""els => els.map((e) => ({
         id: e.dataset.id, top: e.getBoundingClientRect().top,
@@ -1887,29 +1892,27 @@ def test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkee
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
+    # the-kind-page: the Timeline lives on the kind's page only, and that page loads only its own kind (the owner,
+    # 2026-11-22). So this opens /items/ticket, and the systems' order (the project's before ergostat's upkeep) has
+    # no counterpart there: instead, no message of the upkeep is drawn, and the timeline is in the Items section
     # the Frontier and collapse off: every ticket, the finished too (on, the default, they are left out: below)
-    pg.goto(f"{tickets}/items?view=timeline&frontier=0&collapse=0")
+    pg.goto(f"{tickets}/items/ticket?view=timeline&frontier=0&collapse=0")
     rows = _ticket_rows(pg, 8)
     assert sorted(r["id"] for r in rows) == [f"ticket/{i}" for i in range(1, 9)], rows     # one row a ticket
     for r in rows:
-        assert r["top"] < 900, r                                                          # within the first 900 px
+        assert r["top"] < 1600, r      # within the page's first screens (its bar, Now and In the model come first)
         # split by state, each named (a finished ticket's bar ends where it was closed)
         assert r["states"] == ["todo", "doing"] and r["labels"] == ["todo", "doing"], r
-    order = pg.locator("section.sys-group").evaluate_all("els => els.map((e) => e.dataset.system)")
-    # the project's before the upkeep, though the server lists ergostat's before "other", where the tickets are
-    assert order.index("other") < order.index("ergostat"), order
-    tl, charts = pg.locator('section.sys-group[data-system="other"]').evaluate(
-        "(e) => [e.querySelector('.rg-timeline').getBoundingClientRect().top, e.querySelector('.kind-flows').getBoundingClientRect().top]")
-    assert tl < charts, (tl, charts)                                                     # the mode's own drawing first
+    assert pg.locator('.rg-row[data-id^="ergostat.message/"]').count() == 0              # this kind alone
+    assert pg.locator("section.kind-items .rg-timeline").count() == 1
     assert "relations:" not in pg.locator("#main").inner_text()
     # the defaults: the Frontier shows the unfinished and what they wait on, so the finished drop out but ticket/1,
     # which ticket/2 waits on, collapsed into its line
-    pg.goto(f"{tickets}/items?view=timeline")
+    pg.goto(f"{tickets}/items/ticket?view=timeline")
     rows = _ticket_rows(pg, 5)
     assert sorted(r["id"] for r in rows) == ["ticket/2", "ticket/4", "ticket/6", "ticket/7", "ticket/8"], rows
-    assert all(r["top"] < 900 and r["labels"][:2] == ["todo", "doing"] for r in rows), rows
-    order = pg.locator("section.sys-group").evaluate_all("els => els.map((e) => e.dataset.system)")
-    assert order.index("other") < order.index("ergostat"), order
+    assert all(r["labels"][:2] == ["todo", "doing"] for r in rows), rows
+    assert pg.locator('.rg-row[data-id^="ergostat.message/"]').count() == 0
     assert "relations:" not in pg.locator("#main").inner_text()
     assert not errors, errors
     pg.close()

@@ -752,7 +752,7 @@ async function pageItems(main, q, only = false) {
     const got = paged() && d.offset != null ? Math.floor(d.offset / per) + 1 : wanted;   // past the end: the last page
     if (got !== wanted && pg === wanted && size === per) { pg = got; go(false); }   // (unless another was asked meanwhile)
     const hits = d.total ?? 0;
-    setText(found, paged() && search.value.trim() ? `${hits} match${hits === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "");
+    const foundSaid = paged() && search.value.trim() ? `${hits} match${hits === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "";
     const flowsWere = JSON.stringify(flows);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
@@ -908,7 +908,9 @@ async function pageItems(main, q, only = false) {
     const openItem = (id) => navigate(`/item/${encodeURIComponent(id)}`);
     const relPart = async (g) => {
       const { want, d: rd } = relAsked[g.name] || { want: [] };
-      if (!want.length) return kind || view !== "graph" ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
+      const none = [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
+      if (only && view === "graph" && !relKinds.has(one)) return none;     // the kind's page: a kind with no relations
+      if (!want.length) return kind || view !== "graph" ? [] : none;
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
       const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
       const m = rgModel(rd, o);
@@ -962,7 +964,8 @@ async function pageItems(main, q, only = false) {
     // a kind whose rows its own disclosure hides is folded, not a miss (lesson-3): no "Nothing matches." for it
     const none = !anyRows && !hid && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
     patch(lbox, ...groups, ...(none ? [none] : []));
-    sweepPlots();                                         // the charts just replaced (or folded away) let go now, not at the next one drawn
+    setText(found, foundSaid);                            // with the rows it counts, never before them
+    sweepPlots();                                        // the charts just replaced (or folded away) let go now, not at the next one drawn
   }
   await refresh();
   S.timer = poll(() => refresh(false), 4000, p);
