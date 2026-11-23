@@ -360,3 +360,15 @@ browser run on main*) now say so.
   (also on dev/bin/browserday.py), and these pass: the green, flake and failure tests (3 passed, 192 s), plus the lock
   test, test_browser_daily_goal_closes_in_landing and test_ergostat_check_on_the_factory_model_reports_no_new_finding
   (3 passed, 352 s). Not run: the unit suite, the four browser files, and a full `ergostat check` against main.
+
+## Where it stopped
+
+Round 8: finished the factory's merge of main (ee43cf60). The one conflict was in dev/README.md. Main added the
+paragraph on batch items (`batch/<run tag>`, dev/bin/batches.py) in the same place where this branch adds *The daily
+browser run on main*. I kept both paragraphs unchanged, main's first and then the branch's. browserday.py needed no
+change: every fac.py function it calls, and queue.crashed, is still on main under the same name. There were no review
+findings to answer. Run here after the merge: ruff is clean (also on dev/bin/browserday.py), and these pass: the green,
+flake and failure tests (3 passed, 204 s), and the lock test, test_browser_daily_goal_closes_in_landing and
+test_ergostat_check_on_the_factory_model_reports_no_new_finding (3 passed, 388 s). Not run: the unit suite, the four
+browser files, and a full `ergostat check` against main. Refused this round: a python heredoc that would have resolved
+the conflict. I resolved it with the file editor instead.
