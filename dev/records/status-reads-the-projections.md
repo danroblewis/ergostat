@@ -102,3 +102,9 @@ Tests:
   passed, 2 skipped; the skip reasons were not looked at).
 - Not run here: the whole unit suite and the four browser files (no page changed; the status answer gained a field).
   The factory runs them.
+
+## Where it stopped
+
+Parked by the factory (review/status-reads-the-projections-2, 2026-11-23 11:21).
+
+Done: items 2 and 3. The inbox, its stats, interventions, gated actions, messages, reports, model changes, modelling requests, leases' attention and loop crossings read projections.stored, query and asks. The old folds are deleted (kept only as the test reference in tests/status_before.py). As-of reads are answered from the table when no item of the family has a newer event (records.last, index VERSION 8), else by an in-memory fold. as_of and age are in the snapshot and the status API, and the field-by-field equality test is in place. Left: done item 1, the whole of it. Every remaining event-log read of state.snapshot (each agent's latest run, failure and start, each loop's latest decision and opening, the window's run tallies and openings, the item index's as-of fold of items changed since, refused_expiries) must move onto index tables, and the status must answer in under 100 ms on the factory-size fixture, so that the strict xfail passes. It stops because this is the second failed review. The gap's own work is incomplete, and the reason given (it needs another gap) is not one the definition allows, since those reads are named in it. Whoever resumes should either build those tables here within the budget, or have the owner split the definition so that item 1 waits for a real, named gap.
