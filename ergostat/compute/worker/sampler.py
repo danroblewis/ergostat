@@ -2,9 +2,9 @@
 the runs in the root's ``runs/`` (each folder and its ``pgid``), lists the processes once a sample (``/proc`` on
 Linux, one ``ps`` elsewhere) and reads each run's tree: its process group and its descendants by parent. A run is
 sampled once a second for its first ten seconds seen, then every ten. Its resources carry the keys a local run's do
-(``ergostat/costs/sampler.py``, ``Tracker.result``). The latest is in each ``beat``; once the keeper's exit is
-there, the whole, with the CPU the keeper's ``wait4`` gave (its ``reaped`` file), is said once in ``ended``.
-Readings are measurements: nothing here writes an event."""
+(``ergostat/costs/sampler.py``, ``Tracker.result``). The latest is in each ``beat``; the whole, with the CPU the
+keeper's ``wait4`` gave (its ``reaped`` file), is in the ``resources`` of the run's ``ended`` (output.py says it).
+Readings are measurements: nothing here sends a frame or writes an event."""
 
 import functools
 import json
@@ -109,7 +109,7 @@ class Run:
         self.reaped = (0.0, 0.0)                          # what its keeper reaped: the run and each descendant waited
         self.memory = self.processes = self.samples = 0
         self.files: int | None = None
-        self.overhead, self.kept = 0.0, False
+        self.overhead, self.kept, self.ended = 0.0, False, False
 
     def see(self, rows: dict, kids: dict) -> bool:
         """One sample of its tree; whether any of it was there."""
@@ -148,45 +148,72 @@ class Run:
 
 
 class Readings:
-    """Every run's readings, kept by one thread (``loop``); ``latest`` for the beat, ``ended`` sent by ``w``."""
+    """Every run's readings, kept by one thread (``loop``): ``runs`` for the beat, ``final`` for ``ended``."""
 
-    def __init__(self, root: str, w):
-        self.runs_dir, self.w = os.path.join(root, "runs"), w
-        self.lock = threading.Lock()
+    def __init__(self, root: str):
+        self.runs_dir = os.path.join(root, "runs")
+        self.lock = threading.Lock()                      # (taken under output's lock, never the other way)
         self.runs: dict[str, Run] = {}
-        self.said: set[str] = set()                       # (ended already said this session: said once)
 
     def latest(self) -> dict:
+        """Each run going (its exit not yet seen): its readings so far."""
         with self.lock:
-            return {n: {"resources": r.result()} for n, r in self.runs.items()}
+            return {n: {"resources": r.result()} for n, r in self.runs.items() if not r.ended}
+
+    def runs_for_beat(self, offsets: dict) -> dict:
+        """The beat's ``runs``: each followed run's offsets and each going run's ``resources``, one object a run."""
+        got = self.latest()
+        for n, at in offsets.items():
+            got.setdefault(n, {}).update(at)
+        return got
+
+    def final(self, run: str) -> dict:
+        """The run's whole readings, with what the keeper reaped: a run no sample saw still has its CPU."""
+        with self.lock:
+            r = self.runs.setdefault(run, Run(run, time.monotonic()))
+            r.reap(_read(os.path.join(self.runs_dir, run, "reaped"), json.loads))
+            r.ended = True
+            return r.result()
+
+    def ended(self, w):
+        """A writer over ``w`` whose ``ended`` (output.py's, after the run's last ``out``) carries ``resources``."""
+        final = self.final
+
+        class Ended:
+            def send(self, type, **fields):
+                if type == "ended":
+                    fields["resources"] = final(fields["run"])
+                w.send(type, **fields)
+        return Ended()
 
     def loop(self, stop: threading.Event) -> None:
         while not stop.wait(FAST):
             try:
-                for frame in self.look(time.monotonic()):
-                    self.w.send("ended", **frame)
-            except (OSError, ValueError):                 # (the stream closed: the worker is ending)
-                stop.set()
+                self.look(time.monotonic())
             except Exception as e:                        # (one look's fault: said, and the next may not have it)
                 print(f"sampler: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
-    def look(self, now: float) -> list[dict]:
-        """One look: new runs found, the due and ended ones sampled from one listing; the ``ended`` frames to say."""
+    def look(self, now: float) -> None:
+        """One look: new runs found, gone ones dropped, the due and ended ones sampled from one listing."""
         names = {n for n in os.listdir(self.runs_dir) if RUN.fullmatch(n)} if os.path.isdir(self.runs_dir) else set()
-        ends = {}
+        ends = set()
         with self.lock:
-            self.said &= names
-            for n in names - self.said - self.runs.keys():
+            for n in self.runs.keys() - names:            # (its folder removed: nothing left to say of it)
+                del self.runs[n]
+            for n in names - self.runs.keys():
                 self.runs[n] = Run(n, now)
             for n, r in self.runs.items():
+                if r.ended:
+                    continue
                 if r.pgid is None:
                     r.pgid = _read(os.path.join(self.runs_dir, n, "pgid"), int)
-                if (e := _read(os.path.join(self.runs_dir, n, "exit"), json.loads)) is not None:
-                    ends[n] = e                           # (read after the exit: the keeper writes it before)
+                if _read(os.path.join(self.runs_dir, n, "exit"), json.loads) is not None:
+                    ends.add(n)                           # (read after the exit: the keeper writes it before)
                     r.reap(_read(os.path.join(self.runs_dir, n, "reaped"), json.loads))
-            due = [r for r in self.runs.values() if r.pgid is not None and (r.due <= now + 0.05 or r.name in ends)]
+            due = [r for r in self.runs.values() if r.pgid is not None and not r.ended
+                   and (r.due <= now + 0.05 or r.name in ends)]
         if not due and not ends:
-            return []
+            return
         c0 = time.thread_time()
         rows, cost = listing() if due else ({}, 0.0)
         kids: dict[int, list[int]] = {}
@@ -198,13 +225,9 @@ class Readings:
                 r.due = now + (FAST if now - r.first < RAMP else SLOW)
             for r in seen:                                # (its own CPU, the listing's and the trees', shared out)
                 r.overhead += (time.thread_time() - c0 + cost) / len(seen)
-            out = []
-            for n, e in ends.items():
-                if r := self.runs.pop(n, None):           # (an exit of another shape: said, its code unknown)
-                    self.said.add(n)
-                    e = e if isinstance(e, dict) else {}
-                    out.append({"run": n, "code": e.get("code"), "how": e.get("how"), "resources": r.result()})
-            return out
+            for n in ends:                                # (kept, unsampled, for its ended: said again on attach)
+                if n in self.runs:
+                    self.runs[n].ended = True
 
 
 def _read(path: str, parse):

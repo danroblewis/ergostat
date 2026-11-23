@@ -124,7 +124,7 @@ def test_one_thread_samples_four_runs(tmp_path, monkeypatch):
         (runs / name / "pgid").write_text(f"{p.pid}\n")
         procs[name] = p
     w, stop = _Writer(), threading.Event()
-    r = mod.Readings(str(tmp_path), w)
+    r = mod.Readings(str(tmp_path))
     before = set(threading.enumerate())
     t = threading.Thread(target=r.loop, args=(stop,), daemon=True)
     t.start()
@@ -137,12 +137,17 @@ def test_one_thread_samples_four_runs(tmp_path, monkeypatch):
             os.killpg(p.pid, signal.SIGKILL)
             p.wait()
             (runs / name / "exit").write_text('{"code": -9, "how": "KILL"}\n')
-        assert _until(lambda: len(w.sent) == 4, 10), w.sent
-        assert {f["run"] for _, f in w.sent} == set(procs) and {ty for ty, _ in w.sent} == {"ended"}
+        assert _until(lambda: r.latest() == {}, 10), r.latest()              # (an exit seen: out of the beat)
+        assert not w.sent                                                    # (the sampler sends nothing itself)
+        for name in procs:
+            r.ended(w).send("ended", run=name, code=-9, how="KILL")          # (as output.py says it)
+        assert [(ty, f["run"], f["how"]) for ty, f in w.sent] == [("ended", n, "KILL") for n in procs]
         assert all(f["resources"]["samples"] >= 2 and f["resources"]["memory_peak"] > 0 for _, f in w.sent)
-        assert r.latest() == {}
-        time.sleep(2.2)
-        assert len(w.sent) == 4                                              # each ended said once
+        for name in procs:
+            (runs / name / "exit").unlink()
+            (runs / name / "pgid").unlink()
+            (runs / name).rmdir()
+        assert _until(lambda: not r.runs, 5), r.runs                         # (a folder removed: dropped)
     finally:
         stop.set()
         for p in procs.values():

@@ -53,3 +53,19 @@ goes unseen: memory and processes of a run no sample saw, and the CPU only where
 
 Overrun reason: 224 net lines against 150 after round 3 (round 3 is net −1: the keeper's `reaped` write, 6 lines,
 replaces the `/proc` keeper lookup). The four reasons above still stand, the first now the `reaped` file.
+
+Round 3, after merging main (ead497d1): main's `output.py` now says `ended` `{run, code, how}` after a run's last
+`out`, and lists "`ended`'s `resources`" as still to come. A second `ended` from the sampler would come before the
+last `out` and break main's ordering. So the sampler's own `ended` is gone. The readings now go in as the
+`resources` of output's `ended`: `Readings.ended(w)` wraps the follower's writer, so output.py is unchanged, and
+`final` reads `reaped` again, so a run no look found still has its CPU. A run whose exit has been seen leaves the
+beat's readings but is kept until its folder goes, so an `ended` said again after `attach` carries them too. The
+beat's `runs` is one object per run, `{"out", "err", "resources"}` (compute-systems.md 2.1: offsets and the latest
+reading per run). The decisions of rounds 1 and 2 about a minimal `ended`, and an exit that is not an object said
+with null code, no longer apply: output.py waits for a readable exit. `test_one_thread_samples_four_runs` now checks
+that the sampler sends nothing and that the wrapped writer's `ended` carries each run's readings. With output.py
+given the plain writer, the sub-second test fails (`KeyError: 'resources'`).
+
+Overrun reason: 248 net lines against 150 after the merge (+24: `final`, the `ended` writer and the beat's merged
+`runs`, the integration with main's `ended` that the definition's "the whole in `ended.resources`" now needs). The
+four reasons above still stand.

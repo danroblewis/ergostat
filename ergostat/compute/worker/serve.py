@@ -142,17 +142,12 @@ def serve(root: str, inp, w: frames.Writer, every: float) -> int:
     said = hello(root)
     w.send("hello", **said)
     HANDLERS.update(keeper.handlers(root, said))
-    out = output.Output(root, w)
+    readings = sampler.Readings(root)
+    out = output.Output(root, readings.ended(w))
     HANDLERS.update(out.handlers(HANDLERS["start"]))
     stop = threading.Event()
-    readings = sampler.Readings(root, w)
     threading.Thread(target=readings.loop, args=(stop,), name="ergostat-worker-sampler", daemon=True).start()
-
-    def runs() -> dict:
-        got = {n: dict(r) for n, r in readings.latest().items()}
-        for n, at in out.offsets().items():
-            got.setdefault(n, {}).update(at)
-        return got
+    runs = lambda: readings.runs_for_beat(out.offsets())                    # noqa: E731
     threading.Thread(target=beats, args=(w, root, said["slots"], every, stop, runs), daemon=True).start()
     threading.Thread(target=out.follow, args=(stop,), daemon=True).start()
     want = 1

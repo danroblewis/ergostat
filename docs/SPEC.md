@@ -7177,12 +7177,13 @@ out among the runs it saw). Memory and processes between samples are not seen, n
 (its `memory_peak` 0). Without a readable `reaped` (a keeper killed, or one from before it was written) the CPU is
 the sampled sum alone, which can miss up to the last gap of the run, and `method` has no `keeper`.
 
-Once a run's `exit` can be read, a last sample is taken and the worker says **`ended`** `{"run", "code", "how",
-"resources"}` (`code` and `how` as in the exit file), once a run in each worker session: a worker started again
-says it again for a run whose folder is still there. A run never started (an exit and no `pgid`) is said with
-`method` `none`; an exit file that is whole JSON but not an object is said with `code` and `how` null. A look that fails is
-said on the worker's standard error and the next look tried. Readings are measurements: no beat and no reading is
-an event.
+Once a run's `exit` can be read, a last sample is taken and the run leaves the beat's readings; its readings are
+kept, unsampled, until its folder is removed. They are the `resources` of its **`ended`** (below, sent by the
+output follower after the run's last `out`), with `reaped` read again then: a run `ended` before any look found
+it has its CPU from `reaped` and `samples` 0 (`method` `keeper`), and an `ended` said again after an `attach` carries
+them again. A run never started (an exit and no `pgid`) has `method` `none`. The sampler sends no frame itself. A
+look that fails is said on the worker's standard error and the next look tried. Readings are measurements: no
+beat and no reading is an event.
 
 **The output, by offset** (`output.py`). One follower thread, whatever the number of runs, follows each run started
 in this session (from offset 0, once it is `started`) and each run attached, and sends what is new in its `out` and
@@ -7210,9 +7211,10 @@ line rejoins by offset. Its files are looked at again soon after output and at m
 - **`limits.log`** (64 MiB when not given) caps each of the two files: a file past it while the run goes has the
   worker write the run's `stop` (`{"grace": 1, "why": "log over its cap"}`, unless a stop is there already), so the
   keeper stops it as for a `kill`. Nothing past the cap is sent; what the run wrote meanwhile stays in the file.
-- **`ended`** `{"run", "code", "how"}` is sent once the run's `exit` is written and every byte of both files up to
-  it (or its cap) has been sent: after the run's last `out`. `code` and `how` are the exit's, `how` being `log
-  over its cap` when the worker's cap stop ended it (TERM or KILL). The exit is looked at before the files' sizes,
+- **`ended`** `{"run", "code", "how", "resources"}` is sent once the run's `exit` is written and every byte of both
+  files up to it (or its cap) has been sent: after the run's last `out`. `code` and `how` are the exit's, `how` being `log
+  over its cap` when the worker's cap stop ended it (TERM or KILL); `resources` the run's readings (*Readings*,
+  above). The exit is looked at before the files' sizes,
   so nothing written before it is missed, and each file's size the first time the follower sees the exit is where
   its output ends: what a process left behind writes after that is never sent (the test leaves a loop writing),
   and does not hold back `ended`. An unreadable exit is waited for, never read as an end. A run attached again
