@@ -71,3 +71,44 @@ Overrun reason: only under the definition's "outside tests/" reading: the new mo
 - Not run here: the whole unit suite and the four browser files (the factory's). `ruff check dev/bin` names two
   findings in files this gap does not touch (dev/bin/plan.py B023, dev/bin/review.py E501). ruff on dev/bin/flakes.py
   and on `ergostat tests scripts` is clean.
+
+Answering `ergostat check`'s six new findings (implementor, 2026-11-23). The definition has no `allows-findings`
+line, and it was not edited. Each one is fixed in the model. The choices below are mine, without the owner, and each
+is a YAML edit to undo:
+- `kind-enters-many-times items.flake`: flakes came in from clouds into `seen` (`flakes-seen`) and `main-broken`
+  (`main-tests-broken`, guarantees.yaml). As check asks, the arrival into `seen`, the kind's first state, is kept, and
+  `main-tests-broken` now runs `from: flakes-open`. Its new equation, `stock.flakes-open / time-to-main-broken`
+  (parameter 30d, `estimate: true`, a guess), answers the `no-equation` note that the re-pointing raised. A
+  limit: dev/bin/onmain.py can make a flake `main-broken` without `seen` first, and the model draws that as passing
+  through `seen` at once. guarantees.yaml was not in the definition's file list. That one flow is the change check
+  names.
+- `stock-without-flows stock.flakes-open-hours` and `missing-feedback goal.flakes-few`: the age gets its rises
+  and falls as flows (`flakes-open-hours-rise`, `flakes-open-hours-fall`), on complexity.yaml's pattern. The person
+  block `oldest-flake-fix` (coordinator, as `fix-main` is) reads `goal.flakes-few.off` and moves the fall. Its loop
+  is `oldest-flakes`. An age stock with flows in the flake chain is `chain-stock-not-a-count`, and one without flows
+  is `stock-without-flows`. So the age's sensor carries `where: {fixed_by: null}`, which matches every seen flake
+  (a remake clears `fixed_by`, flakes.py REMAKE_CLEARS), and a sensor with a `where` sits beside the chain
+  (chains.py `_counted`). This works around two engine findings that disagree about an age held per item. A flake
+  that is seen but still carries a `fixed_by` would not be counted in the age. The engine fix would be its own gap.
+- `parameter-unused parameter.flake-hours-most`: `flakes-open-hours-fall` is
+  `MAX(stock.flakes-open-hours - flake-hours-most, 0) / flake-fix-time` (1d, `estimate: true`), as
+  quarantine-released is. Only the hours past the setpoint fall when asked.
+- `parameter-unused parameter.main-repair-hours-most`: removed. No flow here is driven by main's repair hours past a
+  setpoint, and an equation made up only to read it would claim a dynamic nobody measured. So the setpoint is the
+  goal's own `<= 24`. This narrows "Setpoints are parameters" for this one goal.
+- `missing-feedback goal.main-repaired-fast`: the person block `main-repair-hasten` reads its `.off` and commands
+  `fix-main` (a cascade, `out: block.fix-main`), because a second block on `main-tests-fixed` is `two-actuators`.
+  The loop closes through `main-failing-tests`, which drives `main-repair-hours`. Its loop is `main-repair-speed`.
+  This replaces "Goals are unserved until regression-guarantees-wired": off, each goal now asks the coordinator.
+- Pinned in `test_flakes_few_names_the_oldest`: no finding at all on any of the parts, the flake kind,
+  `main-tests-broken` or `fix-main`, and each goal's loop closes. I took out the `where` and the test failed on
+  `chain-stock-not-a-count`. I took out `from: flakes-open` and it failed on `kind-enters-many-times`. Both were
+  put back and it passed. `guarantees_project` now adds `flakes-open` too, because `main-tests-broken` drains it.
+- `uv run ergostat check` from the shell was refused. The findings were read through `ergostat.spec.read`, as the test
+  does. With the filter widened for one run to every finding in a guarantees file or about a flake or main part,
+  the only one was `acting-on-its-own block.main-watch` (landing.yaml, untouched here, so not this branch's).
+- Run: the four acceptance tests, `test_the_guarantees_model_checks_clean`, `test_main_green_stale_is_off`,
+  `test_main_green_goes_off_and_holds_again` and the quarantine-small test all passed, and ruff on
+  `ergostat tests scripts` is clean.
+
+Overrun reason: only under the definition's "outside tests/" reading: 174 net lines (guarantees-flakes.yaml 99, flakes.py 50, dev/README.md 17, guarantees.yaml 7), the extra over round 1 being the flows, block, loops and parameter check's six findings needed; the factory's rule counts none of it (all under dev/).

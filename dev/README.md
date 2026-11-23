@@ -295,7 +295,7 @@ programs already there.
   number of days since the oldest `when`. No goal is on it until the owner says how long a test may stay. A list, a
   line or a date held.py cannot read gives no value (exit 1), never 0. A listed test with no flake item marked
   `quarantined`, or such an item whose test is not listed, is named on stderr.
-- **flakes-few, main-repaired-fast** (dev/model/guarantees-flakes.yaml; no block serves them yet). The stock
+- **flakes-few, main-repaired-fast** (dev/model/guarantees-flakes.yaml). The stock
   `flakes-open` counts the flakes `seen`, filled by `flakes-seen` and drained by `flakes-fixed` (every move to
   `fixed`, main-mend's too). `flakes-few` holds each seen flake by its hours in `seen` (`per: item`, on the stock
   `flakes-open-hours`, `measure: oldest` over the same items) at or under `flake-hours-most` (3). Off, it names the
@@ -306,7 +306,12 @@ programs already there.
   read in the record's order, never by comparing stamps. A repeat break keeps the clock, and a flake made again from
   `fixed` starts a new stay. A `seen` stay that went to `main-broken` ended unfixed. At most 500 flakes are read, by
   id, and more is said on stderr. With no stay ended, or a flake that cannot be read, there is no value (exit 1). Both
-  goals are `on-stale: off`.
+  goals are `on-stale: off`. A flake arrives once, in `seen`: `main-tests-broken` (guarantees.yaml) runs from
+  `flakes-open` to `main-failing-tests`, at `flakes-open / time-to-main-broken` (a guess). The age stock moves by its
+  rises and falls. Its sensor's `where: {fixed_by: null}` matches every seen flake, because a remake clears
+  `fixed_by`, and keeps the age outside the flake chain. Off, `flakes-few` asks the coordinator to have the oldest
+  fixed (`oldest-flake-fix`, through `flakes-open-hours-fall`, loop `oldest-flakes`). Off, `main-repaired-fast` asks
+  the coordinator through `fix-main` (`main-repair-hasten`, loop `main-repair-speed`).
 
 ## The backlog: ranked, groomed
 
