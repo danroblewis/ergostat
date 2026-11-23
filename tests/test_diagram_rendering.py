@@ -2525,7 +2525,7 @@ def test_the_exported_blocks_legend_draws_the_frame_glyphs_hairline_and_corners(
     where none of the page's custom properties exist (rendered here in a blank page with no stylesheet)."""
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme="light")
-        drawn(pg, url, "view=blocks", 0)
+        drawn(pg, url, "view=blocks&open=*", 0)              # (open: the legend has a row only for what is drawn)
         markup = pg.evaluate("() => bdExportLegend(600).g.outerHTML")
         pg.close()
     blank = browser.new_page()
@@ -3007,7 +3007,7 @@ BD_LEGEND_DRAWN = {
     "a block's tier": ".bd-tier", "not linear": '.bd-node:not(.bd-collector):not([data-id^="zoh:"]) text.bd-name',
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
-    "a system as one block": ".bd-subsystem, .bd-frame-system",
+    "a system as one block": ".bd-subsystem, .bd-frame-system", "a subsystem open": ".bd-frame-system",
 }
 
 

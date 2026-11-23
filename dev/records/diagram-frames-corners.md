@@ -78,3 +78,28 @@ Round 3. main has no commits the branch lacks (HEAD..main is empty), so there wa
   round. The earlier failures noted above, from main, were not rerun.
 - A command was refused: a `cp` + `sed` that would have taken the fix out to check that the test fails. It was done
   with the edit tool instead and then put back.
+
+Round 4. main (2f08c24e) merged; conflicts in SPEC.md, blocks.js, dynamics.js, style.css and the test file resolved
+keeping both sides:
+
+- Blocks frames: main's title (a named system's name once, its p × m after it) on the branch's corner frame, the
+  title on the top edge. Blocks legend: main's rows, each shown only when drawn, kept; the branch's frame-glyph row
+  ("a subsystem open: framed by its corners ...") is shown when an open system frame is drawn, and the cascade row
+  keeps its dotted glyph with main's condition. Choice taken without the owner (reversible): main's "a system as one
+  block, the same closed and open" row stays next to it. The frame row is added to BD_LEGEND_DRAWN
+  (`.bd-frame-system`), and the exported-legend test now draws with `open=*` so that the row is there.
+- Dynamics: main's upkeep dash and the branch's `sys-off` on the module; main's sparkline CSS kept, the tint rule
+  stays gone. SPEC: the branch's frame sentence, then main's sentence on the side list's words. The Dynamics test
+  takes main's side-panel read (legend and group words removed) with the branch's frame checks.
+- Ran (passed): `test_an_open_system_is_framed_...` (both examples), `test_a_closed_systems_outline_...`,
+  `test_the_exported_blocks_legend_...`, `test_a_graph_with_no_tree_...`, `test_each_blocks_legend_row_is_a_symbol_drawn`
+  (3), `test_a_system_is_drawn_c_p_or_named_...`, `test_an_open_systems_frame_dragged_in_the_blocks_view_...`,
+  `test_an_open_system_dragged_by_its_outline_...`, `test_colour_by_correspondence_rings_...`,
+  `test_flows_only_export_legend_...`; ruff clean.
+- Failing, judged from main (the branch changes no side-list text, no example, and only adds a legend row):
+  `test_the_dynamics_view_speaks_system_dynamics_...` passes its frame checks, then fails on the side cards' own words
+  ("open · goal developer-honest cannot close", "serves goal one-running"). `test_the_exported_png_shows_every_loop_name_...`
+  fails on `len(rows) > 10` (6) for `system=product&view=blocks`, where no frame is drawn and main's legend shows only
+  what is drawn. `test_blocks_crossings_hop_dots_...` fails at line 2232: `get_by_role("button", name="fit")` also
+  matches the example's keep-model-fits blocks (strict mode). None was rerun on main because the command
+  `git worktree add --detach /tmp/mainwt 2f08c24e05a8def3f529b51b00f6dc7ae9e4d400` was refused.
