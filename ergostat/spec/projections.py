@@ -24,6 +24,7 @@ and an ask whose event is gone is dropped. ``tests/test_index_projections.py`` h
 from __future__ import annotations
 
 import functools
+import sqlite3
 
 from ..leases import EXPIRED
 from ..reports.kind import REPORT, report_kind
@@ -59,8 +60,9 @@ CHAINS = {"person.asked": (0, True), "agent.ran": (0, False),            # type:
 LOOSE = ",".join((*MARKS, *CHAINS))  # the types read beside the items' events (theirs without a ``/`` in their item)
 
 SCHEMA = """
-create table if not exists records (fam text, id text, state text, cls text, first real, seq0 integer, start integer,
-    body blob, primary key (fam, id));
+create table if not exists records (fam text, id text, state text, cls text, first real, last real, seq0 integer,
+    start integer, body blob, primary key (fam, id));
+create index if not exists records_last on records(fam, last);
 create index if not exists records_state on records(fam, state, seq0);
 create index if not exists records_cls on records(fam, cls, state);
 create table if not exists marks (seq integer primary key, type text, item text, time real, eid text, body blob);
@@ -155,16 +157,18 @@ def _record(db, fam: str, id: str, es: list[dict]) -> None:
         x.update(start=typed[0]["type"], i0=(typed[0]["id"], typed[0]["time"]), seq0=typed[0]["seq"])
     it = fold(id, typed, kind, it=it)
     whole = whole and fold(id, typed, kind, it=whole)
-    for e in typed:                                 # the seq of its last move (``requests._moved_at``)
+    for e in typed:                                 # the seq of its last move (``requests.stored``)
         to = kind.on.get(e["type"])
         if to is not None and (to != x["was"] or e["type"].endswith(".reopened")):
             x["moved"] = e.get("seq")
         x["was"] = to if to is not None else x["was"]
     read = whole if whole is not None and x["start"] != f"{MESSAGE}.received" else it
     cls = next((read.fields[f] for f in FAMILIES[fam][3] if read.fields.get(f)), None)
-    db.execute("insert or replace into records(fam, id, state, cls, first, seq0, start, body) values (?,?,?,?,?,?,?,?)",
+    x["last"] = max([e["time"] for e in es] + ([x["last"]] if x.get("last") is not None else []))   # (its newest event)
+    db.execute("insert or replace into records(fam, id, state, cls, first, last, seq0, start, body) "
+               "values (?,?,?,?,?,?,?,?,?)",
                (fam, id, read.state, None if cls is None else str(cls), (x["i0"] if read is it else x["w0"])[1],
-                x.get("seq0"), int(it.n > 0 and FAMILIES[fam][2] in (None, x["start"])),
+                x["last"], x.get("seq0"), int(it.n > 0 and FAMILIES[fam][2] in (None, x["start"])),
                 codec.pack({"i": _packed(it), "w": _packed(whole), "x": x})))
 
 
@@ -261,3 +265,61 @@ def asked(ix, block: str, person: bool, since: float | None = None, until: float
             x.update(answered=ans, verdict=verdict, by=by, **({"note": note} if how == 2 else {}))
         out.append(x)
     return out
+
+
+def newer(ix, fam: str, until: float) -> bool:
+    """Whether one of the family's items has an event after ``until`` (then ``records`` is not its answer as of then)."""
+    return ix.db.execute("select 1 from records where fam = ? and last > ? limit 1", (fam, until)).fetchone() is not None
+
+
+# ---- what the status's modules read through (the index when the record has one; else the same fold, in memory)
+
+def index_of(p):
+    """The record's item index, its tables caught up to the record; None for a record kept nowhere on disk."""
+    spec = getattr(getattr(p, "model", None), "spec", None)
+    if spec is None:
+        return None
+    from .items import _index
+    return _index(p.events, spec, False)
+
+
+class _Scratch:
+    """The tables in memory, folded by ``follow`` from the events given: a record kept nowhere on disk, or a moment
+    before what the index's ``records`` has folded."""
+
+    def __init__(self, evs: list[dict], asks: bool):
+        self.db = sqlite3.connect(":memory:")
+        self.db.executescript(SCHEMA)
+        follow(self, sorted(evs, key=lambda e: e["seq"]), asks=asks)
+
+
+def stored(p, fam: str, since: float | None = None, until: float | None = None) -> dict:
+    """``records(fam, since=)`` as of ``until`` (None: now): the index's table, unless one of the family's items has an
+    event after ``until``; then the family's events up to then, folded the same way."""
+    ix = index_of(p)
+    if ix is not None:
+        with ix.lock:                                # (no other thread's catch-up between the check and the read)
+            if until is None or not ix.newer(fam, until):
+                return ix.records(fam, since=since)
+    return records(_Scratch(p.events.of_items([f"{FAMILIES[fam][0]}/*"], until=until), False), fam, since=since)
+
+
+def _covered(type: str) -> bool:
+    return all(t in MARKS or (not t.endswith("*") and _marked(t)) for t in type.split(","))
+
+
+def query(p, type: str, **kw) -> list[dict]:
+    """``events.query(type=, **kw)``: from the index's ``marks`` when every type asked for is one of ``MARKS`` and the
+    record has an index; else from the record."""
+    ix = index_of(p) if _covered(type) else None
+    return ix.marked(type, **kw) if ix is not None else p.events.query(type=type, **kw)
+
+
+def asks(p, block: str, person: bool, since: float | None = None, until: float | None = None) -> list[dict]:
+    """A person block's asks (``person``) or an advised block's, in the span, each with how it was answered by
+    ``until``: the index's ``asks``, else the block's events in the span, folded the same way."""
+    ix = index_of(p)
+    if ix is not None:
+        return ix.asked(block, person, since, until)
+    types = "person.asked,agent.ran" if person else "block.advised,block.approved,block.denied"
+    return asked(_Scratch(p.events.query(n=None, item=block, since=since, until=until, type=types), True), block, person)

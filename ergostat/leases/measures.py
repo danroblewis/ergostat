@@ -15,6 +15,12 @@ from .fold import held, refused_expiries
 DAY = 86400.0
 
 
+def query(p, type: str, **kw) -> list[dict]:
+    """``projections.query`` (imported here: it imports this package's EXPIRED)."""
+    from ..spec import projections
+    return projections.query(p, type, **kw)
+
+
 def _kinds(spec: Spec, who: str | None) -> list[str]:
     own = [k for k in spec.items if own_kind(k)]
     if who in spec.items:
@@ -41,7 +47,7 @@ def counts(p, spec: Spec, who: str | None = None, now: float | None = None) -> d
             elif it.state == DEAD:
                 out["dead"] += 1
     kinds = set(_kinds(spec, who))
-    evs = [e for e in p.events.query(n=None, type=EXPIRED, since=now - DAY, until=now)
+    evs = [e for e in query(p, EXPIRED, n=None, since=now - DAY, until=now)
            if not (by_block and (e.get("data") or {}).get("block") != who)
            and (k := its.kind_of(spec, e.get("item") or "")) is not None and k.name in kinds]
     void = refused_expiries(p.events, spec, evs, items=seen)      # (the items just projected: none folded again)
@@ -69,7 +75,7 @@ def attention(p, spec: Spec, now: float | None = None) -> list[dict]:
             out.append({"item": it.id, "what": "dead", "attempts": lease.get("attempts"), "block": lease.get("block"),
                         "time": lease.get("dead") or it.entered, "how": last.get("how"), "why": last.get("why")})
     dead = {x["item"] for x in out}
-    evs = p.events.query(n=200, type=EXPIRED, since=now - 3600, until=now)
+    evs = query(p, EXPIRED, n=200, since=now - 3600, until=now)
     void = refused_expiries(p.events, spec, evs)
     for e in evs:
         d = e.get("data") or {}

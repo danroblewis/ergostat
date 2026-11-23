@@ -29,18 +29,19 @@ STALE_RUNS = 3          # a reading older than this many of its agent's periods 
 def crossings_of(project, loop: str, since: float, until: float) -> list[dict]:
     """A loop's crossings in a span, and the last one before it (whether it was off when the span
     began): never every crossing of the whole record."""
-    before = project.events.query(n=1, item=loop, type="loop.*", until=since - 1e-6, unvoided=True)
-    return before + project.events.query(n=None, item=loop, type="loop.*", since=since, until=until, unvoided=True)
+    from .spec.projections import query
+    before = query(project, "loop.*", n=1, item=loop, until=since - 1e-6, unvoided=True)
+    return before + query(project, "loop.*", n=None, item=loop, since=since, until=until, unvoided=True)
+
 
 def _crossings(project, loops: list[str], since: float, until: float) -> dict[str, list[dict]]:
-    """``crossings_of`` for each of several loops (their time and type), read together: a month of a
-    busy record's crossings from the columns, not event by event."""
-    ev = project.events
-    if not hasattr(ev, "times") or ev.query(n=1, type="ergostat.forgotten"):     # some set aside: read one by one
-        return {lp: crossings_of(project, lp, since, until) for lp in loops}
-    got = ev.times(loops, "loop.*", since, until)
-    return {lp: ev.query(n=1, item=lp, type="loop.*", until=since - 1e-6, unvoided=True)
-            + [{"time": t, "type": ty, "seq": q, "item": lp} for t, ty, q in got[lp]] for lp in loops}
+    """``crossings_of`` for each of several loops, read together (from the item index's ``marks``)."""
+    from .spec.projections import query
+    got = {lp: query(project, "loop.*", n=1, item=lp, until=since - 1e-6, unvoided=True) for lp in loops}
+    for e in query(project, "loop.*", n=None, since=since, until=until, unvoided=True):
+        if e.get("item") in got:
+            got[e["item"]].append(e)
+    return got
 
 
 def _times(project, items: list[str], type: str, since: float, until: float) -> dict[str, list[float]]:
@@ -122,8 +123,11 @@ def moved(project, flow: str, t0: float, t1: float) -> float | None:
 
 
 def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
-    """The state at ``now`` (default: now), over the window before it; a past ``now`` looks back."""
+    """The state at ``now`` (default: now), over the window before it; a past ``now`` looks back. ``as_of``: the last
+    event the record held as it was read (``seq``) and when the answer was made (``made``): how old it is."""
+    from .spec.projections import query
     m = project.model
+    seq = project.events.last_seq() if hasattr(project.events, "last_seq") else None
     live = now is None
     now = now or time.time()
     since = now - window
@@ -252,7 +256,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         elif value is None:
             status, error = "unknown", None
         else:
-            last = project.events.query(n=1, item=lp.name, type="loop.*", until=now, unvoided=True)
+            last = query(project, "loop.*", n=1, item=lp.name, until=now, unvoided=True)
             was_off = bool(last and last[-1]["type"] == "loop.off")
             error, status = (g.hold.error(value, r), g.status(value, was_off, r)) if held else \
                 (c.error(value), c.status(value, was_off=was_off))
@@ -379,7 +383,14 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     if getattr(getattr(project.model, "spec", None), "daemons", None):   # the long-lived runners, as the engine last saw them
         from .daemons.supervise import read_status
         snap["daemons"] = read_status(project.dir)
+    snap["as_of"] = {"seq": seq, "made": time.time()}
     return snap
+
+
+def age(snap: dict, now: float | None = None) -> dict:
+    """How old a snapshot is: ``as_of`` and its ``age``, the seconds since it was made."""
+    made = snap["as_of"]["made"]
+    return {**snap["as_of"], "age": max(0.0, (time.time() if now is None else now) - made)}
 
 
 def alarms(project, now: float) -> dict:

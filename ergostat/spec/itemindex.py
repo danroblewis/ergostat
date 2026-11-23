@@ -64,9 +64,9 @@ from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
-VERSION = 7                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
+VERSION = 8                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
 #                             6: the numbers, or what the status reads, on the two branches that each took 6;
-#                             7: both)
+#                             7: both; 8: records.last)
 ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
@@ -916,6 +916,7 @@ class Index:
     records = _healing(projections.records)          # what the status reads (projections.py)
     marked = _healing(projections.marked)
     asked = _healing(projections.asked)
+    newer = _healing(projections.newer)
 
     def close(self) -> None:
         """Its file closed (opened again when next used)."""

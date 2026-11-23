@@ -48,7 +48,6 @@ STATUS = {"made": "made", "checked": "pending", "testing": "pending", "passed": 
           "refused": "refused", "failed": "failed", "dismissed": "dismissed", "superseded": "superseded",
           "verified": "accepted", "regressed": "accepted",           # scored again after it was written (verify.py)
           "inconclusive": "inconclusive"}                              # the judge could not tell: it needs more record
-_FOLDED: dict = {}
 
 
 class ProposalError(Exception):
@@ -62,24 +61,9 @@ def item_of(pid: str) -> str:
 def changes(p) -> dict[str, tuple[str, dict]]:
     """Every change to the model in the record, folded (``ergostat.model-change`` items) as every item is
     (SPEC §5a: each event's changeset in turn, by the built-in kind's rules): its id, its state and its fields.
-    The record is the only store."""
-    from ..spec import items as its
-    from ..spec.ir import model_change_kind
-    key = (str(p.dir), p.events.last_seq())
-    got = _FOLDED.get(key[0])
-    if got and got[0] == key[1]:
-        return got[1]
-    by: dict[str, list[dict]] = {}
-    for e in p.events.query(n=None, type=f"{MODEL_CHANGE}.*"):
-        if "/" in str(e.get("item") or ""):
-            by.setdefault(e["item"], []).append(e)
-    kind = model_change_kind()
-    out: dict[str, tuple[str, dict]] = {}
-    for item, evs in by.items():
-        it = its.fold(item, evs, kind)
-        out[item.split("/", 1)[1]] = (it.state, it.fields)
-    _FOLDED[key[0]] = (key[1], out)
-    return out
+    The record is the only store; they are read from the item index's table (``projections.stored``)."""
+    from ..spec import projections
+    return projections.stored(p, "change")
 
 
 def stored(p) -> dict[str, dict]:

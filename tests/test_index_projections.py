@@ -22,6 +22,7 @@ from ergostat.reports import record as reports
 from ergostat.rollup import compact, upkeep
 from ergostat.spec import itemindex, projections
 from ergostat.store import Project
+from tests import status_before as old
 from tests.test_item_index import _cold
 
 T0 = 1_700_000_000.0
@@ -90,7 +91,12 @@ def _add(p, evs: list[tuple], t0: float, r: random.Random) -> list[str]:
 
 
 def _fresh_records(p) -> dict:
-    proposals._FOLDED.clear()                              # (kept by the record's last seq, which a prune keeps)
+    """The record folded by the old code (tests/status_before.py): the modules read the tables now."""
+    return {"action": old.actions(p), "message": old.messages(p), "report": old.reports(p),
+            "change": old.changes(p), "request": old.requests(p), "model-request": old.requests_now(p)}
+
+
+def _modules(p) -> dict:
     return {"action": actions.stored(p), "message": messages.stored(p), "report": reports.stored(p),
             "change": proposals.changes(p), "request": requests.stored(p), "model-request": interventions.requests_now(p)}
 
@@ -100,6 +106,16 @@ def _check(p, r: random.Random) -> None:
     for tr in (False, True):
         ix = itemindex.index_for(p.events, p.model.spec, tr)
         want = _fresh_records(p)
+        assert _modules(p) == want                         # what the modules answer, from the tables
+        real = projections.index_of                        # and with no index (a record kept nowhere on disk): the
+        projections.index_of = lambda p: None              # same fold, of the record's events, in memory
+        try:
+            assert _modules(p) == want
+            for name in BLOCKS:
+                assert projections.asks(p, name, True) == old.asks(p, name, True)
+                assert projections.asks(p, name, False) == old.asks(p, name, False)
+        finally:
+            projections.index_of = real
         for fam, got in want.items():
             mine = ix.records(fam)
             for k in set(mine) | set(got):                 # (one entry at a time: a difference says which)
@@ -123,14 +139,18 @@ def _check(p, r: random.Random) -> None:
                                    f"{projections.MODELLING_REQUEST}.*,loop.off", projections.FORGOTTEN]),
                  "item": r.choice([None, *LOOPS, *BLOCKS, "ticket/1"]), "since": r.choice([None, a]),
                  "until": r.choice([None, b]), "n": r.choice([None, 1, 3, 50]), "unvoided": r.random() < 0.5}
-            assert ix.marked(**q) == p.events.query(**q), q
-            assert ix.records("action", since=a) == actions.stored(p, since=a)
-            assert ix.records("message", since=a) == messages.stored(p, since=a)
+            assert ix.marked(**q) == p.events.query(**q) == projections.query(p, **q), q
+            assert ix.records("action", since=a) == actions.stored(p, since=a) == old.actions(p, since=a)
+            assert ix.records("message", since=a) == messages.stored(p, since=a) == old.messages(p, since=a)
+            # as of a moment: the table when no item of the family has an event after it, else folded up to then
+            assert actions.stored(p, since=a, until=b) == old.actions(p, since=a, until=b), (a, b)
+            assert reports.stored(p, until=b) == old.reports(p, until=b), b
             for name in BLOCKS:
                 for person in (True, False):
                     blk = SimpleNamespace(name=name, type="person" if person else "ai")
                     w = (r.choice([None, a]), r.choice([None, b]))
-                    assert ix.asked(name, person, *w) == entries.asks(p, blk, *w), (name, person, w)
+                    assert ix.asked(name, person, *w) == entries.asks(p, blk, *w) == old.asks(p, name, person, *w), \
+                        (name, person, w)
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -240,5 +260,5 @@ def test_another_process_reads_what_was_committed_while_one_follows(tmp_path, mo
     monkeypatch.setattr(projections, "follow", real)
     b.catch_up(p.events)
     assert (b.records("action"), b.marked("loop.*", n=None), b.asked("asker", True)) == (
-        actions.stored(p), p.events.query(n=None, type="loop.*"), entries.asks(p, SimpleNamespace(name="asker", type="person")))
+        old.actions(p), p.events.query(n=None, type="loop.*"), old.asks(p, "asker", True))
     b.close()

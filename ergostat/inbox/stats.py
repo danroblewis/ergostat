@@ -48,14 +48,15 @@ def asked(p, spec, since: float, until: float) -> list[dict]:
             for x in en.asks(p, b, since, until):
                 one(f"{'person' if b.type == 'person' else 'advise'}:{b.name}", f"block {b.name}", x["time"],
                     x["answered"], x["verdict"], x.get("by"), x.get("note"))
-    done, by = cp.decisions(p), {e["data"].get("id"): e["source"] for e in p.events.query(n=50, type="steptest.approved")}
+    from ..spec.projections import query
+    done, by = cp.decisions(p), {e["data"].get("id"): e["source"] for e in query(p, "steptest.approved", n=50)}
     for pid, x in en.offers(p, until).items():
         if x["time"] >= since:
             d = done.get(pid) or {}
             one("steptest", f"goal {x.get('goal')}", x["time"], d.get("decided"),
                 {"approved": "approved", "dismissed": "denied"}.get(d.get("status")), by.get(pid))
     made: dict[str, tuple] = {}
-    for e in p.events.query(n=None, type="ergostat.model-change.*", since=since, until=until):
+    for e in query(p, "ergostat.model-change.*", n=None, since=since, until=until):
         if e["type"].endswith(".made"):
             made[e["item"]] = (f"change:{e['data'].get('kind')}", e["time"])
         elif (e["item"] in made and (by_person(e["source"]) or e["source"] == BY_AGENT)
@@ -69,7 +70,7 @@ def asked(p, spec, since: float, until: float) -> list[dict]:
             one(cls, item, t0, None, None)
     held: dict[str, float] = {}
     code: dict[str, str] = {}
-    for e in p.events.query(n=None, type=f"{MODELLING_REQUEST}.*", until=until) if MODELLING_REQUEST in spec.items else []:
+    for e in query(p, f"{MODELLING_REQUEST}.*", n=None, until=until) if MODELLING_REQUEST in spec.items else []:
         what, t0 = e["type"].rsplit(".", 1)[1], held.get(e["item"])
         code.setdefault(e["item"], e["data"].get("code"))
         if what == "held" and t0 is None:
