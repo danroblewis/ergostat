@@ -91,6 +91,20 @@ def test_the_gate_catches_what_it_should():
         assert hit == caught, decl
 
 
+def test_the_items_lists_wrap_their_fields_and_keep_three_columns_on_a_phone():
+    """The static half of tests/test_items_page.py::test_the_items_table_fits_at_1440_px, which needs a browser: in
+    the kinds' lists a field's cell wraps and is never cut, and at phone width only the item, state and 'in state'
+    (.keep) stay; pages.js gives the lists their class and the 'in state' header and cells their .keep."""
+    _, rules = split()
+    cell = dict(declarations(" ".join(re.findall(r"table\.kind-items td\.cell\s*(\{[^{}]*\})", rules))))
+    assert cell.get("white-space") == "normal" and cell.get("overflow") == "visible", cell
+    assert "text-overflow" not in cell, "a field's text is wrapped, not cut with an ellipsis"
+    assert re.search(r"@media \(max-width: 700px\) \{\s*table\.kind-items tr > :nth-child\(n\+3\):not\(\.keep\) "
+                     r"\{ display: none; \}", rules), "the phone rule keeps item, state and .keep"
+    js = (CSS.parent / "pages.js").read_text()
+    assert '"items kind-items",' in js and '["in state", "num keep"]' in js and 'class: "num nowrap keep"' in js
+
+
 def test_below_760_px_the_tabs_wrap_and_never_scroll_sideways():
     """The narrow-width half of tests/test_items_page.py's phone/200% check, readable without a browser: below 760 px
     the nav wraps onto its own rows, nothing in the sheet makes it scroll sideways, and the current page keeps its
@@ -150,6 +164,40 @@ def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
     assert not low, low
 
 
+def test_on_a_phone_the_direction_hint_is_not_hidden():
+    """The narrow layout shows the "More beyond the edge" hint (a phone's first view may be centred on one part): no
+    rule inside a max-width media block hides .panhint. The browser test pins what the hint says."""
+    text = re.sub(r"/\*.*?\*/", "", CSS.read_text(), flags=re.S)
+    blocks = re.findall(r"@media[^{]*max-width[^{]*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}", text)
+    assert blocks, "style.css has no narrow (max-width) layout"
+    for block in blocks:
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block):
+            if ".panhint" in sel:
+                assert not re.search(r"display\s*:\s*none", body), f"the phone layout hides the hint: {sel.strip()}"
+
+
+def test_the_arrows_and_guide_dot_borders_stand_3_to_1_on_the_paper_in_both_themes():
+    """The /item lifecycle and /items state arrows (.arrow) and the Guide's dot borders (.g-dot::before, the dot drawn
+    inside its 24px target) are graphics: WCAG's 3:1 against the page in the light and the dark theme, read from the
+    tokens they use."""
+    head, rules = split()
+    light_head, dark_head = head.split("prefers-color-scheme: dark", 1)
+    themes = {"light": dict(re.findall(r"(--[\w-]+):\s*([^;]+);", light_head))}
+    themes["dark"] = {**themes["light"], **dict(re.findall(r"(--[\w-]+):\s*([^;]+);", dark_head))}
+    arrow = re.search(r"(?m)^\.arrow\s*\{[^}]*\bcolor:\s*var\((--[\w-]+)\)", rules)
+    dot = re.search(r"(?m)^\.g-dot::before\s*\{[^}]*\bborder:[^;]*var\((--[\w-]+)\)\s*;", rules)
+    assert arrow and dot, "the .arrow colour and the .g-dot::before border are each one token"
+    low = []
+    for theme, tokens in themes.items():
+        bg = _luminance(_oklab(tokens["--bg"].strip()))
+        for what, token in (("arrow", arrow[1]), ("guide dot border", dot[1])):
+            y = _luminance(_oklab(tokens[token].strip()))
+            ratio = (max(y, bg) + 0.05) / (min(y, bg) + 0.05)
+            if ratio < 3:
+                low.append(f"{theme} {what} ({token}): {ratio:.2f}")
+    assert not low, low
+
+
 def test_the_first_level_note_sits_on_the_canvas_and_stacks_with_the_toolbar_on_a_narrow_screen():
     """'Open all' on a model too big to read opens the first level and says so in a note diagram.js draws as
     .open-level: it has its rule, sits over the canvas in small text, and goes static with .toolbar and .zoom."""
@@ -176,6 +224,20 @@ def test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked():
         decl = dict(declarations("{" + block + "}"))
         assert float(decl.get("opacity", "1")) < 1, f"{sel} is not dimmed"
         assert decl.get("pointer-events") == "none", f"{sel} still takes clicks"
+
+
+def test_a_blocks_loop_state_is_bold_when_off_and_never_a_colour():
+    """Blocks has no status colour (docs/DESIGN.md's colour rules): the state blocks.js prints on a loop's error label
+    (.bd-state, .bd-off when the server's word is off) is set in ink, the off one only bolder, and no rule naming
+    either class gives it a colour, a fill or a stroke. The browser half is in tests/test_diagram_rendering.py."""
+    js = (CSS.parent / "blocks.js").read_text()
+    assert 'st.word === "off" ? " bd-off"' in js, "blocks.js no longer marks the off word with .bd-off"
+    _, rules = split()
+    found = [(sel.strip(), dict(declarations("{" + body + "}")))
+             for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules) if "bd-state" in sel or "bd-off" in sel]
+    assert any("bd-off" in s and d.get("font-weight") == "600" for s, d in found), found
+    painted = [(s, p) for s, d in found for p in d if p in ("color", "fill", "stroke", "background", "opacity")]
+    assert not painted, painted
 
 
 def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():

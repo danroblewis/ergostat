@@ -238,8 +238,10 @@ model reads the cache and fetches only when the cache is older than `every`.
    remote *incidents* model; the remote's model changes while both run and the local follows; the remote
    stops and the local marks its data stale.
 
-**Left for later**: the event cache feeding the Items and Record pages; serving the IR (`?format=ir`). (Four
-are built: lines in the process map between our items and a remote's (`remote-process-lines`);
+**Left for later**: serving the IR (`?format=ir`), once the IR exists; it is an item of *The IR and a Rust
+runtime* in `docs/GAPS.md`. (Five are built: a remote's items in the Items page and its events in the Record
+page, read in place rather than from the event cache (`remote-items-record`); lines in the process map
+between our items and a remote's (`remote-process-lines`);
 proposals written as text for the remote's owner, SPEC §4c "Proposals for its owner"; a remote that is itself
 composed of remotes, whose imported parts are served with the chain of instances they came through, SPEC §4c;
 and mutual TLS (`remote-mtls`, SPEC §4c): `web: mtls:` serves the remote API alone on a listener of its own,

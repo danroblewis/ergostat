@@ -48,6 +48,7 @@ def _row(d: Path, note: dict, pid: int | None, m=None) -> tuple[dict, list, obje
             "loops": len(snap["loops"]), "off": sorted(g["system"] + g["open"]), "unknown": g["unknown"],
             "upkeep_off": sorted(n for v in g["own"].values() for n in v),
             "goals_off": g["system"],          # the header's first figure: the system's goals off, upkeep apart
+            "goals": st.goals_off(snap),       # the same, counted (what `ergostat projects` prints)
             "attention": len([a for a in st.attention(snap, bool(pid), m) if a["level"] != "hint"])}, files, m
 
 

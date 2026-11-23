@@ -9,6 +9,7 @@ risk is much lower"). What a session's container is given, and nothing else:
 - **its transcript's folder**: one folder of its own (sessions.py), mounted as Claude Code's projects folder
   (/home/dev/.claude/projects), read-write, so the session's own file is kept (copied, the token scrubbed, into
   run/sessions/); nothing else of the host's home;
+- **its pictures' folder** (an implementor's or a designer's only): run/shots/<session>/, read-write at /shots;
 - **one secret, the session token**: read from [agents] token_file (mode 600, written by the owner from
   `claude setup-token`), given as CLAUDE_CODE_OAUTH_TOKEN at `docker run` by name (never in the command line, a log
   or an error), and nothing else of the host's environment: no home, no ERGOSTAT_*, no other variable;
@@ -46,13 +47,22 @@ TOOLS = {
                     "Bash(uv run python -m tests.graph_fixtures:*)"],  # (writes tests/fixtures/graphs/<model>-<view>.json, offline)
     "reviewer": ["Read", "Glob", "Grep", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)"],
 }
+SEE = ["Bash(uv run python scripts/demo_up.py:*)",                       # a demo started and left running, then
+       "Bash(uv run --with playwright==1.63.0 python scripts/walk.py:*)"]  # its pages walked in Chromium
+TOOLS["implementor"] += SEE
+TOOLS["designer"] = TOOLS["reviewer"] + SEE   # (read-only, like the reviewer: its pictures go to /shots alone)
+LOOKERS = ("implementor", "designer")         # the roles given a pictures folder, run/shots/<session>/ at /shots
+WEB = "ergostat/web/"                         # an implementor whose brief names it gets designer_cpus
+LOOK = ("\n\n# Seeing a page\n\nStart a demo with `uv run python scripts/demo_up.py start DEMO` (and stop it after), "
+        "walk it with `uv run --with playwright==1.63.0 python scripts/walk.py STEPS --shots /shots`: always pass "
+        "`--shots /shots`, the folder that leaves this container (the owner reads it in run/shots/).\n")
 PREFIX = "ergostat-factory-"          # every container the factory starts is named so (the sweeper finds them)
 TIMEOUTS = {"implementor": 7200, "reviewer": 3600, "finish": 600, "suite": 3600, "planner": 3600,
-            "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "librarian": 600, "groomer": 3000,
+            "plan_reviewer": 1200, "join_judge": 1800, "researcher": 3600, "designer": 3600, "librarian": 600, "groomer": 3000,
             "pipeline_manager": 2400, "suite-queue": 3600, "suite-triage": 3600,   # seconds, each below its block's
             "measure-load": 43200}   # (runs.WALL, a whole measurement: its load lives through every run)
 LIMITS = ["--init", "--pids-limit", "4096", "--memory", "12g", "--memory-swap", "12g", "--cpus", "4", "--cap-drop", "ALL",
-          "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=2g"]
+          "--security-opt", "no-new-privileges", "--tmpfs", "/tmp:rw,exec,size=5g"]
 SHOTS = ["-e", "SPLIT_SHOTS=/tmp/split-shots"]   # the browser files' pictures: beside the checkout is / here (compose.yaml)
 TOOLS.update(planner=TOOLS["reviewer"], plan_reviewer=TOOLS["reviewer"], librarian=["Read"],
              join_judge=TOOLS["reviewer"], pipeline_manager=TOOLS["reviewer"], groomer=TOOLS["reviewer"],
@@ -71,15 +81,35 @@ def settings(cfg: dict) -> dict:
             "proxy_image": a.get("proxy_image", "ergostat-dev:latest")}
 
 
-def session_cpus(a: dict) -> str:
-    """[agents] session_cpus: a session container's --cpus (empty or absent: the suites' 4); outside (0, 4] refused."""
-    got = str(a.get("session_cpus", "")).strip()
+def session_cpus(a: dict, key: str = "session_cpus", default: str = "") -> str:
+    """[agents] session_cpus (or ``key``): a session container's --cpus (empty or absent: ``default``, else the
+    suites' 4); outside (0, 4] refused."""
+    got = str(a.get(key, "")).strip()
     try:
         if got and not 0 < float(got) <= 4:
             raise ValueError(got)
     except ValueError:
-        raise Refused(f"[agents] session_cpus = {got!r}: a number of CPUs above 0 and at most 4") from None
-    return got or LIMITS[LIMITS.index("--cpus") + 1]
+        raise Refused(f"[agents] {key} = {got!r}: a number of CPUs above 0 and at most 4") from None
+    return got or default or LIMITS[LIMITS.index("--cpus") + 1]
+
+
+def role_cpus(cfg: dict, role: str, brief: str = "") -> str | None:
+    """[agents] designer_cpus (default 3) for a designer, and for an implementor whose brief names ergostat/web/ (an
+    engine and Chromium at once); None for any other session (its session_cpus)."""
+    if role == "designer" or (role == "implementor" and WEB in brief):
+        return session_cpus(cfg.get("agents") or {}, "designer_cpus", "3")
+    return None
+
+
+def shots(cfg: dict, stem: str) -> Path:
+    """run/shots/<stem>/, a session's pictures folder (its name checked, the path confirmed under run/shots/)."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", stem):
+        raise Refused(f"{stem!r}: not a session name a pictures folder may take")
+    root = (fac.path(cfg, "run") / "shots").resolve()
+    d = (root / stem).resolve()
+    if d.parent != root:
+        raise Refused(f"{d} is outside {root}")
+    return d
 
 
 def token(cfg: dict) -> str:
@@ -143,15 +173,18 @@ def claude_args(cfg: dict, role: str, sid: str | None = None) -> list[str]:
             "--disallowedTools", ",".join(d for d in DENY if d not in tools)]
 
 
-def run_args(cfg: dict, role: str, work: Path, name: str, keep=None) -> list[str]:
+def run_args(cfg: dict, role: str, work: Path, name: str, keep=None, brief: str = "") -> list[str]:
     """`docker run` for a session: the token by name only (its value is in the docker client's environment alone).
-    ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id."""
-    proxy = f"http://{PROXY}:{PORT}"
-    return ["run", "--rm", "-i", "--name", name, "--network", NET, *limits(cfg, "session"), *SHOTS,
-            "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work",
+    ``keep`` (sessions.Session): its own folder mounted as Claude Code's projects folder, and its session id. An
+    implementor's or designer's: run/shots/<session>/ read-write at /shots (named by ``keep``, else by ``name``)."""
+    proxy, loop = f"http://{PROXY}:{PORT}", "127.0.0.1,localhost"     # (loopback: a demo's own web, never proxied)
+    pics = ["-v", f"{shots(cfg, keep.stem if keep else name)}:/shots"] if role in LOOKERS else []
+    return ["run", "--rm", "-i", "--name", name, "--network", NET, *limits(cfg, "session", role_cpus(cfg, role, brief)),
+            *SHOTS, "-v", f"{work}:/work{':ro' if role != 'implementor' else ''}", "-w", "/work", *pics,
             *(["-v", f"{keep.raw}:{keep.HOME}"] if keep else []),
             "-e", "CLAUDE_CODE_OAUTH_TOKEN", "-e", f"HTTPS_PROXY={proxy}", "-e", f"https_proxy={proxy}",
-            "-e", "NO_PROXY=", *[x for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME") for x in ("-e", f"{k}=factory")],
+            "-e", f"NO_PROXY={loop}", "-e", f"no_proxy={loop}",
+            *[x for k in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME") for x in ("-e", f"{k}=factory")],
             *[x for k in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL") for x in ("-e", f"{k}=factory@localhost")],
             settings(cfg)["image"], *claude_args(cfg, role, keep.sid if keep else None)]
 
@@ -203,6 +236,14 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = 
     sweep(cfg)
     egress(cfg)
     name = container(role)
+    try:                                                 # (a bad cpus or folder: refused, its reason said, unstarted)
+        args = run_args(cfg, role, work, name, keep, brief)
+    except BaseException:
+        RUNNING.discard(name)
+        raise
+    if role in LOOKERS:
+        shots(cfg, keep.stem if keep else name).mkdir(parents=True, exist_ok=True)
+        brief += LOOK
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG",
                                                         "DOCKER_CONTEXT", "TMPDIR")}
     env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
@@ -212,7 +253,7 @@ def session(cfg: dict, role: str, brief: str, work: Path, timeout: int | None = 
         stop = keep.copy.follow()
     try:
         with resources.sampled(cfg, name, role) as use:
-            r = subprocess.run(["docker", *run_args(cfg, role, work, name, keep)], input=brief, capture_output=True,
+            r = subprocess.run(["docker", *args], input=brief, capture_output=True,
                                text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"the {role} session ran past {timeout}s and was killed") from None
@@ -427,16 +468,6 @@ def limits(cfg: dict, kind: str, cpus: float | None = None) -> list[str]:
 
 QUEUE_CPUS = {"unit": 8, "browser": 4}   # the queue's unit and browser run at once in queue_cpuset (12); others 4
 NOT_STARTED = (125, 126, 127)            # docker run's own failure, or a command that could not be run in it
-PREFIX_CPUS_MOST = 4                     # [agents] prefix_cpus' ceiling (a suite container's own --cpus)
-
-
-def prefix_cpus(cfg: dict) -> float:
-    """[agents] prefix_cpus: each prefix check's container's --cpus (prefixes.py; default 1.5), within queue_cpuset;
-    not a number above 0 and at most PREFIX_CPUS_MOST, refused."""
-    v = (cfg.get("agents") or {}).get("prefix_cpus", 1.5)
-    if isinstance(v, bool) or not isinstance(v, int | float) or not 0 < v <= PREFIX_CPUS_MOST:
-        raise ValueError(f"[agents] prefix_cpus = {v!r}: a number of CPUs above 0 and at most {PREFIX_CPUS_MOST}")
-    return float(v)
 
 
 class NotStarted(RuntimeError):
@@ -446,9 +477,8 @@ class NotStarted(RuntimeError):
 def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str, env: tuple = ()) -> tuple[str, str]:
     """(a container's name, the shell command that runs ``cmd`` in it): one of the merge queue's (``box`` "queue") or
     flake triage's ("triage") suites, in the agent image on ``work`` at /work, with no network (a demo's servers and
-    ports in its own namespace), pinned to [agents] queue_cpuset (a prefix's, on a worktree under run/queue-prefix/,
-    with [agents] prefix_cpus). The checkout is a copy, never a bind mount (Docker
-    Desktop's file sharing keeps a handle open on every file a container reads through one,
+    ports in its own namespace), pinned to [agents] queue_cpuset (each of a red batch's two halves on its own half of it). The checkout is
+    a copy, never a bind mount (Docker Desktop's file sharing keeps a handle open on every file a container reads through one,
     dev/records/suites-copy-their-checkout-into-the-container.md): tarred on the Mac (all but its .venv, with its git
     directory when that is inside it) into the container's stdin and unpacked at /work before ``cmd``, a copy that
     did not unpack exiting 125 (NotStarted); so the Mac's checkout is kept as the Mac left it. The image's own
@@ -456,8 +486,9 @@ def queued(cfg: dict, suite: str, cmd: str, work: Path, box: str, env: tuple = (
     its own path. run/coverage/ mounted at its own path, as the unit run's ERGOSTAT_COVERAGE names it, so what it writes
     there reaches run/. ``env``: more NAME=value settings for it (fac.suite's PYTEST_ADDOPTS)."""
     name, work = container(f"suite-{box}"), work.resolve()
-    prefix = work.is_relative_to((fac.path(cfg, "run") / "queue-prefix").resolve())   # (a prefix's: prefixes.py)
-    cpus = prefix_cpus(cfg) if prefix else QUEUE_CPUS.get(suite, 4)
+    cpus = QUEUE_CPUS.get(suite, 4)
+    if suite in QUEUE_CPUS and (cfg.get("agents") or {}).get("queue_half"):     # (one of two full runs: halves.share())
+        cpus //= 2
     common = Path(fac.git(work, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve()
     cov = fac.run_dir(cfg, "coverage").resolve()
     git = [] if common.is_relative_to(work) else ["-v", f"{common}:{common}:ro"]
