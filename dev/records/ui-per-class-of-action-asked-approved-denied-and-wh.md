@@ -96,3 +96,21 @@ diagram.js, dynamics.js and pages.js (86 lines). In round 2, before this merge, 
 I could not confirm it by running these tests on main: `git worktree add -q --detach /tmp/mainwt bf6dbebf` (to run
 them there) was refused in this session. By lesson 13 they are reported here and not fixed in this branch. The
 factory's rerun on clean main should show whether main has them too.
+
+Round 4: the blocking finding (a conflict with main in tests/test_items_page.py) is resolved. The merge of main
+(ead497d1) keeps both sides. Main's new `test_the_record_folds_runs_of_identical_events` and the branch's `acted`
+fixture and Actions test had been added in the same place. The branch's fixture and test now come first and main's
+test follows. Compared with main, the file differs only by the branch's fixture and test (85 added lines, none
+removed). No code changed this round, so the net count stays at 41.
+
+Runs after the merge: ruff is clean. tests/test_gated_actions.py: 13 passed. tests/test_items_page.py (under
+suite_watch): 33 passed and 1 failed, rc 1, on each of the three runs. The Actions acceptance test passed in the file
+and alone. The five side-panel failures of round 3 now pass. The one that fails is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out at tests/test_items_page.py:1538,
+waiting for the other project's entry in the header's `#project` switcher. This branch does not touch the switcher,
+and that test's sites declare no actions, so the branch's `actionClasses` line is never drawn there. It failed the
+same way in round 3. By lesson 13 it is reported here and not fixed in this branch. The factory's rerun on clean main
+should show whether main fails it too. Two reruns of the browser file with another output filter were refused in this
+session: `... 2>&1 | grep -E '^(FAILED|ERROR)|^_{3,} test|passed|failed' | tail -8` and
+`... > /tmp/items.log 2>&1; grep -E 'FAILED|passed|failed| test_' /tmp/items.log | tail -10`. A later run that was
+allowed named the test.
