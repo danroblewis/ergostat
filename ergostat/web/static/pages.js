@@ -20,7 +20,7 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 /* a loop's behaviour, with hysteresis: its class (the words without their numbers) changes only once the new class
    has held for HOLD_SHARE of the window (a minute at least), and within a class its numbers are kept as long;
    remembered across reloads (by project), so a reload alone never flips it; a word not seen within the last hold and
-   two refreshes (PERF_EVERY) is stale and the new one is shown at once */
+   two refreshes (PERF_EVERY, as the server's PERF_LIFE) is stale and the new one is shown at once */
 const HOLD_SHARE = 0.05, PERF_EVERY = 300000;
 function steadyWord(name, word, win) {
   const key = `ergostat.behaviour.${S.status?.name || ""}.${name}`, now = Date.now(), hold = Math.max(60, HOLD_SHARE * win) * 1000;
@@ -43,36 +43,19 @@ function steadyWord(name, word, win) {
 async function pageLoops(main) {
   const p = page(main, "Loops");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
-  const perf = {};
-  let pts = {}, ptsAt = 0;
   p.append(box, cap);
   const ans = answers();
   async function tick(force = true) {
     ans.begin();
-    const loops = await ans.api("loops");
-    // the stocks' trends: every system open (or, where that is not at hand, a snapshot, each closed system's measures);
-    // the whole graph is a large answer and a trend over the window hardly moves in seconds: asked for every 30s
-    if (Date.now() - ptsAt > 30000) {
-      const stocks = await ans.api("graph", { open: "*" }).catch(() => ans.api("graph"));
-      for (const n of stocks.nodes) for (const m of n.measures || []) if (m.points) stocks.nodes.push({ kind: "stock", label: m.label, points: m.points });
-      pts = Object.fromEntries(stocks.nodes.filter((n) => n.kind === "stock").map((n) => [n.label, n.points]));
-      ptsAt = Date.now();
-    }
+    // every loop in one answer: its stock's trend, and how it is doing (control.js), worked out on the server in the background
+    const loops = await ans.api("loops", { perf: 1 });
+    const st = S.status, win = st?.window ? Math.min(st.window, st.first ? st.at - st.first : st.window) : 0;
+    const word = (n, lp, s = lp.perf) => (s == null || s.not_analysed ? "" : lp.times_off >= FLAP_AT ? steadyWord(n, `flapping (${lp.times_off} crossings in ${dur(win)})`, win)
+      : s.working ? "being worked out" : s.failed ? "could not be worked out" : steadyWord(n, performanceWord(s), win));
     const w = windowNote();
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
-    // how each loop is doing, as a control engineer reads its scope (control.js), over the last day of record: asked
-    // for every 5 minutes, not every tick (each is an identification on the server, up to a second or two, for every loop)
-    if (!perf.at || Date.now() - perf.at > PERF_EVERY) {
-      perf.at = Date.now();
-      const st = S.status, win = st?.window ? Math.min(st.window, st.first ? st.at - st.first : st.window) : 0;
-      for (const [n, lp] of rows) loopControl(n).then((d) => {
-        perf[n] = steadyWord(n, lp.times_off >= FLAP_AT ? `flapping (${lp.times_off} crossings in ${dur(win)})` : performanceWord(d), win);
-        const cell = [...box.querySelectorAll("td[data-perf]")].find((c) => c.dataset.perf === n);
-        if (cell) setText(cell, perf[n]);
-      }).catch(() => {});
-    }
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["setpoint", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
         h("td", { class: "nowrap" }, h("button", { class: "name", type: "button", onclick: (ev) => { ev.stopPropagation(); openLoop(n); } }, h("b", {}, n)), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
@@ -83,8 +66,8 @@ async function pageLoops(main) {
         h("td", { class: "num", title: lp.back_in != null ? `Typically holding again this long after going off (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times); its valve opens ${lp.answers_in != null ? dur(lp.answers_in) : "?"} after` : "It has not gone off and come back in the window" },
           lp.back_in != null ? dur(lp.back_in) : "–"),
         h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
-          (pts[lp.stock] || []).length > 1 ? sparkSvg(pts[lp.stock], 120, 24, setpointOf(lp.setpoint)) : ""),
-        h("td", { class: "nowrap", "data-perf": n, title: "Flapping (gone off 20 times or more in the window), oscillating, saturated, past or within its bound, or its Harris index: from its scope, over the last day of record; it changes only once the new behaviour has held a while" }, perf[n] || ""),
+          (lp.points || []).length > 1 ? sparkSvg(lp.points, 120, 24, setpointOf(lp.setpoint)) : ""),
+        h("td", { class: "nowrap", "data-perf": n, title: "Flapping (gone off 20 times or more in the window), oscillating, saturated, past or within its bound, or its Harris index: from its scope, over the last day of record; it changes only once the new behaviour has held a while" }, word(n, lp)),
         h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no"))))));
   }
   await tick();

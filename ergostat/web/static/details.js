@@ -15,6 +15,8 @@ function showDetail(...kids) {
   d.hidden = false;
   d.scrollTop = 0;
   if (typeof panelNote === "function") panelNote(d);   // where the other view draws what is chosen (interact.js)
+  const hd = S.keyHead && d.querySelector("h2, h3");    // opened by keyboard: the focus to its heading (keys.js)
+  if (hd) { S.keyHead = null; hd.tabIndex = -1; hd.focus(); }
 }
 /* a panel being opened: its kind and title, and "Loading…", at once, until what it says has been read */
 function panelLoading(kind, title) {
