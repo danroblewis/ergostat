@@ -449,3 +449,78 @@ def test_the_prompt_says_the_units_size_interface_and_subsystems(tmp_path):
     for s in ("lab", "other"):
         assert f"- system {s}: {ar.size_said(ar.size(spec, s))}" in whole
     assert len([x for x in rdr.architecture(spec, "lab") if x.startswith(("- out", "- in"))]) <= rdr.PORTS
+
+
+def _split(tmp_path, systems: dict[str, str], a: str, b: str, edit=lambda t: t, mutate=None) -> dict:
+    """The scorecard of one system ``plant`` (chains a and b) split as asked: chain a's parts in system ``a``, b's in
+    ``b``, then the text edited and the compiled model ``mutate``-d."""
+    from .test_architecture import _chain, _model
+    p = project(tmp_path / "before", _model({"plant": "keeps both queues short"}, _chain("a", 3, "plant"), _chain("b", 3, "plant")))
+    q = project(tmp_path / "after", edit(_model(systems, _chain("a", 3, a), _chain("b", 3, b))))
+    _, pb = read(p.model.path)
+    after, pa = read(q.model.path)
+    if mutate:
+        mutate(after)
+    return sc.score(p, p.model.spec, pb, after, pa)
+
+
+TWO = {"plant": "keeps the a queues short", "right": "keeps the b queues short"}
+
+
+def test_a_cohesive_split_scores_the_systems_measure_improved(tmp_path):
+    card = _split(tmp_path, TWO, "plant", "right")
+    sy = card["systems"]
+    assert set(sy["by_system"]) == {"plant", "right"} and sy["improved"] and not sy["worse"], sy
+    r = sy["by_system"]["right"]
+    assert r["before"] is None and r["after"]["crossing"] == 0 and r["after"]["inside"] > 0, r
+    assert sy["by_system"]["plant"]["before"]["crossing"] == 0                # one system before: nothing crossed
+    assert card["verdict"] == "better" and "more links inside than across for system plant, right" in card["why"], card["why"]
+    assert any(x.startswith("systems     improved") for x in sc.lines(card)), sc.lines(card)
+
+
+def odd(t: str) -> str:
+    """Stocks a1 and b1 alone in system ``odd``: each linked only to parts outside it."""
+    return t.replace("  a1: {unit: items, system: plant", "  a1: {unit: items, system: odd").replace(
+        "  b1: {unit: items, system: plant", "  b1: {unit: items, system: odd")
+
+
+def test_a_split_whose_system_crosses_more_than_it_holds_is_not_better(tmp_path):
+    card = _split(tmp_path, {"plant": "keeps the queues short", "odd": "the first queues"}, "plant", "plant", odd)
+    sy = card["systems"]
+    o = sy["by_system"]["odd"]["after"]
+    assert sy["worse"] == ["odd"] and not sy["improved"] and o["inside"] == 0 and o["crossing"] == 6, sy
+    assert card["verdict"] != "better" and "system odd (6 across, 0 inside)" in card["why"], card["why"]
+    assert any(x.startswith("systems     worse") for x in sc.lines(card))
+    worse = sc.verdict(card)[2]
+    card["systems"] = {**sy, "worse": [], "improved": True}                   # the same card, the split cohesive
+    assert sc.verdict(card)[2] > worse
+
+
+def renamed(t: str) -> str:
+    """Stock a1 renamed first, system plant renamed works, a description edited: nothing moves between systems."""
+    t = t.replace("system: plant", "system: works").replace("  plant: {description: keeps both queues short}",
+                                                             "  works: {description: keeps every queue short}")
+    return t.replace("  a1: {", "  first: {formerly: [a1], ").replace("to: a1,", "to: first,").replace(
+        "from: a1,", "from: first,").replace("stock: a1,", "stock: first,")
+
+
+def test_a_rename_only_change_has_no_systems_measure(tmp_path):
+    card = _split(tmp_path, {"plant": "keeps both queues short"}, "plant", "plant", renamed)
+    assert card["parts"]["renamed"] == ["stock.a1 → stock.first"], card["parts"]
+    assert "systems" not in card and not any(x.startswith("systems") for x in sc.lines(card))
+    assert sc.verdict(card)[:2] == (card["verdict"], card["why"])
+    same = _split(tmp_path / "same", {"plant": "keeps both queues short"}, "plant", "plant")
+    assert "systems" not in same and same["verdict"] == "no better"              # nothing moved: nothing said of systems
+
+
+def test_a_part_of_no_found_system_counts_as_crossing(tmp_path):
+    def lost(spec):                   # chain b's parts but its stocks b1 and b2 placed in a system the model lacks
+        for t in (spec.stocks, spec.flows, spec.goals, spec.blocks):
+            for n, x in t.items():
+                if n.startswith("b") and n not in ("b1", "b2"):
+                    x.system = "nowhere"
+    card = _split(tmp_path, TWO, "plant", "right", mutate=lost)
+    r = card["systems"]["by_system"]["right"]["after"]
+    assert r["inside"] == 0 and r["crossing"] >= 6, r                       # never inside: crossing, so worse
+    assert card["systems"]["worse"] == ["right"] and card["verdict"] != "better", card["why"]
+    assert "right" in card["why"]

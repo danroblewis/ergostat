@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 
@@ -25,11 +26,13 @@ FIRST, SLOW = 0.001, 0.05  # seconds before the file is looked at again: soon af
 CHUNK = 65536
 
 
-def follow(proc: subprocess.Popen, path, timeout: float | None, take: Callable[[list[str]], None]) -> bool:
+def follow(proc: subprocess.Popen, path, timeout: float | None, take: Callable[[list[str]], None],
+           leave: threading.Event | None = None) -> bool | None:
     """Take ``proc``'s output lines from the file ``path`` as they are written, until it ends. Returns whether its
-    timeout stopped it."""
+    timeout stopped it; None when ``leave`` was set while it still went (the engine stopping, its run kept going by
+    its keeper): what it printed by then is taken, all but a last half line, and the rest is left in its file."""
     deadline = time.monotonic() + timeout if timeout else None
-    killed, wait, partial, ended_at = False, FIRST, b"", None
+    killed, wait, partial, ended_at, left = False, FIRST, b"", None, False
     try:
         with open(path, "rb") as f:
             while True:
@@ -54,11 +57,15 @@ def follow(proc: subprocess.Popen, path, timeout: float | None, take: Callable[[
                     if partial:
                         take([partial.decode("utf-8", "replace")])
                     break
-                left = deadline - time.monotonic() if deadline is not None and not killed else SLOW
-                time.sleep(max(0.0, min(wait, left)))
+                if leave is not None and leave.is_set() and ended_at is None:
+                    left = True
+                    return None
+                gap = deadline - time.monotonic() if deadline is not None and not killed else SLOW
+                time.sleep(max(0.0, min(wait, gap)))
                 wait = min(SLOW, wait * 2)
     finally:
-        proc.wait()
+        if not left:
+            proc.wait()
     return killed
 
 

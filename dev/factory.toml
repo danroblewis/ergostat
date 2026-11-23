@@ -65,7 +65,9 @@ upkeep_days = 7                      # an upkeep milestone's cycle: then it comp
                                      # next (1-90)
 enforce = false                      # true: the pass places every unfinished gap with no milestone, or a completed one
                                      # (a split's or continued gap's parent's; the factory's own: upkeep; else the first
-                                     # active). Off until the owner turns it on: on, the first pass moves every old label
+                                     # active). Off until the owner turns it on: on, the first pass moves every old label.
+                                     # And the planner and the implementor take only the gaps of active milestones,
+                                     # and pulled ones (waits_on_milestone); review and the queue are never held
 
 [backlog]
 every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before

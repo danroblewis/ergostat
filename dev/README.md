@@ -275,9 +275,17 @@ minute, no AI) completes an active milestone with at least one gap once every on
 holds it open; an empty one never completes), then activates waiting ones whose dependencies all completed, by rank,
 while fewer than `[milestones] active_max` (3; at most 20) are active. An `upkeep` milestone, for the factory's own
 repairs, is always active and outside the limit; after `[milestones] upkeep_days` (7; at most 90) it completes, its
-unfinished gaps move to a new upkeep milestone (`follows` it), which is active at once. Which gaps the implementor takes
-is not decided here: `pull` only marks a gap `pulled`. The old free-text labels in some gaps' `milestone` stay as
-written; `status` lists them until they are assigned.
+unfinished gaps move to a new upkeep milestone (`follows` it), which is active at once. The old free-text labels in
+some gaps' `milestone` stay as written; `status` lists them until they are assigned.
+
+With `[milestones] enforce = true` (false by default, and then nothing about dispatch changes) the planner and the
+implementor take only the work of active milestones. The pass, and each command once it has written, keeps on every
+unfinished gap the derived field `waits_on_milestone` (as deps.py keeps `waits_on_parked`): empty when its milestone is
+active or it is `pull`ed (the owner's exception: taken as if its milestone were active), otherwise the milestone it
+waits for, after the pass's placements (for a gap the pass left: an old label as written, `unassigned` for none). A
+sub-gap of a split with no milestone of its own takes its parent's, and is pulled when its parent is (the pass places a
+sub-gap in its parent's milestone; a pulled parent still pulls it there, but not one moved to another milestone). Their `takes: where` asks it empty; review and the merge queue ask nothing
+of it, so what was built keeps landing. Turning enforcement off clears the field on the next pass.
 
 With `[milestones] enforce = true` (off by default) the pass, under the same lock, then places every unfinished gap
 with no milestone (none, an old label, a name that is no milestone) or a completed one, recording `gap.milestone-set`
@@ -296,8 +304,11 @@ them after a pass with enforcement on, unless no milestone is active, or each wo
 A milestone with gaps is a summary in the precedence graph the implementor's take reads (its start before its gaps,
 its end after them), and so is a split parent with its sub-gaps (`parent` is a group too), so a milestone dependency
 with a gap dependency, or with a split across two milestones, can close a cycle, and a gap on a cycle is never taken. `add`, `depends` and `assign` refuse a change that would put an unfinished gap or milestone on a cycle
-it was not on, naming the path, and the pass never places a gap where it would; `status` names any on one (deps.py records gap dependencies without knowing milestones,
-so it can still close one).
+it was not on, naming the path, and the pass never places a gap where it would; `status` names any on one (deps.py
+records gap dependencies without knowing milestones, so it can still close one). One such cycle is said by name: a gap depending on a gap of a milestone that can only finish
+after its own (one that depends on it, at any depth), so both would wait forever. `assign` and `depends` refuse it and
+`status` lists any. Pulling the needed gap does not lift the refusal: the link is still a cycle in the take's graph,
+which takes neither gap, pulled or not.
 
 ```sh
 python3 dev/bin/milestones.py add NAME --title "..." --rank 1 [--depends A,B] [--upkeep]   # refuses a name in use
