@@ -62,6 +62,8 @@ pipeline_manager_session_usd = 3.0
 active_max = 3                       # the most milestones active at once, an upkeep one not counted (1-20)
 upkeep_days = 7                      # an upkeep milestone's cycle: then it completes, its unfinished gaps carried to the
                                      # next (1-90)
+enforce = false                      # true: the planner and the implementor take only the gaps of active milestones,
+                                     # and pulled ones (waits_on_milestone); review and the queue are never held
 
 [backlog]
 every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before

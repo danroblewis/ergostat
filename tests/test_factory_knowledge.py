@@ -795,7 +795,7 @@ def test_the_planner_never_takes_a_continued_gap(tmp_path):
     from ergostat.spec import read
     from tests.test_factory import ROOT, behind_main, continues
     where = read(ROOT / "ergostat.yaml")[0].blocks["planner"].takes.where
-    assert where == {"continues": None}
+    assert where == {"continues": None, "waits_on_milestone": None}       # (and its milestone: test_milestones.py)
     f = Factory(tmp_path)
     f.fold([{"event": "gap.requested", "item": "gap/plain", "data": {"title": "Plain", "source": "request"}}], None)
     gid = continues(f, name="no-such")                                  # a branch the checkout does not have

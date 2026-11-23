@@ -9,15 +9,25 @@ waiting, active, completed (final: no event moves one out of it).
                             completed becomes active, in rank order, while fewer than [milestones] active_max (default
                             3) are active; an upkeep one is always active and never counts toward the limit.
   milestones.py add NAME [--title T] [--rank N] [--upkeep] [--depends M,...]
-  milestones.py depends MILESTONE ON [ON ...]     (refuses a cycle, a name that is no milestone, a completed one)
-  milestones.py assign GAP MILESTONE              (refuses a completed milestone, and a cycle)
+  milestones.py depends MILESTONE ON [ON ...]     (refuses a cycle, a name that is no milestone, a completed one, and
+                                                   a gap left needing a gap of a milestone finishing later than its own)
+  milestones.py assign GAP MILESTONE              (refuses a completed milestone, a cycle, and the same)
                             A cycle is sought in the precedence graph the implementor's take reads: gaps' depends_on,
                             milestones' depends_on, and each group a summary of its members (a milestone of its gaps, a
                             split parent of its sub-gaps: ergostat/precedence.py), over the unfinished ones. A
                             change that puts an item on a cycle it was not on is refused.
-  milestones.py pull GAP | unpull GAP             (marks a gap pulled ahead of its milestone, or clears it: only said
-                                                   here; what the implementor takes is not decided by this program)
+  milestones.py pull GAP | unpull GAP             (marks a gap pulled ahead of its milestone, or clears it)
   milestones.py status                            (each milestone, its state, what it waits on, its gaps by state)
+
+What the planner and the implementor take (their `takes: where: {waits_on_milestone: null}`): the pass, and each
+command once it has written, keeps the derived field `waits_on_milestone` on every unfinished gap, as deps.py keeps
+`waits_on_parked`. It is empty while `[milestones] enforce` is false (the default: nothing about dispatch changes), and
+for a gap whose milestone is active or that is pulled; otherwise it names the milestone it waits for (an old label as
+written, `unassigned` for none). A sub-gap of a split with no milestone of its own is its parent's (at any depth), and
+pulled when one of them is. Review and the merge queue read no such field: what was built keeps landing. A gap that
+depends on a gap of a milestone that can only finish after its own (one depending on it, at any depth) would wait
+forever with it: `assign` and `depends` refuse it, and `status` lists any. A pulled needed gap does not lift that: the
+link is a cycle in the precedence graph the implementor's take reads (below), which takes neither gap, pulled or not.
 
 A gap names its milestone in its field `milestone` (a relation, folded by replace). The old free-text labels some gaps
 still hold there (names, not milestone ids) are left as written, and listed by status until they are assigned.
@@ -57,6 +67,14 @@ def settings(cfg: dict) -> tuple[int, float]:
             raise ValueError(f"[milestones] {key} = {v!r}: a number from 1 to {most}")
         out.append(v)
     return int(out[0]), float(out[1])
+
+
+def enforced(cfg: dict) -> bool:
+    """[milestones] enforce: false unless set; a value not true or false is refused, never read as either."""
+    v = (cfg.get("milestones") or {}).get("enforce", False)
+    if not isinstance(v, bool):
+        raise ValueError(f"[milestones] enforce = {v!r}: true or false")
+    return v
 
 
 @contextmanager
@@ -113,8 +131,10 @@ def successor(m: dict, ms: dict[str, dict], now: float) -> str:
     raise RuntimeError(f"no free name for the upkeep milestone after {m['id']} ({base} and {SUCCESSORS_MOST - 1} more)")
 
 
-def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int, days: float) -> list[tuple]:
-    """The events one pass records, in order: (event, item, data)."""
+def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int, days: float,
+         enforce: bool = False) -> list[tuple]:
+    """The events one pass records, in order: (event, item, data); last, each gap's waits_on_milestone that changed, as
+    the milestones stand after the pass."""
     out: list[tuple] = []
     state = {mid: m["state"] for mid, m in ms.items()}
     for mid, m in sorted(ms.items()):
@@ -138,6 +158,7 @@ def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int
             left = [g["id"] for g in mine if g["state"] not in DONE]
             out += [("gap.milestone-set", g, {"milestone": nxt, "milestone_was": mid, "assigned_by": "milestones"})
                     for g in left]
+            gaps = {**gaps, **{g: {**gaps[g], "fields": {**gaps[g]["fields"], "milestone": nxt}} for g in left}}
             out.append(("milestone.completed", mid, {"completed_at": now, "completed_for": "its upkeep cycle ended",
                                                      "carried_to": nxt, "carried": left}))
             state[mid] = "completed"
@@ -150,10 +171,58 @@ def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int
     for m in sorted((m for m in ms.values() if state[m["id"]] == "waiting"), key=rank_key):
         if upkeep(m):
             out.append(("milestone.activated", m["id"], {"activated_at": now, "upkeep_ends": now + days * 86400}))
+            state[m["id"]] = "active"
         elif room > 0 and not waits_on(m, done):
             out.append(("milestone.activated", m["id"], {"activated_at": now}))
+            state[m["id"]] = "active"
             room -= 1
+    return out + holds(state, gaps, enforce)
+
+
+UNASSIGNED = "unassigned"
+HOPS = 50                                       # parents followed up from a sub-gap (a hard ceiling; a loop ends too)
+
+
+def home(g: dict, gaps: dict[str, dict]) -> tuple[list[str], bool]:
+    """A gap's milestone (its own, else its nearest split ancestor's) and whether it, or an ancestor up to the one
+    whose milestone it takes, is pulled."""
+    pulled, seen = False, set()
+    while g is not None and g["id"] not in seen and len(seen) < HOPS:
+        seen.add(g["id"])
+        pulled = pulled or g["fields"].get("pulled") is True
+        mine = ids_of(g["fields"].get("milestone"))
+        if mine:
+            return mine, pulled
+        up = ids_of(g["fields"].get("parent"))
+        g = gaps.get(up[0]) if up else None
+    return [], pulled
+
+
+def waits_for(g: dict, state: dict[str, str], gaps: dict[str, dict], enforce: bool) -> str | None:
+    """What a gap's waits_on_milestone should be (None: empty). A milestone not in the record is not known to be
+    active: the gap waits for it."""
+    if not enforce or g["state"] in DONE:
+        return None
+    mine, pulled = home(g, gaps)
+    if pulled or any(state.get(m) == "active" for m in mine):
+        return None
+    return mine[0] if mine else UNASSIGNED
+
+
+def holds(state: dict[str, str], gaps: dict[str, dict], enforce: bool) -> list[tuple]:
+    """A gap.milestone-held for each gap whose waits_on_milestone is not what it should be (a finished one cleared)."""
+    out = []
+    for gid, g in sorted(gaps.items()):
+        want = waits_for(g, state, gaps, enforce)
+        if (g["fields"].get("waits_on_milestone") or None) != want:
+            out.append(("gap.milestone-held", gid, {"waits_on_milestone": want}))
     return out
+
+
+def rehold(enforce: bool) -> None:
+    """(the lock held, after a command wrote) Each gap's waits_on_milestone brought up to date with the record."""
+    ms, gaps = read()
+    record(holds({mid: m["state"] for mid, m in ms.items()}, gaps, enforce))
 
 
 def record(events: list[tuple]) -> None:
@@ -163,9 +232,10 @@ def record(events: list[tuple]) -> None:
 
 def run_pass(cfg: dict, now: float | None = None) -> list[tuple]:
     active_max, days = settings(cfg)                    # (refused before anything is read)
+    enforce = enforced(cfg)
     with held(cfg):
         ms, gaps = read()
-        got = plan(ms, gaps, time.time() if now is None else now, active_max, days)
+        got = plan(ms, gaps, time.time() if now is None else now, active_max, days, enforce)
         record(got)
     return got
 
@@ -292,10 +362,43 @@ def closes(before: list[tuple[str, str]], after: list[tuple[str, str]], first: l
     return " -> ".join(sorted(comp))                     # (not reached: a strongly connected set has a path back)
 
 
-def refuse_cycle(before: list, after: list, first: list[str], what: str) -> None:
-    loop = closes(before, after, first)
-    if loop:
-        raise Refused(f"refused: {what} would close a cycle: {loop} (no gap on it would be taken)")
+def after_all(mid: str, ms: dict[str, dict]) -> set[str]:
+    """The unfinished milestones ``mid`` waits on, at any depth: it can only finish after each of them."""
+    out, todo = set(), [mid]
+    while todo:
+        for d in ids_of((ms.get(todo.pop()) or {}).get("fields", {}).get("depends_on")):
+            if d not in out and (ms.get(d) or {}).get("state") != "completed":
+                out.add(d)
+                todo.append(d)
+    return out
+
+
+def later(ms: dict[str, dict], gaps: dict[str, dict]) -> list[tuple[str, str, str, str]]:
+    """Each (gap, the gap it depends on, that one's milestone, its own) where the needed gap's milestone can only
+    finish after the gap's own: both would wait forever. Over the unfinished gaps; pulled or not (the take's graph
+    holds such a link as a cycle either way)."""
+    out = []
+    for gid, g in sorted(gaps.items()):
+        if g["state"] in DONE:
+            continue
+        mine = home(g, gaps)[0]
+        for d in ids_of(g["fields"].get("depends_on")):
+            if d in gaps and gaps[d]["state"] not in DONE:
+                out += [(gid, d, mb, ma) for mb in home(gaps[d], gaps)[0] if mb not in mine
+                        for ma in mine if ma in after_all(mb, ms)][:1]
+    return out
+
+
+def refuse(ms: dict, gaps: dict, ms2: dict, gaps2: dict, first: list[str], what: str) -> None:
+    """Refused: a change from (ms, gaps) to (ms2, gaps2) that closes a cycle, or that leaves a gap needing a gap of a
+    milestone that can only finish later (said by name; it is a cycle too, and said as one when it is)."""
+    loop = closes(pairs_of(ms, gaps), pairs_of(ms2, gaps2), first)
+    why = [f"would close a cycle: {loop} (no gap on it would be taken)"] if loop else []
+    for a, d, mb, ma in [x for x in later(ms2, gaps2) if x not in later(ms, gaps)][:1]:
+        why.append(f"would leave {a} depending on {d}, in {mb}, which can only finish after {ma}: both would wait "
+                   f"forever (pulling {d} does not lift it)")
+    if why:
+        raise Refused(f"refused: {what} " + "; and ".join(why))
 
 
 def checked_deps(ms: dict[str, dict], gaps: dict[str, dict], mid: str, names: list[str]) -> list[str]:
@@ -307,7 +410,7 @@ def checked_deps(ms: dict[str, dict], gaps: dict[str, dict], mid: str, names: li
     m = ms.get(mid) or {"id": mid, "state": "waiting", "fields": {}}
     had = ids_of(m["fields"].get("depends_on"))
     then = {**ms, mid: {**m, "fields": {**m["fields"], "depends_on": had + [d for d in on if d not in had]}}}
-    refuse_cycle(pairs_of(ms, gaps), pairs_of(then, gaps), [mid], f"{mid} depending on {', '.join(on)}")
+    refuse(ms, gaps, then, gaps, [mid], f"{mid} depending on {', '.join(on)}")
     return on
 
 
@@ -327,17 +430,20 @@ def add(cfg: dict, name: str, title: str = "", rank: float | None = None, upkeep
 
 def depends(cfg: dict, name: str, on: list[str]) -> list[str]:
     mid = mid_of(name)
+    enforce = enforced(cfg)
     with held(cfg):
         ms, gaps = read()
         if known(mid, ms)["state"] == "completed":
             raise Refused(f"{mid} is completed: it is final")
         got = checked_deps(ms, gaps, mid, on)
         record([("milestone.changed", mid, {"depends_on": {"add": got}})])
+        rehold(enforce)
     return got
 
 
 def assign(cfg: dict, gap: str, name: str) -> str:
     mid = mid_of(name)
+    enforce = enforced(cfg)
     with held(cfg):
         ms, gaps = read()
         gid = gid_of(gap, gaps)
@@ -345,17 +451,20 @@ def assign(cfg: dict, gap: str, name: str) -> str:
             raise Refused(f"{mid} is completed: no gap is assigned to a completed milestone")
         was = gaps[gid]["fields"].get("milestone")
         then = {**gaps, gid: {**gaps[gid], "fields": {**gaps[gid]["fields"], "milestone": mid}}}
-        refuse_cycle(pairs_of(ms, gaps), pairs_of(ms, then), [gid, mid], f"{gid} in {mid}")
+        refuse(ms, gaps, ms, then, [gid, mid], f"{gid} in {mid}")
         record([("gap.milestone-set", gid, {"milestone": mid, "milestone_was": was, "assigned_by": BY[0]})])
+        rehold(enforce)
     return gid
 
 
 def pull(cfg: dict, gap: str, on: bool) -> str:
+    enforce = enforced(cfg)
     with held(cfg):
         _, gaps = read()
         gid = gid_of(gap, gaps)
         record([("gap.pulled" if on else "gap.unpulled", gid,
                  {"pulled": True, "pulled_at": time.time()} if on else {"pulled": None, "pulled_at": None})])
+        rehold(enforce)
     return gid
 
 
@@ -386,6 +495,13 @@ def status(cfg: dict) -> str:
     loops = {n.removesuffix(END) for n in in_cycles(pairs_of(ms, gaps))}     # (one deps.py closed: it knows no milestone)
     if loops:
         lines.append("on a precedence cycle (never taken): " + ", ".join(sorted(loops)))
+    stuck = later(ms, gaps)
+    if stuck:
+        lines.append("depends on a gap of a milestone that can only finish later (both wait forever): " +
+                     ", ".join(f"{a} on {d} ({mb}, after {ma})" for a, d, mb, ma in stuck))
+    if enforced(cfg):
+        n_held = sum(1 for g in gaps.values() if g["fields"].get("waits_on_milestone"))
+        lines.append(f"enforced ([milestones] enforce): {n_held} gaps wait for their milestone")
     return "\n".join(lines) or "no milestones"
 
 
