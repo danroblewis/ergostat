@@ -14,6 +14,7 @@ import re
 import secrets
 import threading
 import time
+from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -30,6 +31,7 @@ STATIC = Path(__file__).parent / "static"
 GONE = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)    # the client went away mid-answer
 EVENTS_MOST = 1000                   # the most events one answer carries (``n``); page through with ``after``
 FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this size
+KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
 UI_PAGES = ("diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
@@ -119,17 +121,23 @@ class Live:
         self._lock = threading.Lock()
         self._snaps: dict = {}
         self._making: dict = {}            # snapshots being made: one at a time for each moment, however many ask
-        self._kept: dict = {}
+        self._kept: OrderedDict = OrderedDict()   # the answers worked out, the least recently used first
+        from .goal_work import GoalWork
+        self.work = GoalWork()                    # per-goal work, in the background (goal_work.py)
 
     def cached(self, key):
         with self._lock:
-            return self._kept.get(key)
+            got = self._kept.get(key)
+            if got is not None:
+                self._kept.move_to_end(key)
+            return got
 
     def keep(self, key, value) -> None:
         with self._lock:
-            if len(self._kept) > 16:
-                self._kept.clear()
             self._kept[key] = value
+            self._kept.move_to_end(key)
+            while len(self._kept) > KEPT_MOST:
+                self._kept.popitem(last=False)
 
     def reloaded(self) -> None:
         """The model was changed here (a proposal accepted): take it as the one loaded."""
@@ -660,12 +668,19 @@ def _answer(live: Live, path: str, q: dict, project=None):
                               "max": m.valves[v].max, "last": p.events.last_opening(v, snap["at"])})
             return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
-                    "crossings": in_window[-20:], "crossings_total": len(in_window),
+                    "crossings": [{**e, "off_by_words": st.off_by_words(e["data"].get("setpoint") or c.setpoint, e["data"].get(
+                        "error"), c.tolerance, getattr(m.stocks.get(c.holds), "unit", ""),
+                        e["type"] == "loop.off")} for e in in_window[-20:]],
+                    "crossings_total": len(in_window),
                     "description": c.description, "parts": parts,
                     "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
                     "decisions": st.decisions(p, name, since, snap["at"]),
                     "hints": [h for h in snap["hints"] if h["controller"] == name]}
-        return snap["loops"]
+        # each loop with its stock's trend (the snapshot's), and with perf=1 how it is doing, from the background
+        from .control_api import performances
+        perf = performances(live, p, snap, list(snap["loops"])) if one("perf") else None
+        return {n: {**lp, "points": snap["stocks"].get(lp["stock"], {}).get("points") or [],
+                    **({"perf": perf[n]} if perf is not None else {})} for n, lp in snap["loops"].items()}
     if head == "agents":
         if name:
             a = m.agents.get(name)
