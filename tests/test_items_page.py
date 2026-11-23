@@ -1329,6 +1329,133 @@ def test_the_timeline_opens_at_now(browser, roadmap):
     pg.close()
 
 
+BACKLOG = """name: backlog
+items:
+  gap:
+    id: gap/*
+    states: [ready, done, parked]
+    on: {gap.landed: done, gap.parked: parked}
+    relations:
+      after: gap
+    show: [title, rank]
+messages:
+  done: {gap: [done]}
+  paused: {gap: [parked]}
+blocks:
+  implementor:
+    type: program
+    run: "true"
+    takes: {kind: gap, at: ready, unblocked: true, order: rank}
+    pool: 3
+"""
+
+
+def seed_backlog(d: Path, home: Path) -> None:
+    """28 gaps ranked opposite to the order they were filed (the last filed ranked first), filed three at a moment so
+    no arrival rate is read (a batch); gap/p1 parked, and gap/p2 after it."""
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+t = time.time() - 3000
+for i in range(28):
+    p.events.add("gap.filed", item=f"gap/g{{i:02d}}", data={{"title": f"gap {{i}}", "rank": 28 - i}}, at=t + (i // 3) * 10)
+p.events.add("gap.filed", item="gap/p1", data={{"title": "parked one"}}, at=t - 16 * 86400)
+p.events.add("gap.parked", item="gap/p1", at=t - 15 * 86400)          # (before the estimates' history: no share parks)
+p.events.add("gap.filed", item="gap/p2", data={{"title": "after it", "after": "gap/p1"}}, at=t + 90)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+
+
+@pytest.fixture(scope="module")
+def backlog(tmp_path_factory):
+    d = tmp_path_factory.mktemp("backlog") / "backlog"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(BACKLOG)
+    home = d.parent / "home"
+    seed_backlog(d, home)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+TIMELINE_ROWS = """() => [...document.querySelectorAll('.rg-timeline .rg-row[data-id], .rg-timeline .rg-heading')].map((r) => ({
+  id: r.dataset.id || null, heading: r.classList.contains('rg-heading') ? r.textContent : null,
+  y: r.getBoundingClientRect().y, why: r.querySelector('.rg-why')?.textContent || null,
+  bars: [...r.querySelectorAll('.rg-proj')].map((p) => [+p.getAttribute('x'), +p.getAttribute('x') + +p.getAttribute('width')]) }))"""
+
+
+def test_the_timeline_shows_the_simulated_schedule_in_order(browser, backlog):
+    """A backlog of 28 ranked gaps, a pool of 3: the unfinished rows in the order the simulation starts them (each
+    row's bar starts no earlier than the one above: a staircase, never more than 3 at once, the best ranked first);
+    the parked gap and the one after it last, under 'Not scheduled (2)', each with why and no bar ahead; the legend's
+    finish a clock time with its date and the count not scheduled; the note each block's capacity and its source; no
+    'held'. With the estimates not yet worked out (stubbed to none), the note says the schedule is being worked out
+    and the bars drawn meanwhile are the levelled projection. The item page says why it is not scheduled."""
+    import re
+    pg, errors = open_view(browser, backlog, "items?kind=gap&view=timeline", ".rg-timeline[data-drawn] .rg-row")
+    pg.wait_for_function("() => document.querySelector('.rg-timeline .rg-note')?.textContent.includes('at once')", timeout=30000)
+    pg.wait_for_timeout(300)
+    rows = pg.evaluate(TIMELINE_ROWS)
+    heads = [i for i, r in enumerate(rows) if r["heading"]]
+    assert len(heads) == 1 and rows[heads[0]]["heading"] == "Not scheduled (2)", rows
+    ahead, apart = rows[:heads[0]], rows[heads[0] + 1:]
+    assert {r["id"] for r in apart} == {"gap/p1", "gap/p2"} and all(not r["bars"] for r in apart), apart
+    assert {r["id"]: r["why"] for r in apart} == {"gap/p1": "paused in parked", "gap/p2": "waits on gap/p1, which is parked"}
+    edges = [min(b[0] for b in r["bars"]) for r in ahead if r["bars"]]
+    assert len(edges) == 28 and edges == sorted(edges), edges                      # projected-start order
+    assert len({round(x) for x in edges}) >= 8, edges                              # a staircase, not all at now
+    spans = [b for r in ahead for b in r["bars"]]
+    most = max(sum(1 for a, b in spans if a < x - 0.5 and x + 0.5 < b) for x in (a + 1 for a, _ in spans))
+    assert most <= 3, most                                                         # the pool: 3 at once at most
+    first = [r["id"] for r in ahead[:3]]
+    assert set(first) == {"gap/g27", "gap/g26", "gap/g25"}, first                  # ranked 1-3: the last filed
+    said = pg.locator(".rg-legend .rg-eta").first.inner_text()
+    assert re.fullmatch(r"last gap \(\S+\) expected \w{3} \d+ \d\d:\d\d(?: \S+)?, by ((?:\w{3} \d+ )?\d\d:\d\d(?: \S+)?) at worst "
+                        r"\(9 in 10\); 2 not scheduled", said), said
+    note = pg.locator(".rg-timeline .rg-note").inner_text()
+    assert "implementor 3 at once (pool)" in note, note
+    text = pg.evaluate("() => document.querySelector('.rg-timeline').textContent + document.querySelector('.rg-legend').textContent")
+    assert "held" not in text.lower(), text
+    pg.goto(f"{backlog}/item/gap%2Fp2")
+    pg.wait_for_selector("[data-eta]", timeout=20000)
+    assert pg.locator("[data-eta]").first.inner_text() == "not scheduled: waits on gap/p1, which is parked"
+    assert not errors, errors
+    # the estimates stubbed to none (still being worked out): said so, and the bars are the levelled projection
+    import json
+
+    def stub(route):
+        got = route.fetch()
+        body = {**got.json(), "eta": None, "eta_pending": True}
+        body["items"] = [{k: v for k, v in x.items() if k != "eta"} for x in body["items"]]
+        route.fulfill(response=got, body=json.dumps(body))
+    pg.route("**/api/items-graph**", stub)
+    pg.goto(f"{backlog}/items?kind=gap&view=timeline")
+    pg.wait_for_selector(".rg-timeline[data-drawn] .rg-row", timeout=20000)
+    note = pg.locator(".rg-timeline .rg-note").inner_text()
+    assert "Working out the schedule: a simulation of 30 unfinished gaps at each block's capacity" in note, note
+    title = pg.locator(".rg-timeline .rg-proj title").first.text_content()
+    assert "the levelled projection, median times, until the simulation is worked out" in title, title
+    assert not errors, errors
+    pg.close()
+
+
 @pytest.mark.parametrize("view", ["graph", "timeline"])
 def test_the_graph_and_the_timeline_left_open_change_nothing(browser, roadmap, view):
     pg, errors = open_view(browser, roadmap, f"items?view={view}", f".rg-{view} [data-drawn], .rg-{view}[data-drawn]")
@@ -3043,6 +3170,7 @@ MS_TIMELINE = """([d, o, n]) => { const m = rgModel(d, o), el = relTimeline(() =
     tx: r.querySelector('.rg-tally')?.getAttribute('x'),
     cy: +r.querySelector('.rg-id').getAttribute('y') - 4 }));
   const out = { rows: read(), note: el.querySelector('.rg-note').textContent,
+                heads: [...el.querySelectorAll('.rg-heading')].map((h) => h.textContent),
                 starts: [...el.querySelectorAll('.rg-edge path')].map((p) => +p.getAttribute('d').split(' ')[0].split(',')[1]) };
   if (n) { el.querySelector(`.rg-sumrow[data-id="${n}"] .rg-tri`).dispatchEvent(new MouseEvent('click')); out.after = read(); }
   el.remove(); return out; }"""
@@ -3077,6 +3205,18 @@ def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browse
     sums = [r for r in big["rows"] if r["sum"]]
     assert len(sums) == 45 and len(big["rows"]) <= 200                          # every milestone kept, as a row
     assert any(r["open"] == "false" and r["id"].startswith("milestone/x") for r in sums)
+    assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
+    # with estimates and 6 not scheduled: room kept for their group, its heading and every row of it, none cut
+    ans = milestone_answer(n_extra=40)
+    ans["eta"] = {"runs": 10, "capacity": {"implementor": 3}, "sources": {}}
+    parked = [x["id"] for x in ans["items"] if x["kind"] == "gap" and x["status"] != "done"][-6:]
+    for x in ans["items"]:
+        if x["id"] in parked:
+            x["eta"] = {"unscheduled": True, "said": "paused in parked"}
+    big = pg.evaluate(MS_TIMELINE, [ans, MS, None])
+    ids = [r["id"] for r in big["rows"]]
+    assert big["heads"] == ["Not scheduled (6)"], big["heads"]
+    assert len(ids) <= 200 and ids[-6:] == sorted(parked), ids[-8:]
     assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
     assert not errors, errors
     pg.close()
