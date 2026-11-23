@@ -148,3 +148,28 @@ Round 5: the factory's merge of main (dc47a763) conflicted in pages.js and tests
   times out at the `#project` switcher wait (tests/test_items_page.py:1924), as in rounds 3 and 4.
 - Refused here: `node --check ergostat/web/static/pages.js` and a python one-off that edits the test file (Edit was
   used instead). Not run: the unit suite, the other three browser files, demo_check (no example touched).
+
+Round 6: the review's one finding, answered. On a kind's own paged page (/items/KIND?q=…) the server's `matched`
+counts only the page shown. So the branch's count and hiding gave a heading of "25 items match" beside `found`'s
+"111 matches", and a miss dropped the kind's whole section. Now `hits` is null when `paged()`, so that page works as
+it does on main: the heading counts the kind's items, the section and pager stay on a miss, and `found` is the only
+count beside the box. The overview's search (/items?q=…) keeps the count and the hiding. pages.js is now +19/-8
+(11 net).
+
+- Test: `test_a_search_on_a_kinds_own_page_keeps_its_one_count_and_its_section` (tests/test_items_page.py, on the
+  1,200-ticket paged_roadmap fixture). For 'ticket/n11' it checks that `found` says "111 matches…", that no heading
+  says "match" and that `.search-hits` is empty. For 'zzqx' it checks that `found` says "0 matches…" and that the
+  kind's section stays.
+- Break seen to fail (lesson 9): putting back `hits` on a paged page failed the test with the heading
+  "25 items match, 1 kind".
+- Run: ruff clean; tests/test_graph_cli_web.py 49 passed. tests/test_items_page.py with Playwright under the
+  watchdog: 62 passed, 2 failed, nothing skipped. The gap's three browser tests pass. One failure waits for
+  `.action-classes li[data-class="jira-transition"]`, which is
+  `test_actions_say_per_class_asked_approved_denied_and_whether_held`, as in round 5 (main's overview does not draw
+  it). The other is a `wait_for_function` timeout that looks like round 5's header/switcher test, but it was not
+  named for certain. This branch changes neither test, and neither checks the search (lesson 13).
+- Refused here: rerunning those two tests alone to name the second one for certain (`suite_watch.py -- … named_tests.py
+  tests/test_items_page.py::test_actions_say_per_class_asked_approved_denied_and_whether_held
+  tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart | grep …`), and
+  appending to this file with a shell heredoc (Edit was used instead). Not run: the unit suite, the other three
+  browser files, demo_check (no example touched).

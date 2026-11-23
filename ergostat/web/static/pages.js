@@ -749,10 +749,11 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     const rows = SNAP ? d.items.filter((i) => !needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) : d.items;
-    // a search: how many each kind matched (the server's count, a snapshot's own), its kinds without one not drawn
-    const hits = !needle ? null : !SNAP && d.matched ? d.matched : rows.reduce((a, i) => ({ ...a, [i.kind || ""]: (a[i.kind || ""] || 0) + 1 }), {});
+    // a search: how many each kind matched (the server's count, a snapshot's own), its kinds without one not drawn;
+    // not on a kind's own paged page: there d.matched counts one page only, and `found` says the kind's whole count
+    const hits = !needle || paged() ? null : !SNAP && d.matched ? d.matched : rows.reduce((a, i) => ({ ...a, [i.kind || ""]: (a[i.kind || ""] || 0) + 1 }), {});
     const hitsN = hits && Object.values(hits).reduce((a, b) => a + b, 0);
-    setText(hitsSaid, hits && !paged() ? (hitsN ? String(hitsN) : "nothing matches") : "");
+    setText(hitsSaid, hits ? (hitsN ? String(hitsN) : "nothing matches") : "");
     const hit = (k) => !hits || hits[k] > 0;
     const val = (v) => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
     const isNum = (its, f) => its.some((i) => typeof i.fields[f] === "number") && its.every((i) => i.fields[f] == null || typeof i.fields[f] === "number");

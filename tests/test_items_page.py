@@ -2188,6 +2188,27 @@ def test_a_kinds_search_reaches_every_item_and_its_sort_is_the_whole_sets(browse
     pg.close()
 
 
+@pytest.mark.slow
+def test_a_search_on_a_kinds_own_page_keeps_its_one_count_and_its_section(browser, paged_roadmap):
+    """A search on /items/KIND: the server's matched counts only the page shown, so the count beside the box is the
+    kind's own (`found`), the system's heading is not a page's count, and a miss keeps the kind's section."""
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{paged_roadmap}/items/ticket")
+    says(pg, f"1-25 of {PAGED}")
+    pg.fill("input[type=search]", "ticket/n11")                                 # 111 matches, more than a page
+    pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('111 matches')")
+    heads = pg.locator(".sys-head").all_inner_texts()
+    assert heads and not any("match" in t for t in heads), heads                # no "25 items match" from one page
+    assert pg.locator(".search-hits").inner_text() == ""                        # one count beside the box, not two
+    pg.fill("input[type=search]", "zzqx")
+    pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('0 matches')")
+    assert pg.locator(".sys-head").count() >= 1                                 # the kind's section stays
+    assert not errors, errors
+    pg.close()
+
+
 # milestones in the Graph and the Timeline (dev/records/milestone-shown-in-the-graph.md): last in the file, so the
 # roadmap tests above keep the timing they had (the roadmap's record ages with its fixture)
 FRAMES = """([d, o]) => { const m = rgModel(d, o);
