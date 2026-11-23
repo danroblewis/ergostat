@@ -332,7 +332,7 @@ in `ergostat/library/trust.py`: the sections `systems`, `items`, `parameters`, `
 `alarm`, whose `out:` names only parts the chain made (an `out:` commands the block it names and sets the goal it
 names); sensors counting items (`items:`) or reading a stock's changes (`changes:`); and the runs, `program`, `ai`
 and `person` blocks, queries and `sources` entries below. Anything else is refused: any other section, block type or
-key (a sensor's `daemon`, a block's `on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's
+key (a sensor's `daemon`, or its `journal`, which would read files in the owner's folder into the record, a block's `on-stale` or an `out:` to the owner's block or goal, a kind's `lease`, a goal's
 `owner`, `inferred` or `formerly` anywhere). One refused part refuses the whole use at the owner's `use:` line
 (**library-untrusted**, or **untrusted-text** under R3), naming the template, its folder and the first refused path;
 nothing of the chain is in the model. Only the owner can mark a folder trusted, after reading it (docs/SECURITY.md,
@@ -2528,7 +2528,7 @@ again, from when it is asked.
 
 An instrument: it measures one stock or one flow, and nothing else. It never decides or acts. It
 is written inside the stock or flow it measures. Exactly one of `run`, `query`, `manual`, `items`,
-`changes`, `builtin` or `daemon`:
+`changes`, `builtin`, `daemon` or `journal` (else `sensor-kind`):
 
 ```yaml
 sensors:
@@ -2571,6 +2571,7 @@ flows:
 | `run` | command | | A command whose output is the reading: a bare number, or JSON `{"value": n}`. Run in the model's folder; its environment carries `ERGOSTAT_CMD`, `ERGOSTAT_PROJECT`, `ERGOSTAT_STATE_DIR` and (when the engine has one) `ERGOSTAT_SOCKET`, as a block's run does (section 9.3), so a collector can read the items with `$ERGOSTAT_CMD item --kind K --json` |
 | `query` | map | | A query against a source (section 11): `source` and the source's own fields |
 | `daemon` | map, or a name under `daemons:` | | Read by a long-lived process (section 9.7): each reading asked as a line on its schedule, no process started per reading; several sensors may name one daemon |
+| `journal` | folder | | The `*.jsonl` journals directly in this folder, written by something ergostat did not start, followed while ergostat runs (below, *Journals*). Relative to the model's folder and inside it: an absolute path, or one whose `..` leaves the folder, is refused (`bad-journal`). Never read on a schedule, and no process is started for it |
 | `push` | bool | false | With `daemon`: the daemon sends its readings by itself (`{"reading": V, "sensor": "STOCK.SENSOR"}`); none is asked for |
 | `manual` | bool | | Readings recorded by a person (`ergostat sensor STOCK.SENSOR --read V`, recorded at the present time). `--read` with `--at` is refused (exit 2, nothing written): `--at` views the past and records nothing |
 | `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over`; on an auxiliary that names `entering` or `leaving`, how many moved over `over` (a count, not a rate: `fixes-regressed-recent`, section 12r) |
@@ -2658,6 +2659,45 @@ the items like any other. An observation records what was seen, never a command:
 item (an id with a `/`), may not use ergostat's own types, and a sensor has no outputs. A measured
 value is shown as measured by its sensor; an auxiliary a block sets is shown as set by that block.
 A sensor read by a daemon may print the same lines tagged with `"sensor": "STOCK.SENSOR"` (section 9.7).
+
+**Journals.** A `journal: FOLDER` sensor watches a work daemon ergostat never starts, through the
+JSON-lines files it writes. Each engine follows the journal sensors it owns (all of them, unsharded;
+its own part of the plan, section 9.8) on one thread of its own, started with the engine only when it
+owns one, ended by the engine's stop before `ergostat.stopped` is recorded, and refreshed by a reload:
+a journal sensor removed is no longer read, a new one is. Every 2 seconds it looks at each `*.jsonl`
+file directly in each folder, the first 64 by name; the files past them are said once as
+`sensor.refused` and not read. Each new complete line (ending in `\n`) goes through a `run` sensor's
+observation rules above: an event about an item is recorded with `source` the sensor's name, and a
+line that breaks them is recorded as `sensor.refused` about the sensor, with its `why`. A line's own
+`cite:` id is checked and kept as a `run` sensor's is (section 2a, *Mirroring an outside log*); a message line is refused (a
+journal relays no message). A line that is not JSON, or JSON with no `event`, is passed over. A line
+`{"value": N}` (a finite number, not a boolean) is recorded as a `sensor.value` about the sensor (its
+`value`, `file` and `offset`), under the line's id below, and is the sensor's reading only when that
+record is new: the latest new one each pass, at most one a second. So a value line read again (a lost
+state file, a file gone back, a first start on an old journal read before) is never a new reading; a
+value line ergostat had never read is taken at the time it is read. A partial last line waits until it is complete. A line over 65,536 bytes is
+refused (its `why` says so) and skipped; at most 500 lines per sensor are taken each pass, and the
+rest wait for the next. A file reached through a link that leaves the folder (or a folder that, through
+a link, leaves the model's folder) is not read, and this is said once; so is a `*.jsonl` that is not a
+regular file (a FIFO, a device), which is opened without waiting and never read.
+
+Each line is recorded under an id made from the sensor, the file's name, the line's byte offset and
+the line's bytes, and each refusal of it under an id made from those and its reason; a once-said
+notice's id is made from the sensor, the file and what is said. So a line read again records nothing
+new, after a restart, a lost read state or a reload. The offsets read are kept in `journals.json`
+(`journals-SHARD.json` for a shard) in the project's state folder, with each file's device and inode
+and a hash of the 4,096 bytes before its offset. When that file is missing or unreadable, every journal
+is read again from its start: nothing is skipped and nothing recorded twice. A journal that shrinks,
+whose inode changes, or whose bytes before the offset changed (rewritten or rotated, even past its old
+size) is said once as `sensor.refused` ("FILE went back") and read again from its start, so its new
+lines are recorded. The limits of this: a line identical to the old one at the same offset of the same
+file name counts as the same entry, and is not recorded again; a journal rotated by renaming it to
+another `*.jsonl` name (`x.jsonl` to `x.1.jsonl`) has its lines recorded again under the new name;
+if the record forgets them (`keep`, `prune`) and the state file is also lost, those lines are recorded
+again (a `{"value": N}` line then too is a reading again); and a newest value line read within a
+second of the last reading waits in memory for the next pass, so a stop in that second loses it as a
+reading (its `sensor.value` is kept). An untrusted library's journal sensor is refused (section 2a,
+held uses): it would read files in the owner's folder into the record.
 
 ## 7. Flows
 
