@@ -5322,7 +5322,13 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   for the change); the craft notes closed and opened; the fit, not worse beyond 10% over the stocks
   both replay where it can be worked out (made measurable counts for it); and **behaviour kept**: a stock whose replay
   followed the record (scaled error at most 0.5), or an equation that explained its flow (R² at least 0.5), is still
-  there, or renamed, and no worse beyond the tolerance. The verdict is **better** when findings, chains and coherence
+  there, or renamed, and no worse beyond the tolerance; and **systems**, only for a change that adds a system or moves
+  a part between systems (a renamed part is the same part; a system whose parts are exactly those of one taken away is
+  it renamed): for each system it adds or moves a part into or out of, its flows and causal links with both ends in it
+  against those crossing out of it, before and after, each part placed by the system it is in (one of no declared
+  system is in none, so its links cross). It is worse when one such system crosses more than it holds (said by name in
+  the why), improved when each holds more than it crosses: how connected the systems are, nothing about what each is
+  for. The verdict is **better** when findings, chains, coherence and systems
   improve (net), none is worse, the fit is no worse and nothing is lost; **mixed** when something improves and
   something is worse; **no better** when nothing improves. Craft notes it opens (a new flow between stocks wants an
   equation) are said beside the verdict and count against it only when nothing else moves. The judge takes a redesign
