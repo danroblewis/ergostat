@@ -740,7 +740,7 @@ function drawGraph(svg, g, lay) {
   const flowLinks = sd ? sdFlowLinks(g) : new Set();      // what Flows only keeps, by the model (dynamics.js)
   const flowEnds = new Set(g.edges.filter((e) => flowLinks.has(e.id)).flatMap((e) => [e.source, e.target]));
   if (sd && !flowLinks.size)                              // (shown with Flows only: a level with nothing it keeps says so)
-    vp.append(s("text", { class: "flows-none t-sub", x: (lay.ox || 0) + lay.width / 2, y: (lay.oy || 0) - 14, "text-anchor": "middle" },
+    vp.append(s("text", { class: "flows-none t-sub", x: (lay.ox || 0) + lay.width / 2, y: (lay.oy || 0) + lay.height + 24, "text-anchor": "middle" },
       "No flows at this level: what crosses between these systems is information only. Open a system to see its flows."));
   for (const le of lay.edges) {
     const e = edgeById[le.id];
@@ -1242,6 +1242,7 @@ async function pageDiagram(main, q) {
     wrap.querySelector(".loading")?.remove();
     shell.classList.remove("opening");
     S.graph = g;
+    if (typeof quietRefresh === "function") quietRefresh(g);   // an open system's panel: its quiet sentence (details.js)
     setText(caption, captionText(S.status, view));
     caption.title = caption.textContent;
     proposedBanner(wrap, g, proposal, go);
@@ -1265,7 +1266,10 @@ async function pageDiagram(main, q) {
       if (!g.nodes.length) {
         svg.replaceChildren();
         S.layout = null; S.graphSig = "";
-        wrap.append(h("div", { class: "empty" }, !g.kinds.length ? "No kinds of item here: the process map draws how items moved."
+        const here = system || S.status?.name || "this model";    // (the reason, and where to look instead)
+        wrap.append(h("div", { class: "empty" }, !g.kinds.length
+          ? h("span", {}, `No kinds of item in ${here}: its parts are counted by sensors. See `,
+              h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ view: "dynamics" }); } }, "Dynamics"), ".")
           : `Nothing on the record in the window for ${g.kinds.map((k) => k.name).join(", ")}.`));
       } else if (!S.pressed) {
         await drawProcessView(svg, g);
@@ -1416,7 +1420,12 @@ function inboxAnswer(a) {
       if (ev.currentTarget.matches(":focus-visible")) said.focus();
       for (const b of row.querySelectorAll("button")) b.disabled = true;
       const q = { ...(nv ? { n: nv } : {}), ...(wv ? { note: wv } : {}) };
-      try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
+      try {
+        const r = await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q);
+        ANSWERED.set(a.what, { ...r, what: a.what, note: q.note, time: Date.now() / 1000 });
+        said.replaceChildren(" ", ...answeredSays(ANSWERED.get(a.what)).flat().filter(Boolean));   // in its row while held; then answeredRow
+        refreshHeader();
+      }
       catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; ready(row); }
     } }, says);
   };
@@ -1480,6 +1489,16 @@ function showGoal(name) {
   if (box && !(S.graph?.open || []).includes(box)) S.toggleSystem?.(box);
   openLoop(name);
 }
+/* what the owner answered here, said in its row and then in place of it until the page is next opened: what was
+   done, by whom, when */
+const ANSWERED = new Map();
+function answeredSays(x) {
+  const at = new Date(x.time * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
+  const to = x.item ? `/item/${encodeURIComponent(x.item)}` : x.link;
+  return [`${{ approve: "Approved", deny: "Denied", done: "Done" }[x.verb]} by you at ${at} (${x.said})`, x.note ? `, reason: ${x.note}` : "",
+    to ? [" · see ", h("a", { href: to }, x.item || x.what)] : null];
+}
+const answeredRow = (x) => h("div", { key: `answered ${x.what}`, "data-answered": x.what }, h("b", {}, x.what), " ", answeredSays(x));
 
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
@@ -1501,9 +1520,11 @@ function renderSide(side, g, view) {
   // housekeeping (folded, unless a fault is in it; modelling's held requests go there). Each entry starts with its
   // state or kind word, so colour is not the only cue.
   const ask = waitsOnYou;                                     // (util.js: the header's "N wait for you" counts the same)
-  const waiting = problems.filter(ask);
+  // answered here: drawn as answered, until the same id, once seen gone, is listed to answer again (a request held again)
+  for (const [w, x] of ANSWERED) { const back = problems.some((a) => a.answer && a.what === w); if (back && x.left) ANSWERED.delete(w); else if (!back) x.left = true; }
+  const waiting = problems.filter((a) => ask(a) && !ANSWERED.has(a.what));
   const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
-  const rest = problems.filter((a) => !waiting.includes(a) && !off.includes(a));
+  const rest = problems.filter((a) => !ask(a) && !off.includes(a));
   const count = (xs) => h("span", { class: "muted" }, ` ${xs.length}`);
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {
@@ -1534,9 +1555,9 @@ function renderSide(side, g, view) {
       a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null);   // its suggestion, once due
   };
   const one = (a) => (a.members ? a.members[0] : a);
-  const list = (xs, none, cls, key) => {
-    const att = h("div", { class: `att ${cls}`, ...(key ? { key } : {}) });
-    if (!xs.length) att.append(h("div", { class: "none" }, none));
+  const list = (xs, none, cls, key, answered = []) => {
+    const att = h("div", { class: `att ${cls}`, ...(key ? { key } : {}) }, ...answered);   // answered here: at the top
+    if (!xs.length && !answered.length) att.append(h("div", { class: "none" }, none));
     folded(xs).forEach((a, i, ys) => {
       if (i && one(a).modelling && !one(ys[i - 1]).modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
       att.append(a.members ? foldRow(a.members, row) : row(a));
@@ -1547,9 +1568,9 @@ function renderSide(side, g, view) {
   // (while the reader is in the list it holds still: folded or not, as it was). The header's link goes to its heading.
   const inList = out.querySelector(".att.needs"), fold = heldStill(inList) ? !!inList.closest("details.waiting-fold") : waiting.length > 3;
   let moved = null;
-  if (waiting.length) {
+  if (waiting.length || ANSWERED.size) {               // what was answered here stays until the page is loaded again
     side.append(h("h3", { class: "att-head", key: "waiting-h", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)));
-    let rows = list(waiting, "", "needs", "waiting-rows");
+    let rows = list(waiting, "", "needs", "waiting-rows", [...ANSWERED.values()].map(answeredRow));
     // folded or unfolded: the rows on the page are moved, not made again, so a reason typed in one stays with it
     if (inList && !rows.__ref && !!inList.closest("details.waiting-fold") !== fold) rows = live(moved = patchNode(inList, rows));
     side.append(fold ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);

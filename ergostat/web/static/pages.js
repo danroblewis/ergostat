@@ -21,16 +21,20 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 async function pageLoops(main) {
   const p = page(main, "Loops");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
-  p.append(box, cap);
+  const qbox = h("div", { class: "quiet-systems" });
+  p.append(qbox, box, cap);
   const ans = answers();
   async function tick(force = true) {
     ans.begin();
     // every loop in one answer: its stock's trend, and how it is doing (control.js), worked out on the server in the background
-    const loops = await ans.api("loops", { perf: 1 });
+    const loops = await ans.api("loops", { perf: 1 }), systems = await ans.api("systems").catch(() => []);
     const word = (s) => (s == null || s.not_analysed ? "" : s.working ? "being worked out" : s.failed ? "could not be worked out" : performanceWord(s));
     const w = windowNote();
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
+    // each system whose goals all hold says so (state.quiet): until the rows are grouped by system, a line of its own
+    patch(qbox, ...(systems || []).filter((s) => s.quiet).map((s) => h("p", { class: "quiet-line", key: s.name, "data-system": s.name },
+      h("b", {}, s.name), `: ${s.quiet}`)));
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
@@ -472,12 +476,27 @@ function actionAnswer(a, done) {
 }
 function actionsAbout(as, done) {
   if (!as.length) return h("p", { class: "muted" }, "No gated actions asked for about it.");
+  // what was done and by whom: approved by … 03:24, ran 03:24; or denied by …: why
+  const hm = (t) => (t ? ` ${new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}` : "");
+  const at = (a, st) => hm((a.moves || []).findLast((m) => m.to === st)?.time);
+  // who answered is the record's own words (record.who: an approval a later denial overrode, the gate's own denial)
+  const said = (a) => (a.state === "denied" ? `${a["approved by"]}${at(a, "denied")}`
+    : `approved by ${a["approved by"]}${at(a, "approved")}` + (a.state === "approved" ? "" : `, ${a.state}${at(a, a.state)}`));
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), " ",
-      h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
-      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` + (a.state === "requested" ? "" : a.state === "denied" ? `, ${a["approved by"]}` : `, approved by ${a["approved by"]}`))),
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : `: asked by ${a.by}, `,
+      h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : said(a)),
+      a.state === "requested" ? h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}`) : null),
     commandBox(a.command),
     actionAnswer(a, done))));
+}
+/* the Items page's line per class (record.asked): "push: 5 asked, 3 approved (by the gate), 1 denied, 1 waiting this
+   week · held for approval"; each action counted once, by where it ended */
+function actionClasses(by, shown) {
+  const who = (c) => (!c.approved ? "" : c.by_gate === c.approved ? " (by the gate)" : !c.by_gate ? " (by a person)" : ` (${c.by_gate} by the gate)`);
+  const gate = { approve: "held for approval", auto: "let through", deny: "never run" };
+  return h("ul", { class: "action-classes" }, Object.entries(by).filter(([c, x]) => shown(c, x)).map(([c, x]) => h("li", { "data-class": c },
+    h("b", {}, c), `: ${x.asked} asked, ${x.approved} approved${who(x)}, ${x.denied} denied, ${x.waiting} waiting this week · `,
+    h("span", { class: x.gate === "approve" ? "s-open" : "muted" }, gate[x.gate] || `gate ${x.gate || "unknown"}`))));
 }
 function actionView(d, refresh) {
   const f = d.fields;
@@ -545,7 +564,7 @@ function remoteSection(r, d) {
   return h("section", { class: "sys-group remote", "data-remote": r.name, key: `remote:${r.name}` }, head, remoteSaid(r.name, d), counts, rows);
 }
 
-async function pageItems(main, q) {
+async function pageItems(main, q, only = false) {     // only: a kind's own page (/items/KIND), that kind alone
   const p = page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
@@ -608,7 +627,7 @@ async function pageItems(main, q) {
     try { await busy; } finally { busy = null; }
   }
   const ans = answers();
-  const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state);
+  const go = () => { const u = new URLSearchParams(); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
                      if (sort && view === "list") u.set("sort", sort);
@@ -616,7 +635,9 @@ async function pageItems(main, q) {
                                             if (view === "graph" && ro.group === "kind") u.set("group", "kind");
                                             if (ro.status) u.set("status", ro.status);
                                             if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
-                     replaceRoute("/items" + (u.toString() ? "?" + u : "")); refresh(); };
+                     if (only && !kind) return navigate("/items" + (u.toString() ? "?" + u : ""));   // the kind let go
+                     if (!kind && !u.toString()) u.set("view", "list");      // every kind's list (bare, /items is the overview)
+                     replaceRoute((kind ? `/items/${encodeURIComponent(kind)}` : "/items") + (u.toString() ? "?" + u : "")); refresh(); };
   search.addEventListener("input", () => go());
   let sysOf = {};                                      // each kind's system, as last listed
   const toggle = (sys) => {                            // a chosen kind's system is open: folding it lets the kind go
@@ -650,7 +671,8 @@ async function pageItems(main, q) {
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
     const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys) || d.kinds.some((k) => k.system === sys && named(k));
-    const systems = d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }];
+    const systems = (d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }])      // a kind's page: its system, it alone
+      .flatMap((g) => (!only ? [g] : g.kinds.includes(kind) ? [{ ...g, kinds: [kind] }] : []));
     const kindOf = Object.fromEntries(d.kinds.map((x) => [x.name, x]));
     // each open kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
     // a click on one shows its items; a kind without states, one line of its count. A flow over the window
@@ -664,6 +686,8 @@ async function pageItems(main, q) {
     }));
     // how far each block's claims held, under the ergostat.claim table
     const trust = d.items.some((i) => i.kind === CLAIM_KIND) && (!kind || kind === CLAIM_KIND) ? await ans.api("trust").catch(() => null) : null;
+    // above the gated actions' rows, a line per class: asked this week, and how each ended
+    const classes = d.items.some((i) => i.kind === ACTION_KIND) && (!kind || kind === ACTION_KIND) ? (await ans.api("actions", { classes: 1 }).catch(() => null))?.asked : null;
     // the Graph's and the Timeline's answers (relations.js), asked on every refresh: a relation can change on an item
     // the list does not show. Of the kinds with relations (or named by one) in each open system; the chosen kind alone
     const relKinds = new Set();
@@ -751,6 +775,7 @@ async function pageItems(main, q) {
         const title = kindOf[name]?.title;
         parts.push(h("h3", { class: "kind-head", key: `head:${name}` }, title || name || "No kind",
           title ? h("span", { class: "muted small mono" }, ` ${name}`) : null, h("span", { class: "muted" }, ` ${many}`)));
+        if (name === ACTION_KIND && classes) parts.push(keyed(actionClasses(classes, (c, x) => !needle || c.toLowerCase().includes(needle) || its.some((i) => x.actions.includes(i.fields.action))), "action-classes"));
         parts.push(keyed(tableOf(its, kindOf[name]?.show || [], limit), `table:${name}`));
         if (name === CLAIM_KIND && trust) parts.push(keyed(trustView(trust), "trust"));   // how far each block's claims held
         const fl = flows[name];                            // under its table: how long its finished items took
