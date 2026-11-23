@@ -180,3 +180,35 @@ Its runs failed past their attempts (a dead letter):
 - attempt 25: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 26: nack exited 1
 - attempt 27: nack the run ended with gap/ui-the-current-page-view-and-mode-are-announced-tab still parked
+
+## Where it stopped
+
+Continued, round 1 (main 52c675fe merged in, da759558). Conflicts resolved by keeping main's change and putting the
+branch's names on it:
+- `details.js` openAgent: main's two tables (the runs, and 'resources' behind a details) each take a caption and
+  headRow ('Recent runs of NAME, newest first'; "Resources of NAME's recent runs, newest first").
+- `diagram.js` Suggestions: main's goalButton and showGoal kept; the Evidence link keeps hit24 and its aria-label.
+- `pages.js`: main's `const table` with holdStill on /agents, with the caption and headRow; the daemons table with
+  main's text (no "(SPEC §9.7)") and the branch's caption, headRow and tbody; the item page's track is main's path and
+  other states, with the arrow aria-hidden.
+- `tests/test_items_page.py`: both sides' new tests kept. Main's two new ones each serve their own project (tmp_path),
+  so the acceptance test is still the last in the file on `site` (its docstring now says so).
+- Main's new agents test found the sort button by the title 'Sort by by'; this gap renames it, so the test now uses
+  'Sort by author' (33af6aa5). The branch is 21 net lines against main (72 added, 51 removed under `ergostat/`).
+
+Tests run (Playwright, under the watchdog): tests/test_page_names_source.py (9 passed); tests/test_items_page.py (40
+passed, 1 failed, twice); tests/test_agents_page.py and tests/test_view_switch_words.py (8 passed, 1 failed, three
+times); test_diagram_rendering.py's goal-button test, both cases, with test_graph_cli_web.py's stand-in (3 passed;
+[False] failed once in the first run, then passed four times, with and without the branch's side-panel changes).
+Ruff clean. The two failures, both main's new tests, are left alone (lesson 13):
+- test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (line 1474) waits 30 s for
+  the other project's entry in the header's switcher. Each page server's lister lists the running projects when it
+  starts and then every 60 s (`server.py` LIST_EVERY). The test starts the first project before the second, so the
+  first's list cannot name the second within the wait. The branch does not touch the switcher (util.js 380-430) or
+  server.py. Not run on clean main here.
+- test_agents_page.py::test_each_row_says_how_it_is_engaged_and_which_goal_it_serves (line 396) reads `#detail`
+  as soon as `h2 'work'` shows, but panelLoading draws that heading while the panel still says 'Loading…'. With a
+  5 s wait put in (then removed), the panel had loaded and there were no page errors. The branch changes only the
+  table markup built after the data comes, not when it comes. A fixed wait in the test, not a race in ergostat.
+- The once-failed goal-button case ('.suggest .hint button.name' not visible): the test opens `details.suggest` by
+  setting `open` directly, leaving S.suggestOpen unset. A likely cause, not shown: a refresh redrew it closed.
