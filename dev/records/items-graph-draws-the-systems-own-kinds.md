@@ -30,3 +30,10 @@ reversible one:
   may want "of any kind" back) is not answered here.
 - "reviews are about gaps" is the kind's name and an "s"; a kind whose plural is not that reads oddly.
 Not done: no screenshot was taken (a scratch script outside the repository was refused in this session).
+
+Round 2: main (bf6dbebf) merged in. Its graph-draws-every-dependency had changed the same Graph paragraph of SPEC §5a
+and `RG` in relations.js. Both are kept: main's 600 cards, its connected-group cut and its sentence on the kinds asked,
+plus the branch's stubs (`STUB_H`, "400 stubs", "another system's: a stub"). The "other relations dashed and named"
+clause now applies only without `system=`. tests/test_items_page.py fails 6 of 33, the same 6 on two runs, all on the
+diagram's side panel (`#detail .item-set`, `.counts-line`, `.leases-line`, a snapshot's sets, the header counts),
+which the branch does not touch. They were not run on main: a scratch worktree of main under /tmp was refused.
