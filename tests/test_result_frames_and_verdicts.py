@@ -211,8 +211,10 @@ class Histogram(BaseHTTPRequestHandler):
     def do_GET(self):
         a = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
         text = a["query"]
-        jobs = ["a", "b"] if text.startswith("two") else [None]
+        jobs = ["a", "b"] if text.startswith(("two", "slo")) else [None]
         cum = {**CUMULATIVE, "1": [6, 3, 7, 1]} if text.startswith("bad") else CUMULATIVE
+        if text.startswith(("slo", "top")):          # one bound by job; or one finite bound and +Inf
+            cum = {le: CUMULATIVE[le] for le in (["0.5"] if text.startswith("slo") else ["0.5", "+Inf"])}
         result = [{"metric": {"__name__": "wait_seconds_bucket", "le": le, **({"job": j} if j else {})},
                    "values": [[t, str(v)] for t, v in zip(TIMES, vs, strict=True) if v is not None]}
                   for j in jobs for le, vs in cum.items()]
@@ -255,6 +257,17 @@ def test_through_prometheus_a_misused_histogram_is_refused_with_its_fix_and_noth
         assert r["says"] == got["error"] and "answered badly" not in got["error"]
     [q] = asked(tmp_path, histogram, "avg(histogram_quantile(0.9, sum by (le) (rate(wait_seconds_bucket[5m]))))")
     assert [r["code"] for r in q["meta"]["verdict"]["reasons"]] == ["open-top-bucket", "averaged-percentiles", "quantile-in-bucket"]
+
+
+def test_a_bucket_query_at_one_bound_stays_plain_series_and_two_bounds_are_buckets(tmp_path, histogram):
+    """``rate(x_bucket{le="0.5"}[5m])`` by job (an SLO's numerator) is plain series, as before buckets were read; one
+    finite bound and +Inf are one histogram's buckets."""
+    slo, top = asked(tmp_path, histogram, 'slo:rate(wait_seconds_bucket{le="0.5"}[2m])', "top")
+    assert slo.get("shape") == "series" and "error" not in slo, slo
+    assert len(slo["series"]) == 2 and slo["series"][0]["values"] == [5, 4, None, 1]
+    assert slo["meta"]["verdict"]["level"] == "ok"
+    assert (top["shape"], top["form"]) == ("distribution", "bins") and top["x"]["edges"] == [0.0, 0.5]
+    assert top["over_time"]["counts"] == [[5], [4], None, [1]]
 
 
 def test_the_bucket_reading_is_quick_at_its_bound():

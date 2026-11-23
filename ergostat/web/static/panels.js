@@ -704,7 +704,11 @@
       if (allHidden(st.cfg)) { dropView(); setState("empty", ALL_HIDDEN); return; }
       const result = mergedResult(good);
       const accepted = def.needs?.source === "frequency" ? ["frequency"] : def.needs?.x;
+      /* a histogram's buckets over time fill the whole plot: a second answer beside them would be dropped or misread */
+      const alone = good.length > 1 && good.some((r) => r.over_time)
+        ? `${def.label || st.form} draws one histogram's buckets over time, and this panel has ${good.length} answers: show one query, or give each its own panel.` : "";
       const why = !good.length ? "This panel has no query yet."
+        : alone ? alone
         : accepted && !good.some((r) => r.shape) && !accepted.includes(result.shape) ? `${def.label || st.form} needs ${def.needs?.text || `an X axis of ${accepted.join(" or ")}`}; this query has ${result.shape}.`
         : def.check?.(result, st.cfg) || (hasPoints(result) ? "" : `Nothing recorded for ${shownQueries(st.cfg).map(queryWord).join(", ") || "this query"}.`);
       if (why) { dropView(); setState("empty", why); return; }

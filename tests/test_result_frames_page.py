@@ -108,6 +108,31 @@ def test_the_phase_portrait_draws_two_signals_and_nothing_refused(browser, tmp_p
         s.close()
 
 
+def test_a_heatmap_of_buckets_beside_another_answer_says_so_and_draws_nothing(browser, tmp_path, histogram):
+    """Two histograms' buckets on one heatmap, or a points answer then buckets: the second would be dropped or binned
+    as points, so the panel says it draws one histogram and draws nothing (done 3)."""
+    got = samples(tmp_path / "s")
+    [lat] = server.asked(tmp_path, histogram, "sum by (le) (increase(wait_seconds_bucket[2m]))")
+    two = {**config("heatmap", pid="two"), "queries": [{"id": "a", "source": "series", "series": "x"},
+                                                       {"id": "b", "source": "series", "series": "y"}]}
+    mounting = "([c, r, m]) => { const el = chartPanel(c); document.getElementById('page').append(el); el.update(r, m); }"
+    s = Site(browser)
+    try:
+        for pair in (({**lat, "id": "a"}, {**lat, "id": "b"}), ({**got["points"], "id": "a"}, {**lat, "id": "b"})):
+            s.page.evaluate(mounting, [two, list(pair), META])
+            s.page.wait_for_function(f"() => ({PANEL})('two').dataset.state !== 'loading'")
+            assert s.page.evaluate(STATE, "two") == "empty", pair[0].get("shape")
+            assert s.page.evaluate(f"(id) => ({PANEL})(id).querySelectorAll('canvas').length", "two") == 0
+            said = s.page.locator('[data-panel-id="two"]').inner_text()
+            assert "draws one histogram's buckets over time, and this panel has 2 answers" in said, said
+            s.clear()
+        s.mount(config("heatmap", pid="one"), {**lat, "id": "a"}, META)                 # one alone is drawn, as before
+        assert s.page.evaluate(STATE, "one") == "drawn"
+        assert not s.errors, s.errors
+    finally:
+        s.close()
+
+
 def test_what_is_not_measured_says_so_and_a_graphs_edges_are_a_tables_rows(browser, tmp_path):
     got = samples(tmp_path)
     s = Site(browser)

@@ -1411,12 +1411,14 @@ reads the event log.
   `op`, `mv`, `limit_hi`, `limit_lo`, `mode`, `input`, `output` and the four of candles) or on a graph's field (`rate`,
   `errors`, `latency`, `utilisation`, `wait`, `count`, `age`, `slack`, `exposure`) is one of a closed list. Series asked
   in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
-- **Histograms.** A PromQL answer whose every series has an `le` label is one histogram's buckets (chart 16, the latency
-  heatmap): a `distribution` of `bins` from 0 to the highest finite bound, with `over_time`, the count in each bucket at
+- **Histograms.** A PromQL answer whose every series has a numeric `le` label, over two bounds or more with a finite
+  one, is one histogram's buckets (chart 16, the latency heatmap); an answer at one bound (`x_bucket{le="0.3"}` by
+  instance, an SLO's numerator) stays plain series. The buckets are a `distribution` of `bins` from 0 to the highest finite bound, with `over_time`, the count in each bucket at
   each time (a time some bucket has no value at is a gap, never a zero). It is refused when the buckets are of more than
   one histogram (`many-histograms`: add them with `sum by (le)`) or a count falls from one bound to a higher one
   (`not-cumulative`). It is warned when counts lie above the highest finite bound, or there is no `+Inf`
-  (`open-top-bucket`). Only `le` is read: VictoriaMetrics's own `vmrange` buckets are not.
+  (`open-top-bucket`). Only `le` is read: VictoriaMetrics's own `vmrange` buckets are not. The heatmap draws one
+  histogram's buckets on its own: a panel with them and another answer draws nothing and says so.
 - **A graph.** Each edge's `source` and `target`, and each node's `parent`, must be one of the nodes; ids are unique;
   `semantics.paths_real` (is a route through two edges evidence?) must be said, with no default; `acyclic` is worked
   out by the server, and a frame that states it wrongly is refused; an `inferred` edge needs its `confidence`; a

@@ -138,6 +138,38 @@ Refused in this session, and worked around only with the tools offered:
 - a `uv run python -m pytest ... | cut` and a `named_tests.py ... | cut` (the same run without `cut` was allowed);
 - `git checkout -- FILES` to undo the deliberate breaks (I undid them by hand, then checked `git status` was clean).
 
+### Round 2
+
+Built. About 329 net lines outside tests, docs and dev (budget 600; `git diff --shortstat main` counts 388 added and
+59 removed there).
+
+The two findings of round 1's review, both blocking, both answered:
+- *A bucket query at one bound was read as a histogram* (`prometheus.py`). An answer is now read as buckets only when
+  every series has a numeric `le` and they span two bounds or more, with a finite one (`_histogram`). Otherwise it
+  stays plain series, as on main, so `rate(x_bucket{le="0.3"}[5m])` by instance draws lines again. A non-numeric or
+  NaN `le` also stays plain series (the most reversible choice: main drew those as series). One finite bound with
+  `+Inf` is still buckets. Test: `tests/test_result_frames_and_verdicts.py::test_a_bucket_query_at_one_bound_stays_plain_series_and_two_bounds_are_buckets`
+  (one bound by two jobs gives two series, `ok`; `0.5` with `+Inf` gives one bin). With the old check put back, it
+  failed (`many-histograms`).
+- *A heatmap with two bucket answers, or a points answer and then a bucket answer, drew only the first* (`panels.js`).
+  When a panel has more than one answer and any of them is buckets over time, it now draws nothing. It is left `empty`
+  and says "Heatmap draws one histogram's buckets over time, and this panel has N answers: show one query, or give
+  each its own panel." Test: `tests/test_result_frames_page.py::test_a_heatmap_of_buckets_beside_another_answer_says_so_and_draws_nothing`
+  (both pairs: state `empty`, no canvas, the sentence; one bucket answer alone is still drawn). With the check
+  disabled, it failed (`drawn`, not `empty`).
+- SPEC §4e *Histograms* now says both.
+
+Run here, none skipped:
+- Unit, all passed: test_result_frames_and_verdicts, test_result_shapes and test_data_sources (67); test_query_engine,
+  test_web_access and test_promql_suggest (87).
+- Browser, all passed with rc 0: test_result_frames_page with test_result_shapes_page (13); test_plot_forms,
+  test_panels and test_data_source_panels (154); test_panel_editor, test_dashboard_page and test_dashboards_doc (104).
+- ruff is clean. `git merge main` said "Already up to date".
+
+Not run here: the whole unit suite and the four browser files (the factory's), `demo_check` (no example touched).
+
+Refused in this session: a stray `python3 - <<'EOF'` with an empty body (nothing depended on it).
+
 ## Entry
 
 section: Done recently
