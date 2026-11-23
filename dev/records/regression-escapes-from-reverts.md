@@ -40,3 +40,13 @@ implement.py, agents.py and fac.py, none of which this branch changes. So it is 
 here; the factory reruns it there. No code changed for it. The whole of tests/test_factory.py ran once after the
 merge: 1 failed (this test), 203 passed, 2 skipped. Later whole-file runs were refused in this session, so the
 other tests were run by name, three at a time.
+
+Build again (after 242d02f7): one F again in tests/test_factory.py under the build's parallel workers. The tail the
+factory gave names no test, and pytest's lastfailed was empty here, so the test is not known for certain. Run serially
+on this branch, the whole of tests/test_factory.py passes: 204 passed, 2 skipped (Docker) in 1057 s, rc 0. The one
+implement.py path in reach of this branch (pools.my_turn) is unchanged; pools.measured and risk.py, which it does
+change, are not called by implement.py. So no code was changed. The likely failure is still
+test_an_unstacked_gap_builds_as_before's 120 s bound per implement.py run (about 60 s each when run alone) under load.
+Why implement.py takes about 60 s is outside this gap (lesson 13) and belongs in its own gap. Not run on clean main
+here. A note on process: a stray single-test run was started while the whole-file run was going and was stopped after
+10 s, and a first whole-file run was stopped by its own 600 s limit at 34% (its last F was the test it was killed in).
