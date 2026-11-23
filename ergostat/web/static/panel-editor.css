@@ -60,13 +60,20 @@
 .pe-seg.pe-form { flex-direction: column; align-items: flex-start; gap: var(--sp-0); padding: var(--sp-1); min-width: 0; }
 .pe-form-icon { width: calc(var(--sp-4) * 2); height: var(--sp-4); fill: none; stroke: currentColor; stroke-width: 1.4; color: var(--accent); }
 .pe-form-name { font-size: var(--text-sm); font-weight: 600; }
-.pe-form-need { font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; line-height: 1.2; }
-.pe-form-blocked .pe-form-need { color: var(--warn); }
+.pe-seg.pe-form-blocked { opacity: 0.45; cursor: not-allowed; }
+.pe-seg.pe-form-blocked:hover { background: none; }
 .pe-form-blocked .pe-form-icon { color: var(--muted); }
-.pe-form-guide { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2); background: var(--warn-wash); color: var(--ink); border-radius: var(--radius); font-size: var(--text-sm); }
+.pe-form-guide { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); background: var(--bad-wash); color: var(--ink); border-bottom: var(--hair) solid var(--line); font-size: var(--text-sm); }
 .pe-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
-.pe-quick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-1); }
-.pe-quick-btn { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-0); text-align: left; white-space: normal; min-width: 0; font-size: var(--text-sm); }
+.pe-pick { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); background: var(--bg); overflow-y: auto; }
+.pe-pick-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.pe-pick-head h3 { margin: 0; font-size: var(--text-lg); }
+.pe-pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, calc(var(--side-w) * 1.2)), 1fr)); gap: var(--sp-3); }
+.pe-pick-card { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2); border: var(--hair) solid var(--line-strong); border-radius: var(--radius-menu); background: var(--chrome); cursor: pointer; min-width: 0; }
+.pe-pick-card:hover { border-color: var(--accent); }
+.pe-pick-chart { height: calc(var(--sp-7) * 4); display: flex; min-width: 0; pointer-events: none; }
+.pe-pick-chart > * { flex: 1; min-width: 0; min-height: 0; --panel-h: auto; }
+.pe-pick-card > button { align-self: flex-start; }
 @media (max-width: 700px) {
   .pe-head { flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); }
   .pe-save-msg { order: 3; flex-basis: 100%; }

@@ -175,12 +175,17 @@ def grace(path: str) -> float:
 def keep(d: str, pid: int, wall: float | None = None) -> tuple[int, str]:
     """Waits for the run; at the stop file, or ``wall`` seconds on (its own deadline, an engine or none), SIGTERM to
     its group, then SIGKILL to the group past the grace while any of it is left. Its exit code (-N for a signal) and
-    how it ended: ``exit``, the signal, ``TERM``/``KILL``, or ``timeout`` (stopped at its deadline)."""
+    how it ended: ``exit``, the signal, ``TERM``/``KILL``, or ``timeout`` (stopped at its deadline). The CPU ``wait4``
+    gave (the run and every descendant it waited for) is written to ``reaped`` first."""
     code = how = term = None
     stop, late, timed = os.path.join(d, "stop"), None if wall is None else time.monotonic() + wall, False
     while True:
-        if code is None and (got := os.waitpid(pid, os.WNOHANG))[0]:
+        if code is None and (got := os.wait4(pid, os.WNOHANG))[0]:
             code = os.waitstatus_to_exitcode(got[1])
+            try:                                # (best effort: without it the CPU is the sampled sum, said so)
+                put(os.path.join(d, "reaped"), json.dumps({"user": got[2].ru_utime, "system": got[2].ru_stime}))
+            except OSError:
+                traceback.print_exc()
         if term is None and code is None and (os.path.exists(stop) or late is not None and time.monotonic() >= late):
             timed = not os.path.exists(stop)
             term, how = time.monotonic() + (WALL_GRACE if timed else grace(stop)), "TERM"
