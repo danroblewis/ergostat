@@ -85,6 +85,8 @@ Observations that matter:
 
 ## Related
 
+- [dynamics-bundled-connectors.md](dynamics-bundled-connectors.md): many lines between two modules drawn as one
+  in the Dynamics view, the system dynamics way (Stella's bundled connectors), not Blocks' vectors.
 - [external-systems.md](external-systems.md): observed controllers.
 - [charts.md](charts.md): behaviour over time beside the model.
 - [../research/sre-control-systems.md](../research/sre-control-systems.md): the control systems SREs use.
