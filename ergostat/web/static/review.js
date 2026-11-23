@@ -141,6 +141,8 @@ function scorecardView(c) {
     ["coherence", arrow(co.mismatches_before, co.mismatches_after), (kinds ? `agree on the record: ${kinds}` : "nothing on the record to compare") + (co.introduced?.length ? `; new: ${co.introduced.join(", ")}` : "")],
     ["craft notes", arrow(cr.before, cr.after), `closed ${cr.closed.length}, opened ${cr.opened.length}`],
     ["fit", h("span", { class: ft.worse ? "s-open" : "" }, ft.worse ? "worse" : ft.made_measurable ? "made measurable" : ft.measurable_before ? "no worse" : "not measurable"), ft.says || ""],
+    ...(c.systems ? [["systems", h("span", { class: c.systems.worse.length ? "s-open" : c.systems.improved ? "s-ok" : "" }, c.systems.worse.length ? "worse" : c.systems.improved ? "improved" : "no better"),
+      "links inside/across: " + Object.entries(c.systems.by_system).map(([s, v]) => `${s} ${v.before ? `${v.before.inside}/${v.before.crossing}` : "–"} → ${v.after.inside}/${v.after.crossing}`).join(", ")]] : []),
     ["behaviour", h("span", { class: (c.lost || []).length ? "s-open" : "s-ok" }, (c.lost || []).length ? `${c.lost.length} lost` : "kept"), (c.lost || []).join("; ") || "what the old model explained, the new still explains"],
   ];
   return h("div", { class: "scorecard" },
@@ -303,7 +305,7 @@ async function availLoops(goals, redraw, box) {
       if (i && (await new Promise((ok) => setTimeout(ok, 3000)), !box.isConnected)) return;
       if (document.hidden) continue;
       let loops;
-      try { loops = await api("loops", { perf: 1 }); } catch (e) { for (const g of goals) AVAIL.set(g, { d: null, err: String(e.message || e) }); redraw(); return; }
+      try { loops = await api("loops", { perf: 1 }); } catch (e) { if (pageLeft(e)) return; for (const g of goals) AVAIL.set(g, { d: null, err: String(e.message || e) }); redraw(); return; }
       for (const g of goals) { const s = loops[g]?.perf; if (s?.working) AVAIL.delete(g); else AVAIL.set(g, s?.failed ? { d: null, err: `could not be worked out: ${s.failed}` } : { d: s && !s.not_analysed ? s : null }); }
       redraw();
       if (SNAP || goals.every((g) => AVAIL.has(g))) return;

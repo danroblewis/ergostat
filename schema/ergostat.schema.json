@@ -1684,6 +1684,11 @@
         },
         "lease": {
           "$ref": "#/$defs/lease_terms"
+        },
+        "runs-on": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "A program block: the compute pool its runs are for (a name under compute:), or local (here, as with none). Refused on an ai, person or daemon's block, on a command that calls ergostat, and for a pool whose blocks are in two shards (SPEC §12k)"
         }
       },
       "additionalProperties": false,
@@ -2875,6 +2880,19 @@
         "unblocked": {
           "type": "boolean",
           "description": "Only items whose precedence relations name only finished items, the critical first (SPEC section 5a, Relations)"
+        },
+        "faults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["healthy"],
+          "description": "The queue's shared environment (SPEC section 9.5): while healthy reads unhealthy or unknown the block takes nothing new, and a run failing through the outage is given back uncounted",
+          "properties": {
+            "healthy": {
+              "type": "string",
+              "pattern": "^(sensor|stock|flow|auxiliary|variable|goal|block)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
+              "description": "A sensor (sensor.NAME, the part it reads), a stock, flow or auxiliary (healthy above 0), a goal (healthy while it holds) or a block's output"
+            }
+          }
         }
       }
     },
