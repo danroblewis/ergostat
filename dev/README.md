@@ -237,7 +237,8 @@ reads the item again under `run/flakes.lock` and records at once (`ergostat even
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
 the gaps and times said, `main_fixed_at`, `fixed_by`, `green_passes` and `passed_on` removed). An item it cannot read
-is written as said, the failure on stderr.
+is written as said, the failure on stderr. A flake is said fixed by hand with `manage.py flake-fixed TEST --why W`
+(below).
 
 **Out of main-broken: main-mend.** The block `main-mend` (dev/model/landing.yaml; every 30 minutes, pool 1, a lease,
 timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
@@ -645,8 +646,8 @@ it.) After each unit run (and each triage rerun) the quarantined tests run once 
 implementor: `[suites] alone`; triage: `rerun`), never blocking. Each result is said on `flake/<test>`
 (`flake.measured`: `quarantined`, `last_run`, `last_run_log`), read from that run's whole log: `pass` only on the
 test's own PASSED line with no FAILED or ERROR line, `fail` on either, `unknown` otherwise (skipped, not collected, a
-run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is marked
-released (`quarantined: false`) at the next such run. When a queue failure names only quarantined tests, triage
+run that never started or left no log). A skip is never a pass. A flake item still marked `quarantined` whose test is no longer on main's list is
+released at the next such run: one `flake.released` (`quarantined: false`, `released_at`), not a measurement. When a queue failure names only quarantined tests, triage
 sends the gap back to the queue with no flake seen and no retry spent. Tests are added and released by hand, by
 a change to main's list (which a reviewer reads in the diff); nothing in this code quarantines or releases one.
 
@@ -855,6 +856,13 @@ ergostat event --add intervention.recorded --item intervention/2026-11-20-unstic
   --data '{"reason": "the worktree was left mid-rebase", "class": "worktree", "recorded_at": 1795160000}'
 ergostat event --add intervention.remedied --item intervention/2026-11-20-unstick-alpha --data '{"remedy": "gap/..."}'
 ```
+
+A flake that cannot pass again (its test deleted or renamed) would stay `seen` or `main-broken`, and every goal on those
+stocks with it. Say it is fixed:
+`python3 dev/bin/manage.py flake-fixed tests/test_x.py::test_y --why "renamed to test_z"`. That writes `flake.fixed`
+(`fixed_by`: you, `why`) under `run/flakes.lock` and records the intervention (`flake-fixed`, class `flake`). It
+refuses a test with no flake item, or one that is already `fixed`, and any call but the coordinator's: the pipeline
+manager's is refused (it is not among its tools).
 
 ## The pipeline manager
 

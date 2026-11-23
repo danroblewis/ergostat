@@ -256,7 +256,7 @@ def fold_line(db: dict, kinds: dict, line: dict, about: str | None = None) -> No
     kind = next(k for k in kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
     assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
                                                                 ".dependencies", ".push-settled", ".groomed",
-                                                                ".resumed", ".need-met")), line
+                                                                ".resumed", ".need-met", ".released")), line
     it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
     for op in line.get("patch") or []:                             # (RFC 6902, as flakes.py writes it: top level)
         k = op["path"][1:].replace("~1", "/").replace("~0", "~")
@@ -645,7 +645,7 @@ def flake_record(tmp_path, monkeypatch):
     dev/bin/flakes.py as the writers call it."""
     text = (ROOT / "ergostat.yaml").read_text()
     (tmp_path / "ergostat.yaml").write_text("name: flakes\nitems:" + text[text.index("\n  flake:\n"):
-                                                                         text.index("\n  intervention:\n")] + "\n")
+                                                                         text.index("\n  situation:\n")] + "\n")
     (tmp_path / "factory.toml").write_text(f'[paths]\nrun = "{tmp_path / "run"}"\n')
     monkeypatch.setenv("FACTORY_CONFIG", str(tmp_path / "factory.toml"))
     monkeypatch.setenv("ERGOSTAT_CMD", f"{sys.executable} -m ergostat -C {tmp_path}")
@@ -732,6 +732,92 @@ def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
     other[0].join(timeout=60)
     d = flake_now(flakes)
     assert d["state"] == "main-broken" and d["fields"]["main_broken_at"] == 10.0 and d["fields"]["times"] == 2
+
+
+# ---- a flake said fixed by hand, and the quarantine's release (dev/records/regression-flake-fixed-by-hand.md)
+
+def manage_record(tmp_path, monkeypatch):
+    """flake_record's project, and dev/bin/manage.py on it: (manage, its flakes module)."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    monkeypatch.syspath_prepend(str(BIN))
+    monkeypatch.setitem(sys.modules, "fac", flakes.fac)            # (manage's imports: its own for this test, the
+    monkeypatch.setitem(sys.modules, "flakes", flakes)             # ones earlier tests left in sys.modules unused,
+    for name in ("agents", "onmain", "runs"):                      # and none left behind for the tests after it)
+        monkeypatch.setitem(sys.modules, name, module(name))
+    manage = module("manage")
+    assert manage.fac is flakes.fac and manage.flakes is flakes and manage.onmain.flakes is flakes
+    return manage, flakes
+
+
+def fixes(flakes) -> list[dict]:
+    return [i for i in flakes.fac.items("intervention") if i["fields"].get("action") == "flake-fixed"]
+
+
+def test_flake_fixed_moves_a_seen_or_main_broken_flake_to_fixed_with_one_intervention(tmp_path, monkeypatch):
+    manage, flakes = manage_record(tmp_path, monkeypatch)
+    broken = "tests/test_x.py::test_z"
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    flakes.say("flake.main-broken", broken, main="m1", gaps=["gap/b"], main_broken_at=10.0)
+    for n, test in enumerate((FLAKY, broken), 1):
+        got = manage.run({}, ["flake-fixed", test, "--why", "the test was renamed"])
+        assert got["ok"] and got["said"] == f"{test} fixed", got
+        d = flake_now(flakes, test)
+        assert d["state"] == "fixed" and d["fields"]["fixed_by"] == "coordinator", d
+        assert d["fields"]["why"] == "the test was renamed"
+        assert sorted(i["fields"]["subject"] for i in fixes(flakes)) == sorted((FLAKY, broken)[:n])   # one each
+    assert {i["fields"]["class"] for i in fixes(flakes)} == {"flake"}
+
+
+def test_flake_fixed_refuses_an_unknown_test_or_one_already_fixed(tmp_path, monkeypatch):
+    """lesson-1: a second flake-fixed in the gap between the first's read and its write waits for the flakes lock,
+    reads the fixed item and is refused, so one fix is one intervention."""
+    import threading
+    manage, flakes = manage_record(tmp_path, monkeypatch)
+    got = manage.run({}, ["flake-fixed", FLAKY, "--why", "gone"])
+    assert not got["ok"] and "no flake recorded" in got["said"] and fixes(flakes) == []
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    real, other = flakes.read, []
+
+    def read_then_competitor(iid):
+        got = real(iid)
+        if not other:                                              # (the first read only)
+            other.append(threading.Thread(target=lambda: other.append(
+                manage.run({}, ["flake-fixed", FLAKY, "--why", "me too"]))))
+            other[0].start()
+            other[0].join(timeout=5)                               # (held by the lock: it cannot finish here)
+        return got
+    monkeypatch.setattr(flakes, "read", read_then_competitor)
+    assert manage.run({}, ["flake-fixed", FLAKY, "--why", "deleted"])["ok"]
+    other[0].join(timeout=60)
+    assert not other[1]["ok"] and "is fixed" in other[1]["said"], other[1]
+    assert len(fixes(flakes)) == 1 and flake_now(flakes)["fields"]["why"] == "deleted"
+    monkeypatch.setattr(flakes, "read", real)
+    got = manage.run({}, ["flake-fixed", FLAKY, "--why", "again"])
+    assert not got["ok"] and "is fixed" in got["said"] and len(fixes(flakes)) == 1
+    monkeypatch.setattr(flakes, "read", lambda iid: None)          # an unreadable item: refused, nothing written
+    assert not manage.run({}, ["flake-fixed", FLAKY, "--why", "x"])["ok"] and len(fixes(flakes)) == 1
+    monkeypatch.setattr(flakes, "read", real)                      # the pipeline manager's call: refused, unlisted
+    other_test = FLAKY + "_two"
+    flakes.say("flake.seen", other_test, gaps=["gap/a"], times=1, seen_at=1.0)
+    monkeypatch.setattr(manage, "BY", ["pipeline-manager"])       # (as watch.py sets it for the manager's run)
+    got = manage.run({}, ["flake-fixed", other_test, "--why", "looks gone"])
+    assert not got["ok"] and "by a person" in got["said"] and len(fixes(flakes)) == 1, got
+    assert flake_now(flakes, other_test)["state"] == "seen"
+    assert "flake-fixed" not in manage.__doc__
+
+
+def test_a_quarantine_release_is_one_flake_released(tmp_path, monkeypatch):
+    flakes = flake_record(tmp_path, monkeypatch)
+    fac, iid, said = flakes.fac, f"flake/{flakes.fac.slug(FLAKY, 80)}", []
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    fac.add("flake.measured", iid, test=FLAKY, quarantined=True, last_run="fail")
+    monkeypatch.setattr(fac, "say", lambda event, it, **data: (said.append((event, it)), fac.add(event, it, **data)))
+    assert fac.beside([], tmp_path / "none.txt", lambda _: None) == {}             # FLAKY is no longer listed
+    assert said == [("flake.released", iid)]
+    d = flake_now(flakes)
+    assert d["fields"]["quarantined"] is False and d["fields"]["released_at"] > 0 and d["state"] == "seen"
+    fac.beside([], tmp_path / "none.txt", lambda _: None)                           # released once, not again
+    assert said == [("flake.released", iid)]
 
 
 # ---- main-mend: out of main-broken after two passes alone on the pushed main (dev/records/regression-flake-main-fixed.md)
