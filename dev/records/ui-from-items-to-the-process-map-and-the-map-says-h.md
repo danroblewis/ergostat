@@ -205,3 +205,15 @@ test's name was not in the output I filtered. I reran
 `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` alone and it fails (wait_for_function timeout,
 the header's project switcher). Earlier rounds and main's own record name that test as failing in this container,
 and this branch does not touch the header. Not run: the unit suite and the four browser files in full.
+
+### Round 7, main (b6d7a1db) merged at 31e36e77
+
+The finding (conflict with main in tests/test_graph_cli_web.py) is answered in 31e36e77. Main and the branch had
+each added a new test at the same place, and both are kept: the branch's
+`test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them` and main's
+`test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page`. This merge left no conflict
+markers in `ergostat/` or `tests/`. No source changed this round.
+
+Runs: ruff clean; tests/test_graph_cli_web.py 55 passed; the gap's browser test under suite_watch with Playwright,
+1 passed (rc 0). Not run: the unit suite, the four browser files in full, and tests/test_items_page.py (the merge
+queue runs them).
