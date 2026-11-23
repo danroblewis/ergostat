@@ -208,7 +208,14 @@ async function runLayoutWith(graph, g, preset, name = "") {
   let lay;
   const keep = (gr) => { const out = elkPreset(gr, g, p); state.dropped = out.dropped || []; state.reversed = new Set(out.edges.concat(out.dropped || []).filter((e) => e.reversed).map((e) => e.id)); return out; };
   const state = { dropped: [], reversed: new Set() };        // (ELK's answer does not carry what is not its own)
-  try { lay = await elk.layout(p ? keep(graph) : graph); }
+  // ELK's multi-edge wrapping throws ("reading 'Sg'") on a chain that loops back through an anchor block (first-loop's
+  // modelling, drawn alone): the same rows cut at one line each instead, which it lays out
+  const single = (gr) => { let n = 0; const walk = (x) => { const o = x.layoutOptions || {};
+    if (o["elk.layered.wrapping.strategy"] === "MULTI_EDGE") { o["elk.layered.wrapping.strategy"] = "SINGLE_EDGE"; n++; }
+    (x.children || []).forEach(walk); }; walk(gr); return n; };
+  const wrapped = async (gr) => { const again = JSON.parse(JSON.stringify(gr));
+    try { return await elk.layout(gr); } catch (e) { if (!single(again)) throw e; return elk.layout(again); } };
+  try { lay = await wrapped(p ? keep(graph) : graph); }
   catch (e) {                                     // ELK's wrapping fails on some graphs: the preset without it, else as given
     console.warn(`ELK failed with ${name}: again without wrapping`, e);
     const q = p && { ...p, wrap: [], all: { ...(p.all || {}), "elk.layered.wrapping.strategy": "OFF" }, root: { ...(p.root || {}), "elk.layered.wrapping.strategy": "OFF" } };

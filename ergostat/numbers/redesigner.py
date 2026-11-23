@@ -21,6 +21,7 @@ from pathlib import Path
 from ..spec.ir import Spec, template_made
 from . import changeset as cs
 from . import modeller as md
+from .modeller_spend import Capped
 
 HERE = Path(__file__).resolve().parent.parent
 GUIDE = HERE / "library" / "templates" / "modelling" / "redesigner.md"
@@ -291,7 +292,11 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
                 log.append({"round": r, "stopped": f"the budget (${budget:.2f}) is spent"})
                 break
             t_c = time.perf_counter()
-            got = call(text, model, md.per_call(timeout, rounds))
+            try:
+                got = md.asked(p, text, model, md.per_call(timeout, rounds), call)
+            except Capped as e:                         # the day's budget said no: no process, no more rounds
+                log.append({"round": r, "stopped": str(e)})
+                break
             if on_call is not None:                     # each call's cost said as it is spent: a run cut short keeps it
                 on_call(got)
         took = {"prompt_s": round(t_c - t_p, 1), "call_s": round(time.perf_counter() - t_c, 1), "prompt_chars": len(text)}
@@ -355,9 +360,10 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
            "version": ver.version(spec), "reports": said}
     if best is None:                                   # a failed call is said as one, never as "nothing proposed"
         failed = next((x["error"] for x in log if x.get("error")), None)
-        out["result"] = "error" if failed else "nothing proposed"
-        if failed:
-            out["why_not"] = failed
+        no = next((x["stopped"] for x in log if str(x.get("stopped")).startswith("budget:")), None)
+        out["result"] = "error" if failed else "no budget" if no else "nothing proposed"   # (refused: never "nothing")
+        if failed or no:
+            out["why_not"] = failed or no
         return out
     out["scorecard"] = best[2]
     raw = {"title": title or f"A redesign of {'the model' if system == 'model' else system}", "system": system,

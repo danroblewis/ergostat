@@ -234,8 +234,9 @@ def redesign(argv: list[str]) -> int:
     run = ("open", "answered")                     # (as it was opened, or answered as never ended meanwhile)
     if out.get("result") == "proposed":
         rq.move(p, req, "proposed", {"change": out.get("id"), "why": None}, run)
-    elif out.get("result") == "error":           # its call failed: the request stays open, saying so
-        rq.move(p, req, "open", {"why": f"the redesigner's call failed: {out['why_not']}"[:500]}, run)
+    elif out.get("result") in ("error", "no budget"):   # its call failed, or was refused: the request stays open
+        said = "failed" if out["result"] == "error" else "was refused"
+        rq.move(p, req, "open", {"why": f"the redesigner's call {said}: {out['why_not']}"[:500]}, run)
     else:
         rq.move(p, req, "answered", {"why": f"{out.get('result')}" + (f": {out['why_not']}" if out.get("why_not") else "")},
                 run)

@@ -5,6 +5,7 @@ person's reading of a manual sensor."""
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -290,14 +291,8 @@ def cmd_block(args) -> int:
 
 def read_manual(p, name: str, value: float) -> int:
     """``ergostat sensor STOCK.SENSOR --read V`` on a YAML model: a manual sensor's reading."""
-    from ..spec.ir import Ref
-    spec = p.model.spec
-    of, _, sensor = name.partition(".")
-    s = None
-    for kind in ("stock", "flow", "auxiliary"):
-        s = s or spec.sensor(Ref(kind, of, sensor or "main"))
+    s = _sensor(p, name)
     if s is None:
-        print(f"no sensor {name!r}: name it as its stock (or flow) and sensor, like inbox.eyes", file=sys.stderr)
         return 2
     if not s.manual:
         how = "run" if s.run else "items" if s.items else "query"
@@ -306,6 +301,96 @@ def read_manual(p, name: str, value: float) -> int:
         return 2
     p.measurements.add(s.series, float(value))
     print(f"recorded: {s.of.name}.{s.name} = {value:g}")
+    return 0
+
+
+def _sensor(p, name: str):
+    from ..spec.ir import Ref
+    spec = p.model.spec
+    of, _, sensor = name.partition(".")
+    s = None
+    for kind in ("stock", "flow", "auxiliary"):
+        s = s or spec.sensor(Ref(kind, of, sensor or "main"))
+    if s is None:
+        print(f"no sensor {name!r}: name it as its stock (or flow) and sensor, like inbox.eyes", file=sys.stderr)
+    return s
+
+
+def _num(x) -> float | None:
+    """A finite number from JSON (not a boolean, nor an integer too large for a float), else None."""
+    return float(x) if isinstance(x, float) and math.isfinite(x) or type(x) is int and abs(x) < 1e300 else None
+
+
+def backfill(args) -> int | None:
+    """``sensor PART.SENSOR --backfill FILE`` (readings at past times, written whole or not at all, each kept in the
+    measurements' ledger so it is never written twice) and ``--backfilled`` (that ledger's backfills of the series)."""
+    import time
+
+    from .common import open_project
+    if args.topic != "sensor" or (getattr(args, "backfill", None) is None and not getattr(args, "backfilled", False)):
+        return None
+    p = open_project(args)
+    if getattr(p.model, "spec", None) is None:
+        print("backfill is for a YAML model's sensors", file=sys.stderr)
+        return 2
+    s = _sensor(p, args.name or "")
+    if s is None:
+        return 2
+    name = f"{s.of.name}.{s.name}"
+    if args.backfilled:
+        got = p.measurements.backfills(s.series)
+        if args.json:
+            return out_json(got)
+        for b in got:
+            day = [time.strftime("%Y-%m-%d %H:%M", time.localtime(b[k])) if b[k] else "" for k in ("written_at", "first", "last")]
+            gone = time.strftime("%Y-%m-%d %H:%M", time.localtime(b["replaced"])) if b.get("replaced") else None
+            print(f"{day[0]}  {b['count']} readings{f', {day[1]} to {day[2]}' if b['count'] else ''}"
+                  f"  from {b['from'] or '(not said)'}" + (f"  (replaced {gone})" if gone else ""))
+        print(f"{len(got)} backfill{'' if len(got) == 1 else 's'} of {name}")
+        return 0
+    derived = "items" if s.items else "changes" if s.changes else "builtin" if s.builtin else None
+    if derived:
+        print(f"sensor {name} is derived by ergostat ({derived}): only a sensor that records a value (run, query, "
+              f"manual, daemon) takes backfilled readings", file=sys.stderr)
+        return 2
+    replace = getattr(args, "replace", False)
+    if replace and not args.from_:
+        print("refused, nothing written: --replace sets readings aside, and says why with --from TEXT", file=sys.stderr)
+        return 2
+    try:
+        text = sys.stdin.read() if args.backfill == "-" else Path(args.backfill).read_text()
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"cannot read {args.backfill}: {e}", file=sys.stderr)
+        return 2
+    rows, now = [], time.time()
+    for i, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+            at, value = _num(r["at"]), _num(r["value"])
+        except (ValueError, TypeError, KeyError, IndexError):
+            r = at = value = None
+        why = "not a JSON object with at and value" if r is None else "at and value must be finite numbers" \
+            if at is None or value is None else "at is in the future" if at > now else None
+        if why:
+            print(f"refused, nothing written: line {i}: {why}", file=sys.stderr)
+            return 2
+        rows.append((at, value))
+    try:
+        got = p.measurements.backfill(s.series, rows, args.from_, replace=replace)
+    except ValueError as e:                              # more than the store takes at once
+        print(f"refused, nothing written: {e}", file=sys.stderr)
+        return 2
+    p.events.add("sensor.backfilled", source="ergostat", data={
+        "sensor": name, "written": got["count"], "skipped": got["skipped"], "repeated": got["repeated"],
+        "first": got["first"], "last": got["last"], "from": args.from_, "backfill": got["id"],
+        **({"replaced": got["replaced"] or 0} if replace else {})})
+    if args.json:
+        return out_json({k: got[k] for k in ("id", "count", "skipped", "repeated", "first", "last", "from", "replaced")})
+    print(f"backfilled {name}: " + (f"{got['replaced'] or 0} set aside, " if replace else "")
+          + f"{got['count']} written, {got['skipped']} skipped (backfilled before)"
+          + (f", {got['repeated']} at a time another line had (the last kept)" if got["repeated"] else ""))
     return 0
 
 
