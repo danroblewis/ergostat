@@ -71,3 +71,13 @@ unfinished items (test_factory_knowledge's about-missing-part test failed when i
 either, since the Items tab would then show every entry in force as stopped. `seen` is not paused, because the
 librarian moves it on and no one does that by hand. `test_why_guide`'s no-unexplained-wait test now also loads the
 root model, and it failed before the fix. `test_factory_knowledge`'s pin of the knowledge states is updated.
+
+Round 2: the merge of main (8a27f9e3) conflicted in `docs/AGENT-GUIDE.md`, because main's dashboards gap also added a
+section 3l. Both are kept. Main's *A shared dashboard* stays 3l, since main's records already call it that, and this
+branch's *Why isn't this done* is now 3m. The references follow: SPEC §5a, the `ergostat-author` skill, the
+`wait-unexplained` message in `ergostat/spec/waits.py`, and `tests/test_why_guide.py`. Run after the merge, each passing:
+`tests/test_why_guide.py`, `tests/test_dashboards_doc.py`, `tests/test_why.py`, `tests/test_held_up.py`,
+`tests/test_spec_items.py`, `tests/test_coherence.py`, `tests/test_factory_knowledge.py`,
+`tests/test_faults_healthy.py`, `tests/test_item_about.py`; ruff clean. The whole unit suite and the four browser files
+were not run here (the factory runs them). The conflicting merge was resolved with edits, because a shell rewrite of
+the file was refused.
