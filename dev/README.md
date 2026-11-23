@@ -88,7 +88,8 @@ usage-limit message ("You've hit your weekly limit · resets Nov 25, 3pm (UTC)";
 it) records one factory-wide AI hold till the reset it names, in `run/ai_hold.json` (under its lock; a later hold is
 never shortened by an earlier one). Its run ends at once, its lease given back uncounted and put off till the reset: no
 attempt, nothing toward the kill rule, never parked or a dead letter. While the hold stands the goal `ai-not-held`
-(the sensor `aihold.py held`; a stale reading counts as held) shuts implement-, review-, plan- and research-when, so no
+(the sensor `aihold.py held`, in its own system `ai-hold`; a stale reading counts as held) shuts implement-, review-
+and research-when, and plan- and plan-review-when through `ai-stopped` (planning's one read of it and the budget), so no
 AI-role lease is taken, and every AI program that took one in the sensor's lag gives it back the same way
 (`fac.drain_holds`); the groomer and the plan review start no session. The merge queue, triage and the suites read
 neither and run on. At the reset the hold lifts by itself and the items given back are taken again in their blocks'

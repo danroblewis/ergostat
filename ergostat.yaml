@@ -44,6 +44,10 @@ systems:
     within: oversight
     description: the AI sessions' cost over the last day, held under the daily cap
     show: [auxiliary.ai-spend]
+  ai-hold:
+    within: oversight
+    description: the provider's usage limit - the AI sessions held till its reset, the queue and the suites running on
+    show: [auxiliary.ai-held]
   load:
     within: oversight
     description: the load interlock - the suites running on the machine, their threads and memory

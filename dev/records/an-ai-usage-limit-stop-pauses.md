@@ -39,3 +39,18 @@ Built, round 1. Choices taken with nobody to ask (the most reversible each):
 - Not changed: plan.py's `except BaseException` still records the planner's whole reservation as its cost for a limit
   stop, as it does for any failure (an overstatement, never an attempt).
 - Net lines outside tests/, docs/ and dev/: 0 (the code is all in dev/bin and dev/model).
+
+Round 1, `ergostat check` findings sent back (auxiliary-without-causes auxiliary.ai-held, interface system.planning,
+interface system.spending, missing-feedback goal.ai-not-held), each gone by a model change:
+
+- `ai-held` is driven by `+stock.gaps-building, +stock.gaps-in-review` (the sessions run use the allowance up, as
+  `ai-spend` is), so `ai-not-held`'s loop closes the long way (implement-when, implementor, gaps-started, gaps-building).
+- `ai-held` and `ai-not-held` are in a system of their own, `ai-hold` (within oversight), so spending's interface is
+  back to its 7 reads of `ai-budget`.
+- Planning was at 10 information links with plan-when's new read: one expr block in planning, `ai-stopped`
+  (`max(over, held)` of `goal.ai-budget.off` and `goal.ai-not-held.off`), now commands plan-when and plan-review-when,
+  so the advisory plan review's AI session also waits out a hold (a small widening, said here; it already waited on
+  the budget). The acceptance test pins this shape.
+- `ergostat check` itself was refused to this session; the findings were read through `spec.read` and
+  `architecture.findings` in a scratch test (removed, never committed): none of the four is left, and nothing new
+  names planning, spending, ai-hold or the new parts.

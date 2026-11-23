@@ -450,15 +450,22 @@ actions:
 blocks:
   plan-when:
     type: expr
-    description: plan while open gaps (or plans sent back) wait, planning is open, and the day's AI money is not spent
+    description: plan while open gaps (or plans sent back) wait, planning is open, and the AI is not stopped (ai-stopped)
     in:
       open: goal.open-gaps-planned.off
       replan: goal.replans-taken.off
       planning: auxiliary.planning-open
+      stop: block.ai-stopped
+    expr: max(open, replan) * min(planning, 1) * (1 - stop)
+    out: block.planner
+  ai-stopped:
+    type: expr
+    description: planning's AI sessions stopped - the day's AI money spent, or the provider's usage limit holding the AI till its reset (one read of each for plan-when and plan-review-when)
+    in:
       over: goal.ai-budget.off
       held: goal.ai-not-held.off
-    expr: max(open, replan) * min(planning, 1) * (1 - over) * (1 - held)
-    out: block.planner
+    expr: max(over, held)
+    out: [block.plan-when, block.plan-review-when]
   planner:
     type: ai
     agent: opus
@@ -485,11 +492,11 @@ blocks:
 
   plan-review-when:
     type: expr
-    description: review a sample of plans while some wait and the day's AI money is not spent - advice, never a gate
+    description: review a sample of plans while some wait and the AI is not stopped (ai-stopped) - advice, never a gate
     in:
       waiting: goal.plan-reviews-done.off
-      over: goal.ai-budget.off
-    expr: waiting * (1 - over)
+      stop: block.ai-stopped
+    expr: waiting * (1 - stop)
     out: block.plan-review
   plan-review:
     type: program

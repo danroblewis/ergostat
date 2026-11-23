@@ -13,12 +13,15 @@ auxiliaries:
     driven-by: [+stock.gaps-building, +stock.gaps-in-review, +stock.situations-raised]
     sensor: {builtin: ergostat.cost.usd, every: 5m, description: AI sessions' cost over a day}
   ai-held:
+    system: ai-hold
     unit: switch
+    driven-by: [+stock.gaps-building, +stock.gaps-in-review]   # the sessions run use the provider's allowance up
     description: 1 while the provider's usage limit holds the AI till its reset (run/ai_hold.json, dev/bin/aihold.py; a hold file that cannot be read holds), else 0
     sensor: {run: python3 dev/bin/aihold.py held, every: 30s, timeout: 25s, description: the AI hold}
 
 goals:
   ai-not-held:
+    system: ai-hold
     auxiliary: ai-held
     hold: "<= 0"
     tolerance: 0
