@@ -67,6 +67,23 @@ def cmd_event(args) -> int:
     except KeyboardInterrupt:
         return 0
 
+def cmd_why(args) -> int:
+    """``ergostat why ITEM``: why it is not done (SPEC §5a, *Why it is not done*)."""
+    if not args.name:
+        print("name the item: ergostat why ITEM", file=sys.stderr)
+        return 2
+    if getattr(args, "at", None):
+        print("ergostat why answers as of now: leave out --at", file=sys.stderr)
+        return 2
+    from ..why import answer
+    from ..why.words import lines
+    got = answer(open_project(args), args.name)
+    if args.json:
+        return out_json(got)
+    print("\n".join(lines(got)))
+    return 0 if got["known"] else 2
+
+
 def cmd_item(args) -> int:
     from ..spec import items as its
     from ..spec.item_sets import BadSet
