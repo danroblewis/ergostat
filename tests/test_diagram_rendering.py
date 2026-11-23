@@ -2352,6 +2352,33 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         pg.close()
 
 
+def test_a_system_is_drawn_c_p_or_named_with_the_same_p_by_m_closed_and_open(browser, tmp_path):
+    """dev/records/blocks-subsystems-classified-c-p.md: no block drawn Q; each closed block's letter, name and p × m
+    drawn again in its frame's title when it is opened; the legend defines C, P and p × m."""
+    no_q = "() => [...document.querySelectorAll('svg.canvas tspan.bd-mi')].filter((t) => t.textContent === 'Q').length"
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=-", 0)
+        boxes = pg.evaluate("""() => S.graph.nodes.filter((n) => n.role === 'subsystem').map((n) => [n.label,
+            (n.fn.sym || '') + (n.fn.sub || ''), n.fn.expr,
+            document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`)?.textContent])""")
+        assert {b[0]: b[1] for b in boxes} == {"factory": "Cfactory", "product": "Pproduct", "modelling": "modelling"}, boxes
+        assert pg.evaluate(no_q) == 0
+        legend = pg.evaluate("() => document.querySelector('.bd-legend')?.textContent || ''")
+        assert "C_name" in legend and "P_name" in legend and "p × m" in legend and not re.search(r"\bQ\b", legend), legend
+        for i, (name, head, dims, text) in enumerate(boxes, 1):
+            assert text and head in text and dims in text, (name, text)          # drawn in the closed block
+            drawn(pg, url, f"view=blocks&open={name}", i)
+            title = pg.evaluate("(id) => document.querySelector(`svg.canvas g.hull[data-hull='${id}'] > text`)?.textContent",
+                                f"frame:{name}")
+            assert title and title.startswith(head) and title.endswith(dims), (name, head, dims, title)
+            assert pg.evaluate(no_q) == 0
+        assert not errors, errors
+        pg.close()
+
+
 SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
   // parts drawn as themselves) has its marker; every connector shows its polarity (? where not known) at its head;
@@ -2845,6 +2872,7 @@ BD_LEGEND_DRAWN = {
     "a block's tier": ".bd-tier", "not linear": '.bd-node:not(.bd-collector):not([data-id^="zoh:"]) text.bd-name',
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
+    "a system as one block": ".bd-subsystem, .bd-frame-system",
 }
 
 
@@ -3794,7 +3822,7 @@ def test_a_change_of_window_shows_that_windows_behaviour_at_once(browser, tmp_pa
         pg.goto(url + "/loops")
         cell = "() => document.querySelector('td[data-perf=\"steady\"]')?.textContent || ''"
         pg.wait_for_function(f"() => ({cell})().startsWith('within')", timeout=20000)
-        switch = "(k) => { S.since = k; S.graphSig = ''; showAt(); route(); refreshHeader(); }"   # as the window menu does
+        switch = "(k) => setWindow(k)"                   # what the window menu calls (it puts window= in the address)
         pg.evaluate(switch, "10m")                       # (the record is longer than ten minutes, shorter than a day)
         pg.wait_for_function("() => S.status.window === 600 && S.status.at - S.status.first > 700", timeout=10000)
         pg.wait_for_function(f"() => ({cell})().startsWith('within')", timeout=5000)
@@ -3973,7 +4001,7 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
             drawn(pg, url, view, 1)
             if boxed:
                 assert not pg.evaluate(f"() => !!document.querySelector('svg.canvas [data-id=\"{ring}\"]')"), "drawn closed first"
-            pg.locator(".side .att button.name", has_text="loop short-backlog").click()
+            pg.locator(".side .att button.name", has_text=f"{'loop' if view else 'goal'} short-backlog").click()
             pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
             # (the closed box holding it is ringed until it is drawn open)
             pg.wait_for_function(f"(r) => JSON.stringify(({RINGED})()) === JSON.stringify([r])", arg=ring, timeout=60000)
@@ -3996,6 +4024,111 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
         pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
         pg.close()
         assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+PHONE_GOALS = """
+name: phone
+stocks:
+  queue:
+    sensor:
+      manual: true
+  requests-handled:
+    sensor:
+      manual: true
+goals:
+  short-queue:
+    stock: queue
+    hold: "<= 5"
+  requests-handled:
+    stock: requests-handled
+    hold: "<= 0"
+flows:
+  draining:
+    from: queue
+  handling:
+    from: requests-handled
+blocks:
+  drainer:
+    type: program
+    run: echo 1
+    goal: short-queue
+    out: flow.draining
+  handler:
+    type: program
+    run: echo 1
+    goal: requests-handled
+    out: flow.handling
+"""
+
+
+def test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long_off(browser, tmp_path, monkeypatch):
+    """At 390x844, in light and dark, the Loops page is one card per goal, off goals first: its name and status, then
+    its value against its bound, how long it has been off and how soon it is usually back; nothing scrolls sideways."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "phone"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(PHONE_GOALS)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    for t in (now - 3600, now - 30):                       # an hour of record
+        p.measurements.add("sensor/queue.main", 3, at=t)
+        p.measurements.add("sensor/requests-handled.main", 36, at=t)
+    p.events.add("loop.off", item="requests-handled", data={"value": 4}, at=now - 3000)     # an earlier spell, 30s long
+    p.events.add("loop.holding", item="requests-handled", data={"value": 0}, at=now - 2970)
+    p.events.add("loop.off", item="requests-handled", data={"value": 36}, at=now - 2160)    # off these 36 minutes
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(300):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        for scheme in ("light", "dark"):
+            pg = browser.new_page(viewport={"width": 390, "height": 844}, color_scheme=scheme)
+            errors: list[str] = []
+            pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
+            pg.goto(url + "/loops")
+            pg.wait_for_function("() => document.querySelectorAll('table.loops td.card').length === 2", timeout=20000)
+            got = pg.evaluate("""() => [...document.querySelectorAll('table.loops td.card')].map((c) => {
+                const r = c.getBoundingClientRect();
+                return {text: c.innerText, left: r.left, right: r.right, shown: r.width > 0 && r.height > 0};
+            })""")
+            assert [c["text"].split("\n")[0] for c in got] == ["requests-handled · off", "short-queue · holding"], (scheme, got)
+            assert got[0]["text"].split("\n")[1] == "36 against ≤ 0 · off 36m · usually back in 30s", (scheme, got)
+            assert all(c["shown"] and c["left"] >= 0 and c["right"] <= 390 for c in got), (scheme, got)
+            hidden = pg.evaluate("() => [...document.querySelectorAll('table.loops th, table.loops td:not(.card)')]"
+                                 ".filter((x) => x.getBoundingClientRect().width > 0).length")
+            assert hidden == 0, (scheme, hidden)
+            widths = pg.evaluate("() => [document.documentElement, document.querySelector('main'), "
+                                 "document.querySelector('.table-wrap')].map((x) => [x.scrollWidth, x.clientWidth])")
+            assert all(sw == cw for sw, cw in widths), (scheme, widths)
+            pg.close()
+            assert not errors, errors
+        # at a past moment, half an hour ago (as the time slider sets it): off 6 minutes then, not to the clock now
+        pg = browser.new_page(viewport={"width": 390, "height": 844})
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelectorAll('table.loops td.card').length === 2", timeout=20000)
+        pg.evaluate(f"() => {{ S.at = {now - 1800}; route(); }}")
+        pg.wait_for_function("() => / off 6m /.test(document.querySelector('table.loops td.card')?.innerText || '')",
+                             timeout=20000)
+        assert pg.locator("table.loops td.card").first.inner_text().split("\n")[1] == \
+            "36 against ≤ 0 · off 6m · usually back in 30s"
+        pg.close()
+        pg = browser.new_page(viewport={"width": 1200, "height": 844})       # wider: the table as it was, no cards
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelectorAll('table.loops tr.click').length === 2", timeout=20000)
+        assert pg.evaluate("() => [...document.querySelectorAll('table.loops td.card')].every((c) => !c.offsetWidth)")
+        assert pg.locator("table.loops th").first.is_visible()
+        pg.close()
     finally:
         proc.terminate()
         proc.wait(10)
@@ -5810,6 +5943,175 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+SIDE_WORDS = """() => ({
+  side: [...document.querySelectorAll('.side .att b, .side .suggest .hint b')].map((b) => b.textContent),
+  says: [...document.querySelectorAll('.side .suggest .hint')].map((d) => d.textContent.replace(/^\\S+ \\S+ /, '')),
+  heads: [...document.querySelectorAll('.side h3, .side details.loops > summary')].map((x) => x.firstChild.textContent),
+  serves: [...document.querySelectorAll('.side .looprow .sub')].map((x) => x.textContent).filter((t) => /serves goals? \\S/.test(t)),
+  goals: (S.graph.causalLoops || []).filter((c) => c.nodes.some((n) => n.startsWith('gap:'))).length })"""
+
+
+def test_in_dynamics_a_goal_is_called_a_goal_and_loop_means_an_r_or_b_loop(browser, tmp_path, monkeypatch):
+    """Dynamics' side list called a controlled goal 'loop requests-handled' right above 'Feedback loops 18: R2, R3 …'.
+    There it is 'goal requests-handled'; an R or B loop that closes a goal says 'serves goal …'; Blocks lists its
+    'Control loops'. (A suggestion's words are the unit tests' in test_dynamics_view.py: none is seeded here.)"""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+
+    def off(d):                                           # a reading of backlog above its goal: backlog-clear is off
+        monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+        p = Project(mdl.load(d))
+        p.measurements.add(next(iter(p.model.spec.stocks["backlog"].sensors.values())).series, 5.0, at=time.time() - 5)
+    with served("software-factory", tmp_path, off) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics&open=*", 0)
+        pg.wait_for_function("() => document.querySelector('.side .looprow')", timeout=20000)
+        got = pg.evaluate(SIDE_WORDS)
+        assert not [w for w in got["side"] + got["says"] if w.startswith("loop ")], got
+        assert any(w.startswith("goal ") for w in got["side"]), got           # (so a card about a goal was seen)
+        assert "Feedback loops" in got["heads"] and "Control loops" not in got["heads"], got
+        assert got["goals"] and len(got["serves"]) == got["goals"], got       # each loop through a goal names it
+        drawn(pg, url, "view=blocks&open=*", 1)
+        pg.wait_for_function("() => document.querySelector('.side details.loops > summary')", timeout=20000)
+        got = pg.evaluate(SIDE_WORDS)
+        assert "Control loops" in got["heads"] and "Loops" not in got["heads"], got
+        pg.close()
+        assert not errors, errors
+
+
+def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
+    """A loop chosen on the Loops page, and the window chosen, are in the address (?select=, ?window=): the address
+    opened in a new tab shows the same panel and window. Changing the window leaves the panel open and says
+    'Loading…' in the table until it is answered. A stock chosen on the diagram is in the address, and a reload rings
+    it; the Record's filter is in the address, and a reload keeps it. (first-loop's inbox-short stands in for the
+    review's api-q2-low, a demo's goal no test has.)"""
+    d = tmp_path / "first-loop"
+    shutil.copytree(ROOT / "examples" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    panel = "(n) => !document.querySelector('#detail').hidden && (document.querySelector('#detail h2')?.textContent || '').includes(n)"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        ctx = browser.new_context(viewport={"width": 1500, "height": 1000})
+        pg = ctx.new_page()
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/loops")
+        pg.locator("#main tr.click", has_text="inbox-short").first.click()
+        pg.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        assert "select=inbox-short" in pg.url, pg.url
+        # the window changed: the loops' answer held back, so what the table says meanwhile is seen
+        held: list = []
+        pg.route(lambda u: u.split("?")[0].endswith("/api/loops"), lambda rt: held.append(rt))
+        pg.locator("#when .menu-btn").click()
+        pg.locator(".menu-item", has_text="Last 6 hours").click()
+        loading = "() => [...document.querySelectorAll('#main .page p.muted')].some((p) => p.textContent === 'Loading…')"
+        pg.wait_for_function(loading, timeout=20000)
+        assert pg.evaluate(panel, "inbox-short"), "the panel closed when the window changed"
+        assert "window=6h" in pg.url and "select=inbox-short" in pg.url, pg.url
+        for rt in held:
+            rt.continue_()
+        pg.unroute_all()
+        pg.wait_for_function(f"() => document.querySelector('#main tr.click') && !({loading})()", timeout=20000)
+        # the address, in a new tab: the same panel and window
+        tab = ctx.new_page()
+        tab.on("pageerror", lambda e: errors.append(str(e)))
+        tab.goto(pg.url)
+        tab.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        assert tab.evaluate("[S.since, document.querySelector('#when .menu-btn').textContent]") == ["6h", "Last 6h"]
+        tab.locator("#detail button.close").click()                  # closed by hand: no longer in the address
+        tab.wait_for_function("() => !location.search.includes('select=')", timeout=5000)
+        tab.close()
+        # back and forward: each entry's address names the window it shows, and the page shows that window
+        agree = "() => [S.since, new URLSearchParams(location.search).get('window'), document.querySelector('#when .menu-btn').textContent]"
+        pg.evaluate("() => setWindow('1d')")
+        pg.evaluate("() => navigate('/items')")
+        assert "window=1d" in pg.url, pg.url
+        overview = "() => !!document.querySelector('#main .kind-overview')"    # bare /items: the kinds' overview, whatever the window
+        assert pg.evaluate(overview), "/items?window=1d is not the overview"
+        pg.evaluate("() => setWindow('6h')")
+        assert "window=6h" in pg.url and pg.evaluate(overview), pg.url
+        pg.evaluate("() => setWindow('1h')")
+        assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
+        pg.go_back()
+        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        assert pg.evaluate(agree) == ["1d", "1d", "Last 1d"]
+        pg.go_forward()
+        pg.wait_for_function("() => location.pathname === '/items'", timeout=5000)
+        assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
+        pg.goto(url + "/items?window=1d")                              # a pasted link with a window: still the overview
+        pg.wait_for_function(overview, timeout=20000)
+        assert pg.evaluate(agree) == ["1d", "1d", "Last 1d"]
+        # the diagram: a stock chosen is in the address, and a reload rings it
+        pg.goto(url + "/diagram")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        hit = pg.locator('g.node[data-id="stock:inbox"] .hit').first.bounding_box()
+        pg.mouse.click(hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2)
+        pg.wait_for_function("() => new URLSearchParams(location.search).get('select') === 'stock.inbox'", timeout=5000)
+        pg.reload()
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        pg.wait_for_function("() => document.querySelector('g.node[data-id=\"stock:inbox\"]').classList.contains('selected')",
+                             timeout=5000)
+        # a stock's panel, then a flow's (shown by no opener the window asks again): the window changed keeps the
+        # flow's, not the stock's asked again in its place
+        pg.goto(url + "/diagram?view=dynamics")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        kind = "() => document.querySelector('#detail .kind')?.textContent"
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        assert pg.evaluate(kind) == "Stock" and pg.evaluate(panel, "inbox")
+        pg.evaluate("() => openEdgeSD(S.graph.edges.find((e) => e.kind === 'pipe'))")
+        assert pg.evaluate(kind) == "Flow", pg.evaluate(kind)
+        pg.evaluate("() => setWindow('1d')")                         # (resolves once the panel's opener, if any, answered)
+        assert pg.evaluate(kind) == "Flow", "the window changed: the flow's panel was replaced by " + str(pg.evaluate(kind))
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        pg.evaluate("() => { document.querySelector('#detail').append(Object.assign(document.createElement('i'), { id: 'stale' })); }")
+        pg.evaluate("() => setWindow('6h')")                         # a stock's own panel is asked again in the new window
+        assert pg.evaluate(kind) == "Stock" and not pg.evaluate("() => !!document.querySelector('#stale')")
+        # Back with another page's panel open: the panel shown is the address's select= loop, not the stock's left over;
+        # Forward again: no panel left over, and a window change there opens none
+        pg.goto(url + "/loops")
+        pg.locator("#main tr.click", has_text="inbox-short").first.click()
+        pg.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        pg.evaluate("() => navigate('/diagram?view=dynamics')")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        assert pg.evaluate(kind) == "Stock"
+        pg.go_back()
+        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        assert "select=inbox-short" in pg.url, pg.url
+        pg.wait_for_function(f"() => ({panel})('inbox-short') && ({kind})() === 'Loop' && !!document.querySelector('#detail dl')",
+                             timeout=20000)          # (its answer in, not its 'Loading…': a late one is another matter)
+        pg.go_forward()
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        assert pg.evaluate("() => document.querySelector('#detail').hidden"), "a panel was left over after Forward"
+        pg.evaluate("() => setWindow('1d')")
+        assert pg.evaluate("() => document.querySelector('#detail').hidden"), "a window change reopened the loop's panel"
+        # the Record's filter: written as main's match=, a link's filter= read as well
+        pg.goto(url + "/record")
+        pg.locator(".filters input[type=search]").fill("valve.*")
+        pg.locator(".filters input[type=search]").press("Enter")
+        pg.wait_for_function("() => new URLSearchParams(location.search).get('match') === 'valve.*'", timeout=5000)
+        pg.reload()
+        pg.wait_for_function("() => document.querySelector('.filters input[type=search]')?.value === 'valve.*'", timeout=20000)
+        pg.goto(url + "/record?filter=agent.*")
+        pg.wait_for_function("() => document.querySelector('.filters input[type=search]')?.value === 'agent.*'", timeout=20000)
+        ctx.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 ON_PHONE = """() => {
   // what a phone shows of the drawing: the canvas's box, each system box wholly inside it, and the parts in view
   const c = document.querySelector("svg.canvas").getBoundingClientRect();
@@ -6445,9 +6747,10 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
             held = [r for r in house["rows"] if r.startswith("request · ")]   # each read as its sentence
             assert len(held) == 2 and all("Modelling cannot decide it" in r for r in held), house
-            assert off["rows"][0].startswith("off · loop short-backlog"), off          # the system's first,
+            word = "loop" if view else "goal"                   # (Dynamics calls a controlled goal a goal)
+            assert off["rows"][0].startswith(f"off · {word} short-backlog"), off       # the system's first,
             assert off["rows"][1] == "---", off                                         # a rule,
-            assert off["rows"][2].startswith("off · loop requests-handled"), off       # then modelling's
+            assert off["rows"][2].startswith(f"off · {word} requests-handled"), off    # then modelling's
             assert not house["open"] or "fault · " in house["words"], house            # folded, unless a fault is in it
             for g in groups:                                    # a state or kind word first, never colour alone
                 assert all(re.fullmatch(r"[a-z]+ · ", w) for w in g["words"]), g

@@ -2,14 +2,23 @@
 "use strict";
 /* ------------------------------------------------------------------ details */
 
-function closeDetail() { if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+/* closed by hand (its ×, Escape): the loop chosen on the Loops page leaves the address too */
+function shutDetail() { closeDetail(); if (parseRoute().path === "/loops" && parseRoute().q.has("select")) setQuery({ select: null }); }
+function closeDetail() { S.again = null; if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+/* the panel the window asks again: an opener's own, kept only while its panel is the last shown (any other clears it) */
+async function askedAgain(again, open) {
+  const t = S.opens = (S.opens || 0) + 1, s = S.shown;
+  await open();
+  if (S.opens === t && S.shown !== s) S.again = again;
+}
 function showDetail(...kids) {
+  S.again = null; S.shown = (S.shown || 0) + 1;
   if (S.selKey) { S.selKey = null; trace(S.hoverKey); }  // another detail: the line chosen before lets go
   const d = $("#detail");
   kids = kids.filter((k) => k != null && k !== false);
   // what it is now first; what a thing of its kind is (a definition) last, one click away
   const defs = kids.filter((k) => k.nodeType && k.matches?.("details.what")), rest = kids.filter((k) => !defs.includes(k));
-  const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: closeDetail }, "\u00d7");
+  const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: shutDetail }, "\u00d7");
   const head = rest[0]?.classList?.contains("kind") ? h("div", { class: "head" }, rest.shift(), close) : h("div", { class: "head" }, h("span"), close);
   d.replaceChildren(head, ...rest, ...defs);
   d.hidden = false;
@@ -98,7 +107,8 @@ function openSystem(n) {                            // a system as one part: wha
     h("p", { class: "note" }, h("code", {}, `ergostat explain system.${n.label}`), " says the same in sentences."));
 }
 
-async function openNode(n) {
+function openNode(n) { return askedAgain(() => openNode(S.graph?.nodes?.find((x) => x.id === n.id) || n), () => openNodeNow(n)); }
+async function openNodeNow(n) {
   for (const x of document.querySelectorAll(".node.sel")) x.classList.remove("sel");
   document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
   if (S.graph?.kind === "process") return openProcessNode(n);   // process.js
@@ -151,7 +161,8 @@ async function openNode(n) {
   showDetail(...kids);
 }
 
-async function openLoop(name, asController = false) {
+function openLoop(name, asController = false) { return askedAgain(() => openLoop(name, asController), () => openLoopNow(name, asController)); }
+async function openLoopNow(name, asController) {
   let lp;
   const note = panelLoading(asController ? "Controller" : "Goal", name);
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; return; }
@@ -247,7 +258,8 @@ function goalAhead(name, lp) {
 /* an agent's roles, each valve with the goal it serves: "valve work → goal located-worked" */
 const rolesText = (roles) => (roles || []).map((r) => `${r.kind} ${r.name}` + (r.goal ? ` → goal ${r.goal}` : "")).join(", ");
 
-async function openAgent(name) {
+function openAgent(name) { return askedAgain(() => openAgent(name), () => openAgentNow(name)); }
+async function openAgentNow(name) {
   const note = panelLoading("Agent", name);
   let a;
   try { a = await api(`agents/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; throw e; }

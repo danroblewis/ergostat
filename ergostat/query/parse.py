@@ -76,6 +76,27 @@ class Query:
 
 
 @dataclass(frozen=True)
+class SourceQuery:
+    """A query in a data source's own language (``{"source": name, "text": ...}``; ergostat/datasources)."""
+    id: str
+    source: str
+    text: str
+
+
+def _source_query(d: dict, id_: str, who: str, depth: int) -> SourceQuery:
+    if depth:
+        raise BadQuery(f"{who}: a data source's query cannot be an X, an input or an output")
+    if extra := sorted(set(d) - {"id", "source", "text"}):
+        raise BadQuery(f"{who}: {extra[0]!r} is not a key of a data source's query (source and text)")
+    source, text = d.get("source"), d.get("text")
+    if not isinstance(source, str) or not source or len(source) > 200:
+        raise BadQuery(f"{who}: source is missing (the name of a source under sources:)")
+    if not isinstance(text, str):
+        raise BadQuery(f"{who}: text must be the query, in the source's own language")
+    return SourceQuery(id_, source, text)
+
+
+@dataclass(frozen=True)
 class Refused:
     """A query that cannot be asked: it answers with these words, and the others still answer."""
     id: str
@@ -87,7 +108,7 @@ class Asked:
     since: float                    # the window, in seconds back from ``until``
     until: float | None
     points: int
-    queries: tuple[Query | Refused, ...]
+    queries: tuple[Query | SourceQuery | Refused, ...]
 
 
 def decode(q: str | None) -> dict:
@@ -209,13 +230,15 @@ def _frequency(d: dict, q: Query, who: str, depth: int) -> Query:
                    output=_query({"id": "output", **d["output"]}, 0, depth + 1), segments=segments)
 
 
-def _query(d, i: int, depth: int = 0) -> Query:
+def _query(d, i: int, depth: int = 0) -> Query | SourceQuery:
     if not isinstance(d, dict):
         raise BadQuery(f"queries[{i}] must be an object")
     id_ = d.get("id", str(i))
     if not isinstance(id_, str | int) or isinstance(id_, bool) or len(str(id_)) > 64:
         raise BadQuery(f"queries[{i}]: id must be a short text")
     who = f"query {id_}"
+    if "text" in d:
+        return _source_query(d, str(id_), who, depth)
     if extra := sorted(set(d) - KEYS):
         raise BadQuery(f"{who}: {extra[0]!r} is not a query key")
     source = _word(d, "source", SOURCES, None, who)
@@ -295,7 +318,7 @@ def parse(d: dict) -> Asked:
     qs = d.get("queries")
     if not isinstance(qs, list) or not qs:
         raise BadQuery("query: queries must be a list of at least one")
-    got: list[Query | Refused] = []
+    got: list[Query | SourceQuery | Refused] = []
     seen: set[str] = set()
     for i, x in enumerate(qs):
         id_ = _id_of(x, i)

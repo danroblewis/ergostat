@@ -30,13 +30,20 @@ const whenMenu = menu(whenLabel(), () => {
   slider.addEventListener("change", () => { refreshHeader(); route(); });
   return [
     h("div", { class: "menu-label" }, "Window"),
-    ...Object.keys(WINDOWS).map((k) => ({ label: WINDOW_WORDS[k], checked: S.since === k, onclick: () => { S.since = k; S.graphSig = ""; showAt(); route(); refreshHeader(); } })),
+    ...Object.keys(WINDOWS).map((k) => ({ label: WINDOW_WORDS[k], checked: S.since === k, onclick: () => setWindow(k) })),
     { sep: true },
     h("div", { class: "menu-block" }, h("div", { class: "menu-label" }, "Moment"), slider, readout),
     S.at ? { label: "Back to live", onclick: () => { S.at = null; showAt(); refreshHeader(); route(); } } : null,
   ];
 }, { right: true, title: "The window the page looks over, and the moment it shows" });
 $("#when").append(whenMenu);
+/* a window chosen: in the address (the Record's own window=1 kept), the page asked again with its panel left open */
+function setWindow(k) {
+  S.since = k; S.graphSig = ""; showAt();
+  const { path, q } = parseRoute();
+  if (!ownWindow(path, q)) setQuery({ window: k === "1h" ? null : k });
+  const done = route(true).then(() => S.again?.()); refreshHeader(); return done;
+}
 function showAt() {
   if (whenMenu.button.textContent !== whenLabel()) whenMenu.button.textContent = whenLabel();
   whenMenu.button.classList.toggle("past", !!S.at);
@@ -45,13 +52,13 @@ function showAt() {
 $("#waits").addEventListener("click", () => { S.toWaiting = true; toWaiting(); });
 if (location.hash === "#waiting") S.toWaiting = true;
 window.addEventListener("hashchange", () => { if (location.hash === "#waiting") { S.toWaiting = true; toWaiting(); } });
-window.addEventListener("popstate", route);                  // back and forward
+window.addEventListener("popstate", () => route());   // (no event as route's keep)               // back and forward
 window.addEventListener("hashchange", () => { if (HASHED || oldAddress()) route(); });   // a snapshot's route; an old #/ address
-document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeDetail(); });
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") shutDetail(); });
 if (SNAP) {                                   // one moment, one window: nothing to slide or switch
   for (const el of [$("#when"), $("#project")]) el.style.display = "none";
   S.since = SNAP.since;
-}
+} else if (Object.hasOwn(WINDOWS, parseRoute().q.get("window") || "")) { S.since = parseRoute().q.get("window"); showAt(); }   // a link's window
 (async () => {
   await refreshHeader();
   poll(refreshHeader, 5000);

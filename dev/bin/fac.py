@@ -711,11 +711,12 @@ def counts(text: str) -> dict[str, int] | None:
 def beside(tests: list[str], log: Path, run) -> dict[str, str]:
     """The quarantined ``tests`` run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each
     result said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown. A
-    flake item still marked quarantined whose test is no longer listed is marked released (`quarantined: false`)."""
+    flake item still marked quarantined whose test is no longer listed is released: one flake.released
+    (`quarantined: false`, `released_at`), so the record tells a release from a measurement."""
     try:
         for it in items("flake"):
             if it["fields"].get("quarantined") and it["fields"].get("test") not in tests:
-                say("flake.measured", it["id"], quarantined=False)
+                say("flake.released", it["id"], quarantined=False, released_at=time.time())
     except Exception:  # noqa: BLE001 - a record that cannot be read leaves the marks as they were, never the suite
         pass
     if not tests:
@@ -795,7 +796,7 @@ STANDIN = {
                'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- `docs/GAPS.md:1`: the gaps\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
-    "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
+    "designer": "The stand-in started no demo and walked nothing.", "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
     "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}
 
 
