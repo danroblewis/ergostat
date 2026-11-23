@@ -853,7 +853,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
         fin = one("finished") or "hide"
         if fin not in ("hide", "waits", "show"):
             raise BadSet(f"finished={fin}: hide, waits or show")
-        if fin != "show" and not one("state") and spec is not None:   # never a searched or chosen state
+        if fin != "show" and not one("state") and not one("q") and spec is not None:   # never a searched or chosen state
             got = _unfinished(p, spec, got, one("kind"), snap["at"], n, offset, pk)
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
