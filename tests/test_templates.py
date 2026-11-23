@@ -297,6 +297,12 @@ def test_every_built_in_template_checks_with_its_example(tmp_path, name):
     assert spec.uses
 
 
+def test_no_built_in_templates_description_names_a_spec_section():
+    """A template's description is shown on the reader's pages (a part's panel): what it is, not where SPEC says so."""
+    said = {n: t.description for n, t in tp.find_all()[0].items() if "SPEC §" in (t.description or "")}
+    assert not said, said
+
+
 def test_with_every_default_each_runs_on_stand_ins(tmp_path):
     needs = {"keep-under": {"limit": 10}, "steps": {"steps": ["a", "b"]}}
     body = "name: t\nuses:\n" + "".join(f"  u-{n}:\n    use: {n}\n    with: {json.dumps(needs.get(n, {}))}\n"
