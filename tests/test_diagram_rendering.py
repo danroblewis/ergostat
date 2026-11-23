@@ -2713,6 +2713,7 @@ BD_LEGEND_DRAWN = {
     "a block's tier": ".bd-tier", "not linear": '.bd-node:not(.bd-collector):not([data-id^="zoh:"]) text.bd-name',
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig",
+    "a system as one block": ".bd-subsystem, .bd-frame-system",
 }
 
 
