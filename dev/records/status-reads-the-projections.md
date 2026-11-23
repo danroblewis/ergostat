@@ -108,3 +108,92 @@ Tests:
 Parked by the factory (review/status-reads-the-projections-2, 2026-11-23 11:21).
 
 Done: items 2 and 3. The inbox, its stats, interventions, gated actions, messages, reports, model changes, modelling requests, leases' attention and loop crossings read projections.stored, query and asks. The old folds are deleted (kept only as the test reference in tests/status_before.py). As-of reads are answered from the table when no item of the family has a newer event (records.last, index VERSION 8), else by an in-memory fold. as_of and age are in the snapshot and the status API, and the field-by-field equality test is in place. Left: done item 1, the whole of it. Every remaining event-log read of state.snapshot (each agent's latest run, failure and start, each loop's latest decision and opening, the window's run tallies and openings, the item index's as-of fold of items changed since, refused_expiries) must move onto index tables, and the status must answer in under 100 ms on the factory-size fixture, so that the strict xfail passes. It stops because this is the second failed review. The gap's own work is incomplete, and the reason given (it needs another gap) is not one the definition allows, since those reads are named in it. Whoever resumes should either build those tables here within the budget, or have the owner split the definition so that item 1 waits for a real, named gap.
+
+## Where it stopped
+
+Round 1 of the continued gap (gap/status-is-a-maintained-projection-2-continued-2), on main as of 278f54a4 (merged).
+All three done items are built and their tests pass, with the strict xfail removed. Net code outside tests, docs and
+dev: +325 lines (522 added, 197 deleted) of the 600, for the whole branch.
+
+The review's finding: done item 1 was not met (the snapshot's remaining event-log reads, and 100 ms). What changed:
+- Each agent's latest run, failure and start, and each loop's latest decision, opening and auxiliary set: a new
+  `latest` table in the item index (each item's newest event of the `LATEST` types, by seq). A read as of a moment
+  before that newest event reads the record for that item (exact). `projections.latest`.
+- The window's run tallies and openings (`events.runs`, `opened`, `times`, and the ladder hint's amounts): a new
+  `ticks` table (what each run and opening adds to `segments.TALLIES`, with its time and its amount as written).
+  One query per tally for all agents or valves. `projections.runs`, `opened`, `openings`, `opened_amounts`.
+- Claims contradicted: now one of `MARKS`.
+- The item index's as-of fold of items changed since a reading (`items._late`, from `state.counted`): the index now
+  keeps, per item, when each top-level field was last touched by an event (a snapshot or a `set` touches all of them;
+  more is safe), and the span where its events came out of time order. An item changed since the moment is folded
+  from the record only when an event since may have changed a field it is matched on, or the moment falls in that
+  span (`Index.still`). Otherwise its fields now and its moves up to then are its fields and moves as of then.
+- An action's why (its work item's impact and tests, `inbox.entries._why`) was a fold of the item from the record. It
+  is now read from the item index, batched (`items.current`).
+- `refused_expiries` already read the item index. It folds from the record only an item the index does not hold, and
+  on the fixture it reads no segment.
+- The old reads are deleted where they were replaced, and kept only as the tests' oracle (`tests/status_before.py`,
+  which now also puts back the old latest, tally, opening, work-item and as-of reads).
+
+For the 100 ms, beyond the event log:
+- One status answer catches the index up once (`itemindex.pinned`). Before, each of about 260 reads looked for what
+  was new.
+- The measurements store's `first_time` was one `min(time)` over every reading (34 ms). It now reads each series'
+  first reading by the `samples_series` index (a recursive skip-scan, the same minimum).
+- The window's readings of every sensor are read in one connection (`Measurements.ranges`). They are used only where
+  the raw readings answer alone (raw held from the span's start, as `_sources` decides), else the store's own read.
+  `sampled` works out its sources once for its count and its read.
+- The newest reading of each sensor comes from the store's `newest()` when it is at or before the moment asked about.
+- The sensors are indexed by what they measure; `lease_attention` reads only each kind's dead items; the inbox's
+  stats read only the waiting changes (`_changes`), not the whole inbox again; actions are filtered by state in SQL;
+  `Index.name(None)` no longer reloads every name; the log's head keeps its earliest time.
+
+Measured on the factory-size fixture with the seed (this container, load average about 9 on 24 cores): 62 to 95 ms
+over five status answers (median 67). It was 455 ms with 1,188 log reads at the start of this round. Once the index is
+current, the answer makes no segment query: the only ones left are the index's own catch-up of the new event, which
+the test leaves out.
+
+Decisions taken alone (the reversible option each time):
+- A run or opening whose number field is not a number counts as one, adding nothing. Before, the segments' tally
+  raised.
+- The ladder hint reads an opening's amount as written when it is a number, else None. Before, a string or a boolean
+  was kept as it was.
+- Amounts are summed by SQLite's `total()`, not in Python segment by segment. Amounts that are not exact in binary
+  may differ in their last bits.
+- The why reads the transcript-less index. A transcript's events fold only into `transcripts.FIELDS`, never `impact`
+  or `tests`. One case is not covered, a kind with `if-unchanged` rules: there a transcript's lines would change the
+  event count those rules compare.
+- The index layout stays VERSION 8. Main is at 7, and this branch's 8 never landed.
+- After a roll-up or prune, `latest` and `ticks` are folded again from what the record holds. That reads every run
+  and opening once per change of the record's generation.
+- The 100 ms test is marked `serial` (a wall-clock bound, per the house rule). It is a single answer's time, not the
+  best of several.
+
+Tests:
+- `tests/test_status_reads_projections.py`: 4 pass, none xfailed.
+  - `test_a_status_request_makes_no_segment_query_and_answers_in_100_ms` (was the strict xfail).
+  - `test_once_the_index_is_current_the_status_reads_none_of_the_tables_from_the_log` (now no read at all; the old
+    code reads every one of the types and over 20 single items).
+  - `test_the_answer_equals_the_old_codes_field_by_field` (the seed now gives work items an impact, so the why is
+    compared).
+  - `test_the_answer_says_how_old_it_is`.
+- `tests/test_index_projections.py`: 13 pass. The randomized record now holds runs, failures, starts, openings
+  (amounts of every kind and none), decisions and claims. `latest`, `runs`, `opened`, `openings` and the amounts are
+  compared with the record's reads through catch-up, rebuild, roll-up and prune, with and without an index. New:
+  `test_as_of_a_moment_only_an_item_whose_matched_fields_may_have_changed_is_folded_again`, on both stores.
+- `tests/test_measurements_read_together.py` (new): 2 pass, `ranges` and `first_time` against the store's own reads.
+- Seen to fail, each with its break in place:
+  - `touches` ignoring data keys: the as-of test fails.
+  - the out-of-order check removed: the as-of test fails (on its written-late case; the random draws alone did not).
+  - `ranges` without its raw-held condition: the measurements test fails.
+  - `latest` without its as-of fallback: test_index_projections fails (10 of 13).
+- Also run, passing: test_item_index, test_store_conformance, test_leases (142 passed; the 12 skips are the
+  VictoriaMetrics store with no server and stores with no tiers), test_inbox, test_interventions, test_gated_actions,
+  test_runner_and_state, test_observer, test_graph_cli_web, test_quiet_system, test_off_by_words, test_model,
+  test_claims, test_dynamics_view, test_scale_caches, test_goal_per, test_numbers, test_daemons, test_messages,
+  test_reports, test_upkeep_record.
+- One failure seen, not reproduced: `test_upkeep_record.py::test_a_killed_compactor_releases_the_lock` failed once
+  (`timed == [5.0]`) when run beside test_messages and test_reports on the loaded machine. It passed alone and when
+  the same three files were run again. It covers `Engine.run_block` and `stream.follow`, which this branch does not
+  touch.
+- Not run here: the whole unit suite and the four browser files (no page changed). The factory runs them.

@@ -14,6 +14,9 @@ crossings, unrouted messages, drafted reports) reads with ``events.query``:
   type, item and time; ``voids``: the ids an ``ergostat.forgotten`` set aside (``unvoided``).
 - ``asks``: each time a person block was asked or an advised block advised, and how it was answered
   (``inbox.entries.asks``), per block and chain.
+- ``latest``: each item's newest event of the ``LATEST`` types (each agent's run, failure and start, each loop's
+  decision, opening and auxiliary set), by seq; ``ticks``: what each run and opening adds to the window's tallies
+  (``segments.TALLIES``), with its time.
 
 What depends on the model's blocks, goals or files (which entries wait, a class's record, an alarm's readings) is
 worked out from these when read: the index is shared by every model with the same item kinds. The record stays the
