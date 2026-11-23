@@ -276,6 +276,16 @@ programs already there.
   the fix made.
   Once main-mend sees the test pass twice alone on the pushed main, it holds again. The loop is named `main-repair`
   and is drawn balancing.
+- **quarantine-small.** The stock `quarantined` (dev/model/guarantees-quarantine.yaml) is the number of tests listed in
+  tests/quarantine.txt on main as pushed (`held.py quarantined`: the checkout's `<remote>/<base>`, never fetched).
+  The goal `quarantine-small` holds it at or under `quarantine-most`: 8, the count on main on 2026-11-23. A setpoint is
+  a number, so the goal's `hold` writes the same 8, and a test keeps the two equal. The owner lowers both as tests are
+  released. The goal goes off only when the quarantine grows, and a list not read counts as off. Off, it asks the
+  coordinator (`release-quarantined`, a person block in the system, as `fix-main` is) to have a test released; the
+  loop is `quarantine-release`. The stock's flows are its rises and falls over a day. The auxiliary `quarantine-oldest-days` (`held.py quarantine-oldest-days`) is the
+  number of days since the oldest `when`. No goal is on it until the owner says how long a test may stay. A list, a
+  line or a date held.py cannot read gives no value (exit 1), never 0. A listed test with no flake item marked
+  `quarantined`, or such an item whose test is not listed, is named on stderr.
 
 ## The backlog: ranked, groomed
 
