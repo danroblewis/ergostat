@@ -5,10 +5,12 @@ Two harms, each ending in someone stepping in:
   factory damage     factory-caused interventions (an allowlist of classes, the queue's and the upgrader's own
                      included, or `factory: true`) per gap processed (a
                      verdict: approved or parked); review findings and a reviewer's park are not harm
-  low quality        escapes per merged gap: reverted (gap.reverted, or its upgrade reverted), `broke_main` said of
+  low quality        escapes per merged gap: reverted (gap.reverted, by hand or found on main by escapes.py, or its
+                     upgrade reverted), `broke_main` said of
                      it, its merge the main commit a `main-broken` intervention found failing (onmain.py; one tied
                      to no merged gap is an escape at the pool size then), or named by a later gap or intervention
-                     as its `caused_by`
+                     as its `caused_by`; a revert on main tied to no merged gap (escapes.py: reverted-unmatched) is
+                     an escape at the pool size then, as an unmatched main-broken is
 
 Each is a Poisson rate with a Gamma posterior, per implementor pool size n (the size in run/pools.json's history when
 the evidence happened). Its prior is weak (shape 0.5) with the mean of the other sizes' evidence; a size above the
@@ -24,6 +26,7 @@ from pathlib import Path
 
 FACTORY = ("environment-defect", "self-reference", "factory-missing-capability", "queue-interleaving",
            "queue", "switch")        # (the last two, its own: the merge queue stopped, the upgrader could not recover)
+ESCAPES = ("main-broken", "reverted-unmatched")   # interventions that are escapes (onmain.py; escapes.py: no gap matched)
 PRIOR = 0.5                           # the Gamma prior's shape, and its mean per gap with no evidence at all
 Q = 0.9                               # the bound: this quantile of the posterior
 MIN_CYCLE = 0.5                       # hours: a cycle time below this is taken as this (gaps a day stay finite)
@@ -79,9 +82,9 @@ def evidence(gaps: list[dict], interventions: list[dict], upgrades: list[dict], 
             merges.setdefault(str(g["fields"]["main_sha"]), []).append(g["id"])
     for iv in interventions:
         f = iv["fields"]
-        if str(f.get("class") or "") != "main-broken":
+        if str(f.get("class") or "") not in ESCAPES:
             continue
-        sha = str(f.get("main") or "")
+        sha = str(f.get("main") or "") if f.get("class") == "main-broken" else ""   # (an unmatched revert: no gap)
         hit = [i for s, gs in merges.items() if sha and (s.startswith(sha) or sha.startswith(s)) for i in gs]
         blamed |= set(hit)
         if not hit:                                           # (no merge found: still an escape, at the pool then)
@@ -98,6 +101,14 @@ def evidence(gaps: list[dict], interventions: list[dict], upgrades: list[dict], 
         if factory_caused(iv):
             add(when(iv["fields"].get("recorded_at") or iv.get("first")), 0)
     return ev
+
+
+def found_since(gaps: list[dict], interventions: list[dict], t: float) -> int:
+    """Escapes found at or after t: merges reverted (their reverted_at; one entered by hand without it is not dated, so
+    not counted here) and main-broken or reverted-unmatched interventions (one with no time counts as now)."""
+    return (sum(float(g["fields"].get("reverted_at") or 0) >= t for g in gaps)
+            + sum(str(i["fields"].get("class") or "") in ESCAPES and when(i["fields"].get("recorded_at") or i.get("first"))
+                  >= t for i in interventions))
 
 
 def gamma_cdf(a: float, x: float) -> float:
