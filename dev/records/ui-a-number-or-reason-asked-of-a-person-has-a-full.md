@@ -84,3 +84,30 @@ Round 2: main (ead497d1) merged in, its six conflicts resolved, and built again.
   one included). `tests/test_inbox.py`: 34 passed. `tests/test_gated_actions.py`: 11 passed. ruff is clean. Breaks
   seen to fail the acceptance test: a placeholder put back on the reason box, and Yes/No switched off (3 inputs, not
   2). Not run here: the unit suite and the other three browser files (the merge queue runs them).
+
+Round 3: the review's one finding answered. About 16 net lines of code outside `tests/` and `docs/` against main.
+
+- The finding: the yes-or-no rule ("two named ends") also matched the-job's `approve-ramps` (approved / rejected),
+  which the definition gives as its number example. It turned that ask into Yes/No, so a rejection never counted,
+  and on `declare-incident` the page offered "No" as an answer that records nothing along `dismissed`. Fixed by
+  removing the rule: `_done_in` no longer returns `yes_no`, `state.py` no longer passes it on, and the side list
+  has no Yes/No buttons. Every person ask keeps its labelled number box. The label names the flow the number moves
+  (its first flow, which is what `person_done` records) and its stock's unit: "Ramps done, along ramps-approved
+  (number)" and "Outages done, along outages-declared (number)".
+- Choice made without the owner (the most reversible one): nothing in a person block says that its answer is yes
+  or no. The-job's two person blocks have the same shape, and `person_done` moves only the first flow. A true
+  yes/no needs two things this quick UI gap should not add: a model key that says so (`compile.py` allows only
+  `ask`, `goal`, `until`, `review` and the common keys on a person), and an answer path that sends No along its own
+  end. So the definition's third sentence ("an ask whose answer is yes or no gets two buttons") is left undone: it
+  waits for a gap of its own that adds both. The labels, units and full-width inputs (sentences 1 and 2, and the
+  acceptance check) are built.
+- Tests: `tests/test_inbox.py::test_the_jobs_two_ended_person_asks_keep_their_number_along_the_flow_it_moves`
+  (new) loads examples/the-job and checks both real person blocks. `test_a_persons_entry_says_what_its_number_moves`
+  replaces the round 2 yes/no unit test. The acceptance test's two-ended `decider` must now show a labelled number
+  box ("Jobs done, along declared (number)"), and Done must record the 2 typed into it. Breaks seen to fail them:
+  `_done_in` returning nothing for a two-ended block (both tests fail), and the page dropping the number box for
+  the two-ended person (the acceptance test fails, 2 inputs not 3).
+- Run here: `tests/test_inbox_page.py` under the watchdog with Playwright: 10 passed, rc 0, none skipped.
+  `tests/test_inbox.py`: 35 passed. `tests/test_gated_actions.py`: 11 passed. ruff is clean. Not run here: the
+  unit suite and the other three browser files (the merge queue runs them). Main has not moved since the round 2
+  merge (no origin/main in the clone).

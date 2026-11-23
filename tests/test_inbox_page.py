@@ -48,7 +48,7 @@ ASK = "Review the queue.\\nOutward acts wait for you: `ergostat actions` lists t
 
 def pushes(tmp_path, requests: int, decider: bool = False):
     """The model with this many push actions held, and a person asked to review the queue (and, with ``decider``, a
-    person asked a yes or no decision)."""
+    person whose outputs are two named ends, as the-job's declare-incident)."""
     from ergostat import model as mdl
     from ergostat.actions import gate
     from ergostat.store import Project
@@ -200,7 +200,8 @@ def test_approve_in_the_side_panel(site):
 def test_every_answer_in_the_side_list_has_a_full_label_and_a_number_its_unit(decided):
     """Acceptance (ui-a-number-or-reason-asked-of-a-person-has-a-full): each input of the side list sits under a
     visible <label> shown whole (scrollWidth <= clientWidth), as wide as its row, with no placeholder to be cut; a
-    number's label names its unit; a yes-or-no ask gets Yes and No, no number box, and Yes records one."""
+    number's label names its unit and the flow it moves; a person with two named ends (as the-job's approve-ramps and
+    declare-incident) keeps its number, which moves its first flow, and Done records what was typed."""
     url, p, _ = decided
     with playwright.sync_playwright() as pw:
         b = pw.chromium.launch()
@@ -214,23 +215,21 @@ def test_every_answer_in_the_side_list_has_a_full_label_and_a_number_its_unit(de
             return { label: l ? l.innerText : null, shown: !!l && l.getBoundingClientRect().height > 0,
                      whole: !!l && [l, ...l.children].every((x) => x.scrollWidth <= x.clientWidth),
                      placeholder: i.placeholder, wide: i.getBoundingClientRect().width / row.clientWidth }; })""")
-        assert len(got) == 2, got                       # the reviewer's number and the held action's reason
+        assert len(got) == 3, got                       # the two numbers and the held action's reason
         for x in got:
             assert x["label"] and x["shown"] and x["whole"] and not x["placeholder"] and x["wide"] > 0.9, x
         labels = [" ".join(x["label"].split()) for x in got]
-        assert "Jobs done, along reviewed (number)" in labels and "Reason for denying (required)" in labels, labels
+        assert labels.count("Jobs done, along reviewed (number)") == 1 and "Reason for denying (required)" in labels
+        assert "Jobs done, along declared (number)" in labels, labels      # two ends: its first flow, a number
         decider = pg.locator('[data-inbox^="person/decider@"]')
+        decider.get_by_label("Jobs done, along declared (number)").fill("2")
         buttons = decider.locator(".inbox-act button")
-        assert decider.locator("input").count() == 0
-        assert buttons.all_inner_texts() == ["Yes", "No"]
-        heard = [buttons.nth(i).get_attribute("aria-label") for i in range(2)]
-        assert heard[0].startswith("Yes to decider's ask") and heard[1].startswith("No to decider's ask"), heard
-        assert "Yes moves one of jobs, along declared" in decider.inner_text()
+        assert buttons.all_inner_texts() == ["Done with decider's ask"]
         buttons.nth(0).click()
         pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=decider.element_handle(), timeout=20000)
         leave(pg)                                       # answered, it says so in its row until the reader leaves
         pg.wait_for_function("""() => !document.querySelector('[data-inbox^="person/decider@"]')""", timeout=20000)
-        assert p.events.query(n=1, type="agent.ran", item="decider")[-1]["data"]["done"] == 1.0
+        assert p.events.query(n=1, type="agent.ran", item="decider")[-1]["data"]["done"] == 2.0
         assert not errors, errors
         b.close()
 

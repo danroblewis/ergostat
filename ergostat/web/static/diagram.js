@@ -1397,8 +1397,7 @@ function inboxAnswer(a) {
   // each box under a label that says what it means: a number its unit and flow, a reason that Deny needs it
   const labelled = (text, input) => input && h("label", { class: "ask-in" }, h("span", {}, text), input);
   const unit = a.unit || a.flow || "work", along = a.flow ? `, along ${a.flow}` : "";
-  const yesNo = a.answer.includes("done") && a.yes_no;                    // a decision: two buttons, no number
-  const n = a.answer.includes("done") && !yesNo ? h("input", { type: "number", min: "0", step: "any" }) : null;
+  const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any" }) : null;
   // each button names what it answers, seen ("Approve the push") and heard (with the entry's id, unique in the list)
   const thing = { action: `the ${a.object}`, person: `${a.object}'s ask`, advise: `${a.object}'s command`,
                   breaker: `the reset of ${a.object}'s breaker`, steptest: "the step test", change: "the model change",
@@ -1408,26 +1407,25 @@ function inboxAnswer(a) {
                            if (d) d.disabled = !w?.value.trim(); };
   const why = a.answer.includes("deny") ? h("input", { type: "text", "aria-label": `Why deny ${thing}`,
                                                        oninput: (ev) => ready(ev.currentTarget.closest(".inbox-act")) }) : null;
-  const go = (verb, yes) => {
-    const says = yes != null ? `${yes ? "Yes" : "No"} to ${thing}` : `${{ approve: "Approve", deny: "Deny", done: "Done with" }[verb]} ${thing}`;
+  const go = (verb) => {
+    const says = `${{ approve: "Approve", deny: "Deny", done: "Done with" }[verb]} ${thing}`;
     return h("button", { "data-verb": verb, "aria-label": `${says} (${a.what})`, disabled: verb === "deny" && !typed ? "" : null, onclick: async (ev) => {
       // the row on the page, found from the button pressed: a refresh keeps the old nodes, and this scope's are let go
       const row = ev.currentTarget.closest(".inbox-act"), said = row.querySelector(".note");
-      const nv = yes ?? row.querySelector('input[type="number"]')?.value, wv = row.querySelector('input[type="text"]')?.value;
+      const nv = row.querySelector('input[type="number"]')?.value, wv = row.querySelector('input[type="text"]')?.value;
       // answered from the keyboard: focus goes to the reply, not with the disabled button to the body, so the list holds
       if (ev.currentTarget.matches(":focus-visible")) said.focus();
       for (const b of row.querySelectorAll("button")) b.disabled = true;
-      const q = { ...(nv || nv === 0 ? { n: nv } : {}), ...(wv ? { note: wv } : {}) };
+      const q = { ...(nv ? { n: nv } : {}), ...(wv ? { note: wv } : {}) };
       try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
       catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; ready(row); }
-    } }, yes != null ? (yes ? "Yes" : "No") : says);
+    } }, says);
   };
   // the keyboard's order: the reason before the answers, so a denial can say why; Deny waits for the reason
   const typed = document.querySelector(`[data-inbox="${CSS.escape(a.what)}"] .inbox-act input[type="text"]`)?.value.trim();
   return h("div", { class: "row inbox-act" },
-    yesNo ? h("span", { class: "ask-in" }, `Yes moves one of ${unit}${along}; no moves none`) : null,
     labelled(`${unit[0].toUpperCase() + unit.slice(1)} done${along} (number)`, n), labelled("Reason for denying (required)", why),
-    ...(yesNo ? [go("done", 1), go("done", 0)] : a.answer.map((v) => go(v))), said);
+    ...a.answer.map(go), said);
 }
 
 /* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
