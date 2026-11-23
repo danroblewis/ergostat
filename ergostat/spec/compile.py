@@ -91,7 +91,7 @@ TYPE_KEYS = {
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
                                        "workdir", "workspace", "read", "tools", "actions", "read-only", "network"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
-    "external": {"agent", "identify"},
+    "external": {"agent", "identify", "law"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up", "reviewed",              # judge: model (SPEC §12e)
               "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
@@ -1479,6 +1479,15 @@ class Compiler:
             else:
                 got = {k: self.ref(idf[k], w, f"{what}.identify.{k}", ("stock", "flow", "auxiliary")) for k in idf}
                 params["identify"] = got if all(got.values()) else None
+        known, raw = None, params.pop("law", None)
+        if t == "external" and raw is not None:   # a known law, declared (control/laws.py, SPEC §12d)
+            from ..control import laws
+            known, bad = laws.check(raw)
+            if m.get("identify") is None:
+                known, bad = None, [*bad, (None, "a law is declared of what it reads and sets: write identify: with it")]
+            for key, why in bad:
+                at = raw.at(key) if key is not None and isinstance(raw, Map) else m.at("law")
+                self.err(f"{what}.law{'' if key is None else f'.{key}'}: {why}", at, "bad-law")
         if m.get("until") is not None:
             sp = Setpoint.parse(m["until"])
             if sp is None:
@@ -1555,7 +1564,7 @@ class Compiler:
                      every=self.duration(m, "every", what), cron=self.cron(m, "cron", what),
                      timeout=self.duration(m, "timeout", what, 300.0), max=self.number(m, "max", what) if t in MACHINE else None,
                      min=self.number(m, "min", what) if t in MACHINE else None, mode=mode, where=m.where,
-                     on_stale=self.on_stale(m, what))
+                     on_stale=self.on_stale(m, what), law=known)
 
     def references(self, spec: Spec) -> None:
         """Every reference resolves, to the right kind of thing; one actuator per flow; no algebraic

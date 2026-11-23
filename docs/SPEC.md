@@ -4651,8 +4651,33 @@ identified whose output the projection cannot move). The Blocks view writes the 
 a staircase, a saturation) and a small *identified* mark, from laws already fitted (a miss is fitted in a thread and
 drawn on a later poll); its panel says the rest. *Not yet*: whether the law changed (someone retuned the controller:
 two laws against one on held-out error; a first comparison of each half's numbers raised it on unchanged controllers),
-a library of known laws declared and tested against the record (the proposal's `law: kubernetes-hpa`), an HPA's
-multiplicative rule (desired = ⌈u x / target⌉) as its own family, and the law's numbers sampled by the risk.
+a known law tested against the record, and the law's numbers sampled by the risk.
+
+**Known laws** (`control/laws.py`): an external block with `identify:` may declare the law of a controller that ships
+with the system it runs in, `law: {kind: KIND, ...}`, from this catalogue; each parameter is typed and bounded, and one
+with a default may be left out:
+
+| Kind | Parameter | Type and bounds | Default |
+|---|---|---|---|
+| `kubernetes-hpa` (the Horizontal Pod Autoscaler: the `ratio` family) | `target` | the metric's target per replica: a number above 0, at most 10¹² | required |
+| | `min`, `max` | whole numbers from 1 to 1,000,000, `min` ≤ `max` | required |
+| | `tolerance` | a number from 0 to 1 | 0.1 |
+| | `stabilize-down`, `stabilize-up` | durations from 0s to 1h | 5m, 0s |
+| | `every` | its period: a duration from 1s to 1h | 15s |
+| `alert-rule` (a threshold alert: the on-off family, levels 0 and 1) | `threshold` | a number, at most 10¹² either way | required |
+| | `side` | `above` or `below` | required |
+| | `for` | a duration from 0s to 7d | required |
+
+The **ratio** family (`numbers/extlaw.py`, stepped, never fitted) is the HPA's rule: each period, desired =
+⌈u x / target⌉ when x / target is outside 1 ± tolerance (else u); the desired of each period within a window (now's
+included) is kept, a scale-up goes to the least of them over `stabilize-up` and a scale-down to the largest over
+`stabilize-down` (so up at once and down only once a whole window has wanted fewer, by default); within [min, max]. An
+alert rule fires once its input is past `threshold` on its `side` at each evaluation for `for`, and resolves as soon as
+it is not (an evaluation every 15s unless the caller gives another). The law checked is put in the IR
+(`Block.law`, the kind and its parameters with defaults filled; None without `law:`, so a model with none compiles as
+before). **bad-law**, at the key: an unknown kind or parameter, a value not its type or out of its bounds, `min` above
+`max` (at `max`); at `law:`: a required parameter missing, a law that is not a map, or a law without `identify:`. A law
+declared is compiled only: it is not yet drawn, explained, run in the projection or tested against the record.
 
 ## 12e. Improving the model, as a loop
 
