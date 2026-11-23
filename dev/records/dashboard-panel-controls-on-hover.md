@@ -43,3 +43,9 @@ Built, round 1. Net 0 lines of code outside tests (22 added, 22 removed in dashb
   removed, because the tap sets `:hover`.
 - Not taken: screenshots. I could not save them here (the command to make /tmp/shots and set DASHBOARD_SHOTS was
   refused), so how it looks has not been seen by eye.
+- Build fix: the factory's build ran only the changed test files. Here that was the browser file
+  tests/test_dashboard_page.py, which skips without Playwright, so pytest collected nothing and returned rc 5. Added
+  tests/test_dashboard_controls.py, which reads done item 2 from the source with no browser: only Edit and × are
+  built, and the CSS lays them out of the flow and hides them until hover or focus. main's dashboard.js (←, →, −, +,
+  ↕) and dashboard.css (no hover or focus rule) would fail it. The run of the build's whole command under
+  suite_watch was refused, so it was not run.
