@@ -78,6 +78,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
+import flakes  # noqa: E402
 import pools  # noqa: E402
 import prefixes  # noqa: E402
 import review  # noqa: E402
@@ -286,8 +287,8 @@ def excused(red: dict, more: dict, tag: str, gaps: list[str]) -> dict:
     if more.get("failed"):
         return more
     for t in red["tests"]:
-        fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=gaps, times=1, seen_at=time.time(), run=tag,
-                suite=red["failed"], passed_alone=2, log=red["log"])
+        flakes.say("flake.seen", t, gaps=gaps, times=1, seen_at=time.time(), run=tag, suite=red["failed"],
+                   passed_alone=2, log=red["log"])
     keep = {k: v for k, v in red.items() if k not in ("failed", "tests", "tail", "log", "named")}
     return keep | more | {"excused": {"suite": red["failed"], "tests": red["tests"], "log": red["log"]}}
 
@@ -913,8 +914,8 @@ def on_main(repo, pre: str, red: dict, run, tag: str, gaps: list[str]) -> None:
     again = run(first, every=False)
     bad = first["tests"] if again is None else again["tests"] if again.get("failed") else []
     for t in sorted(set(first["tests"]) - set(bad)):
-        fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=gaps, times=1, seen_at=time.time(), run=tag,
-                suite=red["failed"], failed_on_main=pre, log=first["log"])
+        flakes.say("flake.seen", t, gaps=gaps, times=1, seen_at=time.time(), run=tag, suite=red["failed"],
+                   failed_on_main=pre, log=first["log"])
     if bad:
         raise MainRed({"pre": pre, "suite": red["failed"], "tests": bad})
 
@@ -962,7 +963,7 @@ def held_by_main(cfg: dict, r: dict) -> None:
     iid = r["intervention"] = f"intervention/queue-main-red-{r['pre'][:12]}-{time.strftime('%Y%m%d-%H%M%S')}"  # (new)
     save(cfg, {**state(cfg), "main_red": r})
     for t in r["tests"]:
-        fac.say("flake.main-broken", f"flake/{fac.slug(t, 80)}", test=t, main=r["pre"], main_broken_at=time.time())
+        flakes.say("flake.main-broken", t, main=r["pre"], main_broken_at=time.time())
     fac.say("intervention.recorded", iid, recorded_at=time.time(), main=r["pre"], tests=r["tests"], **{"class": "queue"},
             reason=f"main {r['pre'][:12]} fails {', '.join(r['tests'][:5])} alone in the queue's container: the queue "
                    "takes no batch until they pass on main or are quarantined")

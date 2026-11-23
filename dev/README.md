@@ -220,6 +220,13 @@ is given back with `waits_on_main`, the implementor skips it, and the intake rel
 At most one alone run and one main run per failure, and none once the gap's building hours are nearly spent (then the
 failure counts as before). A dead letter whose last failing tests were all main-broken is parked saying so.
 
+Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) goes through `dev/bin/flakes.py`, which
+reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
+`main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
+adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
+the gaps and times said, `main_fixed_at`, `fixed_by` and `green_passes` removed). An item it cannot read is written as
+said, the failure on stderr.
+
 ## The backlog: ranked, groomed
 
 Each gap has a `rank` (lower first), and `value` (1-5), `size` (S/M/L or hours), `risk` and `groomed_why`; the planner

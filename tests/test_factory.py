@@ -67,6 +67,15 @@ elif args[0] == "item" and "/" in args[1]:
         print(json.dumps({"id": args[1], "state": db["actions"][args[1]]}))
     else:
         sys.exit(f"no item {args[1]}")
+elif args[0] == "event" and args[1] == "--add" and args[args.index("--item") + 1].startswith("flake/"):
+    import os, types                                               # (dev/bin/flakes.py: folded at once, as ergostat does)
+    sys.path[:0] = [os.environ["FAKE_ROOT"]]
+    from tests.test_factory import fold_line
+    line = {"event": args[2], "item": args[args.index("--item") + 1]}
+    line.update({f: json.loads(args[args.index(f"--{f}") + 1]) for f in ("data", "patch") if f"--{f}" in args})
+    fold_line(db, {"flake": types.SimpleNamespace(**json.loads(os.environ["FAKE_FLAKE_KIND"]))}, line)
+    db.setdefault("flakes_said", []).append(args[2])
+    rec.write_text(json.dumps(db))
 elif args[0] == "lease":
     if "--nack" in args:                                           # (a lease given back, as its run would: drain.py)
         import os
@@ -194,6 +203,8 @@ class Factory:
         caches = {"UV_PROJECT_ENVIRONMENT": sys.prefix, "PYTHONPYCACHEPREFIX": str(tmp / "pycache"),
                   "RUFF_CACHE_DIR": str(tmp / "ruff")}               # set here: the running venv, caches out of checkouts
         self.env = {**mine, **caches, "FACTORY_CONFIG": str(self.config), "ERGOSTAT_CMD": f"{sys.executable} {self.fake}",
+                    "FAKE_ROOT": str(ROOT), "FAKE_FLAKE_KIND": json.dumps({k: getattr(self.kinds["flake"], k) for k in (
+                        "name", "id", "states", "on", "fold", "relations")}),
                     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
                     "GIT_COMMITTER_EMAIL": "t@example.com"}
 
@@ -210,33 +221,7 @@ class Factory:
         for line in lines:
             if "event" not in line:
                 continue
-            iid = line.get("item") or about
-            kind = next(k for k in self.kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
-            assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
-                                                                                ".dependencies", ".push-settled", ".groomed",
-                                                                                ".resumed", ".need-met")), line
-            it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
-            for k, v in (line.get("data") or {}).items():
-                rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
-                was = it["fields"].get(k)
-                if rule == "relation":                                 # (SPEC 5a: a set of ids, or set/add/remove)
-                    got = set(was or [])
-                    if isinstance(v, dict):
-                        got = set(v.get("set", got)) | set([v["add"]] if isinstance(v.get("add"), str) else
-                                                            v.get("add") or []) - set(v.get("remove") or [])
-                    else:
-                        got |= set([v] if isinstance(v, str) else v)
-                    it["fields"][k] = sorted(got)
-                elif rule == "sum":
-                    it["fields"][k] = (was or 0) + v
-                elif rule == "append":
-                    it["fields"][k] = (was or []) + (v if isinstance(v, list) else [v])
-                elif rule == "union":
-                    it["fields"][k] = sorted(set(was or []) | set(v if isinstance(v, list) else [v]))
-                else:
-                    it["fields"][k] = v
-            if line["event"] in kind.on:
-                it["state"] = kind.on[line["event"]]
+            fold_line(db, self.kinds, line, about)
             if not line["event"].startswith("session."):          # (each AI session's own item: sessions.py)
                 said.append(line["event"])
         self.record.write_text(json.dumps(db))
@@ -256,6 +241,51 @@ class Factory:
         self.stderr = r.stderr
         lines = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
         return self.fold(lines, iid), lines
+
+    def flakes_said(self) -> list[str]:
+        """The flake events written at once (dev/bin/flakes.py, `event --add`) since last asked, in order."""
+        db = self.db()
+        got = db.pop("flakes_said", [])
+        self.record.write_text(json.dumps(db))
+        return got
+
+
+def fold_line(db: dict, kinds: dict, line: dict, about: str | None = None) -> None:
+    """One event line into the record ``db``, by ``kinds`` (its data by their fold rules, or a patch of top-level
+    fields), and its state moved: the fixture's fold, and the fake ergostat's for `event --add`."""
+    iid = line.get("item") or about
+    kind = next(k for k in kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
+    assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
+                                                                ".dependencies", ".push-settled", ".groomed",
+                                                                ".resumed", ".need-met")), line
+    it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
+    for op in line.get("patch") or []:                             # (RFC 6902, as flakes.py writes it: top level)
+        k = op["path"][1:].replace("~1", "/").replace("~0", "~")
+        if op["op"] == "remove":
+            del it["fields"][k]                                    # (a missing field refuses the event: a KeyError)
+        else:
+            it["fields"][k] = op["value"]
+    for k, v in (line.get("data") or {}).items():
+        rule = "relation" if k in kind.relations else kind.fold.get(k, "replace")
+        was = it["fields"].get(k)
+        if rule == "relation":                                     # (SPEC 5a: a set of ids, or set/add/remove)
+            got = set(was or [])
+            if isinstance(v, dict):
+                got = set(v.get("set", got)) | set([v["add"]] if isinstance(v.get("add"), str) else
+                                                    v.get("add") or []) - set(v.get("remove") or [])
+            else:
+                got |= set([v] if isinstance(v, str) else v)
+            it["fields"][k] = sorted(got)
+        elif rule == "sum":
+            it["fields"][k] = (was or 0) + v
+        elif rule == "append":
+            it["fields"][k] = (was or []) + (v if isinstance(v, list) else [v])
+        elif rule == "union":
+            it["fields"][k] = sorted(set(was or []) | set(v if isinstance(v, list) else [v]))
+        else:
+            it["fields"][k] = v
+    if line["event"] in kind.on:
+        it["state"] = kind.on[line["event"]]
 
 
 def module(name: str):
@@ -530,7 +560,7 @@ def test_flake_retried(tmp_path):
         "tests/test_x.py::test_y"]
     assert git(f.checkout, "log", "-1", "--format=%s", "main") == "start"     # the merge undone
     said, _ = f.run("triage.py", gid)
-    assert said == ["flake.seen", "gap.retried"] and f.item(gid)["state"] == "approved"
+    assert said == ["gap.retried"] and f.flakes_said() == ["flake.seen"] and f.item(gid)["state"] == "approved"
     assert f.item("flake/tests-test-x-py-test-y")["fields"]["times"] == 1
     said, _ = f.run("queue.py", gid)
     assert said[:2] == ["gap.queued", "gap.merged"]
@@ -561,7 +591,7 @@ def test_triage_runs_while_the_queue_holds_its_lock(tmp_path):
     with open(tmp_path / "queue.lock", "a") as lock:                           # the queue's run, holding its lock
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         said, _ = f.run("triage.py", gid, timeout=30)
-    assert said == ["flake.seen", "gap.retried"] and f.item(gid)["state"] == "approved"
+    assert said == ["gap.retried"] and f.flakes_said() == ["flake.seen"] and f.item(gid)["state"] == "approved"
     assert (tmp_path / "rerun-head").read_text().strip() == pre                # judged on the main it failed on (lesson-1)
     assert git(f.checkout, "log", "-1", "--format=%s", "main") == "later"      # and main left as the queue has it
 
@@ -584,6 +614,9 @@ def test_triage_waiting_on_load_does_not_block_the_queue(tmp_path, monkeypatch, 
                 taken.append(False)
         return 0.0
 
+    for k in ("ERGOSTAT_CMD", "FAKE_ROOT", "FAKE_FLAKE_KIND"):                                    # (the flake written at once: flakes.py)
+        monkeypatch.setenv(k, f.env[k])
+    monkeypatch.setattr(triage.fac, "MODEL", f.model)                          # (its lock in the instance's run dir)
     monkeypatch.setattr(triage.fac, "read_input", lambda: {"item": f.item(gid)})
     monkeypatch.setattr(triage.fac, "wait_quiet", busy)
     monkeypatch.setattr(triage, "rerun", lambda *a: (0, {"seconds": 0, "tests": []}))
@@ -591,7 +624,107 @@ def test_triage_waiting_on_load_does_not_block_the_queue(tmp_path, monkeypatch, 
     assert triage.main() == 0
     assert taken == [True]                                                     # the queue took its lock while triage waited
     said = [json.loads(x)["event"] for x in capsys.readouterr().out.splitlines() if x.startswith("{")]
-    assert said == ["flake.seen", "gap.retried"]
+    assert said == ["gap.retried"] and f.flakes_said() == ["flake.seen"]
+
+
+# ---- one writer of a flake's state (dev/records/regression-flake-writes-hold-state.md)
+
+FLAKY = "tests/test_x.py::test_y"
+
+
+def flake_record(tmp_path, monkeypatch):
+    """A real project holding the root model's flake kind, ergostat on it, and the factory's run dir under tmp_path:
+    dev/bin/flakes.py as the writers call it."""
+    text = (ROOT / "ergostat.yaml").read_text()
+    (tmp_path / "ergostat.yaml").write_text("name: flakes\nitems:" + text[text.index("\n  flake:\n"):
+                                                                         text.index("\n  intervention:\n")] + "\n")
+    (tmp_path / "factory.toml").write_text(f'[paths]\nrun = "{tmp_path / "run"}"\n')
+    monkeypatch.setenv("FACTORY_CONFIG", str(tmp_path / "factory.toml"))
+    monkeypatch.setenv("ERGOSTAT_CMD", f"{sys.executable} -m ergostat -C {tmp_path}")
+    monkeypatch.setenv("ERGOSTAT_NO_SOCKET", "1")
+    sys.modules.setdefault("fac", module("fac"))
+    flakes = module("flakes")
+    monkeypatch.setattr(flakes.fac, "MODEL", tmp_path)
+    return flakes
+
+
+def flake_now(flakes, test: str = FLAKY) -> dict:
+    return json.loads(flakes.fac.ergostat("item", f"flake/{flakes.fac.slug(test, 80)}", "--json").stdout)
+
+
+def test_no_code_but_flakes_py_writes_a_flake_state():
+    """Every flake.seen and flake.main-broken goes through flakes.say: no other file in dev/bin names either event as
+    a string but as flakes.say's first argument (so none emits it), and the four writers call flakes.say."""
+    named = re.compile(r"(?<!flakes\.say\()[\"']flake\.(seen|main-broken)[\"']")
+    said = [f"{p.name}:{n}" for p in sorted(BIN.glob("*.py")) if p.name != "flakes.py"
+            for n, line in enumerate(p.read_text().splitlines(), 1) if named.search(line)]
+    assert said == []
+    for name in ("onmain", "queue", "triage", "manage"):
+        assert 'flakes.say("flake.' in (BIN / f"{name}.py").read_text(), name
+
+
+def test_a_flake_seen_on_a_main_broken_test_is_counted_and_stays_main_broken(tmp_path, monkeypatch, capsys):
+    flakes = flake_record(tmp_path, monkeypatch)
+    assert flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0) == "flake.seen"
+    assert flakes.say("flake.main-broken", FLAKY, main="m1", gaps=["gap/b"], main_broken_at=10.0) == "flake.main-broken"
+    assert flakes.say("flake.seen", FLAKY, gaps=["gap/c"], times=1, seen_at=20.0) == "flake.measured"
+    d = flake_now(flakes)
+    assert d["state"] == "main-broken" and d["fields"]["times"] == 2 and d["fields"]["gaps"] == ["gap/a", "gap/b", "gap/c"]
+    real = flakes.fac.ergostat                                     # the item unreadable: written as said, and said so
+    monkeypatch.setattr(flakes.fac, "ergostat", lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "the record is "
+                        "busy") if a[0] == "item" else real(*a, **k))
+    assert flakes.say("flake.seen", FLAKY, gaps=["gap/d"], times=1, seen_at=30.0) == "flake.seen"
+    assert "could not be read (exit 1: the record is busy)" in capsys.readouterr().err
+    monkeypatch.setattr(flakes.fac, "ergostat", real)
+    assert flake_now(flakes)["state"] == "seen"
+
+
+def test_a_second_main_broken_keeps_the_first_clock(tmp_path, monkeypatch):
+    flakes = flake_record(tmp_path, monkeypatch)
+    flakes.say("flake.main-broken", FLAKY, main="m1", gaps=["gap/a"], main_broken_at=10.0)
+    flakes.say("flake.main-broken", FLAKY, main="m2", gaps=["gap/b"], main_broken_at=50.0)
+    d = flake_now(flakes)
+    assert d["state"] == "main-broken" and d["fields"]["main_broken_at"] == 10.0
+    assert d["fields"]["main"] == "m2" and d["fields"]["gaps"] == ["gap/a", "gap/b"]
+
+
+def test_a_fixed_flake_seen_again_is_made_anew(tmp_path, monkeypatch):
+    """lesson-5: a fixed flake said again (seen, or main-broken) starts a new count, its fixed fields gone."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    for test, again in ((FLAKY, "flake.seen"), ("tests/test_x.py::test_z", "flake.main-broken")):
+        iid = f"flake/{flakes.fac.slug(test, 80)}"
+        flakes.say("flake.seen", test, gaps=["gap/a"], times=1, seen_at=1.0)
+        flakes.say("flake.seen", test, gaps=["gap/a"], times=1, seen_at=2.0)
+        flakes.fac.add("flake.fixed", iid, main_fixed_at=5.0, fixed_by="gap/fix", green_passes=3)
+        assert flake_now(flakes, test)["state"] == "fixed"
+        assert flakes.say(again, test, gaps=["gap/b"], main="m3", main_broken_at=9.0, seen_at=9.0) == again
+        d = flake_now(flakes, test)
+        assert d["state"] == again.split(".")[1] and not d["refused"], d["refused"]
+        assert d["fields"]["times"] == 1 and d["fields"]["gaps"] == ["gap/b"] and d["fields"]["main_broken_at"] == 9.0
+        assert not {"main_fixed_at", "fixed_by", "green_passes"} & set(d["fields"])
+
+
+def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
+    """lesson-1: a main-broken written in the gap between a flake.seen's read and its write waits for the lock, reads
+    the seen, and is kept; with nothing held, the seen written last would take the test out of main-broken."""
+    import threading
+    flakes = flake_record(tmp_path, monkeypatch)
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    real, other = flakes.read, []
+
+    def read_then_competitor(iid):
+        got = real(iid)
+        if not other:                                              # (the first read only: the seen writer's)
+            other.append(threading.Thread(target=flakes.say, args=("flake.main-broken", FLAKY),
+                                          kwargs={"main": "m1", "gaps": ["gap/b"], "main_broken_at": 10.0}))
+            other[0].start()
+            other[0].join(timeout=5)                               # (held by the lock: it cannot finish here)
+        return got
+    monkeypatch.setattr(flakes, "read", read_then_competitor)
+    assert flakes.say("flake.seen", FLAKY, gaps=["gap/c"], times=1, seen_at=2.0) == "flake.seen"
+    other[0].join(timeout=60)
+    d = flake_now(flakes)
+    assert d["state"] == "main-broken" and d["fields"]["main_broken_at"] == 10.0 and d["fields"]["times"] == 2
 
 
 def pools_module():
@@ -1213,7 +1346,7 @@ def test_a_failure_on_main_too_waits_for_main(tmp_path):
     main = git(f.checkout, "rev-parse", "main")
     gid = ready(f)
     said, lines = f.run("implement.py", gid)
-    assert said == ["gap.started", "flake.main-broken", "intervention.recorded", "gap.measured"]
+    assert said == ["gap.started", "intervention.recorded", "gap.measured"] and f.flakes_said() == ["flake.main-broken"]
     nack = next(x["nack"] for x in lines if "nack" in x)
     assert nack["count"] is False and "waits for main to move" in nack["why"]
     gap = f.item(gid)["fields"]
@@ -1255,7 +1388,7 @@ def test_a_flake_in_the_fast_suites_is_retried(tmp_path):
     f = Factory(tmp_path, unit=str(sh), alone=str(sh))
     gid = ready(f)
     said, _ = f.run("implement.py", gid)
-    assert said == ["gap.started", "flake.seen", "gap.built"]
+    assert said == ["gap.started", "gap.built"] and f.flakes_said() == ["flake.seen"]
     assert f.item(gid)["fields"]["flakes"] == [T] and not f.item(gid)["fields"].get("build_failures")
     assert f.item("flake/tests-test-x-py-test-y")["state"] == "seen"
     assert not [r for r in runs(tmp_path) if "-main-" in r]                # passed alone: never run on main
@@ -2709,7 +2842,8 @@ def test_a_batch_whose_one_failed_test_passes_alone_twice_lands_as_a_flake(tmp_p
     g = flaky_stand_ins(tmp_path / "one", [t])
     approved_gaps(g, {"a": 1}, bad="a")
     said, _ = g.run("queue.py", "gap/a")
-    assert said == ["gap.queued", "flake.seen", "gap.merged", "gap.push-asked"] and len(reruns(g)) == 2
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and len(reruns(g)) == 2
+    assert g.flakes_said() == ["flake.seen"]
     # the suites the red run did not finish run before it lands: red there, it bisects (in full) and nothing lands
     h = flaky_stand_ins(tmp_path / "rest", [t])
     h.config.write_text(h.config.read_text().replace('demo = "true"', 'demo = "false"'))
@@ -2803,7 +2937,8 @@ def test_a_batch_failing_on_a_test_that_also_fails_on_main_sends_no_gap_back(tmp
     start = git(f.checkout, "rev-parse", "main")
     approved_gaps(f, {"p": 1, "q": 2, "r": 3}, batch=3)
     said, lines = f.run("queue.py", "gap/p")
-    assert said == ["gap.queued", "flake.main-broken", "intervention.recorded"]   # no gap blamed or sent back
+    assert said == ["gap.queued", "intervention.recorded"]                     # no gap blamed or sent back
+    assert f.flakes_said() == ["flake.main-broken"]                            # (written at once: flakes.py)
     assert [x["nack"] for x in lines if "nack" in x][0]["count"] is False         # the own gap's lease, uncounted
     assert all(f.item(f"gap/{g}")["state"] == "approved" for g in "qr")
     assert git(f.checkout, "rev-parse", "main") == start and merges(f) == ["main changes bad.txt"]
@@ -4776,7 +4911,8 @@ def test_build_set_is_the_implementors_step_with_its_quarantine_and_triage(tmp_p
     f = Factory(tmp_path / "f", unit="false", alone=str(sh))
     with_build(f, str(sh))
     gid = ready(f)
-    assert f.run("implement.py", gid)[0] == ["gap.started", "flake.seen", "gap.built"]   # run alone, then retried
+    assert f.run("implement.py", gid)[0] == ["gap.started", "gap.built"]       # run alone, then retried
+    assert f.flakes_said() == ["flake.seen"]
     assert f.item(gid)["fields"]["flakes"] == [T] and len(runs(tmp_path)) == 3
 
 
