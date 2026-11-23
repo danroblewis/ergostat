@@ -147,3 +147,15 @@ touches. No source changed this round.
 Runs: ruff clean; tests/test_graph_cli_web.py 41 passed; the gap's browser test under suite_watch with Playwright,
 1 passed (rc 0). Not run again: tests/test_items_page.py (its 6 failures in round 3 are reported above as not touched
 by this branch), the unit suite and the four browser files, which the merge queue runs.
+
+### Round 4, main merged at ab03a9a8
+
+The finding (conflict with main in tests/test_graph_cli_web.py) is answered: main (ead497d1) is merged in ab03a9a8.
+The conflict was two new tests added at the same place, and both are kept: the branch's
+`test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them` and main's
+`test_every_page_header_links_to_the_diagrams_waiting_for_you_heading`. No conflict markers are left in `ergostat/`
+or `tests/`. No source changed this round.
+
+Runs: ruff clean; tests/test_graph_cli_web.py 43 passed; the gap's browser test under suite_watch with Playwright,
+1 passed (rc 0). Not run: the unit suite, the four browser files in full, and tests/test_items_page.py (the merge
+queue runs them).
