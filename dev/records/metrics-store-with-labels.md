@@ -20,3 +20,21 @@ Definition of done.
 ## Owner's decision, 2026-11-23
 
 VictoriaMetrics is the default metrics store for new installs, so a fresh install's dashboard has data. An existing SQLite install keeps working until it migrates. Test how VictoriaMetrics computes `rate()` and `increase()` against Prometheus and record the differences.
+
+## Where it stopped
+
+Round 1 stopped before any building, 2026-11-23. The session's tool permissions refused every shell command: both
+`git -C /work status --short` and a first read-only look (`cat ... && which victoria-metrics ...`) were denied
+("don't ask mode"). With no shell, the session could not run pytest, ruff or a VictoriaMetrics binary, and could not
+`git add` or `git commit`. That means none of done items 1-3 could be tested, and the branch could not record any
+work. This section is written to the working tree but is **not committed**, because committing needs the shell too.
+
+Done: nothing outside this section. ergostat/victoria.py, CLAUDE.md and this definition were read.
+
+Left: all of it. That covers the migration with its idempotence test against a real binary (skipped when absent),
+bounded series labels, the built-in Prometheus-compatible data source, the SQLite message on PromQL panels, the
+supervised VictoriaMetrics process, the guide text, and the `rate()`/`increase()` comparison against Prometheus.
+
+Why: this is the environment, not the gap. No dependency is missing. I chose the most reversible option and wrote
+no untested code into the tree. Rerun the round with Bash allowed (at least `git`, `uv run`, and the test and ruff
+scripts).
