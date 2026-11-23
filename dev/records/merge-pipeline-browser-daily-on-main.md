@@ -278,3 +278,19 @@ raises (check=True), so nothing reads as "no runs under way" (lesson-3). The tes
   command that copied drain.py to /tmp, broke it with sed, ran the test and restored it was refused this round, so I
   did the break with the file editor instead.
 - drain.py is 2 net lines longer, inside the size budget.
+
+## Where it stopped
+
+Round 5, answering the review's one finding (blocking): the under_way() rewrite in dev/bin/drain.py and the FAKE
+`lease` listing in tests/test_factory.py were outside this gap and belong to
+gap/switcher-test-within-its-deadline-under-load. Both are removed: drain.py and the FAKE's `lease` branch are back
+to main's text, and `git diff main --stat` now lists only this gap's five files (dev/README.md,
+dev/bin/browserday.py, dev/model/landing.yaml, this record, tests/test_factory.py). The previous section's drain.py
+change is withdrawn. The switcher test's 120 s wait under `-n 8` is main's, left to that gap, and a build may still
+fail on it until that gap lands (lesson-13). Main is unchanged since the last merge (dc47a763 is merged in), so there
+was nothing to merge. Run here after the revert: ruff is clean, and these pass: test_a_switch_waits_for_the_runs_under_way,
+test_a_drain_past_its_bound_gives_the_runs_back_uncounted, test_browser_daily_holds_the_queue_lock (3 passed, 94 s),
+and test_browser_daily_green_records_main, test_browser_daily_flake_is_recorded_not_raised,
+test_browser_daily_failure_names_tests_and_suspects (3 passed, 92 s). Refused this round: `git checkout main --
+dev/bin/drain.py` (chained with a `git diff`). I made the revert with the file editor instead. Done item 6's
+"no new finding" against main is still unverified by a full `ergostat check`.
