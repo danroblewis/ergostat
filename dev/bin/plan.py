@@ -206,7 +206,7 @@ def define(cfg: dict, gid: str, branch: str, body: str, by: str, notes: list[str
     build (env_needs) are marked in it: an owner need parks it here, in the same event (never ready, so never leased,
     before the owner answers: gap.need-met, then parks.py readies it); a measure need is recorded as the measure-runs
     request its acceptance tests satisfy (measure_runs_wanted), and it is ready."""
-    target = fac.run_dir(cfg, "defs") / f"{branch}.md"
+    target, kept = fac.run_dir(cfg, "defs") / f"{branch}.md", body
     needs = env_needs(body)
     text = marked(body, needs) + ("\n## Notes from the plan review (answer each)\n\n" + "".join(
         f"- {n}\n" for n in notes) if notes else "")
@@ -214,9 +214,10 @@ def define(cfg: dict, gid: str, branch: str, body: str, by: str, notes: list[str
         with target.open("x") as fh:
             fh.write(text)
     except FileExistsError:                              # the coordinator's definition: not the planner's size
-        by, needs = "coordinator", env_needs(target.read_text())     # (its own items, unmarked: the file is kept)
+        by, kept = "coordinator", target.read_text()     # (its own items classified, unmarked: the file is kept)
+        needs = env_needs(kept)
         data |= {"planned_size": None, "size_confidence": None} if "planned_size" in data else {}
-    tests = sorted(set(TEST.findall(brief.section(body, "Acceptance tests") or "")))
+    tests = sorted(set(TEST.findall(brief.section(kept, "Acceptance tests") or "")))
     owner, now = [x for x in needs if x["needs"] == "owner"], time.time()
     data |= dict(definition=fac.rel(target), branch=branch, defined_by=by, plan_sha=sha(body), env_needs=needs or None,
                  measure_runs_wanted={"tests": tests, "items": [x["item"] for x in needs]} if needs and not owner
