@@ -334,7 +334,7 @@ Twenty findings; applied:
   with a dot by kind, and the kinds are in the legend.
 - The setpoint's dashed line struck through the stock's value: it is a marker on the tank's edge.
 - The controller's last decision read as the present: it carries its age.
-- e was never shown on the Loops page and tolerance was written three ways: e = r − y always,
+- e was never shown on the page then called Loops (now Goals) and tolerance was written three ways: e = r − y always,
   coloured by status; one form for tolerance, in the block view too.
 - The status kept saying "holding" after the runner stopped: it says the readings are old and
   nothing is measuring. `projects` counts unknown loops.
