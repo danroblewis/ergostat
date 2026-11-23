@@ -147,7 +147,7 @@ class Counts:
         for s in sensors:
             q = s.items or {}
             where = q.get("where") or {}
-            if s.of.kind != "flow":
+            if not (q.get("entering") or q.get("leaving")):
                 if where or q.get("measure") in ("oldest", "age"):
                     groups[(q["kind"], tuple(sorted(q.get("state") or ())), _wkey(where))] = where
             else:
@@ -325,7 +325,7 @@ class Counts:
         if kind not in spec.items:
             return 0.0, ""
         where = q.get("where") or {}
-        if s.of.kind != "flow":
+        if not (q.get("entering") or q.get("leaving")):
             states = q.get("state") or None
             m = q.get("measure")
             if not where and m not in ("oldest", "age"):
@@ -342,4 +342,4 @@ class Counts:
         over = float(q.get("over") or 3600.0)
         col, st = ("dst", q["entering"]) if q.get("entering") else ("frm", q.get("leaving"))
         w = self.windows[(kind, col, st, _wkey(where))]
-        return w.count(now - over, now) * 3600.0 / over, ""
+        return w.count(now - over, now) * (3600.0 / over if s.of.kind == "flow" else 1.0), ""   # an auxiliary: how many

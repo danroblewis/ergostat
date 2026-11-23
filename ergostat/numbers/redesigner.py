@@ -332,7 +332,7 @@ def run(p, system: str = "model", why: list[str] | None = None, model: str = "ha
             log.append({"round": r, "made": made, "not_made": len(feedback), "compiles": False, **took})
         elif s.changed():
             card = sc.score(p, spec, before_problems, after, problems, fit_before=fit_b)
-            left = [f"{x.code}@{x.about}" for x in problems if x.level not in ("error", "note") and not sc._skip(x)
+            left = [f"{x.code}@{x.about}" for x in problems if x.level != "error" and not sc._as_note(x) and not sc._skip(x)
                     and _mine(after, system, x.about)]
             if left:
                 feedback.append("check still finds: " + "; ".join(left[:12]))

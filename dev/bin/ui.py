@@ -32,7 +32,7 @@ import fac  # noqa: E402
 import live as lv  # noqa: E402
 
 REAL_BACKENDS = (8791, 8792)
-STAGING_BACKEND = 8793
+STAGING_BACKENDS = (8793, 8794)        # two, so a new server starts beside the one serving
 STAGING_PORT = 8796
 EVERY = 15                                   # seconds between looks at main and at the approved gaps
 START_WAIT = 90                              # seconds a new server has to answer before the old one is kept
@@ -196,9 +196,13 @@ class Site:
                                 stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                 start_new_session=True, cwd=str(self.dir))
 
-    def address_kept(self):
-        """`ergostat web` writes its address where the factory's page is named: the front's stays there."""
+    def address_kept(self, port: int):
+        """`ergostat web` writes its address where the factory's page is named, just after it starts answering: once it
+        has, the front's goes back there."""
         f = lv.state_dir(self.cfg) / "web.json"
+        end = time.time() + 5
+        while time.time() < end and f":{port}" not in (f.read_text() if f.exists() else ""):
+            time.sleep(0.05)
         tmp = f.with_suffix(".ui")
         tmp.write_text(json.dumps({"url": self.keep_address}))
         tmp.replace(f)
@@ -216,7 +220,7 @@ class Site:
             new.terminate()
             print(f"{self.name}: the new server did not answer; the old one stays", flush=True)
             return False
-        self.address_kept()
+        self.address_kept(port)
         old, self.proc, self.port = self.proc, new, port
         if old:
             time.sleep(2)                        # requests under way on the old server finish
@@ -273,7 +277,7 @@ def run(cfg: dict) -> int:
     (d / "ui.pid").write_text(str(os.getpid()))
     port = int(cfg["instance"]["port"])
     addr = f"http://127.0.0.1:{port}"
-    real, staging = Site(cfg, "real", REAL_BACKENDS, addr), Site(cfg, "staging", (STAGING_BACKEND,), addr)
+    real, staging = Site(cfg, "real", REAL_BACKENDS, addr), Site(cfg, "staging", STAGING_BACKENDS, addr)
     threading.Thread(target=front_when_free, args=(port, lambda: real.port, True), daemon=True).start()
     threading.Thread(target=front_when_free, args=(int(cfg["instance"].get("staging_port", STAGING_PORT)),
                                                    lambda: staging.port, False), daemon=True).start()
