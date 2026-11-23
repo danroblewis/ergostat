@@ -126,3 +126,14 @@ Its runs failed past their attempts (a dead letter):
 - attempt 12: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 13: nack exited 1
 - attempt 14: nack the run ended with gap/ui-a-loop-s-panel-starts-with-a-table-law-process-h still parked
+
+## Where it stopped
+
+Round 4 (after the Docker park; the gap itself was not at fault):
+- Merged main (52c675fee6d7). The only conflict was in `tests/test_graph_cli_web.py`, where main's new test (`test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis`) and this branch's test sat in the same place. Both are kept, unchanged.
+- Round 3's edits (the `own` filter in `blocks.js`, the unclamped "From X instead" fit in `control.js`, and the unit test's checks for both) were already committed. This round changed no code.
+- Round 3 said no break was seen to fail its new checks. This round checked, one break at a time, each reverted afterwards:
+  - `held.filter(own).map(loopTable)` → `held.map(loopTable)`: the unit test fails (the filter check). The browser acceptance test still passes, as round 3 suspected: in image-squeeze no loop only passes through the tuner, so only the unit test's source check guards the filter (lesson 9, stated, not hidden).
+  - the processSection fit put back as `Math.max(0, Math.round(o.fit_val * 100))%`: the unit test fails (the clamp check).
+- Run after the merge: ruff clean; `tests/test_graph_cli_web.py` 41 passed; with Playwright under the watchdog, the acceptance test and main's `test_no_panel_shows_a_leftover_ellipsis` 2 passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
+- Still unchanged and outside the gap: "follows −128% held out" in `ergostat/control/ident.py` (its own follow-up gap).
