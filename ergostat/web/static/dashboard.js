@@ -125,6 +125,10 @@ const dashCompletions = (k) => ({ id: "b", source: "moves", kind: k.name, measur
 const dashCount = (k, id, state, label) => ({ id, source: "counts", kind: k.name, state, group_by: "kind", agg: "last", transform: "none", label });
 const dashStay = (k, id, state, agg = "p50") => ({ id, source: "moves", kind: k.name, measure: "time_in_state", state: [state], agg, transform: "none", label: state });
 const dashCostQuery = (k, f) => ({ id: "a", source: "items", kind: k.name, field: f.name, agg: "sum", transform: "rate", rate_per: "hour", label: "cost" });
+/* a duration's number, over the whole window: the median of everything that left the state, with what is still in it
+   said beside it, since those have not finished waiting and are in no exit */
+const dashStayStat = (k, state) => ({ ...dashStat(`${k.name}: median wait of items that left ${state}`, dashStay(k, "a", state), "s"),
+                                      note: "whole window", display: { unit: "s", whole: true, still: { kind: k.name, state } } });
 const dashLegend = (values = ["last", "max"]) => ({ legend: "right", legend_values: values });
 
 /* a kind's charts: arrivals against completions, its open work as waiting, working and stopped (a kind may have many
@@ -165,10 +169,10 @@ function dashDefault(fields, infos = [], queues = {}) {
     const stays = dashStayStates(lead);
     if (lead.open.length) panels.push(dashStat(`${lead.name}: work in progress`, dashCount(lead, "a", lead.open, "in progress"), "items", 0));
     if (lead.done.length) panels.push(dashStat(`${lead.name}: completions per hour`, dashCompletions(lead), "/h", 1));
-    if (stays[0]) panels.push(dashStat(`${lead.name}: median time in ${stays[0]}`, dashStay(lead, "a", stays[0]), "s"));
+    if (stays[0]) panels.push(dashStayStat(lead, stays[0]));
     if (cost) {                                        // two rows of three, so the row has no hole
       panels.push(dashStat(`${lead.name}: arrivals per hour`, dashArrivals(lead), "/h", 1));
-      if (stays[1]) panels.push(dashStat(`${lead.name}: median time in ${stays[1]}`, dashStay(lead, "a", stays[1]), "s"));
+      if (stays[1]) panels.push(dashStayStat(lead, stays[1]));
       panels.push(dashStat(`${costKind.name}: cost per hour`, dashCostQuery(costKind, cost), costUnit, 2));
     }
     const first = dashKindPanels(lead).map((p) => ({ ...p, size: "m" }));
@@ -299,7 +303,7 @@ function dashDraw() {
       const asks = (x) => JSON.stringify(JSON.parse(x).queries);
       if (asks(c.sig) !== asks(sig)) fresh = true;
       c.sig = sig;
-      c.panel.setConfig?.(p);
+      c.panel.setConfig?.(c.still ? { ...p, note: c.still } : p);
     }
   }
   const narrow = matchMedia(DASH_NARROW).matches;
@@ -321,9 +325,43 @@ function dashDraw() {
 /* an answer that does not come: the panels say late after a while and keep what they show; the request is then given
    up and asked again (by the poll, or once more when the page does not poll) */
 const DASH_LATE = 8000, DASH_GIVE_UP = 25000, DASH_RETRY = 10000;
+/* one bucket holding the whole window: the grid's buckets lie on multiples of their width, so a width is found with no
+   multiple inside the window (and a margin, as the server's clock reads a moment later) */
+function dashWholeBucket(since, until) {
+  const most = 400 * 86400;                            // the longest bucket the query takes
+  for (let step = Math.ceil((until - since) / 60) * 60; step <= most; step += 60)
+    if (Math.floor(since / step) === Math.floor((until + 120) / step)) return step;
+  return null;
+}
+function dashWithWhole(panels) {
+  const until = S.at || nowS(), bucket = dashWholeBucket(until - WINDOWS[S.since], until);
+  if (!bucket) return panels;
+  return panels.map((p) => (p.display?.whole ? { ...p, queries: p.queries.map((q) => ({ ...q, bucket })) } : p));
+}
+/* how many are still in the state and how long they have been there, from the item list; left unsaid when the list is cut */
+const DASH_STILL_MOST = 1000;
+function dashStillWords(items, matched, at) {
+  if (matched > items.length) return `still waiting: ${matched}`;
+  if (!items.length) return "none still waiting";
+  const ages = items.map((i) => at - i.entered).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!ages.length) return `still waiting: ${items.length}`;
+  const mid = ages.length / 2, median = ages.length % 2 ? ages[Math.floor(mid)] : (ages[mid - 1] + ages[mid]) / 2;
+  return `still waiting: ${items.length}, median age ${dur(median)}`;
+}
+async function dashStill(n) {
+  for (const p of DASH.draft?.panels || []) {
+    const still = p.display?.still, c = DASH.cells.get(p.id);
+    if (!still || !c) continue;
+    const got = await api("items", { kind: still.kind, state: still.state, n: DASH_STILL_MOST }).catch(() => null);
+    if (n !== DASH.asked || !got || !DASH.cells.has(p.id)) return;
+    const note = dashStillWords((got.items || []).filter((i) => i.kind === still.kind && i.state === still.state),
+                                got.matched?.[still.kind] ?? 0, S.at || nowS());
+    if (note !== c.still) { c.still = note; c.panel.setConfig?.({ ...p, note }); }
+  }
+}
 function dashAsk(panels, ctrl) {
   const gaveUp = new Promise((_, no) => ctrl.signal.addEventListener("abort", () => no(new DOMException("gave up", "AbortError")), { once: true }));
-  return Promise.race([queryPanels(panels, { since: WINDOWS[S.since], until: S.at || null, signal: ctrl.signal }), gaveUp]);
+  return Promise.race([queryPanels(dashWithWhole(panels), { since: WINDOWS[S.since], until: S.at || null, signal: ctrl.signal }), gaveUp]);
 }
 function dashSayLate(words) {
   for (const c of DASH.cells.values()) c.panel.setState?.(c.drawn ? "late" : "error", words);
@@ -349,6 +387,7 @@ async function dashRefresh() {
       c.drawn = true;
     }
     if (DASH.said) DASH.said.textContent = `Updated ${clock(nowS())}`;
+    dashStill(n);
   } catch (e) {
     if (n !== DASH.asked) return;
     const timedOut = e?.name === "AbortError";
