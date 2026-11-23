@@ -863,6 +863,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
              **{k: e[k] for k in ("fold", "about", "system") if e.get(k)},
              "object": e.get("action") or e.get("block") or "",                         # what the answer is about
+             **{k: e[k] for k in ("flow", "unit") if k in e},                    # what a number answered means
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
              + (f". runs: {e['run']}" if e.get("run") else "") + (f". {en.command(e)}" if e["verbs"] else ""),
