@@ -7040,10 +7040,11 @@ pool's list (from 1), and never by its host.
 - **The session** is a subprocess, `ssh -T -o BatchMode=yes HOST ergostat worker --stdio` for `{ssh: HOST}`, or the
   `connect:` argv as written, in a process group of its own, spoken to over its standard input and output by one
   reader thread per node (at most 64 nodes, counting sessions still closing: a pool that would pass that is not
-  connected, and is said). Its standard error is kept, once the session ends (its last MiB), in the pool's log,
-  `logs/compute.POOL.log` in the state folder, each line stamped and prefixed with `POOL/N`, with an `ssh:` host
-  (in any case) written as `POOL/N`; until then it is held in an unnamed temporary file. The log turns over to
-  `.log.1` past 8 MiB. A `connect:` command's words are the owner's and are not rewritten.
+  connected, and is said). The pool's log is `logs/compute.POOL.log` in the state folder, each line stamped and
+  prefixed with `POOL/N`; it turns over to `.log.1` past 8 MiB. An `ssh:` session's standard error is never kept
+  (once ssh reads its config it prints the real HostName, address and user): the log holds only `ssh exited N`
+  when it ends. A `connect:` session's standard error is kept as the command wrote it (its last MiB), once the
+  session ends, held until then in an unnamed temporary file: its words are the owner's and are not rewritten.
 - **In service** only after the first line is a `hello` of protocol 1 (the frame of §12s, checked as the worker
   checks the engine's, `seq` too) whose `labels` include each of the pool's `labels:` with the same text, and whose
   `slots` is a whole number from 0 to 64. Otherwise the node is **refused**: out of service with the reason kept
@@ -7061,8 +7062,8 @@ pool's list (from 1), and never by its host.
   in the pool's log and the session goes on.
 - **The record.** `compute.node.up` (`node`, `slots`) when a hello is taken; `compute.node.lost` and
   `compute.node.refused` (`node`, `why`) when a node goes out of service, once for each new reason (a node that stays
-  down is not said again on each try). Their data, the pool's log and what the engine says name a node only as
-  `POOL/N`: no host name, address or user.
+  down is not said again on each try). Their data, what the engine says and ergostat's own lines of the pool's log
+  name a node only as `POOL/N`: no host name, address or user (a `connect:` command's own standard error aside).
 
 ### 12s.5 The lease on a node
 

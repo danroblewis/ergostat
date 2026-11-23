@@ -52,3 +52,21 @@ Choices taken alone (each the more reversible one):
 - Events: `compute.node.up`, `compute.node.lost`, `compute.node.refused`, each said once per new reason.
 
 Overrun reason: connection.py is 302 lines (about 267 not blank) plus 14 in engine.py against a budget of 200, because the session half carries the fail-closed hello checks (version, seq, labels, slots), the process-group kill and reap held under the node's lock so close never races a spawn or signals a reaped group (lessons 1, 6), the redaction of ssh's stderr that the no-host done item needs, the run-time 64-node ceiling counting sessions still closing (lesson 4), and the swap sync that closes only pools changed or removed; the plan's own budget for this gap with status and pings was 280.
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, continued round 2). The review's one finding answered: rewriting the `ssh:` alias in
+ssh's stderr was a denylist (once ssh reads its config it prints the real HostName, address and user). An `ssh:`
+session's stderr now goes to /dev/null and the pool's log gets only `POOL/N ssh exited N; its standard error is not
+kept`, so nothing ssh writes is kept (an allowlist of one line ergostat writes itself). The fake ssh of
+test_engine_starts_and_closes_every_session_and_never_names_a_host now prints `connect to host 10.1.2.3`,
+`Could not resolve hostname real.example.com`, `alice@real.example.com: Permission denied` and its alias, and the
+test asserts none of them is in the log, the record or what the engine says. Broken on purpose (ssh's stderr kept),
+that assertion failed on all four. The two SPEC §12s.4 sentences are narrowed: a `connect:` command's own stderr is
+kept as written, and the no-host promise covers the record, what the engine says and ergostat's own log lines.
+
+Choice taken alone (the more reversible one): the worker's own diagnostics, which come back over ssh's stderr, are
+dropped with ssh's because the two can't be told apart. Keeping a worker line would need an allowlist of its forms
+(or the worker sending its diagnostics as frames), which can come later without changing anything here.
+
+Overrun reason: connection.py is now 307 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds 5 net lines (the ssh exit-status line in place of the alias regex).

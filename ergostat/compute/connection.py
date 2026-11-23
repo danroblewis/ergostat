@@ -1,8 +1,9 @@
 """The engine's session with each node of the model's pools (SPEC §12s.4): one ``Node`` per entry of a pool, named
 ``POOL/N`` by its place in the list and never by its host. A node's session is a subprocess (``ssh -T -o
 BatchMode=yes HOST ergostat worker --stdio``, or the pool's ``connect:`` argv) spoken to over its pipes by one reader
-thread, which also keeps the beat deadline and reconnects with backoff; its standard error is kept in the pool's log
-with the host written as the node's name. A node is in service only after a ``hello`` of protocol 1 whose labels
+thread, which also keeps the beat deadline and reconnects with backoff. A ``connect:`` session's standard error is
+kept in the pool's log; an ``ssh:`` session's never is (ssh names the HostName, address and user its config gives),
+only its exit status. A node is in service only after a ``hello`` of protocol 1 whose labels
 include the pool's; lost after three beats missed or the session's end, whichever first."""
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import os
-import re
 import selectors
 import signal
 import subprocess
@@ -48,11 +48,12 @@ class Node:
     def __init__(self, pool, n: int, log: Path, record, beat: float = BEAT, first: float = FIRST):
         entry = pool.nodes[n - 1]
         self.name, self.argv, self.want = f"{pool.name}/{n}", argv_of(entry), dict(pool.labels)
-        self.host = re.compile(re.escape(entry["ssh"]), re.I) if "ssh" in entry else None
+        self.ssh = "ssh" in entry
         self.log, self.record, self.beat, self.first = log, record, beat, first
         self.state, self.error, self.hello, self.tries, self.said = "connecting", None, None, 0, None
         self.lock, self.closed = threading.Lock(), threading.Event()
         self.proc: subprocess.Popen | None = None
+        self.rc: int | None = None                      # the last session's exit status
         self.w: frames.Writer | None = None
         self.pending: dict[int, list] = {}              # request id → [answered, the answer]
         self.ids = itertools.count(1)
@@ -118,13 +119,14 @@ class Node:
             self.state = "closed"
 
     def _session(self) -> tuple[str, str]:
-        err = tempfile.TemporaryFile()                  # (unnamed: what ssh says of the host is never on disk as said)
+        err, self.rc = (None if self.ssh else tempfile.TemporaryFile()), None    # (what ssh says: never kept)
         try:
             with self.lock:
                 if self.closed.is_set():
                     return "closed", "closed"
                 try:
-                    self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err,
+                    self.proc = subprocess.Popen(self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                 stderr=err or subprocess.DEVNULL,
                                                  start_new_session=True)
                 except OSError as e:
                     return "lost", f"could not start: {e.strerror or type(e).__name__}"
@@ -135,7 +137,6 @@ class Node:
                 self._end()
         finally:
             self._keep(err)
-            err.close()
 
     def _read(self, fd: int) -> tuple[str, str]:
         buf, want, heard = b"", 1, time.monotonic()
@@ -204,7 +205,7 @@ class Node:
         with self.lock:
             p, self.proc, self.w, pending, self.pending = self.proc, None, None, self.pending, {}
         _signal(p)
-        p.wait()
+        self.rc = p.wait()
         for s in (p.stdin, p.stdout):
             try:
                 s.close()
@@ -223,13 +224,17 @@ class Node:
             self.record(f"compute.node.{state}", {"node": self.name, "why": why}, f"{self.name}: {state} ({why})")
 
     def _keep(self, err) -> None:
+        if err is None:                                 # an ssh session: its exit status alone, never its words
+            if self.rc is not None:
+                self._note(f"ssh exited {self.rc}; its standard error is not kept")
+            return
         try:
             size = os.fstat(err.fileno()).st_size
             text = os.pread(err.fileno(), ERR_MOST, max(0, size - ERR_MOST)).decode(errors="replace")
         except OSError:
             return
-        if self.host is not None:
-            text = self.host.sub(self.name, text)
+        finally:
+            err.close()
         for line in text.splitlines():
             self._note(line)
 

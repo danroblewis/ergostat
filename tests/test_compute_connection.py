@@ -146,7 +146,10 @@ def test_another_version_is_refused_with_its_error_kept(tmp_path):
 def test_engine_starts_and_closes_every_session_and_never_names_a_host(tmp_path, monkeypatch):
     bin_ = tmp_path / "bin"
     bin_.mkdir()
-    (bin_ / "ssh").write_text('#!/bin/sh\necho "ssh: connect to host $4 port 22: Connection refused" >&2\nexit 255\n')
+    (bin_ / "ssh").write_text('#!/bin/sh\necho "ssh: connect to host 10.1.2.3 port 22: Connection refused" >&2\n'
+                              'echo "ssh: Could not resolve hostname real.example.com: Name or service not known" >&2\n'
+                              'echo "alice@real.example.com: Permission denied (publickey)." >&2\n'
+                              'echo "debug1: $4" >&2\nexit 255\n')       # (what ssh says once it reads its config)
     (bin_ / "ssh").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
     argv = json.dumps(worker(tmp_path / "r"))
@@ -167,7 +170,8 @@ def test_engine_starts_and_closes_every_session_and_never_names_a_host(tmp_path,
         assert sorted(nodes) == ["farm/1", "farm/2", "farm/3"]
         pids = [up(nodes[k]) for k in ("farm/1", "farm/2")]
         log = Path(p.dir) / "logs" / "compute.farm.log"
-        assert wait_for(lambda: log.exists() and "farm/3 ssh: connect to host farm/3" in log.read_text(), 15)
+        assert wait_for(lambda: log.exists() and "farm/3 ssh exited 255; its standard error is not kept"
+                        in log.read_text(), 15)
         assert nodes["farm/3"].state == "lost"
         e.swap(mdl.load(tmp_path))                                          # the same pools: the same sessions
         assert e.compute.nodes == nodes and [nodes[k].proc.pid for k in ("farm/1", "farm/2")] == pids
@@ -176,7 +180,8 @@ def test_engine_starts_and_closes_every_session_and_never_names_a_host(tmp_path,
     assert all(not n.thread.is_alive() and n.proc is None for n in nodes.values())
     assert all(gone(pid) for pid in pids)
     text = log.read_text() + json.dumps(p.events.query(n=1000)) + "\n".join(said)
-    assert "compute.node.up" in text and "secret-host" not in text.lower()
+    assert "compute.node.up" in text
+    assert not [w for w in ("secret-host", "10.1.2.3", "real.example.com", "alice") if w in text.lower()]
     plain = tmp_path / "plain"
     plain.mkdir()
     q = project(plain, "name: t\nstocks:\n  queue: {unit: items}\n")
