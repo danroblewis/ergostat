@@ -6678,8 +6678,21 @@ item arrives `noted`, with a failure's fields, `swallowed: 1` and `count: 0`, an
 item that exists, in any state, the event says only `{"swallowed": 1, "last_swallowed": RUN}` (`swallowed` folds as a
 sum). The event moves no state, writes no `repair/NAME.input` for an existing item, and carries none of the fields the
 fixer reads, so a failure being fixed keeps its lease and its traceback. A trace with only library or runtime frames,
-or none, records nothing. A later failed run with the same signature opens the noted item as usual. A daemon's run
-hands back no standard error (above), so what a daemon swallows is not seen.
+or none, records nothing, unless the tail has an error-level log line (below). A later failed run with the same
+signature opens the noted item as usual. A daemon's run hands back no standard error (above), so what a daemon
+swallows is not seen.
+
+**Error log events.** "Log events" is taken here to mean errors a program logged without failing; this is ergostat's
+interpretation, nothing more is defined. When a good run's tail (the last 8,000 characters of its own run file) has no
+trace through the project's code, its last error-level log line of two forms is read: Python logging's default form,
+`ERROR:logger:message` or `CRITICAL:logger:message`, and a JSON line whose `level`, `levelname` or `severity` is
+`error`, `critical` or `fatal` (in any case) with a `logger` or `name` and a `message` or `msg`. No other logging format
+is read (a custom Python format, logfmt, syslog lines and the like are unread); lines of other levels, malformed or
+partial JSON, and lines over 8,000 characters are ignored. It is recorded as above, an `ergostat.run.swallowed` signed
+`(block, program, "log", LEVEL, logger)` (the level upper-cased): a new item arrives `noted` with `error` the scrubbed
+message (at most 300 characters) and no traceback, and is never opened; an existing one gets counts only. A trace
+always wins over a log line, and a failed run is still signed by its trace or by how it ended, so no existing id moves
+and a log item is never opened by a failed run.
 
 **Superseding.** Node, Java and Go failures were signed by how they ended before triage read their traces, so their old
 items have other ids. When a failure is signed by such a trace, triage looks for the item at its old signature (block,

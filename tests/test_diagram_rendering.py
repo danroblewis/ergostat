@@ -2710,6 +2710,69 @@ def charted(tmp_path: Path, monkeypatch) -> Path:
     return d
 
 
+def test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks(browser, tmp_path, monkeypatch):
+    """A goal past its ceiling (backlog <= 5, tolerance 1, read at 12 tickets) says how far it is in one phrase, the
+    state's: on the Loops page, the Dynamics side list, its gap's panel and its evidence (the loop's panel). Blocks
+    keeps the discipline's e = r − y, its signed e charted, and never the phrase."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = charted(tmp_path, monkeypatch)
+    p, now = Project(mdl.load(d)), time.time()
+    for i in range(6):
+        p.measurements.add("sensor/backlog.main", 12, at=now - 50 + i * 10)
+    p.events.add("loop.off", item="short-backlog", data={"value": 12}, at=now - 50)
+    want = "off by 7 tickets"
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        loops = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        assert loops["short-backlog"]["off_by_words"] == want, loops["short-backlog"]
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/loops")
+        cell = pg.locator('td[data-off="short-backlog"]')
+        cell.wait_for(timeout=30000)
+        said = {"loops page": cell.inner_text().strip()}
+        drawn(pg, url, "view=dynamics", 0)
+        side = "() => [...document.querySelectorAll('.side .att')].map((x) => x.textContent).join(' | ')"
+        pg.wait_for_function(f"() => ({side})().includes('short-backlog')", timeout=30000)
+        side = pg.evaluate(side)
+        said["side list"] = want if f"desired backlog = 5: {want}" in side else side
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'gap:short-backlog'))")
+        pg.wait_for_function("() => document.querySelector('#detail dl')?.textContent.includes('now ')", timeout=30000)
+        gap = pg.locator("#detail dl").inner_text()
+        said["gap"] = want if f"now {want}" in gap else gap
+        pg.evaluate("() => openLoop('short-backlog')")
+        pg.wait_for_function("() => [...document.querySelectorAll('#detail dt')].some((t) => t.textContent === 'how far')",
+                             timeout=30000)
+        rows = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('#detail dl dt')]"
+                           ".map((t) => [t.textContent, t.nextElementSibling?.textContent]))")
+        said["evidence"] = rows.get("how far")
+        assert said == dict.fromkeys(said, want), said
+        drawn(pg, url, "view=blocks", 1)                 # Blocks: the error as control writes it, e = r − y, signed
+        pg.evaluate("() => openBlock(S.graph.nodes.find((n) => n.role === 'comparator'))")
+        pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=30000)
+        names = pg.evaluate("() => [...document.querySelectorAll('#detail .scope .chart-name')].map((x) => x.textContent)")
+        text = pg.locator("#detail").inner_text()
+        assert "e" in names and "e = r − y" in text and want not in text, (names, text)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_the_window_in_the_header_never_claims_more_than_the_record(browser, tmp_path, monkeypatch):
     """Acceptance (ui-the-window-in-the-header-never-claims-more-than): on a project whose record began 33 minutes
     ago, the header's window control says the window and how much of it is recorded ('Last 1h (33m recorded)'),
