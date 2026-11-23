@@ -317,3 +317,10 @@ Refused, not worked around: a Python heredoc resolving the pages.js conflict (it
 and `node --check ergostat/web/static/pages.js`. The browser tests loading the page without a page error stood in
 for that check. Not run here: test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py,
 test_snapshot_sets.py and the whole unit suite.
+
+## Where it stopped
+
+Parked by the factory (review/ui-cost-is-stated-with-its-unit-or-the-page-says-wh-8, 2026-11-23 08:22).
+
+Failed its gates 8 times (the kill rule). Blocking findings:
+- ergostat/web/server.py:52 (_item_cost, called at :988): an item's runs are found only from the lease.taken events in d['record'], which is the latest 500 non-transcript events (spec/items.py:729) and holds nothing older than a roll-up (rollup.py, SPEC §4b). A long-lived or rolled-up item's header therefore states a smaller cost 'over N runs' as fact, or, with every take rolled up, returns None and shows no cost at all. That is a missed lookup counted as fewer runs or none (lesson-3), and SPEC §9.1's 'states what the runs that took it cost (named by its leases)' claims more than the code does (lesson-8). The folded fields['lease']['history'] (run, block, taken for every take; kept by the snapshot) has them all: read it, and add a test with takes older than the record's last 500 events or rolled up.
