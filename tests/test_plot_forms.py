@@ -552,9 +552,10 @@ def test_bode_wrapped_phase_stays_within_a_turn(site):
 
 def test_a_model_response_without_coherence_is_all_reliable(site):
     fr = {**first_order(), "coherence": None}
-    site.mount(config("bode"), {**frequency(fr), "method": "model"})
+    site.mount(config("bode"), {**frequency(fr), "method": "model", "process_from": "identified", "fit": {"follows_held_out": 87.4}})
     assert site.model()["bands"] == []
-    assert "identified model" in site.page.locator(".panel-legend").inner_text()
+    assert "from the process its record identifies, following 87% of the record held out" in \
+        site.page.locator(".panel-legend").inner_text()
 
 
 def test_nyquist_has_equal_axes_the_critical_point_and_direction(site):
@@ -590,6 +591,17 @@ def test_pole_zero_uses_equal_axes_and_names_the_unstable_half(site):
     assert m["perX"] == pytest.approx(m["perY"], rel=1e-6)
     assert len(m["poles"]) == 3 and len(m["zeros"]) == 1
     assert "unstable" in site.page.locator(".panel-legend").inner_text()
+
+
+def test_a_sampled_models_pole_zero_map_draws_the_unit_circle_and_states_its_dt(site):
+    """dev/records/model-data-source.md: a delayed process's poles are its sampled model's, and the map says at which dt."""
+    site.mount(config("pole-zero"), {**frequency(), "method": "model", "process_from": "declared", "domain": "z", "dt": 10.0,
+                                     "delay_seconds": 25.0, "poles": [{"re": 0.0, "im": 0.0}] * 3 + [{"re": 0.37, "im": 0.0}],
+                                     "zeros": [{"re": -0.6, "im": 0.0}]})
+    m = site.model()
+    assert m["discrete"] is True and len(m["poles"]) == 4
+    said = site.page.locator(".panel-legend").inner_text()
+    assert "sampled every dt = 10 s: stable inside the unit circle" in said and "from the goal's declared process" in said
 
 
 def test_phase_portrait_is_joined_in_time_order_with_marks(site):

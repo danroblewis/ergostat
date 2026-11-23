@@ -1302,8 +1302,9 @@ web:
 `open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
 login: anyone who reaches the name reads everything the page shows, and nothing is changed there. Such a reader may
 not ask a data source (section 4e, *Data sources*): each of their `{source, text}` queries is refused with
-`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists no `datasources` to them; the
-owner, and a login under a name with `access:`, may ask. The tunnel must
+`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists to them only the `model` source,
+which reads nothing outside the project and which they may ask; the owner, and a login under a name with `access:`,
+may ask any. The tunnel must
 keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
@@ -1353,8 +1354,9 @@ reads the event log.
   item, or `state_group` (§5a, *Progress per group*), at most 12 groups, the rest added up as `other` (`capped` says
   how many).
 - **Frequency responses.** `frequency` with an `input` and an `output` estimates the response from the record (Welch's
-  method, `segments` averages, 4 by default). With `model: {goal}` it gives the goal's declared process instead. A
-  response from the record is drawn only where the record supports one. The coherence floor (`coherence_floor`) is
+  method, `segments` averages, 4 by default); it takes the input and the output explicitly, never a guess at them. With
+  `model: {goal}` it gives the goal's declared process instead, answered as the `model` data source answers
+  `goal NAME declared` (below). A response from the record is drawn only where the record supports one. The coherence floor (`coherence_floor`) is
   corrected for the number of frequencies looked at (Bonferroni over the per-frequency floor, `coherence_floor_each`).
   When no frequency reaches the corrected floor, the answer is `supported: false` with `refused` saying why, and it
   carries no curve. Unrelated signals are refused this way in at least 95% of records. The page marks the points under
@@ -1393,7 +1395,24 @@ reads the event log.
   nothing sent.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
-  is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
+  is never sent, and `datasources` lists to them only the `model` source below; their other queries are answered as
+  before.
+- **The model as a data source.** A source of type `model` is the project's own model and record, so one named `model`
+  is there without declaring it (a source declared under that name takes the name; another may be declared
+  `{type: model}`, with no connection keys). It reads nothing outside the project, so a reader under `open: read` may ask
+  it. Its language is one line: `goal NAME` (the goal's declared `process:`, or, when it declares none, the process its
+  record identifies, section 12c), `goal NAME declared`, `goal NAME identified`, `fopdt gain=K tau=DURATION
+  delay=DURATION` (K e^(−θs)/(τs + 1)) or `ipdt gain=K delay=DURATION` (K e^(−θs)/s, K per second), each optionally ending
+  `dt=DURATION`. It answers a `response` with `system` (`form`, `gain`, `tau`, `delay`, `poles`, `zeros`) and the exact
+  frequency response, which Bode, Nyquist and pole-zero draw. A process with dead time has its poles and zeros from its
+  model sampled through a zero-order hold every `dt` (on the z-plane; a continuous delay has no finite set of poles), at
+  the goal's controller period or a quarter of the dead time when no `dt` is given, and the answer and the map state that
+  `dt`; past 64 periods of delay it is refused, asking for a longer `dt`. An identified process is answered only when the
+  record tells it apart (section 12c), with `fit`: the share of the record held out it follows, the standard errors of its
+  numbers, whether it came from step tests, and why it is not yet proposable if it is not; otherwise the query is refused
+  with the record's reasons and draws no curve. Its `provenance` is `declared` for a declared or written process and
+  `derived` for an identified one. A malformed query is refused with `error_at` at the word that is wrong. The default
+  dashboard's Bode, Nyquist and pole-zero examples ask it for the first goal that declares a process.
 - **Result shapes.** Every answer says which of five shapes it is (`shape`), so a chart is chosen by what the data is and
   not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn
   against the other, as an X of another query gives; `open`, `high`, `low`, `close` for candles), `table` (`dims`,
@@ -1403,8 +1422,9 @@ reads the event log.
   `source`, its `query` (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the
   record, `declared` for a model's) and `verdict` (`ok`, `warn` with what the answer says of itself, or `refuse` with the
   error). A data source's type may answer with a typed frame instead of a list of series: `series` (with roles), a
-  `table` or `points`, each checked and bounded (5,000 rows or points), and refused with `error` when it is not what it
-  says. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+  `table`, `points` or a `response` (`frequency`, and `system` with its poles and zeros as `[re, im]`; one refused,
+  `supported: false`, carries no curve), each checked and bounded (5,000 rows or points), and refused with `error` when
+  it is not what it says. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
 - **Which charts apply.** Each chart family declares the shapes it takes (`shapes` in its registration): line takes
   series, a table over one numeric dimension, and points; bar series, a one-dimension table and bins; stat plain series and a
   one-row table; table plain series and a one-dimension table; scatter two signals, a table of two measures, and points;
@@ -4526,7 +4546,9 @@ sources:
 
 A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
 (`GET /api/v1/query_range`) through the server (section 4e, *Data sources*); its editor's names come from GETs of its
-metadata API (section 4e, *The query editor*). It makes no other request.
+metadata API (section 4e, *The query editor*). It makes no other request. A `model` source (no fields) is a dashboard
+data source only: the project's own model and record as transfer functions (section 4e, *The model as a data
+source*); one named `model` is there undeclared.
 
 More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
 `ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under

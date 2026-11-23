@@ -19,7 +19,7 @@ import math
 import pkgutil
 import re
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import FunctionType, ModuleType
 
 from . import _frames
@@ -33,6 +33,7 @@ OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "suggest"}
 MOST_SUGGESTIONS = 100      # names one suggestion answers with
 SUGGEST_SECONDS = 3.0
 SUGGESTED = ("metrics", "labels", "values")
+OWN_NAME = OWN_TYPE = "model"   # the source that is the project's own model (datasources/model.py)
 _NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a label's name, as a suggestion takes it
 
 
@@ -54,6 +55,7 @@ class Window:
     step: float
     points: int
     seconds: float          # how long it may take
+    project: object = field(default=None, compare=False)    # the project asked of (a model source reads its own)
 
     @property
     def end(self) -> float:
@@ -96,16 +98,34 @@ def types() -> dict[str, ModuleType]:
         return dict(_TYPES)
 
 
-def listed(spec) -> list[dict]:
-    """The model's sources a panel can query: name, type and language, and never their connection."""
+def _sources(spec) -> dict:
+    """The model's sources, and the model itself as one named ``model`` unless a source declared takes that name: its
+    connection is the project's own model and record (datasources/model.py), so it needs no declaring."""
+    declared = getattr(spec, "sources", None) or {}
+    if spec is None or OWN_NAME in declared:
+        return declared
+    from ..spec.ir import Source
+    return {**declared, OWN_NAME: Source(OWN_NAME, OWN_TYPE)}
+
+
+def listed(spec, own_only: bool = False) -> list[dict]:
+    """The model's sources a panel can query: name, type and language, and never their connection. ``own_only``: only
+    those that read nothing outside the project (what anyone under a public name may ask)."""
     every = types()
     return [{"name": s.name, "type": s.type, "language": every[s.type].LANGUAGE}
-            for s in (getattr(spec, "sources", None) or {}).values() if s.type in every]
+            for s in _sources(spec).values() if s.type in every and (not own_only or s.type == OWN_TYPE)]
 
 
-def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS) -> dict:
-    """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError."""
-    src = (getattr(spec, "sources", None) or {}).get(name)
+def own(spec, name: str) -> bool:
+    """Whether source ``name`` reads only the project's own model and record; an unknown name does not."""
+    src = _sources(spec).get(name)
+    return src is not None and src.type == OWN_TYPE
+
+
+def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, project=None) -> dict:
+    """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError.
+    ``project``: the project asked of, given to the type in its window."""
+    src = _sources(spec).get(name)
     if src is None:
         raise SourceError("unknown", f"no source named {name!r} under sources:")
     mod = types().get(src.type)
@@ -121,7 +141,7 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS) -> dict:
         raise SourceError("limit", f"the window has {g.n} points, more than the {MOST_POINTS} allowed")
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
-    w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS))
+    w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS), project)
     got = mod.query(src, text, w)
     if isinstance(got, dict):                       # a typed frame (_frames.py)
         try:
@@ -148,7 +168,7 @@ def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", labe
     """The names an editor may complete: ``{suggestions, more}``, at most MOST_SUGGESTIONS, each starting with ``prefix``
     (``more``: there were others, not sent). ``metric`` narrows labels and values to one metric's; ``label`` is whose
     values. Bounded like a query, whatever the type: in time, in what is asked and in what is answered."""
-    src = (getattr(spec, "sources", None) or {}).get(name)
+    src = _sources(spec).get(name)
     mod = types().get(src.type) if src is not None else None
     if mod is None:
         raise SourceError("unknown", f"no source named {name!r} under sources: that panels can query")

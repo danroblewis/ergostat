@@ -283,7 +283,7 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     """A query in a data source's own language, asked of it through the server; never kept, its data having no version."""
     try:
         got = datasources.query(getattr(p.model, "spec", None), q.source, q.text, grid(since, until, points),
-                                work.deadline - time.monotonic())
+                                work.deadline - time.monotonic(), project=p)
     except datasources.SourceError as e:
         return {"id": q.id, "error": f"{q.source}: {e}", "error_kind": e.kind, "read_log": False,
                 **({"error_at": list(e.at)} if e.at else {})}
@@ -298,8 +298,10 @@ READER_REFUSED = "a data source is not asked for anyone under a public name (web
 
 def answer(live, p, raw: str | None, reader: bool = False) -> dict:
     """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its
-    result. ``reader``: anyone under a public name, whose data source queries are each refused, never sent (SPEC §4d, §4e)."""
+    result. ``reader``: anyone under a public name, whose data source queries are each refused, never sent, but for the
+    model's own (datasources/model.py), which reads only what the reader's other queries read (SPEC §4d, §4e)."""
     asked = parse(decode(raw))
+    spec = getattr(p.model, "spec", None)
     now = time.time()
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
     since = until - asked.since
@@ -312,7 +314,7 @@ def answer(live, p, raw: str | None, reader: bool = False) -> dict:
             "results": [frames.framed(
                 {"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
                 else {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused",
-                      "read_log": False} if isinstance(q, SourceQuery) and reader
+                      "read_log": False} if isinstance(q, SourceQuery) and reader and not datasources.own(spec, q.source)
                 else _from_source(p, q, since, until, asked.points, work) if isinstance(q, SourceQuery)
                 else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
                 else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work), q)

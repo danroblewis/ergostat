@@ -205,6 +205,65 @@ def bode(p: dict, c: dict | None = None, n: int = 240) -> dict:
     return out
 
 
+def response(p: dict, n: int = 240) -> dict:
+    """The process's frequency response P(jω), exact (its dead time a pure phase lag): by frequency in Hz, its real and
+    imaginary parts, gain in dB and phase in degrees, unwrapped. A gain of 0 responds to nothing: ValueError."""
+    if not p.get("K") or not math.isfinite(p["K"]):
+        raise ValueError("a process of gain 0 responds to nothing, so it has no frequency response")
+    ws = grid(p, None, n)
+    P = [process_at(p, w) for w in ws]
+    return {"hz": [w / (2 * math.pi) for w in ws], "re": [x.real for x in P], "im": [x.imag for x in P],
+            "magnitude_db": [20 * math.log10(abs(x)) for x in P], "phase_deg": _unwrapped(P)}
+
+
+MOST_PERIODS = 64           # a sampled model's dead time, in periods: past it, too many poles at 0 to draw
+
+
+def _z_roots(coef: list[float], n: int) -> list[complex]:
+    """The roots in z of Σ coef_i z^(n−i) (a polynomial in q = z^(−1) times z^n): a trailing zero coefficient is a
+    root at 0; what is left is of degree 2 at most here."""
+    c = list(coef) + [0.0] * (n + 1 - len(coef))
+    while c and c[0] == 0:
+        c.pop(0)
+    out: list[complex] = []
+    while len(c) > 1 and c[-1] == 0:
+        c.pop()
+        out.append(0j)
+    if len(c) == 2:
+        out.append(complex(-c[1] / c[0]))
+    elif len(c) == 3:
+        d = cmath.sqrt(c[1] ** 2 - 4 * c[0] * c[2])
+        out += [(-c[1] + d) / (2 * c[0]), (-c[1] - d) / (2 * c[0])]
+    elif len(c) > 3:
+        raise ValueError(f"a polynomial of degree {len(c) - 1} past the zeros at 0")
+    return out
+
+
+def poles_zeros(p: dict, dt: float | None = None) -> dict:
+    """The process's poles and zeros: on the s-plane when it has no dead time and no ``dt`` is asked; otherwise those
+    of the sampled model every ``dt`` (zero-order hold, ``sampled``) on the z-plane, since a continuous delay has no
+    finite set of poles. Each is ``[re, im]``; a pole and a zero at one place cancel. ValueError when the dead time is
+    more than MOST_PERIODS periods of ``dt``."""
+    th = p.get("theta") or 0.0
+    if not dt:
+        if th:
+            raise ValueError("a process with dead time has a finite set of poles only as a sampled model: give dt")
+        pole = 0.0 if p["form"] == "integrating" else -1 / p["tau"]
+        return {"domain": "s", "poles": [[pole, 0.0]], "zeros": []}
+    if th / dt > MOST_PERIODS:
+        raise ValueError(f"the dead time is {th / dt:.0f} periods of dt = {dt:g} s, more than the {MOST_PERIODS} drawn: "
+                         "ask with a longer dt")
+    num, den = sampled(p, dt)
+    n = max(len(num), len(den)) - 1
+    zeros, poles = _z_roots(num, n), _z_roots(den, n)
+    for z in list(zeros):
+        if z in poles:
+            zeros.remove(z)
+            poles.remove(z)
+    pair = lambda zs: [[x.real, x.imag] for x in zs]        # noqa: E731
+    return {"domain": "z", "dt": dt, "poles": pair(poles), "zeros": pair(zeros)}
+
+
 def margins(p: dict, c: dict, n: int = 1200) -> dict:
     """Gain margin (how much more gain before it oscillates without end), phase margin and delay
     margin (how much more dead time), and the peak of the sensitivity Ms = max |1/(1 + L)|: the
