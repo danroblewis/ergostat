@@ -684,6 +684,21 @@ def test_the_status_and_notifications_say_how_a_request_is_denied(tmp_path):
     assert entries.command(e) in deliver.message(n, [{**e, "age": 60.0}], False, "")[1]
 
 
+def test_a_held_request_carries_its_fold_part_and_system_to_the_side_list(tmp_path):
+    """The page folds alike held requests by (code, asker): the entry and its attention row carry both, and the part's
+    system (dev/records/ui-requests-that-are-alike-fold-into-one-with-a-cou.md)."""
+    from ergostat.spec.ir import Ref
+    p, r, eid = held_request(tmp_path)
+    spec = p.model.spec
+    e = next(e for e in entries.entries(p) if e["id"] == eid)
+    assert e["fold"] == f"{r['code']}|{r['source']}" and r["code"] and r["source"]
+    assert e["about"] == r["about"] and e["system"] == spec.owner(Ref.parse(r["about"]))
+    a = next(a for a in st.attention(st.snapshot(p), False, p.model) if a["what"] == eid)
+    assert a["fold"] == e["fold"] and a["about"] == e["about"] and a.get("system") == e["system"]
+    assert not any("fold" in x for x in st.attention(st.snapshot(p), False, p.model) if x["what"] != eid
+                   and not x["what"].startswith("request/"))         # only held requests fold
+
+
 def test_every_inbox_entry_kind_has_a_verb(tmp_path):
     (tmp_path / "a").mkdir()
     p, snap = project(tmp_path / "a", MODEL.replace("blocks:\n", "blocks:\n  poked:\n    type: program\n"

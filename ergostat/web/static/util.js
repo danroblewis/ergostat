@@ -449,6 +449,15 @@ async function refreshHeader() {
     if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
     setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43); written only when N
                                                          // changes, so its polite live region (index.html) says only that
+    // what holds the work up (SPEC §5a): its first line, red only for a stall; the whole line as its title
+    const held = $("#heldup"), hu = !SNAP && st.held_up;
+    if (held && held.hidden !== !hu) held.hidden = !hu;
+    if (held && hu) {
+      const hcls = "runstate heldup" + (hu.stall ? " bad" : hu.nothing_stuck ? "" : " warn");
+      if (held.className !== hcls) held.className = hcls;
+      if (held.title !== hu.line) held.title = hu.line;
+      setText(held, hu.line);
+    }
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
