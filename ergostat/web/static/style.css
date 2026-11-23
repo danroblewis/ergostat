@@ -929,7 +929,7 @@ body.embed svg.canvas { pointer-events: none; }
 .panel-diagram-link > iframe { pointer-events: none; }
 .panel-diagram .rg-graph { margin: 0; }
 .panel-diagram .rg-tools { display: none; }
-.panel-diagram .rg-stage { height: 100% !important; border: 0; }
+.panel-diagram .rg-stage { height: 100%; border: 0; pointer-events: none; }
 .panel-diagram-wake { margin: auto; }
 @media (max-width: 699px) { .split-grip { display: none; } }
 

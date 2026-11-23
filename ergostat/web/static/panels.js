@@ -1130,6 +1130,8 @@
       graph ||= relGraph((id) => navigate(`/item/${encodeURIComponent(id)}`));
       if (!graph.isConnected) body.replaceChildren(link(graph));
       await graph.draw(rgModel(d, { finished: "hide" }), { finished: "hide" });
+      graph.querySelector(".rg-stage").style.height = "";       // the panel's height, not the Items page's
+      graph.querySelector(".rg-tools button")?.click();         // and fitted to it (relGraph's Fit)
       const vp = graph.querySelector(".rg-view"), k = Number(/scale\(([\d.]+)\)/.exec(vp?.getAttribute("transform") || "")?.[1] || 1);
       if (k < 1) vp.setAttribute("transform", "translate(8,8) scale(1)");   // 11 px text is never drawn smaller
       say(k < 1 ? "Too large to read here: open on the Items page" : cfg.note || "");
@@ -1157,6 +1159,8 @@
       say(c.note || "");
     };
     el.update = () => {                                  // the dashboard's poll: values only while the structure holds
+      flag.textContent = "";
+      if (el.dataset.state === "late") el.dataset.state = ready || asked ? "drawn" : "loading";
       if (frame?.contentWindow && ready) frame.contentWindow.postMessage({ ergostat: "embed", type: "poll" }, location.origin);
       else if (seen && at && !at.model) drawGraph();
     };
