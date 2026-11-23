@@ -131,3 +131,17 @@ round 4), tests/test_fac_items.py (8 passed; its past-the-cap tests cover the pe
 acceptance tests (3 passed, 18.6 s). ruff is clean. Not run: the -n 8 build, and the other test files that use
 fac.items. Choice made without asking (the most reversible one): a listing with no `total` falls back to the
 per-state listings, as before, and is not taken as complete (lesson-3).
+
+Round 6. main (a171d119) is merged in (4d5eb16c). The conflicts were in dev/README.md, dev/bin/fac.py, ergostat.yaml
+and tests/test_factory.py. Each keeps main's text (main-mend, `passed_on`) and the branch's own lines (flake-fixed,
+flake.released, the three acceptance tests). The review's one finding (round 5's fac.items rewrite is outside the
+gap, lesson-13) is answered: the branch's fac.items hunk is reverted. fac.items is now main's code byte for byte.
+main now does its own one-listing read of a kind, so the branch has no change to fac.items left (`git diff main --
+dev/bin/fac.py` shows only beside()'s flake.released). The switch test's 120 s wait under -n 8 is main's
+load-dependent bound (lesson-10) on a path the branch does not touch (lesson-13). Any change to fac.items' order or
+contents belongs in a gap of its own, with tests. Run here, serially, after the merge: ruff (clean), the three
+acceptance tests (3 passed, 19.7 s), tests/test_fac_items.py (9 passed), main's
+test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed and
+test_main_mend_clears_only_a_test_passing_twice_on_the_pushed_main with test_a_fixed_flake_seen_again_is_made_anew
+(3 passed), and test_an_approved_switch_drains_and_switches_through_the_engine (1 passed, 72.7 s, on main's
+fac.items). Not run: the whole of tests/test_factory.py and the -n 8 build.
