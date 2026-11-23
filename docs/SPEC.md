@@ -2046,7 +2046,8 @@ out when one fails.
 
 **The overview.** `/items` is an overview of the item kinds: under each system's heading, one small card per kind in
 a dense grid (at 1440x900, sixteen or more in view on a record of the factory's shape), each with the kind's name (a link to its own page,
-`/items/KIND`), how many of its items are unfinished (not in a finished state) and how many in all, its states over the
+`/items/KIND`) and a "process map" link to its map in States (`/diagram?view=process&kind=KIND&mode=states`, §5b),
+how many of its items are unfinished (not in a finished state) and how many in all, its states over the
 window as a small stacked chart with its legend at its right (under it on a phone), and its rate in (items that
 arrived in the window, per hour) and out (items that first reached a finished state in it, per hour: the same finished states the unfinished count uses, so
 never a paused, `leased` or waiting state). A kind with no
@@ -2320,7 +2321,7 @@ page's window (`process.py`), with the item index's moves for the states.
 
 | Part | What it is |
 |---|---|
-| a node | an **activity** of a kind's items: by **States**, a state they entered (a move, from the item index; a lease's hold, `leased` (§9.5), folded out as the index's transitions fold it: the time held counts in the state it was taken from, and a lease handed back is no move); by **Events**, an event type about them. Its number is how many times in the window, and how many items; the more, the darker |
+| a node | an **activity** of a kind's items: by **States**, a state they entered (a move, from the item index; a lease's hold, `leased` (§9.5), folded out as the index's transitions fold it: the time held counts in the state it was taken from, and a lease handed back is no move); by **Events**, an event type about them. Its number is how many times in the window, and how many items; the more, the darker. By States, a state's node first says how many items are in it **now** (`now 3`, the Items page's count for that state, `GET /api/graph`'s `now` on the node): where work queues |
 | start, end | where the kind's items **start** (their first event is in the window) and **end** (they reached a state the kind counts as finished, as §12h's `done` or the item index says; `leased` never counts) |
 | a line A → B | **directly follows**: on one item, B came next after A with nothing about that item between. Its weight is how often (one scale for the map); its number how many times (**Counts**) or the median time between A and B (**Times**). By States, a move from A to B is such a line, its time the time spent in A, even when A was entered before the window |
 | rework | a repeated step, as in §5a's paths: a passage is a **return** when it takes its item back to a step that same item has already done (by States, a state it entered, before the window too; by Events, an event type recorded about it in the window), and a line with any return is rework, marked ↺, its panel saying how many (`returns`; each kind's total, `kinds[].returns`). The order in which different items take steps never counts. A line to a step earlier in the kind's order (by States, its declared states; by Events, each type's usual place in its items' runs) is laid out running back, rework or not |
@@ -2349,7 +2350,10 @@ each move it draws against the chain's flows, and who made each against the bloc
 
 **Layout.** Each kind's map is laid out alone by ELK (layered, left to right, in time order: its start
 first, its states in their declared order, its end last), in a frame named with its kind, how many items
-and by what; the frames are packed in rows to the screen's shape. The lines between kinds are routed by
+and by what; the frames are packed in rows to the screen's shape. Shown first, and by Fit, at no less than full size, so a
+node's smallest (11px) text is never drawn smaller; a map wider or taller than the screen is panned, and the view bar
+says which way more lies ("More beyond the edge" and arrows, such as "→↓"); at phone width too. Each kind's card on the Items page links to its map in
+States (`/diagram?view=process&kind=KIND&mode=states`; `kind` and `mode` read as `kinds` and `by`). The lines between kinds are routed by
 libavoid around every part, from the bottom or top of their ends. Plain ink: no colour carries meaning.
 A node dragged (or the nodes chosen), or a kind's frame dragged by its top, is pinned where it is put, as in
 the other two views (DESIGN, "Parts put by hand"): no new layout, the lines it touches routed again by

@@ -442,6 +442,8 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
 .kinds-quiet { font-size: var(--text-sm); }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
+.kind-flow .pm-link { font-size: var(--text-sm); margin-left: var(--sp-3); }
+.kind-card .pm-link { margin-left: 0; }
 .kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }
 /* a kind's progress per group, on its card (itemsets.js groupRows): a compact row a group, its bar */
 .gp-rows { display: flex; flex-direction: column; gap: var(--sp-0); margin: var(--sp-2) 0 0; font-size: var(--text-sm); }

@@ -153,8 +153,10 @@ The control diagram is the product's main view. Conventions:
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
   all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
-  more) and says when more lies beyond the edge, and which way (arrows); "Fit" shows everything. At phone
-  width (700px or less) each view opens fitted to the canvas down to 7.7px text, and a drawing still too big
+  more) and says when more lies beyond the edge, and which way (arrows); "Fit" shows everything (the Process
+  view's map at no less than full size: its nodes' text never under 11px). At phone
+  width (700px or less) each view opens fitted to the canvas down to 7.7px text (the Process
+  view's map still at no less than 11px), and a drawing still too big
   is centred on its first part (a system box, else a stock).
 - **The process view** (`process.py`, `process.js`; SPEC §5b) is process mining's process map: a
   directly-follows graph per item kind, from the record in the window (the states items entered, or
