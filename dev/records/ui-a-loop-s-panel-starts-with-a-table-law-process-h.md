@@ -172,3 +172,15 @@ Round 8 (the factory's merge of main, 1c790d38b71a):
 - Refused this round: a `python3 - <<'EOF'` edit script for the resolution (done with the editor instead), and a `cat >> … <<'EOF'` append to this file followed by `git add`/`git commit` (this note was written with the editor; it may be uncommitted if the next commit is refused too).
 - Run: ruff clean; `tests/test_graph_cli_web.py` 45 passed; with Playwright under the watchdog, the acceptance test passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
 - Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.
+
+## Where it stopped
+
+Round 9 (answering the review's blocking finding: the table went stale after a proposal was answered):
+- `loopTable` is now drawn in its own box (`loopTableBox`, control.js), the way `controlBox` is. `controlBox`'s `done()` (run when a proposal is accepted or dismissed) clears the loop's cache, redraws its own box as before, and sends a `loop-answered` event naming the loop. Each table of that loop then draws itself again from the loop's fresh answer. A table no longer on the page removes its listener the next time the event comes. A failed fresh answer shows its error in the table's place, so a stale table is never left standing. This covers a tuning accepted in the controller panel and a process accepted in the process panel, since both go through the same `done()`.
+- New browser test: `tests/test_diagram_rendering.py::test_a_loops_table_is_drawn_again_when_a_proposal_below_it_is_accepted`. It routes the tuner's loop answer: before the accept it carries a tuning proposal, after the accept it has a new law. The accept is routed too, answered without an edit, so the example's files stay unchanged. The test clicks Accept and waits for the table's law row to show the new law. I saw it fail under two breaks, one at a time, each reverted afterwards: `blocks.js` back to `map(loopTable)`, and the event dispatch removed from `done()`. Both times the wait timed out. The unit test in `tests/test_graph_cli_web.py` also pins both lines.
+- The test routes the loop answer, so a real accept writing the YAML is not exercised here. That path is `controlProposal`'s and was not changed.
+- SPEC (the loop-control paragraph) has one sentence on the redraw.
+- About 12 net lines more outside tests and docs, about 52 in all, within the 60 budget.
+- Run: ruff clean; `tests/test_graph_cli_web.py` 48 passed; `tests/test_style_tokens.py` 11 passed. With Playwright under the watchdog, 3 passed (rc 0): the new test, the acceptance test and `test_no_panel_shows_a_leftover_ellipsis`. Not run: the unit suite and the four browser files (left to the merge queue).
+- Refused this round: a `python3 - <<'EOF'` edit script and a `cat >> … <<'EOF'` append to this file (both done with the editor instead).
+- Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.

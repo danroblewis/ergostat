@@ -189,6 +189,17 @@ function loopTable(d) {
     ["saturation", pf.saturation != null ? `${pcFit(pf.saturation * 100)} of the ${d.how === "valve" ? "openings" : "time"}` : "–"]];
   return h("table", { class: "loop-table" }, h("caption", {}, `The loop ${d.goal}`), rows.map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))));
 }
+/* the table, drawn again from a fresh answer when a proposal of its loop is answered (controlBox's done) */
+function loopTableBox(d) {
+  const box = h("div", {}, loopTable(d));
+  const again = (e) => {
+    if (!box.isConnected) return document.removeEventListener("loop-answered", again);
+    if (e.detail === d.goal) loopControl(d.goal).then((x) => box.replaceChildren(x ? loopTable(x) : ""))
+      .catch((err) => box.replaceChildren(h("p", { class: "muted small" }, String(err.message || err))));
+  };
+  document.addEventListener("loop-answered", again);
+  return box;
+}
 
 /* ---- what is known of the process, in words */
 function identRows(d) {
@@ -321,7 +332,7 @@ function controlBox(goal, part, { block = null } = {}) {
   const draw = () => loopControl(goal).then((d) => {
     if (!d) return box.replaceChildren();
     if (part === "controller" && block && d.controller?.block !== block && !(d.controllers || []).includes(block)) return box.replaceChildren();
-    const done = () => { CTL.delete(goal); draw(); };
+    const done = () => { CTL.delete(goal); draw(); document.dispatchEvent(new CustomEvent("loop-answered", { detail: goal })); };
     const kids = part === "process" ? processSection(d, done) : part === "controller" ? controllerSection(d, done)
       : part === "scope" ? [h("h3", {}, "How it is doing"), performanceRows(d).some(([, v]) => v != null && v !== "") ? dl(performanceRows(d))
           : h("p", { class: "muted small" }, d.why ? "Not worked out: it has no one process." : "Not worked out yet: too little record since the loop started (its first ten controller periods, two minutes at least, are left out).")]

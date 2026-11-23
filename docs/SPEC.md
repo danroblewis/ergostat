@@ -4915,7 +4915,8 @@ scope (performance), and a loop's panel on the Loops page (all of it). The proce
 controller's panels start with a table per loop: law, process (each parameter ± σ, or "not identified:
 needs a step of u"), held-out fit (the NRMSE fit on the record fitted and on the record held out; 100% is
 perfect, below 0 worse than the mean), time off, settling and saturation; then the charts, then the words,
-a step test's sizing behind "how it is sized". A process block leaves out its loops with no one process
+a step test's sizing behind "how it is sized". A proposal of the loop accepted or dismissed in the panel
+draws its table again too, from the loop's fresh answer. A process block leaves out its loops with no one process
 when it has others; each `<math>` carries its text as `alttext`, and a wide one scrolls sideways in its box.
 
 **Existing controllers** (`numbers/extlaw.py`, `numbers/external.py`; the gap in `docs/proposals/external-systems.md`):

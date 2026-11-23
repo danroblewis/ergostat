@@ -1104,7 +1104,7 @@ function openBlock(n) {
   if (mine.length) Promise.all(mine.map((l) => loopControl(l).catch(() => ({ goal: l, failed: true })))).then((ds) => {
     const all = ds.filter(Boolean), ok = all.filter((d) => !d.failed), held = ok.filter((d) => !d.why);
     const own = (d) => !ctl || d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4));
-    top.replaceChildren(...held.filter(own).map(loopTable), ...(!ctl ? [] : all.flatMap((d) => [all.length > 1 ? h("div", { class: "strip-title" }, h("b", {}, d.goal)) : null,
+    top.replaceChildren(...held.filter(own).map(loopTableBox), ...(!ctl ? [] : all.flatMap((d) => [all.length > 1 ? h("div", { class: "strip-title" }, h("b", {}, d.goal)) : null,
       loopScope(d.goal), controlBox(d.goal, "controller", { block: n.id.slice(4) })].filter(Boolean))));
     if (!ctl) procs.replaceChildren(...(held.length ? held : ok).concat(all.filter((d) => d.failed)).map((d) => controlBox(d.goal, "process")));
   }).catch((e) => top.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));

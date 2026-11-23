@@ -373,7 +373,9 @@ def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
     # a controller's tables are its own loops' only (as controlBox's), not a loop whose path merely runs through it
     blocks = (root / "ergostat" / "web" / "static" / "blocks.js").read_text()
     assert "d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4))" in blocks
-    assert "held.filter(own).map(loopTable)" in blocks
+    assert "held.filter(own).map(loopTableBox)" in blocks
+    # the table is drawn again when a proposal of its loop is answered (a browser test accepts one and sees it change)
+    assert 'dispatchEvent(new CustomEvent("loop-answered", { detail: goal }))' in js and '"loop-answered", again' in js
     # each loop settled on its own; a process's identification (procs) right after its tables, before its words
     assert "mine.map((l) => loopControl(l).catch(" in blocks and "Promise.all(mine.map((l) => loopControl(l)))" not in blocks
     assert 'h("h2", {}, title), top, ...(n.role === "process" ? [procs] : [])]' in blocks and "kids.push(procs)" not in blocks

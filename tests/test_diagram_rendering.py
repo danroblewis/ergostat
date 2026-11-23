@@ -2033,6 +2033,47 @@ def test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_insid
         pg.close()
 
 
+def test_a_loops_table_is_drawn_again_when_a_proposal_below_it_is_accepted(browser, tmp_path):
+    """The tuner's panel: a tuning proposal accepted in its controller section redraws the panel's first table too,
+    so the law row says the new law, as the section below it does. (The loop's answer is routed: before the accept it
+    carries a proposal, after it a new law; the accept itself is answered without an edit.)"""
+    import json
+    accepted: list[str] = []
+
+    def answer(route):
+        got = route.fetch()
+        d = got.json()
+        if d and not d.get("why"):
+            if accepted:
+                d["controller"] = {**(d.get("controller") or {}), "says": "the new law, accepted"}
+                d["proposals"] = []
+            else:
+                d["proposals"] = [{"id": "tune-test", "kind": "tuning", "title": "a new gain", "reason": "a test's"}]
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(d))
+
+    def accept(route):
+        accepted.append(route.request.url)
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"edit": {"files": []}}))
+
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/loop-control?*", answer)
+        pg.route("**/api/control/tune-test/accept?*", accept)
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.locator('g.node[data-id="blk:tuner"] .hit').first.click()
+        pg.wait_for_function(SETTLED, timeout=60000)
+        law = "() => document.querySelector('#detail table.loop-table tr td').textContent"
+        assert "the new law" not in pg.evaluate(law)
+        pg.locator("#detail .proposal button", has_text="Accept").first.click()
+        pg.wait_for_function(law + ".includes('the new law, accepted')", timeout=20000)
+        assert accepted, "the accept was not posted"
+        assert not errors, errors
+        pg.close()
+
+
 PROC_ORDER = """() => {
   // the process panel: its identification (the first .control) before the block's words and headings outside it
   const d = document.querySelector('#detail'), c = d.querySelector('.control');
