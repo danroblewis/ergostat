@@ -30,6 +30,7 @@ import uuid
 from pathlib import Path
 
 from . import mirror
+from .spec.itemnumbers import history_of
 from .spec.items import SNAPSHOT, TRANSCRIPT_TYPES, field_of, fold, kind_of
 
 MIN_EVENTS = 2              # a prefix of fewer events is left as it is: one event is already as small as a snapshot
@@ -153,7 +154,7 @@ def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: flo
     old = next((e["data"].get("rollup") or {} for e in prefix if e["type"] == SNAPSHOT), {})
     archived = (old.get("archived") or {}).get("events", 0) + sum(1 for e in prefix if e["type"] != SNAPSHOT)
     lines = old.get("lines", 0) + sum(1 for e in prefix if line(e))
-    rollup = {**_meta(own), "lines": lines,
+    rollup = {**_meta(own), "numbers": history_of(id, [e for e in prefix if not line(e)], kind, False), "lines": lines,
               "archived": {"events": archived, "segments": sorted({*(old.get("archived") or {}).get("segments", []), *segments})},
               "made": now}
     cites = mirror.kept(old.get("cites"), [e for e in prefix if e["type"] != SNAPSHOT])
@@ -161,7 +162,7 @@ def snapshot_of(id: str, prefix: list[dict], kind, segments: list[str], now: flo
         rollup["cites"] = cites
     if lines:
         whole = fold(id, prefix, kind, history=True, transcript=True)
-        rollup["transcript"] = {**_meta(whole), "set": whole.fields}
+        rollup["transcript"] = {**_meta(whole), "numbers": history_of(id, prefix, kind, True), "set": whole.fields}
     return {"id": uuid.uuid4().hex, "type": SNAPSHOT, "item": id, "time": max(e["time"] for e in prefix), "source": "ergostat",
             "data": {"rollup": rollup}, "set": own.fields}
 

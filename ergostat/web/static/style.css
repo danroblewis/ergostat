@@ -375,12 +375,9 @@ a.chart-name { color: var(--accent); }
 .side-charts h3 { margin-top: var(--sp-5); }
 .side-strip + .side-strip { border-top: var(--hair) solid var(--line); }
 .detail .scope dl { margin-top: var(--sp-2); }
-/* plots.js: several series on one axis (each named with its value), a phase plot, a heatmap and its key */
+/* plots.js: a heatmap of rows and its key */
 figure.plot-fig { margin: 0 0 var(--sp-3); }
 .plot-fig .chart-head { flex-wrap: wrap; }
-.plot-vals { display: flex; flex-wrap: wrap; gap: 0 var(--sp-3); color: var(--muted); }
-.plot-chip .n { color: var(--ink); }
-.plot-chip .sw { display: inline-block; width: var(--sp-4); border-top-width: var(--sp-0); margin-right: var(--sp-1); vertical-align: middle; }
 .plot-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
 .plot-key .ramp { display: inline-flex; border: var(--hair) solid var(--line); }
 .plot-key .ramp span, .plot-key .hatch { display: inline-block; width: var(--sp-3); height: var(--sp-3); }

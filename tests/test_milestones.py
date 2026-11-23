@@ -406,6 +406,171 @@ def test_the_milestone_model_raises_no_check_finding():
     assert [f"{p.code}@{p.about}" for p in problems if p.about in ours or "milestones-" in p.message] == []
 
 
+# ---- milestone-limits-what-is-built: the planner and the implementor take only the work of active milestones
+
+HELD_BY = ("planner", "implementor")             # their takes: where asks waits_on_milestone empty
+NOT_HELD = ("reviewer", "merge-queue", "flake-triage")
+
+
+@pytest.fixture(scope="module")
+def blocks():
+    """The compiled blocks only: read() would also run the model's findings (about a minute), once per xdist worker."""
+    from ergostat.spec.compile import compile_doc
+    from ergostat.spec.load import load as load_doc
+    spec, problems = compile_doc(load_doc(ROOT / "ergostat.yaml"))
+    assert [p for p in problems if p.level == "error"] == []
+    return spec.blocks
+
+
+def takes(ms, blocks, name: str, gid: str) -> bool:
+    """Whether block ``name`` may take the gap as the dispatcher reads it: its state among the block's `at`, and the
+    block's compiled `where` matched against the folded item (its.matches, as dispatch.py does)."""
+    t = blocks[name].takes
+    it = its.one(ms.p.events, ms.p.model.spec, gid)
+    return it.state in t.at and its.matches(it, t.where)
+
+
+def two_milestones(ms):
+    """a active (after a pass); b waiting on a. Gaps: x (ready) in a; y (ready) and z (open) in b; u (ready) in none;
+    w (ready) with an old free-text label."""
+    ms.mod.add(ms.cfg, "a", rank=1)
+    ms.mod.add(ms.cfg, "b", rank=2, depends=["a"])
+    ms.gap("x", "gap.defined", milestone="milestone/a")
+    ms.gap("y", "gap.defined", milestone="milestone/b")
+    ms.gap("z", milestone="milestone/b")
+    ms.gap("u", "gap.defined")
+    ms.gap("w", "gap.defined", milestone="an-old-label")
+
+
+def test_the_planner_and_the_implementor_ask_waits_on_milestone_empty_and_review_and_the_queue_do_not(blocks):
+    for name in HELD_BY:
+        assert blocks[name].takes.kind == "gap" and blocks[name].takes.where.get("waits_on_milestone", 0) is None, name
+    for name in NOT_HELD:
+        assert blocks[name].takes.kind == "gap" and "waits_on_milestone" not in (blocks[name].takes.where or {}), name
+
+
+def test_enforcement_off_changes_nothing(ms, blocks):
+    two_milestones(ms)
+    got = ms.mod.run_pass(ms.cfg)
+    assert [e for e, _, _ in got] == ["milestone.activated"]                    # a only; no gap event at all
+    assert all(takes(ms, blocks, "implementor", f"gap/{g}") for g in "xyuw")
+    assert takes(ms, blocks, "planner", "gap/z")
+    ms.mod.pull(ms.cfg, "y", True)
+    ms.mod.assign(ms.cfg, "u", "b")
+    for g in "xyzuw":                                                           # nor from the commands
+        assert "waits_on_milestone" not in ms.fields(f"gap/{g}"), g
+    ms.cfg["milestones"]["enforce"] = True                                      # on, then off again: cleared
+    ms.passes()
+    assert ms.fields("gap/z")["waits_on_milestone"] == "milestone/b"
+    ms.cfg["milestones"]["enforce"] = False
+    ms.passes()
+    assert all(not ms.fields(f"gap/{g}").get("waits_on_milestone") for g in "xyzuw")
+    assert takes(ms, blocks, "planner", "gap/z") and takes(ms, blocks, "implementor", "gap/u")
+
+
+def test_with_enforcement_an_inactive_milestones_gap_is_held_and_an_active_ones_is_taken(ms, blocks):
+    ms.cfg["milestones"]["enforce"] = True
+    two_milestones(ms)
+    ms.passes()                                                                 # a activates, in the same pass
+    f = {g: ms.fields(f"gap/{g}").get("waits_on_milestone") for g in "xyzuw"}
+    assert f == {"x": None, "y": "milestone/b", "z": "milestone/b", "u": None, "w": None}   # u, w placed in a
+    assert ms.fields("gap/u")["milestone"] == ms.fields("gap/w")["milestone"] == "milestone/a"
+    assert all(takes(ms, blocks, "implementor", f"gap/{g}") for g in "xuw")
+    assert not takes(ms, blocks, "implementor", "gap/y")
+    assert not takes(ms, blocks, "planner", "gap/z")
+    ms.p.events.add("gap.sent-back", item="gap/y")                              # a fix round is the implementor's too
+    assert ms.state("gap/y") == "fix" and not takes(ms, blocks, "implementor", "gap/y")
+    assert ms.passes() == []                                                    # nothing changed: nothing said again
+    ms.mod.add(ms.cfg, "c")                                                     # waiting until the next pass
+    ms.mod.assign(ms.cfg, "u", "c")
+    assert ms.fields("gap/u")["waits_on_milestone"] == "milestone/c"           # said by assign itself, not a pass later
+    assert "enforced ([milestones] enforce): 3 gaps wait for their milestone" in ms.mod.status(ms.cfg)   # u, y, z
+    for g in "xw":
+        ms.p.events.add("gap.merged", item=f"gap/{g}")                          # a completes, b and c activate: released
+    assert ms.passes() == [("milestone.completed", "milestone/a"), ("milestone.activated", "milestone/b"),
+                           ("milestone.activated", "milestone/c"), ("gap.milestone-held", "gap/u"),
+                           ("gap.milestone-held", "gap/y"), ("gap.milestone-held", "gap/z")]
+    assert takes(ms, blocks, "implementor", "gap/y") and takes(ms, blocks, "planner", "gap/z")
+    assert takes(ms, blocks, "implementor", "gap/u")
+    assert "enforced ([milestones] enforce): 0 gaps wait for their milestone" in ms.mod.status(ms.cfg)
+
+
+def test_a_pulled_gap_in_an_inactive_milestone_is_taken_as_if_it_were_active(ms, blocks):
+    ms.cfg["milestones"]["enforce"] = True
+    two_milestones(ms)
+    ms.passes()
+    ms.mod.pull(ms.cfg, "y", True)
+    assert not ms.fields("gap/y").get("waits_on_milestone")                     # at once, by pull itself
+    assert takes(ms, blocks, "implementor", "gap/y")
+    ms.mod.pull(ms.cfg, "y", False)
+    assert ms.fields("gap/y")["waits_on_milestone"] == "milestone/b" and not takes(ms, blocks, "implementor", "gap/y")
+    ms.gap("s", "gap.defined", parent="gap/z")                                  # a sub-gap of z's split: b's
+    ms.passes()
+    assert ms.fields("gap/s")["waits_on_milestone"] == "milestone/b"
+    ms.mod.pull(ms.cfg, "z", True)
+    assert takes(ms, blocks, "implementor", "gap/s") and takes(ms, blocks, "planner", "gap/z")
+    ms.mod.add(ms.cfg, "c")                                                     # waiting (no pass yet)
+    ms.mod.assign(ms.cfg, "s", "c")                                             # moved out of z's milestone: z's pull
+    assert ms.fields("gap/s")["waits_on_milestone"] == "milestone/c"           # no longer reaches it
+
+
+def test_review_and_the_queue_are_not_held_by_an_inactive_milestone(ms, blocks):
+    ms.cfg["milestones"]["enforce"] = True
+    ms.mod.add(ms.cfg, "a")
+    ms.mod.add(ms.cfg, "b", depends=["a"])
+    ms.gap("r", "gap.defined", "gap.started", "gap.built", milestone="milestone/b")
+    ms.gap("q", "gap.defined", "gap.started", "gap.built", "gap.approved", milestone="milestone/b")
+    ms.gap("t", "gap.defined", "gap.started", "gap.built", "gap.approved", "gap.queue-failed", milestone="milestone/b")
+    ms.passes()
+    assert ms.state("milestone/b") == "waiting"
+    assert all(ms.fields(f"gap/{g}")["waits_on_milestone"] == "milestone/b" for g in "rqt")
+    assert takes(ms, blocks, "reviewer", "gap/r")
+    assert takes(ms, blocks, "merge-queue", "gap/q")
+    assert takes(ms, blocks, "flake-triage", "gap/t")
+    ms.p.events.add("gap.merged", item="gap/q")                                 # a finished gap: its field cleared
+    ms.passes()
+    assert not ms.fields("gap/q").get("waits_on_milestone")
+
+
+def test_a_dependency_on_a_gap_of_a_milestone_finishing_later_is_refused(ms):
+    """b depends on a; x (in a) depends on y. y in b would leave x waiting on y, y on b, b on a, a on x: refused by
+    assign, and by depends once y is in c and c is made to depend on a; pulling y does not lift it (the take's graph
+    holds the link as a cycle, pulled or not); status lists one recorded around the commands."""
+    ms.cfg["milestones"]["enforce"] = True
+    ms.mod.add(ms.cfg, "a")
+    ms.mod.add(ms.cfg, "b", depends=["a"])
+    ms.gap("x", milestone="milestone/a", depends_on=["gap/y"])
+    ms.gap("y")
+    ms.mod.pull(ms.cfg, "y", True)
+    with pytest.raises(ms.mod.Refused, match=r"gap/y in milestone/b would close a cycle: .*; and would leave gap/x "
+                                             r"depending on gap/y, in milestone/b, which can only finish after "
+                                             r"milestone/a: both would wait forever \(pulling gap/y does not lift it\)"):
+        ms.mod.assign(ms.cfg, "y", "b")
+    assert ms.fields("gap/y").get("milestone") is None
+    ms.mod.add(ms.cfg, "c")
+    ms.mod.add(ms.cfg, "d", depends=["c"])
+    ms.mod.assign(ms.cfg, "y", "c")
+    with pytest.raises(ms.mod.Refused, match=r"milestone/c depending on milestone/a would close a cycle: .*; and "
+                                             r"would leave gap/x depending on gap/y, in milestone/c, which can only "
+                                             r"finish after milestone/a"):
+        ms.mod.depends(ms.cfg, "c", ["a"])
+    ms.mod.depends(ms.cfg, "a", ["d"])          # a after d after c: y's milestone finishes first, as it should
+    ms.gap("v", milestone="milestone/c", depends_on=["gap/x"])                  # as deps.py may record: c's v on a's x
+    out = ms.mod.status(ms.cfg)
+    assert ("depends on a gap of a milestone that can only finish later (both wait forever): "
+            "gap/v on gap/x (milestone/a, after milestone/c)") in out
+    assert "on a precedence cycle (never taken)" in out                         # the take's graph holds it too
+
+
+@pytest.mark.parametrize("bad", ["true", 1, None])
+def test_an_enforce_not_true_or_false_is_refused(ms, bad):
+    ms.cfg["milestones"]["enforce"] = bad
+    with pytest.raises(ValueError, match="enforce"):
+        ms.mod.run_pass(ms.cfg)
+    with pytest.raises(ValueError, match="enforce"):
+        ms.mod.pull(ms.cfg, "nobody", True)
+
+
 # ---- milestone-every-gap-has-one: with [milestones] enforce on, the pass places every unfinished gap
 
 def three(ms, t0=None):
@@ -533,7 +698,7 @@ def test_with_no_milestone_to_go_to_a_gap_is_left_and_counted(ms):
     ms.passes()
     assert ms.state("milestone/m") == "completed"
     ms.gap("late", milestone="milestone/m")
-    assert ms.passes() == []                                                 # never the completed one
+    assert ms.passes() == [("gap.milestone-held", "gap/late")]               # never the completed one (held: no home)
     assert ms.fields("gap/late")["milestone"] == "milestone/m"
     assert ms.mod.status(ms.cfg).splitlines()[-1] == ("unfinished gaps with no milestone (none, an old label, or a "
                                                       "completed one): 1 (late; the next pass places 0 of them)")
@@ -553,7 +718,8 @@ def test_a_placement_that_would_close_a_cycle_goes_to_upkeep_or_is_left(ms):
     assert (ms.state("milestone/a"), ms.state("milestone/b")) == ("active", "waiting")
     ms.gap("y", milestone="milestone/b")
     requested(ms, "x", source="request", requested_by="coordinator", depends_on=["gap/y"])
-    assert ms.passes() == []                                                 # no upkeep one: left, not put on a cycle
+    assert ms.passes() == [("gap.milestone-held", "gap/x"), ("gap.milestone-held", "gap/y")]   # no upkeep one: left,
+    #                                                                          not put on a cycle (and held: x has none, y's waits)
     assert ms.fields("gap/x").get("milestone") is None
     assert ms.mod.status(ms.cfg).splitlines()[-1] == ("unfinished gaps with no milestone (none, an old label, or a "
                                                       "completed one): 1 (x; the next pass places 0 of them)")

@@ -410,7 +410,8 @@ def test_every_compile_key_classified():
     assert trust.ITEM["lease"][0] == trust.NO and trust.REFUSED.get("leases")
     by = {"systems": trust.SYSTEM, "sensors": trust.SENSOR, "claims": None, "loops": None, "intent_policy": None,  # judge
           "messages": None,                                       # messages: main file only, not a section a template writes
-          "budget": None}                                         # budget: main file only (SPEC §9.9), not in BODY
+          "budget": None,                                         # budget: main file only (SPEC §9.9), not in BODY
+          "runs": None}                                           # runs: main or local file only (SPEC §9.1), not in BODY
     lits = keys_literals()
     assert {w for w, _ in lits} <= set(by), lits                  # a new self.keys( site: classify it here
     assert {"systems", "sensors", "claims", "loops"} <= {w for w, _ in lits}     # the scan finds them
