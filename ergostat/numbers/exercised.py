@@ -56,9 +56,12 @@ def _clock(t: float) -> str:
 def quiet(spec: Spec, data: ob.Data | None, least: float = MIN_SPAN, readings: int = MIN_READINGS) -> dict[str, dict]:
     """Each stock, flow and auxiliary the record has readings of and does not exercise: ``ref`` → ``{why, says,
     since, until, span, readings}``; ``why`` is ``never-moved`` or ``no-variation``. A part with too few readings,
-    or none, is not judged (nothing measures it, or the record is too short to say)."""
+    or none, is not judged (nothing measures it, or the record is too short to say); nor is a remote's part (SPEC §4c:
+    the record that exercises it is the remote's)."""
     if data is None:
         return {}
+    from ..remote import remote_parts
+    theirs = remote_parts(spec)
     g = data.grid
     edges = g.edges()
     lo_t, hi_t = _extent(data)
@@ -73,7 +76,7 @@ def quiet(spec: Spec, data: ob.Data | None, least: float = MIN_SPAN, readings: i
     rates = {}
     for n in spec.flows:
         ref = f"flow.{n}"
-        if data.how.get(ref) in ("declared", "not measured"):
+        if data.how.get(ref) in ("declared", "not measured") or ref in theirs:
             continue
         rates[ref] = series_of(ref)
     means = [sum(abs(v) for _, v in r) / len(r) for r in rates.values() if r and any(v for _, v in r)]
@@ -99,7 +102,7 @@ def quiet(spec: Spec, data: ob.Data | None, least: float = MIN_SPAN, readings: i
     for kind, table in (("stock", spec.stocks), ("auxiliary", spec.auxiliaries)):
         for n in table:
             ref = f"{kind}.{n}"
-            got = series_of(ref)
+            got = series_of(ref) if ref not in theirs else []
             if len(got) < readings:
                 continue
             lv = [v for _, v in got]
