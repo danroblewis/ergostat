@@ -85,3 +85,13 @@ loaded) the fast pass took about 4.8 s of worker time and the careful pass about
 (single-stage) to 26.4 s, while the first routed lines come at about 5 s instead of about 22 s. Where a view
 routes close to ROUTED_BOUND_MS on main, this branch can push it over. The bound was not raised. A cheaper fast
 pass, or a bound on the fast stage, would be a gap of its own.
+
+Build step after round 1 (rc 5): `scripts/affected_tests.py` picked only `tests/test_diagram_rendering.py`, because this
+branch changes no `ergostat/**/*.py`. That file is a Playwright browser file, and the build step's pytest has no
+`playwright`. So its one module-level `importorskip` skipped everything, and pytest exited 5 (no tests ran). No test
+failed, and nothing in `avoid.js` caused it: any branch that changes only static JS and a browser test file gets the
+same rc 5. The code was left as it is. I did not add a unit test just to give the step something to run, and I did
+not change `affected_tests.py` (it is outside this gap, lesson-13). The most reversible choices left are to run this
+gap's build step with `build_browser = true` (Playwright installed), or a gap of its own where `affected_tests.py`
+counts a browser file as covered by the browser suites. Commands refused in this session: `git log --stat -3`, the
+first shell command I gave, was denied, so no shell command was run in this round.
