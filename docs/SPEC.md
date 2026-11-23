@@ -616,6 +616,8 @@ web:                            # optional, main file only (or ergostat.local.ya
   ...
 library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
   - ...                         # a folder (trusted), {folder: PATH, trust: owner}, or {folder: PATH, untrusted: true|false}
+dashboards:                     # optional: shared, named dashboards, display only (section 4f)
+  ...
 ```
 
 ## 4a. Systems: parts made of parts
@@ -1247,6 +1249,79 @@ reads the event log.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+
+## 4f. Dashboards: shared, named, and checked
+
+A reader's own arrangement of panels lives in the page's address and the browser. A dashboard shared by everyone is
+declared under `dashboards:`, compiled and checked as a system's `show:` is (section 4a), so a part renamed is an
+error at its line instead of a blank panel. The design is `docs/proposals/dashboard.md`. People do not write it by
+hand: the Supervisor, or an agent on the owner's behalf, adds it (`docs/AGENT-GUIDE.md`).
+
+```yaml
+dashboards:
+  week:
+    title: The factory, this week          # optional
+    description: where tickets wait        # optional
+    window: 7d                             # optional: the one window of all its panels; at most keep:
+    panels:                                # 1 to 24
+      - {panel: goals, size: full}
+      - {panel: states, kind: ticket, size: l, note: Where tickets wait}
+      - {panel: chart, refs: [stock.backlog, stock.in-review], replay: true}
+      - {panel: items, kind: ticket, state: review}
+```
+
+Each panel is its kind (`panel:`), its words (`title`, `note`), its `size` (`s`, `m`, `l` or `full`, each with
+`-tall` too; default `m`), and **exactly the parameters its endpoint takes**, by the same names:
+
+| `panel` | Answered by | Its parameters |
+|---|---|---|
+| `note` | nothing: its text | `text` (needed) |
+| `goals` | `GET /api/loops`: each goal's row | `goals` (default all) |
+| `chart` | `GET /api/series` | `refs` (stocks, flows, auxiliaries; needed), `points`, `replay`, `fan` |
+| `items` | `GET /api/items` (with each open item's estimate) | `kind` (needed), `state`, `where`, `moved`, `moved_since`, `moved_until`, `through`, `followed`, `search`, `n` |
+| `states`, `cycle-time` | `GET /api/items-flow` | `kind` (needed), `points` |
+| `scope` | `GET /api/loop-scope` | `goal` (needed), `points` |
+| `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `kinds`, `system` |
+
+A list may be written as one string, as the address writes it (`refs: stock.a,stock.b`). `check` refuses an unknown
+kind of panel, size or a value of the wrong type (**bad-dashboard**), an unknown key (**unknown-key**), and a
+reference to a stock, flow or auxiliary (or a sensor of one), a goal, an item kind, a state of the panel's kind, or a
+system that the model does not have (**unknown-ref**), each at its line. More than 24 panels, or a `window` longer
+than `keep:`, is **bad-dashboard**. The name `default` is the model's own (below), so it cannot be declared.
+
+**Namespaced by its file.** A dashboard written in a file whose `defaults:` sets a system is named `SYSTEM.NAME`
+(`delivery.review` in `factory/delivery.yaml`), so two systems' files may each have an `overview`.
+
+**Display only.** `dashboards:` is in no version hash (section 12e: the structure, the numbers, the control, the
+sensors): declaring, changing or removing one changes neither the model's version nor any replay. **A
+dashboards-only change does not yet skip the judge's replay.** Filed as an `ergostat.model-change`, it falls
+through `kind_of` to *parameter* (nothing else differs) and is replayed like one, a replay that by construction
+equals the one before. A `display` kind that is checked but never replayed is the held follow-on gap
+dashboard-keep-display-proposal (`docs/proposals/dashboard.md`, section 5); until it lands, the Supervisor adds a
+dashboard as an edit to the model and `ergostat check`, never through the judge.
+
+**Served in one request.** `GET /api/dashboards` lists each dashboard: `name`, `title`, `description`, `panels` (how
+many), `window` and `declared`, the model's own `default` first. `GET /api/dashboard/NAME` (`since`, `at` as every
+answer; else the dashboard's `window`) answers every panel at once: each panel's declaration (`panel`) and its
+`answer`, built by the same function its own endpoint calls on the same parameters, all on one snapshot of the
+state. The answer says that snapshot's number (`moment`) and `at`. `NAME` `default` is the model's own: for each
+top system, a `chart` of its `show:` measures (else its goals' measures, at most 5) and a `goals` panel of its goals.
+
+- **A time limit per panel.** Each panel is worked out on the dashboard's pool (2 threads, at most 48 waiting: fixed
+  in code, twice the 24 panels a dashboard may have, so one request's panels always fit on a pool that holds no
+  more than one other dashboard's worth, an idle one among them). One not done after 0.3 s of its own, or by 0.4 s after the snapshot for the batch, answers
+  `{"pending": true, "moment": N}` and goes on being worked out; a request with `moment=N` (the next poll) is
+  answered at that same moment, on the same snapshot, with the panel's answer once done. A moment is kept 30 s and
+  only while the model is the one it was read under; named after that, a new moment answers. With the pool full (more than a
+  dashboard's worth already waiting, from other requests) a panel answers `{"pending": true, "busy": true}` and nothing is queued. A job waiting unasked for 6 s is dropped
+  before it starts; one running is not stopped (Python threads cannot be), but no more than 2 ever run. Two slow
+  panels at once fill the pool, so the panels after them answer pending too until a thread is free.
+- **Nothing sent twice.** Each answered panel has a `stamp`; `have=S1,S2,...` (the stamps held, in panel order)
+  answers a panel whose stamp is unchanged as `{"same": true, "stamp": S}` without its answer.
+- A panel whose answer raised says `{"error": ...}`; the others are answered.
+
+`ergostat snapshot` holds `dashboards` and each dashboard's answer under `dashboard/NAME`, every panel worked out
+(none pending), at the snapshot's window.
 
 ## 5. Stocks
 
