@@ -8,6 +8,9 @@ const DASH_SIZES = Object.keys(DASH_COLUMNS);
 const DASH_MOST = 24;                                  // panels on one dashboard (docs/proposals/dashboard.md, section 6)
 const DASH_NARROW = "(max-width: 699px)";
 const DASH_EVERY = { Off: 0, "10s": 10000, "30s": 30000, "1m": 60000, "5m": 300000 };
+const DASH_LONGEST = { id: 64, title: 200, note: 500 };   // what a draft's words may run to
+const DASH_QUERIES = 12;                               // queries on one panel
+const dashOwn = (table, key) => typeof key === "string" && Object.hasOwn(table, key);   // never a name every object inherits
 const DASH_WINDOW = "1d";                              // what a dashboard with no window of its own opens on
 const DASH = { draft: null, kept: false, editing: false, cells: new Map(), undo: [], timer: null, wasHere: false,
                since: null, grid: null, head: null, live: null, said: null, page: 0, asked: 0, narrow: null };
@@ -25,16 +28,21 @@ function dashDecode(text) {
 }
 /* a draft as the page can use it, whatever it was read from; null when it is not one */
 function dashClean(d) {
-  if (!d || typeof d !== "object" || !Array.isArray(d.panels)) return null;
+  if (!d || typeof d !== "object" || Array.isArray(d) || !Array.isArray(d.panels)) return null;
   const seen = new Set();
-  const panels = d.panels.filter((p) => p && typeof p === "object" && !Array.isArray(p)).slice(0, DASH_MOST).map((p) => {
-    let id = typeof p.id === "string" && p.id ? p.id : "p";
-    for (let n = 2; seen.has(id); n++) id = `${p.id || "p"}-${n}`;
+  const isObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+  const words = (v, most) => String(v ?? "").slice(0, most);
+  const panels = d.panels.slice(0, DASH_MOST * 4).filter(isObject).slice(0, DASH_MOST).map((p) => {
+    const base = typeof p.id === "string" && p.id ? p.id.slice(0, DASH_LONGEST.id) : "p";
+    let id = base;
+    for (let n = 2; seen.has(id); n++) id = `${base}-${n}`;
     seen.add(id);
-    return { ...p, id, title: String(p.title ?? ""), queries: Array.isArray(p.queries) ? p.queries : [],
-             size: DASH_COLUMNS[p.size] ? p.size : "m", tall: !!p.tall };
+    return { ...p, id, title: words(p.title, DASH_LONGEST.title), note: words(p.note, DASH_LONGEST.note),
+             form: typeof p.form === "string" ? p.form : "line", display: isObject(p.display) ? p.display : {},
+             queries: Array.isArray(p.queries) ? p.queries.filter(isObject).slice(0, DASH_QUERIES) : [],
+             size: dashOwn(DASH_COLUMNS, p.size) ? p.size : "m", tall: p.tall === true };
   });
-  return { title: String(d.title || "Dashboard"), since: WINDOWS[d.since] ? d.since : null, panels };
+  return { title: words(d.title || "Dashboard", DASH_LONGEST.title), since: dashOwn(WINDOWS, d.since) ? d.since : null, panels };
 }
 const dashKey = () => `ergostat.dashboard.${S.status?.name || ""}`;
 const dashEveryKey = () => `${dashKey()}.every`;
@@ -226,16 +234,18 @@ const dashHeight = (p) => dashRows(p) * (p.tall ? 2 : 1) + (DASH.editing ? 1 : 0
 /* each panel in the first place it fits, in the draft's order: no holes, and the page's order is the order seen */
 function dashPack(panels, cols) {
   const used = [];
+  const bottom = panels.reduce((n, p) => n + dashHeight(p), 0);   // every panel fits by here, so the search always ends
   const free = (x, y, w, hi) => {
     for (let r = y; r < y + hi; r++) for (let c = x; c < x + w; c++) if (used[r]?.[c]) return false;
     return true;
   };
   return panels.map((p) => {
     const w = Math.min(cols, DASH_COLUMNS[p.size]), hi = dashHeight(p);
-    for (let y = 0; ; y++) for (let x = 0; x + w <= cols; x++) if (free(x, y, w, hi)) {
+    for (let y = 0; y <= bottom; y++) for (let x = 0; x + w <= cols; x++) if (free(x, y, w, hi)) {
       for (let r = y; r < y + hi; r++) { used[r] ||= []; for (let c = x; c < x + w; c++) used[r][c] = true; }
       return { p, x, y, w, h: hi };
     }
+    throw new Error("a panel found no place on the grid");
   });
 }
 function dashTool(text, label, onclick) {
@@ -322,7 +332,7 @@ function dashPoll() {
 function dashEvery() {
   let v = null;
   try { v = localStorage.getItem(dashEveryKey()); } catch (e) { /* the default */ }
-  return DASH_EVERY[v] ?? DASH_EVERY["30s"];
+  return dashOwn(DASH_EVERY, v) ? DASH_EVERY[v] : DASH_EVERY["30s"];
 }
 
 /* ---- changing the draft: by keyboard, toolbar and mouse, all the same operations ---- */
@@ -572,7 +582,7 @@ async function pageDashboard(main, q) {
     }
     if (n !== DASH.page) return;
   }
-  const asked = WINDOWS[q.get("since")] ? q.get("since") : null;
+  const asked = dashOwn(WINDOWS, q.get("since")) ? q.get("since") : null;
   const moved = stayed && DASH.since && S.since !== DASH.since;   // the header's window, changed here
   const since = moved ? S.since : asked || d.since || DASH_WINDOW;
   if (S.since !== since) { S.since = since; S.graphSig = ""; showAt(); refreshHeader(); }
