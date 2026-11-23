@@ -1,0 +1,65 @@
+"""``ergostat library fetch [NAME...] [--update]`` (SPEC §2a): the main file's ``libraries:`` read live with the
+loader's own YAML reader, checked, and each library fetched and locked (``library/fetch.py``). It never opens the
+project and never runs on the last good model: a main file that does not read stops it before any git process."""
+
+from __future__ import annotations
+
+import sys
+
+from .spec_cmds import here
+
+
+def register(sub, common) -> None:
+    lp = sub.add_parser("library", parents=[common], help="Libraries fetched by git URL: fetch [NAME...] [--update]",
+                        description="ergostat library fetch [NAME...] [--update]: clone each library in libraries: "
+                                    "into .libraries/NAME and pin it in libraries.lock (SPEC §2a)")
+    lp.add_argument("what", choices=["fetch"])
+    lp.add_argument("names", nargs="*", metavar="NAME", help="only these libraries (leave out: all)")
+    lp.add_argument("--update", action="store_true", help="resolve each version again, even an unchanged one")
+    lp.set_defaults(fn=cmd_library)
+
+
+def cmd_library(args) -> int:
+    from ..library import fetch, sources
+    from ..spec.files import TreeError
+    from ..spec.load import FILE, find, read_file
+    main = find(here(args))
+    if main is None:
+        print(f"no {FILE} here or above", file=sys.stderr)
+        return 2
+    problems: list = []
+    data = read_file(main, problems)
+    bad = [p for p in problems if p.level == "error"]
+    if bad or not isinstance(data, dict):
+        print(f"{main.name}: {bad[0] if bad else 'not a map of sections'}: fix it first (nothing fetched)",
+              file=sys.stderr)
+        return 2
+    if data.get("libraries") is None:
+        print(f"{main.name} has no libraries:")
+        return 0
+    try:
+        cfg = sources.check(data["libraries"])
+    except sources.SourceError as e:
+        print(f"{main.name}: {e.field}: refused, {e.code}: nothing fetched", file=sys.stderr)
+        return 2
+    unknown = [n for n in args.names if n not in cfg]
+    if unknown:
+        print(f"no library {unknown[0]!r} in libraries: (there are: {', '.join(cfg)})", file=sys.stderr)
+        return 2
+    rc = 0
+    for name in args.names or list(cfg):          # one after another; each read-decide-write under the flock
+        try:
+            got = fetch.fetch(main.parent, {name: cfg[name]}, args.update,
+                              lambda line: print(line, file=sys.stderr, flush=True))[name]
+            e = fetch.read_lock(main.parent).get(name, {})
+            print(f"library {name}: up to date at {e.get('commit', '')[:12]}" if got == "kept" else
+                  f"library {name}: {e.get('version')} at {e.get('commit', '')[:12]} ({e.get('tree', '')[:19]})")
+        except fetch.FetchError as x:
+            print(f"library {name}: not fetched: {x}", file=sys.stderr)
+            if x.code in ("bad-lock", "linked-library-folder"):
+                return 2
+            rc = 1
+        except (TreeError, OSError) as x:
+            print(f"library {name}: not fetched: {x}", file=sys.stderr)
+            rc = 1
+    return rc
