@@ -202,3 +202,15 @@ definition again after each round is a change to implement.py, so it would be it
   `ergostat.spec.read` in the test (no errors, and nothing on this gap's parts outside the allows-findings line).
   Not run: the whole unit suite and the four browser files (the factory's).
 - Size unchanged: this round changed only tests/test_factory.py and this record.
+
+The same six findings sent back again (implementor, 2026-11-23, a third session of the run). The model is not
+changed, and the `allows-findings` line was not edited. That line has been in the file since f0996ac5 and names all
+six. The gate compares against the definition it read when the run began (dev/bin/implement.py:251
+`definition_first`, used at :284), which was before that line was committed, so it cannot see the line until a new run.
+Clearing the six would mean putting back the person blocks and the guarantees.yaml rerouting that the review failed,
+so the review's shape is kept (the more reversible option). 2e876eb1..6689b810 is the way back if the owner wants them
+cleared. Reading the definition again each round is an implement.py change, so it would be its own gap.
+Refused this session (Bash denied): `python3 -I -c` reading `fac.allowances` of this file, and the `git add` /
+`git commit` of this note, so it is not committed. The parse was checked by reading the regex at dev/bin/fac.py:333-335
+by hand instead: each of the seven entries is `code part: why`, with no comma in the reason. Nothing else was run, and
+the size is unchanged.
