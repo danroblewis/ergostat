@@ -643,6 +643,16 @@ The rules in brief:
 - done means: `check` passes, a pipe test by hand passes, a short run on a scratch copy records readings and
   moves items with no restarts, and replaced `run:` sensors read the same.
 
+**A daemon that is not ergostat's to start: a journal.** When the work is done by a process someone else runs (a
+service with its own supervisor, a build farm, another team's agent), do not wrap it in a `daemon:` and do not
+start it from a `run:`. If it writes JSON-lines files, point a sensor at their folder instead:
+`sensor: {journal: logs/agent}` (SPEC §6, *Journals*). The folder is relative to the model's folder and inside it
+(a link to a folder or file outside it is not read: have the process write its journals there). Each line is a `run:` sensor's
+observation line (`{"event": "case.met", "item": "case/3", "data": {...}}`) or `{"value": N}` for the reading;
+ergostat records each complete line once, across restarts and rewrites. A line ergostat refuses shows as
+`sensor.refused` with its `why`; read them before you call the sensor done. Rotate by renaming to a name that does
+not end in `.jsonl` (`x.jsonl.1`): a rotated file still named `*.jsonl` is read again under its new name.
+
 ## 3f. A controller that already runs: an autoscaler, an alert rule
 
 Much of the control in a company already runs elsewhere: a Kubernetes HPA, a cloud autoscaling group, an alert rule
