@@ -17,3 +17,54 @@ Definition of done.
 2. Adding a data source type needs one module and no change to panels (a test adds a fake type).
 3. A query over the limits, an unreachable source and a bad query each give a clear error in the panel.
 4. No write path to any source exists.
+
+## Where it stopped
+
+Built, round 1. About 270 net lines outside tests and docs (budget 600).
+
+- `ergostat/datasources/__init__.py`: the registry, the bounds and `query`. A type is one module in that package, found
+  by its name. It has `TYPE`, `KEYS`, `LANGUAGE` and `query(source, text, window)`, which returns `(name, [(t, v)])` per
+  series. A type offering any other public function or class is refused.
+  Each query is bounded whatever its type: 4,000 characters of text, 50 series, 1,000 points (+1 for alignment), a
+  400-day window, and 10 s or less (the request's remaining time). Each refusal is `error` plus `error_kind`
+  (`limit`, `unreachable`, `refused`, `unknown`).
+- `ergostat/datasources/prometheus.py`: PromQL as `GET /api/v1/query_range` from the server, capped at 8 MB. Errors never
+  carry the source's address.
+- `/api/query`: a query with `text` is `{source, text}` (no other key, never an X, input or output). It is answered in
+  the existing `{times, step, series}` shape and never cached. `/api/query/fields` lists `datasources` by name, type and
+  language only.
+- `check` accepts any registered type's keys under `sources:`. They are kept in the new `Source.options`.
+- The panel editor offers each data source under Source, with a text field labelled by its language. Nothing is built.
+- Old panels are untouched (the old forms are still offered, until `retire-old-query-forms`).
+- SPEC §4e (*Data sources*) and §11.
+
+Choices taken without asking (the most reversible):
+- `chart-result-shapes` is not on main, so results use the time-series shape every panel already draws.
+- A data source named like a built-in source (`items`, `series`, ...) still answers on the server, because `text`
+  decides. The editor does not offer it.
+- The model's JSON schema lists source types by name. A new type adds its name there too. That is the only change
+  besides its module; panels need none.
+- The Prometheus sensor path (`spec/engine.prometheus`, instant queries) is left as it was.
+
+Acceptance tests:
+- `tests/test_data_source_panels.py` (browser, real server, stub Prometheus):
+  `test_a_promql_panel_is_drawn_and_each_failure_says_so_in_its_panel` (done 1 and 3) and
+  `test_the_editor_offers_the_source_and_a_text_in_its_language`.
+- `tests/test_data_sources.py` (12): `test_a_new_type_is_one_module_and_panels_do_not_change` (done 2),
+  `test_over_the_series_bound_unreachable_and_bad_each_say_so` (done 3), and
+  `test_a_type_offers_query_and_nothing_else` and `test_prometheus_is_asked_by_get_on_query_range_only` (done 4).
+
+Seen to fail when the code they guard was broken:
+- Removing the series bound failed both series tests.
+- Removing the offers-only-query check failed its test.
+- Removing the editor's text slot failed the editor test.
+- The 1,001-point test was written for a bug found here: a 1,000-point request was refused.
+
+Run here, one file at a time:
+- Unit files: test_data_sources, test_query_engine, test_query_fixes, test_spec_schema, test_remote,
+  test_spec_structure and test_blockdiagram, all passed.
+- Browser files under the watchdog: test_data_source_panels, test_panel_editor, test_dashboard_page and
+  test_style_tokens, all passed, none skipped.
+- ruff is clean.
+- Not run here: the whole unit suite and the four browser files (the factory's). No example was touched, so no
+  `demo_check`. `main` has not moved since the clone, so there was nothing to merge.
