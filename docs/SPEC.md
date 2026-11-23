@@ -250,7 +250,8 @@ counts`, which prints the failed and errors of its pytest-style summary as `test
 a run past its time, with no summary, with nothing run, or exiting non-zero with no failure counted gives no value, and
 `tests-green` is `on-stale: off`; `block:` holds `ergostat.trust.contradicted@BLOCK` at `escape-share` (`claims-kept`);
 `changes: true` holds `ergostat.model.regressed` at 0 (`changes-hold`); `repair: NAME` reads repair's `fixes-hold`,
-not made again; each goal served by a person block, `agent:` naming who; flakes and quarantine are not in it), and `todo` (a person's own to-dos, each with its instructions, its requester, its due date and
+not made again; each goal served by a person block, `agent:` naming who; flakes and quarantine are not in it; section
+12r, *Regression guarantees*), and `todo` (a person's own to-dos, each with its instructions, its requester, its due date and
 where it must be done, `where`: a host, a bastion, a VPN or anywhere; states new, ready, in-progress, waiting,
 done and dropped, its own `finished: [done, dropped]`; what one waits on in `waits_on`, a precedence relation to
 another to-do or to a `KIND-wait` item, something someone else does; two person blocks, one asked while new to-dos
@@ -6487,6 +6488,9 @@ prints one, and `ergostat measure` all of them for every block.
 latest's words and why; `ergostat findings`, the status, the MCP `findings`), and needs attention: the page's and
 `ergostat`'s list says it against the block's agent, as bad.
 
+A block's contradicted claims held as a regression guarantee, beside the model's tests passing: section 12r,
+*Regression guarantees* (`use: regressions`, `block:`).
+
 ## 12h. Messages: absorbing interruptions
 
 A long session folds the owner's mid-work messages into the work: "that review can wait", "check the flag ramp
@@ -8050,6 +8054,35 @@ and stop saying anything. A regressed fix turns `fixes-hold` off once its sensor
 once 14 days pass with no new regression, its revert denied or still unanswered. A reading that goes stale counts
 as off. To count the window, an `items` sensor on an auxiliary may name `entering:` (or `leaving:`) and `over:`
 (section 6): its reading is how many moved over the window, not a rate.
+
+### Regression guarantees: `use: regressions`
+
+Claims (section 12g) and repair (above) each find a regression; a **regression guarantee** is one held as a goal. It
+has the four parts any goal has: **a measured quantity** (an auxiliary a sensor reads from the record or the world),
+**a setpoint** (a goal holding it, `on-stale: off`), **a loop that acts** when it is off (a block serving the goal:
+without one, `check` says *missing feedback*), and **a way to see it broken** (the goal off on the Dynamics and Blocks
+diagrams and in the status, with no page of its own). Ergostat adds none of its own accord (invariant 12): the
+library template `regressions` (section 2a) is used once a model, and each part is made only when its
+parameter is given:
+
+| `with:` | Measured (auxiliary) | Goal | Served by (person) |
+|---|---|---|---|
+| `every: D` (and `timeout`, 10m) | `tests-failing`: failed and errors of the `claims: tests` command's pytest-style summary, run every D by `python -m ergostat.regressions counts` in its `in:` folder (waited for within `timeout`, when the model's own first run makes it) | `tests-green` `<= 0` | `tests-fixer` |
+| `block: NAME` (and `escape-share`, 0.1) | `escapes`: `ergostat.trust.contradicted@NAME` | `claims-kept` `<= escape-share` | `escapes-reviewer` |
+| `changes: true` | `regressed-changes`: `ergostat.model.regressed` | `changes-hold` `<= 0` | `changes-reviewer` |
+| `repair: NAME` | repair's own `fixes-regressed-recent`, not made again | repair's `fixes-hold` | `fixes-reviewer`, beside `repair-settle` |
+
+Each person block (`agent:` names who) moves a flow of fixes into a cumulative stock that the auxiliary is driven down
+by, so each loop closes. A run that cannot be read (past its time, no summary, nothing run, a non-zero exit with no
+failure counted, no folder to run in) gives no value, never 0, and the goal goes stale and off.
+`examples/image-squeeze/lab.yaml` uses `every` and `changes` (its developer's escapes are `developer-honest` already).
+
+**What holding does not promise.** `tests-green` holding means only that the tests that ran passed at the last run,
+not that nothing regressed: a regression no test covers shows later, as an escape, if at all. `claims-kept` counts
+only claims that were made and checked (0 while none is); an unchecked claim is never trusted, and never counted as
+contradicted. `changes-hold` judges only the model changes the prediction check flagged in the last week, and
+`fixes-hold` only failed runs of a repaired block in the last 14 days. Flakes and quarantine are not in the template:
+they need an item kind of the model's own.
 
 ## 12s. Compute systems: machines that run what this engine decides
 

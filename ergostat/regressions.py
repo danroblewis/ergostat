@@ -1,8 +1,9 @@
 """The reader behind ``use: regressions``' passing counts (dev/records/regression-template.md): ``python -m
 ergostat.regressions counts`` runs the model's own ``claims: tests`` command (SPEC §12g) and prints how many of its
 tests failed (failed and errors), read from the pytest-style summary it ends with. A run it cannot read gives no
-value (exit 1, nothing printed), never 0: no command declared, a model that does not load, a run past its time, no
-summary, a summary that counts nothing, or a run that exited non-zero with no failure counted."""
+value (exit 1, nothing printed), never 0: no command declared, a model that does not load, its `in:` folder not there
+(waited for, within its time), a run past its time, no summary, a summary that counts nothing, or a run that exited
+non-zero with no failure counted."""
 
 from __future__ import annotations
 
@@ -72,9 +73,14 @@ def counts(within: float) -> tuple[int | None, str]:
     if spec is None or (c := spec.claims.get("tests")) is None:
         return None, "no model here, or it declares no claims: tests command"
     env = {**os.environ, "ERGOSTAT_ROOT": str(spec.root)}
-    p = subprocess.Popen(c.run, shell=True, cwd=Path(spec.root) / c.in_, env=env, stdout=subprocess.PIPE,
+    where, parent, end = Path(spec.root) / c.in_, os.getppid(), time.monotonic() + min(c.timeout, within)
+    while not where.is_dir():                             # made by the model's own first run, maybe not yet
+        if time.monotonic() >= end or os.getppid() != parent:
+            return None, f"no folder {c.in_} to run the tests in"
+        time.sleep(0.2)
+    p = subprocess.Popen(c.run, shell=True, cwd=where, env=env, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, errors="replace", start_new_session=True)
-    said, parent, end = guard(p.pid), os.getppid(), time.monotonic() + min(c.timeout, within)
+    said = guard(p.pid)
     try:
         while True:                                       # until the run ends, its time is up, or the sensor's
             try:                                          # shell above this reader is killed (its timeout)

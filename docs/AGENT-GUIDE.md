@@ -162,11 +162,8 @@ Work through these steps in order. Ask the person only what you cannot infer.
    they say rather than proposing the same idea again. Do not hand-write these parts. When the person asks for an
    architecture review, `ergostat improve --architecture [SYSTEM]` (one haiku call a system, `--max-cost` $1 by
    default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
-   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. When the
-   person asks for regression guarantees, `use: regressions` with only the parts they ask for (`every: 1h` for their
-   `claims: tests` command's failing count, `block: NAME` for that block's contradicted claims, `changes: true`,
-   `repair: NAME` when they use repair): nothing is made without its parameter. The other built-in templates
-   used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
+   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other
+   built-in templates used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    its item-index files held at `index-files` (6) by a rule-tier tidier, and the record's roll-up, forgetting past
    `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and
    `measurement-retainer` (`with: {rollup-every: 1h, retain-every: 1h}`, 1m to 1d), each taking over from the
@@ -175,6 +172,16 @@ Work through these steps in order. Ask the person only what you cannot infer.
    `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
    when the files a model's changing kinds leave behind, the record's growth, or the engine's own health, should show
    on the diagram; with it, leave `storage: rollup: every` out (`check` says it is unused).
+
+   **Regression guarantees: offer them, never add them unasked.** When a model declares `claims: tests` or uses
+   `repair`, it can say something broke, but nothing holds it: offer the person `use: regressions` (SPEC §12r,
+   *Regression guarantees*), and add it only when they say yes, with only the parts they ask for. `every: 1h` runs their
+   `claims: tests` command and holds its failing count at 0 (`tests-green`; its summary must be pytest-style, `3
+   passed, 1 failed in 0.5s`); `block: NAME` holds that block's contradicted claims at `escape-share` (`claims-kept`;
+   leave it out when a goal already holds `ergostat.trust.contradicted@NAME`); `changes: true` holds the model changes
+   that regressed at 0 (`changes-hold`); `repair: NAME` serves repair's own `fixes-hold`. Nothing is made without its
+   parameter, and each goal is served by a person (`agent:` names who). Tell them what holding does not promise: the
+   tests that ran passed, not that nothing regressed. `examples/image-squeeze/lab.yaml` uses it.
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
    **Coherence** section (or the MCP `coherence` tool) holds what really happened against the model, and the model
    against its blocks. Fix the model, or the blocks, until every kind agrees (section 3, *Reconcile the three
