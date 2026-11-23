@@ -156,3 +156,11 @@ Round 6 (the factory's merge of main, ead497d1f4bc):
 - After the merge the browser acceptance test failed: its `get_by_role("button", name="fit")` now matched six elements. Main brought in a `model-fits` loop, whose blocks have "fit" in their names. The test now clicks `name="Fit", exact=True`, like every other test in the file. No page code changed this round.
 - Run: ruff clean; `tests/test_graph_cli_web.py` 43 passed; with Playwright under the watchdog, the acceptance test and `test_no_panel_shows_a_leftover_ellipsis` 2 passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
 - Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.
+
+## Where it stopped
+
+Round 7 (answering the merge queue's finding):
+- `tests/test_style_tokens.py::test_no_literal_colour_size_radius_or_spacing_outside_the_tokens` failed on this branch's `.bd-math::-webkit-scrollbar-thumb { border-radius: 3px; }`, which is a literal radius. It now uses the `--radius` token (4px). On a 6px bar the two look the same. The line count does not change.
+- The scrollbar's `height: 6px` stays. The token test does not count height as spacing, and no token fits a scrollbar's thickness.
+- Run: `tests/test_style_tokens.py` failed 1 of 10 before the fix and passed 10 of 10 after it. Ruff is clean. With Playwright under the watchdog, the acceptance test passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
+- Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.
