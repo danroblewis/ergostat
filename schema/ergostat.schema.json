@@ -617,6 +617,23 @@
           }
         }
       ]
+    },
+    "libraries": {
+      "description": "Libraries fetched by git URL into .libraries/NAME, pinned in libraries.lock (main file only, at most 16; SPEC §2a). The loader's allowlists are stricter than these patterns.",
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9-]{0,63}$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["git", "version"],
+        "properties": {
+          "git": {"type": "string", "pattern": "^(https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?|file://)/[A-Za-z0-9._~/-]*$"},
+          "version": {"type": "string", "pattern": "^[A-Za-z0-9._/][A-Za-z0-9._/-]{0,199}$"},
+          "path": {"type": "string", "pattern": "^[A-Za-z0-9._-][A-Za-z0-9._/-]*$"},
+          "trust": {"const": "owner"}
+        }
+      }
     }
   },
   "$defs": {

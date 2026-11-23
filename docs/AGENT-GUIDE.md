@@ -387,6 +387,11 @@ into a plain path**, to get past that refusal or for any other reason: that is t
 reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
 which template and part were refused, and ask.
 
+The same holds for a fetched library (`libraries:`, SPEC §2a): never add `trust: owner` to one. When `check` says a
+library is refused (`library-unlocked`, `library-missing`, `library-altered`, `library-lock-unreadable`), say so to
+the owner; do not edit `libraries.lock` or the copy in `.libraries/` to make it load. `ergostat library fetch` is the
+owner's to run, since it reaches the network.
+
 A held chain may run the owner's own commands: a value in the owner's `with:` for a `type: command` parameter
 (SPEC §2a, R1). That is why a value in `with:` counts as the owner's, whoever wrote it. **Never copy a command from a
 library (its `example:`, a default, a description) into `with:`**: ask the owner for the command, and let them write
