@@ -50,3 +50,27 @@ Overrun reason: 94 new lines in dev/ against a budget of 60, but most of the ext
 22 are docstrings and blank lines. Of the YAML's 33, 10 are its header comment and blank lines. That leaves 62 lines
 of code and model, 2 over. They are the `git:` defaults read with `.get`: a config without a `[git]` table reads
 origin/main, as dev/factory.toml sets it, and does not crash.
+
+## Where it stopped
+
+Answering `ergostat check`'s four new findings (implementor, 2026-11-23). The definition has no `allows-findings`
+line, and it was not edited. All four are fixed in dev/model/guarantees-quarantine.yaml:
+- `stock-without-flows stock.quarantined`: two flows, the house pattern for a stock read whole (complexity.yaml).
+  `quarantine-added` is the stock's rises over a day and `quarantine-released` its falls.
+- `parameter-unused parameter.quarantine-most`: `quarantine-released` has the equation
+  `MAX(quarantined - quarantine-most, 0) / quarantine-release-time`. Only the excess over the setpoint drains.
+  `quarantine-release-time` (7d, estimate) is a guess used only for projecting, and no block reads it.
+- `missing-feedback goal.quarantine-small`: the person block `release-quarantined` (agent coordinator, inside the
+  system as `fix-main` is) reads `goal.quarantine-small.off` and moves `quarantine-released`. Loop: `quarantine-release`.
+  This replaces "unserved until regression-guarantees-wired" in the definition: off, the goal now asks the
+  coordinator. That is the reversible choice, since the goal holds on main as it is (8 <= 8), so nothing is asked
+  until the quarantine grows. Deleting the block brings back only the finding.
+- `auxiliary-without-causes auxiliary.quarantine-oldest-days`: `driven-by: [-flow.quarantine-released]`. A release
+  is what lowers the age. Otherwise it rises with time.
+- Pinned in `test_quarantine_small_holds_on_main_and_is_off_with_one_test_added`: no finding about any of the
+  quarantine's parts. I took the equation out and the test failed on `parameter-unused`. I put it back and it passed.
+- `uv run ergostat check ergostat.yaml` from the shell was refused again. The findings were read through
+  `ergostat.spec.read`, which runs the same findings as check except the record's calibration and late checks.
+- Run: that test (1 passed), ruff (clean). The other three held.py tests were not run again, since held.py did not change.
+
+Overrun reason: the four check findings needed two flows, a parameter, a block and a loop in the model (about 30 more YAML lines in dev/), on top of the 94 explained above; no Python changed.

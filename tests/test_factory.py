@@ -1194,6 +1194,10 @@ def test_quarantine_small_holds_on_main_and_is_off_with_one_test_added(tmp_path)
     from ergostat.store import Project
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []
+    mine = {"stock.quarantined", "flow.quarantine-added", "flow.quarantine-released", "parameter.quarantine-most",
+            "auxiliary.quarantine-oldest-days", "parameter.quarantine-release-time", "goal.quarantine-small",
+            "block.release-quarantined"}
+    assert [(p.code, p.about) for p in problems if p.about in mine] == []          # what check finds on its parts
     g = spec.goals["quarantine-small"]
     assert (g.of.kind, g.of.name, g.hold.op, g.on_stale, g.system) == ("stock", "quarantined", "<=", "off", "guarantees")
     assert g.hold.value == spec.parameters["quarantine-most"].value

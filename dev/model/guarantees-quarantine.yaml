@@ -2,8 +2,8 @@
 # quarantine-small holds at the count on main the day it was built and goes off only when a test is added. The owner
 # lowers quarantine-most, and the goal's setpoint with it, as tests are released: a setpoint is a number, so the two are
 # one number written twice (tests/test_factory.py keeps them equal). The age of the oldest test is a measure with no
-# goal until the owner says how many days a test may stay (dev/records/regression-quarantine-goals.md). Unserved: no
-# block acts on quarantine-small until regression-guarantees-wired.
+# goal until the owner says how many days a test may stay (dev/records/regression-quarantine-goals.md). The loop closes
+# as main-repair's does: release-quarantined asks the coordinator to have a test released (quarantine-released).
 defaults:
   system: guarantees
 
@@ -13,9 +13,22 @@ stocks:
     description: tests quarantined on main as pushed, each deselected from the suites and run beside them
     sensor: {run: python3 dev/bin/held.py quarantined, every: 10m, timeout: 1m, description: the quarantine on main}
 
+flows:
+  quarantine-added:
+    to: quarantined
+    description: tests added to the quarantine, each rise of the stock over a day
+    sensor: {changes: rises, over: 1d}
+  quarantine-released:
+    from: quarantined
+    description: tests released from the quarantine (flake.released), each fall of the stock over a day
+    driven-by: [+stock.quarantined]
+    equation: MAX(stock.quarantined - quarantine-most, 0) / quarantine-release-time
+    sensor: {changes: falls, over: 1d}
+
 auxiliaries:
   quarantine-oldest-days:
     unit: days
+    driven-by: [-flow.quarantine-released]
     description: days since the oldest quarantined test was listed (its `when`)
     sensor: {run: python3 dev/bin/held.py quarantine-oldest-days, every: 1h, timeout: 1m, description: the quarantine on main}
 
@@ -23,6 +36,10 @@ parameters:
   quarantine-most:
     value: 8
     description: the most tests quarantined, the count on main on 2026-11-23; lowered by the owner as tests are released
+  quarantine-release-time:
+    value: 7d
+    estimate: true
+    description: how long a test over quarantine-most takes to be released once asked (a guess, for projecting only)
 
 goals:
   quarantine-small:
@@ -31,3 +48,17 @@ goals:
     tolerance: 0
     on-stale: "off"                   # a list not read counts as grown
     description: the quarantine does not grow past quarantine-most
+
+blocks:
+  release-quarantined:                # inside the system, as fix-main is
+    type: person
+    agent: coordinator
+    description: the coordinator has a quarantined test fixed and released, so the quarantine is back within quarantine-most
+    ask: "The quarantine has grown past quarantine-most (python3 dev/bin/held.py quarantined): have a quarantined test fixed and released, or ask the owner to raise quarantine-most."
+    in: goal.quarantine-small.off
+    out: flow.quarantine-released
+
+loops:
+  quarantine-release:
+    goal: quarantine-small
+    description: a quarantine grown past quarantine-most asks the coordinator for a release (release-quarantined)
