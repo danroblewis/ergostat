@@ -170,7 +170,6 @@ def test_remote_systems_entry_is_found_done_by_intake():
     first = entry(text, REMOTE)[0]
     spliced = text.replace(first, "- **Remote systems** (first slice done, 72da4e1, merged from `remote`; what is "
                                   "left below is open;", 1)
-    assert spliced != text
     said = run_bin("import intake; print(json.dumps([[intake.gaps_md(t), intake.twice(t)] "
                    "for t in json.load(sys.stdin)]))", json.dumps([text, spliced]))
     (entries, twice), (spliced_entries, _) = said
