@@ -5426,9 +5426,10 @@ def test_the_requests_group_opens_by_saying_what_a_person_may_do(browser, tmp_pa
         got = pg.evaluate(MAY_DO_SEEN)
         assert got["text"] == said and got["shown"] and not got["over"] and got["right"] <= got["width"], got
         pg.set_viewport_size({"width": 1400, "height": 900})
-        pg.goto(f"{url}/items?kind=ergostat.action")
-        pg.wait_for_selector("p.may-do:not([hidden])", timeout=30000)
-        assert pg.locator("p.may-do:not([hidden])").inner_text() == MAY_DO
+        for actions in ("items?kind=ergostat.action", "items/ergostat.action"):    # the Items tab's and their own page
+            pg.goto(f"{url}/{actions}")
+            pg.wait_for_selector("p.may-do:not([hidden])", timeout=30000)
+            assert pg.locator("p.may-do:not([hidden])").inner_text() == MAY_DO, actions
         pg.goto(f"{url}/items")
         pg.wait_for_selector(".filters", timeout=30000)
         assert pg.locator("p.may-do:not([hidden])").count() == 0
@@ -5780,7 +5781,7 @@ uses:
 """
 GROUPS = """() => [...document.querySelectorAll('.side h3.att-head')].map((hd) => {
   const det = hd.closest('details'), list = det ? det.querySelector('.att') : hd.nextElementSibling;
-  const rows = [...list.children].filter((x) => !x.classList.contains('none'));
+  const rows = [...list.children].filter((x) => !x.classList.contains('none') && !x.classList.contains('may-do'));
   return { head: hd.textContent.trim(), open: det ? det.open : true,
            rows: rows.map((x) => x.tagName === 'HR' ? '---' : x.textContent.trim()),
            words: rows.filter((x) => x.tagName === 'DIV')
