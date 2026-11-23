@@ -39,3 +39,16 @@ Milestone: pages-answer-fast. Owner items: 2. From the owner's list and the desi
 Parked by the factory (review/perf-segments-item-span-first-1, 2026-11-22 05:51).
 
 Done: Segments._rows checks the time and seq ranges, then s.span(item), and only then tests types (0 net core lines). tests/test_segments_item_span.py checks the answers against SQLite for 50 items across 11 query shapes, and two counting-matcher tests show segments without the item are not type-tested (reported failing with the old order). Left: point 3 and the acceptance measurement. Someone with a copy of the factory state must time state.snapshot on origin/main and on this branch head (ERGOSTAT_HOME pointed at the copy, a record of 30+ sealed segments), confirm identical output and at least 30% faster, and put the before/after numbers in the PR. It stops here because only the coordinator or factory can take that measurement.
+
+## Where it stopped
+
+Round 2 (2026-11-23). The code and tests are as round 1 left them; nothing was changed. The queue said the readings
+that need the factory state belong to the coordinator and are not part of this gap, so this round only ran the
+suites again on the branch head (main 69ed1030 merged in): tests/test_segments_item_span.py 3 passed;
+tests/test_store_conformance.py 46 passed, 12 skipped (they need VictoriaMetrics or tiers, which are not set up
+here; main skips them too); tests/test_mirror.py and tests/test_repair_verify.py (they also build Segments) 63
+passed; ruff clean.
+The coordinator owes point 3 and the acceptance measurement: time state.snapshot on main and on this branch head
+with ERGOSTAT_HOME pointed at a copy of the factory state (a record of 30+ sealed segments), confirm the output is
+the same, check it is at least 30% faster, and put the before and after numbers in the PR. No speed-up is claimed
+until then.
