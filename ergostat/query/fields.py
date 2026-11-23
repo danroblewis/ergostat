@@ -44,6 +44,12 @@ def _series(p) -> list[dict]:
     return [{"name": n, "unit": _series_unit(p, n)} for n in names]
 
 
+def _pipeline(name: str, k) -> dict:
+    """A kind's ``pipeline:``, and ``holds``: its relation naming the kind it takes from (its default dashboard row)."""
+    w = k.pipeline["waiting"]
+    return {"kind": name, **k.pipeline, "holds": next((r for r, x in k.relations.items() if w and w["kind"] in x.kinds), None)}
+
+
 def _read(p) -> dict:
     spec = getattr(p.model, "spec", None)
     kinds = its.kinds_of(spec)
@@ -66,9 +72,7 @@ def _read(p) -> dict:
         got["x"] = list(X_OF[name])
         got["ohlc"] = name in OHLC_SOURCES
     return {"sources": sources, "datasources": datasources.listed(spec), "x_types": list(X_TYPES),
-            "pipelines": [{"kind": n, **k.pipeline, "holds": next((r for r, x in k.relations.items()     # (§5a, Stages)
-                                                                 if k.pipeline["waiting"] and k.pipeline["waiting"]["kind"] in x.kinds), None)}
-                          for n, k in kinds.items() if k.pipeline],
+            "pipelines": [_pipeline(n, k) for n, k in kinds.items() if k.pipeline],     # (SPEC §5a, Stages)
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),
             "rate_units": dict(transforms.SHORT)}
 
