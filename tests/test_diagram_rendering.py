@@ -720,6 +720,175 @@ def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(bro
         pg.close()
 
 
+# two-stage routing (avoid.js avoidStart): the worker's careful answers held back on the page (HELD) until RELEASE(seq);
+# SEEN, every answer the worker sent, as it sent it
+HOLD_CAREFUL = """() => {
+  window.HELD = []; window.SEEN = []; window.HOLD = true;
+  AV.worker.addEventListener('message', (ev) => SEEN.push({ type: ev.data.type, seq: ev.data.seq, skipped: !!ev.data.skipped,
+    slides: Object.keys(ev.data.slides || {}).length, routes: ev.data.type === 'refined' ? ev.data.routes : undefined }));
+  AV.worker.onmessage = (ev) => { if (HOLD && ev.data.type === 'refined') HELD.push(ev); else avoidHeard(ev); };
+  window.RELEASE = (seq) => { const out = HELD.filter((ev) => ev.data.seq === seq);
+    HELD = HELD.filter((ev) => !out.includes(ev)); out.forEach(avoidHeard); return out.length; };
+}"""
+# the line ends (of the parts named, else of all) more than 4px off their part
+ENDS_OFF = """(ids) => {
+  const box = Object.fromEntries(S.layout.children.map((c) => [c.id, c])), bad = [];
+  for (const le of S.layout.edges) {
+    const e = S.graph.edges.find((x) => x.id === le.id), sc = (le.sections || [])[0];
+    if (!e || !sc || le.cut) continue;
+    for (const [id, p] of [[e.source, sc.startPoint], [e.target, sc.endPoint]]) {
+      const c = box[id];
+      if (!c || (ids && !ids.includes(id))) continue;
+      const dx = Math.max(c.x - p.x, 0, p.x - c.x - c.width), dy = Math.max(c.y - p.y, 0, p.y - c.y - c.height);
+      if (Math.hypot(dx, dy) > 4) bad.push([le.id, id, [p.x, p.y], [c.x, c.y, c.width, c.height]]);
+    }
+  }
+  return bad;
+}"""
+# the lines whose drawn path does not begin and end where the layout's line does (within 4px)
+DRAWN_OFF = """() => S.layout.edges.filter((le) => (le.sections || []).length && !le.cut).filter((le) => {
+  const el = document.querySelector(`.edge[data-id="${CSS.escape(le.id)}"] .edge-hit`);
+  if (!el) return false;
+  const a = el.getPointAtLength(0), b = el.getPointAtLength(el.getTotalLength()), s = le.sections[0];
+  const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y) <= 4;
+  return !((near(a, s.startPoint) && near(b, s.endPoint)) || (near(a, s.endPoint) && near(b, s.startPoint)));
+}).map((le) => le.id)"""
+LINES = "() => JSON.stringify(S.layout.edges.map((le) => [le.id, le.sections]))"
+
+
+def fast_drawn(pg) -> int:
+    """A new layout made, its fast lines drawn and its careful answer come and held: the route's seq."""
+    seq0 = pg.evaluate("() => AV.seq")
+    pg.evaluate("() => { S.relayout(); }")
+    pg.wait_for_function(f"() => AV.routed && AV.routed.seq > {seq0} && AV.routed.lay === S.layout && "
+                         "HELD.some((ev) => ev.data.seq === AV.routed.seq)", timeout=DRAWN_S * 1000)
+    return pg.evaluate("() => AV.routed.seq")
+
+
+def test_fast_routes_drawn_before_careful(browser, tmp_path):
+    """The fast pass's lines are drawn, ending on their parts, while the careful pass is held (routing still on);
+    released, the careful lines take their place and routing ends."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.evaluate(HOLD_CAREFUL)
+        seq = fast_drawn(pg)
+        assert pg.evaluate("() => S.layout.routing") is True
+        assert pg.evaluate("() => SEEN.some((m) => m.type === 'routed' && m.seq === AV.routed.seq && !m.skipped)")
+        assert pg.evaluate(ENDS_OFF, None) == []
+        assert pg.evaluate(DRAWN_OFF) == []
+        assert pg.evaluate(f"() => RELEASE({seq})") == 1
+        assert pg.evaluate("() => S.layout.routing") is False
+        careful = pg.evaluate(f"() => JSON.stringify(SEEN.find((m) => m.type === 'refined' && m.seq === {seq}).routes)")
+        assert pg.evaluate("() => JSON.stringify(AV.raw)") == careful, "the careful lines are drawn"
+        assert pg.evaluate(ENDS_OFF, None) == []
+        assert pg.evaluate(DRAWN_OFF) == []
+        pg.close()
+
+
+def test_careful_routes_of_replaced_layout_not_drawn(browser, tmp_path):
+    """A careful answer that comes after its layout was replaced (S.relayout: a new layout drawn) is dropped: the
+    drawing's lines, AV.raw and AV.routed stay the new layout's."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.evaluate(HOLD_CAREFUL)
+        old = fast_drawn(pg)
+        new = fast_drawn(pg)
+        before = pg.evaluate(LINES), pg.evaluate("() => JSON.stringify(AV.raw)")
+        assert pg.evaluate(f"() => RELEASE({old})") == 1
+        assert (pg.evaluate(LINES), pg.evaluate("() => JSON.stringify(AV.raw)")) == before
+        assert pg.evaluate(f"() => AV.routed.seq === {new} && AV.routed.lay === S.layout && S.layout.routing")
+        assert pg.evaluate(f"() => RELEASE({new})") == 1
+        assert pg.evaluate("() => S.layout.routing") is False
+        pg.close()
+
+
+def test_careful_routes_dropped_after_a_drag(browser, tmp_path):
+    """A part dragged 150px between the fast and the careful answer: the careful lines (to where it was) are dropped,
+    and every line of the part still ends on it where it is now."""
+    nid = "stock:users"
+    at = f"() => {{ const c = S.layout.children.find((c) => c.id === '{nid}'); return [c.x, c.y]; }}"
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.get_by_role("button", name="Fit", exact=True).click()
+        pg.evaluate(HOLD_CAREFUL)
+        seq = fast_drawn(pg)
+        before = pg.evaluate(at)
+        hit = pg.locator(f'g.node[data-id="{nid}"] .hit').first.bounding_box()
+        k = pg.evaluate("() => S.view.k")
+        x, y = hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2
+        pg.mouse.move(x, y)
+        pg.mouse.down()
+        for step in range(1, 11):
+            pg.mouse.move(x + 15 * step * k, y)
+        pg.wait_for_function(f"([x0, ids]) => ({at})()[0] - x0 > 144 && ({ENDS_OFF})(ids).length === 0",
+                             arg=[before[0], [nid]], timeout=20000)
+        assert pg.evaluate(f"() => RELEASE({seq})") == 1
+        assert pg.evaluate(ENDS_OFF, [nid]) == [], "the careful lines (to where it was) were drawn over the dragged ones"
+        assert pg.evaluate("() => S.layout.routing") is False
+        pg.evaluate("() => { HOLD = false; }")
+        pg.mouse.up()
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        assert pg.evaluate(ENDS_OFF, [nid]) == []
+        pg.close()
+
+
+VALVES_AT = """() => JSON.stringify(S.layout.children
+  .filter((c) => ['valve', 'disturbance'].includes(S.graph.nodes.find((n) => n.id === c.id)?.kind))
+  .map((c) => [c.id, c.x, c.y, c.turn]))"""
+
+
+def test_valve_slides_applied_once_across_stages(browser, tmp_path):
+    """In the dynamics view of deps (one of its valves slid off a corner by the router's first pass), the valves are
+    slid once: where they are after the careful lines come is where the fast pass put them."""
+    with served("deps", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=dynamics", 0)
+        pg.evaluate(HOLD_CAREFUL)
+        seq = fast_drawn(pg)
+        assert pg.evaluate(f"() => SEEN.find((m) => m.type === 'routed' && m.seq === {seq}).slides") >= 1, "no valve slid"
+        fast = pg.evaluate(VALVES_AT)
+        assert pg.evaluate(f"() => RELEASE({seq})") == 1
+        assert pg.evaluate("() => S.layout.routing") is False
+        assert pg.evaluate(VALVES_AT) == fast
+        pg.close()
+
+
+def test_queued_careful_pass_skipped_for_newer_route(browser, tmp_path):
+    """Two routes asked back to back (and one more just before, so the worker is busy): the first's careful pass is
+    answered skipped and only the second's careful lines are drawn. And a route with a move queued behind it: its
+    careful pass is skipped too, and its fast lines stay."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "open=product", 0)
+        pg.evaluate(HOLD_CAREFUL)
+        pg.evaluate("() => { HOLD = false; }")
+        busy, first, second = pg.evaluate("""async () => {
+          avoidStart(S.layout, S.graph); const z = AV.seq;
+          avoidStart(S.layout, S.graph); const a = AV.seq;
+          avoidStart(S.layout, S.graph); const b = AV.seq;
+          await S.layout.whenRouted;
+          return [z, a, b]; }""")
+        seen = pg.evaluate("() => SEEN.filter((m) => m.type === 'refined').map((m) => [m.seq, m.skipped])")
+        # (the busy one's careful pass too: either drained with the two, or queued behind them; skipped either way)
+        assert [busy, True] in seen and [first, True] in seen and [second, False] in seen, seen
+        careful = pg.evaluate(f"() => JSON.stringify(SEEN.find((m) => m.type === 'refined' && m.seq === {second}).routes)")
+        assert pg.evaluate("() => JSON.stringify(AV.raw)") == careful
+        assert pg.evaluate(f"() => AV.routed.seq === {second} && !S.layout.routing")
+        moved = pg.evaluate("""async () => {
+          const c = S.layout.children.find((c) => c.id === 'stock:users');
+          avoidStart(S.layout, S.graph); const a = AV.seq;
+          AV.worker.postMessage({ type: 'move', seq: a, n: -1, id: c.id, x: c.x, y: c.y });
+          await S.layout.whenRouted;
+          return a; }""")
+        assert pg.evaluate(f"() => SEEN.find((m) => m.type === 'refined' && m.seq === {moved}).skipped") is True
+        assert pg.evaluate(f"() => AV.routed.seq === {moved} && !S.layout.routing")
+        assert pg.evaluate(ENDS_OFF, None) == []
+        pg.close()
+
+
 def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser, tmp_path):
     """An open system's outline, dragged by its top, moves with everything in it by the same amount;
     its lines are routed again, cleanly; nothing lands under it; and it stays there after a new visit."""
