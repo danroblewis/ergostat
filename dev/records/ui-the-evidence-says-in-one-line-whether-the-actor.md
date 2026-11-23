@@ -199,7 +199,8 @@ It passes alone (1 passed). It fails just as well when run after main's own
 branch's test. Nothing this branch changes is on the agent panel's path: the diff against main touches only the
 loop panel, the sensor panel's "filled by", the snapshot's roles and the ladder hint. It is a race in the test (it
 needs a wait for the panel's content), to be fixed on main in its own gap. Both acceptance cases of this branch
-passed.
+passed. tests/test_page_polling.py: 20 passed, rc 0 (17 min; the watchdog reported one process left behind).
+Not run here: test_diagram_rendering.py, test_items_page.py, test_page_refresh.py, the unit suite.
 Refused in this session: `python3 - <<'E' ...` (an empty probe), a combined `grep ...; uv run ruff ... && git add
 ... && git commit` (run instead as separate commands), the browser run piped through `tail` with `echo rc=$?` (run
 instead without the pipe), and `git worktree add -q --detach /tmp/main-wt ead497d1` (meant to run the failing test
