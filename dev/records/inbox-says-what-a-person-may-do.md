@@ -77,3 +77,23 @@ All three start `ergostat web` as a subprocess. Why they fail here was not found
 The whole of tests/test_diagram_rendering.py did not finish: its first run hit the tool's time limit and was stopped,
 and a second run in the background, as `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0
 python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/dr.log 2>&1`, was refused.
+
+Round 3: the merge of main (f086f76e) is done. It conflicted in four files, each resolved by keeping both sides:
+- diagram.js: main's new `row`/`one` and the folded rows (alike requests as one entry), with the branch's `more`
+  argument to `list` (the group's role and aria-describedby).
+- pages.js: main's `found` in the filters and its removal of the `more` note, with the branch's `mayDo` after them.
+- SPEC: main's fold sentence, then the branch's sentence text.
+- tests/test_diagram_rendering.py: both sides' new tests, one after the other.
+Net lines outside tests and docs against main: 11 added, 5 removed (6 net), within the 20 budget.
+Suites, run serially with Playwright under suite_watch: the acceptance test (2 passed); from
+tests/test_diagram_rendering.py by name, main's alike-requests fold, two folds keep their reasons, more than three
+fold, and nothing waiting opens on the legend (all passed); tests/test_graph_cli_web.py (no browser), 48 passed;
+tests/test_items_page.py, 59 passed and 2 failed. Ruff is clean. Still failing, the same three as in round 2, and the
+same way (round 2 found each failing with the gap's lines undone): `test_needs_attention_is_three_headed_groups_in_a_fixed_order`
+(the 30 s wait), and in test_items_page.py `test_actions_say_per_class_asked_approved_denied_and_whether_held` (the
+`.action-classes` line never shows) and `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (the
+30 s wait). They were not run on main this round.
+Refused this round, as given: `node --check ergostat/web/static/diagram.js` (the browser tests load the same files
+without page errors instead), and `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py
+tests/test_graph_cli_web.py` (it was then run without the watchdog). The whole of tests/test_diagram_rendering.py was
+not run.
