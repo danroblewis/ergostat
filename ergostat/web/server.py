@@ -369,6 +369,31 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
     return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
 
 
+def _unfinished(p, spec, got: dict, kind: str | None, until: float, n: int, offset: int, pk: int) -> dict:
+    """The plain list without each kind's finished and dead items (SPEC §5a, *Finished items*): each kind's
+    ``hidden`` (its count in each state left out), and its items paged by the index in its other states, never
+    cut first and filtered after. The counts stay whole."""
+    from ..spec import items as its
+    hid = {k["name"]: its.hidden_states(k) for k in got["kinds"]}
+    kinds = [{**k, "hidden": {s: k["counts"][s] for s in hid[k["name"]] if k["counts"].get(s)}} for k in got["kinds"]]
+    got = {**got, "kinds": kinds, "total": got["total"] - sum(sum(k["hidden"].values()) for k in kinds
+                                                             if not kind or k["name"] == kind)}
+    if not any(k["hidden"] for k in kinds if not kind or k["name"] == kind):
+        return got
+    vis = lambda k: [s for s in dict.fromkeys([*k["states"], *k["counts"]]) if s not in hid[k["name"]]]   # noqa: E731
+    page = lambda name, states, n_, at: its.listing(p.events, spec, kind=name, until=until, n=n_, offset=at,   # noqa: E731
+                                                    states=states)["items"]
+    if kind:                                          # the chosen kind: its page in its other states
+        k = next(k for k in kinds if k["name"] == kind)
+        return {**got, "items": page(kind, vis(k), n, offset)}
+    if pk:                                            # each kind's newest: those hiding something asked again
+        items = [i for i in got["items"] if not any(k["hidden"] and k["name"] == i.get("kind") for k in kinds)]
+        return {**got, "items": items + [i for k in kinds if k["hidden"] for i in page(k["name"], vis(k), pk, 0)]}
+    each = [i for k in kinds for i in page(k["name"], vis(k) if k["hidden"] else None, offset + n, 0)]
+    each += page("", None, offset + n, 0) if got.get("unkinded") else []                  # the items of no kind
+    return {**got, "items": sorted(each, key=lambda i: -i["last"])[offset:offset + n]}
+
+
 def inferred_of(spec, kind: str, name: str | None) -> dict | None:
     """Whether a model change added this part (``inferred:``, SPEC §12e), and which: ``{"from": item or None}``, or None
     for a part the YAML declares. What the side panel says, subtly: "added by ergostat, from model change X"."""
@@ -825,9 +850,18 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 if have.get(k["name"], 0) < min(pk, sum(k["counts"].values())):
                     more = its.listing(p.events, spec, kind=k["name"], until=snap["at"], n=pk)["items"]
                     got["items"] = [i for i in got["items"] if i.get("kind") != k["name"]] + more
+        fin = one("finished") or "hide"
+        if fin not in ("hide", "waits", "show"):
+            raise BadSet(f"finished={fin}: hide, waits or show")
+        if fin != "show" and not one("state") and not one("q") and spec is not None:   # never a searched or chosen state
+            got = _unfinished(p, spec, got, one("kind"), snap["at"], n, offset, pk)
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
         out = _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        if one("q"):                                  # a finished match is listed, and counted apart
+            hid = {k["name"]: set(its.hidden_states(k)) for k in out["kinds"]}
+            out["finished_matched"] = {k: n_ for k in hid if (n_ := sum(i.get("kind") == k and i.get("state") in hid[k]
+                                                                      for i in out["items"]))}
         if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
             out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
         est = _estimates(p, m, snap, one("whatif"))
