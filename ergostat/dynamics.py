@@ -444,17 +444,31 @@ def shadows(g: dict) -> dict:
 _WORDS = [
     (r"\bits valve\b", "its flow"), (r"\bthe valve\b", "the flow"), (r"\bvalves?\b", "flow"),
     (r"\bits controller\b", "its decision"), (r"\bcontrollers?\b", "decision"),
+    (r"\ba goal's setpoint\b", "a desired level"),
     (r"\bsetpoints?\b", "desired level"), (r"\ba rule\b", "a fixed decision"), (r"\brules?\b", "decision"),
     (r"\bgoals?\b", "desired level"), (r"<=", "≤"), (r">=", "≥"), (r"==", "="),
 ]
 
 
+# what is not the sentence's own words, so never translated: codes, ids and part names (a word joined to the next by
+# . - / or :, like queue-goal-tolerance, goal.ci-upgrade-planned, request/80fe1e93e1) and a modelling tier, named
+# as its request names it
+_KEPT = r"\w+(?:[.\-/:]\w+)+|\b(?:rule|ai|owner) tier\b"
+
+
 def words(text: str) -> str:
-    """A card's text in system dynamics' words: no controller, setpoint, rule, goal or valve."""
+    """A card's text in system dynamics' words: no controller, setpoint, rule, goal or valve in its own words; its
+    codes, ids, part names and tiers kept as they are."""
     import re
+    kept: list[str] = []
+
+    def keep(m) -> str:
+        kept.append(m.group(0))
+        return f"\x00{len(kept) - 1}\x00"
+    text = re.sub(_KEPT, keep, text)
     for a, b in _WORDS:
         text = re.sub(a, b, text)
-    return text
+    return re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
 
 
 def attention(att: list[dict], snap: dict) -> list[dict]:
@@ -474,6 +488,9 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
             a["says"] = words(a.get("says", ""))
+        for k in ("first", "more"):                   # an entry waiting on a person, as its card draws it
+            if a.get(k):
+                a[k] = words(a[k])
         if name:
             a["what"] = f"loop {name}"
         else:

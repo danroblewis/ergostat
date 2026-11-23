@@ -62,6 +62,11 @@ pipeline_manager_session_usd = 3.0
 active_max = 3                       # the most milestones active at once, an upkeep one not counted (1-20)
 upkeep_days = 7                      # an upkeep milestone's cycle: then it completes, its unfinished gaps carried to the
                                      # next (1-90)
+enforce = false                      # true: the pass places every unfinished gap with no milestone, or a completed one
+                                     # (a split's or continued gap's parent's; the factory's own: upkeep; else the first
+                                     # active). Off until the owner turns it on: on, the first pass moves every old label.
+                                     # And the planner and the implementor take only the gaps of active milestones,
+                                     # and pulled ones (waits_on_milestone); review and the queue are never held
 
 [backlog]
 every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before
@@ -87,9 +92,6 @@ session_cpuset = "0-7"               # the sessions' (implementor, reviewer, ...
 suite_cpuset = "8-11"                # a gap's own suites' (the implementor's rounds, 4 CPUs each)
 queue_cpuset = "12-23"               # the merge queue's and flake triage's suites ([suites] queue_container): unit (8)
                                      # and browser (4) at once
-prefix_cpus = 1.5                    # each prefix check's container's --cpus (dev/bin/prefixes.py: one check on every
-                                     # prefix of a batch at once), within queue_cpuset; above 0 and at most 4, else
-                                     # the run is refused
 
 [pools]                              # the AI pools start at 1, sized by risk (dev/bin/pools.py; the owner's tolerance is
                                      # the parameter risk-tolerance in dev/model/pools.yaml)
@@ -101,7 +103,7 @@ hold = true                          # operator (2026-11-20): the role pools sta
                                      # says what it would do (pool.measured, held). false: sized by risk
 batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
 batch_max = 8                        # the most a batch may be (the tuner asks for more while the queue wait is off)
-batch_minutes = 120                  # a queue run's time allowance from its start: past it, no more bisecting (what is
+batch_minutes = 120                  # a queue run's time allowance from its start: past it, no more splitting (what is
                                      # proven lands, the rest back to approved uncounted); over 150 refused, so one suite
                                      # run after it stays inside the block's 3 h timeout
 
@@ -210,8 +212,6 @@ load_stale_s = 30                    # 1-300
 check = "uv run ergostat check --json --no-coherence"   # on the branch and on main (implement.py new_findings)
 queue_container = true               # the queue's and triage's suites each in a container of the agent image, on
                                      # [agents] queue_cpuset, no network (agents.queued); false: on the Mac, as before
-prefix_most = 4                      # the prefix checks run at once (dev/bin/prefixes.py), each in a worktree under
-                                     # run/queue-prefix/ and a container of its own; a whole number 1-8, else refused
 stall_minutes = 10                   # a queue or triage suite whose log has not grown this long is stopped (at most 60)
 wall_minutes = 45                    # ... and one past this long in all (3 x the suites-in-time goal; at most 120)
 queue_coverage = true                # the queue's unit run (main's alone, never an implementor's) under the

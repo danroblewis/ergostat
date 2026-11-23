@@ -29,6 +29,7 @@ import re
 import time
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 from ..leases import TAKEN
 from . import record as cr
@@ -46,6 +47,16 @@ WITHIN: contextvars.ContextVar = contextvars.ContextVar("within", default=None) 
 
 def _between() -> None:
     """Called under the flock, after the read and the decision and before the write (a test's hook)."""
+
+
+def of(model):
+    """What the budget reads of a model: a YAML model's spec; a TOML model's ``[budget]`` and its agents by the kind
+    written (none written: ``None``, so charged); None for a TOML model with no ``[budget]``."""
+    spec = getattr(model, "spec", None)
+    if spec is not None or getattr(model, "budget", None) is None:
+        return spec
+    return SimpleNamespace(budget=model.budget, agents={n: SimpleNamespace(kind=a.kind if a.kind_set else None)
+                                                        for n, a in model.agents.items()})
 
 
 def free(spec, b) -> bool:
@@ -159,7 +170,10 @@ def permit(p, spec, block, write, run: str):
 def ask(p, spec, name: str, reserve) -> tuple[dict | None, str | None]:
     """One of ergostat's own AI calls (``name``) asks to start, reserving ``reserve`` (its per-call cap). Returns
     (its permit, for ``done``, None), (None, why) when refused (``budget.refused`` written), or (None, None) when no
-    budget is declared. Under the flock: the read, the decision and the write of its ``budget.call``."""
+    budget is declared. Under the flock: the read, the decision and the write of its ``budget.call``. With no
+    ``spec``, the project's TOML ``[budget]`` (``of``), and a ``reserve`` of 0 or None is its ``max-cost``."""
+    if spec is None and (spec := of(getattr(p, "model", None))) is not None and not reserve:
+        reserve = spec.budget.max_cost              # (the caller had no spec to take ``max-cost`` from)
     if spec is None or spec.budget is None:
         return None, None
     b, why, spent, reserved = spec.budget, spec.budget.problem(), None, None
@@ -253,8 +267,9 @@ def left(p, spec) -> float:
     """``ergostat.budget.left``: daily less spent and reserved. Raises when no budget is declared or the record
     cannot be read: never ``daily``, never 0, for what could not be worked out."""
     from ..numbers.measures import MeasureError
+    spec = spec if spec is not None else of(getattr(p, "model", None))
     if spec is None or spec.budget is None:
-        raise MeasureError("no budget: is declared in ergostat.yaml")
+        raise MeasureError("no budget: is declared in ergostat.yaml (or [budget] in ergostat.toml)")
     try:
         spent, reserved = fold(p, spec)
     except Exception as e:
