@@ -4474,7 +4474,8 @@ SD_TONES = """(tok) => {
   const counts = {};
   for (const [prop, sel] of Object.entries(full))
     for (const el of svg.querySelectorAll(sel)) { counts[sel] = (counts[sel] || 0) + 1; want(el, prop, ink, el.getAttribute('class')); }
-  for (const el of svg.querySelectorAll('.loop-marker:not(.pol-unknown) .marker-name, .k-terminal .sd-shadow')) want(el, 'fill', ink2, el.textContent);
+  for (const el of svg.querySelectorAll('.loop-marker:not(.pol-unknown) .marker-name, .k-terminal .sd-shadow'))
+    want(el, 'fill', ink2, el.textContent);
   const file = standaloneSvg(svg, exportTitle()).text;           // the saved SVG (and the PNG drawn from it) keeps both
   const html = document.documentElement, tone = (v) => { const el = document.createElement('span'); el.style.color = `var(${v})`;
     document.body.append(el); const c = getComputedStyle(el).color; el.remove(); return c; };
