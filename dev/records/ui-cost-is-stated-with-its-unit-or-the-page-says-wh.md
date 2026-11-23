@@ -324,3 +324,37 @@ Parked by the factory (review/ui-cost-is-stated-with-its-unit-or-the-page-says-w
 
 Failed its gates 8 times (the kill rule). Blocking findings:
 - ergostat/web/server.py:52 (_item_cost, called at :988): an item's runs are found only from the lease.taken events in d['record'], which is the latest 500 non-transcript events (spec/items.py:729) and holds nothing older than a roll-up (rollup.py, SPEC §4b). A long-lived or rolled-up item's header therefore states a smaller cost 'over N runs' as fact, or, with every take rolled up, returns None and shows no cost at all. That is a missed lookup counted as fewer runs or none (lesson-3), and SPEC §9.1's 'states what the runs that took it cost (named by its leases)' claims more than the code does (lesson-8). The folded fields['lease']['history'] (run, block, taken for every take; kept by the snapshot) has them all: read it, and add a test with takes older than the record's last 500 events or rolled up.
+
+Continued (gap/ui-cost-is-stated-with-its-unit-or-the-continued, round 1): built. 76 added, 23 removed in
+`ergostat/` against main (53 net, budget 60).
+
+The park's blocking finding (lesson 3 / 8), fixed as it asked:
+- `server.py` `_item_cost` now takes the item's folded fields and reads every take from `fields.lease.history` (run,
+  block, taken), which the lease fold keeps for every take and a roll-up keeps in the snapshot. It no longer reads
+  the latest 500 events of `d["record"]`. The runs' ends (`agent.ran`, `agent.failed`) are still read from the record
+  by block. Their item is the block's name, with no `/`, so a roll-up never takes them (`of_items`).
+- A take the fold refused (wrong fence, already held) is not in the history, so it is no longer counted as a run
+  that took the item. The old read counted it.
+- SPEC §9.1 and the agent guide (§3b) say the takes come from the lease's history, rolled-up ones too.
+
+Tests: `tests/test_run_costs.py::test_an_items_cost_counts_every_take_past_its_records_latest_events_and_rolled_up`
+(new, on a real record). Three ended takes, then 600 later events, so the detail's record has no `lease.taken`
+(asserted). The cost still counts 3 takes, 3 runs, $1.50. Then `compact` rolls the takes into the snapshot (no
+`lease.taken` left in the record, asserted), and the count is the same. Broken and seen to fail: with the history cut
+to its last take, it failed `assert 1 == 3`. The older `_item_cost` unit test now passes folded lease fields.
+The acceptance test's hypothesis/4 fixture wrote both takes with fence 1, so the fold refused the second. It passed
+only because the old read counted refused takes. It now gives each take the item's next fence, read from its fold.
+With that fixture, the test failed after the fix ("over 2 runs" never showed, the header said 1 run). With the
+fence fix it passes.
+
+Run, with Playwright under the watchdog: tests/test_items_page.py: 70 passed, 2 failed. The two were the acceptance
+test (the fixture above; it then passed alone, rc 0) and
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (the project switcher, failing since round 4,
+a path the branch does not touch). The whole file was not run again after the fixture fix.
+tests/test_agents_page.py: 13 passed, 1 failed, main's
+`test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` (the "Loading…" race named in rounds 4 to 9, lesson
+13). tests/test_run_costs.py: 17 passed. Ruff is clean. Main has not moved since the clone (the merge-base is main),
+so there was nothing to merge.
+Refused, not worked around: a Python heredoc editing tests/test_run_costs.py (done with the editor), and the items
+browser run redirected to `/tmp/items.log` with `; echo rc=$?; tail` (it ran without them). Not run here:
+test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py, test_snapshot_sets.py and the whole unit suite.

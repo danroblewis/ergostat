@@ -368,20 +368,61 @@ def test_an_items_cost_is_the_sum_of_the_runs_that_took_it_and_none_when_none_di
         def query(self, item=None, since=0, until=0, **kw):
             return [e for e in {"worker": ends, "tidy": tidy}.get(item, []) if since <= e["time"] <= until]
 
-    def lease(run, t, block="worker"):
-        return {"type": "ergostat.lease.taken", "time": t, "data": {"run": run, "block": block}}
+    def lease(*takes):                         # an item's folded lease field: its history names every take
+        return {"lease": {"history": [{"run": x[0], "block": x[2] if len(x) > 2 else "worker", "taken": x[1]}
+                                      for x in takes]}}
     p, m = NS(events=Events()), NS(agents={"worker": NS(rung=1), "tidy": NS(rung=4)})   # rungs as the model has them
-    got = _item_cost(p, m, [lease("r1", 1.0), lease("r2", 2.0), lease("r3", 3.0)], 10.0)
+    got = _item_cost(p, m, lease(("r1", 1.0), ("r2", 2.0), ("r3", 3.0)), 10.0)
     assert got["cost_usd"] == 0.75 and got["runs"] == 2 and got["failed"] == 1
     assert got["taken"] == 3 and got["ai"] and got["unknown"] == 0   # r3 has not ended: counted as taken, not as $0
-    assert not _item_cost(p, m, [lease("t1", 1.0, "tidy")], 10.0)["ai"]   # a program alone: no AI
-    assert _item_cost(p, m, [lease("t1", 1.0, "tidy")], 10.0)["unknown"] == 0   # its failure had no session to spend
+    assert not _item_cost(p, m, lease(("t1", 1.0, "tidy")), 10.0)["ai"]   # a program alone: no AI
+    assert _item_cost(p, m, lease(("t1", 1.0, "tidy")), 10.0)["unknown"] == 0   # its failure had no session to spend
     ends.append({"type": "agent.failed", "time": 8.0, "causedby": "r4", "data": {"exit": -9, "note": "killed"}})
-    mixed = _item_cost(p, m, [lease("r4", 1.0), lease("t1", 2.0, "tidy")], 10.0)   # an AI block and a program
+    mixed = _item_cost(p, m, lease(("r4", 1.0), ("t1", 2.0, "tidy")), 10.0)   # an AI block and a program
     assert mixed["ai"] and mixed["unknown"] == 1 and mixed["runs"] == 2   # the killed AI run is not known, the program's not
-    gone = _item_cost(p, m, [lease("x1", 1.0, "removed")], 10.0)
+    gone = _item_cost(p, m, lease(("x1", 1.0, "removed")), 10.0)
     assert gone["ai"]                                              # a block the model no longer has: maybe AI
-    assert _item_cost(p, m, [{"type": "item.opened", "time": 1.0, "data": {}}], 10.0) is None
+    assert _item_cost(p, m, {"title": "never leased"}, 10.0) is None
+
+
+def test_an_items_cost_counts_every_take_past_its_records_latest_events_and_rolled_up(tmp_path):
+    """The takes are read from the lease's folded history, not the record's latest events: takes older than the
+    detail's last 500 events, and takes rolled up into a snapshot, are all still counted."""
+    import textwrap
+    from types import SimpleNamespace as NS
+
+    from ergostat import model as mdl
+    from ergostat.rollup import compact
+    from ergostat.spec import items as its
+    from ergostat.store import Project
+    from ergostat.web.server import _item_cost
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent("""
+        items:
+          ticket: {id: ticket/*, states: [open, done], on: {ticket.done: done}}
+        storage: {rollup: {after: 1h, kinds: {ticket: 2h}}}
+        """))
+    p = Project(mdl.load(tmp_path))
+    t0, m = 1_700_000_000.0, NS(agents={"worker": NS(rung=1)})
+    p.events.add("ticket.opened", item="ticket/1", source="test", at=t0)
+    for i, run in enumerate(("r1", "r2", "r3")):                  # three takes, each ended, the first three hours
+        t = t0 + 10 + i * 60
+        p.events.add("ergostat.lease.taken", item="ticket/1", source="ergostat", at=t,
+                     data={"run": run, "block": "worker", "fence": i + 1, "ttl": 600, "max": 9})
+        p.events.add("agent.ran", item="worker", source="ergostat", causedby=run, at=t + 20,
+                     data={"exit": 0, "ai": {"cost_usd": 0.5}})
+        p.events.add("ergostat.lease.ended", item="ticket/1", source="ergostat", at=t + 30,
+                     data={"run": run, "fence": i + 1, "how": "ack"})
+    for i in range(600):                                          # then more events than the record shows
+        p.events.add("ticket.noted", item="ticket/1", source="test", data={"note": i}, at=t0 + 3600 + i)
+    d = its.detail(p.events, p.model.spec, "ticket/1")
+    assert not [e for e in d["record"] if e["type"] == "ergostat.lease.taken"]   # the takes are past the record shown
+    got = _item_cost(p, m, d["fields"], t0 + 10 ** 5)
+    assert got["taken"] == 3 and got["runs"] == 3 and got["cost_usd"] == 1.5
+    assert compact(p, now=t0 + 4 * 3600)["items"] == 1            # the takes rolled up into the item's snapshot
+    d = its.detail(p.events, p.model.spec, "ticket/1")
+    assert not [e for e in p.events.query(n=None, item="ticket/1") if e["type"] == "ergostat.lease.taken"]
+    got = _item_cost(p, m, d["fields"], t0 + 10 ** 5)
+    assert got["taken"] == 3 and got["runs"] == 3 and got["cost_usd"] == 1.5
 
 
 def test_a_run_with_no_cost_that_failed_or_was_stopped_is_counted_as_not_known():

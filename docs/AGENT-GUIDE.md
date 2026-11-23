@@ -480,7 +480,7 @@ estimated from tokens), its tokens, the CPU time and peak memory of its processe
 write anything for this: an `ai` block's own `claude -p`, and `ergostat session` inside any block's `run:`, report
 through the run. The Agents page shows each agent's totals and history (a cost of none says why: a free stand-in for an
 AI agent whose runs had no session, "not known" when one of those failed or was stopped (a pool-full give-back is neither), no AI, no runs; the table ends in the window's total), and an item's header what the
-runs that took it cost (an AI agent's words if any block that took it is AI; not known counts only those blocks' runs);
+runs that took it cost (every take in its lease's history, a rolled-up one too; an AI agent's words if any block that took it is AI; not known counts only those blocks' runs);
 `ergostat agent NAME` the same.
 An agent whose last run failed, that never ran on its schedule, or that ran under half the runs its `every:` asks for
 over the window's record ("behind: 10 of ~120") is marked in red with its reason under the row, and counted on the

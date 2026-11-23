@@ -510,11 +510,13 @@ p.events.add("agent.ran", item="developer", source="ergostat", causedby="run21aa
     mixed = f"""
 from pathlib import Path
 from ergostat import model as mdl
+from ergostat.spec import items as its
 from ergostat.store import Project
 p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
-for run, block in (("run4aaaaaaaa", "developer"), ("run4bbbbbbbb", "matcher")):
-    p.events.add("ergostat.lease.taken", item="hypothesis/4", data={{"run": run, "block": block, "fence": 1, "ttl": 600}})
-    p.events.add("ergostat.lease.ended", item="hypothesis/4", data={{"run": run, "fence": 1, "how": "ack"}})
+for run, block in (("run4aaaaaaaa", "developer"), ("run4bbbbbbbb", "matcher")):   # each take the next fence, as the fold wants
+    f = int((its.detail(p.events, p.model.spec, "hypothesis/4")["fields"].get("lease") or {{}}).get("fence") or 0) + 1
+    p.events.add("ergostat.lease.taken", item="hypothesis/4", data={{"run": run, "block": block, "fence": f, "ttl": 600}})
+    p.events.add("ergostat.lease.ended", item="hypothesis/4", data={{"run": run, "fence": f, "how": "ack"}})
 p.events.add("agent.failed", item="developer", source="ergostat", causedby="run4aaaaaaaa",
              data={{"exit": -9, "seconds": 3, "note": "killed (a timeout?)"}})
 p.events.add("agent.failed", item="matcher", source="ergostat", causedby="run4bbbbbbbb", data={{"exit": 1, "seconds": 1}})

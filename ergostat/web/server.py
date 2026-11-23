@@ -42,15 +42,15 @@ _STATIC_REF = re.compile(r'((?:src|href)=")/static/([\w./-]+)(")')
 FOREVER = "public, max-age=31536000, immutable"
 
 
-def _item_cost(p, m, record: list[dict], until: float) -> dict | None:
-    """What the runs that took an item cost (its leases name them, SPEC §9.5): their totals, how many took it, and
-    ``ai``, whether any of them is an AI block (an ai, narrow-ai or decision rung, or a block the model no longer has:
-    the worst case). ``unknown`` counts only those blocks' runs: a program's failed run had no session to spend. A run
-    not ended yet is counted in ``taken``, never as $0. None when no run took it (as far as its record's latest events
-    show)."""
+def _item_cost(p, m, fields: dict, until: float) -> dict | None:
+    """What the runs that took an item cost (its lease's history names every take, a rolled-up one too, SPEC §9.5):
+    their totals, how many took it, and ``ai``, whether any of them is an AI block (an ai, narrow-ai or decision rung,
+    or a block the model no longer has: the worst case). ``unknown`` counts only those blocks' runs: a program's failed
+    run had no session to spend. A run not ended yet is counted in ``taken``, never as $0. None when no run took it."""
     from ..costs import record as costs
-    taken = {e["data"]["run"]: (e["data"].get("block"), e["time"]) for e in record
-             if e["type"] == "ergostat.lease.taken" and isinstance(e.get("data"), dict) and e["data"].get("run")}
+    lease = fields.get("lease") if isinstance(fields.get("lease"), dict) else {}
+    taken = {h["run"]: (h.get("block"), float(h.get("taken") or 0)) for h in lease.get("history") or []
+             if isinstance(h, dict) and h.get("run")}
     if not taken:
         return None
     since = min(t for _, t in taken.values())
@@ -995,7 +995,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 from ..process import _done
                 ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
                 d["kind_of"]["final"] = [s for s in d["kind_of"]["states"] if s in ends]
-            return {**d, "cost": _item_cost(p, m, d["record"], snap["at"])} if d else d
+            return {**d, "cost": _item_cost(p, m, d["fields"], snap["at"])} if d else d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
         if "search" in q:                         # the items whose fields hold every word, as now (SPEC §5a, Search)
