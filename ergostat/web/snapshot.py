@@ -65,12 +65,15 @@ def _requests(project) -> list[tuple[str, dict]]:
 
 def _graphs(listed: dict) -> list[dict]:
     """The Items page's Graph and Timeline requests (``pages.js``), from its ``items`` answer: per system, its kinds
-    with relations or named by one (no kind chosen), and each kind alone, related or not (one chosen)."""
+    with relations or named by one, or with none its kinds that have items (no kind chosen: the Timeline), and each
+    kind alone, related or not (one chosen)."""
     rel = {n for k in listed.get("kinds") or [] for ts in (k.get("relations") or {}).values() for n in (k["name"], *ts)}
+    counts = {k["name"]: k.get("counts") or {} for k in listed.get("kinds") or []}
     out: dict[str, dict] = {}
     for g in listed.get("systems") or [{"kinds": [k["name"] for k in listed.get("kinds") or []]}]:
         want = [n for n in g.get("kinds") or [] if n in rel]
-        for kinds in ([",".join(want)] if want else []) + want:
+        held = want or [n for n in g.get("kinds") or [] if any((counts.get(n) or {}).values())]
+        for kinds in ([",".join(held)] if held else []) + want:
             out[kinds] = {"kinds": kinds}
     for k in listed.get("kinds") or []:
         out.setdefault(k["name"], {"kinds": k["name"]})
