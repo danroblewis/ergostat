@@ -44,17 +44,42 @@ def test_model_formats_list_parses_with_five_cases(formats):
     assert list(formats.CASES) == FIVE
 
 
-def test_xmile_checks_exit_1_without_the_feature():
-    assert importlib.util.find_spec("ergostat.xmile") is None      # (main has neither the export nor an importer)
+def hide_xmile(monkeypatch) -> None:
+    """Hide the XMILE export and every importer name the check looks for, inside this process only, so the test
+    holds whether or not the export gap's ergostat/xmile.py is on main (lesson-7)."""
+    monkeypatch.setitem(sys.modules, "ergostat.xmile", None)        # find_spec gives None, import raises
+    from ergostat.spec import discover
+    monkeypatch.delattr(discover, "from_xmile", raising=False)
+
+
+def test_xmile_checks_exit_1_without_the_feature(formats, monkeypatch, capsys):
+    from ergostat.spec import discover
+    # as if the export and an importer had both merged, then hidden: the hiding is what makes them unmet
+    fake(monkeypatch, "ergostat.xmile", export=exporter()[0], draft=lambda text: (DRAFT, []))
+    monkeypatch.setattr(discover, "from_xmile", lambda text: DRAFT, raising=False)
+    assert formats.main(["xmile-export"]) == 0 and formats.main(["xmile-import"]) == 0
+    hide_xmile(monkeypatch)
+    assert importlib.util.find_spec("ergostat.xmile") is None
     for case, word in (("xmile-export", "no XMILE export"), ("xmile-import", "no XMILE importer")):
-        r = run(case)
-        assert r.returncode == 1, (case, r.stdout, r.stderr)
-        assert word in r.stdout
+        assert formats.main([case]) == 1, case
+        assert word in capsys.readouterr().out
 
 
-def test_checks_on_main_give_the_recorded_results():
-    """Definition item 2: the results recorded in dev/records/conformance-model-formats-list.md."""
-    for case, rc in zip(FIVE, (0, 0, 0, 1, 1), strict=True):
+def importer_present(formats) -> bool:
+    for mod, names in formats.IMPORTS:
+        if importlib.util.find_spec(mod) is not None:
+            m = importlib.import_module(mod)
+            if any(callable(getattr(m, n, None)) for n in names):
+                return True
+    return False
+
+
+def test_checks_on_main_give_the_recorded_results(formats):
+    """Definition item 2: the results recorded in dev/records/conformance-model-formats-list.md. The XMILE cases are
+    unmet while their feature is absent and met once it lands (the first conformance-gained), never broken."""
+    export = 0 if (ROOT / "ergostat/xmile.py").is_file() else 1
+    imp = 0 if importer_present(formats) else 1
+    for case, rc in zip(FIVE, (0, 0, 0, export, imp), strict=True):
         r = run(case)
         assert r.returncode == rc, (case, r.stdout, r.stderr)
 

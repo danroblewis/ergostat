@@ -146,3 +146,25 @@ the check called the export as `fn(spec)`, but the export gap's built branch def
   shape is not on `main` either, and the module call is the narrower dependency.
 
 Overrun reason: the budget of 170 lines counts dev/, and the three files under dev/conformance/ come to 221 lines (formats.py 183, the list 25, the fixture 13), about 50 of them blank lines and docstrings; round 2 adds 3 net lines to call the export with a project and a snapshot. The factory's own net-line count (fac.net_lines) leaves dev/ out, which gives 0.
+
+## Where it stopped
+
+Round 3 (implementor, 2026-11-23). The only finding, which was blocking (lesson-7): two tests pinned the export's
+absence, so merging `export-dynamics-xmile` would have broken them. Only `tests/test_conformance_lists_ergostat.py`
+changed. No check changed.
+- **`test_xmile_checks_exit_1_without_the_feature`** no longer runs the check in a subprocess against the tree. It
+  installs stand-ins first: an `ergostat.xmile` with `export` and `draft`, and `ergostat.spec.discover.from_xmile`.
+  Both cases are shown met (0). Then it hides them inside the process (`sys.modules['ergostat.xmile'] = None`, and
+  `from_xmile` deleted from `discover`) and calls `formats.main` for each case. Each must exit 1 with "no XMILE
+  export" or "no XMILE importer". The result is the same whether or not `ergostat/xmile.py` is on main. Seen able to
+  fail: with the hiding call taken out, the test failed (`find_spec` returned the stand-in's spec). Then I put the
+  call back.
+- **`test_checks_on_main_give_the_recorded_results`** expects `xmile-export` to be unmet (1) while
+  `ergostat/xmile.py` does not exist, and met (0) once it does. It expects `xmile-import` to be unmet while none of
+  the check's importer names (`formats.IMPORTS`) is callable, and met once one is. Neither case may be broken (2).
+- **Not done:** I could not run the on-main test with the export present. The command that wrote a temporary
+  stand-in `ergostat/xmile.py` into the tree (and used `sed` to mutate the test) was refused, so I did not try it
+  another way. The met-when-present branch is covered only in-process, by the stand-ins above and in
+  `test_xmile_export_check_reads_structure_not_bytes`.
+
+Overrun reason: unchanged from round 2 (221 lines under dev/conformance/, all of it dev/, which the budget counts); round 3 changes only tests/.
