@@ -259,3 +259,17 @@ test_items_page.py:2301, waiting for a second project in `#project`. That is the
 rounds 1 to 6, on a path this branch does not touch. Not run: the unit suite, tests/test_diagram_rendering.py and the
 other browser files. Commands refused in this session: a `python3 -` heredoc that resolved the conflicts (done with
 the editor instead), and a background run with output redirected to a file under /tmp.
+
+Round 8, 2026-11-23. Main (2f08c24e) merged in (a412b1d2). It conflicted in static/pages.js only. Main's
+inbox-says-what-a-person-may-do had added the `mayDo` line to the Items page's `p.append`. That line is shown when the
+kind is the gated actions. The branch had split that append into one layout for the kind's page and one for `/items`.
+Both sides are kept: `mayDo` sits right after the filters in both layouts. So `/items?kind=ergostat.action` (which
+ends on the kind's page) and `/items/ergostat.action` show it, and bare `/items` does not. Nothing else changed.
+
+**Tests run.** ruff is clean. tests/test_diagram_rendering.py::test_the_requests_group_opens_by_saying_what_a_person_may_do
+(main's test, which opens both addresses): 2 passed. tests/test_items_page.py as a whole, under the watchdog with
+Playwright: 84 passed and 1 failed. Run alone, test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart
+also fails (a timeout). That is the project-switcher failure reported in rounds 1 to 7, on a path this branch does
+not touch, and the count matches. Not run: the unit suite, tests/test_diagram_rendering.py as a whole and the other
+browser files. Commands refused in this session: a single-test run without the watchdog piped to `grep` (to name the
+failing line), and a `cat >> … <<'EOF'` heredoc append to this file (done with the editor instead).
