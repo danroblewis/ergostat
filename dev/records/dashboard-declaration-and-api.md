@@ -43,3 +43,58 @@ Its runs failed past their attempts (a dead letter):
 - attempt 3: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 4: nack exited 1
 - attempt 5: nack the run ended with gap/dashboard-declaration-and-api still parked
+
+## Where it stopped
+
+Implementor, 2026-11-23 (continued, round 1). Built: changes 1 to 4 and 6. Not built: change 5 (the page), because
+dashboard-page-v1 is not on main and the change only applies "when dashboard-page-v1 is present".
+
+What is built:
+- (1) `dashboards:` loads (`spec/load.py`: a top-level key, `SYSTEM.NAME` when the file's `defaults:` sets a system,
+  `default` refused), compiles and is checked (new `spec/dashboards.py`, called from `compile.py`'s `references` with
+  the `exists` check that `show:` uses), into `ir.Dashboard` and `ir.Panel`; the schema has `$defs/dashboard` and
+  `$defs/panel`; SPEC §4 lists the key and the new §4e says the rest. It is in no version hash (tested).
+- (2) `GET /api/dashboards`; (3) `GET /api/dashboard/NAME` in new `web/dashboard_api.py`. Each panel is answered by
+  `server._answer` on its own endpoint's path and parameters (series with add_to_series, items with item_sets and
+  eta, items-flow, items-graph with eta, loops, loop-scope), given the dashboard's one snapshot (`_answer(...,
+  pinned=)`). `Live.moment` numbers each snapshot (`seq`); moments and jobs are compared by that number only. Per
+  panel limit 0.3 s, batch 0.4 s, pool 2 threads and 16 waiting (constants in code); `have=` stamps; `default`.
+- (4) `ergostat snapshot` holds `dashboards` and every `dashboard/NAME`, none pending. (6) AGENT-GUIDE §3k; SPEC §4e
+  says that a dashboards-only change does **not** skip the judge's replay today (`improve.kind_of` reads it as a
+  parameter change), and that the `display` kind that would skip it is dashboard-keep-display-proposal's.
+- Demos: `week` in software-factory's factory.yaml, `delivery.review` in factory/delivery.yaml, `oversight.hours` in
+  ticket-factory's factory/oversight.yaml (all appended at the end of their files, so no part's line moves).
+
+Choices made without an answer (each the most reversible):
+- The panel format is the proposal's (`panel:` for the kind, parameters flat beside it, `title`, `size`, `note`), not
+  the definition's `{type, title, size, params}`: the definition says "as the proposal decides", and the proposal
+  names it `panel` so `kind` stays the item kind. A dashboard takes both `title` and `description`.
+- The proposal (section 9) moved the batched read to dashboard-page-v1; the definition of done still carries it, and
+  dashboard-page-v1 is not on main, so it is built here, with the definition's per-panel limit and pending answer.
+  The proposal's 0.8 s batch and late-pool rules are followed in their bounds (2 threads, 16 waiting, 6 s drop,
+  30 s kept, results only for the same moment), with a 0.4 s batch to fit done item 4.
+- Kinds are the ones that reuse an endpoint as it is (note, goals, chart, items, states, cycle-time, scope,
+  items-graph, timeline). xy, heatmap and diagram are their own gaps, so they are refused as unknown kinds today.
+
+Done items: 1, 2, 3 tested (below). 4: **not measured on :8796** (no such server reaches this container). The
+timing test runs `GET /api/dashboard/default` on a copy of examples/software-factory with an empty record and
+asserts under 0.5 s; that is a smaller claim than the definition's. 5: holds trivially, as there is no page.
+
+Known limits: the snapshot itself is made on the request thread before the panels' clock starts, as for every other
+endpoint, so a slow snapshot makes the whole answer slow. Two slow panels fill the pool, and the panels after them
+then answer pending. A panel's job that has started runs to its end after its asker has gone (bounded to 2).
+
+Tests (tests/test_dashboards.py, 30): parse and round trip, schema accepts and refuses, `ergostat check --json`
+on stock.nope gives exactly unknown-ref at its file and line, 17 cases of unknown kinds, keys, references and bad
+values each at their line, the 24-panel cap and the name default, namespacing, both demos compile, no version
+change, batched equals separate (with a panel that asks for a snapshot of its own failing it), have= stamps, a slow
+panel pending while the others answer and then answered at the same moment, the full pool, a moment named after the
+model changed, the default and its timing, the snapshot. Broken on purpose and seen to fail: panels not pinned to
+the snapshot (the equality test), no time limit (the slow-panel test), have= ignored (the stamps test), refs not
+checked (the stock.nope and auxiliary.x tests).
+Also run, passing: test_graph_cli_web, test_spec_schema, test_spec_compile, test_storage, test_scale_caches,
+test_snapshot_sets, test_ticket_factory_links, test_architecture, test_shards, test_cli_fallback,
+test_spec_structure, test_code_health_coverage. Not run: the whole unit suite, the browser files (no page changed),
+demo_check (the commands to look for ~/ergostat-demos and run it were refused in this session).
+
+Overrun reason: the definition's 400 lines including tests did not foresee the batched API's bounded pool, moments and stamps that the proposal's load rules require (about 220 lines in dashboard_api.py), nor a check per parameter kind with errors at their line (about 215 in spec/dashboards.py); outside tests, docs and dev the change is about 590 net lines (code 505, schema and demos 87), within the factory's 600, and the tests are about 330.
