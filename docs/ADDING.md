@@ -44,6 +44,7 @@ proposal for the judge (that is the modelling subsystem's, which alone changes a
 | `keep-under` | a measured level held under a limit | the level under `limit` | a level that creeps up; a correction that takes a tenth off |
 | `steps` | a kind of item worked through steps in order, by programs or AI agents | nothing waits at a step; nothing stays stuck | a made-up feed; steps that do nothing |
 | `collect` | recording what a command or an API says, as items | (an instrument: none) | a made-up feed |
+| `todo` | your own to-dos, with instructions, done by hand in batches by where (a bastion, a VPN) | nothing new left unwritten; nothing ready left undone | to-dos you record (no feed: nothing made up) |
 | `modelling` | the model itself, improved as a loop of its own (every model should have one) | the model's replay off the record by at most `fit` | an improver that proposes nothing of its own and asks ergostat's finders to look again |
 
 Every template runs on its free stand-ins until you give it the real thing, so it can be seen and tried before any
@@ -199,6 +200,34 @@ uses:
   reads is the new items per hour. It never acts on what it reads.
 - **System dynamics:** the inflow of whatever the source holds, into its own running total, or into a stock of
   yours (`into:`) that something else drains. `respond-to`, `re-ping` and `steps` each have one inside.
+
+### todo
+
+```yaml
+uses:
+  todo:
+    use: todo
+    with:
+      command: cat todos.jsonl            # optional: to-dos also read from a file, one JSON object a line
+```
+
+Each to-do is an item, `todo/<id>`, with a `title`, a `requester`, `where` it must be done (a host, a bastion, a
+VPN; left out, anywhere), `instructions` (the steps in order, each a text or `{do, run, check}`: what to do, the
+command, how to check it worked), a `due` date, `waits_on` and `notes`. Add one in one step:
+`ergostat event --add todo.ready --item todo/renew-cert --data '{"title": "...", "where": "bastion-1",
+"instructions": [...]}'` (`todo.added` for one not written up yet), or from an agent with MCP's `record_event`.
+Then `todo.started`, `todo.waiting` (with `{"waits_on": "todo/other"}`, or a `todo-wait/<id>` item, something
+someone else does, `todo-wait.asked` and `todo-wait.answered`), `todo.done`, `todo.dropped`.
+
+- **Control:** two on-off loops whose actuator is you: new to-dos held at 0 (you are asked to write them up), ready
+  ones held at 0 (you are asked to do a sitting; answer with `ergostat inbox person/todo-do --done N`). The batcher,
+  a rule, regroups the ready ones by place, one item a place (`todo-batch/bastion-1`): its to-dos the earliest due
+  first, and every one's instructions in order in `sitting`, so one sitting clears it. A waiting to-do whose every
+  wait is finished is ready again by itself.
+- **System dynamics:** an aging chain, new to ready to done (or dropped), with waiting beside it; the arrivals are
+  what people ask of you, a disturbance.
+- **For whoever asks how it is going:** `ergostat why todo/<id>`: its state and for how long, what it waits on
+  (through each link), and who must do what next, in one paragraph. Nothing in the template acts outside ergostat.
 
 ### modelling
 

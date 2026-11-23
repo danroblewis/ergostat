@@ -53,6 +53,9 @@ queue-fast.sh does, under the same lock file (`paths.queue_lock`), so the two ne
    whatever became of that lease. When that gap does not land, it waits at `push-pending` and its outcome is said
    once the push settles (tell()), never back at `approved` meanwhile.
 
+Each batch is an item, batch/<run tag>: its start, runs, isolations, landing and end said through batches.py, whose
+calls never fail or delay the merge.
+
 While a push waits (run/queue.json, read under the queue's lock before a gap is taken; unreadable, the same), a run
 takes no gap: it gives its lease back, uncounted, and says nothing of it.
 
@@ -77,6 +80,7 @@ from contextlib import nullcontext
 
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
+import batches  # noqa: E402
 import fac  # noqa: E402
 import flakes  # noqa: E402
 import halves  # noqa: E402
@@ -466,6 +470,7 @@ def settle(cfg: dict, repo) -> str | None:
         for gid in pushed(p):
             fac.say("gap.push-settled", gid, push="settled by the coordinator", settled_by=iid,
                     settled_at=time.time())
+        batches.pushed(cfg, (p or {}).get("batch"), "settled by the coordinator")
         release(p)
         return None
     p = st.get("pending")
@@ -484,6 +489,7 @@ def settle(cfg: dict, repo) -> str | None:
         save(cfg, st)
         for gid in pushed(p):
             fac.say("gap.pushed", gid, pushed_at=time.time(), push="pushed")
+        batches.pushed(cfg, p.get("batch"), "ran")
         release(p)
         return None
     if now == "denied":
@@ -496,6 +502,7 @@ def settle(cfg: dict, repo) -> str | None:
         for gid in pushed(p):                          # one approval for the batch: a denial sends back all of it
             fac.say("gap.sent-back", gid, sent_back_by="queue", push="denied",
                     findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])
+        batches.pushed(cfg, p.get("batch"), "denied")
         release(p)
         return None
     if now in ("held", "requested", "approved"):
@@ -868,9 +875,10 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             checked.update(red["tests"])
             on_main(repo, pre, red, ask, tag, ids)
 
-    def blame(part: Part) -> None:
+    def blame(part: Part, how: str = "halves") -> None:
         g, red = part.merges[0][0], part.red
         gone[g["id"]] = "failed in the queue"
+        batches.isolated(g["id"], how if len(batch) > 1 else "alone", red["tests"])
         tell("gap.queue-failed", g["id"], failed_suite=red["failed"], failed_tests=red["tests"], pre=part.on,
              findings=[f"{red['failed']} failed in the queue: {', '.join(red['tests'][:8]) or red['tail'][-300:]}"]
              + ([f"the failing merge of a batch of {len(batch)}, found in {len(rounds)} "
@@ -906,14 +914,16 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
                 runs[0] += sum(map(bool, here))
             def check(i: int, wt, n: int = n, here: list = here) -> dict | None:
                 return named(cfg, wt, f"{tag}-n{n}-{i}", logs, {"failed": red["failed"], "tests": here[i]}) if here[i] else {}
-            got = halves.run_all(cfg, repo, t.heads, check, tag, halves.NAMED_AT_ONCE)
+            with batches.run("named", [g["id"] for g, _ in t.merges]) as seen:
+                seen += (got := halves.run_all(cfg, repo, t.heads, check, tag, halves.NAMED_AT_ONCE))
             said = ["unknown" if r is None or isinstance(r, BaseException) else "fail" if r.get("failed") else "pass"
                     for r in got]
             k = next((i for i, x in enumerate(said) if x != "pass"), None)
             if k is None or said[k] != "fail":
                 break
             bad, m = got[k], part.merges[k]
-            blame(Part([m], {"failed": red["failed"], "tests": bad["tests"], "tail": bad["tail"], "log": bad["log"]}, base))
+            blame(Part([m], {"failed": red["failed"], "tests": bad["tests"], "tail": bad["tail"], "log": bad["log"]}, base),
+                  "named")
             part.merges, part.red, found = [x for x in part.merges if x is not m], None, True
             tests = sorted({x for i in range(k + 1, len(got)) if said[i] == "fail" for x in got[i]["tests"]} - set(bad["tests"]))
         if found:
@@ -934,8 +944,10 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
             return
         fac.git(repo, "reset", "-q", "--keep", t.head)
         ids = [g["id"] for g, _ in t.merges]
+        go()                                                 # (out of time: no run begun, none recorded)
         try:
-            got = full(repo, tag if not runs[0] else f"{tag}-{runs[0] + 1}", ids, True)
+            with batches.run("full", ids) as seen:
+                seen.append(got := full(repo, tag if not runs[0] else f"{tag}-{runs[0] + 1}", ids, True))
         except (fac.Stalled, agents.NotStarted) as e:        # (what is settled stands; with nothing, the run's stall)
             if not (landed or gone or back):
                 raise
@@ -966,8 +978,9 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
         said = {"round": n, "kind": "halves", "base": on[:12], "halves": [{"gaps": x, "result": "unknown"} for x in ids]}
         rounds.append(said)
         confs = [halves.share(cfg, i) for i in range(2)] if len(built) == 2 else [cfg]
-        got = halves.run_all(cfg, repo, [t.head for t in built],
-                             lambda i, wt: full(wt, f"{tag}-r{n}-{i}", ids[i], False, confs[i]), tag)
+        with batches.run("halves", sum(ids, [])) as seen:
+            seen += (got := halves.run_all(cfg, repo, [t.head for t in built],
+                                           lambda i, wt: full(wt, f"{tag}-r{n}-{i}", ids[i], False, confs[i]), tag))
         if len(got) == 2 and all(isinstance(r, dict) and r.get("crashed") for r in got):   # (the machine, not a merge)
             got = [fac.Stalled(r["failed"], f"both halves crashed: {r['crashed']}", r.get("tail", "")) for r in got]
         told = [i for i, r in enumerate(got) if not isinstance(r, BaseException)]
@@ -1118,6 +1131,7 @@ def recover(cfg: dict, repo) -> str | None:
     if not fac.git_ok(repo, "reset", "-q", "--keep", r["pre"]):
         return block(cfg, st, f"a killed run's merges could not be undone (reset --keep to {r['pre'][:12]})")
     save(cfg, st)
+    batches.abandoned(cfg)                             # (its batch item, left open: given back)
     return None
 
 
@@ -1192,21 +1206,26 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             fac.nack(f"queue: {cfg['git']['base']} moved while the run waited", after="10m", count=False)
             return 0
         save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": [g["id"] for g, _ in batch], "at": began}})
+        batches.begin(cfg, fac.run_tag(fac.branch_of(batch[0][0]), began), [g["id"] for g, _ in batch], pre)
         done = settled = False
         try:
             try:
                 landed, merged, back = land(cfg, repo, batch, pre, began, waited, dried, until)
             except fac.Stalled as e:                       # (main undone below; no gap blamed for it)
+                batches.end("given-back", f"its run stalled: {e}")
                 stalled(cfg, gap, batch, pre, e)
                 return 0
             except MainRed as e:                           # (main undone below; no gap blamed for it)
+                batches.end("given-back", f"main fails {', '.join(e.args[0]['tests'][:5])} too")
                 held_by_main(cfg, e.args[0])
                 return 0
             except Exception as e:                         # Docker or the AI service unreachable: an outage, no
                 if not (why := fac._outage().of(e)):       # gap blamed, nothing counted (outage.py); main undone
                     raise
+                batches.end("given-back", f"outage: {why}")
                 fac.nack(f"queue: outage: {why}", after=fac._outage().AFTER, count=False)
                 return 0
+            batches.settled([g["id"] for g, _ in landed], merged, [(g["id"], why) for g, why in back])
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
                 HELD["said"] = []
@@ -1230,6 +1249,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             settled = True
         finally:
             if not done:                                   # raised or stopped: main as it was
+                batches.end("given-back", "its run raised or was stopped before it settled")
                 fac.git(repo, "merge", "--abort", check=False)
                 if not fac.git_ok(repo, "reset", "-q", "--keep", pre):
                     block(cfg, state(cfg), f"a failed batch could not be undone (reset --keep to {pre[:12]})")
@@ -1257,12 +1277,14 @@ def ask(cfg: dict, repo, gap: dict, landed: list, merged: str, pre: str) -> None
     gids = [g["id"] for g, _ in landed]
     for gid in gids:
         fac.say("gap.push-asked", gid, push=push, push_said=said[-600:])
+    if (b := batches.pending()) and push == "pushed":
+        batches.pushed(cfg, b, "ran")
     if push != "pushed":
         m = re.search(r"ergostat\.action/[0-9a-f]+", said)
         then, HELD["said"] = HELD["said"], []           # the run's own gap's outcome waits for the push to settle
         save(cfg, {**state(cfg), "pending": {"sha": merged, "pre": pre, "gap": gids[0], "gaps": gids,
                                              "action": m.group(0) if m else "", "known": push.split(" ")[0],
-                                             "said": said[-600:], "at": time.time(), "then": then}})
+                                             "said": said[-600:], "at": time.time(), "then": then, "batch": b}})
         if then:
             fac.say("gap.push-pending", gap["id"], push_pending=merged)
         settle(cfg, repo)                                 # a push denied or failed at once is handled now

@@ -67,10 +67,10 @@ async function pageLoops(main, q) {
     patch(qbox, ...(systems || []).filter((s) => s.quiet).map((s) => h("p", { class: "quiet-line", key: s.name, "data-system": s.name },
       h("b", {}, s.name), `: ${s.quiet}`)));
     const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
-    const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted"];
+    const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted", "card"];   // card: a phone's (style.css)
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => pick(g.name) },
-        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "", "Loops"));   // hysteresis and flapping (steadyWord)
+        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "loops", "Loops"));   // hysteresis and flapping (steadyWord)
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -225,6 +225,8 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
                         fmt === "claude-session" ? "conversation" : name);
     return fileView(path, url, fmt);
   }
+  const pr = small && typeof v === "string" && /^https?:\/\/\S+\/(?:pull|pulls|merge_requests)\/(\d+)\/?$/.exec(v);
+  if (pr) return h("a", { href: v, target: "_blank", rel: "noopener", title: v }, `PR #${pr[1]}`);   // a pull request: its number
   if (typeof v !== "object") return typeof v === "number" ? fmt(v) : String(v);
   if (small || depth > 2) return h("span", { class: "mono muted" }, JSON.stringify(v).slice(0, 80));
   if (Array.isArray(v)) {
@@ -658,6 +660,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const group = chartGroup("items"), drawn = {};      // each kind's charts, kept while their data is the same (charts.js)
   let used = new Set();
   const flows = {}, flowsAt = {};                     // each kind's flow over the window, and when it was asked for
+  const gps = {}, gpsAt = {}, gpMore = {};            // each kind's progress per group (itemsets.js groupRows), its rest unfolded
   // a chart lives across refreshes: kept while its data is the same (or under the pointer), its data set in
   // place when it can take it (``update``), made again only when it cannot
   const keep = (key, sig, make, update = null) => {
@@ -743,7 +746,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     if (got !== wanted && pg === wanted && size === per) { pg = got; go(false); }   // (unless another was asked meanwhile)
     const hits = d.total ?? 0;
     setText(found, paged() && search.value.trim() ? `${hits} match${hits === 1 ? "" : "es"}, ${d.finished ?? 0} finished` : "");
-    const flowsWere = JSON.stringify(flows);
+    const flowsWere = JSON.stringify([flows, gps]);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
     const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys) || d.kinds.some((k) => k.system === sys && named(k));
@@ -759,6 +762,12 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       flowsAt[k.name] = Date.now();
       const fl = await api("items-flow", { kind: k.name, points: CHART_POINTS }).catch(() => null);
       flows[k.name] = fl && Object.values(fl.counts).some((c) => c.some((x) => x)) ? fl : null;   // none yet: its counts
+    }));
+    // each kind's progress per group (a gap's milestone), counted by the item index: every 10 s while shown, at once
+    // on a click (not in a snapshot)
+    await Promise.all(SNAP ? [] : shownKinds.filter((k) => k.progress?.length && (force || !(Date.now() - (gpsAt[k.name] || 0) < 10000))).map(async (k) => {
+      gpsAt[k.name] = Date.now();
+      gps[k.name] = await api("items-groups", { kind: k.name, by: k.progress[0], points: 2 }).catch((err) => ({ err: String(err.message || err) }));
     }));
     // how far each block's claims held, under the ergostat.claim table
     // (of a kind with any item, listed or not: its finished may all be left out)
@@ -782,7 +791,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const trust = await trustAsked, classes = (await classesAsked)?.asked ?? null;
     if (gone()) return;
     loaded();
-    if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
+    if (!force && !ans.changed && JSON.stringify([flows, gps]) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
       h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
     const check = (on, text, title, fn) => h("label", { class: "rg-check", title }, h("input", { type: "checkbox", ...(on ? { checked: "" } : {}), onchange: fn }), text);
@@ -805,14 +814,18 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       const name = h("a", { href: "#", class: `kname${kind === k.name && !state ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); kind = kind === k.name && !state ? null : k.name; state = null; dropSet(); go(); } },
         k.title || k.name, h("span", { class: "mono" }, k.title ? k.name : k.id));
       const fl = flows[k.name];
+      const gp = groupRows(gps[k.name], { more: !!gpMore[k.name], chosen: kind === k.name ? where : [],
+        onMore: () => { gpMore[k.name] = !gpMore[k.name]; refresh(); },
+        onPick: (r) => { const on = kind === k.name && JSON.stringify(where) === JSON.stringify(r.params.where);
+                         kind = k.name; state = null; dropSet(); if (!on) where = [...r.params.where]; go(); } });
       if (!fl) return h("div", { class: "kind-flow", key: k.name }, name, h("div", { class: "states" }, (k.states.length ? k.states : [""]).map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null,
         h("a", { href: "#", class: `stbox${k.counts[st] ? " some" : ""}${kind === k.name && state === st ? " on" : ""}`, onclick: (ev) => { ev.preventDefault(); pick(k, st); } },
-          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k));
+          h("span", { class: "n" }, String(k.counts[st] || 0)), st || "items")])), finishSaid(k), gp);
       const chosen = kind === k.name ? state : null;
       return h("div", { class: "kind-flow", key: k.name }, name,
         keep(`cfd:${k.name}`, JSON.stringify([fl.times, fl.counts, chosen, k.finished, k.paused, k.finished_from]),
              () => flowChart(fl, group, { chosen, onState: (st) => pick(k, st), kind: k }),
-             (el) => el.update?.(fl, chosen, k)));
+             (el) => el.update?.(fl, chosen, k)), gp);
     };
     patch(notes, ...[
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
@@ -847,7 +860,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
         "data-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none", onclick: () => { sort = sort.replace(/^-/, "") !== f ? f : !sort.startsWith("-") ? `-${f}` : ""; go(); } },   // from the sort now
         f, by === f ? h("span", { "aria-hidden": "true" }, down > 0 ? " \u25b4" : " \u25be") : "");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [head(f), "num"] : head(f))),
-        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
+        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num keep"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, "data-kind": i.kind || "", "data-state": i.state || "", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldOf(f, i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
@@ -855,8 +868,8 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
           ...(movedCol ? [h("td", { class: "num nowrap", title: (i.moved_at || []).map(when).join("\n") },
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
           ...(etaCol ? [etaCell(i.eta)] : []),
-          h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
-          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items",
+          h("td", { class: "num nowrap keep" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
+          h("td", { class: "muted" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items kind-items",
         `${its[0]?.kind || "No kind"} items${paged() && d.cut ? `, sorted among the newest ${d.cut} of ${d.total}` : ""}`);
     };
     // a kind's pager, in its bar and under its table: "1-25 of 77 · Prev · Next", and how many a page
@@ -898,7 +911,8 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       const { want, d: rd } = relAsked[g.name] || { want: [] };
       if (!want.length) return kind || view !== "graph" ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
-      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status };
+      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status,
+                  where: kind && d.set ? where : [] };     // a set's where on a relation (a milestone's gaps) narrows them
       const m = rgModel(rd, o);
       const key = `rel:${view}:${g.name}`;
       const draw = (el) => { if (view === "graph") el.draw(m, o); else el.draw(m, rd, ro.lanes); return true; };
