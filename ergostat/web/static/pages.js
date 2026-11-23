@@ -21,16 +21,20 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 async function pageLoops(main) {
   const p = page(main, "Loops");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
-  p.append(box, cap);
+  const qbox = h("div", { class: "quiet-systems" });
+  p.append(qbox, box, cap);
   const ans = answers();
   async function tick(force = true) {
     ans.begin();
     // every loop in one answer: its stock's trend, and how it is doing (control.js), worked out on the server in the background
-    const loops = await ans.api("loops", { perf: 1 });
+    const loops = await ans.api("loops", { perf: 1 }), systems = await ans.api("systems").catch(() => []);
     const word = (s) => (s == null || s.not_analysed ? "" : s.working ? "being worked out" : s.failed ? "could not be worked out" : performanceWord(s));
     const w = windowNote();
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
+    // each system whose goals all hold says so (state.quiet): until the rows are grouped by system, a line of its own
+    patch(qbox, ...(systems || []).filter((s) => s.quiet).map((s) => h("p", { class: "quiet-line", key: s.name, "data-system": s.name },
+      h("b", {}, s.name), `: ${s.quiet}`)));
     const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },

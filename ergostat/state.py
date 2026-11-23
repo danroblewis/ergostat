@@ -694,6 +694,23 @@ def goals_off(snap: dict, names: bool = False) -> dict:
                               "own": {t: len(v) for t, v in out["own"].items()}}
 
 
+def quiet(project, snap: dict, system: str) -> str | None:
+    """A quiet system's sentence: every goal of ``system`` or of a system within it (as its closed box folds them in;
+    the goals in ``snap["loops"]``, as /api/loops has them) holding, and how many items their blocks hold leases on
+    now; None when one is off, open, stale or unknown, or it has none (SPEC §8, a quiet system)."""
+    spec = getattr(project.model, "spec", None)
+    inside = (lambda s: system in spec.chain(s)) if spec is not None else (lambda s: s == system)
+    said = [lp["status"] for lp in snap["loops"].values() if lp.get("system") and inside(lp["system"])]
+    if not said or any(s != "holding" for s in said):
+        return None
+    from .spec import items as its
+    from .spec.ir import LEASED
+    n = sum(its.in_states(project.events, spec, b.takes.kind, [LEASED], {"lease.block": b.name}, until=snap["at"])[0]
+            for b in (spec.blocks.values() if spec is not None else ()) if b.takes and b.system and inside(b.system))
+    return (f"all {len(said)} goal{'s' * (len(said) != 1)} holding, "
+            + (f"{n} item{'s' * (n != 1)} being worked" if n else "nothing being worked"))
+
+
 def setpoint_text(lp: dict) -> str:
     return lp["setpoint"] + lp.get("band", "")
 

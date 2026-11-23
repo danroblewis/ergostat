@@ -25,29 +25,143 @@ def _free(port: int, host: str = "127.0.0.1") -> int:
     raise OSError("no free port near " + str(port))
 
 
-class PooledServer(ThreadingHTTPServer):
-    """Requests served by a fixed pool of daemon threads, so each keeps its database connections
-    instead of opening and closing them for every request (the page polls every few seconds), and
-    an idle browser connection never keeps the process from exiting."""
+BUSY = b"HTTP/1.0 503 Service Unavailable\r\nRetry-After: 2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
 
-    workers = 24          # browsers open idle connections ahead of time: enough threads that they never starve a request
+
+def cheap(head: bytes) -> bool:
+    """A request (its first bytes) for the fast lane: a GET of a static file, of the page (``/``, ``/items``...) or of
+    an answer that needs no snapshot (``/api/projects``). Everything else goes to the API queue."""
+    from .server import is_page_path
+    line = head.split(b"\r\n", 1)[0].decode("latin-1").split(" ")
+    path = line[1].split("?", 1)[0] if len(line) > 1 and line[0] == "GET" else ""
+    return path.startswith("/static/") or path == "/api/projects" or (path[:1] == "/" and is_page_path(path))
+
+
+class PooledServer(ThreadingHTTPServer):
+    """Requests served by fixed pools of daemon threads, so each keeps its database connections instead of opening
+    and closing them for every request (the page polls every few seconds), and an idle browser connection never keeps
+    the process from exiting. One thread (a selector) holds each connection until its request's bytes arrive, then
+    queues it by what it asks (``cheap``): the fast lane never waits behind the API. A full queue is a 503 at once."""
+
+    workers = 24          # the API's
+    fast_workers = 4      # static files and the page: a lane the API queue never fills
+    queue_most = 256      # each queue's most waiting; past it, 503 with Retry-After
+    held_most = 512       # connections open with no request yet (a browser opens some ahead of time); past it, 503
+    held_for = 10.0       # a connection that sends nothing for this long is closed (the handler's own timeout)
+    request_queue_size = 128   # the listen backlog (the standard 5 makes a burst of connects wait 1-3 s on SYN retries)
 
     def __init__(self, *a, **kw):
         import queue
         super().__init__(*a, **kw)
-        self.jobs: queue.Queue = queue.Queue()
-        for i in range(self.workers):
-            threading.Thread(target=self._work, name=f"ergostat-web-{i}", daemon=True).start()
+        self.jobs: queue.Queue = queue.Queue(self.queue_most)
+        self.fast: queue.Queue = queue.Queue(self.queue_most)
+        self.local = threading.local()                 # the job a worker is on: when it was queued, when taken
+        self._new: queue.SimpleQueue = queue.SimpleQueue()   # connections accepted, for the reception
+        self._wake, self._waker = socket.socketpair()
+        self._waker.setblocking(False)                 # (a full buffer raises, never blocks serve_forever)
+        self._stopping = False
+        for q, n, name in ((self.jobs, self.workers, "web"), (self.fast, self.fast_workers, "web-fast")):
+            for i in range(n):
+                threading.Thread(target=self._work, args=(q,), name=f"ergostat-{name}-{i}", daemon=True).start()
+        threading.Thread(target=self._reception, name="ergostat-web-reception", daemon=True).start()
 
-    def _work(self):
-        while True:
-            job = self.jobs.get()
-            if job is None:
-                return
-            self.process_request_thread(*job)
+    def _work(self, q):
+        import time
+        while (job := q.get()) is not None:
+            self.local.queued, self.local.taken = job[2], time.monotonic()
+            self.process_request_thread(job[0], job[1])
 
     def process_request(self, request, client_address):
-        self.jobs.put((request, client_address))
+        self._new.put((request, client_address))
+        try:
+            self._waker.send(b"x")
+        except OSError:                                # (its buffer full: the reception is already woken)
+            pass
+
+    def _busy(self, request):
+        """503 with Retry-After, written without waiting; what was sent is read first, so closing sends FIN, not RST."""
+        try:
+            request.setblocking(False)
+            try:
+                request.recv(65536)
+            except OSError:
+                pass
+            request.send(BUSY)
+        except OSError:
+            pass
+        self.shutdown_request(request)
+
+    def _reception(self):
+        """Each connection held until its request's bytes arrive, then queued; one closed having sent nothing, or
+        silent for ``held_for``, is closed. A step that raises closes that one connection (logged) and the loop goes on:
+        this thread stands in front of every request."""
+        import queue
+        import selectors
+        import sys
+        import time
+        sel = selectors.DefaultSelector()
+        sel.register(self._wake, selectors.EVENT_READ)
+
+        def guarded(step, request, *a):
+            try:
+                step(request, *a)
+            except Exception as e:
+                print(f"{time.strftime('%H:%M:%S')} web: reception closed a connection: {e!r}", file=sys.stderr, flush=True)
+                try:
+                    sel.unregister(request)
+                except (KeyError, ValueError, OSError):
+                    pass
+                self.shutdown_request(request)
+
+        def hold(request, addr):
+            if len(sel.get_map()) > self.held_most:
+                self._busy(request)
+            else:
+                sel.register(request, selectors.EVENT_READ, (request, addr, time.monotonic()))
+
+        def route(request, addr):
+            sel.unregister(request)
+            try:
+                head = request.recv(1024, socket.MSG_PEEK | socket.MSG_DONTWAIT)
+            except OSError:
+                head = b""
+            if not head:
+                return self.shutdown_request(request)
+            try:
+                (self.fast if cheap(head) else self.jobs).put_nowait((request, addr, time.monotonic()))
+            except queue.Full:
+                self._busy(request)
+
+        def expire(request):
+            sel.unregister(request)
+            self.shutdown_request(request)
+
+        while not self._stopping:
+            try:
+                ready = sel.select(1.0)
+            except Exception as e:              # (never seen; logged, and the loop goes on)
+                print(f"{time.strftime('%H:%M:%S')} web: reception select failed: {e!r}", file=sys.stderr, flush=True)
+                time.sleep(0.1)
+                ready = []
+            for key, _ in ready:
+                if key.fileobj is self._wake:
+                    try:
+                        self._wake.recv(4096)
+                    except OSError:
+                        pass
+                    while True:
+                        try:
+                            request, addr = self._new.get_nowait()
+                        except queue.Empty:
+                            break
+                        guarded(hold, request, addr)
+                    continue
+                guarded(route, key.data[0], key.data[1])
+            now = time.monotonic()
+            for key in [k for k in sel.get_map().values() if k.data and (self._stopping or now - k.data[2] > self.held_for)]:
+                guarded(expire, key.data[0])
+        sel.close()
+        self._wake.close()
 
     def handle_error(self, request, client_address):
         """A client that went away (while its request was read, or its answer written) is a quiet line;
@@ -74,9 +188,21 @@ class PooledServer(ThreadingHTTPServer):
         super().server_close()
         self._stop_mtls()
         stop_lister(self)
-        jobs = getattr(self, "jobs", None)         # (none yet when the port could not be bound: the bind error is the news)
-        for _ in range(self.workers if jobs is not None else 0):
-            jobs.put(None)
+        if getattr(self, "jobs", None) is None:     # (none yet when the port could not be bound: the bind error is the news)
+            return
+        import queue
+        self._stopping = True
+        try:
+            self._waker.send(b"x")
+        except OSError:                                # (its buffer full: the reception is already woken)
+            pass
+        self._waker.close()
+        for q, n in ((self.jobs, self.workers), (self.fast, self.fast_workers)):
+            try:
+                for _ in range(n):
+                    q.put(None, timeout=1)             # (a queue still full: its workers end with the process)
+            except queue.Full:
+                pass
 
 
 def record_fits(live, every: float = 300.0, stop: threading.Event | None = None) -> None:
@@ -99,17 +225,19 @@ def record_fits(live, every: float = 300.0, stop: threading.Event | None = None)
 
 
 def serve(project, port: int | None = None, mtls_port: int | None = None):
-    """The page on ``port`` (or the next free one), on this machine only unless ``intake: bind:`` says where else; from
+    """The page on ``port`` (or the next free one; 0 for any), on this machine only unless ``intake: bind:`` says where else; from
     another machine only events may be pushed (``intake: allow:``). The push token is made now (``intake/token.py``).
     With ``web: mtls:``, the remote API's own listener beside it (``remote/listen.py``; ``mtls_port`` overrides its
     port, 0 for any): ``server.mtls_said`` says where it listens, or why not, and the page serves either way."""
     spec = getattr(project.model, "spec", None)
     host = getattr(getattr(spec, "intake", None), "bind", None) or "127.0.0.1"
-    port = _free(port or DEFAULT_PORT) if host == "127.0.0.1" else _free(port or DEFAULT_PORT, host)
+    if port != 0:                                   # (0: the system picks one at bind, so no other process takes it first)
+        port = _free(port or DEFAULT_PORT, host)
     from ..intake.token import token
     token(project.dir)
     server = PooledServer((host, port), handler(project))
     server.daemon_threads = True
+    port = server.server_address[1]
     server.mtls, server.mtls_said, server.mtls_port = None, "", None
     conf = getattr(getattr(spec, "web", None), "mtls", None)
     if conf is not None:
