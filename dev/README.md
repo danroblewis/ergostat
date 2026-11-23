@@ -83,6 +83,20 @@ hold a slot (`[suites] slot`), the queue's lock being its own (the load interloc
 it reruns the failed tests in its own worktree, on the main the run failed on (`pre`), so neither its rerun nor its
 wait for a quiet machine holds the queue.
 
+**A usage-limit stop is a pause, not a failure** (`dev/bin/aihold.py`). A session whose result is the provider's
+usage-limit message ("You've hit your weekly limit · resets Nov 25, 3pm (UTC)"; or a failed session whose output holds
+it) records one factory-wide AI hold till the reset it names, in `run/ai_hold.json` (under its lock; a later hold is
+never shortened by an earlier one). Its run ends at once, its lease given back uncounted and put off till the reset: no
+attempt, nothing toward the kill rule, never parked or a dead letter. While the hold stands the goal `ai-not-held`
+(the sensor `aihold.py held`, in its own system `ai-hold`; a stale reading counts as held) shuts implement-, review-
+and research-when, and plan- and plan-review-when through `ai-stopped` (planning's one read of it and the budget), so no
+AI-role lease is taken, and every AI program that took one in the sensor's lag gives it back the same way
+(`fac.drain_holds`); the groomer and the plan review start no session. The merge queue, triage and the suites read
+neither and run on. At the reset the hold lifts by itself and the items given back are taken again in their blocks'
+order. A reset time that cannot be read (no time, an unknown zone, a date that does not exist, more than 8 days off),
+or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit again or
+not. A switch's drain nacks are uncounted too (`count: false`), whether a run gives its item back or the switcher does.
+
 ## Submit a gap
 
 A GAPS.md entry is taken in by itself (`gap.found`, open). It is **ready** once it has a definition of done:

@@ -76,16 +76,29 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def _aihold():
+    """dev/bin/aihold.py, found beside this file when fac was loaded by path (dev/bin not on sys.path)."""
+    if str(HERE / "bin") not in sys.path:
+        sys.path.append(str(HERE / "bin"))
+    import aihold
+    return aihold
+
+
 def draining(cfg: dict) -> bool:
     """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
-    review) waits for its next turn instead of starting."""
-    return (run_dir(cfg) / "drain.json").exists()
+    review) waits for its next turn instead of starting; so it does while the AI is held (aihold.py)."""
+    aihold = _aihold()
+    return (run_dir(cfg) / "drain.json").exists() or aihold.held(cfg) is not None
 
 
 def drain_holds(cfg: dict) -> bool:
-    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), an AI run takes no new
-    item: it gives it back uncounted, to be taken again after the switch."""
-    if not draining(cfg):
+    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), or the AI is held for the
+    provider's usage limit (aihold.py), an AI run takes no new item: it gives it back uncounted, to be taken again
+    after the switch, or at the reset."""
+    aihold = _aihold()
+    if aihold.holds(cfg):
+        return True
+    if not (run_dir(cfg) / "drain.json").exists():
         return False
     nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
     return True
@@ -675,7 +688,9 @@ def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = Non
     (--max-budget-usd) is reserved first and what it did not spend given back once its cost is known; a session that
     fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged.
     Its conversation is kept as the item session/<item>-<role>-<n> (sessions.py; ``item``: the gap, research or
-    review it works for, else the run's own)."""
+    review it works for, else the run's own). One that ends on the provider's usage limit holds the AI till its reset
+    and ends the run, its lease given back uncounted (aihold.py)."""
+    aihold = _aihold()
     import sessions
     model, usd = cfg["ai"][f"{role}_model"], float(cfg["ai"][f"{role}_session_usd"])
     who = dict(role=role, model=model, item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
@@ -695,12 +710,16 @@ def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = Non
                 out = agents.session(cfg, role, brief, work, keep=kept)
     except BaseException as e:
         error = f"{type(e).__name__}: {e}"
-        raise
+        if isinstance(e, SystemExit) or not aihold.limited(str(e), anywhere=True):
+            raise
+        aihold.stop(cfg, str(e))                         # (the usage limit: the run given back uncounted, ended)
     finally:
         kept.ended(out, error)
     if out.get("total_cost_usd") is not None:
         settle(cfg, usd, float(out["total_cost_usd"]), at, **who)
     print(json.dumps({k: v for k, v in out.items() if k != "result"} | {"type": "result"}), flush=True)
+    if aihold.limited(str(out.get("result"))):
+        aihold.stop(cfg, str(out.get("result")))
     if out.get("is_error"):
         raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
     return out

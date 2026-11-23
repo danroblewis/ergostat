@@ -4870,7 +4870,7 @@ class Slots:
         """The gate's own expression (implement-when, review-when) on these inputs."""
         from ergostat.spec.blocks import compile_expr, eval_expr
         b = self.e.spec.blocks[self.gate_name]
-        base = dict(ready=1, fixes=1, open=1, waiting=1, over=0, busy=0, pool=1, room=1, full=0) | given
+        base = dict(ready=1, fixes=1, open=1, waiting=1, over=0, busy=0, pool=1, room=1, full=0, held=0) | given
         return float(eval_expr(compile_expr(b.params["expr"]), {k: base[k] for k in b.inputs}))
 
     def lease_of(self, gid: str) -> dict:
