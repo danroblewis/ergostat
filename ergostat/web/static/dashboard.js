@@ -766,12 +766,13 @@ function dashStillWords(items, matched, at) {
   const mid = ages.length / 2, median = ages.length % 2 ? ages[Math.floor(mid)] : (ages[mid - 1] + ages[mid]) / 2;
   return `still waiting: ${items.length}, median age ${dur(median)}`;
 }
-async function dashStill(n) {
+/* the notes of the panels an ask held (``ids``); one asked again since (or a page left, which clears DASH.ver) stops it */
+async function dashStill(n, ids) {
   for (const p of DASH.draft?.panels || []) {
     const still = p.display?.still, c = DASH.cells.get(p.id);
-    if (!still || !c) continue;
+    if (!still || !c || !ids.has(p.id)) continue;
     const got = await api("items", { kind: still.kind, state: still.state, n: DASH_STILL_MOST, alone: 1 }).catch(() => null);
-    if (n !== DASH.asked || !got || !DASH.cells.has(p.id)) return;
+    if (DASH.ver.get(p.id) !== n || !got || !DASH.cells.has(p.id)) continue;
     const note = dashStillWords((got.items || []).filter((i) => i.kind === still.kind && i.state === still.state),
                                 got.total ?? got.matched?.[still.kind] ?? 0, S.at || nowS());
     if (note !== c.still) { c.still = note; c.panel.setConfig?.({ ...p, note }); }
@@ -813,7 +814,7 @@ async function dashRefresh(only = null) {
     if (changed) dashDraw();
     dashFeed(held);
     if (DASH.said) DASH.said.textContent = `Updated ${clock(nowS())}`;
-    if (!only) dashStill(n);
+    dashStill(n, held);
   } catch (e) {
     const held = mine();
     if (!held.size) return;
@@ -1380,6 +1381,7 @@ function dashLeave(n) {
     DASH.timer?.stop();
     DASH.timer = null;
     DASH.asked++;
+    DASH.ver.clear();                                  // no ask still out is any panel's: its answer or failure is dropped
     for (const f of DASH.flights) f.abort();
     clearTimeout(DASH.retry);
     dashPendEnd();

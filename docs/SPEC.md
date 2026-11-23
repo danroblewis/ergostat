@@ -1421,7 +1421,8 @@ reads the event log.
   that is the variable alone takes every value; with several chosen, a field is left as written (`$kind`), which
   matches nothing. Changing a variable asks again only the panels whose queries then
   change (those that use it, and the copies of a panel repeated by it); each panel takes only the answer of the last
-  ask it was in, by sequence. A panel repeated by a variable (section 4f's design, *Repeated panels*) shows one panel
+  ask it was in, by sequence, and a duration stat's *still waiting* note comes with that ask (the first draw's too,
+  with no poll). Leaving the page drops every ask still out: it is neither said nor asked again. A panel repeated by a variable (section 4f's design, *Repeated panels*) shows one panel
   for each value chosen.
 - **Result shapes.** Every answer says which of five shapes it is (`shape`), so a chart is chosen by what the data is and
   not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn

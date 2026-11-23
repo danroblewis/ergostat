@@ -258,3 +258,51 @@ Run here, after the merge:
 
 Refused here: a `grep -rn` over SPEC, ergostat and tests for stale wording and leftover conflict markers. The Grep tool
 was used instead, and it found neither.
+
+### Round 7
+
+Built. The review had two findings, and both were blocking. Both are fixed in `dashboard.js`, with 4 lines changed. The
+size is 420 net lines outside tests, docs and dev (482 added, 62 removed in `ergostat` and `scripts`, measured against
+main; budget 600).
+
+- Finding 1 (the 'still waiting' note was skipped on a partial ask, and so on the first draw): fixed. `dashRefresh`
+  now calls `dashStill(n, held)` after every ask that answers, whether full or partial. `dashStill` makes notes only
+  for the panels that ask held. A panel's note is dropped when the panel has been asked again since
+  (`DASH.ver.get(id) !== n`), and the loop goes on to the next panel. Before, the whole loop stopped when any newer ask
+  began (`n !== DASH.asked`), and a variable's partial ask counts as a newer ask. Main's dashboard did not need this
+  guard because it never made a partial ask.
+- Finding 2 (the leave-scoped guard was gone): fixed. `dashLeave` now clears `DASH.ver`. An ask still out when the page
+  is left then holds no panel. Its answer, its failure, its 'late' note and its retry are all dropped, on a route to
+  another Dashboard and on a route to another page alike. A new page's asks take new sequence numbers, so they are
+  never mistaken for the old one. A check on `DASH.page` was tried as well, but it was not kept: with `DASH.ver`
+  cleared, no test could fail without it.
+- New tests in `tests/test_dashboard_variables_page.py` (browser):
+  - `test_the_first_draw_says_who_is_still_waiting_with_the_poll_off`: the poll is Off (`DASH.timer` is null), the note
+    must come within 5 s, and only one ask may be made.
+  - `test_leaving_the_dashboard_mid_ask_schedules_nothing_and_says_nothing`: `/api/query` is never answered and the
+    poll is Off. The test routes to a Dashboard with other panels, then to `/items`. No 10 s retry timer may be set, and
+    the new page must not say 'asking again' or 'did not answer'.
+- Seen to fail when the code they guard was broken:
+  - `if (!only)` put back before `dashStill`: the first test timed out at 5 s.
+  - `DASH.ver.clear()` removed: the second test failed. The new Dashboard's header read "No answer; asking again", and
+    with that check skipped, a retry was set on `/items`. At first the test routed to the same Dashboard with the
+    default poll, and so it could not fail. The new page re-asked the same panel ids, and the poll's timer hid the
+    retry. The test was then changed to route to other panels with the poll Off.
+- SPEC §4e now says that the note comes with the ask, the first draw's included, and that leaving the page drops any
+  ask still out.
+- Choice taken without asking: the note is kept to the panels the ask held. A panel asked again since gets its note
+  from the newer ask.
+
+Run here:
+- ruff is clean.
+- Under the watchdog, one file at a time, all with rc 0 and none skipped:
+  - test_dashboard_variables_page: 7 passed.
+  - test_dashboard_page: 36 passed. Its `still_waiting` test no longer waits for a 30 s poll.
+  - test_dashboard_layout: 26 passed.
+- `main` (278f54a4) is already an ancestor of HEAD, so there was nothing new to merge.
+- Not run: the whole unit suite and the four browser files (the factory's job). No Python or example was touched.
+
+Refused here:
+- A no-op heredoc (`cat > /tmp/edit.txt <<'EOF' ... EOF`), sent by mistake. Nothing depended on it.
+- `git diff --numstat main...HEAD -- . ':!tests' ':!docs' ':!dev' | awk ...; git diff --numstat -- ergostat`. It was
+  replaced by `git diff --shortstat main -- ergostat scripts`.

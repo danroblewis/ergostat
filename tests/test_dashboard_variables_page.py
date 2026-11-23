@@ -12,7 +12,7 @@ import base64
 import json
 from urllib.parse import parse_qs, urlparse
 
-from tests.test_dashboard_page import answer, browser, context, encoded, opened_plain, site  # noqa: F401
+from tests.test_dashboard_page import ITEMS, answer, browser, context, encoded, opened_plain, site  # noqa: F401
 
 HOSTILE = 'b"} or vector(1) #'
 
@@ -259,5 +259,65 @@ def test_a_panel_repeated_by_a_variable_follows_its_chosen_values(browser, site)
     assert [q["vars"] for q in asks[1]] == [{"kind": ["d"]}]
     pg.wait_for_function("() => DASH.cells.get('p1~d').drawn")
     assert parse_qs(urlparse(pg.url).query)["var-kind"] == ["a", "c", "d"]
+    assert pg.errors == []
+    ctx.close()
+
+
+POLL_OFF = """
+const realGet = Storage.prototype.getItem;
+Storage.prototype.getItem = function (k) { return String(k).endsWith(".every") ? "Off" : realGet.call(this, k); };
+"""
+
+
+def test_the_first_draw_says_who_is_still_waiting_with_the_poll_off(browser, site):  # noqa: F811
+    """The first draw asks every panel as new ones (a partial ask); the duration stat's 'still waiting' note comes with
+    that ask, not with a later poll: here the poll is Off, so no poll could bring it."""
+    ctx = context(browser, 1440, 1000)
+    ctx.add_init_script(POLL_OFF)
+    now = 1795400000.0
+    waiting = [{"id": f"widget/{i}", "kind": "widget", "state": "ready", "entered": now - 3600 * (i + 1)} for i in range(3)]
+    ctx.route("**/api/items?*", lambda r: r.fulfill(json={**ITEMS, "items": waiting, "matched": {"widget": 3}})
+              if "state=ready" in r.request.url else r.fallback())
+    pg = opened_plain(ctx, f"{site}/dashboard")
+    pg.wait_for_function("() => DASH.got && !DASH.flights.size")
+    assert pg.evaluate("() => DASH.timer") is None                       # the poll is Off
+    pg.wait_for_function("() => [...document.querySelectorAll('.panel-note')].some((e) => e.textContent.includes('still waiting: 3'))",
+                         timeout=5000)
+    assert pg.evaluate("() => window.__queries") == 1                     # one ask, the first draw's
+    assert pg.errors == []
+    ctx.close()
+
+
+RETRIES = """
+window.__retries = [];
+const realSet = window.setTimeout.bind(window);
+window.setTimeout = (f, ms, ...more) => { if (ms === 10000) window.__retries.push(location.pathname); return realSet(f, ms, ...more); };
+"""
+
+
+def test_leaving_the_dashboard_mid_ask_schedules_nothing_and_says_nothing(browser, site):  # noqa: F811
+    """An ask still out when the page is left (routed to the Dashboard again, then to the Items page) is aborted: its
+    failure is not said in the new page's header or panels, and no retry is scheduled for it."""
+    ctx = context(browser, 1440, 1000)
+    ctx.add_init_script(RETRIES)
+    ctx.add_init_script(POLL_OFF)                                        # (a poll's timer would hide a retry)
+    held = []
+    ctx.route("**/api/query?*", lambda r: held.append(r))                # never answered
+    plain = {"title": "t", "panels": [text_panel(1, "sum(up)"), text_panel(2, "sum(up) by (job)")]}
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded(plain)}")
+    pg.wait_for_function("() => DASH.flights.size > 0")
+    other = {"title": "u", "panels": [text_panel(3, "sum(up) by (pod)")]}
+    pg.evaluate("(r) => navigate(r)", f"/dashboard?draft={encoded(other)}")   # to another Dashboard, its panels not these
+    pg.wait_for_function("() => DASH.cells.has('p3') && DASH.flights.size > 0")
+    pg.wait_for_timeout(300)
+    said = pg.evaluate("() => document.querySelector('#main').innerText")
+    assert "asking again" not in said and "did not answer" not in said, said
+    assert pg.evaluate("() => window.__retries") == []
+
+    pg.evaluate("() => navigate('/items')")                               # and left for another page
+    pg.wait_for_function("() => location.pathname === '/items'")
+    pg.wait_for_timeout(300)
+    assert pg.evaluate("() => window.__retries") == []
+    assert pg.evaluate("() => DASH.ver.size") == 0
     assert pg.errors == []
     ctx.close()
