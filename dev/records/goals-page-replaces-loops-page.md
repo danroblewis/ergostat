@@ -118,3 +118,52 @@ Its runs failed past their attempts (a dead letter):
 - attempt 10: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 11: nack the run ended with gap/goals-page-replaces-loops-page still parked
 - attempt 12: nack the implementor pool is full (run/pools.json): waits its turn
+
+## Where it stopped
+
+Merge of main (f086f76eda96, c9f0496f), continued round 1. Conflicts kept both sides: main's /dashboard is in
+UI_PAGES (server.py, util.js), OTHER_PAGES and the nav beside Goals; main's goalRow table on the Goals page with first
+column 'goal' and caption 'Goals' (the tooltip moved to goalrow.js, now 'the goal spent off'); main's folded side
+lists, the Blocks one summarised 'Goals and their control loops' / 'No goals in view.'; main's goalWord in the goal
+panel with kind 'Goal' / 'Goal, open loop'; main's header with 'goal(s) off'. Main dropped the attention list's
+'N more on …' line, so that line is gone. Main also brought one more live 'Loops page' (SPEC.md §quiet line, now
+'Goals page') and the goal panel's loading label 'Loop' (now 'Goal').
+
+Tests changed by this merge: main's new test_page_polling tests visit /goals (test_the_loops_page_asks_once_for_every_goal
+keeps its name: dev/records/perf-goals-page-asks-once.md names it); tests/test_items_page.py NAV and the named-controls
+case read /goals; tests/test_page_refresh.py's project switch visits /goals and expects /goals; the attention test's
+header regex reads 'goals? off' (main's header already said 'goal', so on main that regex could never match). The
+acceptance test now reads the side lists' summaries (main moved 'Feedback loops' from an h3 into a details summary).
+
+Left, not in the definition: docs/research/2026-11-22-design-and-planning/ (come with main) quotes 'Loops page' in many
+dated review and planning records; they are records of what was said, so they are unchanged, and the DoD 4 grep holds
+for docs/ outside docs/research/ only. The Blocks export menu's 'Loops (Markdown)', 'a row per loop' (control loops)
+is unchanged.
+
+Tests run after the merge: ruff clean; tests/test_graph_cli_web.py 48 passed; tests/test_page_polling.py 22 passed and
+the acceptance test failed once on the 'Feedback loops' selector, fixed (7a5647e7) and then passed alone;
+test_items_page's two edited tests and test_page_refresh's header-menu test 13 passed; test_page_refresh's
+test_a_quiet_system… passed, test_other_pages_left_open_change_nothing [loops] and [agents] passed,
+[diagram?view=process&by=events] failed (32 mutations over 3 refreshes; the process map, not touched here).
+tests/test_diagram_rendering.py in full: 35 failed, 276 passed. I believe none of them comes from this branch, but on
+main that is NOT proven: `git worktree add -q --detach /tmp/mainwt main` was refused. The failures:
+- test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip[every example]: 'tooltip on title: Drawn alike
+  here with …', the svg title of dynamics.js:467 (dynamics.js and the check are unchanged here);
+- test_every_view_draws_cleanly_and_in_time[autoscaler, image-squeeze, the-job, ticket-factory] and
+  test_the_control_view_draws_every_example_cleanly_as_a_block_diagram[autoscaler]: layout ceilings (satellite-far,
+  valve-orientation-mismatch), the same tooltip, routing time 21.1 s against 20 s, a 240 s wait;
+- test_every_part_opens_its_panel_when_clicked_even_mid_redraw, test_parts_chosen_with_a_box_move_together_pinned…,
+  test_blocks_crossings_hop_dots…: panel/drag/strict-locator ('fit' matches 5 elements) in the diagram;
+- test_the_exported_png_shows_every_loop_name…: blocksLegend has 6 rows, the test wants more than 10 (the branch changes
+  one row's words only, never the count);
+- test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page: 'Nothing waiting.' (as in round 1);
+- test_needs_attention_is_three_headed_groups_in_a_fixed_order: header '1 goal off' against 'Goals off 2' (main's
+  header leaves out modelling's upkeep goals; the side list counts them);
+- rerun alone, still failing: test_everything_clickable…by_keyboard (focus on a stock's panel heading),
+  test_a_goal_name_opens_its_evidence…[False] (the Suggestions button not visible in a folded details),
+  test_a_panel_open_on_what_is_chosen_stays_open… (a held flow answer never comes). None reads a word or route this
+  branch changed.
+The merge queue should run these on clean main.
+
+Overrun reason: tests are net +44 lines against a test budget of 20 (the acceptance tests check every point of DoD 1-3
+and four CLI commands); code is net +2 (budget 70), docs net +12 (budget 35).
