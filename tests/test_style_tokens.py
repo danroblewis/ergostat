@@ -152,6 +152,34 @@ def test_on_a_phone_the_direction_hint_is_not_hidden():
                 assert not re.search(r"display\s*:\s*none", body), f"the phone layout hides the hint: {sel.strip()}"
 
 
+def test_the_first_level_note_sits_on_the_canvas_and_stacks_with_the_toolbar_on_a_narrow_screen():
+    """'Open all' on a model too big to read opens the first level and says so in a note diagram.js draws as
+    .open-level: it has its rule, sits over the canvas in small text, and goes static with .toolbar and .zoom."""
+    js = (CSS.parent / "diagram.js").read_text()
+    assert 'class: "open-level"' in js, "diagram.js no longer draws the first-level note as .open-level"
+    _, rules = split()
+    own = re.search(r"(?:^|\})\s*\.open-level\s*\{([^{}]*)\}", rules)
+    assert own, "style.css has no rule of its own for .open-level"
+    decls = dict(declarations("{" + own.group(1) + "}"))
+    assert decls.get("position") == "absolute" and decls.get("font-size") == "var(--text-sm)", decls
+    narrow = [sel for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
+              if "position: static" in body and ".toolbar" in sel]
+    assert any(".open-level" in sel for sel in narrow), "on a narrow screen the note stays absolute over the toolbar"
+
+
+def test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked():
+    """Into, Open (ui-open-into-and-every-panel-link-show-that-somethi): the diagram left stays on the screen, dimmed,
+    under 'Opening …', with its side list; neither may take a click meant for the diagram being opened."""
+    _, rules = split()
+    for sel in ("svg.canvas g.was", ".diagram.opening > .side"):
+        block = next((b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
+                      if sel in [x.strip() for x in s.split(",")]), None)
+        assert block is not None, f"no rule for {sel}"
+        decl = dict(declarations("{" + block + "}"))
+        assert float(decl.get("opacity", "1")) < 1, f"{sel} is not dimmed"
+        assert decl.get("pointer-events") == "none", f"{sel} still takes clicks"
+
+
 def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():
     """A saved picture is drawn light whatever the theme: each dark-theme rule excludes the class export.js sets on
     <html> while it reads the drawing's styles, and export.js sets and then clears that very class."""
