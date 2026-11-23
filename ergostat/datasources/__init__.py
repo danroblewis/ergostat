@@ -4,12 +4,12 @@ the source's own language; the answer has the shape of every chart's (``times``,
 
 A type is one module in this package, found by its name: ``TYPE`` (the word in ``sources:``), ``KEYS`` (its connection
 keys besides ``type``), ``LANGUAGE`` (what its text is written in) and ``query(source, text, window)``, which returns
-``[(name, [(time, value), ...]), ...]``. It may also offer ``suggest(source, what, prefix, metric, label, seconds,
-most)``, the names an editor completes (``what``: ``metrics``, ``labels`` or ``values``), read from the source's own
-metadata, and ``values(source, selector, label, window)``, the values a label takes, which a dashboard variable
-written ``label_values(selector, label)`` lists (``values`` here). It offers nothing else: a module with any other
-public function or class is refused, so ``query``, ``suggest`` and ``values`` are the only operations anything can call
-on a source (and each must itself only read).
+``[(name, [(time, value), ...]), ...]``, or a typed frame (series with roles, a table or points: _frames.py). It may
+also offer ``suggest(source, what, prefix, metric, label, seconds, most)``, the names an editor completes (``what``:
+``metrics``, ``labels`` or ``values``), read from the source's own metadata, and ``values(source, selector, label,
+window)``, the values a label takes, which a dashboard variable written ``label_values(selector, label)`` lists
+(``values`` here). It offers nothing else: a module with any other public function or class is refused, so ``query``,
+``suggest`` and ``values`` are the only operations anything can call on a source (and each must itself only read).
 Every query is bounded here, whatever its type: its text, its window, its points and its series, and it is refused
 with words naming the bound it is over."""
 
@@ -22,6 +22,8 @@ import re
 import threading
 from dataclasses import dataclass
 from types import FunctionType, ModuleType
+
+from . import _frames
 
 MOST_TEXT = 4000            # characters of a query's text
 MOST_SERIES = 50            # series one query may answer with
@@ -166,6 +168,11 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, given: d
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
     w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS))
     got = mod.query(src, text, w)
+    if isinstance(got, dict):                       # a typed frame (_frames.py)
+        try:
+            return _frames.answer(got, g, MOST_SERIES)
+        except _frames.Bad as e:
+            raise SourceError("limit" if isinstance(e, _frames.TooMany) else "refused", f"source {name!r} answered badly: {e}") from e
     if not isinstance(got, list):
         raise SourceError("refused", f"source {name!r} answered with no series")
     if len(got) > MOST_SERIES:
@@ -178,7 +185,7 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, given: d
             if g.since - g.step < t <= g.until and isinstance(v, int | float) and math.isfinite(v):
                 values[g.at(t + 1e-6 * g.step)] = float(v)    # (a time on a bucket's start, never just before it)
         series.append({"name": str(label), "values": values})
-    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False}
+    return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False, "shape": "series"}
 
 
 def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",

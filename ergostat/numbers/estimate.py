@@ -450,7 +450,8 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
     out = load(p, spec, which)
     if not names:
         return out
-    base = sim.replay(spec, data)
+    every = {s for s in spec.stocks if spec.flows_of(s)}  # a remote's stocks too: its parameters' time scales (SPEC §4c)
+    base = sim.replay(spec, data, sim.plan(spec, integrate=every))
     span = data.grid.until - data.grid.since
     now = time.time()
     cut = max(1, int(round(data.grid.n * (1 - HOLD_OUT))))
@@ -471,7 +472,7 @@ def estimate(p, snap: dict | None = None, n: int | None = None, which: str = "pa
         start = {nm: (spec.parameters[nm].value if spec.parameters[nm].value is not None else 1.0) for nm in group}
         best, before, after, sure = solve(prob, start)
         held_before, held_after = prob.both(start)[1], prob.both(best)[1]
-        at_best = sim.replay(spec, data, sim.plan(spec, best))     # the time constants as the record has them, not as written
+        at_best = sim.replay(spec, data, sim.plan(spec, best, integrate=every))   # time constants as the record has them, not as written
         if at_best.valid and (tc_best := slowest(spec, at_best, prob.owners, prob.stocks, data)) is not None:
             common = {**common, "slowest": tc_best, "slowest_written": tc}
         for nm in group:

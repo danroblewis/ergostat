@@ -11,7 +11,7 @@ from collections import OrderedDict
 from dataclasses import replace
 
 from .. import datasources
-from . import shaped, sources
+from . import frames, shaped, sources
 from . import transforms as tf
 from .buckets import Grid, grid
 from .parse import RATE_PER, Query, Refused, SourceQuery, decode, parse
@@ -309,10 +309,11 @@ def answer(live, p, raw: str | None, reader: bool = False) -> dict:
     work = Work(_kept(live))
     plain = lambda q: q.x is None and q.source != "frequency" and q.agg != "ohlc"   # noqa: E731
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step,
-            "results": [{"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
-                        else {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused",
-                              "read_log": False} if isinstance(q, SourceQuery) and reader
-                        else _from_source(p, q, since, until, asked.points, work) if isinstance(q, SourceQuery)
-                        else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
-                        else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work)
+            "results": [frames.framed(
+                {"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
+                else {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused",
+                      "read_log": False} if isinstance(q, SourceQuery) and reader
+                else _from_source(p, q, since, until, asked.points, work) if isinstance(q, SourceQuery)
+                else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
+                else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work), q)
                         for q in asked.queries]}

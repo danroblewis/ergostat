@@ -17,6 +17,7 @@ import keeper
 import leaseclock
 import output
 import sampler
+import states
 
 WORKER = "1"
 BEAT = 10.0
@@ -140,8 +141,11 @@ def the_root(given: str | None) -> str:
 
 
 def serve(root: str, inp, w: frames.Writer, every: float) -> int:
-    said = hello(root)
+    said = hello(root)                          # (refused before any run is read or stopped)
+    found = states.States(root)
+    said["runs"] = found.hello()
     w.send("hello", **said)
+    states.sweep(root)
     HANDLERS.update(keeper.handlers(root, said))
     readings = sampler.Readings(root)
     out = output.Output(root, readings.ended(w))
@@ -149,7 +153,12 @@ def serve(root: str, inp, w: frames.Writer, every: float) -> int:
     HANDLERS.update(leaseclock.Clock(root).handlers(HANDLERS))
     stop = threading.Event()
     threading.Thread(target=readings.loop, args=(stop,), name="ergostat-worker-sampler", daemon=True).start()
-    runs = lambda: readings.runs_for_beat(out.offsets())                    # noqa: E731
+    def runs() -> dict:
+        got = readings.runs_for_beat(out.offsets())
+        for n, s in found.look().items():
+            got.setdefault(n, {}).update(s)
+        return got
+    threading.Thread(target=states.sweeps, args=(root, stop), name="ergostat-worker-sweep", daemon=True).start()
     threading.Thread(target=beats, args=(w, root, said["slots"], every, stop, runs), daemon=True).start()
     threading.Thread(target=out.follow, args=(stop,), daemon=True).start()
     want = 1

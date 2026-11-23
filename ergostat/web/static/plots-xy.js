@@ -317,6 +317,7 @@
 
   registerPlotForm("line", { draw: drawLine });
   registerPlotForm("scatter", { label: "Scatter", group: "relationship", needs: { x: ["field", "query", "time"], text: "two measures, or two fields of each item" }, draw: drawScatter,
+    shapes: { series: { roles: ["input", "output"] }, table: { dims: 1, measures: 2 }, points: {} }, reshape: "add a second query and use it as this one's X",
     /* a bubble's size and a point's colour come from the items, so they are asked for with the X */
     ask: (q, o) => {
       if (q.x?.type !== "field") return q;
@@ -332,6 +333,7 @@
     { key: "color_by", label: "Colour by", type: "field", extra: ["series"], default: "series" },
   ] });
   registerPlotForm("phase", { label: "Phase portrait", group: "dynamics", needs: { x: ["query"], text: "two measures, paired in time" }, draw: drawPhase,
+    shapes: { series: { roles: ["input", "output"] }, points: { order: "time" } }, reshape: "add a second query and use it as this one's X, so the two are paired in time",
     check: (r) => (r.series.some((x) => x.xs.filter((v, i) => v != null && x.values[i] != null).length >= 2) ? "" : "A phase portrait needs at least two points in time."),
     options: [
       { key: "direction", label: "Direction marks", type: "choice", choices: ["on", "off"], default: "on" },

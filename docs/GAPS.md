@@ -39,7 +39,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
     step each named item was last at (`at=`, at most 200 ids, chosen by id), and a link not drawn is counted by
     its reason (`unlinked`), never dropped. A remote's items in the Items page and its events in the Record
     page (done on `remote-items-record`, `tests/test_remote_items.py`): `remote=NAME`, read in place within 8
-    requests a remote a period, failing closed.
+    requests a remote a period, failing closed. A remote's parts are data here (done on
+    `remote-and-libraries-remote-parts-are-data`, `tests/test_remote_analysis.py`): its stocks given, never
+    integrated, in the replay and the projection (open and closed loop), and left out of the fit's total (listed
+    under `remote`), the residuals and the not-exercised findings; its flows' equations still serve the texts
+    for its owner.
   - *Left*: only serving the IR beside `ergostat-model/1` (`?format=ir`), once the IR exists; it is an item
     of *The IR and a Rust runtime*.
 - **Shared libraries** (parked on `libraries`, `docs/roadmap/overnight/libraries.md`, *Where it stopped*): templates
@@ -70,12 +74,18 @@ review into *Done recently*). Newest decisions from the owner first within each 
   template folder readable, a work folder `<state>/library-work/<instance>` cleared when the chain above it changes, at
   most 120 s and 4 at once; with no sandbox nothing runs, and a library's sensor daemon is refused
   `library-unsandboxed` (SPEC §2a, *Sandboxed sensor runs*). Proven on the captured `Policy`; enforcement is the
-  attack suite's. *Left*: library blocks in the sandbox (`library-sandbox-blocks`).
+  attack suite's. *Left*: library blocks in the sandbox (`library-sandbox-blocks`). **Built** (`library-fetch`):
+  `libraries:` (main file, at most 16) fetched by git URL (https or file, every field on an allowlist) by
+  `ergostat library fetch` into `.libraries/NAME`, under one flock across read, clone, swap and lock write, pinned in
+  `libraries.lock` by commit and tree hash (a missing or altered copy is fetched again at the locked commit); each
+  load checks the copy against the lock, refusing a lock entry without a tree, hashing symlinks explicitly by their
+  target (never followed), and parses the bytes it hashed; a library without `trust: owner` is listed, its templates
+  never expanded (SPEC §2a, *Libraries fetched by git URL*; SECURITY *Libraries you did not write*).
   *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
   descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
-  them, and the `library-untrusted` refusal's folder path); `fetch` by git URL or package, refusing a lock entry
-  without a tree, symlinks hashed explicitly; then running untrusted library blocks' scripts through
-  `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
+  them, and the `library-untrusted` refusal's folder path); `fetch` by package; the provenance gate and the sandbox
+  for fetched libraries without `trust: owner` (today never expanded); then running untrusted library blocks' scripts
+  through `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.

@@ -564,6 +564,7 @@ class Sensor:
     builtin: str | None = None  # a built-in measure (MODEL_MEASURES: ergostat.model.fit), read by ergostat (``run`` says how)
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
+    journal: str | None = None  # a folder of JSONL journals inside the model's root, followed while ergostat runs
     untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
     run_in: str | None = None   # "owner" only when compile proved its run the owner's or ergostat's; else (None too)
     #                             it runs in ergostat.sandbox (library/runs.py)
@@ -877,6 +878,7 @@ class Takes:
     order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
                                                      # without one after those with it; the order above among equals
     healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
+    hold_by: list[str] = field(default_factory=list)   # ``faults: {hold-by: [F]}``: a value failing together is held
 
 
 @dataclass
