@@ -8,7 +8,8 @@ gates and each run (`my_turn`) also hold them to the machine's headroom. The ris
 
     pools.py read WHAT        a sensor: implementor, reviewer, batch (the pools now), risk, bound, over (the bound
                               less the tolerance: interventions a day at the implementor pool now), target,
-                              factory-interventions, escapes (counts)
+                              factory-interventions, escapes (counts), escapes-day (escapes found over the last
+                              day, as a rate per hour: the flow escapes-found's sensor; risk.found_since)
     pools.py tune             the controller (a block): the target is the largest pool whose risk bound is within
                               risk-tolerance (dev/model/pools.yaml) and not above the demand (gaps ready, at fix or
                               building); a step up is asked as the gated action raise-pool once [pools] probation gaps
@@ -138,7 +139,8 @@ def measured(cfg: dict, st: dict, gaps: list[dict]) -> dict:
     n = st["implementor"]
     return {"table": tab, "tolerance": tol, "demand": demand, "target": risk.target(tab, tol, demand),
             "now": tab.get(n) or tab[max(tab)], "since_raise": risk.processed_since(gaps, st["raised_at"]),
-            "factory_interventions": sum(map(risk.factory_caused, ivs)), "escapes": sum(x[2] for x in ev.values())}
+            "factory_interventions": sum(map(risk.factory_caused, ivs)), "escapes": sum(x[2] for x in ev.values()),
+            "escapes_day": round(risk.found_since(gaps, ivs, time.time() - 86400) / 24, 4)}
 
 
 def probation(cfg: dict) -> int:
@@ -248,7 +250,8 @@ def my_turn(cfg: dict, role: str, block: str, item: str) -> bool:
 
 READ = {"risk": lambda m: m["now"]["risk"], "bound": lambda m: m["now"]["bound"], "target": lambda m: m["target"],
         "over": lambda m: round(m["now"]["bound"] - m["tolerance"], 3),
-        "factory-interventions": lambda m: m["factory_interventions"], "escapes": lambda m: m["escapes"]}
+        "factory-interventions": lambda m: m["factory_interventions"], "escapes": lambda m: m["escapes"],
+        "escapes-day": lambda m: m["escapes_day"]}
 
 
 def main(argv: list[str]) -> int:
