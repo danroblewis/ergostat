@@ -90,3 +90,14 @@ tests/test_factory.py gave 204 passed, 2 skipped, rc 0. Running it under `-n 8 -
 finding a log of the build were refused, so the failing test is still unnamed. The only change: a comment in
 tests/test_factory.py that this branch had changed by mistake (`-r:pytest's`) is back to main's text. No code was
 changed on a guess.
+
+Round 2 (no review findings; main af4bc34a already merged in at 5b53c6f7, nothing newer on local main): no code
+changed. Run here: ruff clean; the five stack-forward tests passed (3 in 96 s, 2 in 90 s), and so did
+test_ergostat_check_on_the_factory_model_reports_no_new_finding (182 s). Refused: running one test with
+`--durations`, running tests/test_factory.py whole and serially in the background (with and without
+scripts/suite_watch.py), and appending this section from the shell. So this round has no whole-file number. What I
+read but could not prove: the implementor's build step (fac.suite with box "") has no stall or wall limit, so a log
+that stops with no pytest summary means the process died. The likely cause is an OOM kill: -n 8 in a 4-CPU, 4 GB
+suite container (suite_memory_gb), with every Factory test's pytest temp folder kept for the whole session on a tmpfs
+/tmp, which counts against that memory. That is outside this gap (lesson-13). If it is cut off again, the next round
+needs the build log or permission to run the build command.
