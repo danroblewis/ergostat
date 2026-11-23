@@ -29,6 +29,30 @@
 .pe-f { display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0; }
 .pe-f select, .pe-f input { width: 100%; min-width: 0; box-sizing: border-box; }
 .pe-f textarea.pe-text { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: var(--text-sm); resize: vertical; }
+/* a query editor of a language's own (promql.js): the text drawn highlighted under a textarea whose own text is clear */
+.pq-editor { position: relative; min-width: 0; }
+.pq-box { position: relative; }
+.pq-box .pq-area, .pq-hl { margin: 0; padding: var(--sp-1); border: 1px solid var(--line); border-radius: var(--radius);
+  font-family: var(--mono); font-size: var(--text-sm); line-height: var(--leading); white-space: pre-wrap; overflow-wrap: anywhere;
+  letter-spacing: normal; tab-size: 4; }
+.pq-box .pq-area { position: relative; z-index: 1; display: block; background: transparent; color: transparent; caret-color: var(--ink); }
+.pq-box .pq-area::placeholder { color: var(--muted); }
+.pq-hl { position: absolute; inset: 0; overflow: hidden; color: var(--ink); background: var(--bg); border-color: transparent; pointer-events: none; }
+.pq-function, .pq-keyword { color: var(--accent); }
+.pq-metric { color: var(--ink); font-weight: 600; }
+.pq-label { color: var(--info); }
+.pq-string { color: var(--ok); }
+.pq-number { color: var(--warn); }
+.pq-comment { color: var(--muted); font-style: italic; }
+.pq-err { text-decoration: wavy underline var(--bad); background: var(--bad-wash); }
+.pq-hint { color: var(--muted); font-size: var(--text-sm); }
+.pq-list { position: absolute; z-index: 5; left: 0; right: 0; max-height: 14em; overflow-y: auto; margin: 0; padding: 0; list-style: none;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-menu); box-shadow: var(--shadow-menu); }
+.pq-pick { display: flex; justify-content: space-between; gap: var(--sp-2); padding: var(--sp-0) var(--sp-1); font-family: var(--mono);
+  font-size: var(--text-sm); cursor: pointer; }
+.pq-pick[aria-selected="true"] { background: var(--accent-wash); }
+.pq-pick-kind, .pq-more { color: var(--muted); font-family: var(--font); }
+.pq-more { padding: var(--sp-0) var(--sp-1); font-size: var(--text-sm); }
 .pe-l { color: var(--muted); font-size: var(--text-sm); padding: 0; }
 .pe-group { border: 0; margin: 0; padding: 0; min-width: 0; }
 .pe-wide { grid-column: 1 / -1; }

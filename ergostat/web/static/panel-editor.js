@@ -63,7 +63,7 @@
     if (!nested) for (const d of F.datasources || []) if (dataSource({ source: d.name }, F)) offered.push([d.name, `${d.name} (${d.language})`]);
     const out = [{ key: "source", label: "Source", options: offered, required: true }];
     const ds = nested ? null : dataSource(q, F);
-    if (ds) return [...out, { key: "text", label: `Query (${ds.language})`, text: true, required: true }];
+    if (ds) return [...out, { key: "text", label: `Query (${ds.language})`, text: true, required: true, language: ds.language, source: ds.name }];
     if (q.source === "frequency") {
       if (!q.model) out.push({ key: "segments", label: "Segments", options: SEGMENTS.map(n => [n, String(n)]), required: true });
       return out;
@@ -351,6 +351,10 @@
       const results = got.results || [];
       errors.clear();
       for (const r of results) if (r.error) errors.set(r.id, r.error);
+      for (const [q, card] of cards) {               // (where its source said the text is wrong, marked in it)
+        const r = results.find(x => x.id === q.id);
+        card.slots.get("text")?.mark?.(r?.error_at || null, r?.error);
+      }
       lastAnswer = { results: results.filter(r => !r.error), meta: got.meta, firstError: results.find(r => r.error)?.error };
       renderMessages();
       chart.setConfig({ ...previewConfig(), queries: cfg.queries });
@@ -474,12 +478,18 @@
       return { el, sel, sync(s) { fillSelect(sel, s, card.q[s.key]); } };
     }
     /* the query's text, in its source's own language: written, not built, and asked for as it is typed */
+    /* (a language with an editor of its own, window.queryEditors, gets it: highlighted, completed, run with Ctrl+Enter) */
     function textControl(card, slot) {
-      const area = h("textarea", { "data-slot": slot.key, rows: 3, spellcheck: "false", class: "pe-text",
-                                   oninput: () => { card.q.text = area.value; errors.delete(card.q.id); changed(); } });
-      const el = field(slot.label, area);
-      el.classList.add("pe-wide");
-      return { el, sync(s) { el.querySelector("label").textContent = s.label; if (area.value !== (card.q.text ?? "")) area.value = card.q.text ?? ""; } };
+      const typed = v => { card.q.text = v; errors.delete(card.q.id); changed(); };
+      const run = () => { lastSig = null; clearTimeout(timer); runPreview(); };
+      const ed = window.queryEditors?.[slot.language]?.({ source: slot.source, onInput: typed, onRun: run }) || null;
+      const area = ed?.area || h("textarea", { "data-slot": slot.key, rows: 3, spellcheck: "false", class: "pe-text", oninput: () => typed(area.value) });
+      area.id ||= `pe-control-${++controlIds}`;
+      const el = h("div", { class: "pe-f pe-wide" }, h("label", { class: "pe-l", for: area.id }, slot.label), ed?.el || area);
+      return { el, mark: ed?.mark, sync(s) {
+        el.querySelector("label").textContent = s.label;
+        if (ed) ed.set(card.q.text ?? ""); else if (area.value !== (card.q.text ?? "")) area.value = card.q.text ?? "";
+      } };
     }
     function checksControl(card, slot) {
       const box = h("div", { class: "pe-checks" });

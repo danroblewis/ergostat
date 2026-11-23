@@ -664,7 +664,26 @@ def _query(live: Live, p, parts: list, q: dict, reader: bool = False):
     name = unquote(parts[1]) if len(parts) > 1 else None
     if name == "fields":
         return fields(live, p, reader)
+    if name == "suggest":
+        return _suggest(p, q, reader)
     return answer(live, p, (q.get("q") or [None])[0], reader) if name is None else None
+
+
+def _suggest(p, q: dict, reader: bool) -> dict:
+    """``GET /api/query/suggest?source=&what=metrics|labels|values&prefix=&metric=&label=``: the names a query editor
+    completes, from the data source's own metadata (ergostat/datasources), bounded; a reader is refused, nothing sent."""
+    from .. import datasources
+    from ..query.engine import READER_REFUSED
+    one = lambda k: (q.get(k) or [""])[0]                                   # noqa: E731
+    if reader:
+        return {"suggestions": [], "error": f"{one('source')}: {READER_REFUSED}", "error_kind": "refused"}
+    try:
+        return datasources.suggest(getattr(p.model, "spec", None), one("source"), one("what"), one("prefix"),
+                                   one("metric"), one("label"))
+    except datasources.SourceError as e:
+        return {"suggestions": [], "error": f"{one('source')}: {e}", "error_kind": e.kind}
+    except Exception as e:                            # (its type only: the words may hold the source's address)
+        return {"suggestions": [], "error": f"{one('source')}: could not be read ({type(e).__name__})"}
 
 
 def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
