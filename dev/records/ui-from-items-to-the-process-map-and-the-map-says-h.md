@@ -256,3 +256,9 @@ the other project. It also failed in rounds 3, 5 and 6, and main's own record na
 This branch does not touch the header, so it is not this gap's. Not run: the unit suite and the four browser files in
 full (the merge queue runs them). A chained check command (`uv run ruff … ; node --check …`) was refused in this
 session. Ruff was then run alone. `node --check` was not run, but the browser tests above load both scripts.
+
+## Where it stopped
+
+Parked by the factory (merge-queue, 2026-11-23 11:02).
+
+Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: tests/test_graph_cli_web.py
