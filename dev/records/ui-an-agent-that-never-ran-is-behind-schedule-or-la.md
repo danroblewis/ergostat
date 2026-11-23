@@ -133,3 +133,17 @@ Run with Playwright under suite_watch: tests/test_agents_page.py gave 8 passed a
 `/api/agents/<name>`, and this branch does not change that endpoint (server.py changes only the listing). This branch
 leaves it alone (lesson 13). It was not run on clean main: `git worktree add` was refused here. `ruff check ergostat
 tests scripts` is clean. Not run: the unit suite and the other browser files.
+
+## Where it stopped
+
+Continued, round 2: main (dc47a763) merged. It conflicted only in tests/test_agents_page.py, where both sides added a
+fixture and a test at the same place. Both are kept whole: the branch's `standout` fixture and its acceptance test,
+and main's `requests_site` fixture and its evidence test. The acceptance test now uses the module's `re` import, not
+one of its own. No code outside `tests/` changed in this round.
+
+Run with Playwright under suite_watch: tests/test_agents_page.py gave 10 passed and 1 failed (rc 1). The failure is
+`test_each_row_says_how_it_is_engaged_and_which_goal_it_serves`, the same one as round 1. Its text is the same as on
+main, and so is `ergostat/web/static/details.js`, which draws the panel's "Loading…". The test reads `#detail` as soon
+as `h2:text-is('work')` appears, which is before the panel has loaded. This branch leaves it alone (lesson 13). It was
+not run on clean main: `git worktree add --detach /tmp/mainwt main` was refused here. `ruff check ergostat tests
+scripts` is clean. Not run: the unit suite and the other browser files.
