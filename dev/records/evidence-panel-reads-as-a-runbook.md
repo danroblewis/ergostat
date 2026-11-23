@@ -15,3 +15,50 @@ Acceptance tests: a browser test of the panel's order and the remedy line on the
 Budget: 90 net lines.
 
 Milestone: r7-evidence-is-a-runbook. Owner items: R7 piece 7 (pieces 1-6 are filed Q26, Q28-Q31, Q33, Q34, Q36). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1 (+31 net lines outside tests, budget 90):
+
+- `openLoopNow` (details.js) now draws, after its title: four `p.runbook-line`s in a `div.runbook`, then the remedy line(s),
+  then the scope (y, u, e and "How it is doing"), then the description, the dl of rows, the parts table, breaking,
+  interventions, Ahead, the control box (the control-loop table), Cannot close, the ladder suggestions, crossings,
+  decisions; the "About" definitions stay last (showDetail).
+- The lines (`runbookLines`): (1) the word (`goalWord`, as a status span) with the measure, its bound (`goalBound`, the
+  server's `bound_words`) and value, and `off_by_words`; (2) how long off (`goalOffFor`) against the usual time back
+  (`back_in`), or that there is none yet; (3) the Q28 actor lines (each still a `span.actor-line` with the same text),
+  joined in one sentence; (4) "Ahead: ..." set by `goalAhead` from the forecast sentence when it comes, else what is
+  known (being worked out, no estimate, could not be read, a snapshot makes none). No quick-fix function for Q23/Q29
+  was on main, so these sentences are put together here from the helpers goalrow.js already has (`goalBound`,
+  `goalOffFor`). When those fixes land, their functions should take over lines 1-2. The Ahead section stays as it
+  was (tests/test_forecast_panel.py reads it), so the forecast sentence appears twice: in line 4 and under Ahead.
+- The remedy (`remedyLines`): the goal's `about: loop` hints. Those exist only once there is a verdict (state.py
+  sets `diagnosis_in` and makes no hint before then). Each is drawn as "Remedy: " followed by the page's own
+  Suggestions entry for that goal, word for word, because Dynamics words its entries itself ("goal NAME ..."), with
+  the hint's own text when the page has no Suggestions list (/loops), then an "Evidence" link that scrolls to the
+  scope. Ladder hints stay below as "Suggestion:". My choice, and easy to undo: the Evidence link points at the
+  panel's own charts, since the panel is already the goal's evidence.
+- control.js: the scope's "Not worked out: it has no one process." now reads "Read it by its time off and its crossings
+  (below): <why>." and "Not worked out yet: too little record…" now reads "Its numbers come once the loop has more
+  record: …". tests/test_agents_page.py now reads the loop's suggestion at `#detail p.remedy` (it moved there).
+
+Acceptance test: tests/test_diagram_rendering.py::test_a_goals_evidence_opens_with_its_four_lines_and_its_remedy_then_the_charts_then_parts_and_prose
+(Dynamics and Blocks at 1500 px, Dynamics at 390 px, on goal_named's off goal). Passes. I broke the code three
+times to check the test fails: the remedy dropped (fails on the remedy), the charts put before the lines (fails on
+the order), and the old "Not worked out" wording put back (fails on the 390 px pass). That pass answers
+/api/loop-control with a no-one-process analysis, because the fixture never reaches that sentence by itself. Item
+4 is checked over the whole panel's text, which is wider than its first screen.
+
+Not done, or not proven:
+- Failing after this change. None of the failing paths is code the branch changes. I could not run them on main's
+  code: `git worktree add -q /tmp/ergo-main main` and `git checkout main -- <the three files>` were refused in this
+  session.
+  - tests/test_agents_page.py::test_each_row_says_how_it_is_engaged_and_which_goal_it_serves fails twice out of two.
+    The Agent panel reads "Loading…": the test waits for the `h2` that `panelLoading` draws at once, then reads the
+    panel before the answer (openAgent is unchanged).
+  - tests/test_diagram_rendering.py::test_a_suggestion_appears_when_it_has_a_verdict times out waiting for the
+    side list's "Needs attention" entry (diagram.js) before any panel opens.
+  - test_every_part_opens_its_panel_when_clicked_even_mid_redraw (the panel for stock:pending-changes) and
+    test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_its_words (waiting on /api/part/flow)
+    fail in the part and flow panels (openNodeNow, openEdge, dynamics.js), which are unchanged.
+- Not run by me: the whole unit suite and the four browser files (the factory runs them).
