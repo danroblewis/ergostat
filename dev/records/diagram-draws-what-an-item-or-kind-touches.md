@@ -16,3 +16,33 @@ Acceptance tests: test_an_items_path_is_drawn_alone (node ids equal the path's p
 Budget: 200 net lines.
 
 Milestone: kind-and-item-pages. Owner items: 20, 15. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1: every done item has code and a test. The size is 105 net lines of code (126 added, 21 removed, in
+ergostat/), inside the 200-line budget. Decisions taken alone, each the most reversible option:
+
+- *Where it went* is not on main yet (item-page-says-where-it-went has not landed), so the item page gets a minimal
+  section in its place, after the state track. It holds the two links and the kind's (`what every K touches`), or
+  "Its moves are not counted anywhere in the model." with no link. That gap can take the section over and add its
+  path strip.
+- Numbers follow this definition (1..n in move order), not the proposal's visit counts. Only the steps whose state a
+  stock counts are numbered, so the drawn numbers run 1..n with no gaps. A valve's `attempts` is the number of runs
+  of its block that took the item.
+- Blocks keeps the nodes `mark_loops` marks with a touched goal. It also keeps any node fed by one of those and
+  feeding one (a stock's `psum:` sum). Without that, a loop drawn alone was cut at its sum; a mutation run showed it.
+  `mark_loops` itself is left alone.
+- An item's pins use its kind's key, which the page learns from the answer's `subset.kind`. A kind's pins use
+  `.kind:K`.
+- dynamics.js is outside the Files list. It draws the marks: 5 lines in `sdStock` and `sdLabelLines`.
+- Not built, because this definition does not ask for it: the proposal's fallback for a set over 150 shapes, its
+  measurement on dev/model, the kind's marks (items now, attempts in the window), and the Blocks strip that names
+  footprint parts that are in no loop.
+- Done item 5's "factory graph fixture" was not identified. The 1 s bound is checked in
+  test_an_items_path_is_drawn_alone, on the ticket-factory subset, with the page's own layout timer.
+
+Tests run, one file or test at a time: the three acceptance tests (they pass, and each was seen to fail with its
+guarded code broken: fold's `keep`, the sum kept, the stock numbers drawn, the item link).
+test_blockdiagram.py, test_footprint.py, test_graph_parts.py, test_graph_cli_web.py and test_correspond.py all pass.
+test_every_view_loads_with_no_console_error_or_warning[ticket-factory] passes. Ruff is clean. `main` was merged and
+was already up to date. Not run here: the whole unit suite and the four browser files (the queue runs them).
