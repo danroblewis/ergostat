@@ -589,6 +589,30 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
     return fp
 
 
+def _subset(p, spec, snap: dict, item: str | None, kind: str | None) -> dict:
+    """The parts the Dynamics and Blocks views draw alone for ``item=`` (what it passed through, as of the moment) or
+    ``kind=`` (what it touches): ``graph.touched``, with ``about`` for the page's chip; no parts when nothing counts it."""
+    from types import SimpleNamespace
+
+    from ..spec import items as its
+    from ..spec.footprint import item_path, kind_footprint
+    d = None
+    if item:
+        d = its.detail(p.events, spec, item, until=snap["at"], history=0) if spec is not None else None
+        kind = (d or {}).get("kind")
+        fp = kind_footprint(spec, kind or "")
+        steps = item_path(spec, SimpleNamespace(kind=kind, moves=d["moves"], fields=d["fields"])) if d and fp else []
+        got = graph.touched(fp or {"counted_in": [], "taken_by": []}, steps)
+        says = f"what {item} passed through" if d else f"nothing is recorded about {item}"
+    else:
+        fp = kind_footprint(spec, kind)
+        got = graph.touched(fp or {"counted_in": [], "taken_by": []})
+        says = f"what kind {kind} touches" if fp else f"no kind {kind} in the model"
+    if (d or fp) and not got["parts"]:
+        says += ": not counted anywhere in the model"
+    return {**got, "about": {"item": item, "kind": kind, "says": says}}
+
+
 def _estimates(p, m, snap: dict, whatif: str | None) -> dict | None:
     """The completion estimates (``eta_api``), of now only: a moment travelled to has none."""
     if abs(time.time() - snap["at"]) >= 5:
@@ -851,12 +875,19 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 got = _process(p, m, snap, q, system)
                 live.keep(key, got)
             return {**got, "attention": att}
+        sub = _subset(p, getattr(m, "spec", None), snap, one("item"), one("kind")) \
+            if one("item") or one("kind") else None   # what an item passed through, or what a kind touches (SPEC §5a)
+        if sub is not None and not sub["parts"]:
+            return {"kind": one("view") or "dynamics", "nodes": [], "edges": [], "subset": sub["about"], "attention": att}
         if one("view") == "blocks":                 # the control view: the whole control system as a block diagram
             from ..blockdiagram import diagram
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
             laws = _laws(p, getattr(m, "spec", None))   # external blocks' identified laws, once fitted (SPEC §12d)
-            return {**diagram(m, {**snap, "laws": laws or {}}, want, system), "attention": att}
+            g = diagram(m, {**snap, "laws": laws or {}}, want, system, sub and sub["parts"])
+            if sub and not g["nodes"]:
+                sub["about"]["says"] += ": in no control loop"
+            return {**g, "attention": att, **({"subset": sub["about"]} if sub else {})}
         from ..dynamics import attention as sd_attention
         from ..dynamics import dynamics, finish
         from ..fold import fold
@@ -864,7 +895,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         if sd:
             att = sd_attention(att, snap)       # (in its own words)
         tree = getattr(getattr(m, "spec", None), "systems", None)
-        if tree and not around:              # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
+        if tree and not around and sub is None:      # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
             g = graph.control(m, snap, graph.select(m), graph.readings(p, at))
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
@@ -877,9 +908,16 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 if n.get("kind") == "system":
                     n["quiet"] = st.quiet(p, snap, n["label"])
             return {**g, "attention": att}
-        sel = graph.select(m, system, around, int(one("depth") or 1))
+        drawn = sub and {x.split(".", 1)[1] for x in sub["parts"] if x.split(".", 1)[0] in ("stock", "auxiliary", "flow")}
+        sel = graph.select(m, system, around, int(one("depth") or 1), drawn)
         g = graph.control(m, snap, sel, graph.readings(p, at))
-        return {**(dynamics(g, m) if sd else g), "attention": att}
+        for n in g["nodes"] if sub else ():          # an item's marks: its steps' numbers on each stock, runs on each valve
+            what = n["id"].split(":", 1)[1]
+            if n["kind"] in ("stock", "auxiliary") and what in sub["numbers"]:
+                n["path"] = sub["numbers"][what]
+            elif n["kind"] == "valve" and what in sub["attempts"]:
+                n["attempts"] = sub["attempts"][what]
+        return {**(dynamics(g, m) if sd else g), "attention": att, **({"subset": sub["about"]} if sub else {})}
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",
                  "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)],

@@ -866,6 +866,33 @@ def test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apa
         pg.close()
 
 
+def test_where_it_went_links_to_its_path_drawn_alone_or_says_nothing_counts_it(browser, site):
+    """An item its model counts (hypothesis/1, taken by the developer) has 'Where it went' with 'Draw its path in
+    Dynamics' and 'in Blocks' (item=ID) and its kind's footprint (kind=K), and the link draws it alone; an item of a
+    kind nothing counts or takes (release) says 'not counted anywhere in the model' and has no link."""
+    rel = json.loads(urllib.request.urlopen(f"{site}/api/kinds/release").read())
+    assert not rel["counted_in"] and not rel["taken_by"]                 # (what the second half stands on)
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/item/hypothesis%2F1")
+    went = pg.locator("p.went")
+    went.wait_for(timeout=20000)
+    links = went.locator("a").evaluate_all("els => els.map((a) => [a.textContent, a.getAttribute('href')])")
+    assert links == [["Draw its path in Dynamics", "/diagram?view=dynamics&item=hypothesis%2F1"],
+                     ["in Blocks", "/diagram?view=blocks&item=hypothesis%2F1"],
+                     ["what every hypothesis touches", "/diagram?view=dynamics&kind=hypothesis"]], links
+    went.locator("a").first.click()
+    pg.wait_for_function("() => typeof S !== 'undefined' && S.graph?.subset?.item === 'hypothesis/1' && S.layout", timeout=60000)
+    assert pg.locator(".toolbar .subset").inner_text().startswith("what hypothesis/1 passed through")
+    pg.goto(f"{site}/item/release%2Fr1")
+    went.wait_for(timeout=20000)
+    assert went.inner_text() == "Its moves are not counted anywhere in the model." and not went.locator("a").count()
+    assert not pg.locator('a[href*="item=release"]').count()
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_supersede_picker_offers_the_confirmed_decisions(browser, site):
     """The Items list hides finished states by default, and a confirmed decision is one (no done: declared), but the
     decision's 'replaced by…' picker asks for every state: it offers the confirmed and the proposed, not the dismissed."""

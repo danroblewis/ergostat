@@ -2245,6 +2245,24 @@ rework is a repeated step; a state nothing counts has `says`. The k-th move into
 lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
 answer.
 
+**Drawn alone: what an item passed through, or what a kind touches.** `/diagram?view=dynamics&item=ID` (and
+`view=blocks`), or `&kind=K`, asks `GET /api/graph` with `item=` or `kind=`; the answer carries `subset`
+(`{item, kind, says}`, the kind an item's own). The set is read from the model and the item's path above: for an
+item, the stocks that counted it in its steps, the flows counted entering them, and each block that took it with
+its `out` flows; for a kind, its `counted_in` parts and its blocks' `out` flows. *Dynamics* draws exactly that set
+(`graph.select(parts=)`; a drawn flow still brings both its ends, an end outside the set dashed), flat, with no
+system folded, as `around=` is. Each stock on an item's path carries its steps' numbers in move order (`path`: a
+rework or a nack numbers one stock twice) and each valve the runs that took the item (`attempts`). *Blocks* draws
+the control loops whose parts (the goal's stock or auxiliary, its controllers and actuators, its valves and
+disturbances, `through`, what its sensors read) meet the set, each whole: every node marked with one of those
+goals, and a node fed by one and feeding one (a stock's sum), every system they sit in open, as a frame; a wire
+from outside them ends at a port. `system=` and `open=` are ignored there. A set with nothing in it answers no
+nodes and `says` `... : not counted anywhere in the model`; a Blocks set in no loop says `: in no control loop`.
+The page shows a chip (`what ID passed through ×`, `what kind K touches ×`) that clears it, and keys its pins by
+the kind (an item's by its kind's), so a subset's pins never move the whole diagram. The item page's *Where it
+went* links to both views and to the kind's (`Draw its path in Dynamics`, `in Blocks`), or says its moves are not
+counted anywhere in the model, with no link.
+
 ## 5b. The Process view: how the items really moved
 
 The Diagram page's third view, beside Dynamics and Blocks, draws the work as the record says it went:
