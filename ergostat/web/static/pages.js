@@ -7,7 +7,6 @@ function page(main, title) {
   main.append(p);
   return p;
 }
-const RANK = { off: 0, open: 1, unknown: 2, holding: 3 };   // the loops that need someone first
 const windowNote = () => {
   const st = S.status, recorded = recordedShort();       // the header's own measure of it
   return st?.window ? (recorded != null ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
@@ -28,27 +27,16 @@ async function pageLoops(main) {
     ans.begin();
     // every loop in one answer: its stock's trend, and how it is doing (control.js), worked out on the server in the background
     const loops = await ans.api("loops", { perf: 1 }), systems = await ans.api("systems").catch(() => []);
-    const word = (s) => (s == null || s.not_analysed ? "" : s.working ? "being worked out" : s.failed ? "could not be worked out" : performanceWord(s));
     const w = windowNote();
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     // each system whose goals all hold says so (state.quiet): until the rows are grouped by system, a line of its own
     patch(qbox, ...(systems || []).filter((s) => s.quiet).map((s) => h("p", { class: "quiet-line", key: s.name, "data-system": s.name },
       h("b", {}, s.name), `: ${s.quiet}`)));
-    const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
+    const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
+    const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted"];
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
-      rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
-        h("td", { class: "nowrap" }, h("button", { class: "name", type: "button", onclick: (ev) => { ev.stopPropagation(); openLoop(n); } }, h("b", {}, n)), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
-        h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
-        h("td", { class: "num nowrap" }, holdText(lp.setpoint, lp.band)),
-        h("td", { class: "num nowrap", "data-off": n, title: `How far it is from its ${isLimit(lp.setpoint) ? "limit" : "setpoint"}` }, lp.off_by_words || ""),
-        h("td", { class: "num", title: "The share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
-        h("td", { class: "num", title: lp.back_in != null ? `Typically holding again this long after going off (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times); its valve opens ${lp.answers_in != null ? dur(lp.answers_in) : "?"} after` : "It has not gone off and come back in the window" },
-          lp.back_in != null ? dur(lp.back_in) : "–"),
-        h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
-          (lp.points || []).length > 1 ? sparkSvg(lp.points, 120, 24, setpointOf(lp.setpoint)) : ""),
-        h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, word(lp.perf)),
-        h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no")))), "", "Loops"));
+      rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => openLoop(g.name) }, goalRow(g, { columns }))), "", "Loops"));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);

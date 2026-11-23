@@ -295,8 +295,7 @@ function rungDot(r, cx, cy, rad = 5.5) {              // the kind's colour, and 
     s("text", { x: cx, y: cy + rad * 0.55, "text-anchor": "middle", class: "rung-letter", style: `font-size:${rad * 1.45}px` }, RUNG_LETTER[r] ?? "?"));
 }
 /* a loop's state, as a word: quiet when it holds, coloured only when it needs someone */
-const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");
-const exceptional = (st) => st && st !== "holding";
+const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");   // (exceptional: goalrow.js)
 
 /* a menu: a button and what it holds, opened under it (or above, near the bottom of the screen).
    items: [{label, onclick, checked, hint, disabled}] or nodes, or a function giving them, called on each opening */
@@ -431,7 +430,7 @@ async function refreshHeader() {
     }
     // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
     // the server's one count (state.goals_off); a status without it counts every goal off, as before
-    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => l.status === "off").length, own: {} };
+    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => goalWord(l) === "off").length, own: {} };
     const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
     setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
@@ -439,7 +438,9 @@ async function refreshHeader() {
     const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
     if (run.className !== cls) run.className = cls;
     const open = document.querySelector('meta[name="ergostat-public"]') ? " · public, read only, no login" : "";   // web: open: read
-    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here" : "";
+    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here"
+      : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
+        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");                                  // (upkeep apart), each by its word
     if (run.title !== tip) run.title = tip;
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
