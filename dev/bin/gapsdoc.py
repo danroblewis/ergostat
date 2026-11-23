@@ -9,7 +9,7 @@ its section's last, by name. render() reports by name every malformed Entry, two
 (gap ids cut to 32, as intake does), a listed entry or an umbrella with none: rendered, never silently dropped.
 split() is the inverse; an exact duplicate entry (a union merge's) is dropped and said by name and line. Each landing
 of the merge queue carries the batch's own GAPS.md edits into the records and GAPS-head.md (carry()) and writes GAPS.md from them
-(regenerate()); every reader still reads GAPS.md.
+(regenerate()); the intake reads the records' render at main (entries()), not the file.
 
     gapsdoc.py render [--check]       GAPS.md from dev/records to stdout (--check: only the problems); exits 1 on any
     gapsdoc.py split --dry-run [FILE] what split would make of FILE (docs/GAPS.md): records, duplicates, problems
@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime
 import itertools
 import re
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -337,6 +338,38 @@ def rendered_at(repo: Path, ref: str) -> str:
     files = {Path(n).stem: fac.git(repo, "show", f"{ref}:{n}") for n in names if n.endswith(".md")}
     files.pop(UNPLACED.stem, None)
     return render(files, files.pop(HEAD.stem))[0] if HEAD.stem in files else ""
+
+
+def entries(repo: Path, ref: str) -> tuple[str, list[str]] | None:
+    """GAPS.md as the records at commit ``ref`` render it, read with one git call, and the problems, each naming its
+    record: one git cannot show or decode, or whose Entry is malformed, is drawn nowhere and said, never read as having
+    no entry. None before the split (no GAPS-head.md at ``ref``); an unreadable GAPS-head.md raises ValueError."""
+    names = [n for n in fac.git(repo, "ls-tree", "-z", "--name-only", ref, f"{fac.DEFS}/").split("\0")
+             if n.endswith(".md")]
+    r = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], capture_output=True, timeout=600,
+                       input="".join(f"{ref}:{n}\n" for n in names).encode())
+    if r.returncode:
+        raise RuntimeError(f"git cat-file --batch in {repo}: {r.stderr.decode(errors='replace').strip()[-400:]}")
+    files, problems, out = {}, [], r.stdout
+    for n in names:
+        header, _, out = out.partition(b"\n")
+        f = header.split()
+        if len(f) != 3 or f[1] != b"blob":                 # (missing, or not a file: a submodule's commit)
+            problems.append(f"{Path(n).stem}: unreadable at {ref}: {header.decode(errors='replace')[-120:]}")
+            continue
+        data, out = out[:int(f[2])], out[int(f[2]) + 1:]
+        try:
+            files[Path(n).stem] = data.decode()
+        except UnicodeDecodeError as e:
+            problems.append(f"{Path(n).stem}: unreadable at {ref}: {e}")
+    if HEAD.stem not in files:
+        if any(p.startswith(f"{HEAD.stem}:") for p in problems):
+            raise ValueError("; ".join(problems))
+        return None
+    head = files.pop(HEAD.stem)
+    files.pop(UNPLACED.stem, None)
+    text, said = render(files, head)
+    return text, problems + said
 
 
 def regenerate(root: Path, pre: str, before: str | None = None) -> dict:

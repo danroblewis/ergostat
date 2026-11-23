@@ -1,15 +1,17 @@
 """intake: the factory's collector, the sensor of the whole workflow. Every few minutes it reads the gaps:
 
-- each top-level entry of docs/GAPS.md on the checkout's main, outside *Done recently* and not itself done, that the
-  record does not hold yet: `gap.found` (open); one GAPS.md marks done or superseded (`head`: the first clause of its
-  opening parenthetical, or after its colon, begins with "done" or "superseded by") that the record holds not yet
-  started: `gap.closed` (end done or duplicate); an entry listed twice (twice()) neither, but a dependency problem;
+- each top-level entry of GAPS.md as the records on the checkout's main render it (gapsdoc.entries; before the split,
+  main's docs/GAPS.md), outside *Done recently* and not itself done, that the record does not hold yet: `gap.found`
+  (open); one GAPS.md marks done or superseded (`head`: the first clause of its opening parenthetical, or after its
+  colon, begins with "done" or "superseded by") that the record holds not yet started: `gap.closed` (end done or
+  duplicate); two entries of one id neither, and a record that cannot be read is drawn nowhere: each a dependency
+  problem on its gap, or said on stderr;
 - requests submitted as events (`ergostat event --add gap.requested --item gap/NAME --data '{"title": ...}'`) are in
   the record already, open;
 - each open gap with a definition of done: `gap.defined` (ready). A definition is the gap's `definition` field (a
   file in run/defs/), `run/defs/<branch>.md` in the instance's folder (written by the coordinator), or
-  `dev/records/<branch>.md` (or, for a gap begun before the move, `docs/roadmap/overnight/<branch>.md`) on main or on
-  the gap's branch; nothing else is read;
+  `dev/records/<branch>.md` (only with a `## Definition of done` section) or, for a gap begun before the move,
+  `docs/roadmap/overnight/<branch>.md`, on main or on the gap's branch; nothing else is read;
 - a gap waiting for main to move (`waits_on_main`: its fast suites failed only on tests that fail on main too,
   onmain.py) released once the checkout's main is another commit (what the drop gives the implementor, and what the
   queue pushes to origin), so the implementor takes it again;
@@ -31,7 +33,9 @@ import agents  # noqa: E402
 import brief  # noqa: E402
 import deps  # noqa: E402
 import fac  # noqa: E402
+import gapsdoc  # noqa: E402
 
+DOD = re.compile(r"^## Definition of done\s*$", re.M)  # what makes a record (dev/records) a definition
 ENTRY = re.compile(r"^- \*\*(.+?)\*\*(.*)$")
 BACKLOG = ("open", "replan", "planned", "ready")      # not started: a gap GAPS.md marks done is closed from these
 
@@ -80,19 +84,20 @@ def gaps_md(text: str) -> list[dict]:
     return out
 
 
-def twice(text: str) -> dict[str, str]:
-    """Each entry GAPS.md lists more than once, in any section (*Done recently* too), as a union merge
-    (.gitattributes) can leave one: {gap id: the problem, naming every line}. Never resolved by picking one: such an
-    entry is neither found nor closed, and is said (a dependency problem on its gap, or on stderr)."""
-    at: dict[str, list[str]] = {}
-    section = ""
-    for n, line in enumerate(text.splitlines(), 1):
-        if line.startswith("## "):
-            section = line[3:].strip()
-        elif m := ENTRY.match(line):
-            at.setdefault(f"gap/{fac.slug(m.group(1).rstrip(':').strip(), 60)}", []).append(f"{n} ({section})")
-    return {gid: f"GAPS.md lists it {len(w)} times, lines {', '.join(w)}: a merge left it twice; keep one by hand"
-            for gid, w in at.items() if len(w) > 1}
+def read(cfg: dict) -> tuple[str, list[dict], list[tuple[str, str]]]:
+    """GAPS.md's text as main's records render it (gapsdoc.entries; before the split, main's docs/GAPS.md), its
+    entries, and the problems as (gap id or record name, what): a record that cannot be read, and two entries of one
+    gap id (two records' titles), which is neither found nor closed, never resolved by picking one."""
+    repo, base = fac.path(cfg, "checkout"), cfg["git"]["base"]
+    got = gapsdoc.entries(repo, base)
+    text, said = got if got is not None else (fac.git(repo, "show", f"{base}:docs/GAPS.md"), [])
+    problems = [(p.split(": ", 1)[0], p.split(": ", 1)[-1]) for p in said]
+    at: dict[str, list[dict]] = {}
+    for e in gaps_md(text):
+        at.setdefault(e["id"], []).append(e)
+    problems += [(gid, f"GAPS.md lists it {len(es)} times, lines {', '.join(str(e['line']) for e in es)}: two "
+                       "records of one title; retitle one") for gid, es in at.items() if len(es) > 1]
+    return text, [es[0] for es in at.values() if len(es) == 1], problems
 
 
 def closed_by_gaps(known: dict[str, dict], entries: list[dict]) -> int:
@@ -121,8 +126,8 @@ def definition(cfg: dict, gap: dict) -> str | None:
     refs = [f"{ref}:{d}/{branch}.md" for d in (fac.DEFS, fac.OLD_DEFS) for ref in on]     # the new path first
     for where in (str(gap["fields"].get("definition") or ""), f"run/defs/{branch}.md", *refs):
         text = brief.definition_text(cfg, where, branch) if where else ""
-        if text.strip() and not fac.entry_only(text):                 # (a record holding only its GAPS.md entry)
-            return where
+        if DOD.search(text) if f":{fac.DEFS}/" in where else text.strip() and not fac.entry_only(text):
+            return where                     # (a record only with its section: never one holding its Entry alone)
     return None
 
 
@@ -171,9 +176,10 @@ def continued(cfg: dict, gap: dict, known: dict[str, dict]) -> bool:
     return not why
 
 
-def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, str]) -> int:
-    """Each gap's dependencies from GAPS.md, its definition's `depends-on:` line and what was asked, and an entry
-    GAPS.md lists twice (``dups``, twice()) as a problem: said as gap.dependencies where they changed (deps.py)."""
+def dependencies(cfg: dict, known: dict[str, dict], text: str, problems: list[tuple[str, str]]) -> int:
+    """Each gap's dependencies from GAPS.md, its definition's `depends-on:` line and what was asked, and read()'s
+    problems on the gap they name (by id, or its record by branch; else on stderr): said as gap.dependencies where they
+    changed (deps.py)."""
     parsed, own = deps.from_gaps(text)
     for gid, g in known.items():
         where = str(g["fields"].get("definition") or "")
@@ -190,11 +196,12 @@ def dependencies(cfg: dict, known: dict[str, dict], text: str, dups: dict[str, s
     tree = fac.git(repo, "ls-tree", "--name-only", cfg["git"]["base"], "docs/roadmap/overnight/", check=False)
     landed = {f.rsplit("/", 1)[-1][:-3] for f in tree.split() if f.endswith(".md")}   # unread: none, never 'landed'
     want = deps.plan(known, parsed, own, merged, landed)
-    for gid, why in dups.items():
-        if gid in want:
+    branch = {g["fields"].get("branch"): gid for gid, g in known.items()}
+    for key, why in problems:
+        if (gid := key if key in want else branch.get(key)) in want:
             want[gid]["problems"].append(why)
         else:
-            print(f"intake: {gid}: {why}", file=sys.stderr)
+            print(f"intake: {key}: {why}", file=sys.stderr)
     for gid, data in deps.changes(known, want):
         fac.say("gap.dependencies", gid, **data)
         n += 1
@@ -212,13 +219,10 @@ def main_moved(cfg: dict, known: dict[str, dict]) -> int:
 
 def main() -> int:
     cfg = fac.config()
-    repo = fac.path(cfg, "checkout")
     known = {g["id"]: g for g in fac.items("gap")}
     now = time.time()
     found = 0
-    text = fac.git(repo, "show", f"{cfg['git']['base']}:docs/GAPS.md")
-    dups = twice(text)
-    entries = [e for e in gaps_md(text) if e["id"] not in dups]
+    text, entries, problems = read(cfg)
     closed = closed_by_gaps(known, entries)
     for e in entries:
         if e["id"] not in known and e["gaps_says"] not in ("done", "superseded"):
@@ -239,7 +243,7 @@ def main() -> int:
             defined += 1
         elif g["fields"].get("continues"):                     # the planner never takes it: said, never waiting silently
             print(f"intake: {g['id']} continues a branch with no definition of done on it: not taken", file=sys.stderr)
-    linked = dependencies(cfg, known, text, dups)
+    linked = dependencies(cfg, known, text, problems)
     released = main_moved(cfg, known)
     print(f"intake: {found} found, {closed} closed (GAPS.md marks them done), {defined} defined, {linked} with their "
           f"dependencies changed, {released} released by main moving", file=sys.stderr)
