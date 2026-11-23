@@ -1,0 +1,7 @@
+[{"goto":"http://127.0.0.1:8796/"},{"wait":3000},
+ {"click":"css=button[aria-label*='ore'], text=⋯"},{"wait":500},{"shot":"plan-notation-sf-menu.png"},
+ {"click":"text=Open all systems"},{"wait":6000},{"shot":"plan-notation-sf-openall-dyn.png"},
+ {"click":"text=Fit"},{"wait":2000},{"shot":"plan-notation-sf-openall-dyn-fit.png"},
+ {"click":"text=Blocks"},{"wait":6000},{"shot":"plan-notation-sf-openall-blocks.png"},
+ {"goto":"http://127.0.0.1:8792/"},{"wait":4000},{"click":"text=⋯"},{"wait":400},{"click":"text=Open all systems"},{"wait":6000},{"shot":"plan-notation-job-openall-dyn.png"},
+ {"dark":true},{"wait":1500},{"shot":"plan-notation-job-openall-dyn-dark.png"}]

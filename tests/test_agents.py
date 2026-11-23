@@ -32,8 +32,9 @@ def test_implementor_environment_has_a_browser():
     assert "PLAYWRIGHT_BROWSERS_PATH" not in agent_image                       # (and finds its browsers where it put them)
     assert f"--with {PIN} " in cfg["browser_ready"] and f"--with {PIN} " in cfg["browser"]
     assert f"--with {PIN} " in cfg["rerun"]
-    # each browser run prints its skips (-rs: one SKIPPED line per reason), as well as pytest's summary count
-    assert all(" -rs " in cfg[n] for n in ("browser", "rerun"))
+    # each browser run prints its skips (-rfEs: one SKIPPED line per reason, and the FAILED and ERROR lines
+    # fac.failed_tests reads), as well as pytest's summary count
+    assert all(" -rfEs " in cfg[n] for n in ("browser", "rerun"))
     # the session may run a named browser file under the watchdog, with the suite's own Playwright, and never the suite
     sys.modules.setdefault("fac", module("fac"))
     assert may(f"{PAGE} tests/test_items_page.py") and not may(cfg["browser"])
@@ -86,6 +87,15 @@ def test_the_whole_suite_watch_command_is_not_the_implementors():
     assert not any(t.startswith(("Bash(uv run python scripts/suite_watch.py:", "Bash(uv run python -m pytest"))
                    for t in module("agents").TOOLS["implementor"])        # (the broad prefixes of before are gone)
     assert not [r for r in ("reviewer", "planner", "librarian") if may(f"{NAMED} tests/test_agents.py", r)]
+
+
+def test_the_implementor_may_write_the_graph_fixtures_and_the_reviewer_may_not():
+    """`python -m tests.graph_fixtures` writes tests/fixtures/graphs/<model>-<view>.json from ergostat's own model,
+    offline; the implementor may run it, a read-only role may not."""
+    fixtures = "uv run python -m tests.graph_fixtures"
+    assert may(fixtures) and may(f"{fixtures} --model x")
+    assert not [r for r in ("reviewer", "planner", "groomer") if may(fixtures, r)]
+    assert not may("uv run python -m tests.graph_fixtures_other") and not may("uv run python -m tests")
 
 
 def test_named_tests_runs_named_files_only(tmp_path, monkeypatch):
