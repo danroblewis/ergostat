@@ -77,3 +77,13 @@ Traceback (most recent call last):
 RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
 
 ```
+
+## Where it stopped
+
+Round 2 (after the Docker restart that parked round 1; no review findings to answer): built, the same work as round 1.
+
+- Read over again against the definition and the review lessons. One change only: a missing space in `rgModel`'s scope line (`&&(` to `&& (`).
+- `main` is the base as of the clone. It is already merged, with nothing new.
+- **Run here.** Ruff is clean. `tests/test_graph_parts.py`, `test_relations.py` and `test_graph_cli_web.py` pass (73). In `tests/test_items_page.py` under the watchdog, 28 of 29 pass, `test_the_graph_draws_every_dependency_of_the_unfinished_work` included, with no test skipped (rc 1, peak 271 threads).
+- The same one fails as in round 1: `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out in `wait_for_function` on the header's project switcher, which reads the projects under `ERGOSTAT_HOME` through `/api/status`. This branch touches neither. I could not run it on main: `git worktree add --detach /tmp/mainwt main` was refused in this session. Under lesson 13 it is reported here, not fixed.
+- Not run here: the whole unit suite, the other three browser files, `demo_check` (no example was touched), and the real factory record. ELK's layout time at 600 cards is still not measured.

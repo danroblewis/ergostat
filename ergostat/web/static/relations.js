@@ -44,7 +44,7 @@ function rgModel(d, o) {
   const asked = new Set(d.kinds.filter((k) => k.asked).map((k) => k.name));
   const scope = new Set();
   const chain = (id) => { if (scope.has(id) || !byId[id]) return; scope.add(id); (preds[id] || []).forEach(chain); };
-  for (const x of d.items) if ((!asked.size || asked.has(x.kind)) &&(!o.frontier || !done(x.id))) chain(x.id);
+  for (const x of d.items) if ((!asked.size || asked.has(x.kind)) && (!o.frontier || !done(x.id))) chain(x.id);
   for (const id of [...scope]) { const g = byId[id].group; if (g && byId[g]) scope.add(g); }
   const q = (o.q || "").trim().toLowerCase();
   if (q) for (const id of [...scope]) { const x = byId[id]; if (![x.id, x.title, x.state, x.kind, x.status].join(" ").toLowerCase().includes(q)) scope.delete(id); }
