@@ -716,22 +716,25 @@ def test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel(browser, site
 
 
 def test_a_taken_items_clocks_move_and_go_overdue_while_the_panel_is_open(browser, site):
-    """The list's clocks move on each read: a lease taken with a short time to live reads 'expires in' first, then,
-    with the panel still open and nothing else changed, 'overdue' in the bad colour, and its 'taken for' grows."""
+    """The list's clocks move on each read: a lease taken with a short time to live shows its time left first, then,
+    with the panel still open and nothing else changed, 'overdue' in the bad colour, and its 'taken for' grows.
+    The panel is opened before the lease is taken, so loading the diagram under load does not eat the lease's time."""
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    add_events(("ergostat.lease.taken", "hypothesis/5", {"run": "run5aaaaaaaa", "fence": 1, "block": "developer", "ttl": 6,
-                                                          "max": 2, "back": "proposed", "tier": "ai"}))
+    open_part(pg, site, STARTED, "flow/started")
+    pg.wait_for_selector(TAKEN_ROWS, timeout=20000)                    # the panel is open and its list read
+    row = "#detail .taken-list table tr:has(a[href='/item/hypothesis%2F5'])"
+    expiry = f"""(td) => {{ const c = document.querySelector("{row} td:nth-child(6)"); return c && td(c); }}"""
     try:
-        open_part(pg, site, STARTED, "flow/started")
-        row = "#detail .taken-list table tr:has(a[href='/item/hypothesis%2F5'])"
-        pg.wait_for_selector(row, timeout=20000)
+        add_events(("ergostat.lease.taken", "hypothesis/5", {"run": "run5aaaaaaaa", "fence": 1, "block": "developer",
+                                                              "ttl": 18, "max": 2, "back": "proposed", "tier": "ai"}))
+        pg.wait_for_function(f"""() => ({expiry})((c) => c.textContent !== '' && !c.textContent.startsWith('overdue')
+            && !c.classList.contains('bad'))""", timeout=20000)             # time left, not yet overdue
         cells = lambda: pg.locator(f"{row} td").evaluate_all("tds => tds.map((td) => [td.textContent, td.className])")  # noqa: E731
         first = cells()
-        assert not first[5][0].startswith("overdue") and "bad" not in first[5][1], first
-        pg.wait_for_function(f"""() => {{ const td = document.querySelector("{row} td:nth-child(6)");
-            return td && td.textContent.startsWith('overdue ') && td.classList.contains('bad'); }}""", timeout=20000)
+        pg.wait_for_function(f"""() => ({expiry})((c) => c.textContent.startsWith('overdue ')
+            && c.classList.contains('bad'))""", timeout=40000)
         assert cells()[4][0] != first[4][0], (first, cells())                 # taken for: seconds, moved too
     finally:
         add_events(("ergostat.lease.ended", "hypothesis/5", {"run": "run5aaaaaaaa", "fence": 1, "how": "nack", "count": False}))

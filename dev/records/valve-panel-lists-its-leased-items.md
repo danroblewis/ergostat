@@ -90,3 +90,16 @@ Tests: tests/test_item_sets.py 17 passed; ruff clean; tests/test_items_page.py w
 1 failed, rc 1. The failure is again test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (it times
 out waiting for the project switcher, tests/test_items_page.py:2417, and fails alone too). This branch changes nothing
 it reads. Not run here: the unit suite, test_diagram_rendering.py, test_page_polling.py, test_page_refresh.py.
+
+Round 5: the one finding (lesson-10). test_a_taken_items_clocks_move_and_go_overdue_while_the_panel_is_open took its
+6 s lease before opening the page. Under load the time to load the diagram could use up the lease before the first
+read. It now opens the panel and waits for its list first, then takes the lease with an 18 s TTL. It waits (rather
+than asserts once) for the row's expiry cell to show time left, not overdue and not bad, then for 'overdue' in the bad
+class (40 s), and then checks that 'taken for' grew. The panel's expiry cell shows only the time left (leaseTail draws
+no 'expires in' words in the table), so the first wait reads that. Only the test changed. With the old answer-only key
+put back in takenList, it fails (timeout waiting for 'overdue'). Main is still b7302db6, already merged. Tests:
+tests/test_item_sets.py 17 passed; ruff clean; the three valve-panel tests and the clocks test pass;
+tests/test_items_page.py whole under the watchdog: 74 passed, 1 failed, rc 1. The failure is
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (tests/test_items_page.py:2420, the project
+switcher times out). It fails alone too, as in rounds 2-4, and this branch changes nothing it reads. Not run here: the
+unit suite, test_diagram_rendering.py, test_page_polling.py, test_page_refresh.py.
