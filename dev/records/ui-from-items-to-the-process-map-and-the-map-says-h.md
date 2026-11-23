@@ -257,6 +257,17 @@ This branch does not touch the header, so it is not this gap's. Not run: the uni
 full (the merge queue runs them). A chained check command (`uv run ruff … ; node --check …`) was refused in this
 session. Ruff was then run alone. `node --check` was not run, but the browser tests above load both scripts.
 
+### Continued, round 1: main (2f08c24e) merged at 6c69a277
+
+The merge's conflict in tests/test_graph_cli_web.py is resolved. As before, two new tests sat at the same place, and
+both are kept: the branch's `test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them` and
+main's `test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_may_do`. No conflict markers are
+left in `ergostat/` or `tests/`. No source changed.
+
+Runs: ruff clean. tests/test_graph_cli_web.py: 56 passed. The gap's browser test under suite_watch with Playwright:
+1 passed (rc 0). Not run: the unit suite, the four browser files in full, and tests/test_items_page.py (the merge
+queue runs them).
+
 ## Where it stopped
 
 Parked by the factory (merge-queue, 2026-11-23 11:02).
