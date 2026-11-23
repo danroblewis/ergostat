@@ -1,21 +1,30 @@
 /* The Dashboard: a 12-column grid of panels (dashboard.js). Tokens only, light and dark. */
-.page.dash { padding: var(--sp-3) var(--sp-4) var(--sp-6); }
+.page.dash { position: relative; padding: var(--sp-3) var(--sp-4) var(--sp-6); }   /* holds .dash-live, which otherwise stretches the document */
 .dash-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); }
 .page .dash-head h1 { margin: 0; font-size: var(--text-lg); min-width: 0; overflow-wrap: anywhere; }
 .dash-title-input { font-size: var(--text-lg); font-weight: 600; min-width: 0; max-width: 100%; }
 .dash-said { white-space: nowrap; }
 .dash-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-1); margin-left: auto; }
-.dash-grid { --dash-row: calc(var(--sp-5) + var(--sp-2)); display: grid; gap: var(--sp-2);
-             grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: var(--dash-row); }
-.dash-grid > p { grid-column: 1 / -1; grid-row: span 2; margin: 0; }
-.dash-cell { grid-column: var(--x) / span var(--w); grid-row: var(--y) / span var(--h); display: flex; flex-direction: column;
-             min-width: 0; min-height: 0; border-radius: var(--radius); }
+.dash-grid { --dash-row: calc(var(--sp-5) + var(--sp-2)); --dash-gap: var(--sp-2); --rows: 0;
+             --col-step: calc((100cqw + var(--dash-gap)) / 12); --row-step: calc(var(--dash-row) + var(--dash-gap));
+             position: relative; container-type: inline-size; gap: var(--dash-gap); grid-auto-rows: var(--dash-row); }
+.dash-grid.placed { height: calc(var(--rows) * var(--row-step) - var(--dash-gap)); }
+.dash-grid > p { margin: 0; }
+.dash-cell, .dash-slot { position: absolute; top: 0; left: 0; width: calc(var(--col-step) * var(--w) - var(--dash-gap));
+             height: calc(var(--row-step) * var(--h) - var(--dash-gap));
+             transform: translate(calc(var(--col-step) * var(--x)), calc(var(--row-step) * var(--y)));
+             transition: transform 170ms cubic-bezier(.2, 0, 0, 1); }
+.dash-cell { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-radius: var(--radius); }
+.dash-cell:focus-visible { outline: var(--sp-0) solid var(--accent); outline-offset: var(--hair); }
+.dash-cell.is-lifted { z-index: 3; outline: var(--sp-0) solid var(--accent); outline-offset: var(--hair); box-shadow: var(--shadow-menu); }
+.dash-cell.is-held { z-index: 4; transition: none; background: var(--bg); box-shadow: var(--shadow-menu); overflow: hidden; }
+.dash-slot { z-index: 0; border: var(--hair) dashed var(--accent); border-radius: var(--radius); background: var(--fill); pointer-events: none; }
+.dash-cell .panel-head { cursor: grab; user-select: none; -webkit-user-select: none; touch-action: pan-y; }
 .dash-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .dash-body > * { flex: 1; min-width: 0; min-height: 0; }
 .dash-tools, .dash-foot { display: none; }
 .dash-cell.is-stat .panel-unit, .dash-cell.dash-no-change .panel-stat-change { display: none; }   /* the number says its unit */
 .dash-grid.editing .dash-cell { background: var(--bg); box-shadow: 0 0 0 var(--hair) var(--line-strong); }
-.dash-grid.editing .dash-cell:focus { outline: var(--sp-0) solid var(--accent); outline-offset: var(--hair); }
 .dash-grid.editing .dash-tools { display: flex; align-items: center; gap: var(--sp-0); flex: none; min-width: 0; padding: var(--sp-0) var(--sp-1);
                                  background: var(--chrome); border-bottom: var(--hair) solid var(--line); }
 .dash-grid.editing .dash-foot { display: flex; justify-content: flex-end; flex: none; height: var(--sp-2); background: var(--chrome);
@@ -23,13 +32,30 @@
 .dash-tools button { min-height: 0; padding: 0 var(--sp-1); font-size: var(--text-sm); color: var(--ink-2); }
 .dash-gap { flex: 1; }
 .dash-grip { cursor: grab; touch-action: none; }
-.dash-handle { width: var(--sp-5); height: 100%; cursor: nwse-resize; touch-action: none; background: var(--line-strong); }
-.dash-grid.dragging { user-select: none; }
-.dash-grid.dragging .dash-grip { cursor: grabbing; }
+/* the edges lie in the gutter between panels, so nothing is ever over a plot */
+.dash-edge { position: absolute; z-index: 2; touch-action: none; }
+.dash-edge-r { top: 0; bottom: var(--dash-gap); right: calc(var(--dash-gap) * -1); width: var(--dash-gap); cursor: ew-resize; }
+.dash-edge-b { left: 0; right: var(--dash-gap); bottom: calc(var(--dash-gap) * -1); height: var(--dash-gap); cursor: ns-resize; }
+.dash-handle { right: calc(var(--dash-gap) * -1); bottom: calc(var(--dash-gap) * -1); width: calc(var(--dash-gap) * 2); height: calc(var(--dash-gap) * 2); cursor: nwse-resize; }
+.dash-edge-r:hover, .dash-edge-b:hover { background: var(--line-strong); border-radius: var(--radius); background-clip: content-box; padding: var(--hair); }
+.dash-handle::after { content: ""; position: absolute; right: var(--sp-0); bottom: var(--sp-0); width: var(--sp-2); height: var(--sp-2); opacity: 0;
+                      border-right: var(--sp-0) solid var(--ink-2); border-bottom: var(--sp-0) solid var(--ink-2); transition: opacity 120ms; }
+.dash-cell:hover .dash-handle::after, .dash-cell:focus-visible .dash-handle::after, .dash-cell.is-held .dash-handle::after { opacity: 1; }
+.dash-grid.dragging { user-select: none; -webkit-user-select: none; }
+.dash-grid.dragging .dash-body { pointer-events: none; }
+.dash-grid.dragging .dash-cell:not(.is-held) .dash-edge { pointer-events: none; }
+:root.dash-moving, :root.dash-moving * { cursor: grabbing !important; }
+:root.dash-sizing[data-dash-sides="r"], :root.dash-sizing[data-dash-sides="r"] * { cursor: ew-resize !important; }
+:root.dash-sizing[data-dash-sides="b"], :root.dash-sizing[data-dash-sides="b"] * { cursor: ns-resize !important; }
+:root.dash-sizing[data-dash-sides="rb"], :root.dash-sizing[data-dash-sides="rb"] * { cursor: nwse-resize !important; }
 .dash-live { position: absolute; width: var(--hair); height: var(--hair); overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .dash-cell, .dash-slot { transition: none; } }
+@media (pointer: coarse) {
+  .dash-grip { min-width: var(--sp-6); min-height: var(--sp-6); }
+  .dash-handle { width: var(--sp-5); height: var(--sp-5); }
+}
 @media (max-width: 699px) {
   .page.dash { padding: var(--sp-2) var(--sp-2) var(--sp-5); }
-  .dash-grid { grid-template-columns: minmax(0, 1fr); }
-  .dash-cell { grid-column: 1; grid-row: auto / span var(--h); }
+  .dash-edge-r, .dash-handle { display: none; }
   .dash-actions { margin-left: 0; }
 }

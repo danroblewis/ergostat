@@ -13,7 +13,98 @@ const DASH_QUERIES = 12;                               // queries on one panel
 const dashOwn = (table, key) => typeof key === "string" && Object.hasOwn(table, key);   // never a name every object inherits
 const DASH_WINDOW = "1d";                              // what a dashboard with no window of its own opens on
 const DASH = { draft: null, kept: false, editing: false, cells: new Map(), undo: [], timer: null, wasHere: false,
-               since: null, grid: null, head: null, live: null, said: null, page: 0, asked: 0, narrow: null, flight: null, retry: 0 };
+               since: null, grid: null, head: null, live: null, said: null, page: 0, asked: 0, narrow: null, flight: null, retry: 0,
+               drag: null, pending: null, lifted: null, slot: null, settle: 0 };
+
+/* ---- the layout engine: pure, no page. An item is {id, x, y, w, h} on 12 columns and rows of equal height ---- */
+
+const DashLayout = (() => {
+  const COLS = 12, MIN_W = 3, MIN_H = 3, MAX_H = 48, MAX_Y = 2000;     // a draft from a link is bounded, so every search ends
+  const whole = (v, or) => (Number.isFinite(v) ? Math.round(v) : or);
+  const hits = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  const sharesColumns = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w;
+  const reading = (a, b) => a.y - b.y || a.x - b.x || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  function bounded(it) {
+    const w = Math.min(COLS, Math.max(MIN_W, whole(it.w, 6))), h = Math.min(MAX_H, Math.max(MIN_H, whole(it.h, 7)));
+    return { id: it.id, x: Math.min(COLS - w, Math.max(0, whole(it.x, 0))), y: Math.min(MAX_Y, Math.max(0, whole(it.y, 0))), w, h };
+  }
+  /* the highest place in the item's own columns clear of those already placed */
+  function rise(it, placed) {
+    const at = { ...it, y: 0 };
+    for (let blocker; (blocker = placed.find((p) => hits(p, at))); ) at.y = blocker.y + blocker.h;
+    return at;
+  }
+  function settle(sequence) {
+    const placed = [];
+    for (const it of sequence) placed.push(rise(it, placed));
+    return placed;
+  }
+  const inOrderOf = (items, placed) => {
+    const by = new Map(placed.map((p) => [p.id, p]));
+    return items.map((it) => by.get(it.id));
+  };
+  /* everything as high as it goes, in reading order: settling twice changes nothing */
+  const compact = (items) => inOrderOf(items, settle(items.map(bounded).sort(reading)));
+  /* ``t`` put among the others: those ``before`` it keep their turn, and it goes ahead of the first that shares its columns */
+  function flow(items, t, before) {
+    const seq = [];
+    let put = false;
+    for (const o of items.filter((x) => x.id !== t.id).map(bounded).sort(reading)) {
+      if (!put && sharesColumns(o, t) && !before(o)) { seq.push(t); put = true; }
+      seq.push(o);
+    }
+    if (!put) seq.push(t);
+    return inOrderOf(items, settle(seq));
+  }
+  /* a move, always worked out from the same starting ``items``. Dropped on a panel of its own size, the two swap */
+  function move(items, id, to, overId = null) {
+    const from = items.find((x) => x.id === id);
+    if (!from) return compact(items);
+    const t = bounded({ ...from, x: to.x, y: to.y, id });
+    const over = overId != null && overId !== id ? items.find((x) => x.id === overId) : null;
+    if (over && over.w === from.w && over.h === from.h)
+      return compact(items.map((x) => (x.id === id ? { ...x, x: over.x, y: over.y } : x.id === over.id ? { ...x, x: from.x, y: from.y } : x)));
+    const middle = t.y + t.h / 2;
+    return flow(items, t, (o) => o.y + o.h / 2 < middle);
+  }
+  /* a resize: the panel keeps its place and what it grows into moves below it */
+  function resize(items, id, to) {
+    const from = items.find((x) => x.id === id);
+    if (!from) return compact(items);
+    const t = bounded({ ...from, ...to, id });
+    return flow(items, t, (o) => o.y + o.h <= t.y);
+  }
+  /* each in the first place it fits, in the order given */
+  function pack(items, placed = []) {
+    const out = [...placed];
+    for (const raw of items) {
+      const it = bounded(raw);
+      let found = null;
+      for (let y = 0; !found; y++) for (let x = 0; x + it.w <= COLS; x++) {
+        const at = { ...it, x, y };
+        if (!out.some((p) => hits(p, at))) { found = at; break; }
+      }
+      out.push(found);
+    }
+    return out.slice(placed.length);
+  }
+  /* one column, in the order given */
+  function stack(items) {
+    let y = 0;
+    return items.map((it) => { const at = { ...bounded(it), x: 0, w: COLS, y }; y += at.h; return at; });
+  }
+  /* what a draft holds, made sound: laid-out items compacted, those with none (version 1) placed after them */
+  function arrange(list) {
+    const laid = list.filter((x) => x.layout && typeof x.layout === "object").map((x) => ({ ...x.layout, id: x.id }));
+    const kept = compact(laid);
+    const fresh = pack(list.filter((x) => !(x.layout && typeof x.layout === "object")).map((x) => ({ id: x.id, x: 0, y: 0, w: x.w, h: x.h })), kept);
+    const by = new Map([...kept, ...fresh].map((p) => [p.id, p]));
+    return list.map((x) => by.get(x.id));
+  }
+  const overlaps = (items) => items.some((a, i) => items.slice(i + 1).some((b) => hits(a, b)));
+  const height = (items) => items.reduce((n, p) => Math.max(n, p.y + p.h), 0);
+  return { COLS, MIN_W, MIN_H, compact, move, resize, pack, stack, arrange, overlaps, height, reading };
+})();
 
 /* ---- the draft, in the address and in localStorage ---- */
 
@@ -42,6 +133,9 @@ function dashClean(d) {
              queries: Array.isArray(p.queries) ? p.queries.filter(isObject).slice(0, DASH_QUERIES) : [],
              size: dashOwn(DASH_COLUMNS, p.size) ? p.size : "m", tall: p.tall === true };
   });
+  const laid = DashLayout.arrange(panels.map((p) => ({ id: p.id, layout: p.layout, w: DASH_COLUMNS[p.size],
+                                                       h: dashRows(p) * (p.tall ? 2 : 1) })));
+  panels.forEach((p, i) => { const { x, y, w, h: hi } = laid[i]; p.layout = { x, y, w, h: hi }; });
   return { title: words(d.title || "Dashboard", DASH_LONGEST.title), since: dashOwn(WINDOWS, d.since) ? d.since : null, panels };
 }
 const dashKey = () => `ergostat.dashboard.${S.status?.name || ""}`;
@@ -251,23 +345,21 @@ function dashStartsNearZero(results) {
 /* ---- the grid ---- */
 
 const dashRows = (p) => (p.form === "stat" ? 4 : 7);    // a stat: its title, number, change and sparkline
-const dashHeight = (p) => dashRows(p) * (p.tall ? 2 : 1) + (DASH.editing ? 1 : 0);
-/* each panel in the first place it fits, in the draft's order: no holes, and the page's order is the order seen */
-function dashPack(panels, cols) {
-  const used = [];
-  const bottom = panels.reduce((n, p) => n + dashHeight(p), 0);   // every panel fits by here, so the search always ends
-  const free = (x, y, w, hi) => {
-    for (let r = y; r < y + hi; r++) for (let c = x; c < x + w; c++) if (used[r]?.[c]) return false;
-    return true;
-  };
-  return panels.map((p) => {
-    const w = Math.min(cols, DASH_COLUMNS[p.size]), hi = dashHeight(p);
-    for (let y = 0; y <= bottom; y++) for (let x = 0; x + w <= cols; x++) if (free(x, y, w, hi)) {
-      for (let r = y; r < y + hi; r++) { used[r] ||= []; for (let c = x; c < x + w; c++) used[r][c] = true; }
-      return { p, x, y, w, h: hi };
-    }
-    throw new Error("a panel found no place on the grid");
-  });
+const dashItems = (panels) => panels.map((p) => ({ id: p.id, ...p.layout }));
+/* the width and height the editor offers, kept true to the arrangement */
+function dashNearestSize(w) {
+  return DASH_SIZES.reduce((a, b) => (Math.abs(DASH_COLUMNS[b] - w) < Math.abs(DASH_COLUMNS[a] - w) ? b : a));
+}
+/* an arrangement written to a draft's panels, which then read in its order */
+function dashWrite(d, items, { sort = true } = {}) {
+  const by = new Map(items.map((x) => [x.id, x]));
+  for (const p of d.panels) {
+    const { x, y, w, h: hi } = by.get(p.id);
+    p.layout = { x, y, w, h: hi };
+    p.size = dashNearestSize(w);
+    p.tall = hi >= dashRows(p) * 2;
+  }
+  if (sort) d.panels.sort((a, b) => DashLayout.reading({ id: a.id, ...a.layout }, { id: b.id, ...b.layout }));
 }
 function dashTool(text, label, onclick) {
   return h("button", { type: "button", class: "ghost", title: label, "aria-label": label, onclick }, text);
@@ -275,30 +367,62 @@ function dashTool(text, label, onclick) {
 function dashCell(p) {
   const panel = chartPanel(p);
   const grip = h("button", { type: "button", class: "ghost dash-grip", title: "Drag to move", "aria-label": "Drag to move" }, "⠇");
-  grip.addEventListener("pointerdown", (ev) => dashDragMove(ev, p.id));
   const edit = typeof openPanelEditor === "function" ? dashTool("Edit", "Edit this panel", () => dashEditPanel(p.id)) : null;
   const tools = h("div", { class: "dash-tools" }, grip, h("span", { class: "dash-gap" }),
                   dashTool("←", "Move earlier", () => dashMove(p.id, -1)), dashTool("→", "Move later", () => dashMove(p.id, 1)),
                   dashTool("−", "Narrower", () => dashResize(p.id, -1)), dashTool("+", "Wider", () => dashResize(p.id, 1)),
                   dashTool("↕", "Tall or short", () => dashTall(p.id)), edit,
                   dashTool("×", "Remove this panel", () => dashRemove(p.id)));
-  const handle = h("span", { class: "dash-handle", title: "Drag to resize" });
-  handle.addEventListener("pointerdown", (ev) => dashDragSize(ev, p.id));
-  const el = h("section", { class: "dash-cell", "data-panel": p.id }, tools, h("div", { class: "dash-body" }, panel), h("div", { class: "dash-foot" }, handle));
-  return { el, panel, sig: JSON.stringify(p), drawn: false };
+  const edge = (cls, sides, title) => h("span", { class: cls, "data-resize": sides, title });
+  const el = h("section", { class: "dash-cell", "data-panel": p.id, tabindex: "0",
+                            "aria-description": "Press Enter to move or resize it with the arrow keys" },
+               tools, h("div", { class: "dash-body" }, panel), h("div", { class: "dash-foot" }),
+               edge("dash-edge dash-edge-r", "r", "Drag to resize"), edge("dash-edge dash-edge-b", "b", "Drag to resize"),
+               edge("dash-edge dash-handle", "rb", "Drag to resize"));
+  return { el, panel, sig: dashSig(p), drawn: false, at: "" };
+}
+/* what the chart depends on: where it sits on the grid is not part of it */
+function dashSig(p) {
+  const { layout, size, tall, ...rest } = p;
+  return JSON.stringify(rest);
+}
+const dashIsNarrow = () => matchMedia(DASH_NARROW).matches;
+/* the arrangement as drawn at this width */
+const dashShown = (panels) => (dashIsNarrow() ? DashLayout.stack(dashItems(panels)) : dashItems(panels));
+function dashPut(c, it) {
+  const at = `${it.x},${it.y},${it.w},${it.h}`;
+  if (c.at === at) return;
+  c.at = at;
+  for (const [k, v] of [["--x", it.x], ["--y", it.y], ["--w", it.w], ["--h", it.h]]) c.el.style.setProperty(k, v);
+}
+/* uPlot keeps where its plot is on the page; a panel that moved must tell it */
+function dashPlotsMoved() {
+  clearTimeout(DASH.settle);
+  DASH.settle = setTimeout(() => dispatchEvent(new Event("scroll")), 240);
+}
+function dashPlaceDom(list) {
+  const grid = DASH.grid;
+  list.forEach((it, i) => {
+    const el = DASH.cells.get(it.id).el;
+    if (grid.children[i] === el) return;
+    if (grid.moveBefore) grid.moveBefore(el, grid.children[i] || null);
+    else grid.insertBefore(el, grid.children[i] || null);
+  });
 }
 /* the cells made, kept or dropped to match the draft, and placed: a panel that only moved keeps its chart */
 function dashDraw() {
   const d = DASH.draft, grid = DASH.grid;
   if (!d || !grid) return;
+  if (DASH.drag) dashDragEnd(false);
+  if (DASH.lifted) dashDrop(false);
   const focused = document.activeElement?.closest?.(".dash-cell")?.dataset.panel;
   const ids = new Set(d.panels.map((p) => p.id));
   for (const [id, c] of DASH.cells) if (!ids.has(id)) { c.panel.destroy?.(); c.el.remove(); DASH.cells.delete(id); }
   let fresh = false;
   for (const p of d.panels) {
     const c = DASH.cells.get(p.id);
-    if (!c) { const made = dashCell(p); DASH.cells.set(p.id, made); made.panel.setState?.("loading"); fresh = true; continue; }
-    const sig = JSON.stringify(p);
+    if (!c) { const made = dashCell(p); DASH.cells.set(p.id, made); grid.append(made.el); made.panel.setState?.("loading"); fresh = true; continue; }
+    const sig = dashSig(p);
     if (c.sig !== sig) {
       const asks = (x) => JSON.stringify(JSON.parse(x).queries);
       if (asks(c.sig) !== asks(sig)) fresh = true;
@@ -306,20 +430,19 @@ function dashDraw() {
       c.panel.setConfig?.(c.still ? { ...p, note: c.still } : p);
     }
   }
-  const narrow = matchMedia(DASH_NARROW).matches;
-  const placed = dashPack(d.panels, narrow ? 1 : 12);
-  const order = [...placed].sort((a, b) => a.y - b.y || a.x - b.x);
-  order.forEach(({ p, x, y, w, h: hi }, i) => {
-    const c = DASH.cells.get(p.id);
-    for (const [k, v] of [["--x", x + 1], ["--y", y + 1], ["--w", w], ["--h", hi]]) c.el.style.setProperty(k, v);
+  const shown = dashShown(d.panels);
+  for (const it of shown) {
+    const c = DASH.cells.get(it.id), p = d.panels.find((x) => x.id === it.id);
+    dashPut(c, it);
     c.el.classList.toggle("is-stat", p.form === "stat");
     c.el.setAttribute("aria-label", p.title || "Panel");
-    c.el.toggleAttribute("tabindex", DASH.editing);
-    if (DASH.editing) c.el.setAttribute("tabindex", "0");
-    if (grid.children[i] !== c.el) grid.insertBefore(c.el, grid.children[i] || null);
-  });
+  }
+  dashPlaceDom(dashIsNarrow() ? shown : [...shown].sort(DashLayout.reading));
+  grid.style.setProperty("--rows", DashLayout.height(shown));
+  grid.classList.add("placed");
   grid.classList.toggle("editing", DASH.editing);
-  if (focused && DASH.cells.has(focused) && DASH.editing) DASH.cells.get(focused).el.focus({ preventScroll: true });
+  if (focused && DASH.cells.has(focused)) DASH.cells.get(focused).el.focus({ preventScroll: true });
+  dashPlotsMoved();
   if (fresh) dashRefresh();
 }
 /* an answer that does not come: the panels say late after a while and keep what they show; the request is then given
@@ -425,23 +548,32 @@ function dashChange(fn, said) {
 }
 const dashIndex = (id) => DASH.draft.panels.findIndex((p) => p.id === id);
 const dashTitle = (p) => p.title || "Panel";
+/* earlier or later in reading order: the panels are packed again in the new order */
 function dashMove(id, by) {
   const i = dashIndex(id), j = i + by, ps = DASH.draft.panels;
   if (i < 0 || j < 0 || j >= ps.length) return;
-  dashChange((d) => d.panels.splice(j, 0, d.panels.splice(i, 1)[0]), `${dashTitle(ps[i])}: moved to place ${j + 1} of ${ps.length}`);
+  dashChange((d) => {
+    d.panels.splice(j, 0, d.panels.splice(i, 1)[0]);
+    dashWrite(d, DashLayout.pack(dashItems(d.panels)), { sort: false });
+  }, `${dashTitle(ps[i])}: moved to place ${j + 1} of ${ps.length}`);
+}
+function dashResizeTo(d, id, size) {
+  const p = d.panels[d.panels.findIndex((x) => x.id === id)];
+  dashWrite(d, DashLayout.resize(dashItems(d.panels), id, size));
+  return p;
 }
 function dashResize(id, by) {
   const p = DASH.draft.panels[dashIndex(id)];
   const size = p && DASH_SIZES[DASH_SIZES.indexOf(p.size) + by];
   if (!size) return;
-  dashChange((d) => { d.panels[dashIndex(id)].size = size; }, `${dashTitle(p)}: ${DASH_COLUMNS[size]} of 12 columns`);
+  dashChange((d) => dashResizeTo(d, id, { w: DASH_COLUMNS[size] }), `${dashTitle(p)}: ${DASH_COLUMNS[size]} of 12 columns`);
 }
 function dashTall(id, tall = null) {
   const p = DASH.draft.panels[dashIndex(id)];
   if (!p) return;
   const to = tall ?? !p.tall;
   if (to === p.tall) return;
-  dashChange((d) => { d.panels[dashIndex(id)].tall = to; }, `${dashTitle(p)}: ${to ? "tall" : "short"}`);
+  dashChange((d) => dashResizeTo(d, id, { h: dashRows(p) * (to ? 2 : 1) }), `${dashTitle(p)}: ${to ? "tall" : "short"}`);
 }
 function dashRemove(id) {
   const i = dashIndex(id), ps = DASH.draft.panels;
@@ -451,12 +583,109 @@ function dashRemove(id) {
   const to = next && DASH.cells.get(next)?.el;
   (to || DASH.head?.querySelector(".dash-add") || DASH.head?.querySelector(".dash-edit"))?.focus();
 }
+const dashSays = (p, it) => `${dashTitle(p)}: column ${it.x + 1}, row ${it.y + 1}, ${it.w} columns wide, ${it.h} rows high`;
+function dashShowItems(items, held = null) {
+  for (const it of items) {
+    const c = DASH.cells.get(it.id);
+    if (c) dashPut(c, it);
+    if (it.id === held && DASH.slot) for (const [k, v] of [["--x", it.x], ["--y", it.y], ["--w", it.w], ["--h", it.h]]) DASH.slot.style.setProperty(k, v);
+  }
+  DASH.grid.style.setProperty("--rows", DashLayout.height(items) + (DASH.drag ? DASH.drag.room : 0));
+}
+/* a finished arrangement goes into the draft, as one Undo; ``order`` is a phone's new reading order */
+function dashCommit(id, items, order) {
+  const same = order
+    ? order.join() === DASH.draft.panels.map((p) => p.id).join() && items.every((x) => x.h === DASH.draft.panels[dashIndex(x.id)].layout.h)
+    : items.every((x) => { const l = DASH.draft.panels[dashIndex(x.id)].layout; return l.x === x.x && l.y === x.y && l.w === x.w && l.h === x.h; });
+  if (same) { dashDraw(); return false; }
+  dashChange((d) => {
+    if (!order) { dashWrite(d, items); return; }
+    const high = new Map(items.map((x) => [x.id, x.h]));
+    d.panels.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    for (const p of d.panels) p.layout.h = high.get(p.id);
+    dashWrite(d, DashLayout.pack(dashItems(d.panels)), { sort: false });
+  });
+  return true;
+}
+
+/* by keyboard: Enter lifts the panel, the arrows move it, Shift and the arrows resize it, Enter puts it down, Escape undoes */
+function dashLift(id) {
+  const c = DASH.cells.get(id), p = DASH.draft.panels[dashIndex(id)];
+  if (!c || !p) return;
+  const start = dashShown(DASH.draft.panels);
+  DASH.lifted = { id, start, now: start, order: DASH.draft.panels.map((x) => x.id) };
+  c.el.classList.add("is-lifted");
+  c.el.setAttribute("aria-grabbed", "true");
+  dashAnnounce(`${dashTitle(p)} lifted. Arrow keys move it, Shift and arrow keys resize it, Enter puts it down, Escape cancels.`);
+}
+function dashDrop(keep) {
+  const l = DASH.lifted;
+  if (!l) return;
+  DASH.lifted = null;
+  const c = DASH.cells.get(l.id), p = DASH.draft.panels[dashIndex(l.id)];
+  c?.el.classList.remove("is-lifted");
+  c?.el.removeAttribute("aria-grabbed");
+  if (!p) return;
+  if (keep) {
+    const it = l.now.find((x) => x.id === l.id);
+    dashCommit(l.id, l.now, dashIsNarrow() ? l.order : null);
+    dashAnnounce(`${dashSays(p, it)}. Put down.`);
+  } else {
+    dashShowItems(l.start);
+    dashAnnounce(`${dashTitle(p)}: move cancelled`);
+  }
+  DASH.cells.get(l.id)?.el.focus({ preventScroll: true });
+}
+function dashLiftedKey(key, shift) {
+  const l = DASH.lifted, p = DASH.draft.panels[dashIndex(l.id)], at = l.now.find((x) => x.id === l.id);
+  const dx = { ArrowLeft: -1, ArrowRight: 1 }[key] || 0, dy = { ArrowUp: -1, ArrowDown: 1 }[key] || 0;
+  let next = null;
+  if (dashIsNarrow()) {
+    if (shift) { if (dy) next = DashLayout.stack(l.now.map((x) => (x.id === l.id ? { ...x, h: Math.max(DashLayout.MIN_H, x.h + dy) } : x))); }
+    else if (dy) {
+      const i = l.order.indexOf(l.id), j = i + dy;
+      if (j >= 0 && j < l.order.length) {
+        l.order.splice(j, 0, l.order.splice(i, 1)[0]);
+        const by = new Map(l.now.map((x) => [x.id, x]));
+        next = DashLayout.stack(l.order.map((id) => by.get(id)));
+      }
+    }
+  } else if (shift) next = DashLayout.resize(l.now, l.id, { w: at.w + dx, h: at.h + dy });
+  else if (dx) next = DashLayout.move(l.now, l.id, { x: at.x + dx, y: at.y });
+  else if (dy) {                                                    // a row at a time may settle back: go on until it lands elsewhere
+    for (let k = 1, most = DashLayout.height(l.now) + at.h; k <= most; k++) {
+      const tried = DashLayout.move(l.now, l.id, { x: at.x, y: at.y + dy * k });
+      if (tried.find((x) => x.id === l.id).y !== at.y) { next = tried; break; }
+      if (at.y + dy * k < 0) break;
+    }
+  }
+  const to = next?.find((x) => x.id === l.id);
+  if (!to || (to.x === at.x && to.y === at.y && to.w === at.w && to.h === at.h && (!dashIsNarrow() || shift))) {
+    if (!dashIsNarrow() || !next) { dashAnnounce(`${dashTitle(p)}: can go no further that way`); return; }
+  }
+  l.now = next;
+  dashShowItems(next);
+  dashAnnounce(dashIsNarrow() && !shift ? `${dashTitle(p)}: place ${l.order.indexOf(l.id) + 1} of ${l.order.length}` : dashSays(p, to));
+}
 function dashKeydown(ev) {
-  if (!DASH.editing || /^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName)) return;
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(ev.target.tagName)) return;
   const id = ev.target.closest?.(".dash-cell")?.dataset.panel;
   if (!id) return;
+  const onCell = ev.target.classList.contains("dash-cell");
+  const isArrow = ev.key in { ArrowLeft: 1, ArrowUp: 1, ArrowRight: 1, ArrowDown: 1 };
+  if (DASH.lifted?.id === id) {
+    if (isArrow) dashLiftedKey(ev.key, ev.shiftKey);
+    else if (ev.key === "Enter" || ev.key === " ") dashDrop(true);
+    else if (ev.key === "Escape") dashDrop(false);
+    else if (ev.key === "Tab") { dashDrop(true); return; }
+    else return;
+    ev.preventDefault();
+    return;
+  }
+  if (onCell && (ev.key === "Enter" || ev.key === " ")) { dashLift(id); ev.preventDefault(); return; }
+  if (!DASH.editing) return;
   const arrow = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[ev.key];
-  if ((ev.key === "Delete" || ev.key === "Backspace") && ev.target.classList.contains("dash-cell")) dashRemove(id);
+  if ((ev.key === "Delete" || ev.key === "Backspace") && onCell) dashRemove(id);
   else if (arrow && ev.altKey && ev.shiftKey) {
     if (ev.key === "ArrowUp" || ev.key === "ArrowDown") dashTall(id, ev.key === "ArrowDown");
     else dashResize(id, arrow);
@@ -464,59 +693,206 @@ function dashKeydown(ev) {
   else return;
   ev.preventDefault();
 }
-/* a drag: ``fn`` at each move of the pointer. The draft is remembered once, for one Undo */
-function dashDrag(ev, fn) {
-  if (ev.button !== 0) return;
-  ev.preventDefault();
-  dashRemember();
-  const marks = DASH.undo.length;
-  const before = JSON.stringify(DASH.draft);
-  const move = (e) => fn(e);
-  const up = () => {
-    removeEventListener("pointermove", move);
-    removeEventListener("pointerup", up);
-    removeEventListener("pointercancel", up);
-    DASH.grid?.classList.remove("dragging");
-    if (JSON.stringify(DASH.draft) === before) DASH.undo = DASH.undo.slice(0, marks - 1);
-    else saveDashboardDraft(DASH.draft);
-    dashHead();
+
+/* by pointer: a header moves the panel, an edge or corner resizes it. Worked out once a frame, always from where the
+   drag began, so a drag can be undone by moving back and Escape puts everything back */
+const DASH_HOLD = 220, DASH_NUDGE = 4, DASH_SLIP = 8, DASH_EDGE = 56, DASH_SCROLL = 18;
+function dashUnits() {
+  const cs = getComputedStyle(DASH.grid), gap = parseFloat(cs.rowGap) || 8, row = parseFloat(cs.gridAutoRows) || 32;
+  const r = DASH.grid.getBoundingClientRect();
+  return { r, gap, col: (r.width + gap) / DashLayout.COLS, row: row + gap };
+}
+function dashScroller() {
+  for (let e = DASH.grid; e; e = e.parentElement) {
+    const o = getComputedStyle(e).overflowY;
+    if ((o === "auto" || o === "scroll") && e.scrollHeight > e.clientHeight) return e;
+  }
+  return document.scrollingElement;
+}
+function dashPointerDown(ev) {
+  if (ev.button !== 0 || DASH.drag || DASH.pending) return;
+  const edge = ev.target.closest?.("[data-resize]");
+  const grip = ev.target.closest?.(".dash-grip");
+  const head = !edge && (grip || ev.target.closest?.(".panel-head, .dash-tools"));
+  if (!edge && !head) return;
+  if (!edge && !grip && ev.target.closest("button, a, input, select, textarea, label, [role=button]")) return;
+  const el = ev.target.closest(".dash-cell"), id = el?.dataset.panel;
+  if (!id) return;
+  const sides = edge?.dataset.resize || null;
+  const held = ev.pointerType === "touch" && !edge && !grip;       // on a phone a header also scrolls the page: hold to lift
+  const pend = { id, sides, pointer: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, timer: 0 };
+  const begin = () => { dashPendEnd(); dashDragBegin(pend); };
+  const move = (e) => {
+    if (e.pointerId !== pend.pointer) return;
+    pend.x = e.clientX; pend.y = e.clientY;
+    const far = Math.hypot(e.clientX - pend.x0, e.clientY - pend.y0);
+    if (held ? far > DASH_SLIP : far >= DASH_NUDGE) { if (held) dashPendEnd(); else begin(); }
   };
-  DASH.grid?.classList.add("dragging");
+  const stop = (e) => { if (e.pointerId === pend.pointer) dashPendEnd(); };
+  pend.off = () => {
+    removeEventListener("pointermove", move);
+    removeEventListener("pointerup", stop);
+    removeEventListener("pointercancel", stop);
+    clearTimeout(pend.timer);
+  };
+  DASH.pending = pend;
   addEventListener("pointermove", move);
-  addEventListener("pointerup", up);
-  addEventListener("pointercancel", up);
+  addEventListener("pointerup", stop);
+  addEventListener("pointercancel", stop);
+  if (held) pend.timer = setTimeout(begin, DASH_HOLD);
+  else ev.preventDefault();                                        // no text selection starts from a header or edge
 }
-function dashDragMove(ev, id) {
-  let last = null;
-  dashDrag(ev, (e) => {
-    const over = [...DASH.cells.entries()].find(([k, c]) => {
-      if (k === id) return false;
-      const r = c.el.getBoundingClientRect();
-      return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-    })?.[0];
-    if (!over || over === last) { if (!over) last = null; return; }
-    last = over;
-    const ps = DASH.draft.panels, i = dashIndex(id), j = dashIndex(over);
-    ps.splice(j, 0, ps.splice(i, 1)[0]);
-    dashDraw();
-    dashAnnounce(`${dashTitle(ps[j])}: moved to place ${j + 1} of ${ps.length}`);
-  });
+function dashPendEnd() {
+  DASH.pending?.off();
+  DASH.pending = null;
 }
-function dashDragSize(ev, id) {
-  dashDrag(ev, (e) => {
-    const c = DASH.cells.get(id), p = DASH.draft.panels[dashIndex(id)];
-    if (!c || !p) return;
-    const r = c.el.getBoundingClientRect(), wide = DASH.grid.getBoundingClientRect().width / 12;
-    const want = (e.clientX - r.left) / wide;
-    const size = DASH_SIZES.reduce((a, b) => (Math.abs(DASH_COLUMNS[b] - want) < Math.abs(DASH_COLUMNS[a] - want) ? b : a));
-    const cs = getComputedStyle(DASH.grid), short = dashRows(p) * (parseFloat(cs.gridAutoRows) + parseFloat(cs.rowGap));
-    const tall = e.clientY - r.top > short * 1.5;
-    if (size === p.size && tall === p.tall) return;
-    p.size = size;
-    p.tall = tall;
-    dashDraw();
-    dashAnnounce(`${dashTitle(p)}: ${DASH_COLUMNS[size]} of 12 columns${tall ? ", tall" : ""}`);
-  });
+function dashDragBegin(pend) {
+  const { id, sides } = pend, c = DASH.cells.get(id);
+  if (!c || !DASH.draft) return;
+  if (DASH.lifted) dashDrop(true);
+  const narrow = dashIsNarrow(), start = dashShown(DASH.draft.panels), me = start.find((x) => x.id === id), u = dashUnits();
+  const box = c.el.getBoundingClientRect();
+  const g = DASH.drag = { id, sides, narrow, start, now: start, me, pointer: pend.pointer, x: pend.x, y: pend.y, raf: 0, key: "",
+                          grabX: pend.x0 - box.left, grabY: pend.y0 - box.top, boxW: box.width, boxH: box.height,
+                          order: DASH.draft.panels.map((p) => p.id), room: me.h + 2, cell: c, x0: pend.x0, y0: pend.y0,
+                          scrollAt: 0 };
+  const scroller = dashScroller();
+  g.scroller = scroller;
+  g.scroll0 = scroller.scrollTop;
+  DASH.slot = h("div", { class: "dash-slot", "aria-hidden": "true" });
+  for (const [k, v] of [["--x", me.x], ["--y", me.y], ["--w", me.w], ["--h", me.h]]) DASH.slot.style.setProperty(k, v);
+  DASH.grid.append(DASH.slot);
+  DASH.grid.classList.add("dragging");
+  document.documentElement.classList.add(sides ? "dash-sizing" : "dash-moving");
+  if (sides) document.documentElement.dataset.dashSides = sides;
+  c.el.classList.add("is-held");
+  c.el.style.width = `${box.width}px`;
+  c.el.style.height = `${box.height}px`;
+  if (sides) dashFreezeBody(g, box.width, box.height);
+  else c.el.style.transform = `translate(${box.left - u.r.left}px, ${box.top - u.r.top}px)`;
+  g.move = (e) => { if (e.pointerId !== g.pointer) return; g.x = e.clientX; g.y = e.clientY; dashDragFrame(); };
+  g.up = (e) => { if (e.pointerId === g.pointer) dashDragEnd(true); };
+  g.cancel = (e) => { if (e.pointerId === g.pointer) dashDragEnd(false); };
+  g.key_ = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); dashDragEnd(false); dashAnnounce("Move cancelled"); } };
+  g.touch = (e) => { if (e.cancelable) e.preventDefault(); };      // the page must not scroll under a lifted panel
+  addEventListener("pointermove", g.move);
+  addEventListener("pointerup", g.up);
+  addEventListener("pointercancel", g.cancel);
+  addEventListener("keydown", g.key_, true);
+  addEventListener("touchmove", g.touch, { passive: false });
+  dashDragFrame();
+}
+/* the chart keeps its size between grid steps, so a resize redraws it only when the snapped size changes */
+function dashFreezeBody(g, w, hi) {
+  const body = g.cell.el.querySelector(".dash-body");
+  body.style.flex = "none";
+  body.style.width = `${w}px`;
+  body.style.height = `${Math.max(0, hi - (g.cell.el.offsetHeight - body.offsetHeight))}px`;
+}
+function dashDragFrame() {
+  const g = DASH.drag;
+  if (g && !g.raf) g.raf = requestAnimationFrame(dashDragTick);
+}
+function dashAutoScroll(g) {
+  const s = g.scroller, whole = s === document.scrollingElement;
+  const top = whole ? 0 : s.getBoundingClientRect().top, bottom = whole ? innerHeight : s.getBoundingClientRect().bottom;
+  const up = top + DASH_EDGE - g.y, down = g.y - (bottom - DASH_EDGE);
+  const by = up > 0 ? -Math.ceil(DASH_SCROLL * Math.min(1, up / DASH_EDGE)) : down > 0 ? Math.ceil(DASH_SCROLL * Math.min(1, down / DASH_EDGE)) : 0;
+  if (!by) return false;
+  const was = s.scrollTop;
+  s.scrollTop = was + by;
+  return s.scrollTop !== was;
+}
+function dashDragTick() {
+  const g = DASH.drag;
+  if (!g) return;
+  g.raf = 0;
+  const scrolled = dashAutoScroll(g), u = dashUnits();
+  if (g.sides) dashSizeFrame(g, u);
+  else dashMoveFrame(g, u);
+  if (scrolled) dashDragFrame();
+}
+function dashMoveFrame(g, u) {
+  const px = g.x - u.r.left - g.grabX, py = g.y - u.r.top - g.grabY;
+  g.cell.el.style.transform = `translate(${g.narrow ? 0 : px}px, ${py}px)`;
+  if (g.narrow) {
+    const others = g.order.filter((id) => id !== g.id), by = new Map(g.start.map((x) => [x.id, x]));
+    const middle = (py + g.boxH / 2) / u.row;
+    let at = 0, y = 0;
+    for (const id of others) {
+      const hi = by.get(id).h;
+      if (middle > y + hi / 2) at++;
+      y += hi;
+    }
+    const order = [...others.slice(0, at), g.id, ...others.slice(at)], key = order.join();
+    if (key === g.key) return;
+    g.key = key;
+    g.now = DashLayout.stack(order.map((id) => by.get(id)));
+    g.newOrder = order;
+    dashShowItems(g.now, g.id);
+    dashAnnounce(`${dashTitle(DASH.draft.panels[dashIndex(g.id)])}: place ${at + 1} of ${order.length}`);
+    return;
+  }
+  const to = { x: Math.round(px / u.col), y: Math.max(0, Math.round(py / u.row)) };
+  const col = Math.floor((g.x - u.r.left) / u.col), row = Math.floor((g.y - u.r.top) / u.row);
+  const over = g.start.find((x) => x.id !== g.id && col >= x.x && col < x.x + x.w && row >= x.y && row < x.y + x.h)?.id ?? null;
+  const key = `${to.x},${to.y},${over}`;
+  if (key === g.key) return;
+  g.key = key;
+  g.now = DashLayout.move(g.start, g.id, to, over);
+  dashShowItems(g.now, g.id);
+  const it = g.now.find((x) => x.id === g.id);
+  dashAnnounce(dashSays(DASH.draft.panels[dashIndex(g.id)], it));
+}
+function dashSizeFrame(g, u) {
+  const dx = g.sides.includes("r") && !g.narrow ? g.x - g.x0 : 0, dy = g.sides.includes("b") ? g.y - g.y0 + (g.scroller.scrollTop - g.scroll0) : 0;
+  const pxW = Math.max(u.col * DashLayout.MIN_W - u.gap, Math.min(u.r.right - (u.r.left + g.me.x * u.col), g.boxW + dx));
+  const pxH = Math.max(u.row * DashLayout.MIN_H - u.gap, g.boxH + dy);
+  g.cell.el.style.width = `${pxW}px`;
+  g.cell.el.style.height = `${pxH}px`;
+  const w = g.narrow ? g.me.w : Math.round((pxW + u.gap) / u.col), hi = Math.round((pxH + u.gap) / u.row);
+  const key = `${w},${hi}`;
+  if (key === g.key) return;
+  g.key = key;
+  if (g.narrow) {
+    const by = new Map(g.start.map((x) => [x.id, x]));
+    g.now = DashLayout.stack(g.order.map((id) => (id === g.id ? { ...by.get(id), h: hi } : by.get(id))));
+  } else g.now = DashLayout.resize(g.start, g.id, { w, h: hi });
+  dashShowItems(g.now, g.id);
+  const it = g.now.find((x) => x.id === g.id);
+  dashFreezeBody(g, it.w * u.col - u.gap, it.h * u.row - u.gap);
+  dashAnnounce(dashSays(DASH.draft.panels[dashIndex(g.id)], it));
+}
+function dashDragEnd(keep) {
+  const g = DASH.drag;
+  if (!g) return;
+  if (g.raf) cancelAnimationFrame(g.raf);
+  if (keep) { g.raf = 0; if (g.sides) dashSizeFrame(g, dashUnits()); else dashMoveFrame(g, dashUnits()); }
+  removeEventListener("pointermove", g.move);
+  removeEventListener("pointerup", g.up);
+  removeEventListener("pointercancel", g.cancel);
+  removeEventListener("keydown", g.key_, true);
+  removeEventListener("touchmove", g.touch);
+  DASH.drag = null;
+  DASH.slot?.remove();
+  DASH.slot = null;
+  DASH.grid?.classList.remove("dragging");
+  document.documentElement.classList.remove("dash-moving", "dash-sizing");
+  delete document.documentElement.dataset.dashSides;
+  const el = g.cell.el, body = el.querySelector(".dash-body");
+  el.classList.remove("is-held");
+  for (const k of ["transform", "width", "height"]) el.style.removeProperty(k);
+  for (const k of ["flex", "width", "height"]) body.style.removeProperty(k);
+  if (!DASH.grid) return;
+  if (keep) {
+    const order = g.narrow ? (g.newOrder || g.order) : null;
+    if (dashCommit(g.id, g.now, order)) {
+      const p = DASH.draft.panels[dashIndex(g.id)], it = dashShown(DASH.draft.panels).find((x) => x.id === g.id);
+      if (p && it) dashAnnounce(`${dashSays(p, it)}. Put down.`);
+    }
+    dashHead();
+  } else dashDraw();
+  dashPlotsMoved();
 }
 function dashEditPanel(id) {
   const p = DASH.draft.panels[dashIndex(id)];
@@ -524,7 +900,16 @@ function dashEditPanel(id) {
   const back = () => DASH.cells.get(id)?.el.focus();
   openPanelEditor(JSON.parse(JSON.stringify(p)), {
     onChange: () => {},
-    onSave: (config) => { dashChange((d) => { d.panels[dashIndex(id)] = { ...config, id }; }, `${config.title || "Panel"}: changed`); back(); },
+    onSave: (config) => {
+      dashChange((d) => {
+        const i = d.panels.findIndex((x) => x.id === id), was = d.panels[i];
+        d.panels[i] = { ...config, id, layout: was.layout, size: was.size, tall: was.tall };
+        const w = config.size !== was.size ? DASH_COLUMNS[config.size] : was.layout.w;
+        const hi = !!config.tall !== was.tall ? dashRows(config) * (config.tall ? 2 : 1) : was.layout.h;
+        if (w !== was.layout.w || hi !== was.layout.h) dashResizeTo(d, id, { w, h: hi, x: Math.min(was.layout.x, DashLayout.COLS - w) });
+      }, `${config.title || "Panel"}: changed`);
+      back();
+    },
     onCancel: back,
   });
 }
@@ -537,7 +922,7 @@ function dashAddPanel() {
   openPanelEditor({ id, title: "New panel", note: "", form: "line", queries: [], display: { legend: "right" }, size: "m", tall: false }, {
     onChange: () => {},
     onSave: (config) => {
-      dashChange((d) => d.panels.push({ ...config, id }), `${config.title || "Panel"}: added`);
+      dashChange((d) => { const { layout, ...fresh } = config; d.panels.push({ ...fresh, id }); }, `${config.title || "Panel"}: added`);
       DASH.cells.get(id)?.el.focus();
     },
     onCancel: back,
@@ -625,6 +1010,10 @@ function dashLeave(n) {
     DASH.asked++;
     DASH.flight?.abort();
     clearTimeout(DASH.retry);
+    dashPendEnd();
+    if (DASH.drag) dashDragEnd(false);
+    DASH.lifted = null;
+    clearTimeout(DASH.settle);
     for (const c of DASH.cells.values()) c.panel.destroy?.();
     DASH.cells.clear();
     DASH.narrow?.removeEventListener("change", dashDraw);
@@ -641,7 +1030,9 @@ async function pageDashboard(main, q) {
   DASH.head = h("header", { class: "dash-head" }, h("h1", {}, "Dashboard"));
   DASH.said = h("span", { class: "muted small dash-said" });
   DASH.live = h("div", { class: "dash-live", role: "status", "aria-live": "polite" });
-  DASH.grid = h("div", { class: "dash-grid", onkeydown: dashKeydown }, h("p", { class: "muted page-loading" }, "Loading…"));
+  DASH.grid = h("div", { class: "dash-grid", onkeydown: dashKeydown, onpointerdown: dashPointerDown,
+                         oncontextmenu: (ev) => { if (DASH.pending || DASH.drag) ev.preventDefault(); },
+                         onfocusout: (ev) => { if (DASH.lifted && !ev.relatedTarget?.closest?.(`[data-panel="${DASH.lifted.id}"]`) && document.hasFocus()) dashDrop(true); } }, h("p", { class: "muted page-loading" }, "Loading…"));
   p.append(DASH.head, notice, DASH.grid, DASH.live);
   main.append(p);
   if (SNAP) {                                          // its panels ask the server for what the window holds

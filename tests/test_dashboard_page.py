@@ -343,6 +343,7 @@ def test_edit_mode_moves_and_resizes_by_mouse(browser, site):
     pg.mouse.move(to["x"] + to["width"] / 2, to["y"] + to["height"] / 2, steps=4)
     pg.mouse.up()
     assert order(pg)[:2] == [was[1], was[0]]
+    pg.wait_for_function("() => !document.getAnimations().some((a) => a.effect?.target?.classList?.contains('dash-cell'))")   # settled
 
     handle = pg.locator(f'[data-panel="{was[1]}"] .dash-handle').bounding_box()
     pg.mouse.move(handle["x"] + 3, handle["y"] + 3)
