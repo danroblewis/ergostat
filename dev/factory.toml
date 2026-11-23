@@ -62,6 +62,9 @@ pipeline_manager_session_usd = 3.0
 active_max = 3                       # the most milestones active at once, an upkeep one not counted (1-20)
 upkeep_days = 7                      # an upkeep milestone's cycle: then it completes, its unfinished gaps carried to the
                                      # next (1-90)
+enforce = false                      # true: the pass places every unfinished gap with no milestone, or a completed one
+                                     # (a split's or continued gap's parent's; the factory's own: upkeep; else the first
+                                     # active). Off until the owner turns it on: on, the first pass moves every old label
 
 [backlog]
 every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before

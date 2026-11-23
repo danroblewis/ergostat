@@ -267,10 +267,24 @@ unfinished gaps move to a new upkeep milestone (`follows` it), which is active a
 is not decided here: `pull` only marks a gap `pulled`. The old free-text labels in some gaps' `milestone` stay as
 written; `status` lists them until they are assigned.
 
+With `[milestones] enforce = true` (off by default) the pass, under the same lock, then places every unfinished gap
+with no milestone (none, an old label, a name that is no milestone) or a completed one, recording `gap.milestone-set`
+with `milestone_was` and `assigned_for`: a sub-gap of a split, or a continued gap (the parked gap's `resumed_as` names
+it), keeps its parent's milestone; one whose milestone completed joins the current upkeep milestone (the active upkeep
+one whose cycle ends last, by its `upkeep_ends`), and so does one the factory filed itself (`source: simplifier`, the pipeline manager's `file-gap`, a
+`gap/knowledge-*`); any other joins the first active milestone by rank, or the upkeep one when no other is active. So
+a gap is placed at most a pass (a minute) after it is requested, by whatever path. No path assigns a completed
+milestone: `assign` refuses it, an upkeep cycle never carries to a completed successor, and a gap that names one anyway
+(a raw event) is moved out by the next pass. Each placement is checked for a cycle as `assign` checks one, against the
+graph with the pass's earlier placements in it: one that would close a cycle (say the gap depends on a gap in a
+milestone that waits on the one it would join) tries the upkeep milestone instead, and failing that the gap is left.
+`status` gives the number of unfinished gaps with no milestone and how many of them the next pass places (all of
+them after a pass with enforcement on, unless no milestone is active, or each would close a cycle).
+
 A milestone with gaps is a summary in the precedence graph the implementor's take reads (its start before its gaps,
 its end after them), and so is a split parent with its sub-gaps (`parent` is a group too), so a milestone dependency
 with a gap dependency, or with a split across two milestones, can close a cycle, and a gap on a cycle is never taken. `add`, `depends` and `assign` refuse a change that would put an unfinished gap or milestone on a cycle
-it was not on, naming the path; `status` names any on one (deps.py records gap dependencies without knowing milestones,
+it was not on, naming the path, and the pass never places a gap where it would; `status` names any on one (deps.py records gap dependencies without knowing milestones,
 so it can still close one).
 
 ```sh
