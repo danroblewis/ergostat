@@ -154,3 +154,11 @@ drain.py or ergostat's start-up, and neither is in this gap's Files to touch, so
 changed. Both files were put back to the committed text and checked with git status. Refused here: `git checkout main
 -- dev/model/building.yaml` (so the model parts were taken out with edits instead), a later `git checkout HEAD --`
 to put them back (done with edits), and reading or piping a timing file under /tmp.
+
+Round 4 (no review findings; main dc47a763 already merged in at f2e2fbcf, nothing newer on local main): no code
+changed. Run here, serially: ruff clean; the five stack-forward tests and
+test_ergostat_check_on_the_factory_model_reports_no_new_finding passed (3 in 186 s, 3 in 338 s). The whole file and
+the build command under `-n 8` were not run. The earlier build failure
+(test_an_approved_switch_drains_and_switches_through_the_engine, its fixed 120 s bound under load) was measured in
+round 3 as no slower with this gap's model parts than without. It stays outside this gap (lesson-10, lesson-13).
+Refused this round: appending this note and committing it from the shell in one command (heredoc, git add, git commit).
