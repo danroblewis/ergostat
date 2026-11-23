@@ -184,3 +184,41 @@ Tests run (`scripts/named_tests.py`, serially): `tests/test_toml_models_budget.p
 `tests/test_agents.py` (73 passed); `tests/test_gapsdoc.py` (23 passed). ruff clean. `main` is the clone's base, so
 there was nothing new to merge. Not run here: the whole unit suite and the four browser files (left to the factory).
 No page changed.
+
+### Round 4: the cap step inside the try, and a command that starts with a blank line
+
+The review's finding (blocking): the cap step ran after the permit wrote the reserving `agent.started` and added the
+id to `budget.OPEN`, but before the `try`. A raise there left the run unclosed and its id in `OPEN`, so its
+`max-cost` stayed reserved, and `recover` never closes ids this process holds. `'\nclaude -p x'` raised that way:
+`is_claude` (shlex) skips the newline, `_first_words` stopped at it and returned nothing, and `capped` read
+`words[0]`. Fixed in `runner.py`, three ways:
+- The cap step (`is_claude`, `capped`, `reserve_of`) now runs inside the `try` whose `except` closes the run at its
+  reserve and whose `finally` takes the id out of `OPEN`.
+- `_first_words` skips leading whitespace and blank lines, as the shell does. So `'\n  \nclaude -p x'` (a TOML `"""`
+  string's leading blank line) is capped, not left uncapped. Returning such a command unchanged would have let it
+  fail open (lesson-3).
+- `capped` returns the command unchanged when it finds no words, so it cannot raise `IndexError`.
+`runner.py` is now +57 −7 against main, net +50 lines, within the 90 budget. No doc claim changed: SPEC, the guide
+and GAPS already say the cap goes right after the leading `claude` word.
+
+Tests added (in `tests/test_toml_models_budget.py`):
+- `test_toml_cap_step_raised_is_closed_at_reserve`: `runner.capped` is made to raise. `budget.closed` is written with
+  null cost, the fold charges the reserve (0.5), and the id is not in `budget.OPEN`.
+- `test_toml_claude_after_blank_lines_capped`: a real run of `"\n  \nclaude -p hello --max-budget-usd 99"` through a
+  fake `claude` gets only `--max-budget-usd 0.5 -p hello`. `capped("\n")` and `capped("")` return what they were
+  given.
+
+Breaks (each applied by hand, then restored, and the file seen green again, 21 passed):
+- the cap step moved back before the `try` (round 3's shape): `test_toml_cap_step_raised_is_closed_at_reserve` failed
+  (no `budget.closed`).
+- the leading-blank skip removed from `_first_words`: `test_toml_claude_after_blank_lines_capped` failed (claude ran
+  with `--max-budget-usd 99` and no cap of ours).
+- the `if not words` guard removed: `test_toml_claude_after_blank_lines_capped` failed (`IndexError`).
+
+Earlier findings: the review gave only this one, and it is answered above. The notes from rounds 2 and 3 still apply.
+
+Tests run (`scripts/named_tests.py`, serially): `tests/test_toml_models_budget.py`, `tests/test_toml_budget.py`,
+`tests/test_runner_and_state.py` (86 passed); `tests/test_run_budget.py`, `tests/test_run_budget_trip.py`,
+`tests/test_agents.py` (73 passed); `tests/test_gapsdoc.py` (23 passed). ruff clean. `main` is still the clone's base,
+so there was nothing new to merge. Not run here: the whole unit suite and the four browser files (left to the
+factory). No page changed.

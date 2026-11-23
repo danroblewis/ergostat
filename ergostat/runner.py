@@ -282,8 +282,9 @@ def _edges(project, causedby, sensor) -> list[dict]:
 
 def _first_words(cmd: str) -> list[tuple[int, int]]:
     """The spans of the shell words of ``cmd``'s first simple command: up to its first unquoted ``|``, ``&``, ``;``,
-    ``(``, ``)``, backquote or line end (a quote, a backslash and ``$(…)`` keep what they hold inside the word)."""
-    words, i, n = [], 0, len(cmd)
+    ``(``, ``)``, backquote or line end (a quote, a backslash and ``$(…)`` keep what they hold inside the word). Blank
+    lines before it are skipped, as the shell skips them."""
+    words, i, n = [], len(cmd) - len(cmd.lstrip()), len(cmd)
     while i < n and cmd[i] not in "|&;()`\n":
         if cmd[i].isspace():
             i += 1
@@ -311,6 +312,8 @@ def capped(cmd: str, usd) -> str:
     words in that claude call removed, so the cap reaches the claude call however the shell line goes on (``| jq``,
     ``&& git``, ``;``, more lines) and nothing after it is given the flag."""
     words, drops, skip = _first_words(cmd), [], False
+    if not words:
+        return cmd
     for k, (s, e) in enumerate(words[1:], 1):
         word = cmd[s:e]
         flag = not skip and (word == "--max-budget-usd" or word.startswith("--max-budget-usd="))
@@ -343,10 +346,11 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
         begun, no = budget.permit(project, spec, blk, write, run_id)
         if begun is None:
             return {"budget": no, "note": f"refused: budget: {no}"}
-        from .costs import ai as costs_ai
-        if costs_ai.is_claude(cmd):             # T1: its reserve as its cap, ours replacing any in the command
-            cmd = capped(cmd, budget.reserve_of(spec, blk))
-    try:
+    try:                                        # from the reserving start on, a raise is closed at its reserve
+        if spec is not None and spec.budget is not None:
+            from .costs import ai as costs_ai
+            if costs_ai.is_claude(cmd):         # T1: its reserve as its cap, ours replacing any in the command
+                cmd = capped(cmd, budget.reserve_of(spec, blk))
         return _ran(project, agent, trigger, why, version, started, begun, cmd)
     except BaseException:
         if begun["id"] in budget.OPEN:          # raised before its end: its reserve stays charged

@@ -173,6 +173,29 @@ def test_toml_cap_words_of_the_claude_call_only(command, want):
     assert runner.capped(command, 0.5) == want
 
 
+def test_toml_claude_after_blank_lines_capped(tmp_path, monkeypatch):
+    fake_claude(tmp_path, monkeypatch)                       # a TOML """ string's leading blank line
+    p = project(tmp_path, command="\n  \nclaude -p hello --max-budget-usd 99")
+    assert run(p)["exit"] == 0
+    assert args_of(p) == ["--max-budget-usd", "0.5", "-p", "hello"]
+    assert runner.capped("\n", 0.5) == "\n" and runner.capped("", 0.5) == ""
+
+
+def test_toml_cap_step_raised_is_closed_at_reserve(tmp_path, monkeypatch):
+    p = project(tmp_path, command="claude -p hello")
+
+    def boom(*a, **k):
+        raise IndexError("the cap broke")
+    monkeypatch.setattr(runner, "capped", boom)
+    with pytest.raises(IndexError):
+        run(p)
+    (s,) = evs(p, "agent.started")
+    (c,) = evs(p, budget.CLOSED)
+    assert c["data"]["run"] == s["id"] and c["data"]["cost_usd"] is None
+    assert budget.fold(p, SimpleNamespace(budget=p.model.budget)) == (0.5, 0.0)
+    assert s["id"] not in budget.OPEN
+
+
 def test_toml_orphan_recovered(tmp_path, monkeypatch):
     p = project(tmp_path, most=0.6)
     gone = subprocess.Popen(["true"])
