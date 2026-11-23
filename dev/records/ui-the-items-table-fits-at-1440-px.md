@@ -58,3 +58,14 @@ the class and `.keep`. It was seen to fail with the wrap rule set back to nowrap
 from the phone rule; it passes as built (6 passed). The browser acceptance test is unchanged.
 `scripts/affected_tests.py` reads a browser-only selection as rc 5. That is a factory matter outside this gap and is
 left alone (lesson 13).
+
+Round 2: main (ead497d1) merged. The conflicts in `tests/test_items_page.py` and `tests/test_style_tokens.py` were
+two sides each adding tests at the file's end; both are kept whole, no code changed. After the merge: ruff clean;
+`tests/test_style_tokens.py` 11 passed; `tests/test_items_page.py` with Playwright under the watchdog 33 passed,
+1 failed. The failure is main's
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: it times out waiting for the `#project`
+switcher to list the other project, which it reads through the shared `ERGOSTAT_HOME`. Run alone it fails too, so load
+is not the cause. This branch's diff (fieldView's PR link, the kinds' lists' `kind-items` class and `.keep`, five CSS
+rules scoped to `table.kind-items`) does not touch the header, `#upkeep` or the switcher, so it is reported here
+and left alone (lesson 13). Not confirmed on clean main here: a run with main's static files checked out was refused
+in this session. The acceptance test `test_the_items_table_fits_at_1440_px` passes after the merge.
