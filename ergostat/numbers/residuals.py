@@ -72,7 +72,7 @@ def examinable(spec: Spec, data: ob.Data, x: str) -> str | None:
     from ..remote import remote_of
     if (remote := remote_of(spec, f"stock.{x}")) is not None:
         return f"remote {remote}'s: its residual is examined there, never here"
-    no_start =sorted(s for s in unread(spec) if spec.stocks[s].initial is None)
+    no_start = sorted(s for s in unread(spec) if spec.stocks[s].initial is None)
     for f in spec.flows_of(x):
         near = {f.source, f.target} | {r.split(".", 1)[1] for r in (f.equation.refs if f.equation else []) if r.startswith("stock.")}
         bad = next((s for s in no_start if s in near), None)

@@ -55,3 +55,23 @@ Left:
 - Commit (`git add` of the files above and this record), merge main and run the suites again.
 - Not touched, outside this gap: docs/GAPS.md's remote entry already carries a spliced, duplicated second Done/Left
   passage (from an earlier merge); it is left as it was.
+
+Round 2, 2026-11-23. The queue's finding was right: round 1 put its sentence in the middle of the GAPS.md Remote
+systems entry, so the entry had three Done passages and two Left clauses, and `tests/test_gaps_doc.py` failed
+(`test_remote_systems_entry_has_one_done_and_no_stale_left`, `test_remote_systems_record_entry_matches_gaps_md`).
+Round 1's note was wrong to call the splice older than this branch: main's entry is whole, and the splice came from
+this branch's own merge. Fixed:
+- docs/GAPS.md: the entry is main's again, plus one sentence at the end of its single Done (`done on
+  remote-and-libraries-remote-parts-are-data`, `tests/test_remote_analysis.py`). The Left clause is unchanged.
+- dev/records/remote-systems.md: the same sentence in its copy of the entry, because the test needs that record's
+  bullet to match GAPS.md exactly. That is another gap's record (it is outside this gap's Files list). Adding one
+  sentence is the most reversible way to keep both true.
+- residuals.py: `no_start =sorted` spaced.
+Run this round: `tests/test_gaps_doc.py` (9 passed), `tests/test_remote_analysis.py`, `tests/test_remote_proposals.py`,
+`tests/test_remote_chain.py` (66 passed), `tests/test_exercised.py`, `tests/test_closedloop.py`, `tests/test_remote.py`
+(39 passed), `tests/test_numbers.py`, `tests/test_residual_structure.py`, `tests/test_remote_box_measures.py`
+(86 passed), and `ruff check ergostat tests scripts` (clean). Checked against lesson 9 with the code broken, then
+restored: with `plan` integrating remote stocks, the replay and projection tests fail. With `fit.compare` judging
+them, the fit test fails. That test does not depend on `plan`, because `compare` drops remote stocks from whatever
+replay it is given. With `quiet` judging remote parts, the exercised test fails. Not run here: the full unit suite and
+the browser files (left to the factory's build and the merge queue). No page is changed.
