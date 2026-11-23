@@ -243,3 +243,33 @@ flow panel in the Dynamics view ever gets past 'Loading…'. Two of main's chang
 The fix is main's (drop the panelLoading calls in openNodeSD, or take `wait` from them); this gap waits for it, then
 its acceptance test should be run again. The seventh test_items_page.py failure is the header switcher test of
 round 1 above (the 60 s lister), unchanged. Not run on clean main: no second checkout in this session.
+
+## Where it stopped
+
+Continued, round 2 again (the queue's finding: conflicts with main in diagram.js). The factory had already merged
+main ead497d1 into the branch (afd4147a). `git merge-base --is-ancestor main HEAD` holds, the tree has no conflict
+markers, and diagram.js against main differs only in this gap's lines: aria-pressed on the three view buttons beside
+main's carryPanel() and " · what is" spans, the Zoom labels, 'More diagram options', the aside, and the Evidence link's
+hit24 and aria-label. No code changed this round. Still 21 net lines against main (72 added, 51 removed under
+`ergostat/`).
+
+main has since fixed the openNodeSD bug this gap waited on in round 2 (dynamics.js 695/712: panelLoading's own
+element is now the late-answer guard), so the stock and flow panels load again, and this gap's acceptance tests pass.
+
+Tests run (Playwright, under the watchdog): tests/test_page_names_source.py (9 passed); ruff clean;
+tests/test_items_page.py (43 passed, 1 failed, twice), including test_the_page_view_and_controls_are_named,
+test_the_side_panels_and_item_tables_are_captioned and the five panel tests that failed on main's bug in round 2;
+tests/test_agents_page.py and tests/test_view_switch_words.py (8 passed, 1 failed); test_diagram_rendering.py's
+panel-carry test (passed) and keyboard test (failed, twice). Left failing, outside the gap (lesson 13):
+- test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (line 1596): the header
+  switcher's 60 s lister, the same as continued round 1.
+- test_agents_page.py::test_each_row_says_how_it_is_engaged_and_which_goal_it_serves (line 396): reads #detail
+  while it still says 'Loading…', the same as continued round 1.
+- test_diagram_rendering.py::test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard (line
+  2311, the focus never on the panel's heading). This one is main's. openNodeSD first calls showDetail with `wait`
+  (dynamics.js 686), which uses up S.keyHead and focuses that h2 (details.js 18-19). Then panelLoading and the
+  second showDetail replace the heading, and with keyHead cleared, nothing gets the focus. The branch's diff touches
+  none of showDetail, panelLoading, keys.js or dynamics.js. The fix belongs to main (keep keyHead until the last
+  showDetail, or drop the first `wait` panel now that panelLoading follows it).
+Not run: the whole of tests/test_diagram_rendering.py (about 50 minutes serially), test_page_polling.py,
+test_page_refresh.py, the unit suite (left to the queue).
