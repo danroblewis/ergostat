@@ -310,3 +310,30 @@ def test_the_owner_may_promote_a_class_to_auto(tmp_path, capsys):
     p = Project(mdl.load(tmp_path))
     assert gate.request(p, p.model.spec, "push", {}, ctx(tmp_path))["state"] == "ran"
     assert record.counts(p, cls="outward")["auto"] == 1
+
+
+def test_each_action_names_who_asked_and_who_answered_in_the_list_and_the_items_page(tmp_path):
+    from ergostat.web.server import _as_listed
+    p = project(tmp_path)
+    spec = p.model.spec
+    auto = gate.request(p, spec, "note", {"text": "hi"}, ctx(tmp_path))
+    held = gate.request(p, spec, "push", {}, ctx(tmp_path, block=None))       # a session with no block
+    gate.approve(p, spec, held["id"], note="offline stand-in")
+    no = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gate.deny(p, no["id"], note="not now")
+    waits = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    never = gate.request(p, spec, "nuke", {}, ctx(tmp_path))                  # its gate is deny: the gate's own denial
+    late = gate.request(p, spec, "push", {}, ctx(tmp_path))                   # approved, then its gate is deny at the act
+    y = tmp_path / "ergostat.yaml"
+    y.write_text(y.read_text().replace("gate: approve\n    class: outward", "gate: deny\n    class: outward"))
+    assert gate.approve(p, spec, late["id"], note="offline stand-in")["state"] == "denied"
+    want = {auto["id"]: ("dev", "gate (auto)"), held["id"]: ("session/dev-1", "owner (offline stand-in)"),
+            no["id"]: ("dev", "denied by owner (not now)"), waits["id"]: ("dev", "not yet answered"),
+            never["id"]: ("dev", "denied by its gate: its gate is deny: never run"),
+            late["id"]: ("dev", f"owner, then denied by its gate: {record.get(p, late['id'])['note']}")}
+    assert "its gate at the act is deny" in want[late["id"]][1]
+    assert {a["id"]: (a["by"], a["approved by"]) for a in actions_api.listing(p)["actions"]} == want
+    got = {"kinds": [{"name": "ergostat.action", "show": ["by", "approved by"]}],
+           "items": [{"id": a["id"], "kind": "ergostat.action", "state": a["state"], "fields": a} for a in record.stored(p).values()]}
+    listed = _as_listed(got, None, 0, True)["items"]
+    assert {i["id"]: (i["fields"]["by"], i["fields"]["approved by"]) for i in listed} == want

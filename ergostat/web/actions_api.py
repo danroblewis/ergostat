@@ -15,7 +15,7 @@ def listing(p, item: str | None = None, classes: bool = False) -> dict:
     if classes:                                   # the Items page's line per class: asked, approved, denied, held
         return {"asked": record.asked(p, getattr(p.model, "spec", None))}
     got = record.about(p, item) if item else sorted(record.stored(p).values(), key=lambda a: -a["time"])
-    return {"actions": [{k: a.get(k) for k in KEEP} for a in got[:100]], "classes": record.by_class(p),
+    return {"actions": [{**{k: a.get(k) for k in KEEP}, **record.who(a, a.get("state"))} for a in got[:100]], "classes": record.by_class(p),
             "counts": record.counts(p)}
 
 
