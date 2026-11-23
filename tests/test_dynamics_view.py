@@ -177,7 +177,39 @@ def test_a_goal_whose_actor_is_in_a_closed_system_links_through_its_port(factory
         assert (f"system:product:out:gap:{goal}", f"system:factory:in:flow:{flow}") in ports, ports
 
 
-EXAMPLES = sorted(p.name for p in (ROOT / "examples").iterdir() if (p / "ergostat.yaml").exists())
+def test_a_block_that_only_reads_a_goals_stock_is_not_drawn_through_its_gap(tmp_path):
+    """remote-pair/support: 'customers' reads stock.incidents-open (a cause, not a controller of incidents-calm, which
+    is acted on in the other ergostat). It is drawn reading the stock, the gap closes nothing here ('no feedback'),
+    and the stock's panel names no block serving the goal."""
+    d = tmp_path / "support"
+    shutil.copytree(ROOT / "examples" / "remote-pair" / "support", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    g = api(Live(Project(mdl.load(d))), "graph", {"view": ["dynamics"], "open": ["*"]})
+    ids = {n["id"]: n for n in g["nodes"]}
+    conn = {(e["source"], e["target"]) for e in g["edges"] if e["kind"] == "connector"}
+    assert ids["gap:incidents-calm"].get("noFeedback") and not [b for a, b in conn if a == "gap:incidents-calm"]
+    assert not ids["gap:tickets-short"].get("noFeedback")
+    (calm,) = [x for n in g["nodes"] for x in n.get("goals") or [] if x["name"] == "incidents-calm"]
+    assert calm["by"] == [] and not calm["acted"]
+
+
+def test_a_block_naming_another_goal_still_serves_a_goal_whose_loop_it_closes(tmp_path):
+    """alert-triage: 'investigation' names facets-investigated and also works off alerts-investigating, closing
+    investigations-joined's loop (join-keeps-up): that goal's gap drives what it moves, with no 'no feedback' mark."""
+    d = tmp_path / "alert-triage"
+    shutil.copytree(ROOT / "examples" / "alert-triage", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
+    from ergostat.web.server import Live, api
+    g = api(Live(Project(mdl.load(d))), "graph", {"view": ["dynamics"], "open": ["*"]})
+    gap = next(n for n in g["nodes"] if n["id"] == "gap:investigations-joined")
+    assert not gap.get("noFeedback")
+    assert [e for e in g["edges"] if e["kind"] == "connector" and e["source"] == gap["id"]]
+    assert ("stock:alerts-investigating", gap["id"]) in {(e["source"], e["target"]) for e in g["edges"]}
+
+
+EXAMPLES = sorted(str(p.parent.relative_to(ROOT / "examples")) for p in (ROOT / "examples").glob("**/ergostat.yaml")
+                  if ".ergostat" not in p.parts and "run" not in p.parts)
 
 
 @pytest.mark.slow
@@ -186,7 +218,7 @@ def test_every_goal_of_every_demo_has_its_gap_drawn(tmp_path):
     from ergostat.web.server import Live, api
     missing = {}
     for ex in EXAMPLES:
-        d = tmp_path / ex
+        d = tmp_path / ex.replace("/", "--") / ex.rsplit("/", 1)[-1]
         shutil.copytree(ROOT / "examples" / ex, d, ignore=shutil.ignore_patterns("run", "__pycache__", ".ergostat"))
         os.environ["ERGOSTAT_HOME"] = tempfile.mkdtemp()
         live = Live(Project(mdl.load(d)))
@@ -194,7 +226,8 @@ def test_every_goal_of_every_demo_has_its_gap_drawn(tmp_path):
         goals = api(live, "loops", {})
         if lost := sorted(k for k in goals if f"gap:{k}" not in ids):
             missing[ex] = lost
-    assert len(EXAMPLES) > 10 and not missing, missing
+    assert {"remote-pair/incidents", "remote-pair/support"} <= set(EXAMPLES) and len(EXAMPLES) > 10, EXAMPLES
+    assert not missing, missing
 
 
 def test_every_loop_is_labelled_and_runs_through_parts_drawn_and_lines_it_is_a_link_of(factory):

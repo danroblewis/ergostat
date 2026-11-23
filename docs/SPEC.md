@@ -4611,7 +4611,9 @@ and the panel name the link; loops drawn alike share one marker, "N alike", its 
 as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
 for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
 actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel
-says so. Every goal is drawn so, in its own system: a block serving it that reads the goal's stock (not
+says so. Every goal is drawn so, in its own system: a block serving it (one of its controllers that names
+the goal, or any of them when the goal's loop closes; a block that only reads the stock of a goal it does
+not name, whose loop does not close, is a cause and still reads the stock) that reads the goal's stock (not
 the goal) is drawn reading the gap (stock → gap → flow, its sign kept, no loop added or lost), and its
 link crosses to another system as any line does (to a stub, or a closed module's port); a goal nothing
 in the model acts on (no block serves it, or an open loop) keeps its gap, marked *→ no feedback* with no

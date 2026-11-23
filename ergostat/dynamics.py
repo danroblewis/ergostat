@@ -143,9 +143,18 @@ def _routes(spec) -> dict[tuple[str, str], str]:
     out: dict[tuple[str, str], str] = {}
     for g in sorted(spec.goals.values(), key=lambda g: g.name):
         if g.of.kind in ("stock", "auxiliary"):
-            for b in spec.loop(g.name).controllers:
+            for b in _serving(spec, g.name):
                 out.setdefault((f"{g.of.kind}.{g.of.name}", f"block.{b}"), g.name)
     return out
+
+
+def _serving(spec, goal: str) -> list[str]:
+    """The goal's controllers that serve it: each one naming the goal (``causal.served``), and all of them where
+    the goal's loop closes. A block that reads the stock of a goal it does not name, whose loop does not close (a
+    cause, not an actor), is not one; it is drawn reading the stock, and the goal's gap closes nothing."""
+    from .spec.causal import served
+    by, lp = served(spec), spec.loop(goal)
+    return [b for b in lp.controllers if lp.closes or goal in by.get(b, ())]
 
 
 def _connectors(spec, routes: dict) -> tuple[dict[tuple[str, str], dict], set[str]]:
@@ -350,7 +359,7 @@ def dynamics(g: dict, model) -> dict:
             of = next((x for x in nodes if x["id"] in (f"stock:{n['of']}", f"flow:{n['of']}")), None)
             # what serves the goal anywhere in the model (its controllers, each with its top system), drawn here or not
             by = [{"block": b, "system": (spec.chain(spec.blocks[b].system) or [None])[-1]}
-                  for b in spec.loop(n["goal"]).controllers] if spec is not None and n["goal"] in spec.goals else []
+                  for b in _serving(spec, n["goal"])] if spec is not None and n["goal"] in spec.goals else []
             if of is not None:
                 of.setdefault("goals", []).append({"name": n["goal"], "setpoint": n["setpoint"], "desired": n["desired"],
                                                    "by": by, "acted": not n.get("noFeedback") or bool(by)})

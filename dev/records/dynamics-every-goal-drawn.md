@@ -77,3 +77,33 @@ expectations changed, and test_every_view_draws_cleanly_and_in_time for every ex
 with the code it guards broken: routing off, the old idle drop, the open-loop rule off, and the JS mark off.
 Not run here: the four browser files whole, and the unit suite whole (the factory runs them). demo_check was not run:
 no example was touched.
+
+Round 2: built. About 40 net lines outside tests, docs and dev (budget 130).
+
+Findings answered:
+- `_routes` routed every controller (`spec.loop(g).controllers`), so remote-pair/support's `customers`, which only reads
+  stock.incidents-open, was drawn as incidents-open → gap:incidents-calm → filed and lost its 'no feedback' mark.
+  Now `dynamics._serving` decides who serves a goal, for both the routing and the stock's panel ("by"). A controller
+  serves the goal if it names the goal (`causal.served`), or if the goal's loop closes. Using `causal.served` alone
+  was tried first and is too narrow. In alert-triage, `investigation` names facets-investigated and also works off
+  alerts-investigating, which closes investigations-joined's loop (the model names it join-keeps-up). With served
+  alone that gap read 'no feedback' and the alerts drawing changed size, so the closed-loop case is kept. SPEC §12a
+  says this rule. New tests: test_a_block_that_only_reads_a_goals_stock_is_not_drawn_through_its_gap (support:
+  no link from the gap, the mark is set, the panel's `by` is empty) and
+  test_a_block_naming_another_goal_still_serves_a_goal_whose_loop_it_closes (alert-triage). Each was seen to fail
+  with its half of the rule broken: every controller routed, or served alone.
+- The every-goal walk now takes every `examples/**/ergostat.yaml`: remote-pair/incidents, remote-pair/support and
+  alert-triage/poor are added. It asserts that both remote-pair halves are in the walk. Round 1's statement that
+  remote-pair "has none" was wrong: it has no root file, but each half has one. The walk passes.
+
+Tests run in round 2: tests/test_dynamics_view.py (23 passed), test_remote_pair, test_correspond,
+test_graph_cli_web (68 passed), and ruff (clean). In the browser test_diagram_rendering.py:
+test_every_view_draws_cleanly_and_in_time for every example and
+test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_same, 20 passed and 4 failed. The 4 are
+the failures recorded above as failing on main too: the-job, ticket-factory, autoscaler (10 with the branch, 6 on
+main), and coordinator's open=* routing time (21.5 s against a 20 s bound on this host). No size fixture changed in
+round 2.
+Not run: test_diagram_rendering.py whole. The command
+`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py > /work/.git/dr.log 2>&1; tail -3 /work/.git/dr.log`
+(in the background) was refused. A scratch probe written as a test file, to list each example's non-serving
+controllers, was also refused when run. The file was deleted and is not committed.
