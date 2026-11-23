@@ -2936,7 +2936,8 @@ def test_a_batch_failing_on_a_test_that_also_fails_on_main_sends_no_gap_back(tmp
     start = git(f.checkout, "rev-parse", "main")
     approved_gaps(f, {"p": 1, "q": 2, "r": 3}, batch=3)
     said, lines = f.run("queue.py", "gap/p")
-    assert said == ["gap.queued", "flake.main-broken", "intervention.recorded"]   # no gap blamed or sent back
+    assert said == ["gap.queued", "intervention.recorded"]                     # no gap blamed or sent back
+    assert f.flakes_said() == ["flake.main-broken"]                            # (written at once: flakes.py)
     assert [x["nack"] for x in lines if "nack" in x][0]["count"] is False         # the own gap's lease, uncounted
     assert all(f.item(f"gap/{g}")["state"] == "approved" for g in "qr")
     assert git(f.checkout, "rev-parse", "main") == start and merges(f) == ["main changes bad.txt"]

@@ -90,3 +90,13 @@ Its runs failed past their attempts (a dead letter):
 - attempt 3: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 4: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 5: nack the run ended with gap/regression-flake-writes-hold-state-continued still parked
+
+## Where it stopped
+
+Continued, round 1 (2026-11-23): main (2a97eafb) merged in. Its one conflict, the imports of tests/test_factory.py,
+kept both sides. Main had added two writers in dev/bin/queue.py that emit the events directly (on_main()'s
+flake.seen and held_by_main()'s flake.main-broken), which broke the grep rule; both now call flakes.say.
+test_a_batch_failing_on_a_test_that_also_fails_on_main_sends_no_gap_back now reads flake.main-broken from
+f.flakes_said() (written at once) rather than from the printed lines. All of tests/test_factory.py passes (190
+passed; 2 skipped for want of Docker). Nothing is left. `uv run ergostat check` was refused in this session; the test
+fixture asserts the root model checks with no errors in every test.
