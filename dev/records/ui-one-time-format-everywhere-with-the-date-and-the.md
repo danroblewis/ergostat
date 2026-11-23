@@ -152,3 +152,23 @@ main's `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (n
 the 30 s wait for the other project in `#project`, as in rounds 2–4. It is left for main (lesson 13). Round 4's five
 Dynamics-panel failures no longer happen. Refused this round: the whole-file run redirected to `/tmp/items5.log`
 and then grepped.
+
+Round 6: the merge of main (5411f137) conflicted in three files, and each keeps both sides:
+
+- `ergostat/web/static/details.js`, the Events table. Main gave it a caption ("Events, newest first"), a `headRow`
+  and a `tbody`. These are kept, and the "when" cell still shows `stamp` (a run: `stamp(first)–stamp(last)`). Main's
+  `clock` and the cell's `toLocaleString` title are dropped again, as in round 5.
+- `ergostat/web/static/pages.js`: a sub-table of records keeps main's `tableCaption` and `headRow`, and its cells still go
+  through `fieldOf` (so a `*_at` column is stamped). The field history's `when` stays `stamp`, and main's new `whyBox`
+  is kept.
+- `tests/test_items_page.py`: the branch's stamp test, then main's two new tests
+  (`test_the_side_panels_and_item_tables_are_captioned`, `test_the_page_view_and_controls_are_named`). Main's tests
+  stay last, as main's note on `site` says they should.
+
+No page code was added this round, and net code is still about +11 lines. ruff is clean, and `tests/test_time_stamp.py`
+passes (3 passed). With Playwright under the watchdog, the stamp test, `test_the_side_panels_and_item_tables_are_captioned`
+and `test_the_record_folds_runs_of_identical_events` pass (3 passed, rc 0). The whole `tests/test_items_page.py` file
+gave 51 passed and 1 failed (rc 1). Run alone, `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
+failed with the same 30 s `wait_for_function` timeout as in rounds 2–5, so I take it to be the one failure. It is left
+for main (lesson 13). Refused this round: a Python heredoc that resolved the conflicts (the editor was used instead),
+and a whole-file rerun piped into `grep` to print the failing test's name.
