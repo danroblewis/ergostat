@@ -241,3 +241,27 @@ or window=. Reported as not this branch's (lesson 13). It was not run on main: e
 main were refused, and this round a command writing a log to /tmp and one listing failed tests were refused too.
 Not run: the rest of tests/test_diagram_rendering.py, tests/test_page_polling.py, and the unit suite (no Python
 changed). The merge queue runs them.
+
+## Where it stopped
+
+Round 7, answering the one review finding (popstate passed its PopStateEvent to route() as `keep`, so Back and
+Forward kept the open panel and its S.again). It was true. Fixed in main.js: popstate now calls `route()` with no
+argument, so every Back and Forward closes the panel (and clears S.again) as main did, and the Loops page then opens
+the address's `select=` loop. One line changed; `git diff main --shortstat -- ergostat/` is 55 insertions and 19
+deletions (about 36 net, within 60).
+
+The test gains the finding's step: open inbox-short's panel on /loops, navigate to /diagram?view=dynamics, open the
+stock inbox's panel, then Back. The address says select=inbox-short and the panel shown is that loop's, not the
+stock's. Forward: no panel is left over on the diagram, and a window change there opens none. With the old
+`addEventListener("popstate", route)` put back, the test failed at Back (the stock's panel stayed, timeout). Restored,
+it passes.
+A first run of the new step failed at Forward. The test had gone on while the loop's panel still showed 'Loading…',
+so the loop's answer landed on the diagram after Forward. The test now waits for the loop's answer before going
+Forward. Any opener's late answer can land after a route change (on main too, e.g. a click and then a quick
+navigation). The branch's `select=` on Back makes this easier to reach, but guarding every opener's answer against a
+route change is outside this gap, so it is not fixed here (lesson 13).
+
+Run here: ruff clean. Under the watchdog with Playwright:
+tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen_and_the_window passed 3 times after the change
+to the test (rc 0), and test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back passed (rc 0).
+Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs them.

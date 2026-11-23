@@ -51,7 +51,7 @@ function showAt() {
 $("#waits").addEventListener("click", () => { S.toWaiting = true; toWaiting(); });
 if (location.hash === "#waiting") S.toWaiting = true;
 window.addEventListener("hashchange", () => { if (location.hash === "#waiting") { S.toWaiting = true; toWaiting(); } });
-window.addEventListener("popstate", route);                  // back and forward
+window.addEventListener("popstate", () => route());   // (no event as route's keep)               // back and forward
 window.addEventListener("hashchange", () => { if (HASHED || oldAddress()) route(); });   // a snapshot's route; an old #/ address
 document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") shutDetail(); });
 if (SNAP) {                                   // one moment, one window: nothing to slide or switch

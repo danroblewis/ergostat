@@ -4982,6 +4982,25 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         pg.evaluate("() => { document.querySelector('#detail').append(Object.assign(document.createElement('i'), { id: 'stale' })); }")
         pg.evaluate("() => setWindow('6h')")                         # a stock's own panel is asked again in the new window
         assert pg.evaluate(kind) == "Stock" and not pg.evaluate("() => !!document.querySelector('#stale')")
+        # Back with another page's panel open: the panel shown is the address's select= loop, not the stock's left over;
+        # Forward again: no panel left over, and a window change there opens none
+        pg.goto(url + "/loops")
+        pg.locator("#main tr.click", has_text="inbox-short").first.click()
+        pg.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        pg.evaluate("() => navigate('/diagram?view=dynamics')")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        assert pg.evaluate(kind) == "Stock"
+        pg.go_back()
+        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        assert "select=inbox-short" in pg.url, pg.url
+        pg.wait_for_function(f"() => ({panel})('inbox-short') && ({kind})() === 'Loop' && !!document.querySelector('#detail dl')",
+                             timeout=20000)          # (its answer in, not its 'Loading…': a late one is another matter)
+        pg.go_forward()
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        assert pg.evaluate("() => document.querySelector('#detail').hidden"), "a panel was left over after Forward"
+        pg.evaluate("() => setWindow('1d')")
+        assert pg.evaluate("() => document.querySelector('#detail').hidden"), "a window change reopened the loop's panel"
         # the Record's filter: written as main's match=, a link's filter= read as well
         pg.goto(url + "/record")
         pg.locator(".filters input[type=search]").fill("valve.*")
