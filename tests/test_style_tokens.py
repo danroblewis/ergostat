@@ -150,6 +150,28 @@ def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
     assert not low, low
 
 
+def test_the_arrows_and_guide_dot_borders_stand_3_to_1_on_the_paper_in_both_themes():
+    """The /item lifecycle and /items state arrows (.arrow) and the Guide's dot borders (.g-dot::before, the dot drawn
+    inside its 24px target) are graphics: WCAG's 3:1 against the page in the light and the dark theme, read from the
+    tokens they use."""
+    head, rules = split()
+    light_head, dark_head = head.split("prefers-color-scheme: dark", 1)
+    themes = {"light": dict(re.findall(r"(--[\w-]+):\s*([^;]+);", light_head))}
+    themes["dark"] = {**themes["light"], **dict(re.findall(r"(--[\w-]+):\s*([^;]+);", dark_head))}
+    arrow = re.search(r"(?m)^\.arrow\s*\{[^}]*\bcolor:\s*var\((--[\w-]+)\)", rules)
+    dot = re.search(r"(?m)^\.g-dot::before\s*\{[^}]*\bborder:[^;]*var\((--[\w-]+)\)\s*;", rules)
+    assert arrow and dot, "the .arrow colour and the .g-dot::before border are each one token"
+    low = []
+    for theme, tokens in themes.items():
+        bg = _luminance(_oklab(tokens["--bg"].strip()))
+        for what, token in (("arrow", arrow[1]), ("guide dot border", dot[1])):
+            y = _luminance(_oklab(tokens[token].strip()))
+            ratio = (max(y, bg) + 0.05) / (min(y, bg) + 0.05)
+            if ratio < 3:
+                low.append(f"{theme} {what} ({token}): {ratio:.2f}")
+    assert not low, low
+
+
 def test_the_first_level_note_sits_on_the_canvas_and_stacks_with_the_toolbar_on_a_narrow_screen():
     """'Open all' on a model too big to read opens the first level and says so in a note diagram.js draws as
     .open-level: it has its rule, sits over the canvas in small text, and goes static with .toolbar and .zoom."""
