@@ -1096,6 +1096,12 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from .relations_api import graph as items_graph
         est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
         return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
+    if head == "items-groups":                    # how far along each group is (SPEC §5a, Progress per group)
+        from ..spec.grouptally import progress
+        if abs(time.time() - snap["at"]) >= 5:
+            raise BadSet("items-groups: answers as the record is now (never at=)")
+        return progress(p.events, getattr(m, "spec", None), one("kind") or "", one("by") or "", snap["at"],
+                        snap["at"] - snap["window"], one("points") or 60)
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":

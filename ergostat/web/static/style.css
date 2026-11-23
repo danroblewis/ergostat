@@ -190,6 +190,12 @@ th.num, td.num { text-align: right; }
 th:last-child, td:last-child { padding-right: 0; }
 tr.click { cursor: pointer; }
 tr.click:hover td { background: var(--fill); }
+table.loops td.card { display: none; }
+@media (max-width: 760px) {                          /* the Loops page on a phone: each goal a two-line card, no sideways scroll */
+  table.loops, table.loops tbody, table.loops tr { display: block; }
+  table.loops th, table.loops td:not(.card) { display: none; }
+  table.loops td.card { display: block; padding-right: 0; overflow-wrap: anywhere; }
+}
 tbody.group th { color: var(--ink); font-size: var(--text); font-weight: 600; padding-top: var(--sp-4); border-bottom-color: var(--line); }
 tbody.group th .muted { font-weight: 400; }
 td.cell { max-width: 18em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -226,7 +232,8 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att > div > b:first-child { font-weight: 600; }
 .att .more, .att .none { color: var(--muted); }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
-.att .inbox-act input { width: 6em; }
+.att .inbox-act .ask-in { flex: 1 1 100%; display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0; overflow-wrap: anywhere; }
+.att .inbox-act input { width: 100%; box-sizing: border-box; }
 /* a list held still while the reader is in it: what waits for them to leave, above it, moving none of its rows */
 :has(> .waiting) { position: relative; }
 .waiting { position: absolute; right: 0; top: 0; transform: translateY(-100%); font-size: var(--text-sm); color: var(--muted); background: var(--bg); }
@@ -250,6 +257,11 @@ details.suggest .hint { margin-top: var(--sp-3); }
 .set-chip .n { font-variant-numeric: tabular-nums; }
 .set-chip button { min-height: 0; border: 0; padding: var(--sp-0) var(--sp-2); }
 .set-chip.bad { color: var(--bad); }
+/* the Items page's lists fit their width: a field's text wraps onto more lines, never cut; on a phone, the item, its
+   state and how long it has been in it */
+table.kind-items th { white-space: normal; }
+table.kind-items td.cell { white-space: normal; overflow: visible; overflow-wrap: anywhere; min-width: 6em; }
+@media (max-width: 700px) { table.kind-items tr > :nth-child(n+3):not(.keep) { display: none; } }
 .item-set table.item-list td.cell { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* the diagram: the canvas and its side panel */
@@ -425,12 +437,27 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
 .kind-card .kname { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kind-card .kind-counts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kind-card .cfd-states { max-height: 4.25rem; line-height: 1.25; }
+.kind-card-groups { grid-column: span 2; }        /* a card with its groups' rows (kinds.js): room for them */
 .kinds-quiet { font-size: var(--text-sm); }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
 .kind-flow .pm-link { font-size: var(--text-sm); margin-left: var(--sp-3); }
 .kind-card .pm-link { margin-left: 0; }
 .kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }
+/* a kind's progress per group, on its card (itemsets.js groupRows): a compact row a group, its bar */
+.gp-rows { display: flex; flex-direction: column; gap: var(--sp-0); margin: var(--sp-2) 0 0; font-size: var(--text-sm); }
+.gp-row { display: grid; grid-template-columns: minmax(6rem, 12rem) minmax(4rem, 1fr) 3.5em minmax(0, 10rem);
+  gap: var(--sp-2); align-items: center; color: var(--ink); padding: 0 var(--sp-1); border-radius: var(--radius); }
+.gp-row:hover, .gp-row.on { background: var(--accent-wash); }
+.gp-name, .gp-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-state { color: var(--muted); }
+.gp-n { text-align: right; font-variant-numeric: tabular-nums; }
+.gp-bar { display: flex; height: 0.6rem; background: var(--line); border-radius: var(--radius); overflow: hidden; }
+.gp-done { background: var(--ink-2); }
+.gp-in-progress { background: var(--accent); }
+.gp-waiting { background: var(--line-strong); }
+.gp-stopped { background: var(--warn); }
+.gp-more { align-self: flex-start; font-size: var(--text-sm); min-height: 0; padding: 0 var(--sp-1); }
 
 /* the drawings' own text and lines (shapes are in the renderers; only their type and ink are here) */
 .node text { fill: var(--ink); font-size: var(--canvas); }
@@ -551,6 +578,7 @@ svg.bd { color: var(--ink); }
 .bd .sys-hull.bd-frame-cascade rect { stroke-dasharray: 5 3; }
 .bd .bd-frame text { opacity: 1; fill: var(--ink); font-weight: 400; }
 .bd .bd-frame .bd-frame-name { fill: var(--muted); font-size: var(--canvas-sm); font-family: var(--font); }
+.bd .bd-frame .bd-frame-dims { font-size: var(--canvas-sm); font-family: var(--font); }
 .bd .bd-frame { cursor: pointer; }
 .bd .bd-toggle rect { fill: var(--bg); stroke: var(--muted); stroke-width: 1; }
 .bd .bd-toggle path { stroke: var(--ink); stroke-width: 1.4; }
