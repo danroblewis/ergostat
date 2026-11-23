@@ -120,7 +120,7 @@ function dashStayStates(k) {
   return k.states.filter((x) => picked.has(x));
 }
 const dashRate = { agg: "count", transform: "rate", rate_per: "hour" };
-const dashArrivals = (k) => ({ id: "a", source: "moves", kind: k.name, measure: "entries", state: k.states.slice(0, 1), ...dashRate, label: "arrivals" });
+const dashArrivals = (k) => ({ id: "a", source: "moves", kind: k.name, measure: "entries", first_only: true, state: k.states.slice(0, 1), ...dashRate, label: "arrivals" });
 const dashCompletions = (k) => ({ id: "b", source: "moves", kind: k.name, measure: "entries", state: k.done, ...dashRate, label: "completions" });
 const dashCount = (k, id, state, label) => ({ id, source: "counts", kind: k.name, state, group_by: "kind", agg: "last", transform: "none", label });
 const dashStay = (k, id, state, agg = "p50") => ({ id, source: "moves", kind: k.name, measure: "time_in_state", state: [state], agg, transform: "none", label: state });
