@@ -3,6 +3,10 @@ puts in its shard, and the shards of one plan split the whole engine's work betw
 
 from __future__ import annotations
 
+import json
+import os
+import pathlib
+import subprocess
 import textwrap
 import time
 
@@ -10,7 +14,7 @@ import pytest
 
 from ergostat import model as mdl
 from ergostat import runner
-from ergostat.daemons.supervise import Supervisor
+from ergostat.daemons.supervise import Supervisor, read_status
 from ergostat.spec import shards
 from ergostat.spec.engine import Engine
 from ergostat.spec.joins import JOINED
@@ -533,3 +537,78 @@ def test_moved_flow_unknown_reads_nothing(tmp_path, monkeypatch):
     p.events.add("block.stop.requested", item="a-move", source="test")
     assert b._follow_once(seq) == p.events.last_seq()
     assert reads == [] and asked == ["block.stop.requested"], "nothing read, the owner's ask still answered"
+
+
+# ---- each shard engine's own daemons file (SPEC §9.8)
+
+def daemon_files(d) -> set[str]:
+    return {f.name for f in d.iterdir() if f.name.startswith("daemons")}
+
+
+def test_shard_engine_writes_its_own_daemons_file(tmp_path, _quiet):
+    p = project(tmp_path / "shards")
+    _, by = engines(p)
+    for n in ("a", "b"):
+        by[n].daemons.sync(p.model.spec)
+        by[n].daemons.write()
+    assert daemon_files(p.dir) == {"daemons.a.json", "daemons.b.json"}, "no daemons.json, no temporary file left"
+    got = {n: json.loads((p.dir / f"daemons.{n}.json").read_text()) for n in ("a", "b")}
+    assert set(got["a"]["daemons"]) == {"solo"} and set(got["b"]["daemons"]) == {"probe"}
+    assert set(read_status(p.dir)) == {"solo", "probe"}
+    by["a"].daemons.close()                                  # its final write: its own file, stopped
+    assert daemon_files(p.dir) == {"daemons.a.json", "daemons.b.json"}
+    assert json.loads((p.dir / "daemons.a.json").read_text())["daemons"]["solo"]["state"] == "stopped"
+    assert json.loads((p.dir / "daemons.b.json").read_text())["daemons"]["probe"]["state"] != "stopped"
+    w = project(tmp_path / "whole")
+    whole, _ = engines(w)
+    whole.daemons.sync(w.model.spec)
+    whole.daemons.write()
+    assert daemon_files(w.dir) == {"daemons.json"}
+    assert set(read_status(w.dir)) == {"solo", "probe"}
+
+
+def dead_pid() -> int:
+    child = subprocess.Popen(["true"])
+    child.wait()
+    return child.pid
+
+
+def put(d, name: str, pid, **daemons):
+    (d / name).write_text(json.dumps({"at": time.time(), "pid": pid, "daemons": {
+        n: {"state": s, "pid": 4242 if s == "running" else None, "why": name} for n, s in daemons.items()}}))
+
+
+def test_daemon_files_merged_dead_writer_stopped(tmp_path):
+    me = os.getpid()
+    put(tmp_path, "daemons.json", me, whole="running")
+    put(tmp_path, "daemons.a.json", me, solo="running")
+    put(tmp_path, "daemons.b.json", dead_pid(), probe="running")         # left by an earlier run, or a shard gone
+    put(tmp_path, "daemons.d.json", None, nopid="running")               # no writer named: not alive either
+    (tmp_path / "daemons.c.json").mkdir()                                # cannot be read
+    (tmp_path / "daemons.e.json").write_text("{not json")
+    (tmp_path / "daemons.f.json").write_text("[1, 2]")
+    for odd in ("daemons.x.tmp", "daemons.x.json.tmp", "daemons.X.json", "daemons.-x.json", "daemons..json",
+                "daemonsx.json", "daemons.z.daemons.a.json", f"daemons.{'x' * 65}.json"):
+        put(tmp_path, odd, me, **{odd: "running"})
+    got = read_status(tmp_path)
+    assert set(got) == {"whole", "solo", "probe", "nopid"}, got
+    assert got["whole"]["state"] == got["solo"]["state"] == "running" and got["solo"]["pid"] == 4242
+    for n in ("probe", "nopid"):
+        assert got[n]["state"] == "stopped" and got[n]["pid"] is None, got[n]
+    put(tmp_path, f"daemons.{'x' * 64}.json", me, longest="running")
+    assert "longest" in read_status(tmp_path)
+
+
+def test_daemon_in_two_files_given_once(tmp_path, monkeypatch):
+    me = os.getpid()
+    put(tmp_path, "daemons.a.json", me, moved="stopped", both="stopped", up="running")
+    put(tmp_path, "daemons.b.json", me, moved="running", both="stopped", up="running")
+    put(tmp_path, "daemons.json", me, both="stopped", up="running")
+    listed = pathlib.Path.glob
+    for order in (sorted, lambda fs: sorted(fs, reverse=True)):         # whatever order the directory lists them in
+        monkeypatch.setattr(pathlib.Path, "glob", lambda self, pat, order=order: iter(order(listed(self, pat))))
+        got = read_status(tmp_path)
+        assert set(got) == {"moved", "both", "up"}
+        assert got["moved"]["state"] == "running" and got["moved"]["why"] == "daemons.b.json"
+        assert got["both"]["state"] == "stopped" and got["both"]["why"] == "daemons.a.json", "first by name"
+        assert got["up"]["state"] == "running" and got["up"]["why"] == "daemons.a.json", "neither stopped: first"

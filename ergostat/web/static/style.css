@@ -366,6 +366,7 @@ a.chart-name { color: var(--accent); }
 .chart-val { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .chart-plot { width: 100%; min-width: 0; }
 .chart-foot { display: flex; justify-content: space-between; gap: var(--sp-2); font-size: var(--text-sm); color: var(--muted); }
+.off-key { width: 18px; height: 10px; vertical-align: -1px; margin-right: var(--sp-1); }   /* the off stretches' hatch (charts.js) */
 .chart-when { color: var(--accent); font-variant-numeric: tabular-nums; }
 .strip-title { display: flex; align-items: baseline; gap: var(--sp-2); margin: var(--sp-3) 0 0; }
 .side-charts h3 { margin-top: var(--sp-5); }
@@ -622,7 +623,7 @@ tbody.group th small { font-weight: normal; font-size: var(--text-sm); }
 /* Items: each kind one line, its states as counts */
 .states, .track { display: flex; gap: var(--sp-1) var(--sp-2); align-items: baseline; flex-wrap: wrap; }
 .track { margin: 0 0 var(--sp-4); }
-.arrow { color: var(--line-strong); }
+.arrow { color: var(--muted); }                /* 3:1 or more on the page, in both themes */
 .stbox { color: var(--muted); padding: 0 var(--sp-0); border-radius: var(--radius); }
 .stbox .n { font-variant-numeric: tabular-nums; margin-right: var(--sp-1); }
 .stbox.some { color: var(--ink); }
@@ -649,7 +650,7 @@ dl.counts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums;
 .g-part:hover, .g-part.on { color: var(--ink); }
 /* a 24px target, the 12px dot drawn inside it */
 .g-dot { width: var(--sp-5); height: var(--sp-5); min-height: 0; padding: 0; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; }
-.g-dot::before { content: ""; width: var(--sp-3); height: var(--sp-3); box-sizing: border-box; border-radius: 50%; border: var(--hair) solid var(--line-strong); }
+.g-dot::before { content: ""; width: var(--sp-3); height: var(--sp-3); box-sizing: border-box; border-radius: 50%; border: var(--hair) solid var(--muted); }
 .g-dot:hover::before { border-color: var(--ink-2); }
 .g-dot.on { background: transparent; }
 .g-dot.on::before { background: var(--ink); border-color: var(--ink); }
@@ -726,7 +727,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .bar { gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3) 0; }
   #when { margin-left: auto; }
   .where { flex-wrap: wrap; column-gap: var(--sp-2); }
-  .where .waits { order: -1; flex: 1 0 100%; }          /* what waits for the reader: first, on a line of its own */
+  .where .waits-said:has(.waits:not([hidden])) { order: -1; flex: 1 0 100%; }   /* what waits for the reader: first, on a line of its own */
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
   .canvas-wrap { display: flex; flex-direction: column; }

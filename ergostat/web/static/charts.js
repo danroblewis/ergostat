@@ -64,13 +64,45 @@ function padRange(lo, hi) {
   return [lo - d, hi + d];
 }
 
-/* drawn under the data: the stretches a loop was off (the one red), a tolerance band, a zero line */
+/* the off stretches' fill: the bad wash hatched in the bad ink, so off reads without its colour; the key's swatch too */
+function offHatch(ctx, k = devicePixelRatio) {
+  const n = Math.round(6 * k), c = document.createElement("canvas"), x = c.getContext("2d");
+  c.width = c.height = n;
+  x.fillStyle = tok("--bad-wash"); x.fillRect(0, 0, n, n);
+  x.strokeStyle = tok("--bad"); x.lineWidth = k; x.beginPath();
+  for (const d of [-n, 0, n]) { x.moveTo(d, n); x.lineTo(d + n, 0); }
+  x.stroke();
+  return ctx.createPattern(c, "repeat");
+}
+function offKey() {
+  const c = h("canvas", { class: "off-key", width: 18 * devicePixelRatio, height: 10 * devicePixelRatio }), x = c.getContext("2d");
+  x.fillStyle = offHatch(x); x.fillRect(0, 0, c.width, c.height);
+  return h("span", { class: "off-said" }, c, "off");
+}
+/* on the chart over the time axis: each off stretch wide enough, labelled "off" at its foot */
+function offLabels(off) {
+  return (u) => {
+    const ctx = u.ctx, { top, height } = u.bbox, k = devicePixelRatio;
+    ctx.save();
+    ctx.font = `${parseFloat(tok("--canvas-sm")) * k}px ${tok("--font")}`;
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.lineWidth = 3 * k; ctx.strokeStyle = tok("--bad-wash"); ctx.fillStyle = tok("--bad");
+    for (const [a, b] of off) {
+      const x0 = u.valToPos(a, "x", true), x1 = u.valToPos(b, "x", true);
+      if (x1 - x0 < ctx.measureText("off").width + 6 * k) continue;
+      ctx.strokeText("off", (x0 + x1) / 2, top + height - 2 * k); ctx.fillText("off", (x0 + x1) / 2, top + height - 2 * k);
+    }
+    ctx.restore();
+  };
+}
+
+/* drawn under the data: the stretches a loop was off (hatched), a tolerance band, a zero line */
 function underlay({ off = [], band = null, zero = false, now = null }) {
   return (u) => {
     const ctx = u.ctx, { left, top, width, height } = u.bbox;
     ctx.save();
     ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
-    ctx.fillStyle = tok("--bad-wash");
+    ctx.fillStyle = offHatch(ctx);
     for (const [a, b] of off) {
       const x0 = u.valToPos(a, "x", true), x1 = u.valToPos(b, "x", true);
       ctx.fillRect(x0, top, Math.max(devicePixelRatio, x1 - x0), height);
@@ -250,7 +282,7 @@ function lineChart({ group, name, role, unit, per, times, values, since, until, 
                                                  Math.max(hi ?? desired ?? 1, desired ?? -Infinity, goal?.band?.[1] ?? -Infinity, zero ? 0 : -Infinity, fanHi, pastHi))),
       hooks: { drawClear: [underlay({ off, band: goal?.band, zero, now: ahead.length ? until : null }), ...(hasFan ? [fanUnder(fan, ahead, until, from)] : []),
                             ...(replayFan ? [fanPast(replayFan, times)] : [])],
-               draw: desired != null ? [lineLabel(desired, level || `desired ${op(goal.setpoint)}`)] : [],
+               draw: [...(desired != null ? [lineLabel(desired, level || `desired ${op(goal.setpoint)}`)] : []), ...(xAxis && off.length ? [offLabels(off)] : [])],
                setCursor: [(u) => { const i = u.cursor.idx; if (i == null) return show(last); const v = valueAt(i);
                                     val.textContent = v == null ? "\u2013" : `${fmt(v)}${unitText ? " " + unitText : ""}${i >= times.length ? ", projected" : ""}`; }] } });
     o.series = series;
@@ -534,7 +566,7 @@ function sideChartsChanged() {                          // the chosen parts chan
 
 /* a loop as a control engineer reads it: y measured and r dashed on one plot, the tolerance shaded;
    u below (each opening of its valve, or the knob's value), its limits dashed; e = r − y below that;
-   the stretches it was off tinted red on all three; then its numbers */
+   the stretches it was off hatched on all three, and labelled "off" over the time axis; then its numbers */
 function loopScope(goal, { numbers = true } = {}) {
   const box = h("div", { class: "strip scope" }, working());
   api("loop-scope", { goal, points: CHART_POINTS }).then((d) => {
@@ -550,7 +582,7 @@ function loopScope(goal, { numbers = true } = {}) {
     charts.push(lineChart({ group, name: "e", role: "r − y", unit: d.unit, times: d.times, values: d.e, since: d.since, until: d.until,
                             off: d.off, height: 60, zero: true, xAxis: true }));
     const nb = d.numbers || {};
-    box.replaceChildren(...charts, h("div", { class: "chart-foot" }, h("span", { class: "muted" }, d.off.length ? "Red: off" : ""), group.when),
+    box.replaceChildren(...charts, h("div", { class: "chart-foot" }, h("span", { class: "muted" }, d.off.length ? offKey() : ""), group.when),
       numbers ? dl([["time off", numbers === "new" ? null : `${Math.round((nb.off_share || 0) * 100)}%`],
                     ["back in", numbers === "new" || nb.back_in == null ? null : `${dur(nb.back_in)}, typically (${nb.times_off} times)`],
                     ["saturated", nb.saturated != null ? `${Math.round(nb.saturated * 100)}% of ${u.openings ? "its openings" : "the time"}` : null],

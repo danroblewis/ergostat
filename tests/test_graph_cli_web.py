@@ -383,6 +383,26 @@ def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():
         assert "working()" in body, chart
 
 
+def test_the_count_of_what_waits_sits_in_one_polite_live_region():
+    """The header's 'N wait for you' link is inside an always-present aria-live='polite' region (so a count appearing
+    from 0 is announced too), and the script writes its text through setText, which writes only a changed text. The
+    browser half (the text written only when N changes) is test_diagram_rendering's
+    test_a_changed_count_of_what_waits_is_announced."""
+    import re
+
+    from ergostat.web.server import STATIC
+    html = (STATIC / "index.html").read_text()
+    region = re.search(r'<span class="waits-said"([^>]*)>(.*?)</span>', html)
+    assert region, "the waits link has no wrapping region"
+    assert 'aria-live="polite"' in region.group(1) and 'aria-atomic="true"' in region.group(1)
+    assert re.search(r'<a id="waits"[^>]*\bhidden\b', region.group(2)), "the link, not the region, is hidden at 0"
+    util = (STATIC / "util.js").read_text()
+    assert "setText(waits, `${n} wait for you`)" in util
+    body = re.search(r"\nfunction setText\((\w+), (\w+)\) \{(.*?)\n\}", util, re.S)
+    assert body and re.search(rf"if \({body.group(1)}\.textContent !== {body.group(2)}\)", body.group(3)), \
+        "setText must write only a changed text"
+
+
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
     """Each page is a path (/items, /item/ID, /diagram?view=blocks): the server answers every one with the page,
     whatever the id holds (its / as %2F), and /api, /static and /file stay what they were."""

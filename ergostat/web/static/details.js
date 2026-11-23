@@ -72,12 +72,22 @@ function remoteMeasures(n) {
     h("td", {}, m.label), h("td", { class: "num" }, m.value || "")))) : null;
 }
 
+/* a quiet system says so ('all 14 goals holding, nothing being worked': state.quiet), in its panel; each poll of the
+   diagram sets it again from the system's node, so it goes when a goal goes off (quietRefresh, from diagram.js) */
+const quietLine = (n) => h("p", { class: "quiet-line", "data-quiet": n.label, hidden: n.quiet ? null : "" }, n.quiet || "");
+function quietRefresh(g) {
+  for (const el of document.querySelectorAll("#detail [data-quiet]")) {
+    const q = (g.nodes || []).find((x) => x.kind === "system" && x.label === el.dataset.quiet)?.quiet;
+    setText(el, q || ""); el.hidden = !q;
+  }
+}
+
 function openSystem(n) {                            // a system as one part: what goes in and out, and how its loops do
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, p.kind),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   showDetail(h("div", { class: "kind" }, n.remote ? "System, remote" : "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null),
-    typeof moduleCharts === "function" ? moduleCharts(n) : null, whatIs("system"),
+    quietLine(n), typeof moduleCharts === "function" ? moduleCharts(n) : null, whatIs("system"),
     n.description ? h("p", { class: "muted" }, n.description) : null, remoteNote(n.remote), remoteMeasures(n),
     dl([["loops", loopsText(n)], ["size", n.size], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
         ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
