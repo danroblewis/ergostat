@@ -256,10 +256,10 @@ def test_a_type_offers_query_and_nothing_else():
     with pytest.raises(TypeError, match="offers only query"):
         datasources.register(types.SimpleNamespace(TYPE="w", KEYS=set(), LANGUAGE="W", query=fake_query, write=write))
     assert "w" not in datasources.types()
-    for name, mod in datasources.types().items():          # every type there is: only query (and values) is offered
+    for name, mod in datasources.types().items():    # every type there is: only query (with suggest and values) offered
         own = {n for n, v in vars(mod).items() if not n.startswith("_") and callable(v)
                and getattr(v, "__module__", None) == mod.__name__}
-        assert "query" in own and own <= {"query", "values"}, name
+        assert "query" in own and own <= {"query", "suggest", "values"}, name
 
 
 PUBLIC = "dash.example.org"

@@ -121,6 +121,7 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
             it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "sealed",
                                "why": f"only ergostat writes a {kind.name}"})    # (SPEC §12r: M1)
             continue
+        seen = it.n                                          # its events before this one: the count a reader saw
         if not it.n:
             it.first = e["time"]
             if kind and kind.states:                 # it arrives: a move into its first state, counted like any other
@@ -129,7 +130,18 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
         it.n += 1
         it.last = max(it.last, e["time"])
         it.latest = e["type"]
-        if e["type"].startswith(LEASE_PREFIX):              # a lease taken, renewed, ended (SPEC §9.5): ergostat's own
+        if kind is not None and e["type"] in kind.if_unchanged:     # written from a reading of the item (SPEC §5a)
+            data = e.get("data") if isinstance(e.get("data"), dict) else {}
+            read = data.get("read")
+            if type(read) is not int or read != seen:          # changed since it was read, or not said: nothing applies
+                why = f"written from the item at {read!r} events, and it had {seen}: ignored"
+                it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "read", "why": why})
+                if history:
+                    it.changes.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "read",
+                                       "op": "refused", "path": "", "before": None, "after": None, "why": why})
+                continue
+            e = {**e, "data": {k: v for k, v in data.items() if k != "read"}}
+        if e["type"].startswith(LEASE_PREFIX):             # a lease taken, renewed, ended (SPEC §9.5): ergostat's own
             to, why = lease_fold.apply(it, e, kind, history)
             if why is not None:
                 it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "lease", "why": why})
@@ -545,8 +557,9 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         if (i.id in lines or i.rolled) and not any(f in i.fields for f in FIELDS):
             n_, last = lines.get(i.id, (0, i.last))
             i.n, i.last = i.n + n_ + i.rolled, max(i.last, last)
+    from .grouptally import offered
     from .item_systems import OTHER, TITLES, groups, kind_systems
-    where = kind_systems(spec)               # each kind's system (item_systems.py): the page groups by it
+    where = kind_systems(spec)              # each kind's system (item_systems.py): the page groups by it
     unkinded = sum(counts.get("", {}).values())
     systems = groups(spec, {**where, **({"": {"system": OTHER}} if unkinded else {})})
     for g in systems:
@@ -554,6 +567,7 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
     return {"kinds": [{"name": k.name, "title": TITLES.get(k.name), "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "relations": {r: x.kinds for r, x in k.relations.items()},
+                       "progress": [r for r, x in k.relations.items() if offered(k, x)],   # (grouptally.py)
                        "counts": counts.get(k.name, {}), **finishes(events, spec, k.name)} for k in kinds.values()],
             "systems": systems, "unkinded": unkinded,
             "total": total, "offset": offset,

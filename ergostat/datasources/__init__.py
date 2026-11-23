@@ -4,10 +4,12 @@ the source's own language; the answer has the shape of every chart's (``times``,
 
 A type is one module in this package, found by its name: ``TYPE`` (the word in ``sources:``), ``KEYS`` (its connection
 keys besides ``type``), ``LANGUAGE`` (what its text is written in) and ``query(source, text, window)``, which returns
-``[(name, [(time, value), ...]), ...]``. It offers nothing else: a module with any other public function or class is
-refused, so ``query`` is the one operation anything can call on a source (and a type's ``query`` must itself only read).
-A type may also offer ``values(source, selector, label, window)``, read-only too: the values a label takes, which a
-dashboard variable written ``label_values(selector, label)`` lists (``values`` here).
+``[(name, [(time, value), ...]), ...]``. It may also offer ``suggest(source, what, prefix, metric, label, seconds,
+most)``, the names an editor completes (``what``: ``metrics``, ``labels`` or ``values``), read from the source's own
+metadata, and ``values(source, selector, label, window)``, the values a label takes, which a dashboard variable
+written ``label_values(selector, label)`` lists (``values`` here). It offers nothing else: a module with any other
+public function or class is refused, so ``query``, ``suggest`` and ``values`` are the only operations anything can call
+on a source (and each must itself only read).
 Every query is bounded here, whatever its type: its text, its window, its points and its series, and it is refused
 with words naming the bound it is over."""
 
@@ -28,16 +30,21 @@ MOST_WINDOW = 400 * 86400.0
 MOST_SECONDS = 10.0         # the longest one query may take to answer
 MOST_VALUES = 200           # values a variable's query may list
 MOST_VALUE = 200            # characters of one value
-OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "values"}
+OFFERED = {"TYPE", "KEYS", "LANGUAGE", "query", "suggest", "values"}
 _LABEL_VALUES = re.compile(r"\s*label_values\(\s*(?:(.+)\s*,\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\Z", re.S)
+MOST_SUGGESTIONS = 100      # names one suggestion answers with
+SUGGEST_SECONDS = 3.0
+SUGGESTED = ("metrics", "labels", "values")
+_NAME = re.compile(r"[A-Za-z_:][A-Za-z0-9_:]{0,199}")     # a metric's or a label's name, as a suggestion takes it
 
 
 class SourceError(Exception):
     """A query that is not answered, and why: ``kind`` is ``limit``, ``unreachable``, ``refused`` or ``unknown``."""
 
-    def __init__(self, kind: str, words: str):
+    def __init__(self, kind: str, words: str, at: tuple[int, int] | None = None):
         super().__init__(words)
         self.kind = kind
+        self.at = at            # (line, column), each from 1: where in the text the source said it is wrong
 
 
 @dataclass(frozen=True)
@@ -69,7 +76,8 @@ def register(mod) -> None:
         not isinstance(mod, ModuleType) or getattr(v, "__module__", None) == mod.__name__)
     extra = sorted(n for n in names - OFFERED if own(getattr(mod, n)))
     if extra:
-        raise TypeError(f"data source type {mod.TYPE}: offers {extra[0]}; a type offers only query and values (read-only)")
+        raise TypeError(f"data source type {mod.TYPE}: offers {extra[0]}; "
+                        "a type offers only query, suggest and values (read-only)")
     with _LOCK:
         _TYPES[mod.TYPE] = mod
 
@@ -171,3 +179,27 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, given: d
                 values[g.at(t + 1e-6 * g.step)] = float(v)    # (a time on a bucket's start, never just before it)
         series.append({"name": str(label), "values": values})
     return {"times": g.times, "step": g.step, "series": series, "unit": "", "capped": 0, "read_log": False}
+
+
+def suggest(spec, name: str, what: str, prefix: str = "", metric: str = "", label: str = "",
+            seconds: float = SUGGEST_SECONDS) -> dict:
+    """The names an editor may complete: ``{suggestions, more}``, at most MOST_SUGGESTIONS, each starting with ``prefix``
+    (``more``: there were others, not sent). ``metric`` narrows labels and values to one metric's; ``label`` is whose
+    values. Bounded like a query, whatever the type: in time, in what is asked and in what is answered."""
+    src = (getattr(spec, "sources", None) or {}).get(name)
+    mod = types().get(src.type) if src is not None else None
+    if mod is None:
+        raise SourceError("unknown", f"no source named {name!r} under sources: that panels can query")
+    if not callable(getattr(mod, "suggest", None)):
+        raise SourceError("refused", f"source {name!r} ({src.type}) suggests nothing")
+    if what not in SUGGESTED:
+        raise SourceError("refused", f"what is suggested is one of {', '.join(SUGGESTED)}, not {what!r}")
+    if any(v and not _NAME.fullmatch(v) for v in (metric, label)) or (what == "values") != bool(label):
+        raise SourceError("refused", "values are suggested for one label, a name (letters, digits, _ and :)")
+    if not isinstance(prefix, str) or len(prefix) > 200:
+        raise SourceError("limit", "what is typed is more than the 200 characters a suggestion takes")
+    if seconds <= 0:
+        raise SourceError("limit", "busy: this request has no time left to ask; try again")
+    got, more = mod.suggest(src, what, prefix, metric, label, min(seconds, SUGGEST_SECONDS), MOST_SUGGESTIONS)
+    names = sorted({n for n in got if isinstance(n, str) and n.startswith(prefix)})
+    return {"suggestions": names[:MOST_SUGGESTIONS], "more": bool(more) or len(names) > MOST_SUGGESTIONS}

@@ -98,6 +98,11 @@ auxiliaries:
     description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
+  browser-main-green:
+    unit: switch
+    description: 1 when the last daily browser run on main passed (or failed only on flakes), 0 when a test failed there or it named none; no reading when run/browser-daily.json cannot be read
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/browserday.py green, every: 10m, timeout: 1m, description: the daily browser run's record}
 
 flows:
   gaps-approved:
@@ -330,6 +335,11 @@ goals:
     hold: "<= 2"
     tolerance: 0
     description: a drain ends by its bound ([upgrade] drain_minutes) and the switcher's next minutes - past them the switch is stuck
+  browser-main-green:
+    auxiliary: browser-main-green
+    hold: ">= 1"
+    tolerance: 0
+    description: the four browser files pass on main, run once a day whatever merged (browser-daily)
 
 actions:
   push-main:
@@ -399,6 +409,16 @@ blocks:
     timeout: 1h
     in: block.triage-when
     out: [flow.flakes-retried, flow.sent-back-by-triage, flow.parked-in-triage]
+  browser-daily:
+    type: program
+    description: once a day, under the queue's lock once the machine is quiet, the four browser files on origin/main in a worktree of its own - green, its sha recorded; a test failing twice alone, an intervention (class queue) naming it, main and the merges since the last green; passing alone, a flake seen
+    run: python3 dev/bin/browserday.py
+    every: 24h
+    timeout: 3h
+    # read, not commanded: a goal: here would take it off its schedule (schedule-removed); the last green it reads
+    # names the suspects, and each day's run measures main again
+    in: [goal.browser-main-green]
+    out: auxiliary.browser-main-green
   main-mend:
     type: program
     description: the way out of main-broken - on the pushed main, once the machine is quiet, the oldest main-broken tests ([gates] mend_most, at most 20) run alone twice in a suite container; each passing both is flake.main-fixed, a patch testing the item's main as read (dev/bin/mend.py)
@@ -412,7 +432,7 @@ blocks:
 
   main-watch:
     type: program
-    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one
+    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one; and of reverts pushed to main, each an escape (dev/bin/escapes.py)
     run: python3 dev/bin/upgrade.py watch
     every: 10m
     timeout: 2m
