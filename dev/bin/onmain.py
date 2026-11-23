@@ -2,8 +2,8 @@
 
 The fast suites are ruff, [suites] build when set (the small set, scripts/affected_tests.py; else the full unit suite),
 and the four browser files only with [suites] build_browser = true (a browser test skipped fails them, as in the
-queue); the merge queue runs unit, browser and demo in full either way (queue.py). The tests that failed (unit, build
-or browser) are run again alone on the branch (`alone`; `rerun`, with Playwright, for the browser's): passing, they
+queue); the merge queue runs unit and demo in full either way, browser on its paths (queue.py). The tests that
+failed (unit, build or browser) are run again alone on the branch (`alone`; `rerun`, with Playwright, for the browser's): passing, they
 are flakes (`flake.seen`), and the fast suites
 are run once more, uncounted, once per run. Those still failing are run once on clean main (the commit the branch
 merged), in a clone of the drop at it. Each run is in the same kind of suite container as the fast suites, in the

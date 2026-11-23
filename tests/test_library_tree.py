@@ -37,7 +37,9 @@ def test_sources_allowlist():
         assert (e.code, e.field) == ("bad-library-source", "libraries.lib.version"), version
     for path in ("../up", "/abs", "a/../b", "a\n", "-x"):
         assert _refused({"path": path}).field == "libraries.lib.path", path
-    assert _refused({"extra": "x"}).field == "libraries.lib: an entry of git, version and path only"
+    assert _refused({"extra": "x"}).field == "libraries.lib: an entry of git, version, path and trust only"
+    assert _refused({"trust": "anyone"}).field == "libraries.lib.trust"
+    assert sources.check({"lib": {**GOOD, "trust": "owner"}})["lib"]["trust"] == "owner"
     assert _refused({"version": None}).field == "libraries.lib.version"
     assert _refused({"git": 7}).field == "libraries.lib.git"
     sixteen = {f"l{i}": GOOD for i in range(16)}

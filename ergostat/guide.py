@@ -127,7 +127,8 @@ FRAMES = [
         unit: k$
 """, "only": ["stock:customers", "stock:ad-spend"]}]},
     {"id": "between", "part": "why",
-     "text": "Between them is the rest of the system. System dynamics draws what is; control draws what we control.",
+     "text": "Between them is the rest of the system. System dynamics draws what is: the goal as a desired level and a gap "
+             "that drives the flow, or 'no feedback' when nothing acts on it. Control draws what we control.",
      "views": [{"view": "dynamics", "model": WANTED}, {"view": "blocks", "model": WANTED}]},
     # ---------------------------------------------------------------- system dynamics: what is
     {"id": "fills", "part": "dynamics",

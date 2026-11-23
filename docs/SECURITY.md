@@ -225,6 +225,25 @@ What this does **not** stop:
   (`in: block.x`), that block commands yours, by your wiring. A raised `alarm` shows on the page and counts as an
   intervention, as any alarm does.
 
+**Fetching a library by git URL** (`libraries:`, SPEC §2a). The threat is a `libraries:` entry, a repository or a
+server that tries to make `ergostat library fetch` run a command, reach another host or protocol, fill the disk, hang,
+or write outside `.libraries/`, or a copy changed after it was locked. The URL, ref and path pass an allowlist matched
+whole before any git process starts (https and file only, no user, query or fragment, no ref starting `-`), and go
+after `--end-of-options`; git runs with no system or global config, no credential helper, no ssh, no redirects and
+`GIT_ALLOW_PROTOCOL=https:file`. Each git process runs in its own process group under a 100 MB cap on any file the
+kernel lets it write; the temporary folder (the clone, and the archive written to a file there) is summed every 0.05 s
+and the group killed past 100 MB or 120 s, so the total can overshoot by what arrives in one poll; an interrupted fetch
+kills the group it was waiting on. The archive is extracted with a positive list (folders, regular files, relative links whose target, walked step by step, never goes
+above the copy or onto another link, names compared case- and normalization-insensitively as APFS does, and which,
+once made, resolves inside the copy on disk; at most 2,000 entries and 20 MB) into a new folder, never over the old
+copy, through folder handles that do not follow links, and fetch refuses
+when `.libraries` or `.libraries/NAME` is a link. Every load checks the copy against `libraries.lock` (commit and tree
+hash, links hashed by their target, never followed, FIFOs and devices refused unopened) and parses the very bytes it
+hashed. What this does not cover: a library with `trust: owner` is trusted wholesale, as any folder you mark so; the
+lock pins what you fetched, not that it is safe; and a script a template runs from `${here}` is read again when it
+runs, so a change to it between load and run is not caught here. A library without `trust: owner` is listed but never
+expanded until the provenance gate and the sandbox reach fetched libraries.
+
 ## The page from elsewhere
 
 The page answers only requests addressed to `127.0.0.1:PORT` on this machine. Behind a cloudflared tunnel it answers a

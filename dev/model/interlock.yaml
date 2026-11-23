@@ -1,7 +1,8 @@
 # The load interlock: the test suites running on this machine (anyone's), their threads and memory, and goals that
 # hold the suite-running blocks (the merge queue, flake triage) while the machine is busy. Inside their runs, the
 # implementor and triage hold a machine-wide suite slot around each suite ([suites] slot) and wait while the machine
-# is full ([load] most_suites; dev/bin/fac.py, wait_quiet); the queue's lock is its slot. The hard rule is
+# is full ([load] most_suites; dev/bin/fac.py, wait_quiet); the queue's lock is its slot, the last one kept for it while
+# approved gaps wait (dev/bin/slots.py). The hard rule is
 # scripts/suite_watch.py's: a suite past 1,500 threads or 6 GB is killed.
 defaults:
   system: load
