@@ -54,3 +54,16 @@ interface system.spending, missing-feedback goal.ai-not-held), each gone by a mo
 - `ergostat check` itself was refused to this session; the findings were read through `spec.read` and
   `architecture.findings` in a scratch test (removed, never committed): none of the four is left, and nothing new
   names planning, spending, ai-hold or the new parts.
+
+Round 2, the review's one finding (a reviewer's limit stop counted a review round: `gap.review-started` says
+`reviews_n=1` before the session, so the real review after the reset was round 2 with `first_pass=False`):
+
+- review.py now catches `aihold.Limited` around the reviewer session, says `gap.measured` with `reviews_n=-1` (the
+  `sum` fold takes the round back; `gap.measured` moves no state) and re-raises, so the run still ends uncounted.
+  Chosen over moving the count past the session because it keeps `in-review` and the count of a crashed review as
+  they were (the most reversible). Gives back only a limit stop's round; a budget refusal (`OverBudget`) after
+  review-started still counts a round, as before this gap.
+- test_a_limit_stop_is_not_an_attempt_and_never_parks now does two reviewer limit stops (a failed session with the message, and
+  a session whose result is the message) and then a merge verdict. It asserts reviews_n is 0, then 1, and that the
+  merge is `first_pass` True and the review's `round` is 1. With the take-back removed it fails (`assert 2 == 0`),
+  which was seen.

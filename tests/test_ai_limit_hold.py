@@ -123,6 +123,16 @@ def test_a_limit_stop_is_not_an_attempt_and_never_parks(tmp_path, monkeypatch):
     nk = nacks(lines)[0]
     it = folded([nk | {"after_s": seconds(nk["after"])}] * 3, time.time())
     assert it.state == "ready" and it.fields["lease"]["attempts"] == 0 and "dead" not in it.fields["lease"]
+    # nor a review round: after the reset the real review is round 1, a first pass
+    (f.model / "run" / "ai_hold.json").unlink()
+    said, lines = f.run("review.py", gid, FACTORY_STANDIN_REVIEWER=reset_text(time.time() + 3600))
+    assert "gap.review-started" in said and [n["count"] for n in nacks(lines)] == [False]
+    assert int(f.item(gid)["fields"].get("reviews_n") or 0) == 0      # the boom stop and this one, both taken back
+    (f.model / "run" / "ai_hold.json").unlink()
+    said, lines = f.run("review.py", gid)
+    approved = next(x["data"] for x in lines if x.get("event") == "gap.approved")
+    assert approved["first_pass"] is True and f.item(gid)["fields"]["reviews_n"] == 1
+    assert next(x["data"] for x in lines if x.get("event") == "review.written")["round"] == 1
     # a reviewer's verdict that only quotes the message is not a stop
     aihold = aihold_module(monkeypatch)
     assert not aihold.limited("The branch reads 'You've hit your weekly limit · resets 3pm'.")
