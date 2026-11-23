@@ -203,6 +203,8 @@ def test_an_https_source_that_trickles_is_cut_off_at_the_time_bound(tmp_path, pr
 def test_a_source_query_takes_only_source_and_text(p):
     [r] = ask(p, {"source": "prom", "text": "up", "agg": "sum"})
     assert "'agg' is not a key of a data source's query" in r["error"]
+    [r] = ask(p, {"source": "prom", "text": "up", "vars": {"k": "a"}})
+    assert "vars must be" in r["error"]
     [r] = ask(p, {"source": "items", "field": "x", "x": {"type": "bins", "query": {"source": "prom", "text": "up"}}})
     assert "cannot be an X" in r["error"]
 
@@ -254,10 +256,10 @@ def test_a_type_offers_query_and_nothing_else():
     with pytest.raises(TypeError, match="offers only query"):
         datasources.register(types.SimpleNamespace(TYPE="w", KEYS=set(), LANGUAGE="W", query=fake_query, write=write))
     assert "w" not in datasources.types()
-    for name, mod in datasources.types().items():                          # every type there is: only query is offered
+    for name, mod in datasources.types().items():          # every type there is: only query (and values) is offered
         own = {n for n, v in vars(mod).items() if not n.startswith("_") and callable(v)
                and getattr(v, "__module__", None) == mod.__name__}
-        assert own == {"query"}, name
+        assert "query" in own and own <= {"query", "values"}, name
 
 
 PUBLIC = "dash.example.org"

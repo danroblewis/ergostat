@@ -81,19 +81,40 @@ class SourceQuery:
     id: str
     source: str
     text: str
+    vars: tuple = ()        # a dashboard's variables it may use: (name, (value, ...)), ...
+
+    @property
+    def given(self) -> dict:
+        return {k: list(v) for k, v in self.vars}
+
+
+MOST_VARS, MOST_VAR_VALUES, MOST_VAR_VALUE = 8, 200, 200
+
+
+def source_vars(v, who: str) -> tuple:
+    """``vars`` as asked: an object of at most MOST_VARS names, each a list of at most MOST_VAR_VALUES short texts."""
+    if v is None:
+        return ()
+    ok = isinstance(v, dict) and len(v) <= MOST_VARS and all(
+        isinstance(k, str) and 0 < len(k) <= 64 and isinstance(x, list) and len(x) <= MOST_VAR_VALUES
+        and all(isinstance(e, str) and len(e) <= MOST_VAR_VALUE for e in x) for k, x in v.items())
+    if not ok:
+        raise BadQuery(f"{who}: vars must be at most {MOST_VARS} names, each a list of at most {MOST_VAR_VALUES} "
+                       f"texts of {MOST_VAR_VALUE} characters")
+    return tuple(sorted((k, tuple(x)) for k, x in v.items()))
 
 
 def _source_query(d: dict, id_: str, who: str, depth: int) -> SourceQuery:
     if depth:
         raise BadQuery(f"{who}: a data source's query cannot be an X, an input or an output")
-    if extra := sorted(set(d) - {"id", "source", "text"}):
-        raise BadQuery(f"{who}: {extra[0]!r} is not a key of a data source's query (source and text)")
+    if extra := sorted(set(d) - {"id", "source", "text", "vars"}):
+        raise BadQuery(f"{who}: {extra[0]!r} is not a key of a data source's query (source, text and vars)")
     source, text = d.get("source"), d.get("text")
     if not isinstance(source, str) or not source or len(source) > 200:
         raise BadQuery(f"{who}: source is missing (the name of a source under sources:)")
     if not isinstance(text, str):
         raise BadQuery(f"{who}: text must be the query, in the source's own language")
-    return SourceQuery(id_, source, text)
+    return SourceQuery(id_, source, text, source_vars(d.get("vars"), who))
 
 
 @dataclass(frozen=True)

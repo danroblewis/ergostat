@@ -664,6 +664,9 @@ def _query(live: Live, p, parts: list, q: dict, reader: bool = False):
     name = unquote(parts[1]) if len(parts) > 1 else None
     if name == "fields":
         return fields(live, p, reader)
+    if name == "values":                           # a dashboard variable's values (query/variables.py)
+        from ..query.variables import values
+        return values(p, (q.get("q") or [None])[0], reader)
     return answer(live, p, (q.get("q") or [None])[0], reader) if name is None else None
 
 

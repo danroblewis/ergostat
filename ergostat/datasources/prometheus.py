@@ -1,6 +1,7 @@
 """A Prometheus-compatible source: PromQL, asked as a range query (``GET /api/v1/query_range``) by the server, so the
-browser never holds the source's address or credentials. A GET to that one path is the only request it makes, and it is
-ended at the query's time bound however slowly the source answers."""
+browser never holds the source's address or credentials. A GET to that path, or to ``/api/v1/label/NAME/values`` for a
+dashboard variable's values, is the only request it makes, and it is ended at the time bound however slowly the source
+answers."""
 
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ TYPE = "prometheus"
 KEYS = {"url"}
 LANGUAGE = "PromQL"
 _PATH = "/api/v1/query_range"
+_LABELS = "/api/v1/label/{}/values"     # a dashboard variable's label_values
 _MOST_BYTES = 8 * 1024 * 1024     # of one answer
 
 
@@ -70,7 +72,7 @@ def _cut(held: list, late: threading.Event) -> None:
             pass
 
 
-def _get(src, params: dict, seconds: float) -> dict:
+def _get(src, params: dict, seconds: float, path: str = _PATH) -> dict:
     """One GET, ended ``seconds`` from now however the source answers (connecting, a stalled header, a trickled body).
     Only name resolution is left to the system's resolver, which this cannot interrupt."""
     u = urllib.parse.urlsplit(src.url.rstrip("/"))
@@ -91,7 +93,7 @@ def _get(src, params: dict, seconds: float) -> dict:
     cut.daemon = True
     cut.start()
     try:
-        conn.request("GET", f"{u.path}{_PATH}?{urllib.parse.urlencode(params)}", headers={"Accept": "application/json"})
+        conn.request("GET", f"{u.path}{path}?{urllib.parse.urlencode(params)}", headers={"Accept": "application/json"})
         r = conn.getresponse()
         body = r.read(_MOST_BYTES + 1)
     except (OSError, ValueError, http.client.HTTPException) as e:   # (never the address: it may hold credentials)
@@ -117,7 +119,7 @@ def _get(src, params: dict, seconds: float) -> dict:
         raise SourceError("unreachable", f"source {src.name!r} did not answer in JSON") from e
     if not isinstance(got, dict) or got.get("status") != "success":
         raise SourceError("refused", f"source {src.name!r} refused the query ({_said(body)})")
-    return got.get("data") or {}
+    return got.get("data")
 
 
 def _name(metric: dict, text: str) -> str:
@@ -133,9 +135,20 @@ def _number(v) -> float | None:
         return None
 
 
+def values(src, selector: str | None, label: str, w) -> list:
+    """The values ``label`` takes over the window, among the series ``selector`` picks (all, when None)."""
+    params = {"start": f"{w.since:.3f}", "end": f"{w.until:.3f}", **({"match[]": selector} if selector else {})}
+    data = _get(src, params, w.seconds, _LABELS.format(urllib.parse.quote(label, safe="")))
+    if not isinstance(data, list):
+        raise SourceError("refused", f"source {src.name!r} answered with no list of values")
+    return data
+
+
 def query(src, text: str, w) -> list:
     data = _get(src, {"query": text, "start": f"{w.start:.3f}", "end": f"{w.end:.3f}", "step": f"{w.step:g}",
                       "timeout": f"{w.seconds:g}s"}, w.seconds)
+    if not isinstance(data, dict):
+        data = {}
     if data.get("resultType") != "matrix" or not isinstance(data.get("result"), list):
         raise SourceError("refused", f"source {src.name!r} answered {data.get('resultType')!r}, not a range of series")
     out = []
