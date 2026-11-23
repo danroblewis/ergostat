@@ -79,3 +79,36 @@ Fast suites, round 1 (`build` red on two tests of tests/test_factory.py):
   On main, three slow tests started at once. The six are now unmarked and run later, as stolen work. Main's timing
   could not be measured: `git worktree add -q /tmp/mainwt main` and `git checkout main -- dev/model/landing.yaml
   ergostat.yaml` were refused. If it goes red again, compare it with main's in the same slot.
+
+Round 2: the review's blocking finding. A run killed after its merges landed left its batch open forever. There were
+three windows. First, while `running` has `landing`: recover() blocks and returns before abandoned(). Second, after
+`running` is popped but before batches.pending() in ask(), so the push-main call too: recover() returns at once.
+Third, one the review did not name: after pending() but before ask() saved the pending push, because pending() closed
+the mark itself. Now:
+- settled() writes what landed into run/batch.json (`outcome`, `back`, `failed`, `sha`).
+- pending() marks the batch `pushing` and keeps it `open`. pushed(), which now takes `cfg` (the four queue.py calls
+  pass it), closes the mark after saying the end.
+- begin() first calls left(). It ends a mark still open with the outcome that mark says it landed (`landed` or
+  `partial`, because its merges stayed on main). Its `why` says the run was killed after its merges landed, before
+  its push was recorded.
+- abandoned() skips a mark that is `pushing`, so a batch waiting on its push is still ended by its push.
+- The choice made alone: the end is said with the outcome as landed on main, not `given-back`. Nothing was undone,
+  and `gap.merged` was said for those gaps, or was being said. That holds even if the coordinator later undoes
+  them while the queue is blocked. It is the most reversible choice: one line in left().
+- A kill between pushed()'s event and its mark write says the end twice. That is better than never. It is not tested.
+- New tests: `test_a_batch_killed_after_it_landed_ends_before_the_next_batch_begins` (in memory, the windows before
+  and after pending(); the landing window leaves the same mark as before-pending), and
+  `test_a_queue_run_killed_before_its_push_leaves_its_batch_ended_by_the_next` (a real queue run SIGKILLed in place of
+  ask(), so between settled() and pending(), then the next gap's run). The test of a recovered run now also checks that
+  a batch ended by its push is not ended again by the next begin().
+- Seen to fail with the code broken: all three new cases with left() removed from begin(), and the recovery test with
+  pushed() not closing the mark (said twice).
+- dev/README.md says how a killed batch ends.
+
+Run here, serially, with rc 0: tests/test_queue_batch_item.py (15 passed, 1 skipped without Playwright, and its browser
+test passed under Playwright 1.63.0 and the watchdog), tests/test_queue.py (17), tests/test_queue_halves.py (55),
+tests/test_queue_host.py (12), tests/test_factory.py::test_batch_of_one_is_todays_queue and
+::test_a_green_batch_lands_every_gap, and `ruff check ergostat tests scripts`. Main had not moved (still 7a905955,
+already merged). Not run here: the unit suite, the four browser files and the rest of tests/test_factory.py.
+`ruff check dev/bin` reports B023 in dev/bin/plan.py and E501 in dev/bin/review.py. This branch did not touch those
+files, and dev/bin/batches.py and dev/bin/queue.py are clean.

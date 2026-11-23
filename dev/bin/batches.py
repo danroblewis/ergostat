@@ -12,7 +12,10 @@ carry no logs (the logs stay in run/queue/):
 - `batch.ended-<outcome>` (landed, partial, failed, given-back): what was given back and why. A batch that landed
   something ends when its push settles (queue.settle(): the push ran, was denied, or the coordinator settled it).
 
-A batch killed part way ends given back when the next queue run recovers (abandoned()). A run under way is written to
+A batch killed part way ends when the next queue run takes over: given back when recover() puts main back
+(abandoned()); and one killed after its merges landed (while saying them, or before its push was written in
+run/queue.json, so no settling ends it) ends with what it landed, said as killed, before the next batch's mark is
+written over its own (left(), in begin()). A run under way is written to
 run/batch.json; `batches.py percent` and `batches.py failures` (the measures
 batch-run-percent and batch-run-failures) read that run's own logs, never the record. Every call is guarded: a failure
 to say or write anything is dropped and never reaches the merge (a print that fails, a full disk)."""
@@ -52,8 +55,8 @@ def guarded(f):
 
 @guarded
 def _mark(**changes) -> None:
-    """run/batch.json: the batch, whether it is still `open` (not ended, nor waiting on its push) and whether a run is
-    `under_way` (its number, kind, start)."""
+    """run/batch.json: the batch, whether it is still `open` (not ended: `pushing` once its push is asked), what it
+    landed (`outcome`, `back`, `failed`, `sha`) and whether a run is `under_way` (its number, kind, start)."""
     NOW["mark"].update(changes)
     p = fac.run_dir(NOW["cfg"]) / "batch.json"
     tmp = p.with_suffix(".new")
@@ -61,8 +64,38 @@ def _mark(**changes) -> None:
     tmp.replace(p)
 
 
+def _open(cfg: dict) -> dict:
+    p = fac.run_dir(cfg) / "batch.json"
+    m = json.loads(p.read_text()) if p.exists() else {}
+    return m if m.get("open") else {}
+
+
+def _load(cfg: dict, m: dict) -> None:
+    NOW.clear()
+    NOW.update(cfg=cfg, id=m["batch"], tag=m["tag"], gaps=list(m["gaps"]), began=float(m["began"]),
+               runs=int(m.get("run") or 0), ended=False, mark=m)
+
+
+@guarded
+def left(cfg: dict) -> None:
+    """A batch still open as a new one begins: its queue run was killed where recover() does not put main back (while
+    saying its merges, so recover() blocked, or after, before its push was in run/queue.json, so no settle() ends it).
+    It ends with what it landed (its mark's outcome: its merges stayed on main), said as killed."""
+    m = _open(cfg)
+    if not m:
+        return
+    _load(cfg, m)
+    out = m.get("outcome") if m.get("outcome") in ("landed", "partial") else "given-back"
+    NOW.update(back=m.get("back"), failed=list(m.get("failed") or []))
+    end(out, f"its queue run was killed after its merges landed (main at {str(m.get('sha') or '?')[:12]}), before "
+             "its push was recorded: no push of its own settles it" if m.get("outcome") else
+             "its queue run was killed part way, and no recovery ended it")
+    NOW.clear()
+
+
 @guarded
 def begin(cfg: dict, tag: str, gaps: list[str], pre: str) -> None:
+    left(cfg)                                           # (a mark still open, ended before it is written over)
     NOW.clear()
     NOW.update(cfg=cfg, id=f"batch/{tag}", tag=tag, gaps=list(gaps), began=time.time(), runs=0, ended=False,
                mark={"batch": f"batch/{tag}", "tag": tag, "gaps": list(gaps), "began": time.time()})
@@ -72,14 +105,12 @@ def begin(cfg: dict, tag: str, gaps: list[str], pre: str) -> None:
 
 @guarded
 def abandoned(cfg: dict) -> None:
-    """A queue run killed part way (recover(), as it puts main back): the batch it left open ends given back."""
-    p = fac.run_dir(cfg) / "batch.json"
-    m = json.loads(p.read_text()) if p.exists() else {}
-    if not m.get("open"):
+    """A queue run killed part way (recover(), as it puts main back): the batch it left open ends given back. One
+    waiting on its push (pending() returned) is its push's to end (pushed()), or left()'s."""
+    m = _open(cfg)
+    if not m or m.get("pushing"):
         return
-    NOW.clear()
-    NOW.update(cfg=cfg, id=m["batch"], tag=m["tag"], gaps=list(m["gaps"]), began=float(m["began"]),
-               runs=int(m.get("run") or 0), ended=False, mark=m)
+    _load(cfg, m)
     end("given-back", "its queue run was stopped part way (killed or crashed): main put back")
     NOW.clear()
 
@@ -157,6 +188,7 @@ def settled(landed: list[str], sha: str, back: list[tuple[str, str]]) -> None:
     NOW.update(failed=[g for g in NOW["gaps"] if g not in out], back=[{"gap": g, "why": w} for g, w in back])
     if landed:
         NOW["outcome"] = "landed" if len(landed) == len(NOW["gaps"]) else "partial"
+        _mark(outcome=NOW["outcome"], back=NOW["back"], failed=NOW["failed"], sha=sha)   # (for left())
         _say("batch.landed", NOW["id"], landed=list(landed), main_sha=sha, runs_n=NOW["runs"], minutes=_minutes())
     else:
         end("failed" if NOW["failed"] else "given-back", "nothing landed")
@@ -189,20 +221,25 @@ def pending() -> dict | None:
     if not NOW or NOW["ended"] or not NOW.get("outcome"):
         return None
     NOW["ended"] = True
-    _mark(open=False, under_way=False)                  # (its push's settling ends it: queue.settle())
+    _mark(pushing=True, under_way=False)                # (open until its push's settling ends it: pushed())
     return {"id": NOW["id"], "outcome": NOW["outcome"], "given_back": NOW["back"], "failed": NOW["failed"],
             "began": NOW["began"], "runs": NOW["runs"]}
 
 
 @guarded
-def pushed(b: dict | None, push: str) -> None:
+def pushed(cfg: dict, b: dict | None, push: str) -> None:
     """The push of a batch's landed merges settled: ran (its outcome), denied (failed: the merges undone, its gaps
-    sent back), or settled by the coordinator."""
+    sent back), or settled by the coordinator. Its mark is closed after (killed between: said twice, never not)."""
     if not isinstance(b, dict) or b.get("outcome") not in OUTCOMES:
         return
     outcome = "failed" if push == "denied" else b["outcome"]
     _said(b["id"], outcome, f"its push {push}", b.get("given_back") or [], b.get("failed") or [],
           round((time.time() - float(b.get("began") or time.time())) / 60, 1), int(b.get("runs") or 0))
+    m = _open(cfg)
+    if m.get("batch") == b["id"]:
+        p = fac.run_dir(cfg) / "batch.json"
+        p.with_suffix(".new").write_text(json.dumps({**m, "open": False, "under_way": False}))
+        p.with_suffix(".new").replace(p)
 
 
 # ---- the measures: the run under way, from its own logs

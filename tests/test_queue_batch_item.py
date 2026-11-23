@@ -180,7 +180,7 @@ def three_runs(b, clock, cfg) -> list[tuple[float, float]]:
     b.settled(["gap/a", "gap/c"], "1" * 40, [])
     p = b.pending()
     clock[0] += 120
-    b.pushed(p, "ran")
+    b.pushed(cfg, p, "ran")
     return spans
 
 
@@ -336,9 +336,62 @@ def test_a_batch_whose_run_was_killed_ends_given_back_when_the_next_run_recovers
     assert len(said_later) == 1                                                   # ended once
     b.begin(cfg, "c-20261123T110000Z", ["gap/c"], "0" * 40)
     b.settled(["gap/c"], "1" * 40, [])
-    b.pending()                                                                   # waiting on its push: not abandoned
+    p = b.pending()                                                               # waiting on its push: not abandoned
     later.abandoned(cfg)
     assert len(said_later) == 1
+    b.pushed(cfg, p, "ran")                                                       # its push ended it: nothing left open
+    later.begin(cfg, "d-20261123T120000Z", ["gap/d"], "0" * 40)
+    assert [e for e, *_ in said_later] == ["batch.ended-given-back", "batch.started"]
+
+
+@pytest.mark.parametrize("window", ["before-pending", "after-pending"])
+def test_a_batch_killed_after_it_landed_ends_before_the_next_batch_begins(tmp_path, monkeypatch, window):
+    """Killed where recover() does not put main back, so never calls abandoned(): while saying its merges (recover()
+    blocks) or after `running` was popped, before pending() (its mark the same in both), or after pending() but before
+    its pending push was saved. No settle() ends it, so the next batch's begin() ends it, with what it landed, before
+    writing over its mark."""
+    b, clock, out, cfg = batches_module(monkeypatch, tmp_path)
+    b.begin(cfg, "a-20261123T100000Z", ["gap/a", "gap/b", "gap/c"], "0" * 40)
+    with b.run("full", ["gap/a", "gap/b", "gap/c"]) as seen:
+        seen.append({"unit": {"counts": {"failed": 0, "passed": 3}}})
+    b.settled(["gap/a", "gap/b"], "1" * 40, [("gap/c", "out of time")])
+    if window == "after-pending":
+        b.pending()
+    later, _, said_later, _ = batches_module(monkeypatch, tmp_path)               # the next queue run's process
+    later.begin(cfg, "d-20261123T110000Z", ["gap/d"], "1" * 40)
+    (event, item, data, _), started = said_later
+    assert (event, item, started[0]) == ("batch.ended-partial", "batch/a-20261123T100000Z", "batch.started")
+    assert "killed after its merges landed (main at 111111111111)" in data["why"] and data["runs_n"] == 1
+    assert data["given_back"] == [{"gap": "gap/c", "why": "out of time"}] and data["failed"] == []
+    mark = json.loads((tmp_path / "run" / "batch.json").read_text())
+    assert mark["batch"] == "batch/d-20261123T110000Z" and mark["open"] is True
+
+
+KILLED = """\
+import os, signal, sys
+sys.path[:0] = [sys.argv[1]]
+import queue
+def killed(*a, **k):                    # after `running` was popped, before batches.pending(): SIGKILLed
+    os.kill(os.getpid(), signal.SIGKILL)
+queue.ask = killed
+sys.exit(queue.main())
+"""
+
+
+def test_a_queue_run_killed_before_its_push_leaves_its_batch_ended_by_the_next(tmp_path):
+    f = Factory(tmp_path, unit="echo '3 passed in 0.10s'")
+    approved_gaps(f, {"a": 1, "b": 2}, batch=2)
+    (tmp_path / "killed.py").write_text(KILLED)
+    _, lines = f.run(str(tmp_path / "killed.py"), "gap/a", argv=(str(BIN),), fails=True)
+    assert said(lines) == ["batch.started", "batch.run-started", "batch.run-finished", "batch.landed"]
+    assert merges(f) == ["a", "b"] and batch(f)["state"] == "pushing"            # landed; no push asked, none pending
+    approved_gaps(f, {"c": 3}, batch=2)
+    _, lines = f.run("queue.py", "gap/c")
+    assert said(lines)[:2] == ["batch.ended-landed", "batch.started"]
+    got = {i["id"]: i for i in f.db()["items"].values() if i["kind"] == "batch"}
+    first = next(i for k, i in got.items() if k.startswith("batch/a-"))
+    assert first["state"] == "landed" and "killed after its merges landed" in first["fields"]["why"]
+    assert merges(f) == ["a", "b", "c"]
 
 
 # ---- the run under way: its progress from its own logs

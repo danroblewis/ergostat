@@ -746,7 +746,9 @@ counts (`counted` names them; none said: neither is known), the first ten failin
 `isolated` says each gap found failing, how and on which tests; `given_back` and `why`, how it ended. It links to its
 gaps, and each gap's page lists its `batches`; the events carry no logs. While a run is under way, `batch-run-percent`
 and `batch-run-failures` read its progress from its own pytest logs (the least advanced; the F and E so far), never
-from the record. Saying any of this never fails or delays a merge: a failure to write is dropped.
+from the record. Saying any of this never fails or delays a merge: a failure to write is dropped. A batch whose queue
+run was killed ends when the next run takes over: `given-back` when recovery puts main back, and, killed after its
+merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
 
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named

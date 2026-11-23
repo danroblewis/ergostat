@@ -470,7 +470,7 @@ def settle(cfg: dict, repo) -> str | None:
         for gid in pushed(p):
             fac.say("gap.push-settled", gid, push="settled by the coordinator", settled_by=iid,
                     settled_at=time.time())
-        batches.pushed((p or {}).get("batch"), "settled by the coordinator")
+        batches.pushed(cfg, (p or {}).get("batch"), "settled by the coordinator")
         release(p)
         return None
     p = st.get("pending")
@@ -489,7 +489,7 @@ def settle(cfg: dict, repo) -> str | None:
         save(cfg, st)
         for gid in pushed(p):
             fac.say("gap.pushed", gid, pushed_at=time.time(), push="pushed")
-        batches.pushed(p.get("batch"), "ran")
+        batches.pushed(cfg, p.get("batch"), "ran")
         release(p)
         return None
     if now == "denied":
@@ -502,7 +502,7 @@ def settle(cfg: dict, repo) -> str | None:
         for gid in pushed(p):                          # one approval for the batch: a denial sends back all of it
             fac.say("gap.sent-back", gid, sent_back_by="queue", push="denied",
                     findings=[f"the push of its merge ({p['sha'][:12]}) was denied: the merge is undone"])
-        batches.pushed(p.get("batch"), "denied")
+        batches.pushed(cfg, p.get("batch"), "denied")
         release(p)
         return None
     if now in ("held", "requested", "approved"):
@@ -1272,7 +1272,7 @@ def ask(cfg: dict, repo, gap: dict, landed: list, merged: str, pre: str) -> None
     for gid in gids:
         fac.say("gap.push-asked", gid, push=push, push_said=said[-600:])
     if (b := batches.pending()) and push == "pushed":
-        batches.pushed(b, "ran")
+        batches.pushed(cfg, b, "ran")
     if push != "pushed":
         m = re.search(r"ergostat\.action/[0-9a-f]+", said)
         then, HELD["said"] = HELD["said"], []           # the run's own gap's outcome waits for the push to settle
