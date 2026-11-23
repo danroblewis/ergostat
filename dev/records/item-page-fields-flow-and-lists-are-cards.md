@@ -151,3 +151,23 @@ test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart fails with 
 round since round 1, so I take it to be the one. It is unrelated for the reasons given in round 2. Run alone, the
 branch's three acceptance tests (3 passed) and main's new test_the_items_table_fits_at_1440_px (1 passed) pass.
 tests/test_page_refresh.py was not run this round.
+
+## Where it stopped
+
+Fix round (2026-11-23), answering the one review finding (the Changes section drew a stale answer and stayed stuck on it):
+- pageItem's tick now gives each call a number (`seq`) and draws only the latest call's answer. A tick superseded while
+  it is still waiting (on the item answer, or on messages/actions/why) returns without drawing and marks the draw as
+  `owed`. The next tick then draws even if every answer it gets is unchanged, so the shared `changed` flag can no
+  longer swallow the draw. I chose this over comparing history= because it also covers a stale messages/actions/why
+  answer, and it is the more reversible of the two: one counter, and answers() is unchanged.
+- New test: test_a_late_answer_without_history_never_hides_the_changes (tests/test_items_page.py). It holds back a
+  poll's item answer asked with no history= until 'N changes' has been clicked and the history=n answer drawn. Then
+  it lets the held answer through and waits through several polls; the section must still show the field's three
+  changes. With the seq check disabled it fails (0 rows, the section stuck at '…'); with the check, it passes.
+Runs: ruff clean. tests/test_items_page.py whole: 75 passed, 1 failed (a wait_for_function timeout). Run alone,
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart fails with that timeout, as in every round since
+round 1, so I take it to be the one. It is unrelated: it tests the header, which this branch does not touch.
+tests/test_page_refresh.py: 8 passed, 2 failed, the same count as rounds 2-4. One is
+test_other_pages_left_open_change_nothing on the diagram (44 mutations). Both are unrelated for the reasons given in
+round 2. Refused: running that header test and tests/test_page_refresh.py in one command, and a Bash heredoc append to
+this file (written with the editor instead).

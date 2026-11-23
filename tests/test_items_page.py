@@ -2244,6 +2244,49 @@ def test_field_history_is_one_section(browser, tmp_path):
         server.server_close()
 
 
+HELD = """(() => {          // while window.__hold, an item answer asked with no history= waits for window.__release()
+  window.__hold = false; window.__held = 0; const gates = [];
+  window.__release = () => { while (gates.length) gates.shift()(); };
+  const f = window.fetch.bind(window);
+  window.fetch = (u, o) => {
+    if (!window.__hold || !String(u).startsWith('/api/items/gap%2F3?') || String(u).includes('history=')) return f(u, o);
+    window.__held++;
+    return new Promise((res) => gates.push(res)).then(() => f(u, o));
+  };
+})();"""
+
+
+def test_a_late_answer_without_history_never_hides_the_changes(browser, tmp_path):
+    """A poll's item answer, asked before 'N changes' was clicked and landing after the answer with history=, is not
+    drawn: the Changes section keeps that field's changes, and later polls (asking the same) do not leave it at '…'."""
+    def adds(p, d):
+        p.events.add("gap.opened", item="gap/3", data={"title": "one", "n": 1})
+        p.events.add("gap.moved", item="gap/3", data={"n": 2})
+        p.events.add("gap.moved", item="gap/3", data={"n": 3})
+    server, url = item_site(tmp_path, adds)
+    pg = browser.new_page(viewport={"width": 1440, "height": 1000})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 8")
+    pg.add_init_script(HELD)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{url}/item/gap%2F3")
+    try:
+        pg.wait_for_selector("[data-field=n] .changes-of", timeout=10000)
+        pg.evaluate("window.__hold = true")
+        pg.wait_for_function("window.__held > 0", timeout=10000)      # a poll's answer, no history=, held back
+        pg.locator("[data-field=n] .changes-of").click()
+        rows = pg.locator("details.changes[open] table.history tr")
+        pg.wait_for_function("document.querySelectorAll('details.changes[open] table.history tr').length === 4", timeout=10000)
+        pg.evaluate("window.__hold = false; window.__release()")      # the older answer lands after the newer
+        pg.wait_for_timeout(1500)                                     # several polls
+        assert rows.count() == 4, pg.locator("details.changes").inner_text()
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
 FINISHED = FINISHING.replace("parked, closed]", "parked, closed, dead]").replace(
     "gap.closed: closed}", "gap.closed: closed, gap.died: dead}")
 DELAYED = """(() => {          // /api/items held back window.__delay ms, each asked and each aborted counted

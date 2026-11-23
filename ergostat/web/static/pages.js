@@ -1138,13 +1138,17 @@ async function pageItem(main, id, q) {
   let impact = null;                                 // a failure's or a change's impact (review.js): worked out once
   const ans = answers();
   let whySig = null;                                 // what the why answer said when last drawn
+  let seq = 0, owed = false;                         // the latest tick's number; a superseded tick's draw still owed
   // a refresh asks for its answers first; if none changed (each a 304), nothing on the page is touched (its files
   // are still asked for: a transcript may grow before its events are recorded); else only what differs is
   async function tick(force = true) {
+    // only the latest request's answer is drawn: an older one, still awaited, may have asked another history=
+    const mine = ++seq, late = () => { if (mine === seq) return false; owed = true; return true; };
     ans.begin();
     let d;
     try { d = await ans.api(`items/${encodeURIComponent(id)}`, { ...whatifParams(), ...(changesOpen && !SNAP ? { history: changesOf || "all" } : {}) }); }
     catch (e) { d = null; }
+    if (late()) return;
     if (!d) { patch(body, h("p", { class: "muted" }, "Nothing is recorded about this id.")); return; }
     const k = d.kind_of;
     const ms = !k?.name?.startsWith("ergostat.") ? await ans.api("messages", { item: id }).catch(() => null) : null;
@@ -1156,10 +1160,11 @@ async function pageItem(main, id, q) {
     const w = !S.at && !(k?.final || []).includes(d.state) ? await api("why", { item: id }).catch(() => null) : null;
     const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
       r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
-    if (!p.isConnected) return;
+    if (!p.isConnected || late()) return;
     const same = wsig === whySig;
     whySig = wsig;
-    if (!force && !ans.changed && same) { refreshFiles(); return; }
+    if (!force && !owed && !ans.changed && same) { refreshFiles(); return; }
+    owed = false;
     const pair = (label, value) => h("span", {}, h("span", {}, label), value);
     const head = h("div", { class: "meta" },
       pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
