@@ -9,3 +9,46 @@ Change: a library template `todo` (`ergostat/library/templates/todo/`), generic 
 - Adding one from the command line or through an agent is one step; a person's "done" is recorded through the inbox's existing `--done`.
 
 Definition of done: a demo under `examples/` with to-dos across three access contexts; tests for grouping, waiting, the status text, and that the template adds no action that writes to any outside system.
+
+## Where it stopped
+
+Built (round 1), 452 net lines outside tests, docs and dev (budget 600):
+
+- `ergostat/library/templates/todo/template.yaml`: the kind `${kind}` (new, ready, in-progress, waiting, done,
+  dropped; title, requester, where, instructions as `[text | {do, run, check}]`, due, waits_on, notes), a
+  `${wait-kind}` for what someone else does (asked, answered) and a `${batch-kind}` (open, clear); stocks new,
+  ready, waiting, done; two person blocks (`write-up` for new ones, `do` for ready ones) on goals held at 0; the
+  batcher, a program on the rule rung. No action, workspace or daemon; an optional `command` is the owner's own
+  source, read by `collect`.
+- `ergostat/library/run/todo.py` (`todo batches`): frees a waiting to-do once everything its `waits_on` names is
+  finished (declared finished only; an id never recorded keeps it waiting), then one batch item a place, its
+  to-dos the earliest due first, every one's instructions in order in `sitting`; says a batch only when it
+  changed, and clears an emptied one. It reads the record and prints lines.
+- Three generic changes the template needs, each in SPEC §5a: an item kind's own `finished:` (a template cannot
+  write `messages: done:`, and without it every never-left `ready` read as finished); `moves-from:` (exposes the
+  fold's existing `moves_from`, so the batcher's `todo.freed` moves a to-do only out of waiting: a drop recorded
+  between its read and its write stays a drop, lesson 1); and in `why` a `person` root: with no block taking the
+  item, a person block whose goal counts every item of its kind in that state (no `where:`) is the cause, the next
+  step the first of the kind's `on:` events, as written, out of the counted states, as the `ergostat event --add`
+  that records it.
+- Demo `examples/todo-list/` (bastion-1, lab-vpn, build-host and anywhere); tests in `tests/test_todo_template.py`.
+  Each new test was seen to fail with the code it guards broken (the person root, the kind's finished states, the
+  all-waits check, the due order, the batch key's hash, `moves-from:`, the `where:` exclusion).
+
+Readings taken, with nobody to ask, the most reversible chosen:
+
+- "A person's done is recorded through the inbox's existing `--done`": the inbox answers a person block's ask
+  (`ergostat inbox person/todo-do --done N`), which records how many they did along `flow.todo-doing`. It names no
+  item, so each to-do is moved by its own event (`ergostat event --add todo.done --item todo/ID`, or MCP's
+  `record_event`), one step, as `why` says. Making `--done` move a named to-do would change the inbox for every
+  person block, so it was left out.
+- Waiting on a person or an outside thing is an item of `${wait-kind}`, linked by `waits_on`, so `why` follows it
+  as it follows another to-do.
+
+Not run here: `scripts/demo_check.py` on the new demo was refused in this session (`uv run python
+scripts/suite_watch.py -- uv run python scripts/demo_check.py --seconds 25 todo-list`). In its place
+`test_the_demo_batches_its_todos_across_three_places` runs the demo's own compiled collector and batcher commands
+on a copy. No page changed, so no browser file was run. The unit suite was not run whole (that is the factory's
+step). Run one file at a time, all passing: test_todo_template, test_templates, test_why, test_finished_states,
+test_footprint, test_library_trust, test_library_provenance, test_library_tree, test_library_untrusted; ruff clean.
+Main had not moved since the branch began (nothing to merge).
