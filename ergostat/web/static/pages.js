@@ -656,7 +656,7 @@ async function pageItems(main, q, only = null) {
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: unpick }, "\u00d7")));
       return;
     }
-    remoteTick(d.remotes || []);                        // (not waited on)
+    if (!only) remoteTick(d.remotes || []);             // (not waited on; a kind's page asks for no other kind's items)
     const flowsWere = JSON.stringify(flows);
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind

@@ -27,3 +27,48 @@ Milestone: kind-and-item-pages. Owner items: 15 (also 11). From the owner's list
 ## Added 2026-11-22 (the owner)
 
 The List, Graph and Timeline views live on this page only, for this one kind; `/items` no longer has them. This page loads only this kind's data. Its charts use the same right-side legend and state-group toggle as the overview (`items-one-section-per-kind-closed`). Opening a kind must not load any other kind's items.
+
+## Where it stopped
+
+Round 1, 2026-11-23. Built on `main` at 58471daf (the base; nothing newer to merge here).
+
+**Built.** `/items/K`, the Items page with that one kind chosen (`pageItems(main, q, only)`); `/items?kind=K` ends
+there through `replaceRoute` with its other params kept (util.js `route`); `"/items/"` in split.js's `OTHER_PAGES`.
+The server already serves the address (`UI_PAGES`), so server.py is unchanged. `static/kinds.js` holds `kindBar`
+(one bar on both pages, keyed by the kind's name, handlers passed in through opts), `kindModel` (In the model, from
+`/api/kinds/K`) and `kindDefinition` (a closed `details`). On the Items page each kind's card is `kindBar` plus its
+chart, and the bar's disclosure hides or shows that kind's list in place. The links to a whole kind go to its page:
+the item page's Kind, the relations and timeline links, the process map's kind names, and `itemsHref` when the set
+is exactly `{kind}`. SPEC §5a has *The kind's page*. The kind's page asks for `items`, `items-flow` and `items-graph`
+of K alone and no remote's items. The `items` answer still carries every kind's counts (counts only, no items).
+
+**Tests.** New in tests/test_items_page.py: test_a_kinds_page_shows_its_definition_and_model_place,
+test_a_kind_chosen_ends_at_its_page_and_its_links_go_there (the redirect test), test_the_kind_bar_is_one_component,
+test_a_kinds_state_link_filters_without_reload (both pages), test_a_kinds_page_stacks_at_phone_width,
+test_an_uncounted_kind_says_so. Each was seen to fail with the code it guards broken (the bar's markup differing by
+level, the redirect off, the chip navigating instead of filtering, the uncounted note removed, a 600 px-wide
+definition). They were not run on `main`. There `/items/ticket` draws the plain Items page, with no `.kind-page` and
+no `.kind-bar`, so each waits on a selector that never appears. Updated, with the reason in each: test_a_chosen_kinds_folded_system_is_shown (the
+kind's page has no system headings), the model-changes test's address assertion and the snapshot test's chip selector
+(test_items_page.py), and the old-address test in test_diagram_rendering.py (a kind chosen ends at its page).
+
+**Defaults taken (the most reversible), and what waits on other gaps.**
+- `items-one-section-per-kind-closed`, named in `depends-on`, is not on `main`. So the owner's addendum is only
+  partly done: `/items` still has List, Graph and Timeline, and each kind's list there is still open by default.
+  The overview's right-side legend, its state-group toggle and "the page's one finished parameter" (section 2's
+  folding) do not exist yet, so the kind's page draws the chart as `/items` does today. Removing the views from
+  `/items` belongs with that gap's overview change: about fifteen Graph and Timeline tests open `/items?view=…`
+  across kinds, and the milestone frames need two kinds at once.
+- On `/items` a chip click keeps today's address, `/items?kind=K&state=S`, filtered in place. A reload of it ends on the kind's page.
+- `goalWord` does not exist on `main`. A goal's word is `statusEl(status)`, the word the Loops page uses.
+- A goal links to `/diagram?around=loop/NAME` (its control loop, the panel's "Draw this loop alone"). A block links
+  to `view=blocks&around=block/NAME`. A feedback loop has no address of its own, so it links to the Dynamics
+  diagram drawn around its first part on the kind's footprint.
+- 'draw what it touches' (`kind=K` on the diagram) is not linked: diagram-draws-what-an-item-or-kind-touches has not
+  landed (diagram.js reads no `kind`).
+
+**Not run here.** The unit suite and the four browser files as a whole (the factory runs them). Of tests/test_items_page.py as a whole
+(58 tests): 57 passed. test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart failed, alone too. It
+waits for the header's project switcher to list a second project (`/api/projects`, util.js `refreshProjects`), and
+this branch does not touch that path. It could not be run on `main` here: a worktree of `main` and a checkout of main's
+static files were both refused in this session. So it is reported as unrelated, unconfirmed on `main`.

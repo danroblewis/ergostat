@@ -70,7 +70,7 @@ function kindDefinition(fp) {
   if (!fp) return h("p", { class: "muted" }, "Not declared.");
   const d = fp.definition, pair = (k, v) => [h("dt", {}, k), h("dd", {}, v)];
   const marks = (s) => [s.first && "first", s.finished && "finished", s.paused && "paused", s.final && "final", s.ergostat && "ergostat's"].filter(Boolean);
-  return h("dl", { class: "kv kind-def" },
+  return h("dl", { class: "kind-def" },
     pair("states", listOf(d.states.map((s) => (marks(s).length ? `${s.state} (${marks(s).join(", ")})` : s.state)))),
     pair("finished", d.finished_by),
     pair("events", listOf(Object.entries(d.on).map(([e, s]) => `${e} → ${s}`))),

@@ -1831,7 +1831,13 @@ def test_a_kinds_page_shows_its_definition_and_model_place(browser, roadmap):
     it, its goals and its feedback loops, each a link to the diagram; its definition closed; its list under them."""
     import json
     fp = json.loads(urllib.request.urlopen(f"{roadmap}/api/kinds/ticket", timeout=30).read())
-    pg, errors = kind_page(browser, roadmap, "/items/ticket")
+    asked: list[str] = []
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("request", lambda r: asked.append(r.url) if "/api/items" in r.url else None)
+    pg.goto(f"{roadmap}/items/ticket")
+    pg.wait_for_selector(".kind-page table.kind-model", timeout=20000)
     assert pg.locator("#main h1").count() == 1 and pg.locator("#main h1 .kname").inner_text() == "ticket"
     bar = pg.locator("#main .kind-bar[data-kind=ticket]").inner_text()
     assert "one piece of an epic's work" in bar and "finishes: done" in bar and "ticket/*" in bar, bar
@@ -1855,6 +1861,7 @@ def test_a_kinds_page_shows_its_definition_and_model_place(browser, roadmap):
     assert "ticket.started → doing" in text and "blocked_by → ticket" in text and "3 attempts" in text, text
     pg.wait_for_selector("section.kind-items table.items tr.click")
     assert {t.split("/")[0] for t in pg.locator("table.items tr.click td:first-child").all_inner_texts()} == {"ticket"}
+    assert asked and all("kind=ticket" in u or "kinds=ticket" in u for u in asked), asked   # no other kind's items
     assert not errors, errors
     pg.close()
 
@@ -1933,8 +1940,11 @@ def test_a_kinds_page_stacks_at_phone_width(browser, roadmap):
     pg.wait_for_timeout(500)
     got = pg.evaluate("""() => ({ wide: [document.documentElement.scrollWidth, innerWidth],
         boxes: [...document.querySelectorAll('.kind-page > .item-systems > *')]
-          .map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right), Math.round(r.top)]; }) })""")
-    assert got["wide"][0] <= got["wide"][1], got
+          .map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right), Math.round(r.top)]; }),
+        // past the page's right edge: anything but what scrolls in its own box (a wide table of items)
+        over: [...document.querySelectorAll('.kind-page *')].filter((e) => !e.closest('.table-wrap'))
+          .filter((e) => e.getBoundingClientRect().right > innerWidth + 1).map((e) => e.outerHTML.slice(0, 80)) })""")
+    assert got["wide"][0] <= got["wide"][1] and not got["over"], got
     assert all(b[1] <= 390 for b in got["boxes"]), got
     tops = [b[2] for b in got["boxes"]]
     assert tops == sorted(tops) and len(set(tops)) == len(tops), got             # one under another
