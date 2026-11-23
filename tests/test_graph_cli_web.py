@@ -345,6 +345,37 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
+    """big has no kinds of item: its Process answer is empty, so the page takes its empty branch, whose words give the
+    reason and Dynamics, laid over the canvas (not below it). The browser half of this check, the text's box inside the
+    canvas's, is tests/test_diagram_rendering.py::test_process_view_with_no_kinds_says_so_inside_the_canvas."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import serve
+    root = Path(__file__).resolve().parents[1]
+    d = tmp_path / "big"
+    shutil.copytree(root / "examples" / "big", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    server, url = serve(Project(model.load(d)), free_port())
+    try:
+        def get(path):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                return r.read().decode()
+        g, js, css = json.loads(get("/api/graph?view=process")), get("/static/diagram.js"), get("/static/style.css")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert not g["nodes"] and not g["kinds"], g                  # nothing to draw: the empty branch
+    assert "No kinds of item in ${here}: its parts are counted by sensors. See `" in js
+    assert re.search(r'go\(\{ view: "dynamics" \}\); \} \}, "Dynamics"\), "\."', js)    # where to look instead
+    rule = re.search(r"\.canvas-wrap > \.empty \{([^}]*)\}", css)
+    assert rule and all(p in rule.group(1) for p in ("position: absolute", "inset: 0", "align-items: center",
+                                                       "justify-content: center")), rule
+
+
 def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
     """Each page's header carries 'N wait for you' (#waits) before its nav, a link to /diagram#waiting, and the
     Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""

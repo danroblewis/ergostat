@@ -740,7 +740,7 @@ function drawGraph(svg, g, lay) {
   const flowLinks = sd ? sdFlowLinks(g) : new Set();      // what Flows only keeps, by the model (dynamics.js)
   const flowEnds = new Set(g.edges.filter((e) => flowLinks.has(e.id)).flatMap((e) => [e.source, e.target]));
   if (sd && !flowLinks.size)                              // (shown with Flows only: a level with nothing it keeps says so)
-    vp.append(s("text", { class: "flows-none t-sub", x: (lay.ox || 0) + lay.width / 2, y: (lay.oy || 0) - 14, "text-anchor": "middle" },
+    vp.append(s("text", { class: "flows-none t-sub", x: (lay.ox || 0) + lay.width / 2, y: (lay.oy || 0) + lay.height + 24, "text-anchor": "middle" },
       "No flows at this level: what crosses between these systems is information only. Open a system to see its flows."));
   for (const le of lay.edges) {
     const e = edgeById[le.id];
@@ -1266,7 +1266,10 @@ async function pageDiagram(main, q) {
       if (!g.nodes.length) {
         svg.replaceChildren();
         S.layout = null; S.graphSig = "";
-        wrap.append(h("div", { class: "empty" }, !g.kinds.length ? "No kinds of item here: the process map draws how items moved."
+        const here = system || S.status?.name || "this model";    // (the reason, and where to look instead)
+        wrap.append(h("div", { class: "empty" }, !g.kinds.length
+          ? h("span", {}, `No kinds of item in ${here}: its parts are counted by sensors. See `,
+              h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ view: "dynamics" }); } }, "Dynamics"), ".")
           : `Nothing on the record in the window for ${g.kinds.map((k) => k.name).join(", ")}.`));
       } else if (!S.pressed) {
         await drawProcessView(svg, g);

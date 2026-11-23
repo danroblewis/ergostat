@@ -3673,6 +3673,54 @@ def test_flows_only_keeps_flows_between_closed_systems(browser, tmp_path):
         assert not errors, errors
 
 
+def test_process_view_with_no_kinds_says_so_inside_the_canvas(browser, tmp_path):
+    """big has no kinds of item: its Process view says so, and where to look instead, wholly inside the canvas at
+    every width (it was drawn below it, at y=900, unseen); the link opens Dynamics."""
+    inside = """() => {
+      const e = [...document.querySelectorAll('.canvas-wrap .empty')].find((x) => x.textContent.includes('No kinds of item'));
+      const t = e.querySelector('span') || e, r = t.getBoundingClientRect();
+      const c = document.querySelector('svg.canvas').getBoundingClientRect();
+      return { text: e.textContent, in: r.width > 0 && r.left >= c.left && r.right <= c.right && r.top >= c.top && r.bottom <= c.bottom,
+               mid: Math.abs((r.top + r.bottom) / 2 - (c.top + c.bottom) / 2) < 40,
+               r: [r.left, r.top, r.right, r.bottom], c: [c.left, c.top, c.right, c.bottom] }; }"""
+    errors: list[str] = []
+    with served("big", tmp_path) as url:
+        for i, w in enumerate((1440, 1024, 600)):
+            pg = browser.new_page(viewport={"width": w, "height": 900})
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.goto(f"{url}/diagram?v={i}&view=process")
+            pg.wait_for_function("() => [...document.querySelectorAll('.canvas-wrap .empty')].some((x) => "
+                                 "x.textContent.includes('No kinds of item'))", timeout=DRAWN_S * 1000)
+            got = pg.evaluate(inside)
+            assert got["in"] and got["mid"], (w, got)
+            assert got["text"] == "No kinds of item in big: its parts are counted by sensors. See Dynamics.", got
+            if w == 1440:
+                pg.locator(".canvas-wrap .empty a", has_text="Dynamics").click()
+                pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+                assert "view=dynamics" in pg.url, pg.url
+            pg.close()
+            assert not errors, errors
+
+
+def test_no_flows_line_is_under_the_boxes_and_seen(browser, tmp_path):
+    """big's top level carries no flow between its systems: with Flows only, the line saying so lies under the boxes
+    and within the viewport at 1440x900 (it was drawn above them, at y=-14)."""
+    with served("big", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.goto(url + "/", timeout=DRAWN_S * 1000)
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        flows_menu(pg)
+        got = pg.evaluate("""() => { const t = [...document.querySelectorAll('svg.canvas #viewport .flows-none')];
+          const boxes = [...document.querySelectorAll('svg.canvas g.node.k-system')].map((b) => b.getBoundingClientRect().bottom);
+          return { n: t.length, text: t[0]?.textContent, r: t[0] && t[0].getBoundingClientRect().toJSON(),
+                   below: Math.max(...boxes), boxes: boxes.length }; }""")
+        assert got["n"] == 1 and got["text"].startswith("No flows at this level"), got
+        r = got["r"]
+        assert r["height"] > 0 and 0 <= r["top"] and r["bottom"] <= 900 and 0 <= r["left"] and r["right"] <= 1440, got
+        assert got["boxes"] and r["top"] >= got["below"], got
+        pg.close()
+
+
 def test_flows_only_hides_information_links_between_closed_systems(browser, tmp_path):
     """Systems closed: a line that carries only information (a stock read across) is hidden, and only those; all six
     are drawn alike, as connectors, so what decides is the model (the part at each line's tail), not the class."""
