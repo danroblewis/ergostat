@@ -933,6 +933,7 @@ class ItemKind:
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
+    attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
 
     def matches(self, id: str) -> bool:
         import fnmatch

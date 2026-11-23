@@ -544,6 +544,8 @@ svg.bd { color: var(--ink); }
 .bd .bd-name { font-weight: 500; font-size: var(--canvas); font-family: var(--font); }
 .bd .bd-note { fill: var(--muted); font-size: var(--canvas-sm); font-family: var(--font); }
 .bd .bd-sig { fill: var(--ink); }
+.bd .bd-state { font-family: var(--font); font-style: normal; }   /* a loop's state on its error: in ink, bold when off */
+.bd .bd-state.bd-off { font-weight: 600; }
 .bd .bd-sign { font-weight: 600; font-size: var(--canvas); font-family: var(--font); }
 .bd .bd-count { fill: var(--ink); font-size: var(--canvas-sm); font-family: var(--font); }
 .bd .bd-sketch .bd-axis { stroke: var(--muted); stroke-width: .8; fill: none; }
@@ -578,6 +580,10 @@ svg.bd.dragging-part .bd-node { cursor: grabbing; }
 .bd text.bd-lit, .bd text.bd-lit tspan { fill: var(--accent); }
 .bd-math { margin: var(--sp-2) 0 var(--sp-3); overflow-x: auto; }
 .bd-math math { font-size: var(--text-lg); }
+.bd-math::-webkit-scrollbar { height: 6px; }                  /* a wide matrix scrolls inside the panel, and shows it does */
+.bd-math::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--radius); }
+table.loop-table caption { text-align: left; font-weight: 600; padding-bottom: var(--sp-1); }
+table.loop-table th { text-align: left; font-weight: normal; color: var(--muted); white-space: nowrap; vertical-align: top; }
 .bd-legend svg { color: var(--ink); }
 
 /* the system dynamics view (dynamics.js) */
@@ -644,6 +650,10 @@ details.sd-unknown > summary { color: var(--muted); margin: var(--sp-2) 0; }
 /* Agents: one list, by rung; the ladder as a line of counts */
 .ladder-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); margin: 0 0 var(--sp-5); color: var(--muted); }
 .ladder-line .step b { color: var(--ink); }
+/* an agent that never ran, is behind its schedule or last failed: its word in the alarm colour, its reason under it */
+.exception { color: var(--bad); font-weight: 600; }
+.ladder-line .exception { margin-left: var(--sp-2); }
+tr.exception-why td { padding-top: 0; color: var(--bad); font-size: var(--text-sm); border-top: 0; }
 tbody.group th small { font-weight: normal; font-size: var(--text-sm); }
 .hints { margin: var(--sp-1) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .hints li { color: var(--ink-2); margin-top: var(--sp-0); }
@@ -765,7 +775,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .toolbar { order: -1; gap: 0; }
   .toolbar button { padding: var(--sp-1) var(--sp-2); }
   .toolbar select { max-width: 8em; }
-  .toolbar .sep, .panhint { display: none; }
+  .toolbar .sep { display: none; }
   .zoom { order: 3; align-self: flex-end; margin-bottom: var(--sp-2); }
   svg.canvas { height: 420px; flex: none; }
   .page { padding: var(--sp-4); }
