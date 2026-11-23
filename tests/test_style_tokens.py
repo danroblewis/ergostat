@@ -184,6 +184,28 @@ def test_the_arrows_and_guide_dot_borders_stand_3_to_1_on_the_paper_in_both_them
     assert not low, low
 
 
+def test_the_diagrams_keyboard_focus_ring_is_the_accent_and_stands_3_to_1_in_both_themes():
+    """Done item 5 of diagram-roving-focus-and-arrow-keys, readable without a browser: the ring keys.js's roving focus
+    shows on a diagram part (its outline, and the part's own outline stroke) is the accent token, and the accent
+    stands 3:1 against the page in the light and the dark theme. tests/test_diagram_rendering.py checks it is drawn."""
+    head, rules = split()
+    light_head, dark_head = head.split("prefers-color-scheme: dark", 1)
+    themes = {"light": dict(re.findall(r"(--[\w-]+):\s*([^;]+);", light_head))}
+    themes["dark"] = {**themes["light"], **dict(re.findall(r"(--[\w-]+):\s*([^;]+);", dark_head))}
+    ring = re.search(r"svg\.canvas \[data-key\]:focus-visible\s*\{([^{}]*)\}", rules)
+    stroke = re.search(r"svg\.canvas \.node:focus-visible \.hit[^{]*\{([^{}]*)\}", rules)
+    assert ring and stroke, "style.css has no focus ring for a diagram part"
+    assert re.search(r"outline:\s*\d+px solid var\(--accent\)", ring[1]), ring[1]
+    assert "stroke: var(--accent)" in stroke[1], stroke[1]
+    low = []
+    for theme, tokens in themes.items():
+        y, bg = _luminance(_oklab(tokens["--accent"].strip())), _luminance(_oklab(tokens["--bg"].strip()))
+        ratio = (max(y, bg) + 0.05) / (min(y, bg) + 0.05)
+        if ratio < 3:
+            low.append(f"{theme}: {ratio:.2f}")
+    assert not low, low
+
+
 def test_the_first_level_note_sits_on_the_canvas_and_stacks_with_the_toolbar_on_a_narrow_screen():
     """'Open all' on a model too big to read opens the first level and says so in a note diagram.js draws as
     .open-level: it has its rule, sits over the canvas in small text, and goes static with .toolbar and .zoom."""
