@@ -163,7 +163,8 @@ p = Project(mdl.load(Path(DIR)))
 now = time.time()
 full = "workspace pool code has none free for ticket/1: 1 in use, 0 held for review, 0 quarantined (of 1)"
 for i in range(28):                                   # nine worked, nineteen given back for want of a workspace
-    data = {"exit": 0, "seconds": 2.0, "why": "lease", "item": f"ticket/{i}", **({} if i < 9 else {"note": full})}
+    data = {"exit": 0, "seconds": 2.0, "why": "lease", "item": f"ticket/{i}",   # (a give-back never started: no exit)
+            **({} if i < 9 else {"exit": None, "note": full})}
     begun = p.events.add("agent.started", item="work", source="ergostat", at=now - 1200 + i * 30, data={})
     p.events.add("agent.ran", item="work", source="ergostat", causedby=begun["id"], at=now - 1198 + i * 30, data=data)
 """
@@ -438,6 +439,25 @@ def panel_costs(pg) -> list[str]:
     """The cost cell of each run in the open agent panel's 'Recent runs', newest first."""
     return pg.eval_on_selector_all("#detail .runs-table > table tr",
                                    "trs => trs.slice(1).map((tr) => tr.children[4].textContent)")
+
+
+def test_an_ai_agents_runs_given_back_for_a_full_pool_read_free_not_unknown(leased, browser):
+    """A run given back unrun because its workspace pool was full began no session: on /agents, in the total row and in
+    each of its panel's rows the AI agent reads 'free stand-in, $0', never 'not known: N failed or stopped'."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{leased['url']}/agents")
+    pg.wait_for_selector("tr[data-total] td[data-use=cost]")
+    assert pg.inner_text("tr.click:has(b:text-is('work')) td[data-use=cost]") == "free stand-in, $0"
+    assert "not known" not in pg.inner_text("tr[data-total] td[data-use=cost]")
+    pg.click("tr.click:has(b:text-is('work'))")
+    pg.wait_for_selector("#detail .runs-table > table tr:nth-child(2)")
+    costs = panel_costs(pg)
+    assert len(costs) == 10 and all(c == "free stand-in, $0" for c in costs), costs   # the ten newest: all given back
+    assert "19 refused (workspace pool full), 0 failed" in pg.inner_text("#detail")
+    assert not errors, errors
+    pg.close()
 
 
 def test_a_stand_in_agents_panel_reads_free_for_a_good_run_and_not_known_for_a_killed_one(site, browser):

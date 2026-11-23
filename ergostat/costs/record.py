@@ -50,11 +50,19 @@ def ended(p, since: float, until: float, block: str | None = None) -> list[dict]
     return p.events.query(n=None, type=ENDS, item=block, since=since, until=until, source="ergostat")
 
 
+def given_back(r: dict) -> bool:
+    """A run given back unrun because its workspace pool was full (the engine's PoolFull note): no session began."""
+    n = str(r.get("note") or "")
+    return not r["failed"] and n.startswith("workspace pool ") and " has none free for " in n
+
+
 def totals(rows: list[dict]) -> dict:
     """Totals over runs' numbers: runs, failed, dollars (and how they were known), tokens, CPU, the largest peak memory,
-    wall seconds; ``unknown``, the runs with no cost that failed, were stopped or killed (a session may have spent)."""
+    wall seconds; ``unknown``, the runs with no cost that failed, were stopped or killed (a session may have spent),
+    other than a pool-full give-back."""
     costs = [r for r in rows if r["cost_usd"] is not None]
-    unknown = sum(1 for r in rows if r["cost_usd"] is None and (r["failed"] or r["note"] or r["exit"] != 0))
+    unknown = sum(1 for r in rows if r["cost_usd"] is None and not given_back(r)
+                  and (r["failed"] or r["note"] or r["exit"] != 0))
     hows = {r["cost"] for r in costs}
     how = None if not costs else hows.pop() if len(hows) == 1 else "partly estimated"
     mem = [r["memory"] for r in rows if r["memory"]]

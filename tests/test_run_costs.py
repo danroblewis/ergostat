@@ -390,3 +390,7 @@ def test_a_run_with_no_cost_that_failed_or_was_stopped_is_counted_as_not_known()
     t = totals(rows)
     assert t["unknown"] == 3 and t["failed"] == 2 and t["cost_usd"] == 0.5
     assert totals(rows[:1])["unknown"] == 0                                  # a run that ended well: none
+    full = "workspace pool code has none free for ticket/1: 1 in use, 0 held for review, 0 quarantined (of 1)"
+    back = [end("agent.ran", exit=None, note=full), end("agent.ran", note=full)]  # given back unrun: no session began
+    assert totals(back)["unknown"] == 0
+    assert totals([end("agent.failed", exit=None, note=full)])["unknown"] == 1     # (failed with that note: still unknown)

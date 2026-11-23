@@ -191,3 +191,42 @@ when given without the pipe). A scratch Playwright probe in /tmp (`timeout 120 u
 with a shell heredoc. The run of the single test stood in for the probe. It was not confirmed that the two failures
 happen on clean main too; the factory reruns failing tests there. Not run here: test_diagram_rendering.py,
 test_page_refresh.py, test_page_polling.py and the whole unit suite.
+
+Round 6: built. About 50 net lines in `ergostat/` against main (72 added, 22 removed), budget 60.
+
+The review's blocking finding (lesson 3 / 8 / 9): a run given back unrun because its workspace pool was full
+(`agent.ran`, the engine's PoolFull note, no session) counted as "not known: failed or stopped". So the leased `work`
+agent would have read "not known: 19 failed or stopped" while its panel said "0 failed".
+- `costs/record.py`: new `given_back(r)`, true for a run that is not `agent.failed` and whose note is the engine's
+  pool-full note ("workspace pool … has none free for …", the same test as `segments._full`). `totals()` leaves those
+  runs out of `unknown`, whatever their exit. A real give-back has `exit: None`, because the engine sets its note
+  before any process starts (spec/engine.py: `refused` is raised as OSError before `Measured`).
+- `util.js` `costText`: the per-run fallback (the panel's rows) applies the same rule.
+- Only the pool-full give-back is left out. Any other note, a missing exit or a failure still counts as not known. Of
+  the two choices this is the narrower and more reversible one, and it keeps the worst case for every other run
+  (lesson 3). The engine's `failed` rule also leaves out the two stop notes, but a stopped run may have had a session
+  that spent, so it stays "not known", as SPEC said before.
+- SPEC §9.1, the agent guide and the `costText` comment now say a pool-full give-back is not one of them.
+
+Tests: `tests/test_agents_page.py::test_an_ai_agents_runs_given_back_for_a_full_pool_read_free_not_unknown` (new, on
+the `leased` fixture): `work`'s /agents cost cell reads "free stand-in, $0", the total row has no "not known", and
+its 10 newest panel rows (all give-backs) read "free stand-in, $0" next to "19 refused (workspace pool full), 0
+failed". The fixture's give-backs now carry `exit: None`, as the engine writes them (before, they had exit 0, which
+the old rule's exit check alone would not have caught). `tests/test_run_costs.py::test_a_run_with_no_cost_that_failed_or_was_stopped_is_counted_as_not_known`
+now also checks that two give-backs (exit None and 0) count 0, and that an `agent.failed` with that note still counts 1.
+Broken and seen to fail: `given_back` always False (the browser test failed: the cell read "not known: 19 failed or
+stopped", and the unit test failed `assert 2 == 0`). Then the JS `back` always false, with the server's fix in place:
+the browser test failed with all 10 panel rows reading "not known: 1 failed or stopped".
+
+Run, with Playwright under the watchdog: tests/test_agents_page.py: 9 passed, 1 failed, on two runs of the file:
+`test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` (main's). This round it fails alone too: it reads
+`#detail` as "Agent × work Loading…", because it waits only for the h2 that the loading panel already shows. It
+fails the same way with the fixture's give-backs put back to `exit: 0` (one run alone), so this round's fixture
+change is not the cause. This round's code changes only the text of the cost cell, not when the panel loads. It is the
+race named in rounds 4 and 5 (lessons 10 and 13) and is not fixed here.
+tests/test_items_page.py: 33 passed, 1 failed (`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`,
+the project switcher, as in rounds 4 and 5). The acceptance test passes. tests/test_run_costs.py: 16 passed. Ruff is
+clean. Main has not moved since the clone (the merge-base is main), so there was nothing to merge.
+Refused, not worked around: a shell `for` loop running that one test twice (it ran once without the loop), and an
+in-place edit of record.py and util.js by a Python heredoc (it was done with the editor instead). Not run here:
+test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py, test_snapshot_sets.py and the whole unit suite.
