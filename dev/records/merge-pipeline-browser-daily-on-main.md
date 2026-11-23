@@ -33,3 +33,30 @@ dev/bin/browserday.py (new), dev/model/landing.yaml, dev/README.md, tests/test_f
 160 net lines in dev/bin.
 
 Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1: dev/bin/browserday.py (142 lines), the block browser-daily, the auxiliary and goal browser-main-green
+(dev/model/landing.yaml), dev/README.md (*The daily browser run on main*), and the four acceptance tests, which pass.
+Each was seen to fail with its code broken: one rerun instead of two (the flake and failure tests), no queue lock (the
+lock test), no `--first-parent` (the failure test), no worktree removal in the finally (the green and lock tests).
+
+Choices made with nobody to ask (each the more reversible one):
+- A red run whose named tests all pass alone twice counts as green (main's sha becomes `last_green`, its flakes
+  listed); a run that skipped any test is never green, flakes or not.
+- At most 8 named tests run alone (twice each); the rest count as real, never as passed (lesson-4, lesson-3). At most
+  50 suspects; with no known green, or a green that is no ancestor of main, the latest 50 first-parent commits
+  (`suspects_since: null`).
+- An unreadable run/browser-daily.json counts as no green known (the worst case for suspects); the sensor gives no
+  reading for it.
+- It raises an intervention only: it does not hold the queue (`main_red` is not set). Not asked for; a later gap may.
+- Its containers on a SIGKILL (no finally): swept by the next run (or the queue's run) under the lock, as the queue's
+  are. The container path itself is fac.suite's, unchanged, and is not exercised here (the Factory fixture turns
+  `queue_container` off, as the other queue tests do).
+
+Not run here: `ergostat check` before and after (done item 6). `uv run ergostat check --json` was refused in this
+session, and so was the worktree of main to compare it with (`git worktree add -q --detach /tmp/daily-base main`).
+tests/test_factory.py::test_ergostat_check_on_the_factory_model_reports_no_new_finding and
+::test_the_factory_model_loads pass with the new parts in the model, but neither compares the model against one
+without them, so the "no new finding" claim is unverified. The unit suite and the four browser files were not run
+(the factory's steps).
