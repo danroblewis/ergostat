@@ -1400,14 +1400,18 @@ reads the event log.
 - **The model as a data source.** A source of type `model` is the project's own model and record, so one named `model`
   is there without declaring it (a source declared under that name takes the name; another may be declared
   `{type: model}`, with no connection keys). It reads nothing outside the project, so a reader under `open: read` may ask
-  it. Its language is one line: `goal NAME` (the goal's declared `process:`, or, when it declares none, the process its
+  it, except that identifying a process from the record is not done for such a reader (it reads the whole fine record;
+  they are refused, and may ask the declared or a written process). Identifications are done one at a time, waited for
+  no longer than the query's bound, and kept by project, model, goal, time and the record's version. Its language is one
+  line: `goal NAME` (the goal's declared `process:`, or, when it declares none, the process its
   record identifies, section 12c), `goal NAME declared`, `goal NAME identified`, `fopdt gain=K tau=DURATION
   delay=DURATION` (K e^(−θs)/(τs + 1)) or `ipdt gain=K delay=DURATION` (K e^(−θs)/s, K per second), each optionally ending
   `dt=DURATION`. It answers a `response` with `system` (`form`, `gain`, `tau`, `delay`, `poles`, `zeros`) and the exact
   frequency response, which Bode, Nyquist and pole-zero draw. A process with dead time has its poles and zeros from its
   model sampled through a zero-order hold every `dt` (on the z-plane; a continuous delay has no finite set of poles), at
-  the goal's controller period or a quarter of the dead time when no `dt` is given, and the answer and the map state that
-  `dt`; past 64 periods of delay it is refused, asking for a longer `dt`. An identified process is answered only when the
+  the goal's controller period or a quarter of the dead time when no `dt` is given, lengthened when needed to keep the
+  delay within 64 periods, and the answer and the map state that `dt`; a `dt` written so short that the delay is past 64
+  periods is refused, asking for a longer `dt`. An identified process is answered only when the
   record tells it apart (section 12c), with `fit`: the share of the record held out it follows, the standard errors of its
   numbers, whether it came from step tests, and why it is not yet proposable if it is not; otherwise the query is refused
   with the record's reasons and draws no curve. Its `provenance` is `declared` for a declared or written process and

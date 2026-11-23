@@ -106,6 +106,19 @@ def test_a_delayed_process_with_no_dt_is_sampled_at_its_goals_controller_period_
     assert r["dt"] == 5.0 and r["domain"] == "z" and len(r["poles"]) == 5
 
 
+def test_a_long_declared_delay_under_a_short_controller_period_is_still_drawn_at_a_longer_dt(tmp_path):
+    """Dead time 15 min under a 10 s tuner is 90 periods: with no dt asked, the sampled model's dt is lengthened to keep
+    the delay within lti.MOST_PERIODS, so Bode, Nyquist and pole-zero all draw, by the source and the old route."""
+    (tmp_path / "ergostat.yaml").write_text(DECLARED.replace("dead-time: 20s", "dead-time: 15m"))
+    p = Project(mdl.load(tmp_path))
+    new, old = ask(p, {"source": "model", "text": "goal level-held"}, {"source": "frequency", "model": {"goal": "level-held"}})
+    for r in (new, old):
+        assert "error" not in r, r
+        assert r["frequency"]["hz"] and r["domain"] == "z" and r["dt"] == pytest.approx(900 / lti.MOST_PERIODS)
+        assert lti.MOST_PERIODS <= len(r["poles"]) <= lti.MOST_PERIODS + 2
+    assert model(p, "goal level-held dt=60s")["dt"] == 60.0              # (a longer dt asked is kept)
+
+
 def test_a_delay_of_too_many_periods_is_refused_and_says_to_ask_with_a_longer_dt(tune):
     r = model(tune, "fopdt gain=1 tau=10s delay=1h dt=1s")
     assert r["meta"]["verdict"]["level"] == "refuse" and "longer dt" in r["error"] and r["error_at"] == [1, 31]
@@ -210,6 +223,45 @@ def test_a_public_reader_may_ask_the_model_source_but_no_outside_one(tmp_path):
     assert "public name" in outside["error"]
     offered = api(Live(p), "query/fields", {}, reader=True)["datasources"]
     assert offered == [{"name": "model", "type": "model", "language": "model"}]
+
+
+def test_a_public_reader_is_not_given_an_identification_and_the_owner_is(tmp_path, monkeypatch):
+    (tmp_path / "ergostat.yaml").write_text(TUNE)
+    p = Project(mdl.load(tmp_path))
+    ran = []
+    found = {"found": True, "form": "fopdt", "K": K, "tau": TAU, "theta": THETA, "told_apart": True, "proposable": True}
+    monkeypatch.setattr(lp, "identify", lambda p, sig, at=None: (ran.append(at) or dict(found), {}))
+    for text in ("goal level-held", "goal level-held identified"):
+        r = model(p, text, reader=True)
+        assert "public name" in r["error"] and r["error_kind"] == "refused" and "frequency" not in r
+    assert ran == []                                                  # refused before any fitting
+    assert "declares no process" in model(p, "goal level-held declared", reader=True)["error"]
+    assert model(p, "goal level-held")["system"]["tau"] == TAU and len(ran) == 1
+
+
+def test_an_identification_is_kept_by_the_records_version_and_done_one_at_a_time(tmp_path, monkeypatch):
+    from ergostat.datasources import model as source
+    (tmp_path / "ergostat.yaml").write_text(TUNE)
+    p = Project(mdl.load(tmp_path))
+    ran = []
+    found = {"found": True, "form": "fopdt", "K": K, "tau": TAU, "theta": THETA, "told_apart": True, "proposable": True}
+    monkeypatch.setattr(lp, "identify", lambda p, sig, at=None: (ran.append(at) or dict(found), {}))
+    for _ in range(3):
+        assert model(p, "goal level-held")["system"]["gain"] == K
+    assert len(ran) == 1                                              # asked again: kept, not fitted again
+    p.measurements.add_many([("stock.level", T - 60, 1.0)])
+    assert model(p, "goal level-held")["system"]["gain"] == K and len(ran) == 2     # the record moved: fitted again
+    assert model(p, "goal level-held", until=T - 600)["system"]["gain"] == K and len(ran) == 3   # another time
+    monkeypatch.setattr(datasources, "MOST_SECONDS", 0.5)            # (the query's bound, short to wait out)
+    assert source._IDENTIFYING.acquire(timeout=1)                     # another identification under way
+    try:
+        p.measurements.add_many([("stock.level", T - 30, 2.0)])
+        t0 = time.monotonic()
+        r = model(p, "goal level-held")
+        assert r["error_kind"] == "limit" and "busy" in r["error"] and len(ran) == 3
+        assert time.monotonic() - t0 < 5                              # waited no longer than a query may take
+    finally:
+        source._IDENTIFYING.release()
 
 
 def test_the_old_model_route_answers_as_the_model_source_does(tune):

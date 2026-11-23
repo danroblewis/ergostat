@@ -279,11 +279,11 @@ def _shaped(live, p, q: Query, by_id: dict, refused: set, since: float, until: f
     return got
 
 
-def _from_source(p, q: SourceQuery, since: float, until: float, points: int, work: Work) -> dict:
+def _from_source(p, q: SourceQuery, since: float, until: float, points: int, work: Work, public: bool = False) -> dict:
     """A query in a data source's own language, asked of it through the server; never kept, its data having no version."""
     try:
         got = datasources.query(getattr(p.model, "spec", None), q.source, q.text, grid(since, until, points),
-                                work.deadline - time.monotonic(), project=p)
+                                work.deadline - time.monotonic(), project=p, public=public)
     except datasources.SourceError as e:
         return {"id": q.id, "error": f"{q.source}: {e}", "error_kind": e.kind, "read_log": False,
                 **({"error_at": list(e.at)} if e.at else {})}
@@ -315,7 +315,7 @@ def answer(live, p, raw: str | None, reader: bool = False) -> dict:
                 {"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
                 else {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused",
                       "read_log": False} if isinstance(q, SourceQuery) and reader and not datasources.own(spec, q.source)
-                else _from_source(p, q, since, until, asked.points, work) if isinstance(q, SourceQuery)
+                else _from_source(p, q, since, until, asked.points, work, reader) if isinstance(q, SourceQuery)
                 else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
                 else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work), q)
                         for q in asked.queries]}

@@ -56,6 +56,7 @@ class Window:
     points: int
     seconds: float          # how long it may take
     project: object = field(default=None, compare=False)    # the project asked of (a model source reads its own)
+    public: bool = False    # asked for anyone under a public name (web: open: read)
 
     @property
     def end(self) -> float:
@@ -122,9 +123,9 @@ def own(spec, name: str) -> bool:
     return src is not None and src.type == OWN_TYPE
 
 
-def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, project=None) -> dict:
+def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, project=None, public: bool = False) -> dict:
     """One panel query over the grid ``g`` (query/buckets.py): ``{times, step, series, unit}``, or SourceError.
-    ``project``: the project asked of, given to the type in its window."""
+    ``project``: the project asked of, given to the type in its window; ``public``: asked for a public reader."""
     src = _sources(spec).get(name)
     if src is None:
         raise SourceError("unknown", f"no source named {name!r} under sources:")
@@ -141,7 +142,7 @@ def query(spec, name: str, text: str, g, seconds: float = MOST_SECONDS, project=
         raise SourceError("limit", f"the window has {g.n} points, more than the {MOST_POINTS} allowed")
     if seconds <= 0:
         raise SourceError("limit", "busy: this request has no time left to ask; try again")
-    w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS), project)
+    w = Window(g.since, g.until, g.start, g.step, g.n, min(seconds, MOST_SECONDS), project, public)
     got = mod.query(src, text, w)
     if isinstance(got, dict):                       # a typed frame (_frames.py)
         try:

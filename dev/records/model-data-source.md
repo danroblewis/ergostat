@@ -21,18 +21,6 @@ Definition of done.
 
 See `docs/research/2026-11-23-charts/catalog.md` section 7.2. Refuse by catalog rule G5, on the server: a per-frequency coherence floor alone passes most noise records. Remove the fixed 0.6 in `plots-freq.js`. Pole-zero of a delayed process uses the discrete model and states `dt`.
 
-## Entry
-
-**Bode, Nyquist and pole-zero from a model** (model-data-source). A data source of type `model` (one named `model` is
-there undeclared; `ergostat/datasources/model.py`) answers a `response` frame in a one-line language: `goal NAME`
-(declared process, else the one its record identifies), `goal NAME declared|identified`, `fopdt gain= tau= delay=`,
-`ipdt gain= delay=`, each with an optional `dt=`. The frequency response is exact (`lti.response`); a delayed process's
-poles and zeros are its zero-order-hold sampled model's at a stated `dt` (`lti.poles_zeros`). An identified process
-carries its fit (share held out followed, standard errors, from step tests or not) and is refused with the record's
-reasons when not told apart. The default dashboard's three examples ask it. A public reader may ask it, and no outside
-source. SPEC §4d, §4e (*The model as a data source*), §11. Left: no query editor of its own for the language (plain text
-field), and the identification is not cut at the source's 10 s bound.
-
 ## Where it stopped
 
 Built, round 1. Every definition-of-done item has a passing test, each seen to fail when the code it guards was broken:
@@ -72,3 +60,46 @@ before asking, not inside `loop.identify`); a sensor cannot read a `model` sourc
 taken: setting `DASHBOARD_SHOTS=/shots` on the test command, and building a draft link with `printf | base64` for
 `walk.py`, were both refused by the session's command permissions. The full unit suite and the four browser files were
 not run here (the factory runs them); the files touched were, each passing.
+
+Round 2, answering every finding of the round-1 review:
+- gate 1 (the definition changed after its first commit): the `## Entry` section had been put between the definition
+  and this section. It is now the record's last section, after this one, so the text before `## Where it stopped` is
+  the first commit's again; the Entry is now in the form `dev/bin/gapsdoc.py` reads (`section:`, `done:`, the bullet).
+- A long declared delay under a short controller period refused Bode and Nyquist with pole-zero: a regression, on the
+  default dashboard and the old `frequency model:{goal}` route. With no `dt` asked, the sampled model's `dt` is now the
+  controller period (else a quarter of the dead time) lengthened to the dead time over `lti.MOST_PERIODS` when that is
+  longer, so all three draw and the `dt` is stated. Only a `dt` written too short is refused (at its column).
+  Test: `::test_a_long_declared_delay_under_a_short_controller_period_is_still_drawn_at_a_longer_dt` (dead time 15 min,
+  10 s tuner, by the source and the old route); seen to fail (refused, 90 periods) with the old default.
+- A public reader could run `loop.identify` on the whole fine record per query, uncached and unbounded. Now: (a) under
+  a public name the identified form (and `goal NAME` for a goal that declares no process) is refused before any
+  fitting, in words saying to ask the declared or a written process (`datasources.Window.public`, set by the query
+  engine for a reader); (b) for the owner or a login, identifications run one at a time (`model._IDENTIFYING`), the
+  wait cut at the query's own bound (refused `limit`, busy, past it), and are kept by project, model, goal, `until`
+  and the record's version (events generation and last seq, measurements version; an unreadable version keeps
+  nothing), at most 16 kept. Tests: `::test_a_public_reader_is_not_given_an_identification_and_the_owner_is` and
+  `::test_an_identification_is_kept_by_the_records_version_and_done_one_at_a_time`, each seen to fail with its guard
+  removed. SPEC §4e says so.
+- Still not done, said plainly: once begun, one identification runs to its end (the bound cuts the wait, not
+  `loop.identify` itself, which has no deadline inside); with the lock, that costs at most one identification at a time,
+  and none for a public reader. Choice taken without the owner (the more reversible: a refusal can be lifted): a
+  public reader is refused identification rather than given a cached one.
+- Run here: `tests/test_model_data_source.py` (all passing), ruff. Not run: the unit suite, the four browser files and
+  `demo_check` (no example touched); main has not moved since the clone, so there was nothing to merge.
+
+## Entry
+
+section: Modelling
+done: 2026-11-23 Bode, Nyquist and pole-zero draw from a `model` data source: a goal's declared or identified process, or one written out.
+
+- **Bode, Nyquist and pole-zero from a model** (done; `model-data-source`, `dev/records/model-data-source.md`): a data
+  source of type `model` (one named `model` is there undeclared; `ergostat/datasources/model.py`) answers a `response`
+  frame in a one-line language: `goal NAME` (declared process, else the one its record identifies), `goal NAME
+  declared|identified`, `fopdt gain= tau= delay=`, `ipdt gain= delay=`, each with an optional `dt=`. The frequency
+  response is exact (`lti.response`); a delayed process's poles and zeros are its zero-order-hold sampled model's at a
+  stated `dt` (`lti.poles_zeros`), lengthened when needed to keep the delay within 64 periods. An identified process
+  carries its fit and is refused with the record's reasons when not told apart; identifications run one at a time,
+  kept by the record's version, and never for a public reader. The default dashboard's three examples ask it. A
+  public reader may ask it, and no outside source. SPEC §4d, §4e (*The model as a data source*), §11.
+  *Left*: no query editor of its own for the language (plain text field); an identification once begun is not cut
+  at the source's 10 s bound (only the wait for one is).
