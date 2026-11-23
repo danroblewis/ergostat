@@ -76,3 +76,25 @@ Round 3 (finishing the factory's merge of main bf6dbebf):
   session. It is left alone (lesson 13): the fix (the SD_WORDS check skipping the side list's attention groups, or
   that group worded for Dynamics) belongs in its own gap.
 - Not run here: the whole unit suite and the four browser files. Still not checked on :8791.
+
+Round 4 (finishing the factory's merge of main 059ff718):
+- Conflicts resolved, keeping both sides. dynamics.js: main folds the loop list into a `details` whose summary is
+  "Feedback loops N". The reconciliation now sits in that summary's count: "Feedback loops 58, 31 close a goal"
+  (`.sd-loops-head`), still counted over the same loops as the total. Main's rows are now buttons and say Q62's
+  "serves goal X", so (2)'s row wording is main's, and this branch adds no second one. details.js keeps
+  `goalLoopsLine` before main's actor lines. server.py keeps `graph.goal_loops` in `loops/NAME` and takes main's
+  list answer (trend, perf). SPEC keeps the goal exception plus main's side-list sentence, and says where the
+  summary goes. test_diagram_rendering.py keeps main's keyboard test next to the round trip, which now reads the
+  summary's count. `SD_GOAL_SAID` now also skips Q62's row phrase ("serves goals? X").
+- Tests run: ruff clean; tests/test_dynamics_view.py (19 passed); tests/test_graph_cli_web.py (56 passed). Under
+  suite_watch: `test_a_goal_and_its_feedback_loops_link_each_other_across_the_views` and
+  `test_in_dynamics_a_goal_is_called_a_goal_and_loop_means_an_r_or_b_loop` (main's Q62 test) passed.
+- Still failing, and not from this branch: `test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sign_is_known`.
+  Main's attention-group words are removed from the side text now, but the side list still says "goal" in a check
+  finding's card ("open · goal developer-honest cannot close: …", the `loop X: cannot close` finding, which main's
+  "a goal is called a goal" change names "goal X" in Dynamics). Main's copy of the assertion also bans the "serves
+  goal" in main's own rows. After this merge, the branch's diff from main in ergostat/ is 40 lines in 5 files
+  (causal.py, graph.py, server.py, details.js, dynamics.js), and none of them make side-list cards. So the test
+  should fail on main too. Running it on main was not possible: `git worktree add --detach /tmp/main-check 059ff718`
+  was refused in this session. Left alone (lesson 13): the SD_WORDS check and Q-goal-called-goal's wording disagree,
+  and squaring them is its own gap.
