@@ -453,12 +453,15 @@ starting with `.` or `-` or ending `.lock`, not ending with `/` or `.` (`fetch` 
 a main file that does not read stops it with rc 2, before any git process) and, holding an exclusive lock on
 `.libraries/.flock` across the whole read, clone, swap and write (a second fetch says `waiting for the libraries
 lock` and waits), fetches each: nothing when its `libraries.lock` entry has the same `git`, `version` and `path` and
-the copy's tree hash is the lock's; the locked commit again when the copy is missing or altered (a commit or tree that
-is not the lock's is refused); `version` resolved from scratch when the entry changed, is new, or with `--update`.
-Git runs with ergostat's own git environment, `https` and `file` only, no redirects, no credential helper, no ssh, the
-URL and ref after `--end-of-options`, one process at a time, each in its own process group with a 100 MB cap on any
-file it writes (`RLIMIT_FSIZE`). The clone's folder is summed every 0.25 s and the group killed past 100 MB (it can
-overshoot by what arrives in one poll) or 120 s; `git archive` has the same 120 s and group kill. The archive is
+the copy's tree hash is the lock's; fetched again when the copy is missing or altered, refused (`lock-mismatch`, the
+copy left as it was) when `version` now gives a commit or tree that is not the lock's; `version` resolved from scratch
+when the entry changed, is new, or with `--update`. The repository is cloned bare, `version` resolved with
+`rev-parse --verify`, and `git archive COMMIT[:PATH]` written to a file beside it. Git runs with ergostat's own git
+environment, `https` and `file` only, no redirects, no credential helper, no ssh, the URL and ref after
+`--end-of-options` (the ref also passes `git check-ref-format`), one process at a time, each in its own process group
+with a 100 MB cap on any file it writes (`RLIMIT_FSIZE`). The temporary folder (clone and archive) is summed every
+0.05 s and the group killed past 100 MB (it can overshoot by what arrives in one poll) or 120 s, or when the fetch is
+interrupted. The archive is
 extracted into a new folder: folders, regular files (their exec bit kept) and relative links whose target, walked a
 step at a time, never goes above the copy's top or onto any link (names compared as a case- and
 normalization-insensitive disk such as APFS sees them, so `x/s` is `x/S`; walked as each link arrives and again once
@@ -466,10 +469,11 @@ all are there), and which, once made, resolves (`realpath`) inside the copy; at 
 headers' sizes before a member is read, and by the bytes written); hard links, devices, FIFOs, absolute names, `.`,
 `..` or empty parts, two names that fold the same, and anything under a link or file are refused. Folders are entered
 by handles opened without following links, and files made `O_EXCL|O_NOFOLLOW`, so nothing is written through a link.
-A `path:` that is not in the commit makes `git archive` write nothing: that library is not fetched, with git's own
-message, and the next is. The old copy is moved aside, the new one
-put in its place, and `libraries.lock` (JSON: `{"libraries": {NAME: {git, version, path, commit, tree}}}`, `tree`
-`sha256:` of the copy) rewritten whole with only NAME's entry changed; on any failure the old copy and its entry stay.
+A library that is refused (a `path:` not in the commit is git's own failure) is not fetched, said with the reason, and
+the next is; the command then exits 1. An unreadable lock, or a linked folder, stops it with rc 2. The old copy is
+moved aside, the new one put in its place, and `libraries.lock` (JSON: `{NAME: {git, version, path, commit, tree}}`,
+`path` left out when there is none, `tree` `sha256:` of the copy) rewritten whole, read again under the lock for each
+library, with only NAME's entry changed; on any failure the old copy and its entry stay.
 Fetch refuses when `.libraries` or `.libraries/NAME` is a link, and deletes only the temporary folder it made.
 
 Every time the model loads, each library is checked, in order, and the first failure refuses it (an error naming the

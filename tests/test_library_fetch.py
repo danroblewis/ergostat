@@ -117,6 +117,7 @@ def test_fetch_locks_and_load_uses_it(tmp_path, capsys, calls):
     e = entries(d)["a"]
     assert e["commit"] == git(up, "rev-parse", "v1^{commit}") and e["git"] == up.as_uri() and e["version"] == "v1"
     assert e["tree"] == tree.read(d / ".libraries" / "a")[1] and e["tree"].startswith("sha256:")
+    assert set(e) == {"git", "version", "commit", "tree"}  # no path: given, and trust: is not the lock's
     spec, ps = read(d / "ergostat.yaml")
     assert not [p for p in ps if p.level == "error"], ps
     assert "hi-waiting" in spec.stocks and spec.uses["hi"]["library"] == "a"
@@ -269,6 +270,9 @@ def test_altered_copy_refused(tmp_path, capsys):
     assert errors(d) == []
     f.chmod(0o755)                                        # the exec bit is hashed
     _refused(d, "library-altered")
+    rc, out, err = run_fetch(d, capsys)                   # a copy not the lock's is fetched again, not kept
+    assert rc == 0 and "up to date" not in out, err
+    assert errors(d) == []
 
 
 def test_untrusted_use_refused(tmp_path, capsys):

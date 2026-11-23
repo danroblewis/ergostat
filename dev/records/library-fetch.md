@@ -378,3 +378,57 @@ Size: `git diff main --shortstat -- ergostat schema` gives 556 added and 48 remo
 560. That is only because about 257 lines of this gap (`sources.py`, `tree.py` and `files.tree`) are now on main
 through `library-fetch-tree`. Counted whole, the gap is about 765 lines, and the reasons from rounds 1 to 3 stand for
 that.
+
+### Round 7: the merge of main (dc8ad98d)
+
+Main had landed `library-fetch-git`, which says it "takes over `factory/library-fetch`'s `fetch.py`, trimmed to fit":
+its own `fetch.py`, with its own API and its own tests (`tests/test_library_fetch_git.py`). The merge conflicted in
+`fetch.py`, and in `spec/load.py` (main added `operating`, this branch `libraries`, to the same `TOP` line; both are
+kept). As in round 6, I resolved it onto main's module and adapted this branch's CLI, loader and tests to it, so one
+fetch remains:
+- `fetch.py` is main's: `fetch(root, libraries, update, say)`, `FetchError(code, name, why)`, `read_lock` and
+  `write_lock`, a whole bare `clone`, `rev-parse --verify VERSION^{commit}`, and `git archive COMMIT[:PATH]` written to a
+  file in the temporary folder. So the folder poll and `RLIMIT_FSIZE` cover the archive too, and the archive timer,
+  the `peek` and `tree.extract`'s `strip` are gone. The 120 s limit, the group kill (an interrupt included), the
+  `waitid` fallback, the flock, the rollback and the link checks are main's. Three changes to it, each small:
+  1. The lock entry and the "same entry" test use `git`, `version` and `path` only. Main used `sources.KEYS`, which
+     now has `trust`, so `trust: owner` would have gone into the lock.
+  2. An unchanged entry is kept only when the copy's tree hash is still the lock's (this definition's step 2). Main
+     kept any copy that was there. With the hash check removed, the new assert in `test_altered_copy_refused` fails:
+     the altered copy says "up to date".
+  3. `argv()` and `_start()` are split out of `_run`, so the tests can record and stall git calls.
+- `tree.digest` and `tree.hashed` now return `sha256:…`, the definition's lock form. Main's tests compare digests
+  only with each other, so they pass unchanged. The caps are read when the function is called, not bound when it is
+  defined, so a test that patches `tree.BYTES` reaches fetch.
+- `libraries.lock` is main's flat `{NAME: {git, version, path?, commit, tree}}`, with `path` left out when there is
+  none. `fetched.py` reads that shape, and it compares `path` as given. SPEC §2a says so.
+- `cli/library.py` calls `fetch.fetch` for one library at a time. A refused library is said
+  (`library NAME: not fetched: CODE: …`) and the next one is still fetched (rc 1). A `bad-lock` or
+  `linked-library-folder` stops the command with rc 2. "waiting for the libraries lock" goes to stderr. Each
+  library's read, decide and write is under the flock, and the lock is read again inside it, as main does.
+- Where main differs from this definition, main's behaviour is kept, because main's merged tests pin it. This is
+  reversible:
+  - A same entry whose copy is missing resolves `version` again rather than fetching the locked sha, and is refused
+    (`lock-mismatch`) when that is not the lock's commit and tree.
+  - The clone is whole, not `--depth 1`.
+  - The poll runs every 0.05 s, not every 0.25 s (stricter). SPEC and SECURITY now say 0.05 s, and they describe
+    the archive as a file.
+- `tests/test_library_fetch.py` changes only hooks, messages and the lock's shape: `_start`'s arguments,
+  `write_lock` for `_swap` and `_write_lock`, `SIZE` for `CEILING`, `clone` for `fetch`, "still running after" and
+  "bad-lock", and `git-failed: archive`. The `--end-of-options` check now looks at `clone` (URL after it) and
+  `rev-parse` (REF after it). Two asserts are added: the lock entry holds no `trust`, and an altered copy is
+  fetched again. I saw each one fail with its guard removed.
+
+Tests run after the merge, each through `scripts/named_tests.py`:
+- `tests/test_library_fetch.py`, `tests/test_library_fetch_git.py` and `tests/test_library_tree.py`: 40 pass. Main's
+  two files are unchanged.
+- `tests/test_cli_fallback.py`, `tests/test_templates.py` and `tests/test_modelling_template.py`: 61 pass, unchanged.
+- `tests/test_spec_schema.py`, `tests/test_spec_structure.py` and `tests/test_compute_worker_protocol.py`: 58 pass.
+- The other five `tests/test_library_*.py` files and `tests/test_todo_template.py`: pass, with 4 skipped because
+  bwrap cannot make namespaces here.
+
+Ruff is clean. Not run here: the whole unit suite, the four browser files (no page changed), `demo_check` (no example
+touched), and anything on macOS.
+
+Size: `git diff main --shortstat -- ergostat schema` gives 304 added and 53 removed, so 251 net against main, within
+560. Counted whole, with what main now holds of it, the reasons from rounds 1 to 3 stand.
