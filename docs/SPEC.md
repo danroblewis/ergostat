@@ -6399,7 +6399,11 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
 - The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
   each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own.
+  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own. Every entry is
+  listed, however many come before it. While the pointer or the focus is in one of the side panel's lists (*Waiting
+  for you*, *Goals off*, *Model housekeeping*; and likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its
+  top how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or
+  gone meanwhile stays in its place and says so in its row until then.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 
