@@ -288,3 +288,17 @@ finishing the factory's merge of main (5411f137, a8ce6f95). 44 net lines outside
   `python3 - docs/SPEC.md <<EOF` script (done as edits and separate `git add` / `git commit --no-edit`). So
   `diagram.js` was not syntax-checked by node; the browser tests above load it.
 - **Not run:** the rest of `tests/test_diagram_rendering.py`, the other browser files, the unit suite.
+
+Continued, round 5: the queue's finding (conflicts with main in `diagram.js`), answered by finishing the factory's
+merge of main (e43046dc, 062789db). 44 net lines outside tests and docs against main (budget 60).
+
+- **Merge:** main's `list` gained an `answered` argument (rows the owner answered here, drawn at the top of the
+  list, and "none" only when there are neither rows nor answered ones). Kept as main wrote it; inside it the branch's
+  `folded`/`foldRow` loop and shared `row` stay as before. No test changed.
+- **Runs:** ruff clean. `tests/test_inbox.py`: 35 passed. The acceptance test and
+  `test_two_folds_each_keep_their_own_reason_across_a_refresh`: 2 passed, rc 0. `tests/test_inbox_page.py`: 12
+  passed, rc 0 (under the watchdog).
+- **Refused:** a no-op `python3 - <<'EOF'` check, `grep -c … ; node --check …diagram.js; echo rc=$?`, and the
+  browser run given with `| tail -8; echo rc=$?` (rerun without the pipe). The conflict markers were checked gone with
+  the search tool; `diagram.js` was not syntax-checked by node, but the browser tests above load it.
+- **Not run:** the rest of `tests/test_diagram_rendering.py`, the other browser files, the unit suite.
