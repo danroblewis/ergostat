@@ -217,6 +217,26 @@ def _loop_nodes(c: dict, decide: set[str]) -> list[str]:
     return dedup
 
 
+def _around(spec, ns: list[str], conns: dict, names: dict[str, str]) -> list[dict]:
+    """Each link around a loop, every part drawn whole (before any system is closed): a connector's sign as it
+    is drawn, a flow's by definition (+ into the stock it fills, − into the one it drains); None where neither
+    says. Each end by its plain name."""
+    out = []
+    for a, b in zip(ns, ns[1:] + ns[:1], strict=False):
+        if a == b:
+            continue
+        sign = (conns.get((a, b)) or {}).get("sign")
+        f = spec.flows.get(a.split(":", 1)[1]) if spec is not None and a.startswith("flow:") else None
+        if f is not None and b in (f"stock:{f.target}", f"stock:{f.source}"):
+            sign = 1 if b == f"stock:{f.target}" else -1
+        goal = spec.goals.get(b[4:]) if spec is not None and b.startswith("gap:") else None
+        if goal is not None and a in (f"stock:{goal.of.name}", f"desired:{goal.name}"):   # a gap is desired − actual
+            sign = (-1 if a.startswith("stock:") else 1) * (-1 if excess(spec, goal.name) else 1)   # (an excess, the reverse)
+        out.append({"from": a, "to": b, "fromName": names.get(a) or a.split(":", 1)[1],
+                    "toName": names.get(b) or b.split(":", 1)[1], "sign": None if sign is None else "+" if sign > 0 else "-"})
+    return out
+
+
 def dynamics(g: dict, model) -> dict:
     """The control graph ``g`` (``graph.control``) drawn as system dynamics draws it."""
     spec = getattr(model, "spec", None)
@@ -255,7 +275,7 @@ def dynamics(g: dict, model) -> dict:
             err = -err
         nodes.append({"id": f"gap:{name}", "kind": "auxiliary", "label": f"excess {of}" if over else f"{of} gap", "sd": True,
                       "role": "gap", "excess": over, "goal": name, "of": of, "setpoint": sp, "desired": want, "switching": sw,
-                      "value": err, "valueText": fmt(err) if err is not None else "", "systems": where})
+                      "value": err, "valueText": fmt(err) if err is not None else "", "offBy": c.get("offBy"), "systems": where})
     conns, decide = _connectors(spec) if spec is not None else ({}, set())
     for part in sorted(decide):                            # a decision: a machine block reading several, moving several
         b = spec.blocks[part.split(".", 1)[1]]
@@ -311,8 +331,10 @@ def dynamics(g: dict, model) -> dict:
     edges = [e for e in edges if e["source"] not in idle and e["target"] not in idle]
     causal = [{**c, "nodes": _loop_nodes(c, decide)} for c in g.get("causalLoops") or []]
     tags = labels(causal)
+    names = {n["id"]: n["label"] for n in nodes}
     for c in causal:
         c["label"] = tags[c["name"]]
+        c["around"] = _around(spec, c["nodes"], conns, names)
     return finish({**g, "kind": "dynamics", "nodes": nodes, "edges": edges, "causalLoops": causal})
 
 
@@ -440,7 +462,7 @@ def words(text: str) -> str:
 
 def attention(att: list[dict], snap: dict) -> list[dict]:
     """The attention cards as the dynamics view says them: a loop off its goal as a gap (``backlog is
-    4, desired backlog = 0: excess 4``), the rest in system dynamics' words."""
+    4, desired backlog = 0: off by 4``), the rest in system dynamics' words."""
     out = []
     loops = snap.get("loops") or {}
     for a in att:
@@ -451,9 +473,7 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
         if lp and lp.get("status") == "off" and what.startswith("loop "):
             sp = _sp(lp.get("setpoint") or "")
             want = sp.lstrip("≤≥=<> ")
-            err = lp.get("error")
-            over = sp.startswith(("≤", "<"))
-            gap = "" if err is None else f": {'excess' if over else 'gap'} {fmt(abs(err))}"
+            gap = f": {lp['off_by_words']}" if lp.get("off_by_words") else ""
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
             a["says"] = words(a.get("says", ""))

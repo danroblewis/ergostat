@@ -884,7 +884,13 @@ its age (`sensor.failed`), its box says *not answering for 2m · readings 3m old
 in the remote's clock; one older than three of its sensor's periods (two minutes at least), more than 5 s in
 the remote's future, with no `time`, in an answer with no `now`, or marked `unreachable` is not taken. A
 `now` or `time` that is not a finite number (JSON's `NaN` or `Infinity`) counts as none, and a middle keeps
-no age for it, so it serves that reading on as `time: null`.
+no age for it, so it serves that reading on as `time: null`. When the model answers but its last readings
+request got no answer (`read_ok` false in `status.json`, what the box reads), the Check page and `check`
+carry **remote-stale**: *remote incidents: its readings fail (WHY) since 5m ago; its measures here are 10m
+old* (or *none of its measures has been read here*). A remote whose readings were never asked for, or whose
+last request was answered, has none; one that is remote-unreachable is never remote-stale too at the same
+load. A reading refused as stale (too old, in the remote's future, untimed) from an answered request is not
+remote-stale: that sensor's `sensor.failed` says it.
 
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
@@ -3903,7 +3909,11 @@ never a list of everything in it.
 **Drawn** (the dynamics view, `ergostat/dynamics.py`): each loop is labelled as Sterman numbers them,
 R1, B1 (the shortest first, the ones the model names before others of their length), with its name
 beneath. Only loops of known polarity are marked on the diagram, each inside the loop as drawn; the
-others are one entry beside it, "+N of unknown polarity", that opens to list them. A goal is drawn
+others are one entry beside it, "+N of unknown polarity", that opens to list them. A loop's panel lists
+every link around it (through closed systems too) by plain names, each with the one sign its connector is
+drawn with; a flow's into its stock, and a stock's and a desired level's into its gap, are signed by
+definition. A link still without a sign (or signs that disagree with the model's) makes its marker read `?`
+and the panel name the link; loops drawn alike share one marker, "N alike", its title naming the others. A goal is drawn
 as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
 for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
 actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel
@@ -6389,7 +6399,11 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
 - The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
   each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own.
+  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own. Every entry is
+  listed, however many come before it. While the pointer or the focus is in one of the side panel's lists (*Waiting
+  for you*, *Goals off*, *Model housekeeping*; and likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its
+  top how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or
+  gone meanwhile stays in its place and says so in its row until then.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 
@@ -6660,8 +6674,21 @@ item arrives `noted`, with a failure's fields, `swallowed: 1` and `count: 0`, an
 item that exists, in any state, the event says only `{"swallowed": 1, "last_swallowed": RUN}` (`swallowed` folds as a
 sum). The event moves no state, writes no `repair/NAME.input` for an existing item, and carries none of the fields the
 fixer reads, so a failure being fixed keeps its lease and its traceback. A trace with only library or runtime frames,
-or none, records nothing. A later failed run with the same signature opens the noted item as usual. A daemon's run
-hands back no standard error (above), so what a daemon swallows is not seen.
+or none, records nothing, unless the tail has an error-level log line (below). A later failed run with the same
+signature opens the noted item as usual. A daemon's run hands back no standard error (above), so what a daemon
+swallows is not seen.
+
+**Error log events.** "Log events" is taken here to mean errors a program logged without failing; this is ergostat's
+interpretation, nothing more is defined. When a good run's tail (the last 8,000 characters of its own run file) has no
+trace through the project's code, its last error-level log line of two forms is read: Python logging's default form,
+`ERROR:logger:message` or `CRITICAL:logger:message`, and a JSON line whose `level`, `levelname` or `severity` is
+`error`, `critical` or `fatal` (in any case) with a `logger` or `name` and a `message` or `msg`. No other logging format
+is read (a custom Python format, logfmt, syslog lines and the like are unread); lines of other levels, malformed or
+partial JSON, and lines over 8,000 characters are ignored. It is recorded as above, an `ergostat.run.swallowed` signed
+`(block, program, "log", LEVEL, logger)` (the level upper-cased): a new item arrives `noted` with `error` the scrubbed
+message (at most 300 characters) and no traceback, and is never opened; an existing one gets counts only. A trace
+always wins over a log line, and a failed run is still signed by its trace or by how it ended, so no existing id moves
+and a log item is never opened by a failed run.
 
 **Superseding.** Node, Java and Go failures were signed by how they ended before triage read their traces, so their old
 items have other ids. When a failure is signed by such a trace, triage looks for the item at its old signature (block,

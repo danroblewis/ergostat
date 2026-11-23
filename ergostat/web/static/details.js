@@ -154,7 +154,7 @@ async function openLoop(name, asController = false) {
   kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock} ${op(lp.setpoint)}${lp.band || ""}${lp.per ? `, each ${lp.per}` : ""}`],
     ["now", lp.per ? `${fmt(lp.value)}, the worst ${lp.per}'s` : fmt(lp.value)],
     ["stale", lp.stale != null ? `read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}` : null],
-    ["error", lp.error ? fmt(lp.error) : "0"], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
+    ["how far", lp.off_by_words || null], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
     ["typically", lp.answers_in != null || lp.back_in != null ? [
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
       lp.back_in != null ? `it holds again ${dur(lp.back_in)} after (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times)` : null,
@@ -188,10 +188,14 @@ async function openLoop(name, asController = false) {
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
   if (lp.crossings?.length) {
     kids.push(h("h3", {}, `Crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`));
-    kids.push(h("table", {}, lp.crossings.slice().reverse().map((e) => h("tr", {},
-      h("td", { class: "nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+    // each to the Record: the goal's events (its controller, agents, valves) from it to the next crossing
+    const next = (i) => lp.crossings[i + 1]?.time ?? lp.until;
+    kids.push(h("table", { class: "crossings" }, lp.crossings.map((e, i) => [e, next(i)]).reverse().map(([e, to]) => h("tr", {},
+      h("td", { class: "nowrap" }, h("a", { href: `/record?about=${encodeURIComponent(name)}&from=${e.time}${to != null ? `&to=${to}` : ""}`,
+        title: "What the goal, its controller and its valves recorded from this crossing to the next" },
+        new Date(e.time * 1000).toLocaleTimeString([], { hour12: false }))),
       h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value)),
-      h("td", { class: "muted" }, e.type === "loop.off" && e.data.error != null ? `by ${fmt(Math.abs(e.data.error))}` : "")))));
+      h("td", { class: "muted" }, e.type === "loop.off" ? e.off_by_words || "" : "")))));
   }
   if (lp.decisions?.count) {
     kids.push(h("h3", {}, `Decisions (${lp.decisions.count})`), h("div", { class: "note" }, "Alike when only their numbers differ."));
@@ -407,7 +411,7 @@ async function openEdge(e) {
     const c = byId[dst];
     what = `Here: ${nameOf(src)}'s reading goes to the controller of ${nameOf(dst)}.`;
     rows.push(["from", link(src)], ["reading", byId[src]?.reading || null], ["to", link(dst)],
-              ["setpoint", c?.setpoint || null], ["error now", c?.error != null ? fmt(c.error) : null], ["status", c?.status ? statusEl(c.status) : null]);
+              ["setpoint", c?.setpoint || null], ["how far", c?.offBy || null], ["status", c?.status ? statusEl(c.status) : null]);
   } else if (e.kind === "action") {
     kind = "control action · control";
     const c = byId[src], v = byId[dst];

@@ -421,7 +421,10 @@ keeps running it; this model reads it.
 4. **Check against what it serves now**: `ergostat check` asks the remote first. A
    `remote-reference-unresolved` finding means the remote renamed or dropped a part you reference: fix the
    reference here (a stand-in is drawn meanwhile). `remote-unreachable` means it did not answer: the model
-   runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
+   runs on what it read last, with its age shown; fix the URL, the tunnel or the token. `remote-stale`
+   means the remote's model answers but its readings request fails, which is not fixed here; tell its
+   owner, with the reason and the age the finding gives. (One reading refused as too old is not this
+   finding: it shows as that sensor's `sensor.failed`.)
 5. **Use its measures, not its items.** Its items can be seen in the Items page (a section marked remote)
    and its events in the Record page (`/record?remote=incidents`), but they are still never folded or counted
    locally: count them through the remote stock that counts them (its sensor is mirrored), or a sensor of your
@@ -720,7 +723,9 @@ the failure is fixed); one that fails again regresses it, and the gated action `
 the fix. A regressed fix whose revert is denied stays regressed, for the owner.
 Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
 is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
-swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
+swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read. With
+no such trace, its last error-level log line is noted the same way, in two forms only: Python logging's default
+`ERROR:logger:message` (or `CRITICAL`) and a JSON line with `level`/`levelname`/`severity` error, critical or fatal.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is

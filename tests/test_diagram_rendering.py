@@ -175,6 +175,73 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
 
 
+# drawn and routed, or (the Process view of a project with no record yet) saying there is nothing to draw
+DRAWN_OR_EMPTY = f"() => ({READY[6:]}) || !!document.querySelector('.canvas-wrap .empty')"
+
+
+# every part moved by under a pixel to where libavoid, working its width out again from its corners, finds it a hair
+# narrower than it is (a system box's or a block's port on its right edge then lay past it), and routed again
+ROUNDED_ROUTE = """async () => {
+  const spec = () => (S.graph.kind === 'blocks' ? bdAvoidSpec : avoidSpec)(S.layout, S.graph).shapes;
+  const edge = spec().flatMap((s) => s.pins.filter((p) => p.abs && p.x >= s.w - 1e-6)).length;
+  const under = (x, w) => (x + w) - x < w && ((x + w / 2) + w / 2) - ((x + w / 2) - w / 2) < w;
+  let moved = 0;
+  for (const c of S.layout.children) for (let i = 1; i < 400; i++) {
+    const x = c.x + i / 397, w = c.width + i / 389;
+    if (!under(x, w)) continue;
+    for (const p of Object.values(S.layout.ports || {}))   // (a block's ports, on the page: those on its right edge kept there)
+      if (p.node === c.id) p.x += p.x >= c.x + c.width - 0.5 ? x + w - c.x - c.width : x - c.x;
+    c.x = x; c.width = w; moved++;
+    break;
+  }
+  (S.graph.kind === 'blocks' ? bdRoute : avoidStart)(S.layout, S.graph);
+  await S.layout.whenRouted;
+  return [moved, edge];
+}"""
+
+
+@pytest.mark.parametrize("view,example", [("view=dynamics", "software-factory"), ("view=blocks", "first-loop")])
+def test_a_port_on_a_parts_right_edge_is_never_past_it_for_libavoid(browser, tmp_path, view, example):
+    """The pin offset clamped to the shape: a system box's (Dynamics) or a block's (Blocks) port on its right edge,
+    with the box at a sub-pixel place and width, gives libavoid no 'xOffset ... greater than shape width'."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        said: list[str] = []
+        pg.on("console", lambda m: said.append(f"{m.type}: {m.text[:200]}") if m.type in ("error", "warning") else None)
+        drawn(pg, url, view, 0)
+        said.clear()
+        moved, ports = pg.evaluate(ROUNDED_ROUTE)
+        pg.wait_for_timeout(200)                           # (the worker's last word reaches the page a moment later)
+        pg.close()
+    assert moved and ports, (moved, ports)                # (the window opened: parts moved, ports on a right edge)
+    assert not said, said
+
+
+def test_every_view_loads_with_no_console_error_or_warning(browser, page_of):
+    """Dynamics, Blocks and Process, whole and into each system: the page's console (its workers' too) says
+    nothing is wrong: no error, no warning (libavoid's pin past its part's edge, ELK falling back)."""
+    name, url = page_of
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    said: list[str] = []
+    pg.on("pageerror", lambda e: said.append(f"pageerror: {e}"))
+    pg.on("console", lambda m: said.append(f"{m.type}: {m.text[:300]}") if m.type in ("error", "warning") else None)
+    pg.on("worker", lambda w: w.on("console", lambda m: said.append(f"worker {m.type}: {m.text[:300]}")
+                                   if m.type in ("error", "warning") else None))
+    drawn(pg, url, "", 0)
+    tree = pg.evaluate("() => S.graph.tree || {}")
+    problems, n = [], 0
+    for view in ("dynamics", "blocks", "process"):
+        for v in ["", *(f"&system={s}" for s in tree)]:
+            said.clear()
+            n += 1
+            pg.goto(f"{url}/diagram?v={n}&view={view}{v}", timeout=DRAWN_S * 1000)
+            pg.wait_for_function(DRAWN_OR_EMPTY, timeout=DRAWN_S * 1000)
+            pg.wait_for_timeout(200)                       # (a worker's last word reaches the page a moment later)
+            problems += [f"[view={view}{v}] {x}" for x in said]
+    pg.close()
+    assert not problems, f"{name}: " + "\n".join(problems)
+
+
 # the critical layout faults an example's views had when the rules came (docs/layout-rules.md), each by its rule and
 # its parts: known, listed there to fix, and not to grow (RECORD_LAYOUT=1 writes them again)
 KNOWN = ROOT / "tests" / "fixtures" / "layout_known.json"
@@ -2033,7 +2100,7 @@ SD_CHECK = """() => {
   for (const m of svg.querySelectorAll(".loop-marker")) {
     const c = S.graph.causalLoops.find((x) => x.name === m.dataset.loop);
     const t = m.querySelector(".marker-letter")?.textContent || "";
-    if (!c || t[0] !== (c.polarity || "?")) bad.push(`marker ${m.dataset.loop} says ${t}`);
+    if (!c || t[0] !== (sdPol(c) || "?")) bad.push(`marker ${m.dataset.loop} says ${t}`);
   }
   const box = S.layout.children;
   for (const e of S.graph.edges.filter((x) => x.kind === "connector")) {
@@ -2282,6 +2349,53 @@ def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser,
         pg.wait_for_timeout(500)
         after = pg.evaluate(where, "missing-ops")                           # and placed again where its loop now is
         assert after[0] - before[0] > 60 and after[1] - before[1] > 40, (before, after)
+        pg.close()
+
+
+LOOP_SIGNS = """(label) => {
+  // a loop's panel: each row of 'Around the loop' (its text, its sign), its marker's letters, and each row whose
+  // connector is drawn here with the sign that connector shows (one sign per link across panels)
+  const c = S.graph.causalLoops.find((x) => x.label === label);
+  if (!c) return null;
+  openCausal(c.name);
+  const rows = [...document.querySelectorAll("#detail table.parts tr")].map((tr) => [tr.innerText.replace(/\\s+/g, " ").trim(),
+    tr.querySelector("td.num").textContent]);
+  const m = [...document.querySelectorAll("svg.canvas .loop-marker")].find((x) => (x.dataset.loops || "").split("|").includes(c.name));
+  const drawnSigns = (c.around || []).map((r) => {
+    const e = S.graph.edges.find((x) => x.kind === "connector" && (x.from ?? x.source) === r.from && (x.to ?? x.target) === r.to);
+    const t = e && document.querySelector(`svg.canvas .edge[data-id="${CSS.escape(e.id)}"] text.polarity`);
+    return e ? [r.from + " → " + r.to, t ? t.textContent : "?", r.sign ? sdSign(r.sign) : "?"] : null;
+  }).filter(Boolean);
+  return { rows, letter: m ? m.querySelector(".marker-letter").textContent : null, panel: document.querySelector("#detail").innerText,
+           markers: [...document.querySelectorAll("svg.canvas .loop-marker text")].map((t) => t.firstChild?.textContent || ""), drawnSigns,
+           alike: [...document.querySelectorAll("svg.canvas .marker-more")]
+             .map((t) => [t.firstChild.textContent, t.querySelector("title")?.textContent || ""]) };
+}"""
+
+
+def test_a_loop_is_called_r_or_b_only_when_every_link_has_a_sign(browser, tmp_path):
+    """software-factory's product system: R2's 'Around the loop' gives every link (all of them, through delivery
+    too) a sign, or its marker reads '?'; each part by its plain name; a connector drawn here shows the row's sign;
+    no marker reads '+1' (loops drawn alike: 'N alike')."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, v in enumerate(["system=product", "", "open=*"]):       # (open: every connector drawn, to compare)
+            drawn(pg, url, v, i)
+            r = pg.evaluate(LOOP_SIGNS, "R2")
+            assert v != "open=*" or len(r["drawnSigns"]) >= 4, r["drawnSigns"]
+            assert r and len(r["rows"]) >= 2, (v, r)
+            unsigned = [t for t, sign in r["rows"] if sign not in ("+", "−")]
+            assert not unsigned or r["letter"] == "?", (v, unsigned, r["letter"])
+            if unsigned:
+                assert "No sign on" in r["panel"], (v, r["panel"])
+            named = [t for t, _ in r["rows"] if re.search(r"\b(stock|gap|flow|desired|term|system|shadow|stub):", t)]
+            assert not named, (v, named)
+            assert not [t for t in r["markers"] if re.search(r"\+\d$", t)], (v, r["markers"])
+            assert all(shown == row for _, shown, row in r["drawnSigns"]), (v, r["drawnSigns"])
+            assert all(re.fullmatch(r"\d+ alike", t) and re.search(r"[RB?]\d+ ", title) for t, title in r["alike"]), (v, r["alike"])
+        assert not errors, errors
         pg.close()
 
 
@@ -2594,6 +2708,69 @@ def charted(tmp_path: Path, monkeypatch) -> Path:
         if n < 6:
             p.events.add("ticket.done", item=f"ticket/{n}", at=now - 1900 + n * 200)
     return d
+
+
+def test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks(browser, tmp_path, monkeypatch):
+    """A goal past its ceiling (backlog <= 5, tolerance 1, read at 12 tickets) says how far it is in one phrase, the
+    state's: on the Loops page, the Dynamics side list, its gap's panel and its evidence (the loop's panel). Blocks
+    keeps the discipline's e = r − y, its signed e charted, and never the phrase."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = charted(tmp_path, monkeypatch)
+    p, now = Project(mdl.load(d)), time.time()
+    for i in range(6):
+        p.measurements.add("sensor/backlog.main", 12, at=now - 50 + i * 10)
+    p.events.add("loop.off", item="short-backlog", data={"value": 12}, at=now - 50)
+    want = "off by 7 tickets"
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        loops = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        assert loops["short-backlog"]["off_by_words"] == want, loops["short-backlog"]
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/loops")
+        cell = pg.locator('td[data-off="short-backlog"]')
+        cell.wait_for(timeout=30000)
+        said = {"loops page": cell.inner_text().strip()}
+        drawn(pg, url, "view=dynamics", 0)
+        side = "() => [...document.querySelectorAll('.side .att')].map((x) => x.textContent).join(' | ')"
+        pg.wait_for_function(f"() => ({side})().includes('short-backlog')", timeout=30000)
+        side = pg.evaluate(side)
+        said["side list"] = want if f"desired backlog = 5: {want}" in side else side
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'gap:short-backlog'))")
+        pg.wait_for_function("() => document.querySelector('#detail dl')?.textContent.includes('now ')", timeout=30000)
+        gap = pg.locator("#detail dl").inner_text()
+        said["gap"] = want if f"now {want}" in gap else gap
+        pg.evaluate("() => openLoop('short-backlog')")
+        pg.wait_for_function("() => [...document.querySelectorAll('#detail dt')].some((t) => t.textContent === 'how far')",
+                             timeout=30000)
+        rows = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('#detail dl dt')]"
+                           ".map((t) => [t.textContent, t.nextElementSibling?.textContent]))")
+        said["evidence"] = rows.get("how far")
+        assert said == dict.fromkeys(said, want), said
+        drawn(pg, url, "view=blocks", 1)                 # Blocks: the error as control writes it, e = r − y, signed
+        pg.evaluate("() => openBlock(S.graph.nodes.find((n) => n.role === 'comparator'))")
+        pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=30000)
+        names = pg.evaluate("() => [...document.querySelectorAll('#detail .scope .chart-name')].map((x) => x.textContent)")
+        text = pg.locator("#detail").inner_text()
+        assert "e" in names and "e = r − y" in text and want not in text, (names, text)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
 
 
 def test_the_window_in_the_header_never_claims_more_than_the_record(browser, tmp_path, monkeypatch):
