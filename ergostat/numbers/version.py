@@ -69,7 +69,8 @@ def _plain(x, depth: int = 0):
     if dataclasses.is_dataclass(x) and not isinstance(x, type):
         if type(x).__name__ == "Where":
             return None
-        return {f.name: _plain(getattr(x, f.name), depth + 1) for f in dataclasses.fields(x) if f.name not in PLACES}
+        return {f.name: _plain(getattr(x, f.name), depth + 1) for f in dataclasses.fields(x) if f.name not in PLACES
+                and not ("unset" in f.metadata and getattr(x, f.name) == f.metadata["unset"])}   # a newer key, unused
     if isinstance(x, dict):
         return {str(k): _plain(v, depth + 1) for k, v in sorted(x.items(), key=lambda kv: str(kv[0]))}
     if isinstance(x, list | tuple):
