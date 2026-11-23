@@ -801,7 +801,15 @@ lasts past it (over 60 minutes at 120, 30 at 150); nothing here bounds a suite r
 (`unit`, `browser`, `host`; never `ruff` or `demo`) has `counts: {passed, failed, skipped, deselected, errors}`, read
 from the last pytest summary line in its whole log (`fac.counts`), or `"unknown"` when it has none, was stopped by a
 failing sibling or could not be read; never zeros; `"not_run"` is kept for a suite not run by a rule, neither unknown
-nor zero (no such rule is on main yet; a suite turned off, as an empty `host`, has no entry at all). A landed run's
+nor zero (a suite turned off, as an empty `host`, has no entry at all). The one such rule: **a batch runs the four
+browser files only when it touches what they test**, that is when `git diff --name-only` from main before the batch
+to its merged head names a path matching one of `[suites] browser_paths` (by default `ergostat/web/**`,
+`examples/**`, the two layout fixtures, `tests/layout_*` and the four browser files; fnmatch globs, `*` crossing `/`).
+Otherwise `suites_queue` says `browser: {not_run: "no browser path changed", counts: "not_run"}`, and a red run counts
+that suite as finished, never stopped, so a flake's rest of the run does not start it either. The batch decides once,
+on its first full run, and the full runs of its halves keep that. An empty or absent list (or one that is not a list of
+globs, or a diff that cannot be read) runs browser in every batch, as before. A page broken from a path not listed is
+found by the daily browser run on main (below), the net for what the queue no longer runs. A landed run's
 `queue_runs` entry has `counts` summed over the pytest suites that ran in the green run main ends at, `suites` naming
 them, and `"unknown"` if any of them is. The browser's `skipped` field is unchanged. `merges-per-hour` (gaps merged over the hours
 of every queue run, each run's whole length once) measures what it buys. If the push fails, or a merge cannot be undone, the queue stops and records an intervention
