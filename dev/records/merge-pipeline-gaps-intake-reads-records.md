@@ -1,0 +1,7 @@
+# merge-pipeline-gaps-intake-reads-records: The intake reads the entries from dev/records/, and twice() is retired
+
+depends-on: [merge-pipeline-gaps-md-regenerated-on-land]
+
+Problem: the intake reads docs/GAPS.md on main (dev/bin/intake.py:218) and tolerates the union merge's duplicates with twice(); tests/test_gaps_doc.py pins live GAPS.md text and reds the queue when a merge moves it. Since GAPS.md is now the render of the records, reading the records gives the same answer without the file. Change: intake reads gapsdoc.parse over main's dev/records/ (one helper gapsdoc.entries(repo, ref) that later readers share); twice() goes; a record counts as a definition only with `## Definition of done`, so an Entry-only record never makes a gap ready; an unreadable record is said by name, never read as no entry. tests/test_gaps_doc.py moves to fixtures under tests/fixtures/. Done: on the pinned fixture the intake gives the same gaps, closes, links and sources from the records as from the GAPS.md rendered from them; an Entry-only record makes nothing ready; an unreadable record is reported and the pass goes on; tests/test_gaps_doc.py reads no live docs/GAPS.md. Files: dev/bin/intake.py, dev/bin/gapsdoc.py, tests/test_backlog.py, tests/test_gaps_doc.py. Budget: 50 net lines in dev/bin.
+
+Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
