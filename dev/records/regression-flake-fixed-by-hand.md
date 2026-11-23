@@ -110,3 +110,14 @@ round 4 describes (one listing with no state, per state only past ergostat's 500
 fac.py is in this gap's Files, but the change is to a reader every factory block shares and has nothing to do with
 flakes (lesson-13). With no way to run its tests, an unverified change there is the less reversible choice, so it is
 left for a gap of its own. No code changed. The test's bound is left as it is.
+
+Round 5. There was no new review finding: the one finding (the manager's call) was answered in round 2. main
+(f086f76e) is merged into the branch (cd991a2a), and local main is not ahead of it. The diff against main was read
+again: fac.py's one change is still in beside(), and manage.py, ergostat.yaml (comment lines) and dev/README.md change
+only as the definition asks. Run here, serially: ruff (clean), the three acceptance tests (3 passed, 29.2 s), and
+test_an_approved_switch_drains_and_switches_through_the_engine alone (1 passed, 153.6 s). No code changed. Not run:
+the whole of tests/test_factory.py, because the background command `timeout 1500 uv run python
+scripts/named_tests.py tests/test_factory.py > /tmp/tf.log 2>&1; echo rc=$? >> /tmp/tf.log` was refused in this
+session. The switch test's 120 s wait under -n 8 is still main's load-dependent bound (lesson-10), from fac.items'
+per-state `ergostat item` calls, which the switcher makes and the branch does not touch. It belongs in a gap of its
+own (lesson-13), as round 4 says.
