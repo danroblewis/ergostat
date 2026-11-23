@@ -237,7 +237,8 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
     there is none), its section and bullet replacing that Entry's; each done line (as done_lines() draws it) is added
     to the record it names in backticks. An entry with any part that cannot be placed (another title's Entry, a
     sub-gap's under another umbrella) is placed in no part. A block whose text a record draws, moved to another section,
-    goes back to that record with the new section. A record whose drawn block the batch removed, when no block of its
+    goes back to that record with the new section. A record whose block ``pre`` showed and the batch removed (never a
+    record-only Entry the batch added or retitled), when no block of its
     title was left unplaced or stale (not carried), has its Entry removed, and its sub-gaps' too, said by name (a record
     left empty is deleted by regenerate()). When the batch changed GAPS.md outside the entries (its
     head, as split() cuts it), GAPS-head.md becomes that head, each `@entry` naming the record that draws (or now
@@ -258,6 +259,8 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
     cut = split(head)
     shown = {"\n".join(r.split("\n")[4:-1]) for r in cut["records"].values()}
     gone = {n for t, n in drawn.items() if t not in shown}   # records whose drawn block the batch changed or removed
+    drew = {"\n".join(r.split("\n")[4:-1]) for r in split(pre)["records"].values()}
+    was = {n for t, n in drawn.items() if t in drew}         # records whose block GAPS.md showed before the batch
     for slot, rec in cut["records"].items():
         lines = rec.split("\n")
         section, block, bullet, done = lines[2].removeprefix("section: "), lines[4:-1], [], []
@@ -305,7 +308,9 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
         out, at[slot] = trial, name
         gone.discard(name)
         said += [f"{name}: {block[0][:80]}"]
-    for name in sorted(n for n in gone if title[n] not in keep):   # the batch removed the entry: its Entry goes too
+    # the batch removed the entry: its Entry goes too. Only a block ``pre`` drew: a record's Entry the batch added or
+    # retitled, never in GAPS.md, is not one it removed.
+    for name in sorted(n for n in gone & was if title[n] not in keep):
         for who in [name, *kids.get(name, [])]:                    # (with its sub-gaps' done lines, drawn under it)
             out[who] = with_entry(out.get(who, records[who]), None)
         said += [f"{name}: its Entry removed, as the batch removed it from GAPS.md"]

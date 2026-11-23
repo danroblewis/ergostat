@@ -364,3 +364,41 @@ review's one finding is fixed (886ff922). The review listed no other findings.
 - Refused in this session: a `sed -i` to drop the conflict markers. They were removed with Edit instead.
 
 Overrun reason: dev/bin is 238 net lines against 130 by `git diff --shortstat main -- dev/bin` (261 insertions, 23 deletions). This round adds 24 lines to gapsdoc.py so that carry() removes the Entry of an entry a batch deleted (with its sub-gaps, its guard against stale or unplaced blocks, and deleting a record left empty) and keeps a moved entry in its own record. The review asked for both. The other reasons are the ones given in the earlier rounds.
+
+## Where it stopped
+
+Built, in round 6 of the second continuation. The factory's merge of main (2f08c24e) is finished. The review's one
+finding is fixed. The review listed no other findings.
+
+- **The merge.** `dev/bin/queue.py` was the only conflict. Main added `greened()` (the flakes' green runs, counted
+  after the push is asked) at the same place where the branch added `gaps_md()`. Both functions are kept whole, one
+  after the other. Both call sites were already merged cleanly: `gaps_md(...)` comes before `batches.settled`, and
+  `greened(...)` comes after `ask(...)`.
+- **The finding: a record-only new Entry was removed as if the batch had deleted it.** `gapsdoc.carry` now removes a
+  record's Entry only when the record is in `gone` and also in `was`. `was` holds the records whose drawn block
+  `pre`'s render showed, that is, GAPS.md as the records drew it before the batch. So an Entry a batch adds to a
+  record, or retitles there, without touching GAPS.md, is never read as deleted: it is kept and drawn. The broader
+  `gone` set still decides which same-title record an edited block replaces. That way main's edits since the split
+  still go into their own records at the first landing, which has no GAPS-head.md at `pre`, and do not make
+  `-N` copies.
+  - At that first landing nothing is removed, because `pre` drew nothing. Round 5's live-tree check had already found
+    that this landing removes no Entry.
+- New tests:
+  - `tests/test_gapsdoc.py::test_a_new_or_retitled_entry_written_only_in_its_record_is_kept_and_drawn`: a new
+    record-only Entry and a record whose Entry was retitled. GAPS.md is unchanged. Both records are kept as written,
+    nothing is said as carried, and the render draws the new entry and the new title.
+  - `tests/test_factory.py::test_an_approved_branch_that_adds_an_entry_only_in_its_record_lands_with_it_drawn`: an
+    approved branch adds `dev/records/zeta.md` with an Entry and leaves GAPS.md unchanged. It lands with the commit
+    `docs/GAPS.md from the records`. The pushed head's GAPS.md shows Zeta, and zeta.md keeps its Entry.
+  - With the fix removed (`gone` alone), both fail: the gapsdoc test with "GAPS-head.md lists it, but it has no top
+    entry", and the landing test with Zeta missing from the pushed GAPS.md.
+- Tests run (`scripts/named_tests.py`):
+  - tests/test_gapsdoc.py: 38 passed.
+  - tests/test_gapsdoc.py, tests/test_gaps_doc.py and tests/test_queue.py together: 66 passed.
+  - The three landing tests in tests/test_factory.py (the new one, the deletion, and the edit): 3 passed.
+  - Not run here: the whole unit suite and the browser files.
+- ruff is clean on ergostat, tests and scripts and on dev/bin/gapsdoc.py.
+- Refused in this session: an empty `python3 - <<'EOF'` heredoc, which was run together with a grep of queue.py's
+  imports. Grep was used instead.
+
+Overrun reason: dev/bin is 243 net lines against 130 by `git diff --shortstat main -- dev/bin` (266 insertions, 23 deletions). This round adds 5 lines to gapsdoc.py, the `was` set and its comment, so that only an entry `pre` drew can be removed. The other reasons are the ones given in the earlier rounds.

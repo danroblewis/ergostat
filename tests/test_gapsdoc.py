@@ -481,6 +481,21 @@ def test_an_entry_the_batch_left_stale_or_unplaced_is_never_removed():
     assert gapsdoc.carry(pre, pre, newer, HEAD) == ({}, [], [], HEAD)   # and left GAPS.md as it was: not a deletion
 
 
+def test_a_new_or_retitled_entry_written_only_in_its_record_is_kept_and_drawn(tmp_path):
+    # (after this gap a new gap writes its entry only as its record's Entry, and must not edit GAPS.md)
+    pre = tree(tmp_path, {"remote-systems": UMBRELLA})
+    rec = tmp_path / "dev" / "records"
+    new = f"# nobody-s-gap: a new gap\n\nIts definition.\n\n## Entry\n\nsection: Remote\n\n{NOBODY}"
+    (rec / "nobody-s-gap.md").write_text(new)
+    retitled = UMBRELLA.replace("**Remote systems**", "**Remote instances**")
+    (rec / "remote-systems.md").write_text(retitled)
+    got = gapsdoc.regenerate(tmp_path, pre)                       # GAPS.md as main had it: the batch never edited it
+    assert got["carried"] == [] and got["unplaced"] == []
+    assert (rec / "nobody-s-gap.md").read_text() == new and (rec / "remote-systems.md").read_text() == retitled
+    text = (tmp_path / "docs" / "GAPS.md").read_text()
+    assert NOBODY in text and "- **Remote instances**" in text and "- **Remote systems**" not in text
+
+
 def test_an_entry_moved_to_another_section_moves_its_record_and_is_drawn_once():
     records = {"remote-systems": UMBRELLA}
     pre = gapsdoc.render(records, HEAD)[0]

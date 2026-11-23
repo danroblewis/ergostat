@@ -6179,6 +6179,20 @@ def test_an_approved_branch_that_deleted_a_gaps_md_entry_lands_with_it_gone_from
     assert run["gaps_md_carried"][0] == "delta: its Entry removed, as the batch removed it from GAPS.md"
 
 
+def test_an_approved_branch_that_adds_an_entry_only_in_its_record_lands_with_it_drawn(tmp_path):
+    # (the normal path after this gap: the entry in dev/records/<branch>.md, GAPS.md left alone)
+    f = Factory(tmp_path)
+    commit_files(f, GAPS_RECORDS)
+    zeta = "# zeta: its definition\n\nDone means.\n\n## Entry\n\nsection: Modelling\n\n- **Zeta** (open): only its record.\n"
+    approved_editing(f, "zeta", {f"{NEW}/zeta.md": zeta})
+    head, run = landed_head(f, "zeta")
+    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "docs/GAPS.md from the records"
+    assert git(f.checkout, "show", f"{head}:docs/GAPS.md") == GAPS.replace(
+        "stopped.\n", "stopped.\n- **Zeta** (open): only its record.\n").strip()     # drawn on the pushed head
+    assert git(f.checkout, "show", f"{head}:{NEW}/zeta.md") == zeta.strip()            # its Entry kept
+    assert "gaps_md_carried" not in run and "gaps_md" not in run
+
+
 def test_no_record_change_makes_no_commit_and_a_malformed_record_lands_without_one(tmp_path):
     for name, files in (("plain", {"plain.txt": "x\n"}),
                         ("bad", {"docs/GAPS.md": CARRIED, f"{NEW}/bad.md": "## Entry\n\nsection: Modelling\n"})):
