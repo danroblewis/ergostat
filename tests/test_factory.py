@@ -5565,7 +5565,9 @@ def test_browser_daily_failure_names_tests_and_suspects(tmp_path):
     rec = daily_record(f)
     assert rec["green"] is False and rec["last_green"]["sha"] == green_sha and rec["intervention"] == iid
     assert daily_green(f) == (0, "0") and daily_clean(f)
-    for crash, skip, said_why in (("Traceback: the suite crashed\n", False, "exited 1"), (None, True, "skipped 1"),
+    for crash, skip, said_why in ((f"FAILED {DAILY_C} - boom\nINTERNALERROR> the suite crashed\n", False,
+                                   "crashed (INTERNALERROR>)"),                 # (a crash naming a flaky test)
+                                  ("Traceback: the suite crashed\n", False, "exited 1"), (None, True, "skipped 1"),
                                   (f"FAILED {DAILY_C} - boom\n", True, "skipped 1")):    # (a flake beside a skip)
         (tmp_path / "red").unlink(missing_ok=True)                     # named no test: an intervention with the tail
         if crash:
@@ -5573,8 +5575,11 @@ def test_browser_daily_failure_names_tests_and_suspects(tmp_path):
         if skip:
             (tmp_path / "skip").touch()
         before = {i for i in f.db()["items"] if i.startswith("intervention/")}
+        flaked, reran = f.flakes_said(), (tmp_path / "reruns").read_text()
         said, _ = f.run("browserday.py")
         assert said == ["intervention.recorded"]
+        if "INTERNALERROR" in (crash or ""):                           # its FAILED line not read: not rerun, no flake
+            assert f.flakes_said() == flaked and (tmp_path / "reruns").read_text() == reran
         (new,) = {i for i in f.db()["items"] if i.startswith("intervention/")} - before
         iv = f.item(new)["fields"]
         assert iv["tests"] == [] and said_why in iv["reason"] and "named no failing test" in iv["reason"]

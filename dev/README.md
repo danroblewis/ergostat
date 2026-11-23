@@ -771,8 +771,9 @@ first 8; the rest count as real) runs alone twice (`[suites] rerun`, `-rA`). One
 (`flake.seen`, suite `browser`, the run and its log), and raises nothing; when every one is a flake the day counts as
 green. The others raise one intervention of class `queue` (which pipeline-watch raises as a situation) naming them,
 main's sha, and the first-parent commits since the last green sha as `suspects` (the latest 50 when no green is known
-or it is no ancestor of main). A red run that names no test (a crash, a skip, a stall) raises one with the log's
-tail. It holds no batch back: the queue's own check on main (`main_red`) is unchanged. The auxiliary
+or it is no ancestor of main). A red run that names no test (a skip, a stall) raises one with the log's tail, and so
+does a crashed run (the queue's `crashed()`: exit 3, `INTERNALERROR>`, a full disk, a lost worker), whose FAILED lines
+are not read, since they name whatever was running; neither is ever green. It holds no batch back: the queue's own check on main (`main_red`) is unchanged. The auxiliary
 `browser-main-green` reads the file (1 green, 0 red; no reading when it is missing or cannot be read), and the goal
 of that name shows it on the Dynamics diagram. The daily run reads the goal (read, not commanded, so it keeps its
 schedule) and sets the auxiliary, so the goal's loop closes inside landing. What makes main green again is a fix

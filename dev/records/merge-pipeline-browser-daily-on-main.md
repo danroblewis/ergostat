@@ -340,3 +340,23 @@ test_the_factory_model_loads and test_the_time_goals_have_no_check_findings (2 p
 the four browser files, and a full `ergostat check` against main (done item 6's "no new finding" is still unverified
 by one). Refused this round: a `grep | sort` listing of browserday.py's fac calls chained with a `git diff --stat` of
 main's fac.py, flakes.py and queue.py. I read those files with the file tools instead.
+
+## Where it stopped
+
+Round 7, answering the review's one finding (blocking): a crashed browser run was read through fac.failed_tests, so
+the test a crashed worker was running could be rerun, written as a flake and the day written green. Fixed in
+dev/bin/browserday.py. day() now applies the queue's own crashed() (imported from dev/bin/queue.py, not copied, so the
+two cannot drift): exit 3, `INTERNALERROR>`, a full disk or a lost xdist worker. When that matches, no FAILED line is
+read, no test is rerun, nothing is written as a flake, the day is never green, and one intervention is raised with the
+tail, its reason saying `crashed (...) and named no failing test`. The module docstring and dev/README.md (*The daily
+browser run on main*) now say so.
+- test_browser_daily_failure_names_tests_and_suspects has a new first case: a run that exits 1 with
+  `FAILED <a test listed as flaky>` and `INTERNALERROR> ...`. It asserts one intervention, no names, the tail, no new
+  flake said and no rerun. With the check broken (`crash = "" and queue.crashed(...)`) it failed (`[] ==
+  ['intervention.recorded']`: the crashed day was read as green). It passed with the check put back.
+- Ruff sorts `queue` as the stdlib's, so the import block carries `I001` in its noqa. browserday.py is now 146 lines,
+  inside the budget.
+- Main has not moved since a171d119, which is already merged, so there was nothing to merge. Run here: ruff is clean
+  (also on dev/bin/browserday.py), and these pass: the green, flake and failure tests (3 passed, 192 s), plus the lock
+  test, test_browser_daily_goal_closes_in_landing and test_ergostat_check_on_the_factory_model_reports_no_new_finding
+  (3 passed, 352 s). Not run: the unit suite, the four browser files, and a full `ergostat check` against main.

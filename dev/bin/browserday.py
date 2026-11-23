@@ -9,7 +9,8 @@ quarantine deselected).
   every one is, the day counts as green. The others: one intervention (class queue, which pipeline-watch raises as a
   situation) naming them, main's sha, and the first-parent commits since the last green sha as suspects (the latest
   SUSPECTS_MOST when no green is known or it is not an ancestor).
-- Red naming none (a crash, a skip, a stall): one intervention with the log's tail.
+- Red naming none (a skip, a stall, or a crash as queue.py crashed() reads one, whose FAILED lines are not read):
+  one intervention with the log's tail, never green.
 `browserday.py green` (the sensor browser-main-green): 1 or 0 for the last run; no reading (exit 1) when the file is
 missing, unreadable or malformed."""
 
@@ -23,8 +24,9 @@ import sys
 import time
 
 sys.dont_write_bytecode = True
-import fac  # noqa: E402
+import fac  # noqa: E402, I001
 import flakes  # noqa: E402
+import queue  # noqa: E402  (dev/bin/queue.py, not the stdlib's: crashed(), the queue's reading of a crashed run)
 
 NAME = "browser-daily"            # its worktree's name, and its record's (run/browser-daily.json)
 RERUN_MOST = 8                    # named tests run alone (twice each) at most; past it, not rerun: counted real
@@ -85,20 +87,22 @@ def day(cfg: dict, repo, wt, sha: str) -> int:
     except fac.Stalled as e:
         rc, text = 1, f"{e}\n{e.tail}"
     skipped = len(re.findall(r"^SKIPPED", text, re.M))
+    crash = queue.crashed(rc, text)                      # (its FAILED lines are whatever was running: no names)
     prev = (record(cfg) or {}).get("last_green")         # (only this run writes it, under the queue's lock)
-    tests = fac.failed_tests(text) if rc or skipped else []
+    tests = fac.failed_tests(text) if (rc or skipped) and not crash else []
     flaky = [t for i, t in enumerate(tests) if i < RERUN_MOST and
              all(alone(cfg, wt, log.with_name(f"{tag}-alone-{i}-{k}.txt"), t) == "pass" for k in (1, 2))]
     for t in flaky:
         flakes.say("flake.seen", t, times=1, seen_at=time.time(), suite="browser", run=tag, log=str(log),
                    failed_on_main=sha)
     real = [t for t in tests if t not in flaky]
-    if not skipped and (not rc or (tests and not real)):  # (a skip is never green: a page went untested)
+    if not skipped and not crash and (not rc or (tests and not real)):  # (a skip is never green: a page went untested)
         write(cfg, {"sha": sha, "at": now, "green": True, "flakes": flaky, "last_green": {"sha": sha, "at": now}})
         return 0
     since, sus, more = suspects(repo, (prev or {}).get("sha"), sha)
     why = (f"fails {', '.join(real[:5])}" + (f" and {len(real) - 5} more" if len(real) > 5 else "") if real else
-           f"{f'skipped {skipped} tests' if skipped else f'exited {rc}'} and named no failing test")
+           f"{f'crashed ({crash})' if crash else f'skipped {skipped} tests' if skipped else f'exited {rc}'} and "
+           "named no failing test")
     iid = f"intervention/{tag}"
     fac.say("intervention.recorded", iid, recorded_at=now, main=sha, tests=real, suspects=sus, suspects_since=since,
             suspects_more=more, flakes=flaky, log=str(log), **({} if real else {"tail": text[-2000:]}),
