@@ -4893,6 +4893,40 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+def test_a_one_sided_limit_is_drawn_and_named_as_a_limit(browser, tmp_path):
+    """ticket-factory's worked-opened holds worked ≤ 0: its reference is drawn 'r ≤ 0' and its panel calls it a limit,
+    never a setpoint; the on-off controller serving it switches on and off at one threshold, so it is an ideal relay,
+    drawn with one step, and nothing says hysteresis. The controller panel and the Loops page say 'limit ≤ 0'."""
+    with served("ticket-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.set_default_timeout(60000)
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&system=making", 0)
+        ref = pg.locator('svg.canvas g.node[data-id="ref:worked-opened"]')
+        assert "≤ 0" in ref.text_content(), ref.text_content()
+        fit(pg)
+        click_part(pg, "ref:worked-opened")
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'reference input'")
+        text = pg.locator("#detail").inner_text()
+        assert "limit" in text and "setpoint" not in text, text
+        relay = pg.locator('svg.canvas g.node[data-id="blk:keep-worked-opened"]')
+        assert relay.locator(".bd-sketch .bd-curve").get_attribute("d") == "M2,18 H14 V5 H26"   # one step: no loop
+        click_part(pg, "blk:keep-worked-opened")
+        pg.wait_for_function("() => document.querySelector('#detail h2')?.textContent === 'keep-worked-opened'")
+        text = pg.locator("#detail").inner_text()
+        assert "ideal relay" in text and "hysteresis" not in text, text
+        pg.evaluate("() => openLoop('worked-opened', true)")
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Controller'")
+        pg.wait_for_function("() => [...document.querySelectorAll('#detail dd')].some((d) => d.textContent === 'worked, limit ≤ 0')")
+        pg.goto(url + "/loops")
+        row = pg.locator("tr", has_text="worked-opened")
+        row.wait_for()
+        assert "limit ≤ 0" in row.inner_text(), row.inner_text()
+        assert not errors, errors
+        pg.close()
+
+
 NO_UNIT = """() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node')].filter((g) => g.querySelector('.sd-stock'))
   .map((g) => { const t = g.querySelector('.sd-nounit'), v = g.querySelector('.sd-value');
     return [g.querySelector('.sd-name').textContent, { value: v ? v.textContent : '', muted: t ? getComputedStyle(t).fill : null }]; }))"""
