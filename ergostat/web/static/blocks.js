@@ -17,7 +17,7 @@ function bdTextW(t, small = false) { return (t || "").length * (small ? BD.CHS :
 function bdSymW(fn) {                                   // C_tuner(z): the symbol, its subscript, its argument
   if (!fn) return 0;
   if (fn.name) return bdTextW(fn.name) + 8;
-  return (fn.sym ? 10 : 0) + (fn.sub ? bdTextW(fn.sub, true) + 2 : 0) + (fn.arg ? 22 : 0);
+  return (fn.sym ? (fn.named ? bdTextW(fn.sym) : 10) : 0) + (fn.sub ? bdTextW(fn.sub, true) + 2 : 0) + (fn.arg ? 22 : 0);
 }
 function bdFrac(expr) {                                 // "1/s", "Kᵢ T z/(z − 1)": a fraction drawn stacked
   const m = /^([^/]+)\/\(?([^()/]+)\)?$/.exec(expr || "");
@@ -649,7 +649,7 @@ function bdRoute(lay, g) {
 function bdSym(parent, x, y, fn, { size = BD.FS, anchor = "middle", bold = false, cls = "bd-sym" } = {}) {
   // an italic symbol, its subscript (upright: it is a name), its argument
   const t = s("text", { x, y, class: cls, "text-anchor": anchor, "font-size": size });
-  if (fn.sym) t.append(s("tspan", { class: "bd-mi" + (bold || fn.bold ? " bd-bold" : "") }, fn.sym));
+  if (fn.sym) t.append(s("tspan", { class: (fn.named ? "bd-sysname" : "bd-mi") + (bold || fn.bold ? " bd-bold" : "") }, fn.sym));   // a named block: its name, upright
   if (fn.sub) t.append(s("tspan", { class: "bd-subs", "baseline-shift": "sub", "font-size": size * 0.74 }, fn.sub));
   if (fn.arg) t.append(s("tspan", { "font-size": size }, "("), s("tspan", { class: "bd-mi", "font-size": size }, fn.arg), s("tspan", { "font-size": size }, ")"));
   parent.append(t);
@@ -823,8 +823,9 @@ function bdDraw(svg, g, lay) {
     if (!f) continue;
     const fg = s("g", { class: `sys-hull hull bd-frame bd-frame-${f.frame}`, "data-hull": c.id });
     fg.append(s("rect", { x: c.x, y: c.y, width: c.width, height: c.height }));
-    const t = bdSym(fg, c.x + 10, c.y + 19, f.fn || {}, { anchor: "start", size: 13 });
-    t.append(s("tspan", { class: "bd-frame-name", dx: 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
+    const t = bdSym(fg, c.x + 10, c.y + 19, f.fn?.named ? {} : f.fn || {}, { anchor: "start", size: 13 });   // a named one: its name once
+    t.append(s("tspan", { class: "bd-frame-name", dx: f.fn?.named ? 0 : 8 }, f.frame === "cascade" ? `inner loop of ${f.label}` : f.label));
+    if (f.frame === "system" && f.fn?.expr) t.append(s("tspan", { class: "bd-frame-dims", dx: 8 }, f.fn.expr));   // p × m, as on the closed block
     fg.append();
     // its top is a handle: dragged, the frame moves with everything in it, and stays there (interact.js, places.js)
     fg.append(s("rect", { class: "hull-grip", "data-act": "hull-drag", x: c.x, y: c.y, width: Math.max(0, c.width - 24), height: 30,
@@ -1219,7 +1220,9 @@ function blocksLegend() {
   const ink = 'stroke="currentColor" fill="none" stroke-width="1.3"';
   return h("div", { class: "legend bd-legend" },
     row(has((n) => !["sensor", "collector", "sum", "mux", "demux", "input", "output", "sampler", "port"].includes(kindOf(n))),`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
-        "a block, its function inside: C a controller, P a process, Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
+        "a block, its function inside: C a controller, P a process; C(z) runs every T, (s) is continuous, without (s) it holds sampled or nonlinear parts; click it for its definition"),
+    row(has((n) => n.role === "subsystem") || fr.some((f) => f.frame === "system"), `<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="13" font-size="7" text-anchor="middle" fill="currentColor">2×3</text>`,
+        "a system as one block, the same closed and open: C_name when it acts on another system's process, P_name when another system acts on it, its name alone when both or neither; p × m, its p outputs by its m inputs, disturbances counted"),
     row(has((n) => n.role === "sensor"), `<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
         "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, the switch muted when T is slight against the loop's) and, beneath, what it reads and how often"),
     row(has((n) => n.role === "collector"), `<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
