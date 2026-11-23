@@ -139,3 +139,30 @@ Round 2 (implementor, 2026-11-23): the merge queue's two failures were this bran
 - main has no commits past this branch's last merge (69ed1030), so there was nothing to merge.
 - Run here: tests/test_library_trust.py, tests/test_factory_sessions.py, tests/test_milestones.py (all passed). Ruff is
   clean. Not run here: the unit suite and the four browser files.
+
+## Where it stopped
+
+Round 3 (implementor, 2026-11-23): the review's one finding, a cycle through gaps and milestones, is fixed.
+- The finding: a gap in a milestone makes the milestone a summary in precedence.py's graph, so B depends_on A plus gap X
+  (in A) depending on gap Y (in B) closes Y -> B -> A's end -> X -> Y, and the take skips every gap on it. Before,
+  only cycles of milestones alone were refused, and `assign` checked for none.
+- Now dev/bin/milestones.py builds the graph the take reads (`pairs_of`: gaps' depends_on, milestones' depends_on, and
+  each milestone with unfinished gaps split into a start before them and an end after them, as precedence.py does),
+  over the unfinished gaps and milestones (merged or closed gaps and completed milestones are on no cycle there either).
+  `add`, `depends` and `assign` build it as it is and as it would be, and refuse the change if any item would be on a
+  cycle it was not on, naming the path. The check runs inside run/milestones.lock with the read and the write.
+- The milestone-only search (`cycle`) is gone; the same refusals (and the existing test's path text) come from the new
+  one. A cycle already there (deps.py records gap dependencies from GAPS.md and knows no milestone) does not refuse an
+  unrelated change, and `status` now names the items on one. Choice made alone: deps.py is not changed to refuse such a
+  cycle, since what deps.py records is outside this gap; a dependency deps.py adds can still close one, and only
+  `status` says so.
+- The review's other example, a split parent in M1 with its sub-gap in M2 that depends on M1: `parent` is neither a
+  precedence nor a group relation, so precedence.py's graph has no edge for it and the take is not changed by it. It
+  holds M1 open (the parent joins only once the sub-gap merges) while M2 waits on M1: a wait in the lifecycle, not a
+  cycle the take sees. Nothing here refuses it.
+- Tests: tests/test_milestones.py::test_assign_and_depends_refuse_a_cycle_through_gaps_and_milestones (assign refused
+  with the path, depends refused once Y is in a milestone, allowed once X merges) and
+  ::test_a_cycle_already_there_does_not_refuse_an_unrelated_change. The first fails with the summary end edges removed
+  from `pairs_of`; the second fails with the "not on a cycle already" filter removed.
+- Run here: tests/test_milestones.py (28 passed). Ruff is clean. main has no commits past this branch's last merge.
+  Not run here: the unit suite and the four browser files.

@@ -257,6 +257,35 @@ def test_depends_refuses_a_cycle(ms):
         ms.mod.add(ms.cfg, "e", depends=["d"])
 
 
+def test_assign_and_depends_refuse_a_cycle_through_gaps_and_milestones(ms):
+    """Milestone b depends on a; gap x (in a) depends on gap y. Putting y in b closes y -> b -> a's end -> x -> y in
+    the precedence graph (a milestone a summary of its gaps), and so does b depending on a once y is in b."""
+    ms.mod.add(ms.cfg, "a")
+    ms.mod.add(ms.cfg, "b", depends=["a"])
+    ms.gap("x", milestone="milestone/a", depends_on=["gap/y"])
+    ms.gap("y")
+    with pytest.raises(ms.mod.Refused, match=r"gap/y in milestone/b would close a cycle: "
+                                             r"gap/y -> milestone/b -> milestone/a \(its end\) -> gap/x -> gap/y"):
+        ms.mod.assign(ms.cfg, "y", "b")
+    assert ms.fields("gap/y").get("milestone") is None
+    ms.mod.add(ms.cfg, "c")
+    ms.mod.assign(ms.cfg, "y", "c")                                           # c depends on nothing: no cycle
+    with pytest.raises(ms.mod.Refused, match="milestone/c depending on milestone/a would close a cycle"):
+        ms.mod.depends(ms.cfg, "c", ["a"])
+    assert ms.fields("milestone/c").get("depends_on") in (None, [])
+    ms.p.events.add("gap.merged", item="gap/x")                               # a finished gap is on no cycle
+    assert ms.mod.depends(ms.cfg, "c", ["a"]) == ["milestone/a"]
+
+
+def test_a_cycle_already_there_does_not_refuse_an_unrelated_change(ms):
+    ms.gap("p", depends_on=["gap/q"])
+    ms.gap("q", depends_on=["gap/p"])                                         # (as deps.py may record)
+    ms.mod.add(ms.cfg, "m")
+    ms.gap("r")
+    assert ms.mod.assign(ms.cfg, "r", "m") == "gap/r"
+    assert "on a precedence cycle (never taken): gap/p, gap/q" in ms.mod.status(ms.cfg)
+
+
 def test_add_refuses_a_milestone_made_again_and_a_bad_name(ms):
     ms.mod.add(ms.cfg, "m", title="the first")
     with pytest.raises(ms.mod.Refused, match="already a milestone"):

@@ -246,10 +246,16 @@ unfinished gaps move to a new upkeep milestone (`follows` it), which is active a
 is not decided here: `pull` only marks a gap `pulled`. The old free-text labels in some gaps' `milestone` stay as
 written; `status` lists them until they are assigned.
 
+A milestone with gaps is a summary in the precedence graph the implementor's take reads (its start before its gaps,
+its end after them), so a milestone dependency and a gap dependency can close a cycle together, and a gap on a cycle
+is never taken. `add`, `depends` and `assign` refuse a change that would put an unfinished gap or milestone on a cycle
+it was not on, naming the path; `status` names any on one (deps.py records gap dependencies without knowing milestones,
+so it can still close one).
+
 ```sh
 python3 dev/bin/milestones.py add NAME --title "..." --rank 1 [--depends A,B] [--upkeep]   # refuses a name in use
 python3 dev/bin/milestones.py depends NAME ON [ON ...]     # refuses a cycle, or a completed NAME
-python3 dev/bin/milestones.py assign GAP NAME              # refuses a completed milestone
+python3 dev/bin/milestones.py assign GAP NAME              # refuses a completed milestone, or a cycle
 python3 dev/bin/milestones.py pull GAP                     # or: unpull GAP
 python3 dev/bin/milestones.py status                       # each one, its state, what it waits on, its gaps by state
 ```

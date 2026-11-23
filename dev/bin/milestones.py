@@ -10,7 +10,10 @@ waiting, active, completed (final: no event moves one out of it).
                             3) are active; an upkeep one is always active and never counts toward the limit.
   milestones.py add NAME [--title T] [--rank N] [--upkeep] [--depends M,...]
   milestones.py depends MILESTONE ON [ON ...]     (refuses a cycle, a name that is no milestone, a completed one)
-  milestones.py assign GAP MILESTONE              (refuses a completed milestone)
+  milestones.py assign GAP MILESTONE              (refuses a completed milestone, and a cycle)
+                            A cycle is sought in the precedence graph the implementor's take reads: gaps' depends_on,
+                            milestones' depends_on, and each milestone a summary of its gaps (ergostat/precedence.py),
+                            over the unfinished ones. A change that puts an item on a cycle it was not on is refused.
   milestones.py pull GAP | unpull GAP             (marks a gap pulled ahead of its milestone, or clears it: only said
                                                    here; what the implementor takes is not decided by this program)
   milestones.py status                            (each milestone, its state, what it waits on, its gaps by state)
@@ -188,31 +191,115 @@ def known(mid: str, ms: dict[str, dict]) -> dict:
     return ms[mid]
 
 
-def cycle(ms: dict[str, dict], mid: str, on: list[str]) -> list[str] | None:
-    """A path back to ``mid`` were it to depend on ``on``, or None."""
-    graph = {k: set(ids_of(m["fields"].get("depends_on"))) for k, m in ms.items()}
-    graph.setdefault(mid, set()).update(on)
-    todo, seen = [[mid]], set()
+END = " (its end)"                               # a milestone with gaps is a summary: a start node and an end node
+
+
+def pairs_of(ms: dict[str, dict], gaps: dict[str, dict]) -> list[tuple[str, str]]:
+    """The precedence graph the Items page's critical path and the implementor's take read (ergostat/precedence.py),
+    over the unfinished gaps and milestones: ``(a, b)``, a before b. A gap's depends_on and a milestone's depends_on
+    are precedence; a milestone with unfinished gaps is a summary (its start before each gap, each gap before its
+    end), so what it depends on comes before its gaps start and what depends on it waits for them all to end."""
+    live_m = {k for k, m in ms.items() if m["state"] != "completed"}
+    live_g = {k for k, g in gaps.items() if g["state"] not in DONE}
+    kids: dict[str, list[str]] = {}
+    for gid in sorted(live_g):
+        for mid in ids_of(gaps[gid]["fields"].get("milestone")):
+            if mid in live_m:
+                kids.setdefault(mid, []).append(gid)
+    end = lambda a: a + END if a in kids else a          # noqa: E731
+    out = [(end(d), a) for items, live in ((gaps, live_g), (ms, live_m)) for a in sorted(live)
+           for d in ids_of(items[a]["fields"].get("depends_on")) if d in live]
+    for mid, cs in kids.items():
+        out += [(mid, c) for c in cs] + [(c, mid + END) for c in cs]
+    return out
+
+
+def in_cycles(pairs: list[tuple[str, str]]) -> dict[str, set[str]]:
+    """Each node on a cycle, with the strongly connected set it is in (Kosaraju's algorithm, iterative)."""
+    succ: dict[str, list[str]] = {}
+    pred: dict[str, list[str]] = {}
+    for a, b in pairs:
+        succ.setdefault(a, []).append(b)
+        pred.setdefault(b, []).append(a)
+        succ.setdefault(b, [])
+        pred.setdefault(a, [])
+    order, seen = [], set()
+    for root in succ:
+        if root in seen:
+            continue
+        seen.add(root)
+        work = [(root, iter(succ[root]))]
+        while work:
+            v, it = work[-1]
+            w = next((w for w in it if w not in seen), None)
+            if w is None:
+                work.pop()
+                order.append(v)
+            else:
+                seen.add(w)
+                work.append((w, iter(succ[w])))
+    out: dict[str, set[str]] = {}
+    done: set[str] = set()
+    for root in reversed(order):
+        if root in done:
+            continue
+        comp, todo = {root}, [root]
+        done.add(root)
+        while todo:
+            for w in pred[todo.pop()]:
+                if w not in done:
+                    done.add(w)
+                    comp.add(w)
+                    todo.append(w)
+        if len(comp) > 1 or root in succ[root]:
+            out.update({n: comp for n in comp})
+    return out
+
+
+def closes(before: list[tuple[str, str]], after: list[tuple[str, str]], first: list[str]) -> str | None:
+    """A cycle the change from ``before`` to ``after`` closes, as a path along what each waits on (from the first of
+    ``first`` new to a cycle, else the first node new to one), or None. A node on a cycle already is not counted
+    again: the change did not close that one."""
+    was, now = in_cycles(before), in_cycles(after)
+    new = sorted(n for n in now if n not in was)
+    if not new:
+        return None
+    start = next((n for n in first if n in new), new[0])
+    comp, back = now[start], {}
+    for a, b in after:
+        if a in comp and b in comp:
+            back.setdefault(b, []).append(a)            # b waits on a
+    todo, via = [start], {start: None}
     while todo:
-        path = todo.pop()
-        for nxt in sorted(graph.get(path[-1], ())):
-            if nxt == mid:
-                return path + [nxt]
-            if nxt not in seen:
-                seen.add(nxt)
-                todo.append(path + [nxt])
-    return None
+        v = todo.pop(0)
+        for w in sorted(back.get(v, ())):
+            if w == start:
+                chain = [v]
+                while via[chain[-1]] is not None:
+                    chain.append(via[chain[-1]])
+                return " -> ".join(chain[::-1] + [start])
+            if w not in via:
+                via[w] = v
+                todo.append(w)
+    return " -> ".join(sorted(comp))                     # (not reached: a strongly connected set has a path back)
 
 
-def checked_deps(ms: dict[str, dict], mid: str, names: list[str]) -> list[str]:
+def refuse_cycle(before: list, after: list, first: list[str], what: str) -> None:
+    loop = closes(before, after, first)
+    if loop:
+        raise Refused(f"refused: {what} would close a cycle: {loop} (no gap on it would be taken)")
+
+
+def checked_deps(ms: dict[str, dict], gaps: dict[str, dict], mid: str, names: list[str]) -> list[str]:
     on = [mid_of(n) for n in names]
     for d in on:
         known(d, ms)
         if d == mid:
             raise Refused(f"{mid} cannot depend on itself")
-    loop = cycle(ms, mid, on)
-    if loop:
-        raise Refused(f"refused: {mid} depending on {', '.join(on)} would close a cycle: {' -> '.join(loop)}")
+    m = ms.get(mid) or {"id": mid, "state": "waiting", "fields": {}}
+    had = ids_of(m["fields"].get("depends_on"))
+    then = {**ms, mid: {**m, "fields": {**m["fields"], "depends_on": had + [d for d in on if d not in had]}}}
+    refuse_cycle(pairs_of(ms, gaps), pairs_of(then, gaps), [mid], f"{mid} depending on {', '.join(on)}")
     return on
 
 
@@ -220,10 +307,10 @@ def add(cfg: dict, name: str, title: str = "", rank: float | None = None, upkeep
         depends: list[str] = ()) -> str:
     mid = mid_of(name)
     with held(cfg):
-        ms, _ = read()
+        ms, gaps = read()
         if mid in ms:                                    # (never made again under the same id: its old fields stay)
             raise Refused(f"{mid} is already a milestone ({ms[mid]['state']})")
-        on = checked_deps(ms, mid, list(depends))
+        on = checked_deps(ms, gaps, mid, list(depends))
         data = {"title": title or name, "upkeep": upkeep_ or None, "rank": rank, "added_by": BY[0]}
         record([("milestone.added", mid, {k: v for k, v in data.items() if v is not None}
                  | ({"depends_on": on} if on else {}))])
@@ -233,10 +320,10 @@ def add(cfg: dict, name: str, title: str = "", rank: float | None = None, upkeep
 def depends(cfg: dict, name: str, on: list[str]) -> list[str]:
     mid = mid_of(name)
     with held(cfg):
-        ms, _ = read()
+        ms, gaps = read()
         if known(mid, ms)["state"] == "completed":
             raise Refused(f"{mid} is completed: it is final")
-        got = checked_deps(ms, mid, on)
+        got = checked_deps(ms, gaps, mid, on)
         record([("milestone.changed", mid, {"depends_on": {"add": got}})])
     return got
 
@@ -249,6 +336,8 @@ def assign(cfg: dict, gap: str, name: str) -> str:
         if known(mid, ms)["state"] == "completed":
             raise Refused(f"{mid} is completed: no gap is assigned to a completed milestone")
         was = gaps[gid]["fields"].get("milestone")
+        then = {**gaps, gid: {**gaps[gid], "fields": {**gaps[gid]["fields"], "milestone": mid}}}
+        refuse_cycle(pairs_of(ms, gaps), pairs_of(ms, then), [gid, mid], f"{gid} in {mid}")
         record([("gap.milestone-set", gid, {"milestone": mid, "milestone_was": was, "assigned_by": BY[0]})])
     return gid
 
@@ -286,6 +375,9 @@ def status(cfg: dict) -> str:
     if old:
         lines.append("not yet a milestone (old labels, or a name that is no milestone): " +
                      ", ".join(f"{k} ({v} gaps)" for k, v in sorted(old.items())))
+    loops = {n.removesuffix(END) for n in in_cycles(pairs_of(ms, gaps))}     # (one deps.py closed: it knows no milestone)
+    if loops:
+        lines.append("on a precedence cycle (never taken): " + ", ".join(sorted(loops)))
     return "\n".join(lines) or "no milestones"
 
 
