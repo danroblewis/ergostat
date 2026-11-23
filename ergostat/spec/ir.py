@@ -944,6 +944,7 @@ class Source:
     where: Where | None = None
     token_file: str = ""       # an ergostat source (a remote, SPEC §4c): the file holding its token
     tls: dict | None = None    # and its mutual TLS (cert, key, ca), as its remotes: entry says
+    options: dict = field(default_factory=dict)   # a panel data source's own connection keys (ergostat/datasources)
 
 
 @dataclass

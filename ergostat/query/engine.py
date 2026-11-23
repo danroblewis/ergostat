@@ -10,10 +10,11 @@ import weakref
 from collections import OrderedDict
 from dataclasses import replace
 
+from .. import datasources
 from . import shaped, sources
 from . import transforms as tf
 from .buckets import Grid, grid
-from .parse import RATE_PER, Query, Refused, decode, parse
+from .parse import RATE_PER, Query, Refused, SourceQuery, decode, parse
 from .sources import READERS, Read, Unanswerable, bucketed, series_grid
 
 MOST_GROUPS = 12
@@ -228,6 +229,8 @@ def _resolved(q: Query, by_id: dict[str, Query], refused: set[str]) -> Query:
             raise Unanswerable(f"its X, query {q.x.query!r}, is itself refused")
         if ref is None:
             raise Unanswerable(f"its X names query {q.x.query!r}, which is not in this request")
+        if isinstance(ref, SourceQuery):
+            raise Unanswerable(f"its X, query {ref.id!r}, reads a data source; an X is one of ergostat's own queries")
         q = replace(q, x=replace(q.x, query=ref))
     if ref is not None and (ref.x is not None or ref.source == "frequency" or ref.agg == "ohlc"):
         raise Unanswerable(f"its X, query {ref.id!r}, must be a plain query in time")
@@ -276,6 +279,19 @@ def _shaped(live, p, q: Query, by_id: dict, refused: set, since: float, until: f
     return got
 
 
+def _from_source(p, q: SourceQuery, since: float, until: float, points: int, work: Work) -> dict:
+    """A query in a data source's own language, asked of it through the server; never kept, its data having no version."""
+    try:
+        got = datasources.query(getattr(p.model, "spec", None), q.source, q.text, grid(since, until, points),
+                                work.deadline - time.monotonic())
+    except datasources.SourceError as e:
+        return {"id": q.id, "error": f"{q.source}: {e}", "error_kind": e.kind, "read_log": False}
+    except Exception as e:                            # (its type only: the words may hold the source's address)
+        log.warning("ergostat: query %s (source %s) failed: %s", q.id, q.source, type(e).__name__)
+        return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__})", "read_log": False}
+    return {"id": q.id, **got}
+
+
 def answer(live, p, raw: str | None) -> dict:
     """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its result."""
     asked = parse(decode(raw))
@@ -283,12 +299,13 @@ def answer(live, p, raw: str | None) -> dict:
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
     since = until - asked.since
     first = p.events.first_time()
-    by_id = {q.id: q for q in asked.queries if isinstance(q, Query)}
+    by_id = {q.id: q for q in asked.queries if isinstance(q, Query | SourceQuery)}
     refused = {q.id for q in asked.queries if isinstance(q, Refused)}
     work = Work(_kept(live))
     plain = lambda q: q.x is None and q.source != "frequency" and q.agg != "ohlc"   # noqa: E731
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step,
             "results": [{"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
+                        else _from_source(p, q, since, until, asked.points, work) if isinstance(q, SourceQuery)
                         else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
                         else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work)
                         for q in asked.queries]}
