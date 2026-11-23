@@ -213,6 +213,39 @@ def test_at_most_twenty_roots_are_listed_and_the_rest_counted(tmp_path):
     assert len(a["roots"]) == 20 and a["more"] == 5 and a["unfinished"] == 25 and a["nothing_stuck"] is True
 
 
+def test_the_most_held_is_found_and_listed_past_twenty_roots_ranked_above_it(tmp_path):
+    p = project(tmp_path, FACTORY)
+    busy(p, approved=60)                                 # the merge queue's pool full, 60 approved gaps waiting
+    for i in range(25):                                  # each parked, nothing waits on it: held, ranked above queue
+        gap(p, f"z{i}", "defined", "started", "parked", at=NOW - 3600 + i)
+    a = held_up(p)
+    assert a["stall"] is False and [x["class"] for x in a["roots"][:20]].count("held") == 20, a["roots"][:2]
+    x = a["roots"][a["most"]]
+    assert x["kind"] == "pool-full" and x["waiting"] == 60, x
+    assert "The most held: queue's pool is full" in a["line"] and "60 items wait on it" in a["line"], a["line"]
+    text = "\n".join(held.lines(a))
+    assert "queue's pool is full" in text and "none holding more than the most held" in text
+    assert len(a["roots"]) == 21 and a["more"] > 0 and a["most"] == 20
+
+
+def test_roots_waited_on_within_a_rounding_of_each_other_rank_by_the_longer_wait(tmp_path):
+    p = project(tmp_path, FACTORY)
+    gap(p, "b1", "defined", "started", at=NOW - 3615)     # 10 s longer than b0: the same hours, rounded (0.97)
+    gap(p, "b0", "defined", "started", at=NOW - 3605)
+    a = held_up(p)
+    assert [x["hours"] for x in a["roots"]] == [0.97, 0.97] and [x["item"] for x in a["roots"]] == ["gap/b1", "gap/b0"]
+
+
+def test_items_whose_root_is_not_known_are_counted_past_twenty_roots(tmp_path):
+    p = project(tmp_path, FACTORY.replace("budget: {daily: 40, max-cost: 4}\n", ""))
+    for i in range(25):
+        gap(p, f"q{i}", "defined", "started", "built", "approved")
+        take(p, f"gap/q{i}", "queue", budgeted=False, run=f"q{i}")   # no pid: whether each run is alive is not known
+    a = held_up(p)
+    assert a["roots"][0]["class"] == "unknown" and a["unknown"] == 25 and len(a["roots"]) <= 21, a["roots"][:2]
+    assert a["line"].startswith("No stall found, but what holds 25 items is not known: "), a["line"]
+
+
 def test_an_empty_record_has_nothing_stuck(tmp_path):
     a = held_up(project(tmp_path, FACTORY))
     assert a["roots"] == [] and a["nothing_stuck"] is True and a["line"] == "Nothing is stuck: no item is unfinished."

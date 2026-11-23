@@ -1503,8 +1503,10 @@ counts items (`items:` sensor) is folded under the root holding most of the unfi
 counts none is said as *not traced to an unfinished item*. The answer's `line`, also the header's line on every
 page (`/api/status`'s `held_up`, red for a stall, worked out again when the record moves or after 30 s, a failure
 said in it rather than failing the status), is the first stall in words with how much waits on it and its next
-step, or else *No stall found, but what holds N items is not known*, and *Nothing is stuck* only when no root is a
-stall or unknown. At most 20 roots are listed (`more` counts the rest). On a record of 3,000 items (about 2,400
+step, or else *No stall found, but what holds N items is not known* (N over every unknown root, `unknown`), and
+*Nothing is stuck* only when no root is a stall or unknown, naming the most held root (most items waiting on it, then
+most held, over every root: `most` is its place in `roots`). The first 20 roots are listed, and the most held after
+them when it ranks lower (`more` counts the rest, none holding more than it). On a record of 3,000 items (about 2,400
 unfinished) it answers in under 200 ms (`tests/test_held_up.py`).
 
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:

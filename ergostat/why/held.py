@@ -177,7 +177,7 @@ def answer(p, now: float | None = None, engine: dict | None = None) -> dict:
     now = time.time() if now is None else now
     spec = getattr(p.model, "spec", None)
     out = {"at": now, "stall": None, "nothing_stuck": False, "unfinished": 0, "roots": [], "more": 0,
-           "goals": {"off": [], "untraced": []}, "missing": []}
+           "most": None, "unknown": 0, "goals": {"off": [], "untraced": []}, "missing": []}
     ix = index_for(p.events, spec, False) if spec is not None else None
     if ix is None:
         out["missing"].append("this record keeps no item index, so its items' states cannot be read")
@@ -193,7 +193,7 @@ def answer(p, now: float | None = None, engine: dict | None = None) -> dict:
             held[k].append(it)
     off = goals_off(ctx)
     folded, untraced = fold(ctx, off, items, memo)
-    ranked = []
+    ranked, waited = [], {}                # (the hours unrounded, to rank by: rounded ones tie and flip as time goes)
     for k, r in roots.items():
         hs = sorted(held[k], key=lambda i: _rank_of(ctx, i))
         own = r["item"] if k[1] == r.get("item") else None    # (a block's or a gate's root is about no one item)
@@ -201,16 +201,25 @@ def answer(p, now: float | None = None, engine: dict | None = None) -> dict:
         by: dict = {}
         for i in others:
             by[f"{i.kind} in {i.state}"] = by.get(f"{i.kind} in {i.state}", 0) + 1
-        ranked.append({"class": klass(r, len(others)), "kind": r["kind"], "item": own, "via": r.get("via"),
+        waited[k] = sum(now - i.entered for i in hs if i.entered)
+        ranked.append({"_k": k,"class": klass(r, len(others)), "kind": r["kind"], "item": own, "via": r.get("via"),
                        "says": r["says"], "owner": r["owner"], "action": r["action"], "command": r.get("command"),
                        "since": r.get("since"), "evidence": r.get("evidence", [])[:SHOWN],
                        "holds": len(hs), "waiting": len(others),
-                       "hours": round(sum(now - i.entered for i in hs if i.entered) / 3600, 2),
+                       "hours": round(waited[k] / 3600, 2),
                        "by": dict(sorted(by.items(), key=lambda x: -x[1])), "first": [i.id for i in others[:SHOWN]],
                        "goals": sorted(g for g, gk in folded.items() if gk == k)})
-    ranked.sort(key=lambda x: (CLASSES.index(x["class"]), -x["waiting"], -x["holds"], -x["hours"], x["says"]))
+    ranked.sort(key=lambda x: (CLASSES.index(x["class"]), -x["waiting"], -x["holds"], -waited[x["_k"]], x["says"]))
+    for x in ranked:
+        del x["_k"]
     stalls = [x for x in ranked if x["class"] == "stall"]
-    out.update(stall=bool(stalls), unfinished=len(items), roots=ranked[:KEPT], more=max(0, len(ranked) - KEPT),
+    # the most held and the items no one can say why, over every root, not only those listed; the most held is
+    # always listed (after the first KEPT, when the class ranking puts it lower)
+    most = max(ranked, key=lambda r: (r["waiting"], r["holds"])) if ranked else None
+    shown = ranked[:KEPT] + ([most] if most is not None and ranked.index(most) >= KEPT else [])
+    out.update(stall=bool(stalls), unfinished=len(items), roots=shown, more=len(ranked) - len(shown),
+               most=None if most is None else next(n for n, r in enumerate(shown) if r is most),
+               unknown=sum(x["holds"] for x in ranked if x["class"] == "unknown"),
                nothing_stuck=not stalls and not any(x["class"] == "unknown" for x in ranked),
                goals={"off": off, "untraced": untraced})
     out["line"] = line(out)
@@ -236,12 +245,12 @@ def line(a: dict) -> str:
     goals = (f" {len(untraced)} goal{'s' if len(untraced) != 1 else ''} off, not traced to an unfinished item: "
              + ", ".join(untraced[:5]) + ("…" if len(untraced) > 5 else "") + ".") if untraced else ""
     if rs and rs[0]["class"] == "unknown":
-        n = sum(x["holds"] for x in rs if x["class"] == "unknown")
+        n = a["unknown"]
         return (f"No stall found, but what holds {n} item{'s' if n != 1 else ''} is not known: {rs[0]['says']}."
                 + goals)
     if not rs:
         return "Nothing is stuck: no item is unfinished." + goals
-    x = max(rs, key=lambda r: (r["waiting"], r["holds"]))
+    x = rs[a["most"]]
     return (f"Nothing is stuck: {a['unfinished']} unfinished item{'s are' if a['unfinished'] != 1 else ' is'} being "
             f"worked, queueing or held on purpose. The most held: {x['says']} ({_held_words(x)})." + goals)
 
@@ -256,7 +265,8 @@ def lines(a: dict) -> list[str]:
             out.append(f"      goals off because of it: {', '.join(x['goals'])}")
         out.append(f"      next: {x['owner']}: {x['action']}" + (f"  $ {x['command']}" if x.get("command") else ""))
     if a["more"]:
-        out.append(f"  ({a['more']} more root{'s' if a['more'] != 1 else ''}, each holding less)")
+        out.append(f"  ({a['more']} more root{'s' if a['more'] != 1 else ''} not listed, none holding more than the "
+                   "most held)")
     if a["goals"]["untraced"]:
         out.append(f"  goals off, not traced to an unfinished item: {', '.join(a['goals']['untraced'])}")
     out += [f"  missing   {m}" for m in a["missing"]]
