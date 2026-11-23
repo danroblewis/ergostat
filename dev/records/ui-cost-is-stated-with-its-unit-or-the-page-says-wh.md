@@ -294,3 +294,26 @@ Refused, not worked around: a `python -c` listing the example's agents and rungs
 instead), and a `grep -n "rung" ... tests/test_run_costs.py | sed -n ...` read of the unit test (read with the
 file tools). Not run here:
 test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py, test_snapshot_sets.py and the whole unit suite.
+
+Round 9: built. 76 added, 23 removed in `ergostat/` against main (53 net, budget 60). This round is the merge of
+main (8a27f9e3), commit 7d443e47. The branch's own code is as in round 8.
+
+The queue's finding, conflicts with main, resolved:
+- `pages.js`: main's rows that stand out (an `exception-why` row under an agent that last failed, never ran or is
+  behind, built by `xs.flatMap`) are kept. The agent row keeps the branch's `costText` cell and `nums` columns. Main's
+  why-row spans `6 + nums.length` columns, not main's fixed 9, since a hidden column must not widen it. The `total`
+  tbody stays last.
+- `docs/AGENT-GUIDE.md` §3b: the branch's sentence on cost and main's sentence on agents that stand out are both kept.
+- `tests/test_agents_page.py`: both sides are kept (the branch's total-row test, then main's `standout` fixture).
+
+Run, with Playwright under the watchdog: tests/test_agents_page.py: 13 passed, 1 failed. The failure is main's
+`test_each_row_says_how_it_is_engaged_and_which_goal_it_serves`, which read `#detail` as "Agent × work Loading…".
+This is the race named in rounds 4 to 8 and is not fixed here (lesson 13). Main's new
+`test_an_agent_that_never_ran_is_behind_or_last_failed_stands_out` passes with the merged table.
+tests/test_items_page.py: 66 passed, 1 failed, `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
+(the project switcher, as in rounds 4 to 8, a path the branch does not touch). Round 7's action-classes failure
+passes now. The acceptance test passes. tests/test_run_costs.py: 16 passed. Ruff is clean.
+Refused, not worked around: a Python heredoc resolving the pages.js conflict (it was done with the editor instead),
+and `node --check ergostat/web/static/pages.js`. The browser tests loading the page without a page error stood in
+for that check. Not run here: test_diagram_rendering.py, test_page_refresh.py, test_page_polling.py,
+test_snapshot_sets.py and the whole unit suite.
