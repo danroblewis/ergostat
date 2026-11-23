@@ -67,10 +67,10 @@ async function pageLoops(main, q) {
     patch(qbox, ...(systems || []).filter((s) => s.quiet).map((s) => h("p", { class: "quiet-line", key: s.name, "data-system": s.name },
       h("b", {}, s.name), `: ${s.quiet}`)));
     const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
-    const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted"];
+    const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted", "card"];   // card: a phone's (style.css)
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => pick(g.name) },
-        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "", "Loops"));   // hysteresis and flapping (steadyWord)
+        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "loops", "Loops"));   // hysteresis and flapping (steadyWord)
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
