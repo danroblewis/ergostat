@@ -125,6 +125,80 @@ def test_the_record_page_filters_by_machine_and_type(repo):
     assert [e["type"] for e in p.events.query(n=None, type="invoice.sent,mail.*")] == ["invoice.sent", "mail.sent"]
 
 
+def test_the_record_narrows_to_a_goal_and_its_window_and_the_filter_matches_item_and_source(repo):
+    """A crossing's link (/record?about=<goal>&from=&to=) asks for the goal's events, its controller's, valves' and
+    their agents', within the window; the filter box (match=) takes a type, an item or a source."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    server, url = serve(p, free_port())
+    try:
+        def types(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [e["type"] for e in json.loads(r.read())]
+        assert types("about=disk-under-80") == ["loop.off", "cleanup.done", "cleanup.done"]   # the goal, its agents
+        assert types(f"about=disk-under-80&from={now - 595}&to={now - 200}") == ["cleanup.done"]   # its window
+        assert types("about=disk-under-80&match=loop.*") == ["loop.off"]                    # both: the goal's that match
+        assert types("about=no-such-goal") == []                                              # never everything
+        assert types("match=mailer") == ["mail.sent"]                                         # a source
+        assert types("match=invoice/7") == ["invoice.sent", "mail.sent"]                      # an item
+        assert types("match=invoice.*") == ["invoice.sent"]                                   # a type, as before
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_goals_filtered_rows_are_not_lost_behind_more_than_n_newer_events_of_one_name(repo):
+    """With about= and match= both, the match is asked with each name, so matching events older than the newest n
+    of that name still show (never 'Nothing recorded yet.' while they exist)."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    for i in range(5):                        # more than n newer events of the goal, and of its agent, none matching
+        p.events.add("loop.on", item="disk-under-80", source="ergostat", at=now - 50 + i)
+        p.events.add("scan.done", item="tmp", source="cleaner", at=now - 40 + i)
+    server, url = serve(p, free_port())
+    try:
+        def types(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [e["type"] for e in json.loads(r.read())]
+        assert types("about=disk-under-80&match=loop.off&n=3") == ["loop.off"]                  # by type
+        assert types("about=disk-under-80&match=disk&n=3") == ["cleanup.done", "cleanup.done"]   # by item
+        assert types("about=disk-under-80&match=disk-under-80&n=3") == ["loop.on"] * 3           # the goal itself
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_filter_box_keeps_the_addresss_item_and_machine(repo):
+    """match= with item= or machine= (a valve's link, itemsets.js; a machine's) holds to both, never wider."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    p.events.add("valve.opened", item="cleanup", source="ergostat", at=now - 20)
+    p.events.add("valve.opened", item="other-valve", source="ergostat", at=now - 10)
+    server, url = serve(p, free_port())
+    try:
+        def rows(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [(e["type"], e["item"]) for e in json.loads(r.read())]
+        assert rows("match=valve.opened&item=cleanup") == [("valve.opened", "cleanup")]          # one valve's, not all
+        assert rows("match=invoice/7&machine=mailer") == [("mail.sent", "invoice/7")]             # the machine kept
+        assert rows("match=invoice/7&machine=billing") == [("invoice.sent", "invoice/7")]         # and its instances
+        assert rows("match=mail.*&machine=billing") == []
+        assert rows("match=mailer&item=invoice/8") == []
+        assert rows("about=disk-under-80&match=cleanup.done&machine=nobody") == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def run_cli(repo, *args, capsys=None):
     rc = main(["-C", str(repo.path), *args])
     out = capsys.readouterr().out if capsys else ""
@@ -194,6 +268,8 @@ def test_the_web_api_serves_what_the_cli_shows(project):
                 return r.status, r.read()
         st, body = get("/api/status")
         assert st == 200 and json.loads(body)["loops"]["disk-under-80"]["status"] == "holding"
+        s = json.loads(body)                                 # the header's window: how much of it is on record
+        assert isinstance(s["recorded"], (int, float)) and 0 <= s["recorded"] < s["window"]
         assert json.loads(get("/api/graph?view=control")[1])["kind"] == "control"
         assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "process"     # the wiring's address: the process map
         assert json.loads(get("/api/part/stock/disk-used")[1])["now"]["value"] == 70
@@ -211,6 +287,23 @@ def test_the_web_api_serves_what_the_cli_shows(project):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_only_the_record_folds_runs_of_identical_events():
+    """Without a browser (the page test is tests/test_items_page.py::test_the_record_folds_runs_of_identical_events):
+    a run's key is the event's type, source, item and shown data, and only the Record (local and remote) asks for
+    the fold, so an item's own event list and a folded run's list show each event."""
+    import re
+
+    from ergostat.web.server import STATIC
+    details, pages = (STATIC / "details.js").read_text(), (STATIC / "pages.js").read_text()
+    assert "JSON.stringify([e.type, e.source, e.item, changeOf(e)])" in details
+    assert re.search(r"if \(fold && last && last\.sig === sig\)", details)
+    assert (details + pages).count("eventsTable(") == 6    # the definition, the Record's two, item, history, run
+    assert (details + pages).count(", false, true)") == 2 and "eventsTable(run.slice().reverse(), false)" in details
+    record = pages[pages.index("async function pageRecord"):]
+    record = record[:record.index("\n}\n")]
+    assert record.count("eventsTable(") == 2 and record.count(", false, true)") == 2
 
 
 def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_path, monkeypatch):
@@ -250,6 +343,29 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
         server.server_close()
     assert agents and all(names[a["rung"]] == a["kind"] for a in agents.values()), agents
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
+
+
+def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
+    """Each page's header carries 'N wait for you' (#waits) before its nav, a link to /diagram#waiting, and the
+    Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""
+    import re
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.web.server import STATIC, handler
+    diagram = (STATIC / "diagram.js").read_text()
+    assert re.search(r'h\("h3", \{[^}]*id: "waiting"[^}]*\}, "Waiting for you"', diagram), "the heading lost its id"
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        for path in ("/items", "/agents", "/loops", "/record"):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                header = r.read().decode().split("<header", 1)[1].split("</header>", 1)[0]
+            link = re.search(r'<a id="waits"[^>]*href="/diagram#waiting"', header)
+            assert link and link.start() < header.index("<nav"), path
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():

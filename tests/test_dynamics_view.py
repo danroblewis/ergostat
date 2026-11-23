@@ -55,6 +55,23 @@ def test_no_sensor_controller_or_agent_is_drawn_and_every_connector_says_its_sig
     assert conn[("stock:bugs-live", "flow:filed-bugs")] == "+"
 
 
+def test_each_loop_gives_every_link_around_it_a_sign_and_a_plain_name(factory):
+    g = factory(view="dynamics", system="product")                  # (R2 runs through delivery, closed here)
+    loops = {c["label"]: c for c in g["causalLoops"]}
+    r2 = loops["R2"]["around"]
+    assert len(r2) == len(set(loops["R2"]["nodes"])) >= 4
+    assert all(x["sign"] in ("+", "-") for x in r2), r2
+    assert not [x for x in r2 if ":" in x["fromName"] + x["toName"]], r2
+    for c in loops.values():                                         # every loop's links signed alike with its polarity
+        signs = [x["sign"] for x in c["around"]]
+        if c["polarity"] and None not in signs:
+            assert (signs.count("-") % 2 == 1) == (c["polarity"] == "B"), (c["label"], c["around"])
+    # by definition: an outflow drains its stock, an inflow fills it; a ceiling's excess rises with its stock
+    every = {(x["from"], x["to"]): x["sign"] for c in loops.values() for x in c["around"]}
+    assert every.get(("flow:deployed", "stock:awaiting-deploy")) == "-" and every.get(("flow:merged", "stock:awaiting-deploy")) == "+"
+    assert every.get(("stock:awaiting-deploy", "gap:all-live")) == "+"
+
+
 def test_a_goal_is_drawn_as_a_desired_level_and_a_gap_feeding_the_flow_that_closes_it(factory):
     g = factory(view="dynamics", open="*")
     ids = {n["id"]: n for n in g["nodes"]}
@@ -175,14 +192,16 @@ def test_lines_out_of_and_into_a_closed_module_end_in_a_shadow_and_a_stub_inside
 
 def test_the_attention_cards_speak_system_dynamics():
     from ergostat.dynamics import attention
-    snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0}}}
+    snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0,
+                                       "off_by_words": "off by 4"}}}
     att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
-           {"level": "hint", "what": "controller backlog-clear", "says": "loop backlog-clear was off 60% of the time; why (a valve "
-            "too small, or acting too seldom) is said after 10m of record"},
-           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill controller x"},
-           {"level": "hint", "what": "controller a", "says": "loop a keeps feeding x: Hold a back (its controller can read x)"}]
+           {"level": "hint", "what": "loop backlog-clear", "says": "was off 60% of the time: saturated, moving its most "
+            "each run. Its valve moved 2/h out while 3/h came in"},
+           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill it"},
+           {"level": "hint", "what": "loop a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
     out = attention(att, snap)
-    assert out[0]["says"] == "backlog is 4, desired backlog = 0: excess 4"
+    assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"
+    assert out[1]["says"].startswith("was off 60% of the time: saturated, moving its most each run. Its flow moved")
     import re
     for a in out:
         text = a["what"] + " " + a["says"]
@@ -204,3 +223,14 @@ def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):
     s.flows["rain"] = Flow("rain")
     assert equation(s, "leak") == "2 per hour, declared: a constant"
     assert equation(s, "rain") == "not known: nothing in the model drives it, and it is not measured"
+
+
+def test_a_connector_declared_with_driven_by_says_so_and_no_other_does(factory):
+    """The page draws a driven-by link dashed (dynamics.js) from this flag; every connector carries it."""
+    g = factory(view="dynamics", open="*")
+    conn = {(e.get("from", e["source"]), e["target"]): e for e in g["edges"] if e["kind"] == "connector"}
+    assert all(isinstance(e["drivenBy"], bool) for e in conn.values())
+    # signups: driven-by: [-stock.bugs-live, -stock.missing-ops] (product.yaml)
+    assert conn[("stock:bugs-live", "flow:signups")]["drivenBy"] is True
+    # a goal's gap feeding the flow that closes it is no driven-by: drawn solid
+    assert conn[("gap:backlog-clear", "flow:submitted")]["drivenBy"] is False
