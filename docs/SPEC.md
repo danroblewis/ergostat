@@ -8370,6 +8370,35 @@ blocks:
     out: goal.enough-workers     # sets the inner goal's setpoint
 ```
 
+### A kept slot: the factory's merge queue is never starved by its builders
+
+Ergostat's own factory (`dev/`, `ergostat.yaml`) shares the machine's suite slots (`[suites] slots`, 6) between the
+implementors' and triage's suites and the merge queue. The goal `machine-quiet` holds `suites-running <= 6`, and the
+`queue-when` block lets the queue run while approved gaps wait and the load interlock is within its limits:
+
+```yaml
+blocks:
+  queue-when:
+    type: expr
+    in:
+      waiting: goal.approved-gaps-landed.off
+      busy: goal.machine-quiet.off
+      threads: goal.suite-threads-within.off
+      memory: goal.suite-memory-within.off
+      pushing: auxiliary.push-waiting
+    expr: waiting * (1 - max(busy, threads, memory, pushing))
+    out: block.merge-queue
+```
+
+With many gaps building, their suites alone could fill every slot and hold the queue off for good. So the builders
+keep one slot for it: while `approved-gaps-landed` is off and no queue run holds its slot, a builder's suite waits
+before taking the last free one (`dev/bin/slots.py`), and the queue's own waits (its run's, and its check of a main held
+red) are for that kept slot. The builders'
+suites alone are then at most `slots - 1`, inside `machine-quiet`'s hold, so only threads, memory, a waiting push or
+suites outside the factory hold the queue. One held past `[manager] broken_minutes` raises a broken situation whose
+text names the readings that hold it (`suites-running`, `threads`, `memory` or `push-waiting`); dev/README.md has the
+details.
+
 ## 14. From the TOML format
 
 | TOML | YAML |

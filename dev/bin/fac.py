@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 import tomllib
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent          # dev/
@@ -45,6 +45,7 @@ def config() -> dict:
     if local.is_file():
         cfg = _merge(cfg, tomllib.loads(local.read_text()))
     limits(cfg)                                         # (a limit past its ceiling refused here, and again at run time)
+    slot_count(cfg)
     return cfg
 
 
@@ -475,14 +476,26 @@ def suites_running() -> int:
         agents.suite_containers()
 
 
-def wait_quiet(cfg: dict, why: str = "") -> float:
-    """Wait until fewer than [load] most_suites suites run on this machine (anyone's), renewing the lease; the
-    seconds waited."""
-    began, poll, most = time.time(), float(cfg["load"]["wait_poll"]), int(cfg["load"].get("most_suites", 1))
+def wait_quiet(cfg: dict, why: str = "", most: int | None = None) -> float:
+    """Wait until fewer than ``most`` (default [load] most_suites) suites run on this machine (anyone's), renewing the
+    lease; the seconds waited. The queue's ``most`` is [suites] slots: the kept slot free is free for it (slots.py)."""
+    began, poll = time.time(), float(cfg["load"]["wait_poll"])
+    most = int(cfg["load"].get("most_suites", 1) if most is None else most)
     while cfg["load"].get("wait", True) and suites_running() >= most:
         renew()
         time.sleep(poll)
     return time.time() - began
+
+
+SLOTS, SLOTS_MOST = 6, 32               # [suites] slots: its default (the machine-quiet goal's hold) and its ceiling
+
+
+def slot_count(cfg: dict) -> int:
+    """[suites] slots (1 to 32; at config and run time): one not a count or past its ceiling refused, never clamped."""
+    n = cfg.get("suites", {}).get("slots", SLOTS)
+    if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= SLOTS_MOST:
+        raise ValueError(f"[suites] slots = {n!r}: a count from 1 to {SLOTS_MOST}")
+    return n
 
 
 @contextmanager
@@ -556,6 +569,11 @@ def agents_module():
     return agents
 
 
+def slots_module():
+    import slots
+    return slots
+
+
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
           quarantined: list[str] = (), box: str = "", group: set | None = None, **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
@@ -578,15 +596,15 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         BOXES.add(boxed)
         if group is not None:
             group.add(boxed)
-    held = None
-    if slot and cfg["suites"].get("slot") and name != "ruff":
+    held, slotted = None, bool(slot and cfg["suites"].get("slot") and name != "ruff")
+    if slotted:                                         # (and the last free slot kept for the queue: slots.gate)
         if box:                                         # the limits' clocks start once the slot is held (marked inside)
             held = log.with_name(log.name + ".held")
             held.unlink(missing_ok=True)
             cmd = "sh -c " + shlex.quote(f": > {shlex.quote(str(held))}; {cmd}")
         cmd = f"{cfg['suites']['slot']} {cmd}"
     began, stopped = time.time(), None
-    with log.open("w") as out:
+    with log.open("w") as out, slots_module().gate(cfg) if slotted else nullcontext():
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
         SUITES.add(p.pid)

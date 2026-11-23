@@ -172,6 +172,8 @@ wait_poll = 20                       # seconds between looks while another suite
 slot = ""                            # a command that holds a machine-wide suite slot around each suite but the
                                      # queue's (whose lock is its slot): set it in factory.local.toml, e.g. the
                                      # coordinator's suite-slot.sh
+slots = 6                            # the slots it gives (1-32): the last one kept for the merge queue while approved
+                                     # gaps wait (dev/bin/slots.py; dev/README.md, The kept slot)
 ruff = "uv run ruff check ergostat tests scripts"
 unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rpfEs -n 8 --dist worksteal"
                                      # (-rpfEs: each skip named, for the host step's check; f and E keep the FAILED

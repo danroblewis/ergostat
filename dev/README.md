@@ -93,6 +93,18 @@ hold a slot (`[suites] slot`), the queue's lock being its own (the load interloc
 it reruns the failed tests in its own worktree, on the main the run failed on (`pre`), so neither its rerun nor its
 wait for a quiet machine holds the queue.
 
+**The kept slot.** While approved gaps wait and no queue run holds its slot (run/queue.json's `running`, with the
+queue's lock held), a suite run in `[suites] slot` (the implementor's, triage's, the manager's reapprove, a measure run)
+does not take the last of the `[suites] slots` (6, at most 32): it waits before the slot command until a slot is free
+beyond that one, nothing is approved, or a queue run holds its slot (`dev/bin/slots.py`). A record that cannot be read
+counts as approved gaps waiting. The suites taken are the ones ps sees (`fac.suites_running`, anyone's) and the
+factory's own suites that passed in the last minute (a file each in `run/slots/`), looked at and written under
+`run/slots.lock`, so two sessions looking at once never both take it. Implementor suites alone are then at most
+`slots - 1`, inside machine-quiet's hold (`suites-running <= 6`), so they never hold queue-when off by themselves;
+threads, memory and push-waiting still do. The queue's own waits (in its run, and in `main_red()`'s check of a main held
+red, before `running` is written) are for that kept slot: fewer than `slots` suites running, not `[load] most_suites`.
+The slot command stays the cap on the slots themselves; the kept slot is only kept by the factory's own suites, not by anyone else's on the machine.
+
 **A usage-limit stop is a pause, not a failure** (`dev/bin/aihold.py`). A session whose result is the provider's
 usage-limit message ("You've hit your weekly limit · resets Nov 25, 3pm (UTC)"; or a failed session whose output holds
 it) records one factory-wide AI hold till the reset it names, in `run/ai_hold.json` (under its lock; a later hold is
@@ -996,8 +1008,9 @@ on a read-only clone of main, its conversation kept as a session item related to
 - before the schedule is due when the merge pipeline has been broken past `broken_minutes` (30), but never sooner than
   `broken_minutes` after the last session of any kind (scheduled, broken or failed), so a break found just after a
   session waits up to that long again: the queue blocked, a pending push that
-  old, no merge in that long while approved gaps have waited as long, the interlock holding the queue that long, or the
-  same test failing on two main commits (at once; only while those `main-broken` interventions are unremedied). The
+  old, no merge in that long while approved gaps have waited as long, the interlock holding the queue that long (its
+  text names each reading that holds it, with its value and limit: `suites-running 8 over 6`, `threads`, `memory`, or
+  `push-waiting 1` as `queue.py waiting` reads it, `push-waiting unreadable` when it cannot), or the same test failing on two main commits (at once; only while those `main-broken` interventions are unremedied). The
   sensor `pipeline-broken-minutes` reads the minutes past `broken_minutes`, so its goal holds at 0 and follows the
   setting; `minutes-since-manager` is a measure with no goal, as it rightly grows while nothing changes. When each
   began is kept in `run/manager.json`; a new push or block
