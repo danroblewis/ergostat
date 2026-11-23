@@ -24,3 +24,39 @@ Files: `ergostat/web/static/kinds.js` (new), `pages.js`, `charts.js`, `style.css
 Tests: unit tests for the endpoint and the state groups, and structure-only browser tests; the browser suite is not run on each merge, so items 1, 2 and 5's logic must also be covered without it.
 
 Milestone: items-page-readable.
+
+## Where it stopped
+
+Built, round 1 (about 220 net lines outside tests and docs, within the 600 budget).
+
+- `GET /api/items-overview` (`ergostat/web/items_overview.py`, one new index query `Index.in_window`) answers before
+  any snapshot is made, from the item index only. `tests/test_items_overview.py` covers the state groups, the summing,
+  an item changed after the moment, no snapshot taken, and on a generated factory-shaped record
+  (`tests/factory_shape.py`: 25 kinds, 700 gaps, 2,500 sessions) the best of three answers under 200 ms with no call
+  to the segment store's `_rows`, `_scan`, `counted`, `items` or `times` (seen failing when a `query` was added).
+- `/items` is the overview (`kinds.js`); `/items/KIND` is the old list, graph and timeline for that kind alone;
+  `/items?kind=K` goes there. Browser acceptance tests are in `tests/test_items_page.py` (the three `factory_site` tests).
+  The toggle test was seen to fail with the switch broken.
+
+Decisions taken with nobody to ask (the most reversible option each time):
+- `/items` with any other question (`q=`, `view=`, a set without a kind) still draws every kind's list as before, so
+  older links and the cross-kind search keep working; that list writes `?view=list` into its address when nothing
+  else is asked, since bare `/items` is now the overview. The overview's search box opens that list (`/items?q=...`).
+  The fold of a system (and its `hide=`) remains on that list only.
+- A kind is "quiet" (folded into the last line) when none of its items had an event in the window and none is
+  unfinished. Rate in: items that arrived in the window, per hour; out: items first finished in it, per hour.
+- A remote's section (SPEC §4c) is still drawn under the overview with its newest items (rows); the factory has no
+  remote, so done item 1's "no table row" holds there, not for a project with remotes.
+- The in-app Guide has no Items text to change; `docs/AGENT-GUIDE.md`'s Items sentence and SPEC §5a (*The overview*)
+  describe it.
+- Existing browser tests that relied on bare `/items` being the full list now open `/items?view=list` or `/items/ticket`.
+
+Run here: `tests/test_items_overview.py` (6 passed); `tests/test_items_page.py` whole (35 passed, 1 failed, below);
+`tests/test_page_polling.py` and, of `tests/test_diagram_rendering.py`, the links, charts-and-snapshot, loading and
+waiting-for-you tests (all passed); `tests/test_snapshot_sets.py`, `test_series.py`, `test_item_index.py` (65 passed);
+ruff clean. Not run here: the unit suite and the four browser files as wholes, and
+`test_the_readers_pages_name_no_command_yaml_line_or_spec_section` (stopped at the 10-minute limit with the others).
+
+Unrelated failure: `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
+times out waiting for the header's project switcher to list the other running project (line 1455); it fails the same
+way when the test opens `/loops` instead of `/items`, so it is not this change (the project lister in this container).
