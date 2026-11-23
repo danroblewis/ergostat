@@ -65,6 +65,7 @@ every_hours = 12                     # the groomer grooms again this long after 
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
 plan_reviewer_chars = 12000          # (the lessons alone)
 pipeline_manager_chars = 12000
+research_chars = 6000                # each answered research report a brief carries, cut at a line (within the above)
 librarian = true                     # true runs the librarian after each review (an AI step on haiku); the owner wants
                                      # review findings learned (operator, 2026-11-20)
 

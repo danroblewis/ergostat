@@ -16,6 +16,12 @@ function showDetail(...kids) {
   d.scrollTop = 0;
   if (typeof panelNote === "function") panelNote(d);   // where the other view draws what is chosen (interact.js)
 }
+/* a panel being opened: its kind and title, and "Loading…", at once, until what it says has been read */
+function panelLoading(kind, title) {
+  const note = h("p", { class: "muted panel-loading" }, "Loading…");
+  showDetail(h("div", { class: "kind" }, kind), h("h2", {}, title), note);
+  return note;
+}
 /* what each kind of thing on the diagram is: said first, in plain words, before how it is now */
 const WHAT = {
   stock: ["Stock", "something that accumulates. It rises and falls only by its flows, and its level is what a goal holds."],
@@ -89,7 +95,9 @@ async function openNode(n) {
   if (n.kind === "system") return openSystem(n);
   const [kind, name] = n.kind === "valve" ? ["valve", n.label] : n.kind === "disturbance" ? ["disturbance", n.flow] : n.id.split(":");
   if (kind === "controller") return openLoop(name, true);
-  const d = await api(`part/${kind}/${encodeURIComponent(name)}`);
+  const note = panelLoading(n.kind === "auxiliary" ? "auxiliary" : kind, name);
+  let d;
+  try { d = await api(`part/${kind}/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; throw e; }
   const m = d.model, now = d.now || {};
   const rows = [["description", m.description], inferredRow(d.inferred)].filter(Boolean);
   const knob = n.kind === "auxiliary" && n.agent;          // what a block sets is not measured: it is what the block said
@@ -133,7 +141,8 @@ async function openNode(n) {
 
 async function openLoop(name, asController = false) {
   let lp;
-  try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { return; }
+  const note = panelLoading(asController ? "Controller" : "Loop", name);
+  try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; return; }
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
   const kids = asController
@@ -179,8 +188,12 @@ async function openLoop(name, asController = false) {
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
   if (lp.crossings?.length) {
     kids.push(h("h3", {}, `Crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`));
-    kids.push(h("table", {}, lp.crossings.slice().reverse().map((e) => h("tr", {},
-      h("td", { class: "nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+    // each to the Record: the goal's events (its controller, agents, valves) from it to the next crossing
+    const next = (i) => lp.crossings[i + 1]?.time ?? lp.until;
+    kids.push(h("table", { class: "crossings" }, lp.crossings.map((e, i) => [e, next(i)]).reverse().map(([e, to]) => h("tr", {},
+      h("td", { class: "nowrap" }, h("a", { href: `/record?about=${encodeURIComponent(name)}&from=${e.time}${to != null ? `&to=${to}` : ""}`,
+        title: "What the goal, its controller and its valves recorded from this crossing to the next" },
+        new Date(e.time * 1000).toLocaleTimeString([], { hour12: false }))),
       h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value)),
       h("td", { class: "muted" }, e.type === "loop.off" && e.data.error != null ? `by ${fmt(Math.abs(e.data.error))}` : "")))));
   }
@@ -192,7 +205,7 @@ async function openLoop(name, asController = false) {
   showDetail(...kids);
 }
 
-/* a goal ahead, with the loops running (closedloop.py's Monte Carlo): "work-waiting: off at +8h with p≈0.3", and a
+/* a goal ahead, with the loops running (closedloop.py's Monte Carlo, in words by forecast_words.py), and a
    setpoint to try (a what-if, drawn on every chart, never kept) */
 function goalAhead(name, lp) {
   const box = h("div", { class: "ahead whatif-redraw" });
@@ -203,10 +216,10 @@ function goalAhead(name, lp) {
                                      points: CHART_POINTS, ...whatifParams() }).then((d) => {
     const g = (d.risk || []).find((x) => x.goal === name);
     if (d.fan_pending && tries++ < 8) setTimeout(() => { if (box.isConnected) load(); }, 2500);
-    if (d.loops !== "closed") { box.replaceChildren(); return; }
+    if (d.loops !== "closed") { box.replaceChildren(h("h3", {}, "Ahead"), h("p", { class: "muted small" }, d.no_estimate || "No estimate")); return; }
     box.replaceChildren(h("h3", {}, "Ahead, with the loops running"),
-      g?.said ? h("p", { class: g.p_off_end >= 0.5 ? "s-open" : "" }, g.said)
-        : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "no risk to say"),
+      g?.sentence ? forecastEl(g)
+        : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "No estimate: this goal's stock is not in the projection"),
       h("p", { class: "muted small" }, "What if it held at ", whatifField(`goal.${name}`, `what if ${name} held at`, now, "another setpoint"),
         " (the identified models and estimates by their errors, the inputs by how far their mean could move; a fixed seed)"));
   }).catch(() => box.replaceChildren());
@@ -219,7 +232,9 @@ function goalAhead(name, lp) {
 const rolesText = (roles) => (roles || []).map((r) => `${r.kind} ${r.name}` + (r.goal ? ` → goal ${r.goal}` : "")).join(", ");
 
 async function openAgent(name) {
-  const a = await api(`agents/${encodeURIComponent(name)}`);
+  const note = panelLoading("Agent", name);
+  let a;
+  try { a = await api(`agents/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; throw e; }
   const kids = [h("div", { class: "kind" }, `Agent, ${a.kind}`), h("h2", {}, name), whatIs("agent"),
     dl([["description", a.agent.description], ["command", a.agent.command ? h("code", {}, a.agent.command) : null],
         ["runs", a.schedule || (a.leased ? "started per item by its lease, not on a schedule"
@@ -236,7 +251,7 @@ async function openAgent(name) {
           (a.daemon.alarm ? ` (alarm: ${a.daemon.alarm.why})` : "") +
           (a.daemon.processes ? "; " + Object.entries(a.daemon.processes).map(([k, v]) => `#${k.split("#").pop()} ${v.state}` +
             (v.pid ? ` (pid ${v.pid})` : "")).join(", ") : "") : null],
-        ["log", a.log_path ? h("code", {}, a.log_path) : null]])];
+        ["log", a.log_path ? h("code", {}, a.log_path.split(/[\\/]/).pop()) : null]])];   // its file, not where it lies
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
   if (a.use?.runs?.length) kids.push(...useSection(a.use));
   kids.push(h("h3", {}, "Recent runs"));
@@ -374,6 +389,7 @@ async function openEdge(e) {
   let kind, what;
   if (e.kind === "pipe") {
     kind = "flow · system dynamics";
+    panelLoading(kind, e.flow);
     let d = null;
     try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
     const m = d?.model || {}, now = d?.now || {};

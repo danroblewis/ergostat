@@ -1,0 +1,7 @@
+[
+ {"goto": "http://127.0.0.1:8792/item/review%2F2243"}, {"wait": 2500},
+ {"scroll": [0, 800]}, {"wait": 800}, {"shot": "plan-ks-job-review-2.png"},
+ {"scroll": [0, 900]}, {"wait": 800}, {"shot": "plan-ks-job-review-3.png"},
+ {"goto": "http://127.0.0.1:8793/item/hypothesis%2F11"}, {"wait": 2500},
+ {"scroll": [0, 700]}, {"wait": 800}, {"shot": "plan-ks-is-hyp-2.png"}
+]
