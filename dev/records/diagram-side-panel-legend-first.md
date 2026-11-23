@@ -145,3 +145,26 @@ Continued, round 1 (2026-11-23): the merge of main (2a97eafb) finished, and what
   header's wording and count differ from the test's, on main's side.
 - Not run: the unit suite, the rest of tests/test_diagram_rendering.py and the other browser files. A first try at
   the acceptance tests before the DIAGRAM_TYPE fix hung on the broken page and was stopped at its time limit.
+
+## Where it stopped
+
+Continued, round 2 (2026-11-23): the merge of main (7cb97857) finished.
+
+- Conflicts resolved. Main made the side panel's loop rows `<button>`s (everything clickable reached by keyboard);
+  this branch put the loop lists in closed folds. Both kept: in diagram.js (Blocks/Control loops) and dynamics.js
+  (sdLoopList) the rows are buttons appended inside the `details.loops` fold. No other change.
+- Run, under the watchdog: the four acceptance tests (7 cases in the three named files run together, plus
+  test_each_blocks_legend_row_is_a_symbol_drawn), tests/test_legend_memory.py and tests/test_inbox_page.py whole
+  (12 passed together); the SD-words test, test_a_module_counts_its_loops_in_the_side_list_... and
+  tests/test_dynamics_view.py pass. ruff is clean.
+- Fails, not this gap: test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard (main's new
+  test) at line 2281, the focus never on '#detail h2' after Enter on a stock. Traced with a focusout listener (taken
+  out again): openNodeSD (dynamics.js:680) calls showDetail, which takes S.keyHead and focuses its h2, then at once
+  panelLoading (dynamics.js:706) calls showDetail again, which replaces that h2, so the focus falls to the body. Both
+  are main's code (dynamics.js openNodeSD, details.js showDetail, keys.js), not touched by this branch, so this
+  should fail on main too (main could not be run here). The fix (keyHead kept until the last showDetail of one
+  press, or no first showDetail before panelLoading) is in its own gap.
+- Fails, not this gap, as in round 1: test_needs_attention_is_three_headed_groups_in_a_fixed_order waits for
+  /loops? off/ in #running, and main's header (util.js:398) says "N goals off".
+- Not run: the unit suite, the whole of tests/test_diagram_rendering.py (a background run of it was refused here) and
+  the other browser files.
