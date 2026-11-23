@@ -236,3 +236,26 @@ passed and 1 failed. The failure is test_the_header_counts_the_systems_goals_and
 switcher (`#project`), reported in rounds 1 to 5 on a path this branch does not touch. Not run: the unit suite,
 tests/test_diagram_rendering.py and the other browser files. Commands refused in this session: a `python3 -` heredoc
 edit of SPEC, a whole-file run piped to `grep`, and a `for` loop running the two tests three times.
+
+Round 7, 2026-11-23. Main (b7302db6) merged in (1672c687). It conflicted in static/pages.js and
+tests/test_items_page.py.
+
+**How the conflicts were resolved.** Main had added milestone-progress-per-group: each kind's progress per group
+(`gps`, `groupRows` from itemsets.js), drawn on the old per-kind card in pageItems. It had also added the 1440 px
+table test. The branch's card is `kindBar` plus its chart. So main's group rows are now one helper, `gpOf(k)`, drawn
+under that card on `/items` and under the chart in the kind's page's *Now* section. Main's
+test_a_milestones_row_opens_exactly_its_gaps_in_the_list_graph_and_timeline needs the second one, because a row's
+click lands on `/items/gap?where=…` and the test asserts `.gp-row.on` there. The branch's `foundSaid` (the count
+written with its rows, round 6) is kept, and `flowsWere` takes main's `[flows, gps]`. Main's `pick` let the kind go
+to `null`, and the branch's lets it go to `one`, so the branch's is kept: on a kind's page a second click clears only
+the state. In the tests, both sides only added tests, and all of them are kept.
+
+**Tests run.** ruff is clean. Unit: tests/test_items_overview.py, tests/test_legend_memory.py and
+tests/test_graph_cli_web.py (62 passed), and tests/test_group_progress.py (9 passed). tests/test_items_page.py as a
+whole, under the watchdog with Playwright: 83 passed and 1 failed. Main's new tests passed: the 25-milestone card,
+the milestone row's gaps, and the 1440 px table, which now opens `/items?kind=ticket` and ends on the kind's page.
+The failure is test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart. It times out at
+test_items_page.py:2301, waiting for a second project in `#project`. That is the project-switcher failure reported in
+rounds 1 to 6, on a path this branch does not touch. Not run: the unit suite, tests/test_diagram_rendering.py and the
+other browser files. Commands refused in this session: a `python3 -` heredoc that resolved the conflicts (done with
+the editor instead), and a background run with output redirected to a file under /tmp.
