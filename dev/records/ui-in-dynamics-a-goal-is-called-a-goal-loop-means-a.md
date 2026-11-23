@@ -135,3 +135,13 @@ change.
   `tests/test_diagram_rendering.py`, the other browser files and the unit suite; the merge queue runs them.
 - Refused: a `python3 - <<'EOF' …` script to strip the conflict markers, and a `cat >> … <<'EOF'` append to this file;
   both were done with the editor instead.
+
+Round 7: main (b6d7a1db) merged in. The one conflict (`tests/test_diagram_rendering.py`) was two new tests at the
+same place, and both are kept whole: the branch's acceptance test (with `SIDE_WORDS`) and main's
+`test_the_address_holds_what_is_chosen_and_the_window`. No other change.
+
+- Runs: ruff clean; `tests/test_dynamics_view.py` 17 passed. Under the watchdog, the acceptance test and main's new
+  address test passed (2 passed, rc 0). Not run here: the rest of `tests/test_diagram_rendering.py`, the other browser
+  files and the unit suite; the merge queue runs them.
+- Refused: a `python3 -c …` script to strip the conflict markers (done with the editor instead), and a
+  `timeout 1100 … suite_watch.py … | tail; echo rc=$?` wrapper (run again in the task's plain form, which was allowed).
