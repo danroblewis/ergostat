@@ -313,3 +313,9 @@ Refused commands: a browser run piped to `grep -E '^(FAILED|ERROR)|^E  |...'` (r
 ran), and a shell heredoc appending this section (`cat >> dev/records/... <<'EOF'`; written with the editor instead).
 Not run: the rest of tests/test_diagram_rendering.py, tests/test_page_polling.py, tests/test_page_refresh.py, and the
 unit suite (no Python changed). The merge queue runs them.
+
+## Where it stopped
+
+Parked by the factory (merge-queue, 2026-11-23 04:26).
+
+Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: tests/test_diagram_rendering.py
