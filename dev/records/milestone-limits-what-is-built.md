@@ -83,3 +83,17 @@ there to ask, so each open question went the more reversible way; each is listed
   of the two files, and a heredoc append to this file, so xdist could not be run here. Next step: read that run's
   log on the host for the worker crash or FAILED line pytest never printed, or run the two files under `-n 8` in
   that container.
+- **Round 2's build, run again: it names the failure.** It is
+  `test_factory_knowledge.py::test_an_approved_lesson_is_applied_with_no_gap` (`'0.668' == '0.667'`, 1 failed, 137
+  passed in 705 s). It is likely the unnamed `F` above too. No code is changed for it. It is a wall-time bound in a
+  test of `dev/bin/lesson.py`, and this gap touches neither that program nor that test, nor anything the test runs
+  (no gap, milestone or planner is involved: `git diff main` changes milestones.py, the two `takes: where:` and a
+  comment in ergostat.yaml). `lesson.py hours` is the mean of real `applied_at - proposed_at`. The test stamps
+  `proposed_at = time.time() - 3600` at its start and applies later, so the mean is
+  (2 h + t1 + t2 + t3) / 3 h, where t1, t2 and t3 are the real seconds from each start to its apply. That rounds to
+  0.668 once t1 + t2 + t3 reaches 9 s. t3 covers a failed apply, two `block_in` subprocesses and a retry, so under the
+  build's `-n 8` on 4 shared CPUs those seconds add up past 9 s. Alone and serially on this branch, it passes in 65 s.
+  It is a load-dependent bound (lesson 10), and it would fail on main under the same load. The fix belongs in its own
+  gap (lesson 13): stamp the times the test compares, or compare with a tolerance. The bound is not to be loosened
+  here, since the brief says not to touch the tests' bounds. I tried to print the real t1, t2 and t3 with a temporary
+  print in the test, and this session refused the command, so the 9 s is worked out, not measured.
