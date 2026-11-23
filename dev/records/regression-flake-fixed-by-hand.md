@@ -86,3 +86,17 @@ changed. Not run: the whole of tests/test_factory.py, because the background com
 scripts/named_tests.py tests/test_factory.py > /tmp/tf.log 2>&1` was refused in this session. The switch test's
 120 s wait under -n 8 is still main's load-dependent bound (lesson-10) and outside this gap (lesson-13), as round 3
 says.
+
+Round 4, after the failed build. The same test failed the same way (switcher still in e.running at the 120 s wait;
+1 failed, 192 passed, 829 s). Run alone here it passed (1 passed, 143.5 s; 139 s of it user CPU). Counted by reading
+drain.py's step against ergostat.yaml's kinds: each step lists `upgrade` (fac.items: one head call and one per
+state, 1 + 10) and under_way() lists gap (1 + 17), research (1 + 4) and situation (1 + 4), so about 40 `ergostat`
+subprocesses a step, each loading the whole factory model the test copies from ergostat.yaml: about 1.75 CPU-s a
+call, about 70 s a step when the machine is idle. With the machine loaded, a step goes past the test's 120 s.
+Nothing on that path is the branch's. Its ergostat.yaml change is comment lines only, and its fac.py change is in
+beside(), which the switcher never calls. The fix belongs in a gap of its own (lesson-13), not here. One way: in
+fac.items, list a kind once with no state, and list it per state only when that one listing does not carry the
+kind's total. That gives the same items from 3 + 1 calls a step instead of about 40. It changes a reader every
+factory block shares, so it is not made in this branch, and the test's bound is left as it is. No code changed.
+Not run: a timed single `ergostat item` call and an instrumented fac.ergostat (both refused in this session), so the
+per-call cost above is the CPU total divided by the counted calls, not measured one by one.
