@@ -414,7 +414,11 @@ NOT_HELD = ("reviewer", "merge-queue", "flake-triage")
 
 @pytest.fixture(scope="module")
 def blocks():
-    spec, _ = read(ROOT / "ergostat.yaml")
+    """The compiled blocks only: read() would also run the model's findings (about a minute), once per xdist worker."""
+    from ergostat.spec.compile import compile_doc
+    from ergostat.spec.load import load as load_doc
+    spec, problems = compile_doc(load_doc(ROOT / "ergostat.yaml"))
+    assert [p for p in problems if p.level == "error"] == []
     return spec.blocks
 
 
