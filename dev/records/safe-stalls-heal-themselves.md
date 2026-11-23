@@ -94,3 +94,17 @@ tests/test_resilience.py and tests/test_leased_workspaces.py (81 passed); tests/
 tests/test_shards.py, tests/test_daemons.py and tests/test_daemons_restart.py (55 passed); tests/test_agents.py (20
 passed, 1 failed: the same unrelated `test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'` at
 dev/bin/onmain.py:25). ruff is clean. The browser files were not run: no page code changed.
+
+Round 6 (no review findings came back). The factory's merge of main (e43046dc) conflicted in two places, and I
+resolved both by keeping both sides (e39acfd0). In ergostat/leases/dispatch.py, the import line now brings in main's
+`faults` and the branch's `gone`. In docs/AGENT-GUIDE.md, main's "*Faults*: a queue held while what it shares is down"
+paragraph and the branch's `attention: FIELD` paragraph are now next to each other. I checked how main's
+faults-healthy-pauses-the-queue works with the release path. The release always ends uncounted (`count: False`), and
+main's fault check in `_finish` acts only on a counted nack, so it does not touch the release. A run this engine
+follows that fails while its queue's `faults: healthy` is down is now not counted either (main's rule). That makes the
+same promise as done 3 and does not conflict with the branch's Docker/AI outage branch in the factory's queue. No code
+changed beyond the merge. Ran again, one file at a time, on the merged tree: tests/test_lease_gone.py,
+tests/test_factory_outage.py and tests/test_finding_attention.py (13 passed); tests/test_faults_healthy.py,
+tests/test_leases.py and tests/test_resilience.py (101 passed); tests/test_leased_workspaces.py,
+tests/test_engine_shard.py and tests/test_agents.py (44 passed, 1 failed: the same unrelated `No module named
+'flakes'` at dev/bin/onmain.py:25). ruff is clean.
