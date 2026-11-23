@@ -112,3 +112,17 @@ tests/test_queue_host.py (12), tests/test_factory.py::test_batch_of_one_is_today
 already merged). Not run here: the unit suite, the four browser files and the rest of tests/test_factory.py.
 `ruff check dev/bin` reports B023 in dev/bin/plan.py and E501 in dev/bin/review.py. This branch did not touch those
 files, and dev/bin/batches.py and dev/bin/queue.py are clean.
+
+Fast suites, round 2 (`build` red again on `test_an_approved_switch_drains_and_switches_through_the_engine`: a
+switcher run went past its 120 s bound). Measured here, serially, with a scratch test that was then deleted and never
+committed: the test's two switcher runs took 43.6 s and 42.4 s, nearly all of it CPU (agent.ran: cpu 43.4 s of
+43.4 s). With main's `dev/model/landing.yaml` and `ergostat.yaml` in its instance (the run showed main's model hash)
+they took 44.2 s and 42.8 s. One `ergostat item --kind gap` call takes 0.86-0.92 s on either model. So the branch does
+not make the switch test slower. What it adds is load beside it. The build runs `-n 8` on 4 CPUs (`suite_cpuset`),
+and this branch's tests/test_queue_batch_item.py takes 200 CPU-s, mostly in the 7 tests that run the real queue. A
+43 CPU-s run with a 120 s bound fails once it gets less than about a third of a CPU. The fix is in this gap's own file
+only: those 7 tests are marked `serial` (conftest: run with nothing else of the run alongside), so they never run
+beside the switch test. Its bound, the test itself, drain.py and conftest are unchanged. The cost is wall time late
+in the build, while they run alone (about 3 minutes). To undo it, drop `@QUEUE`. Not proven: that the build is green
+now, because the build cannot be run here. If the switch test still goes red, the load comes from main's own tests,
+and the fix (drain.py's many `ergostat` calls, or `serial` on that test) belongs to a gap of its own (lesson 13).

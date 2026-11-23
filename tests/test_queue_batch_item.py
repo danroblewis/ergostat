@@ -3,8 +3,10 @@ says its start, each run, the gaps it isolates, what lands and how it ends, and 
 Timeline show it. The queue's own runs here use the fixture's fake suites (tests/test_factory.py); the item index and
 the Timeline are fed the events batches.py says, in this process.
 
-The queue tests here take 10 s or more, but are not marked slow: conftest._slow_first would start all six at once, one per
-worker, beside test_factory's switch test, whose 120 s bound on each switcher run went red under that load."""
+The seven tests that run the queue (about 25 CPU-s each) are marked serial, not slow: in a parallel run they run with
+nothing else alongside, so they never load the machine under test_factory's switch test, whose 120 s bound on each
+switcher run (about 43 CPU-s, the same on main's model) went red twice beside them in the implementor's build (-n 8 on
+4 CPUs). Marked slow, conftest._slow_first would start them first, beside it."""
 
 from __future__ import annotations
 
@@ -16,6 +18,8 @@ import types
 import pytest
 
 from tests.test_factory import ANY_BAD, BIN, CLOCKED, ROOT, Factory, approved_gaps, git, merges, module, suite_runs
+
+QUEUE = pytest.mark.serial          # (see above: a run of the queue, alone in a parallel run)
 
 
 def said(lines: list[dict]) -> list[str]:
@@ -37,6 +41,7 @@ def settle_push(f: Factory, to: str = "ran") -> list[dict]:
     return f.run("queue.py", argv=("settle",))[1]
 
 
+@QUEUE
 def test_a_clean_batch_is_tested_once_lands_and_ends_landed(tmp_path):
     f = Factory(tmp_path, unit=f"echo run >> {tmp_path / 'runs'}; echo '3 passed in 0.10s'")
     approved_gaps(f, {"a": 1, "b": 2}, batch=2)
@@ -58,6 +63,7 @@ def test_a_clean_batch_is_tested_once_lands_and_ends_landed(tmp_path):
     assert merges(f) == ["a", "b"] and suite_runs(f) == 1
 
 
+@QUEUE
 def test_a_batch_with_one_bad_merge_isolates_it_and_ends_partial(tmp_path):
     f = Factory(tmp_path, unit=ANY_BAD.format(runs=tmp_path / "runs", greens=tmp_path / "greens"))
     approved_gaps(f, {"a": 1, "b": 2}, batch=2, edits={"a": "bad-a.txt"})
@@ -77,6 +83,7 @@ def test_a_batch_with_one_bad_merge_isolates_it_and_ends_partial(tmp_path):
     assert b["state"] == "partial" and b["fields"]["failed"] == ["gap/a"] and b["fields"]["given_back"] == []
 
 
+@QUEUE
 def test_a_crashed_run_says_its_cause_and_the_batch_is_given_back(tmp_path):
     unit = (f"echo run >> {tmp_path}/runs; echo 'FAILED tests/test_x.py::t - x'; "
             "echo 'OSError: [Errno 28] No space left on device'; exit 1")
@@ -97,6 +104,7 @@ def test_a_crashed_run_says_its_cause_and_the_batch_is_given_back(tmp_path):
     assert b["fields"]["failed"] == []
 
 
+@QUEUE
 def test_a_batch_out_of_time_lands_what_was_proven_and_gives_back_the_rest(tmp_path):
     f = Factory(tmp_path, unit=ANY_BAD.format(runs=tmp_path / "runs", greens=tmp_path / "greens"))
     f.config.write_text(f.config.read_text().replace("batch_max = 4", "batch_max = 10\nbatch_minutes = 70"))
@@ -116,6 +124,7 @@ def test_a_batch_out_of_time_lands_what_was_proven_and_gives_back_the_rest(tmp_p
     assert {x["why"] for x in b["fields"]["given_back"]} == {"its run's time allowance was used before it was proven"}
 
 
+@QUEUE
 def test_a_denied_push_ends_the_batch_failed(tmp_path):
     f = Factory(tmp_path, unit="true")
     approved_gaps(f, {"a": 1}, batch=1)
@@ -135,6 +144,7 @@ sys.exit(queue.main())
 """
 
 
+@QUEUE
 def test_a_failing_event_write_changes_nothing_that_lands(tmp_path):
     runs = {}
     for name, program in (("plain", "queue.py"), ("failing", str(tmp_path / "failing.py"))):
@@ -378,6 +388,7 @@ sys.exit(queue.main())
 """
 
 
+@QUEUE
 def test_a_queue_run_killed_before_its_push_leaves_its_batch_ended_by_the_next(tmp_path):
     f = Factory(tmp_path, unit="echo '3 passed in 0.10s'")
     approved_gaps(f, {"a": 1, "b": 2}, batch=2)
