@@ -1425,6 +1425,13 @@ declared under `dashboards:`, compiled and checked as a system's `show:` is (sec
 error at its line instead of a blank panel. The design is `docs/proposals/dashboard.md`. People do not write it by
 hand: the Supervisor, or an agent on the owner's behalf, adds it (`docs/AGENT-GUIDE.md`).
 
+A reader's panel may be a diagram, `{form: diagram, display: {address}}`, where the address is a Diagram address
+(`/diagram?view=...&system=...&open=...`) or an Items Graph address (`/items?kinds=...`, `system=`, or `/items/KIND`).
+It is drawn read-only, at its own size or larger, so no text is under 11 px. When it does not fit, its systems are
+closed, and if it still does not fit the panel says to open it on the Diagram. Nothing is asked until the panel is on
+screen. Only one model diagram on a page is drawn; any other is drawn when clicked. Its values come with each refresh
+of the dashboard, with no new layout while the structure stays the same. A click opens the address.
+
 ```yaml
 dashboards:
   week:

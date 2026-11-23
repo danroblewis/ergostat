@@ -442,7 +442,7 @@ function dashStartsNearZero(results) {
 
 /* ---- the grid ---- */
 
-const dashRows = (p) => (p.form === "stat" ? 4 : 7);    // a stat: its title, number, change and sparkline
+const dashRows = (p) => (p.form === "stat" ? 4 : p.form === "diagram" ? 10 : 7);    // a stat: its title, number, change and sparkline
 /* what is on the grid: the panels and the rows (a folded row keeps its panels in it, off the grid) */
 const dashItems = (d) => [...d.panels.map((p) => ({ id: p.id, ...p.layout })),
                           ...(d.rows || []).map((r) => ({ id: r.id, row: true, x: 0, y: r.layout.y, w: DashLayout.COLS, h: 1 }))];
@@ -512,8 +512,8 @@ function dashTool(text, label, onclick) {
 /* in edit mode a panel offers only Edit and remove, laid over its header's corner on hover or focus (a tap focuses
    it), so nothing moves; its title moves it, its edges resize it, and the keyboard does both (dashKeydown) */
 function dashCell(p) {
-  const panel = chartPanel(p);
-  const edit = typeof openPanelEditor === "function" ? dashTool("Edit", "Edit this panel", () => dashEditPanel(p.id)) : null;
+  const diagram = p.form === "diagram", panel = diagram ? diagramPanel(p) : chartPanel(p);   // (an address: the editor has no form for it)
+  const edit = typeof openPanelEditor === "function" && !diagram ? dashTool("Edit", "Edit this panel", () => dashEditPanel(p.id)) : null;
   const tools = h("div", { class: "dash-tools" }, edit, dashTool("×", "Remove this panel", () => dashRemove(p.id)));
   const edge = (cls, sides, title) => h("span", { class: cls, "data-resize": sides, title });
   const el = h("section", { class: "dash-cell", "data-panel": p.id, tabindex: "0",
