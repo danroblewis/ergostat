@@ -6279,6 +6279,13 @@ more and never denied is said to be ready for `gate: auto`. **Promoting** a clas
 (`gate: auto`), never ergostat's, and takes effect at the next request; a gate made stricter takes effect at the act
 too, for what was approved before it (above): the refactor path (invariant 5) from a person approving to a rule.
 
+On the Items page, above the Actions rows, one line per class counts the actions **asked** this week, each once by
+where it ended: approved (and whether by the gate or a person; ran, failed or still to run), denied (by the gate, the
+owner, or at the act), or waiting, so asked is their sum; then whether its gate holds it for approval or lets it
+through (`GET /api/actions?classes=1`). A class whose actions have different gates is said by its strictest (deny,
+then approve, then auto, as §12p reads a class), from the model, or from the actions asked when the model has none. The page's search narrows the lines with the rows: by class, or by any field
+of an action, its command among them.
+
 | Measure | What it is |
 |---|---|
 | `ergostat.actions.held` | Actions waiting for the owner, now; `@CLASS` for one class |

@@ -953,7 +953,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return report(p, "/".join(unquote(x) for x in parts[1:]))
     if head == "actions":                         # gated actions sessions asked for, about one item or all (SPEC §12k)
         from .actions_api import listing as actions
-        return actions(p, one("item") or None)
+        return actions(p, one("item") or None, bool(one("classes")))
     if head == "inbox":                           # everything waiting on a person (SPEC §12o)
         from .actions_api import inbox
         return inbox(p)
