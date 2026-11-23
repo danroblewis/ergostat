@@ -15,6 +15,8 @@ function showDetail(...kids) {
   d.hidden = false;
   d.scrollTop = 0;
   if (typeof panelNote === "function") panelNote(d);   // where the other view draws what is chosen (interact.js)
+  const hd = S.keyHead && d.querySelector("h2, h3");    // opened by keyboard: the focus to its heading (keys.js)
+  if (hd) { S.keyHead = null; hd.tabIndex = -1; hd.focus(); }
 }
 /* a panel being opened: its kind and title, and "Loading…", at once, until what it says has been read */
 function panelLoading(kind, title) {
@@ -342,13 +344,24 @@ function dataCell(d) {                                  // the whole of it, one 
   return h("td", { class: "mono muted data" }, h("details", {}, h("summary", {}, flat.slice(0, 100) + "\u2026"),
     h("pre", {}, JSON.stringify(tidy(d), null, 2))));
 }
-function eventsTable(evs, compact) {
+function eventsTable(evs, compact, fold = false) {
+  const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false });
+  const runs = [];                                        // newest first; folded, a run of identical events is one row
+  for (const e of evs.slice().reverse()) {
+    const last = runs[runs.length - 1], sig = JSON.stringify([e.type, e.source, e.item, changeOf(e)]);
+    if (fold && last && last.sig === sig) last.evs.push(e); else runs.push({ sig, evs: [e] });
+  }
   return h("div", { class: "table-wrap" }, h("table", {}, h("caption", { class: "sr-only" }, "Events, newest first"),
     headRow(h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
-    h("tbody", {}, evs.slice().reverse().map((e) => h("tr", { key: e.id }, h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
-      h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: `event ${e.id}`, onclick: (ev) => { ev.preventDefault(); showEvent(e); } }, e.type)),
+    h("tbody", {}, runs.map(({ evs: run }) => { const e = run[0], n = run.length; return h("tr", { key: e.id },
+      h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, n > 1 ? `${clock(run[n - 1].time)}–${clock(e.time)}` : clock(e.time)),
+      h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: n > 1 ? `${n} events in a row: list them` : `event ${e.id}`,
+        onclick: (ev) => { ev.preventDefault(); n > 1 ? showRun(run) : showEvent(e); } }, e.type), n > 1 ? h("span", { class: "run-count" }, ` ×${n}`) : null),
       compact ? null : h("td", { class: "nowrap" }, e.item ? eventItemLink(e) : "–"),
-      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e)))))));
+      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))); }))));
+}
+function showRun(run) {                                  // a folded run, each of its events, in the side panel
+  showDetail(h("div", { class: "kind" }, "Events in a row"), h("h2", {}, `${run[0].type} ×${run.length}`), eventsTable(run.slice().reverse(), false));
 }
 function showEvent(e) {                                 // one event, all of it, in the side panel
   showDetail(h("div", { class: "kind" }, e.remote ? `Event, remote ${e.remote}` : "Event"), h("h2", {}, e.type),

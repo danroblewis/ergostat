@@ -383,7 +383,7 @@ def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_pa
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         silent = []
         ids = pg.evaluate("() => S.graph.nodes.filter((n) => n.kind !== 'cloud').map((n) => n.id)")
         for i, nid in enumerate(ids):
@@ -664,7 +664,7 @@ def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(bro
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=product", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         side = "() => document.querySelector('.diagram').classList.contains('side-hidden')"
         empty = pg.evaluate("""() => { const r = document.querySelector('svg.canvas').getBoundingClientRect();
             for (let y = r.top + 80; y < r.bottom - 80; y += 17) for (let x = r.left + 40; x < r.right - 40; x += 23) {
@@ -726,7 +726,7 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
                        .includes('product')).map((c) => [c.id, [c.x, c.y]]))"""
         before = pg.evaluate(places)
@@ -785,7 +785,7 @@ def test_parts_chosen_with_a_box_move_together_pinned_and_with_no_new_layout(bro
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "system=product", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["stock:users", "flow:signups"]
         boxes = [pg.locator(f'g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 6, min(b["y"] for b in boxes) - 6
@@ -849,7 +849,7 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=-", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         # the product box put somewhere by hand
         box = pg.locator('g.node.k-system:has(text:text-is("product")) .hit').first.bounding_box()
         k = pg.evaluate("() => S.view.k")
@@ -1326,8 +1326,8 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         for _ in range(60):
             r = pg.evaluate(WHEEL, [0, -500, {"ctrlKey": True}])
         assert r["after"]["k"] <= 4
-        pg.get_by_role("button", name="Zoom in").click()
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Zoom in", exact=True).click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.close()
 
 
@@ -1504,7 +1504,7 @@ def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_o
         assert busy["id"] in ids and rare["id"] not in ids and "paths=50" in pg.url
         drawn = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.edge')].map((g) => g.dataset.id)")
         assert sorted(drawn) == sorted(ids)
-        pg.get_by_role("button", name="Times").click()
+        pg.get_by_role("button", name="Times", exact=True).click()
         pg.wait_for_function("() => S.pmShow === 'times' && document.querySelector('svg.canvas g.edge .elabel')")
         assert "show=times" in pg.url
         pg.close()
@@ -1592,7 +1592,7 @@ def test_a_process_node_dragged_stays_pinned_through_a_reload_a_refresh_and_stat
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pm_served(pg, url, 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         nid = "p:pr:pr.merged"                         # lines in and out within pr, and one back (rework)
         caused = pg.evaluate("() => S.graph.edges.find((e) => e.kind === 'caused' && e.target === 'p:pr:pr.opened')?.id")
         assert caused, "a dashed line from ticket into pr"
@@ -1668,7 +1668,7 @@ def test_a_kinds_frame_dragged_in_the_process_view_takes_its_map_and_nodes_chose
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pm_served(pg, url, 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         frame = "(name) => { const c = S.layout.containers.find((c) => c.name === name); return [c.bx ?? c.x, c.by ?? c.y]; }"
         ways = """(kind) => Object.fromEntries(S.layout.edges.filter((le) => S.graph.edges.find((e) => e.id === le.id &&
           e.kind === 'follows' && e.itemKind === kind)).map((le) => [le.id, [le.sections[0].startPoint,
@@ -1698,7 +1698,7 @@ def test_a_kinds_frame_dragged_in_the_process_view_takes_its_map_and_nodes_chose
         again = pg.evaluate(PM_KIND, "release")
         assert all(again[i] == pytest.approx(after[i], abs=2) for i in after)
         # two nodes chosen with Shift and a box, dragged together
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["p:ticket:ticket.started", "p:ticket:ticket.submitted"]
         boxes = [pg.locator(f'svg.canvas g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 4, min(b["y"] for b in boxes) - 4
@@ -1945,7 +1945,7 @@ def test_a_block_dragged_in_the_blocks_view_stays_pinned_its_lines_end_on_it_and
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         nid = "blk:product-manager"
         before = pg.evaluate(BD_AT, nid)
         layouts = pg.evaluate("() => S.layouts")
@@ -1991,7 +1991,7 @@ def test_blocks_chosen_with_a_box_move_together_in_the_blocks_view(browser, tmp_
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["sum:all-live", "blk:keep-all-live"]
         boxes = [pg.locator(f'svg.canvas g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 4, min(b["y"] for b in boxes) - 4
@@ -2032,7 +2032,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
                        .includes('frame:product')).map((c) => [c.id, [c.x, c.y]]))"""
         frame = "(id) => { const c = S.layout.containers.find((c) => c.id === id); return c && [c.bx ?? c.x, c.by ?? c.y]; }"
@@ -2068,7 +2068,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         assert set(again) == set(after) and all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
         # a block put by hand inside intake: its place in intake's frame kept through closing and opening it
         nid = "blk:support"
-        pg.get_by_role("button", name="fit").click()                 # (wider with its sensors: all of it on the screen)
+        pg.get_by_role("button", name="Fit", exact=True).click()                 # (wider with its sensors: all of it on the screen)
         bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 0, 110)
         pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
         offset = ("(id) => { const c = S.layout.children.find((c) => c.id === id), "
@@ -2227,7 +2227,7 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.locator('.loop-marker[data-loop="backlog-clear"]').dispatch_event("click")
         pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
         assert pg.locator("#detail h2").inner_text().startswith("B")           # its label, R1 or B2, as Sterman numbers them
@@ -2236,6 +2236,66 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
         lit = pg.evaluate("""() => [...document.querySelectorAll('svg.canvas .node.in-loop')].map((n) => n.dataset.id).sort()""")
         assert lit == ["flow:submitted", "gap:backlog-clear", "stock:backlog"], lit
         assert pg.evaluate("() => document.querySelectorAll('svg.canvas .edge.in-loop').length") >= 3
+        pg.close()
+
+
+FOCUSED = ("() => { const a = document.activeElement; "
+           "return a && [a.tagName, a.getAttribute('aria-label') || '', a.dataset.key || '', a.getAttribute('role') || '']; }")
+# every element the svg points at as clickable, and whether a keyboard button (tabindex 0) is it or holds it
+UNREACHED = """() => [...document.querySelectorAll('svg.canvas *')].filter((el) => getComputedStyle(el).cursor === 'pointer'
+  && !el.closest('svg.canvas [tabindex="0"][role="button"][aria-label]')).map((el) => el.getAttribute('class') || el.tagName)"""
+
+
+def tab_to(pg, want, most=600) -> list:
+    """Tab (and only Tab) until the focus is on what ``want`` (a JS predicate on the focused element) accepts."""
+    seen = []
+    for _ in range(most):
+        pg.keyboard.press("Tab")
+        if pg.evaluate(f"() => {{ const a = document.activeElement; return !!a && ({want})(a); }}"):
+            return pg.evaluate(FOCUSED)
+        seen.append(pg.evaluate(FOCUSED))
+    raise AssertionError(f"Tab never reached {want}; it went {seen[:40]} ... {seen[-10:]}")
+
+
+def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard(browser, tmp_path):
+    """Only Tab, Enter and Escape: Open on factory reached and pressed opens it; a stock reached and pressed opens
+    its panel with the focus on its heading, and Escape gives the focus back to the stock. In every view, everything
+    the svg shows as clickable is a named keyboard button, and the side panel's loop rows are buttons."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=-", 0)
+        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open factory'")
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => (S.graph?.open || []).includes('factory') && document.querySelector('svg.canvas g.node')",
+                             timeout=30000)
+        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open intake'")   # (factory holds systems; intake, the backlog)
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => (S.graph?.open || []).includes('intake') && document.querySelector('svg.canvas g.node.k-stock')",
+                             timeout=30000)
+        stock = tab_to(pg, "(a) => a.matches('svg.canvas g.node.k-stock')")
+        assert stock[3] == "button" and stock[1].startswith("stock "), stock
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail h2')", timeout=10000)
+        pg.wait_for_function("() => document.activeElement?.matches('#detail h2, #detail h3')", timeout=5000)
+        pg.keyboard.press("Escape")
+        pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)
+        back = pg.evaluate(FOCUSED)
+        assert back[2] == stock[2] and back[1].startswith("stock "), (stock, back)
+        from ergostat import model as mdl
+        from ergostat.store import Project
+        seed_workflows(Project(mdl.load(tmp_path / "software-factory")), time.time())   # (the Process view's maps)
+        for i, view in enumerate(("view=dynamics&open=*", "view=blocks&open=*", "view=dynamics&open=-", "process")):
+            if view == "process":
+                pm_served(pg, url, 9)
+            else:
+                drawn(pg, url, view, i + 1)
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [tabindex=\"0\"]').length") > 0, view
+            assert not pg.evaluate(UNREACHED), (view, pg.evaluate(UNREACHED)[:10])
+            rows = pg.evaluate("() => [...document.querySelectorAll('.looprow[data-loop], .looprow.sd-inside')].map((r) => r.tagName)")
+            assert (rows or "open=*" not in view) and set(rows) <= {"BUTTON"}, (view, rows)   # the side panel's loop rows
+        assert not errors, errors
         pg.close()
 
 
@@ -2332,7 +2392,7 @@ def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser,
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.wait_for_timeout(300)
         where = ("(n) => { const r = document.querySelector(`.loop-marker[data-loop=\"${n}\"]`).getBoundingClientRect(); "
                  "return [r.x, r.y]; }")
@@ -2600,7 +2660,7 @@ def test_a_loop_lit_from_its_marker_lets_go_the_way_everything_else_does(browser
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="Fit").or_(pg.get_by_role("button", name="fit")).first.click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.wait_for_timeout(300)
         lit = "() => [S.hlCausal, document.querySelector('svg.canvas').classList.contains('loop-hl'), " \
               "document.querySelectorAll('svg.canvas .loop-marker.on, svg.canvas .node.dim').length]"
@@ -2934,6 +2994,45 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     assert not errors and not asked, (errors, asked)
 
 
+@contextlib.contextmanager
+def off_for(tmp_path: Path, span: float):
+    """CHARTED's page, its record ``span`` seconds long and its loop off nearly all of it, the worker opening
+    every 30s (served; the model is not run)."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / f"off-{int(span)}"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CHARTED)
+    env = {**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}    # (the caller has set it here too)
+    p = Project(mdl.load(d))
+    now = time.time()
+    p.events.add("ergostat.started", source="ergostat", at=now - span)
+    for i in range(int(span // 30)):
+        t = now - span + 5 + i * 30
+        p.measurements.add("sensor/backlog.main", 8 + i * 0.05, at=t)
+        p.measurements.add("sensor/arriving.main", 6, at=t)
+        p.events.add("valve.opened", item="worker", data={"amount": 1, "flow": "finishing"}, at=t)
+    p.events.add("loop.off", item="short-backlog", data={"value": 8}, at=now - span + 6)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    raise AssertionError("the page never answered") from None
+                time.sleep(0.2)
+        yield url
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 RINGED = "() => [...document.querySelectorAll('svg.canvas .node.selected')].map((n) => n.dataset.id)"
 TITLED = "(name) => (document.querySelector('#detail:not([hidden]) h2')?.firstChild?.textContent || '') === name"
 
@@ -3003,6 +3102,51 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+HINTS =("() => [...document.querySelectorAll('details.suggest .hint')].map((e) => [...e.childNodes]"   # (less its Evidence link)
+         ".filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim())")
+LOOP_ENTRY = ("() => [...document.querySelectorAll('.att > div')].map((e) => e.textContent)"
+              ".filter((t) => /^[a-z]+ · loop short-backlog/.test(t))")   # (after its state word)
+CAUSE = re.compile(r"off \d+% of [^:]+: ([^.;]+)")
+
+
+def test_a_suggestion_appears_when_it_has_a_verdict(browser, tmp_path, monkeypatch):
+    """Before ten minutes of record nothing can say why a loop is off: no suggestion, and the goal's entry in
+    Needs attention says when it will be said. After, the suggestion names its goal once, never defers, and
+    says its cause in the same words on /diagram (both drawings) and /agents."""
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    with off_for(tmp_path, 300) as url:                      # 5m of record: no verdict yet
+        for i, view in enumerate(("view=blocks", "view=dynamics")):
+            drawn(pg, url, view, i)
+            pg.wait_for_function(f"() => ({LOOP_ENTRY})().length > 0", timeout=20000)
+            assert pg.evaluate(HINTS) == [], view
+            (entry,) = pg.evaluate(LOOP_ENTRY)
+            assert re.search(r"diagnosis in [45]m$", entry), (view, entry)
+    with off_for(tmp_path, 1200) as url:                     # 20m: a verdict
+        causes = []
+        for i, view in enumerate(("view=blocks", "view=dynamics")):
+            drawn(pg, url, view, i)
+            pg.wait_for_function(f"() => ({HINTS})().length > 0", timeout=20000)
+            hints = pg.evaluate(HINTS)
+            for t in hints:
+                assert "is said after" not in t and "diagnosis in" not in t, t
+                assert t.count("short-backlog") <= 1, t
+            (mine,) = [t for t in hints if "short-backlog" in t]
+            assert CAUSE.search(mine), (view, hints)
+            causes.append(CAUSE.search(mine).group(1))
+            assert not any("diagnosis in" in t for t in pg.evaluate(LOOP_ENTRY)), view
+        pg.goto(f"{url}/agents")
+        pg.wait_for_function("() => document.querySelectorAll('ul.hints li').length > 0", timeout=20000)
+        said = pg.evaluate("() => [...document.querySelectorAll('ul.hints li')].map((e) => e.textContent)")
+        (mine,) = [t for t in said if "short-backlog" in t]
+        assert "is said after" not in mine and mine.count("short-backlog") == 1, mine
+        assert causes == [CAUSE.search(mine).group(1)] * 2, (causes, mine)
+    pg.close()
+    assert not errors, errors
 
 
 def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
@@ -3442,10 +3586,11 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         box = pg.locator('g.node[data-id="flow:regressions"] .hit').first.bounding_box()
         pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve'", timeout=5000)
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve' && "
+                             "document.querySelector('#detail dl')", timeout=5000)   # (filled: it opens at once, then fills)
         text = pg.locator("#detail").inner_text()
         assert "the rate of regressions" in text, text[:600]
         inputs = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')].find((d) => d.textContent === 'inputs');
@@ -3592,6 +3737,88 @@ def test_a_selection_is_model_parts_and_survives_switching_view(browser, tmp_pat
         pg.keyboard.press("Escape")
         pg.wait_for_function("() => S.sel.size === 0", timeout=30000)
         assert pg.evaluate("() => S.sel.size") == 0 and pg.evaluate(LIT) == []
+        assert not errors, errors
+        pg.close()
+
+
+PANEL = "() => document.querySelector('#detail').hidden ? null : document.querySelector('#detail h2')?.textContent"
+
+
+def test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_its_words(browser, tmp_path):
+    """The stock quality chosen with its panel open, then Blocks: within a second of the block diagram being drawn,
+    its output y_quality at the process output has the selection ring and the panel is still open, titled in the
+    block diagram's words, 'output y_quality of P_service'; back in Dynamics, the stock's own panel. A flow's label
+    clicked plainly opens the flow's panel at once, before its numbers come (held back here, as a slow server would),
+    and filled when they do; carried to Blocks it is the actuating signal u_tuner, and a goal's reference, r = 0.93
+    and its summing junction. (The acceptance names the demo at :8793; this is the same model, served fresh.)"""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.set_default_timeout(120000)
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=service", 0)
+        fit(pg)
+
+        def switch(to: str, shape: str) -> None:       # the view's button, waited on until that view is drawn
+            pg.locator(".toolbar .seg button", has_text=to).click()
+            pg.wait_for_function(f"() => S.graph?.kind === {to.lower()!r} && "
+                                 f"document.querySelector('svg.canvas g.node[data-id=\"{shape}\"]')", timeout=DRAWN_S * 1000)
+        y = "document.querySelector('svg.canvas g.node[data-id=\"out:stock.quality\"]')"
+        click_part(pg, "stock:quality")
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality'", timeout=30000)
+        switch("Blocks", "out:stock.quality")
+        pg.wait_for_function(f"() => {y}.classList.contains('selected') && /y/.test(({PANEL})() || '')", timeout=1000)
+        ring = pg.evaluate(f"() => getComputedStyle({y}.querySelector('.hit')).stroke")
+        assert ring == pg.evaluate(ACCENT), ring
+        assert pg.evaluate(PANEL) == "output y_quality of P_service"
+        assert pg.evaluate("() => [...S.sel]") == ["stock.quality"]
+        switch("Dynamics", "stock:quality")
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality'", timeout=5000)
+        # a flow's label, clicked plainly: its panel at once, while its numbers are held back; filled when they come
+        held = []
+        pg.route("**/api/part/flow/**", lambda r: held.append(r))
+        fit(pg)
+        pg.locator('g.node[data-id="flow:quality-steps"] text.sd-name').click()
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality-steps'", timeout=1000)
+        assert pg.evaluate("() => [...S.sel]") == ["flow.quality-steps"] and held
+        for r in held:
+            r.continue_()
+        pg.unroute("**/api/part/flow/**")
+        pg.wait_for_function("() => /rate, over the window/.test(document.querySelector('#detail').textContent)", timeout=30000)
+        assert pg.evaluate(PANEL) == "quality-steps"
+        switch("Blocks", "blk:tuner")
+        pg.wait_for_function(f"() => ({PANEL})() === 'actuating signal u_tuner'", timeout=5000)
+        # the race: the flow's numbers come only after the switch to Blocks; the Dynamics answer, arriving late,
+        # does not paint its valve panel over the Blocks one
+        switch("Dynamics", "flow:quality-steps")
+        held.clear()
+        pg.route("**/api/part/flow/**", lambda r: held.append(r))
+        fit(pg)
+        pg.locator('g.node[data-id="flow:quality-steps"] text.sd-name').click()
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality-steps'", timeout=5000)
+        assert held
+        switch("Blocks", "blk:tuner")
+        pg.wait_for_function(f"() => ({PANEL})() === 'actuating signal u_tuner'", timeout=5000)
+        with pg.expect_response(lambda r: "/api/part/flow/" in r.url):
+            for r in held:
+                r.continue_()
+        pg.unroute("**/api/part/flow/**")
+        pg.wait_for_timeout(500)                       # the late answer handled (it has come; its handler is a tick)
+        assert pg.evaluate(PANEL) == "actuating signal u_tuner"
+        assert pg.evaluate("() => document.querySelector('#detail .kind')?.textContent") != "Valve"
+        # a reference chosen in Blocks, carried to Dynamics (its desired level) and back
+        pg.locator('g.node[data-id="ref:quality-held"]').dispatch_event("click")
+        pg.wait_for_function("() => [...S.sel].join() === 'goal.quality-held.r' && !document.querySelector('#detail').hidden", timeout=5000)
+        switch("Dynamics", "desired:quality-held")
+        pg.wait_for_function(f"() => ({PANEL})() === 'desired quality'", timeout=5000)
+        switch("Blocks", "ref:quality-held")
+        pg.wait_for_function(f"() => ({PANEL})() === 'reference r = 0.93 and its summing junction'", timeout=5000)
+        # a panel closed before the switch stays closed, though its part is still chosen
+        pg.locator("#detail button.close").click()
+        assert pg.evaluate(PANEL) is None and pg.evaluate("() => S.sel.size") == 1
+        switch("Dynamics", "desired:quality-held")
+        pg.wait_for_timeout(500)
+        assert pg.evaluate(PANEL) is None and pg.evaluate(LIT) == ["desired:quality-held"]
         assert not errors, errors
         pg.close()
 
@@ -4563,6 +4790,67 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+NO_UNIT = """() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node')].filter((g) => g.querySelector('.sd-stock'))
+  .map((g) => { const t = g.querySelector('.sd-nounit'), v = g.querySelector('.sd-value');
+    return [g.querySelector('.sd-name').textContent, { value: v ? v.textContent : '', muted: t ? getComputedStyle(t).fill : null }]; }))"""
+
+
+def test_a_stock_with_no_unit_reads_unit_query_after_its_value_and_the_legend_explains_it(browser, tmp_path, monkeypatch):
+    """A missing unit is check's finding (no-unit), drawn on the stock (the dev record missing-unit-is-a-check-finding):
+    its value reads '12 unit ?', the 'unit ?' in the muted tone, a legend row says what it means, a stock with a unit
+    has none; and /api/status's check list (the Check page's) names each unitless stock once."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from tests.test_missing_unit import UNITLESS
+    d = tmp_path / "units"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(UNITLESS)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # the server is given it too
+    p = Project(mdl.load(d))
+    p.measurements.add("sensor/backlog.main", 12.0, at=time.time() - 5)
+    p.measurements.add("sensor/tickets-open.main", 3.0, at=time.time() - 5)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                st = json.loads(urllib.request.urlopen(url + "/api/status", timeout=2).read())
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        said = [c["message"].split(": no unit.")[0].rsplit(" ", 1)[-1] for c in st["check"] if ": no unit." in c["message"]]
+        assert sorted(said) == ["backlog", "done", "parked"], said              # each once
+        pg = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics", 0)
+        pg.wait_for_function("() => [...document.querySelectorAll('svg.canvas .sd-value')].some((t) => t.textContent.startsWith('12'))",
+                             timeout=30000)
+        got = pg.evaluate(NO_UNIT)
+        assert got["backlog"]["value"] == "12 unit ?", got
+        assert got["tickets-open"]["value"] == "3 tickets", got                  # a stock with a unit: none
+        assert got["done"]["value"].endswith(" unit ?") and got["parked"]["value"].endswith(" unit ?"), got
+        muted = pg.evaluate("() => { const t = document.createElementNS('http://www.w3.org/2000/svg', 'text'); "
+                            "t.setAttribute('fill', 'var(--sd-muted)'); document.querySelector('svg.canvas').append(t); "
+                            "const c = getComputedStyle(t).fill; t.remove(); return c; }")
+        assert got["backlog"]["muted"] == muted, (got["backlog"], muted)        # the muted tone, as the legend draws it
+        legend = pg.evaluate("() => sdLegend().textContent")
+        assert "unit ?: the stock's value has no unit" in legend, legend
+        pg.goto(f"{url}/model", timeout=DRAWN_S * 1000)                         # the Model page's Tools table lists them
+        row = pg.locator("table.avail tr", has_text="units").first
+        row.wait_for(timeout=60000)
+        assert row.locator(".no-unit a").all_inner_texts() == ["backlog", "done", "parked"], row.inner_text()
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def open_all(pg) -> str:
     """The ⋯ menu's Open all, clicked: its label as it read."""
     pg.get_by_title("More: wrap, open or close every system, unpin").click()
@@ -4878,6 +5166,92 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
                 assert all(re.fullmatch(r"[a-z]+ · ", w) for w in g["words"]), g
         pg.close()
         assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+# the header's link: its text, its box, and whether it is the header's first element
+WAITS_LINK = """() => { const a = [...document.querySelectorAll('header a')].find((x) => /wait/.test(x.textContent));
+  if (!a || a.hidden) return null;
+  const r = a.getBoundingClientRect(), box = (x) => x.getBoundingClientRect();
+  const first = [...document.querySelectorAll('header *')].filter((x) => !x.children.length && box(x).width > 0)
+    .sort((p, q) => box(p).top - box(q).top || box(p).left - box(q).left)[0];
+  return { text: a.textContent.trim(), bottom: r.bottom + scrollY, first: first === a }; }"""
+WAITING_HEAD = """() => { const hd = document.getElementById('waiting'); if (!hd) return null;
+  const r = hd.getBoundingClientRect();
+  return { text: hd.textContent, top: r.top, bottom: r.bottom, height: r.height, inner: innerHeight,
+           focused: document.activeElement === hd, active: document.activeElement?.outerHTML.slice(0, 80) }; }"""
+WAITING_SHOWN = f"""() => {{ const w = ({WAITING_HEAD})();
+  return !!w && /^Waiting for you/.test(w.text) && w.top >= 0 && w.bottom <= w.inner && w.height > 0 && w.focused; }}"""
+
+
+def waiting_shown(pg, what) -> None:
+    try:
+        pg.wait_for_function(WAITING_SHOWN, timeout=60000)
+    except Exception:
+        raise AssertionError((what, pg.url, pg.evaluate(WAITING_HEAD))) from None
+
+
+def test_what_waits_for_you_is_one_step_from_every_page(browser, tmp_path, monkeypatch):
+    """Design review Q43: beside the loops count the header says 'N wait for you', in the first 200 px of /items,
+    /agents, /loops and /record at 1440 and 390 px (at 390 the header's first thing); following it shows the Diagram's
+    'Waiting for you' heading, focused, inside the viewport. N is the side list's own count of that group."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "waits"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(GROUPED.replace("goals:\n", "  archiving:\n    from: backlog\ngoals:\n").replace(
+        "uses:\n", "  approver:\n    type: person\n    ask: approve the plan\n    goal: short-backlog\n"
+                   "    out: flow.archiving\nuses:\n"))                     # a second person block
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    p.measurements.add("sensor/backlog.main", 9, at=now - 30)                    # a goal off: not waiting on a person
+    for who, ask in (("reviewer", "review the backlog"), ("approver", "approve the plan")):   # two asks: "2 wait for you"
+        p.events.add("person.asked", item=who, source="ergostat", data={"command": 2, "ask": ask})
+    from ergostat.numbers import requests as rq
+    rq.event(p, rq.rid("check", "flow-unmeasured", "flow.x"), "held", {"code": "flow-unmeasured", "about": "flow.x",
+                                                                       "source": "check", "tier": "ai", "why": "used"})
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        for width, height in ((1440, 900), (390, 844)):
+            pg = browser.new_page(viewport={"width": width, "height": height})
+            errors: list[str] = []
+            pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
+            for path in ("items", "agents", "loops", "record"):
+                pg.goto(f"{url}/{path}")
+                pg.wait_for_function(WAITS_LINK, timeout=30000)
+                got = pg.evaluate(WAITS_LINK)
+                assert got["text"] == "2 wait for you", (width, path, got)
+                assert got["bottom"] <= 200, (width, path, got)
+                if width < 700:
+                    assert got["first"], (width, path, got)            # on a phone, the header's first thing
+                pg.locator("header a", has_text="wait for you").click()
+                waiting_shown(pg, (width, path))
+                assert pg.evaluate("location.pathname") == "/diagram", path
+                head = pg.locator("#waiting").inner_text()
+                assert re.sub(r"\s+", " ", head).strip() == "Waiting for you 2", head   # the side list's own count
+            pg.goto("about:blank")
+            pg.goto(f"{url}/diagram#waiting")                          # the address itself, loaded afresh
+            waiting_shown(pg, (width, "loaded"))
+            pg.evaluate("() => { document.activeElement.blur(); document.querySelector('main').scrollTop = 0; scrollTo(0, 0); "
+                        "history.replaceState(null, '', '/diagram'); }")
+            pg.evaluate("() => { location.hash = 'waiting'; }")         # and asked for on the Diagram itself
+            waiting_shown(pg, (width, "hash"))
+            pg.close()
+            assert not errors, errors
     finally:
         proc.terminate()
         proc.wait(10)

@@ -1620,8 +1620,15 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
-the window, 400 more reached by relations (six links away at most), 300 cards and 200 rows drawn; a note says when
-any was reached. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
+the window, 400 more reached by relations (six links away at most), 600 cards and 200 rows drawn; a note says when
+any was reached. Both draw the items of the kinds asked; another kind's item only when one of them waits on it
+(a precedence relation, however far back) or as the parent of one drawn, so a record that only names an item (a
+review of a gap) is in the answer, for the counts, but not drawn. Past its 600 cards the Graph keeps whole connected
+groups (precedence links only; `web/graph_parts.py`), each with its parents, in order of the best status each holds
+(active, then queued, then unblocked, …); the first group that does not fit whole is cut inside, its most active
+items kept, and the groups after it are left out. Only that cut, and a parent drawn for its child while its own
+group is left out, can leave a dependency line half drawn; its note says how many items and dependency lines are
+not drawn, those included. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
 is read by id and its own status counts (one that cannot be read counts as unfinished, and is named). In a snapshot
 they are not drawn.
 
@@ -1778,6 +1785,29 @@ each item's latest matching move is a column. The API answers the set alone, new
 latest move), at most 500 a page (`n`, `offset`), with `total` (and `moves`); `alone=1` leaves out the page's
 kinds and counts. A filter that is not one (an unknown state, `where` without a `:`) is a 400 that says why.
 Sets are read from the item index: a state's items counted and paged there, a span's moves read there alone.
+
+**What a kind touches, and an item's path.** `GET /api/kinds/K` (`spec/footprint.py`, 404 for a kind the model does
+not have) says what a kind touches in the model:
+
+| Field | What it holds |
+|---|---|
+| `definition` | its title, description, id pattern, states (each `first`, `finished`, `paused`, `final`, and `ergostat` for `leased` and `dead`), `finished_by` (`declared`, `inferred` or `none`: the one rule of `spec/finished.py`, as the Items listing gives it; the model alone knows only what is declared, so an inferred answer is filled by the request from the states its items have left), `on`, `show`, `fold`, its relations and `named_by` (other kinds' relations naming it), `join`, its `lease` terms, `about`, its system and why |
+| `counted_in` | each stock, auxiliary and flow whose sensor counts the kind: its states (none: every state) or the state it counts entering or leaving, `where`, `measure`, its system; several sensors on one state are each listed |
+| `taken_by` | each block that takes it: `at`, `to`, `where`, `unblocked`, `order`, `pool`, `attempts` and `ttl` (its lease terms as they resolve), `out` (its flows), agent and rung, `only_some` and `says` (a `where` or `unblocked` takes only some items), and `taken`: how many it has taken now, a lease holder in whatever state its run moved the item to |
+| `goals` | those blocks' goals and the goals on the parts counting it, with `hold`, why each is here, and `status` (holding or off) |
+| `loops` | the feedback loops (§12a) through any of those parts: name, R or B, its parts and `through` (those of them) |
+| `uncounted` | the states no sensor counts |
+| `now` | its items' count per state |
+| `why` | only when nothing counts it and nothing takes it: it touches nothing |
+
+What it touches is read from the model alone, worked out once per model version; `now`, `taken` and `status` are as
+of the request (the item index's counts, and the goals' status). `GET /api/items/ID` gains `path`: its moves as
+ordered steps `{state, stock, flow, block, run, attempts, how, ended, goal, entered, left}`. `leased` is not a step:
+the block that took the item from a state (`how: taken from here`, `ended`: ack, nack or expired) or had taken it
+while it was there (`taken while here`), its run and that run's attempt (counted ends add one, an ack starts again) are the step's. A nack or
+rework is a repeated step; a state nothing counts has `says`. The k-th move into `leased` is matched to the k-th
+lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
+answer.
 
 ## 5b. The Process view: how the items really moved
 
@@ -1974,13 +2004,13 @@ flows:
 | `daemon` | map, or a name under `daemons:` | | Read by a long-lived process (section 9.7): each reading asked as a line on its schedule, no process started per reading; several sensors may name one daemon |
 | `push` | bool | false | With `daemon`: the daemon sends its readings by itself (`{"reading": V, "sensor": "STOCK.SENSOR"}`); none is asked for |
 | `manual` | bool | | Readings recorded by a person (`ergostat sensor STOCK.SENSOR --read V`, recorded at the present time). `--read` with `--at` is refused (exit 2, nothing written): `--at` views the past and records nothing |
-| `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over` |
+| `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over`; on an auxiliary that names `entering` or `leaving`, how many moved over `over` (a count, not a rate: `fixes-regressed-recent`, section 12r) |
 | `state` | state or list | any | On a stock: which states count |
 | `measure` | `count`, `oldest` or `age` | `count` | On a stock: how many; the hours the oldest of them has been in its state; or the hours since the oldest of them was first seen, whatever states it passed through (an item taken, given back and taken again keeps its age: a commitment's clock) |
-| `entering`, `leaving` | state | | On a flow: exactly one; the move it counts |
+| `entering`, `leaving` | state | | On a flow (or an auxiliary): exactly one; the move it counts |
 | `sum` | field | | On a flow's `items`: the rate per hour of this field summed over the items moving (a number; else 0), not how many moved. `model-mended` sums each written change's `fit_gained`, what Accept measured it took off the error |
 | `changes` | `rises`, `falls`, `net` or `rest` | | On a flow into or out of one stock: its rate from that stock's own successive readings, how much they rose (an inflow), fell (an outflow), or both, net, in the flow's direction (a `two-way` flow), per hour over `over`; `rest` (two-way, one a stock): the net change less what the stock's other measured flows moved, each at its last reading (the residual flow). Every rise or fall is whatever caused it: a flow so measured that is drawn as caused by another flow is the finding `measured-not-caused` |
-| `over` | duration | `1h` | On a flow: the window the rate is taken over |
+| `over` | duration | `1h` | On a flow: the window the rate is taken over; on an auxiliary, the window the moves are counted over |
 | `builtin` | `ergostat.model.fit`, `.unexplained`, `.unidentified-loops` or `.open-findings`; `ergostat.upkeep.*` (`index-files`, `retired-index-files`, `heartbeat-age`, `stalls`, `restarts`) | | On a stock or an auxiliary: one of ergostat's built-in measures of the model's own quality (section 12e) or of its own upkeep (section 2a, *Upkeep*), read by ergostat itself (`ergostat measure ergostat.model.fit`, in a process of its own; `timeout` 2m by default) |
 | `averages` | duration | none | On a flow's `run`, `query` or `manual` sensor: its reading is the average rate over this window before it (a count of the last ten minutes, per hour: `averages: 10m`). The model's rate is read through the same window before it is compared (section 12b) |
 | `where` | map of field → value (or list) | | Only items whose fields match; a field's field is named with a dot (`lease.back: triage`: the items whose lease was taken at `triage`, section 9.5). Values compare as typed JSON: a number matches a number (`1` matches `1.0`), a string a string, a boolean a boolean, `null` a field that is null or missing, so `priority: 1` never matches the text `"1"` (write it quoted when the field holds text). *Decided* (2026-11-18): before, both sides were compared as text, so `1` missed a field holding `1.0`; `check` notes each bare number or boolean in a `where:` (**where-typed**) since its meaning changed. The same holds for a block's `takes: where:` |
@@ -3646,7 +3676,7 @@ where the error is 0.
 - an `exogenous` auxiliary that is also `driven-by` something;
 - an item kind whose `id` has no `/`, an `on` naming a state not in `states`, or a sensor counting
   a kind or state that does not exist (or `state`/`measure` on a flow, `entering`/`leaving`/`over`
-  on a stock);
+  on a stock, `over` on an auxiliary that names neither `entering` nor `leaving`);
 - two blocks outputting to the same flow;
 - a `run`, `prompt` or `ask` on an external block, or a built-in block with an `agent`;
 - a block whose agent cannot run its type (an `ai` block on an agent of kind `person`);
@@ -3712,7 +3742,12 @@ them for someone new to system dynamics):
   an auxiliary driven by it): with the stock empty it would still run and take it below zero (the
   extreme-conditions test). Drive it from the stock as well;
 - **auxiliary-without-causes**: an auxiliary nothing drives, nothing sets and not `exogenous`: the
-  model cannot say why it changes. Name its causes, or mark it `exogenous: true`.
+  model cannot say why it changes. Name its causes, or mark it `exogenous: true`;
+- **no-unit**: a stock with no unit (a template's parts left out), with its file and line. A property of the model,
+  not a request: the modelling loop raises none for it (§12e), so `requests-handled` never counts it; its fixer, when
+  it runs, reads it from check and proposes the unit it can infer, as a change. The judge and the redesign scorecard
+  count it as a craft note (`requests.as_note`): a change that adds a stock with no unit makes no new finding. The Dynamics view writes `unit ?`,
+  muted, after the stock's value, with a legend row; the Model page's Tools table names each such stock.
 - **extreme-conditions**: the behaviour test of extreme conditions (section 12c): the equations run
   with the stocks empty, with nothing coming in, with each input alone at 0 and at a hundred times its
   largest, and with each estimated, timed or ranged parameter alone at its extremes, and a stock
@@ -3726,7 +3761,6 @@ leaves them out), and the modelling loop takes each up as a request (§12e). Par
 change only through the use's `with:`):
 
 - **no-description**: a stock, flow, auxiliary, parameter, goal, block, item kind or agent with no description;
-- **no-unit**: a stock with no unit;
 - **no-equation**: a flow between two stocks with no equation (nor a declared rate): replayed, never projected;
 - **collector-undescribed**: a sensor that reads the outside (`run:`, `query:`) with no description (the Blocks view
   titles the collector with its command);
@@ -4485,7 +4519,11 @@ amplitude past the tolerance), with its period and amplitude; the share of time 
 setting at the end of its block's `limits:`, or a valve's openings at its most); and, each time the
 loop went off and came back to stay, how long it took to **settle**, and for a level held (==) how
 far it **overshot** to the other side. Shown under the scope, and in a word on the Loops page (which
-says what it lacks, "needs θ" or "too little record", rather than nothing).
+says what it lacks, "needs θ" or "too little record", rather than nothing). The page asks for every goal's word
+in one answer (`/api/loops?perf=1`, with each stock's points for its trend): the server works each goal out in the
+background, one at a time within 2 s a pass, again after 5 minutes (`web/goal_work.py`), and a goal not worked out
+yet says "being worked out". The moment asked for most recently is worked out first; a moment (or the live view) not
+asked for in 30 s is no longer worked out, and at most 4 moments are wanted at once.
 
 **Tuning** (`tuning.py`; Skogestad's SIMC, 2003): for a controller whose law its block writes and the
 process the model holds: PI, Kc = τ/(K(τc + θ)), τI = min(τ, 4(τc + θ)); on an integrator, Kc =
@@ -6959,16 +6997,24 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 
 | Part | What |
 |---|---|
-| stocks | `open-failures`, `fixing` (leased), `awaiting-approval`, `applied-fixes` (cumulative) |
-| flows | `failures-found`, `fixes-started`, `fixes-proposed`, `fixes-failed` (rework), `fixes-applied`, `fixes-dismissed` |
-| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver: the person, or the AI) |
-| action | `apply-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
+| stocks | `open-failures`, `fixing` (leased), `awaiting-approval`, `applied-fixes`, `regressed-fixes` (waiting for their revert) |
+| auxiliaries | `repair-spend`, `fixes-regressed-recent` (the failures entering `regressed` over the last 14 days, a count) |
+| flows | `failures-found`, `fixes-started`, `fixes-proposed`, `fixes-failed` (rework), `fixes-applied`, `fixes-verified`, `fixes-regressed`, `fixes-reverted`, `fixes-dismissed` |
+| goals | `no-open-failures` (`repair-fix`), `fixes-answered` (`repair-settle`, and the approver: the person, or the AI), `fixes-hold` (`fixes-regressed-recent` `<= 0`, `tolerance: 0`, `on-stale: off`; read by `repair-settle`, which asks each regressed fix's revert) |
+| actions | `apply-fix`, `revert-fix` (`gate: approve` or `deny`; `auto` is not offered: approval is the ladder's) |
+
+**`fixes-hold`: no fix regressed in the last 14 days.** It is on the window, not on the stock `regressed-fixes`: a
+denied `revert-fix` leaves its failure `regressed` for good (above), so a goal on the stock would stay off for good
+and stop saying anything. A regressed fix turns `fixes-hold` off once its sensor reads the regression; it holds again
+once 14 days pass with no new regression, its revert denied or still unanswered. A reading that goes stale counts
+as off. To count the window, an `items` sensor on an auxiliary may name `entering:` (or `leaving:`) and `over:`
+(section 6): its reading is how many moved over the window, not a rate.
 
 ## 12s. Compute systems: machines that run what this engine decides
 
 A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
 and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
-the protocol: the worker, its frame, `hello`, `beat` and `ping`. Nothing in the engine speaks to it yet, and no
+the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper with its output sent by offset (12s.3). Nothing in the engine speaks to it yet, and no
 model says `compute:` or `runs-on:` yet; a model is unchanged by any of this.
 
 **The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
@@ -7008,7 +7054,8 @@ A frame with an unknown `type` is answered `error` and the worker goes on, as it
 | `labels` | the root's `labels.json`, an object of strings (what the owner says the node has); missing, `{}`; unreadable or of another shape, `{}`, said on standard error |
 | `slots` | the most runs it takes at once: its CPUs, at most 64; CPUs unknown, 0 |
 
-Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs` (`{}` until runs exist).
+Then a `beat` every 10 seconds: `free` (slots free), `disk` (as in `hello`) and `runs`, each run whose output it
+follows with the offsets the engine has taken, `{"RUN": {"out": N, "err": N}}` (`{}` with none; section 12s.3).
 `ping` is answered `pong` with its `id`. Every other type is a table, `serve.HANDLERS`, of message type to handler:
 each later part of the protocol is one module of the folder and one line registering it there. Standard input
 closed, the worker ends (0).
@@ -7023,8 +7070,92 @@ closed, the worker ends (0).
 
 ### 12s.3 A run on a node: start, limits, output and its keeper
 
-(To be filled: `start`, `started`, `refused`, the process backend and its limits, `out` by offset, `ended`, the
-run folders and the per-run keeper.)
+Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`), and the
+run's output by offset with `attach`, `ack`, `ended` and `done` (`output.py`), both registered in `serve.HANDLERS` once
+`hello` is said. Still to come: the keeper's wall and lease deadlines, `ended`'s `resources`, and the runs listed
+in `hello` (`backends` stays `[]` until then).
+
+**`start`** `{"run", "command", "input", "env", "block", "limits"}`: `command` a non-empty string, `input` (the
+run's standard input) a string, `env` an object of strings, else an `error`. It is answered `refused` with `why`:
+
+- `bad name`: `run` is not exactly 32 lower-case hex digits, or a run of that id has a folder here already (never
+  made again over it);
+- `limits over the node`: a limit other than `cpus`, `memory` (bytes), `pids`, `wall` (seconds) and `log` (bytes),
+  or one not a positive number within the node (`cpus` and `memory` at most what `hello` said, and over when that
+  was null; `pids` at most 32768; `wall` at most a day; `log` at most 1 GiB). `network` is refused on this backend
+  rather than pretended;
+- `full`: as many runs going as `slots` (a run folder with no `exit` yet counts as going), counted and the folder
+  made under one lock (`runs/.lock`), so two workers on one root can't both take the last slot;
+- `no keeper`: the folder's files could not be written or the keeper could not be started; the folder is removed.
+
+Each refusal makes no folder and no process. Else the worker makes `runs/RUN/` in the root with `run.json` (the
+run id, block, backend `process`, command, env and limits), `in` and an empty `cwd/`, starts the keeper
+(`python3 -I WORKER --keep RUN --root ROOT`, the same folder or zipapp, in a session of its own, standard input
+from `/dev/null`, its output to `runs/RUN/keeper.log`, SIGHUP ignored), and answers `started` with `run` and
+`keeper` (its pid). The worker reaps its keepers; nothing ties a keeper to the worker, so closing the worker's
+standard input, or killing its session, leaves every run going.
+
+**The keeper** forks the run. The child takes its own process group (the keeper sets it too, so a stop never
+precedes it), writes `runs/RUN/pgid` before anything else, sets `RLIMIT_AS` to `memory`, `RLIMIT_NPROC` to `pids`
+and `RLIMIT_CPU` to `cpus × wall` (rounded up) when given, and on Linux `PR_SET_PDEATHSIG = SIGKILL` (by `ctypes`;
+the run is not started if that fails or the keeper has already gone) and `oom_score_adj` 500 (best effort: it
+orders the OOM killer's choice, run before keeper). It sets `SIGPIPE`, `SIGXFSZ` and `SIGHUP` back to their
+default (Python and the keeper ignore them, and an ignored signal stays ignored across exec, so `yes | head` would
+not end on its broken pipe). It then execs `/bin/sh -c COMMAND` in `cwd/` with the keeper's
+environment and `env` over it, standard input from `in`, output to `out` and `err`. The keeper waits for it and
+writes `runs/RUN/exit` (whole, by a replace) as `{"code", "how"}`: the exit code, or `-N` for signal N, and `how`,
+`exit` or the signal's name (`USR1`), or `TERM`/`KILL` when it was stopped; `{"code": null, "how": "not started"}`
+when it could not fork. A keeper that is itself killed writes nothing: on Linux the kernel then SIGKILLs the run's
+first process (the death signal), but other processes of its group go on.
+
+**`kill`** `{"run", "grace", "why"}` (`grace` 0 to 600 seconds, 10 by default, else an `error`) writes
+`runs/RUN/stop` and is answered `stopping`, or `refused` `no such run`. The keeper looks for the stop file every
+quarter second; seeing it while the run goes, it sends SIGTERM to the run's whole group, then SIGKILL to the group
+once the grace has passed if any of it is left (`how` is then `KILL`, else `TERM`). A stop file that can't be
+read stops the run all the same, with the 10-second grace.
+
+After the exit is written the keeper waits for `runs/RUN/done` or a day (`--day SECONDS`, hidden, for tests),
+removes its run folder (by its name, after resolving it under the root's `runs/`), and ends.
+
+**The output, by offset** (`output.py`). One follower thread, whatever the number of runs, follows each run started
+in this session (from offset 0, once it is `started`) and each run attached, and sends what is new in its `out` and
+`err` files as `out` `{"run", "stream", "offset", "text"}`: `stream` is `out` or `err`, `offset` the byte offset in
+that file of the frame's first byte, so each byte is in exactly one frame of a pass and frames of a stream follow one
+another by offset (never by time: the engine's side, still to come, drops what is below what it has taken). A frame carries at most 64 KiB:
+the whole lines of what it read, split at the last line end; a line longer than 64 KiB goes in pieces of exactly
+64 KiB, and a part line is otherwise held back until the run has ended, when it is sent as it is. `text` is the
+bytes as UTF-8, any byte that is not (a character cut at a split included) as a lone surrogate escape (`\udcXX`,
+Python's `surrogateescape`), so `text.encode("utf-8", "surrogateescape")` gives back the bytes exactly and a split
+line rejoins by offset. Its files are looked at again soon after output and at most every 50 ms when there is none.
+
+- **`attach`** `{"run", "out", "err"}` (byte offsets, integers from 0, else an `error`) follows the run from
+  there, in this session or a later one, resending what it has already sent; it is the engine's taken offsets, so
+  they count as acknowledged. Answered only when `refused`: `no such run` (no folder or no readable `run.json`
+  here) or `offset past the output` (beyond what the file holds). A worker started again sends nothing for a run
+  until it is attached.
+- **Flow control.** The engine says what it has taken with `ack` `{"run", "out", "err"}` (byte offsets, else an
+  `error`; answered only when `refused` `no such run`, a run not followed); an offset below one already taken, or
+  past what was sent, counts for nothing. The worker's `beat` says each followed run's taken offsets, from its last
+  `attach` or `ack`. Over all runs, at most 4 MiB is sent and not taken: the follower reads another chunk
+  only while 64 KiB of that is free, so a stalled engine stalls the node's output, never its memory (the test
+  measures the worker's RSS within 12 MiB of its start while 24 MiB goes through; it measured 21 MiB throughout). A run that ended with more unsent waits for room, its
+  `ended` with it.
+- **`limits.log`** (64 MiB when not given) caps each of the two files: a file past it while the run goes has the
+  worker write the run's `stop` (`{"grace": 1, "why": "log over its cap"}`, unless a stop is there already), so the
+  keeper stops it as for a `kill`. Nothing past the cap is sent; what the run wrote meanwhile stays in the file.
+- **`ended`** `{"run", "code", "how"}` is sent once the run's `exit` is written and every byte of both files up to
+  it (or its cap) has been sent: after the run's last `out`. `code` and `how` are the exit's, `how` being `log
+  over its cap` when the worker's cap stop ended it (TERM or KILL). The exit is looked at before the files' sizes,
+  so nothing written before it is missed, and each file's size the first time the follower sees the exit is where
+  its output ends: what a process left behind writes after that is never sent (the test leaves a loop writing),
+  and does not hold back `ended`. An unreadable exit is waited for, never read as an end. A run attached again
+  sends `ended` again after its resend (its end sizes taken when that follower first sees the exit).
+- **A file that can't be followed** (`out` or `err` unreadable, or the cap's `stop` not writable: a run may
+  `chmod 0 ../out`) is said once as `error` `{"id": null, "run", "stream", "why"}` and tried again each pass; the
+  run's `ended` waits for it, and every other run, the beats and the session go on. Only a failed send (the
+  session gone) stops the follower.
+- **`done`** `{"run"}` writes `runs/RUN/done` and stops following the run, unanswered (`refused` `no such run`
+  when it has no folder); the keeper then removes the folder.
 
 ### 12s.4 Pools in the model, and the engine's connection
 

@@ -474,6 +474,43 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     pg.close()
 
 
+def test_the_record_folds_runs_of_identical_events(browser, site):
+    """The Record folds consecutive events of the same type, source, item and data into one row, '×N' with the first
+    and last time; clicking it lists them. A different value, or another event between, starts a new row."""
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+for t, src, v in [("ticker.set", "teammate", 0)] * 6 + [("ticker.set", "teammate", 1), ("ticker.commanded", "fixer", 0)] \\
+        + [("ticker.set", "teammate", 0)] * 3:
+    p.events.add(t, source=src, data={{"value": v}})
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/record?type=ticker.*")
+    pg.wait_for_selector("#main .table-wrap tr td")
+    rows = pg.locator("#main .table-wrap tr").evaluate_all("""trs => trs.slice(1).map((tr) => {
+        const td = tr.querySelectorAll('td');
+        return { type: td[1].querySelector('a').textContent, all: td[1].textContent, when: td[0].textContent,
+                 source: td[3].textContent, data: td[4].textContent }; })""")
+    assert [(r["type"], r["source"], r["data"], r["all"]) for r in rows] == [
+        ("ticker.set", "teammate", '{"value":0}', "ticker.set ×3"), ("ticker.commanded", "fixer", '{"value":0}', "ticker.commanded"),
+        ("ticker.set", "teammate", '{"value":1}', "ticker.set"), ("ticker.set", "teammate", '{"value":0}', "ticker.set ×6")], rows
+    for a, b in zip(rows, rows[1:], strict=False):                    # the acceptance: no two adjacent rows identical
+        assert (a["type"], a["source"], a["data"]) != (b["type"], b["source"], b["data"]), (a, b)
+    assert "–" in rows[0]["when"] and "–" not in rows[1]["when"]       # a run shows its first and last time
+    pg.locator("#main .table-wrap tr", has_text="×6").locator("a", has_text="ticker.set").click()
+    pg.wait_for_selector("#detail:not([hidden]) .table-wrap tr td")
+    listed = pg.locator("#detail .table-wrap tr").evaluate_all("trs => trs.slice(1).map((tr) => tr.querySelectorAll('td')[1].textContent)")
+    assert listed == ["ticker.set"] * 6, listed
+    assert not errors, errors
+    pg.close()
+
+
 def add_record(*events) -> None:
     """Events with their source and time, (type, item, source, data, at), added to the running site's record."""
     code = f"""
@@ -764,6 +801,42 @@ def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadm
     rel = pg.locator("table.relations").inner_text()
     assert "blocked by" in rel and "ticket/e2-build-api" in rel and "blocks" in rel and "ticket/e2-release" in rel, rel
     assert "Waiting on" in pg.locator(".page").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
+RG_MODEL = """([d, o]) => { const m = rgModel(d, o);
+  return { nodes: m.nodes.map((n) => n.id), edges: m.edges.filter((e) => e.cls === 'dep' || e.cls === 'via').map((e) => [e.from, e.to]),
+           capped: m.capped, lost: m.lost }; }"""
+
+
+def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadmap):
+    """The page's own rgModel on an answer of the factory's shape (tests/test_graph_parts.py): every unfinished gap
+    and every line into one drawn, no review; past the bound (a chained record, one group bigger than the bound, an
+    epic over more than the bound), exactly what the unit tests' rule draws, and every line left out counted."""
+    from ergostat.web import graph_parts
+    from tests.test_graph_parts import drawn as rule
+    from tests.test_graph_parts import epic_answer, factory_answer, fan_answer, unreported
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    ans = graph_parts.mark(factory_answer())
+    by = {x["id"]: x for x in ans["items"]}
+    into = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["status"] != "done"}
+    unfinished = {a for a, x in by.items() if x["kind"] == "gap" and x["status"] != "done"}
+    o = {"frontier": True, "collapse": False, "group": "parent", "q": "", "status": None}
+    got = pg.evaluate(RG_MODEL, [ans, o])
+    assert not got["capped"] and got["lost"] == 0, got["capped"]
+    assert unfinished <= set(got["nodes"]) and not any(a.startswith("review/") for a in got["nodes"])
+    assert {tuple(e) for e in got["edges"]} == into and len(into) == 340
+    got = pg.evaluate(RG_MODEL, [ans, {**o, "collapse": True}])                  # the finished collapsed: theirs go
+    assert set(got["nodes"]) == unfinished
+    assert {tuple(e) for e in got["edges"]} == {(a, b) for a, b in into if a in unfinished}
+    for big in (factory_answer(n_open=1200, seed=11), fan_answer(), epic_answer()):   # past the bound
+        big = graph_parts.mark(big)
+        got = pg.evaluate(RG_MODEL, [big, o])
+        scope, keep, lost = rule(big)                                        # the rule, as the unit tests hold it
+        assert got["capped"] == len(scope) > 600 and set(got["nodes"]) == keep and got["lost"] == lost
+        assert unreported(big, scope, keep, got["lost"]) == 0                   # each line left out, counted
+        assert not any(a.startswith("gap/p") for a in keep)                     # never paused work before active
     assert not errors, errors
     pg.close()
 
