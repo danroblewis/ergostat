@@ -127,3 +127,14 @@ Left for later gaps (not this one's): the keeper's wall and lease deadlines (com
 otherwise it removes the folder after a day); `ended` and `out`; the runs listed in `hello` and `beat`.
 
 Overrun reason: keeper.py has 212 lines with its docstrings and blank lines (186 not blank), plus 5 in serve.py and __main__.py, against a 180-line budget; the extra lines are the fail-closed checks the review lessons ask for (the slot count and folder made under one lock, the allowlisted limits, the path resolved under the root before removal, the exit written whole), not features beyond the definition.
+
+## Where it stopped
+
+Round 1, sent back: "`ergostat check` said nothing readable on the branch". I could not reproduce this, and no model
+change follows from it. The branch changes no model file (only `ergostat/compute/worker/`, its test, docs/SPEC.md and
+this record). At 64d43e08, `tests/test_code_health_measures.py::test_check_on_the_root_model_reports_no_errors`
+passed. That test runs `ergostat check --json --no-coherence` the way `[suites] check` does (stderr in the same log)
+and reads it with `fac.findings`, which found it readable, with no errors. The factory's own `*-branch-check.txt` log
+would show why that run printed nothing readable. This clone does not have it. The run fell around the Docker
+daemon restart noted above, so a container or slot failure is the likely cause. Not run: `uv run ergostat check` as a
+direct command (refused in this session).
