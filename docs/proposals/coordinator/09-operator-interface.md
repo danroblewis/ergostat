@@ -6,7 +6,7 @@ and protection of [08-modes-and-protection.md](08-modes-and-protection.md), with
 [06-observer.md](06-observer.md) §6 (the owner's estimate). Parity 2.4 (absorbing disruptions), 2.9 (allocating
 attention), 2.11 (translating both ways) and 2.16 (reporting truthfully) land here. **No new page or panel**: everything
 below is placed on ergostat's existing surfaces, the two diagrams (Dynamics and Blocks), the system boxes, the
-Loops page, the Items pages, the Model page's review queue, and messages.
+Goals page, the Items pages, the Model page's review queue, and messages.
 
 ## 1. Which of the owner's roles this is
 
@@ -31,7 +31,7 @@ uncertain, bad); analogue values shown against their targets, not as bare number
 |---|---|---|---|
 | 1 Overview | the whole area at a glance; is anything abnormal? | the **Blocks view with every system closed**: the system boxes as the control panel (SPEC §4a) | CV1 to CV8 against their setpoints with trend; the operating state and the owner's presence; blockers open against S5; standing alarms; bypasses active |
 | 2 Unit | one unit's loops and states | a **system box opened in place**; the **Dynamics view** of its sector | the dispatch pool with its leases; the quality cascade; the owner's queue by class; the dead-letter stock |
-| 3 Detail | one loop, one item | the **Loops page** entry; a goal's causes strip; an **Items page** and an **item's page** | one loop's performance; one run: its lease, brief, report, verdicts; one held act with its risk reading |
+| 3 Detail | one goal, one item | the **Goals page** entry; a goal's causes strip; an **Items page** and an **item's page** | one loop's performance; one run: its lease, brief, report, verdicts; one held act with its risk reading |
 | 4 Diagnosis | why | an item's **field history** and events; a run's transcript; identification and validation results; the **Model page's review queue** | the record behind a verdict, a trip, a change request |
 
 ```mermaid
@@ -48,7 +48,7 @@ flowchart TB
         V2["a system box opened in place;<br/>the Dynamics view of its sector"]
     end
     subgraph L3D["Level 3: one loop or one item"]
-        V3["the Loops page entry; a goal's causes strip;<br/>an Items page and an item's page"]
+        V3["the Goals page entry; a goal's causes strip;<br/>an Items page and an item's page"]
     end
     subgraph L4D["Level 4: diagnosis"]
         V4["an item's field history and events;<br/>a run's transcript; identification and<br/>validation results; the Model page's review queue"]

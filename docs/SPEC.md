@@ -954,6 +954,16 @@ first). A local block may not output to a remote part (**remote-output**, an err
 changed there. A reference the remote no longer serves is a finding, never a refused model
 (**remote-reference-unresolved**): a stand-in with no sensor takes its place until it resolves again.
 
+**Its parts are data here.** A remote's stocks are **given**: the replay takes each as read and never integrates
+it (`given` in the run, with the note *stock.X is remote NAME's: taken as read, never integrated here*), and the
+projection, open or closed loop, carries it as one of its inputs, held where it was or carried on along its trend,
+as every input is; a local flow from or to it still moves the local stock. Left out of what the local record is held
+to: the fit's total and its stocks (the fit lists the remote's under `remote`, so the model's own error is not moved
+by the remote's dynamics), the residuals, what the record has not exercised (**not-exercised**), the account of a
+stock's change and the loops' attention. The remote's flows keep their equations, worked out from its stocks as
+read; the estimate (which still integrates its stocks, asked for by name, to fit its parameters) and the equation
+finder use them for the texts written for its owner (*Proposals for its owner*, below).
+
 **Kept current.** The remote's model is cached in `<state>/remotes/NAME/model.json`, with its version, and
 how it last answered in `status.json`. The running ergostat and the page ask again every `every`
 (conditionally: an unchanged model is a 304), and at once when a reading says its version moved; a new
@@ -1545,9 +1555,20 @@ and MCP's `record_event` say at once when a patch they recorded changed nothing.
 the operation (with its rule, or `patch` or `set`), the path, and the value before and after. A
 change deeper in a field (`/comments/3`) is that field's. The item's `fields` is the folded
 document as it stands, so whatever reads fields reads them as before; its history is beside it
-(`ergostat item ID --history [FIELD]`; the item's page, where each field shows its value and a
-history disclosure, each change linked to its event; `/api/items/ID`, each field's latest 100
-changes and how many there were, all with `history=all`). An item can be read as it stood at any
+(`ergostat item ID --history [FIELD]`; the item's page, in one collapsed *Changes* section at
+its end, each field's changes latest first, each linked to its event; a field with more than one
+change shows `N changes` beside its name, which opens the section narrowed to that field; a
+snapshot does not hold the changes and says so). `/api/items/ID` always sends how many changes
+each field had (`changes`) and sends `history` only when asked: `history=FIELD` that field's
+changes, `history=all` every field's (a field named `all` is read with `all`); the page asks only
+while the section is open. Its `file_sizes` gives the size of each file a field names (not one in
+the state folder). On the page, a short field (a number, a boolean, a string of 60 characters or
+fewer, not `file:`) sits in a flowing grid, its name above its value; every other field is a
+full-width block headed by its name. A list of records is a list of cards, newest first, three
+shown and the rest under `N earlier`; a file a card names is a closed disclosure named by its key
+and size, read only when opened, its Markdown headings below the page's. A list whose records
+share at most 6 scalar keys (held by more than half of them) stays a table, its cells small: a
+file in a cell is a link, never a table in a cell. An item can be read as it stood at any
 time (`--at`, the pages' time travel): its fields, its state and its history are folded from
 the events up to then.
 
@@ -2038,7 +2059,7 @@ systems' order):
 |---|---|
 | **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A group other than `parent`, of a kind not asked (a gap's `milestone`, with kind `gap` chosen), is a frame its members are drawn inside, titled with its id, title and state, and its members' tally: how many done of all, working (active or queued), ready (unblocked), and blocked and on what (each item they wait on, by its own frame when that is another; in full in the frame's tooltip); a frame that waits on another (a milestone's `depends_on`) has an arrow from it, and lines between members stay drawn across frames. The asked items in no such group are in a plain, dashed frame ("no milestone"). A frame with nothing drawn in it (a completed milestone under **Collapse done**, or one only waited on) is one card with the same title, and a line from a member collapsed in it is drawn from that card. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
 `status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the levelled projection's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled projection's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), each segment named by its state where it fits, and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), each segment named by its state where it fits, and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection, its bars' titles saying so and the note "Working out the schedule: a simulation of N unfinished <kind>s at each block's capacity"), a parent's a bracket over its children's span. With the estimates, the finished rows come first (what happened, in the order they started), then the unfinished in the order the simulation starts them (the left edge of the row's first bar ahead, else its start's p50, then its finish's p50, then its id), so the bars ahead step down the rows; the items no run moves (not scheduled, above: paused, of a kind with no finished state, at blocks all switched off, or waiting on one of these) last, apart, under "Not scheduled (N)", each with its why ("paused in parked", "waits on gap/x, which is parked"; the estimate's `said`) and no bar ahead; they are left out of their kind's last finish, and the legend's finish sentence ends "; N not scheduled", its expected time always with its date. The note names each block's simulated capacity and where it comes from ("implementor 9 at once (pool stock.implementor-pool now)", an agent's seats or a daemon's runs at once when they bind, "what if"); an item's page says "not scheduled: <why>" for its estimate. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
@@ -2233,6 +2254,24 @@ while it was there (`taken while here`), its run and that run's attempt (counted
 rework is a repeated step; a state nothing counts has `says`. The k-th move into `leased` is matched to the k-th
 lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
 answer.
+
+**Drawn alone: what an item passed through, or what a kind touches.** `/diagram?view=dynamics&item=ID` (and
+`view=blocks`), or `&kind=K`, asks `GET /api/graph` with `item=` or `kind=`; the answer carries `subset`
+(`{item, kind, says}`, the kind an item's own). The set is read from the model and the item's path above: for an
+item, the stocks that counted it in its steps, the flows counted entering them, and each block that took it with
+its `out` flows; for a kind, its `counted_in` parts and its blocks' `out` flows. *Dynamics* draws exactly that set
+(`graph.select(parts=)`; a drawn flow still brings both its ends, an end outside the set dashed), flat, with no
+system folded, as `around=` is. Each stock on an item's path carries its steps' numbers in move order (`path`: a
+rework or a nack numbers one stock twice) and each valve the runs that took the item (`attempts`). *Blocks* draws
+the control loops whose parts (the goal's stock or auxiliary, its controllers and actuators, its valves and
+disturbances, `through`, what its sensors read) meet the set, each whole: every node marked with one of those
+goals, and a node fed by one and feeding one (a stock's sum), every system they sit in open, as a frame; a wire
+from outside them ends at a port. `system=` and `open=` are ignored there. A set with nothing in it answers no
+nodes and `says` `... : not counted anywhere in the model`; a Blocks set in no loop says `: in no control loop`.
+The page shows a chip (`what ID passed through ×`, `what kind K touches ×`) that clears it, and keys its pins by
+the kind (an item's by its kind's), so a subset's pins never move the whole diagram. The item page's *Where it
+went* links to both views and to the kind's (`Draw its path in Dynamics`, `in Blocks`), or says its moves are not
+counted anywhere in the model, with no link.
 
 ## 5b. The Process view: how the items really moved
 
@@ -2813,7 +2852,7 @@ repair or interventions), `upkeep: <template>`: the modelling system's own work,
 and not among them. `/api/status` carries `goals_off` (`system` off, `open`, `unknown`, and `own: {modelling: n}`,
 upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off` and carries the
 same counts as `goals`. That one count (`state.goals_off`) is the only one: the page's header, the project switcher,
-the side list's "Goals off" heading, the Loops page's heading and the diagram's caption (its total the system's goals,
+the side list's "Goals off" heading, the Goals page's heading and the diagram's caption (its total the system's goals,
 model upkeep apart; Blocks: `controlled_off`, the same count of the goals a controller holds) print it as given and
 never count goals by status themselves; `ergostat` (and its `--json`, as `goals_off`) and `ergostat projects` print
 it in one form, `N goals off · M open · K unknown · model upkeep J` (a zero left out, but the first).
@@ -2822,7 +2861,7 @@ it in one form, `N goals off · M open · K unknown · model upkeep J` (a zero l
 its subsystems, as its closed box folds them in) is holding, the system says so: `all N goals holding, nothing being
 worked`, or `..., 3 items being worked` while its blocks, or its subsystems', hold leases on items (§9.5). A goal off, open, stale or unknown, or no goal at all, and it says nothing: an unread goal is never
 called holding. `/api/systems` carries it as `quiet` (null otherwise), and so does each closed system's node in the
-graph; the Loops page prints it per system and a system's panel on the diagram at its top.
+graph; the Goals page prints it per system and a system's panel on the diagram at its top.
 
 **Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
 
@@ -5159,7 +5198,7 @@ three times their spread past 1, five crossings or more, the record four periods
 amplitude past the tolerance), with its period and amplitude; the share of time u was at a limit (a
 setting at the end of its block's `limits:`, or a valve's openings at its most); and, each time the
 loop went off and came back to stay, how long it took to **settle**, and for a level held (==) how
-far it **overshot** to the other side. Shown under the scope, and in a word on the Loops page (which
+far it **overshot** to the other side. Shown under the scope, and in a word on the Goals page (which
 says what it lacks, "needs θ" or "too little record", rather than nothing). The page asks for every goal's word
 in one answer (`/api/loops?perf=1`, with each stock's points for its trend): the server works each goal out in the
 background, one at a time within 2 s a pass, again after 5 minutes (`web/goal_work.py`), and a goal not worked out
@@ -5233,7 +5272,7 @@ Approve records a step test's approval; a dismissed one is not offered again unt
 on in the model changes. Shown where the loop is: the process block's panel in the blocks view (the
 identification, its step response and Bode plot, the process and step-test proposals), the
 controller's panel (its law with that process, margins, closed-loop step and Bode, the tuning), the
-scope (performance), and a loop's panel on the Loops page (all of it). The process block's and the
+scope (performance), and a goal's panel on the Goals page (all of it). The process block's and the
 controller's panels start with a table per loop: law, process (each parameter ± σ, or "not identified:
 needs a step of u"), held-out fit (the NRMSE fit on the record fitted and on the record held out; 100% is
 perfect, below 0 worse than the mean), time off, settling and saturation; then the charts, then the words,

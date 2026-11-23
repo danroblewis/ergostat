@@ -43,7 +43,7 @@ function steadyWord(name, word, win) {
 }
 
 async function pageLoops(main, q) {
-  const p = page(main, "Loops");
+  const p = page(main, "Goals");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
   const pick = (n) => { setQuery({ select: n }); openLoop(n); };     // the loop chosen, in the address
   if (q.get("select") && $("#detail").hidden) openLoop(q.get("select"));
@@ -68,9 +68,9 @@ async function pageLoops(main, q) {
       h("b", {}, s.name), `: ${s.quiet}`)));
     const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
     const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted", "card"];   // card: a phone's (style.css)
-    patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
+    patch(box, table(["goal", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => pick(g.name) },
-        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "loops", "Loops"));   // hysteresis and flapping (steadyWord)
+        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "loops", "Goals"));   // hysteresis and flapping (steadyWord)
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -249,12 +249,55 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
   return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldOf(k, x, false, depth + 1, null, there)))));
 }
 
+/* a field on its item's page (SPEC §5a, History): a short one in the grid; a list of records as cards, newest first,
+   the rest under 'N earlier', a file in one a closed disclosure read only when opened; a list whose entries share
+   at most 6 scalar keys a table, its cells small (a file a link, never a table in a cell) */
+const isShort = (v) => v == null || v === "" || typeof v === "number" || typeof v === "boolean" || (typeof v === "string" && v.length <= 60 && !v.startsWith("file:"));
+const isScalar = (v) => v == null || typeof v !== "object";
+const CARDS_SHOWN = 3;
+const OPENED = new Set();                                // the file disclosures the reader opened on this page
+function pageFieldView(v, declared, sizes) {
+  if (!Array.isArray(v) || !v.length || !v.every((x) => x && typeof x === "object" && !Array.isArray(x))) return isScalar(v) || Array.isArray(v) ? fieldView(v, false, 0, declared) : recordView(v, sizes);
+  const keys = [...new Set(v.flatMap((x) => Object.keys(x)))];
+  if (keys.filter((c) => v.filter((x) => c in x && isScalar(x[c])).length * 2 > v.length).length <= 6) {
+    const shown = v.slice(-LIST_SHOWN);
+    return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
+      h("table", { class: "sub" }, tableCaption(keys.join(", ")), headRow(keys.map((c) => h("th", {}, c))), shown.map((x) => h("tr", {}, keys.map((c) => h("td", {}, fieldOf(c, x[c], true)))))));
+  }
+  const cards = v.map((x, i) => h("div", { class: "card", key: i }, recordView(x, sizes))).reverse();
+  return h("div", { class: "cards" }, cards.slice(0, CARDS_SHOWN),
+    cards.length > CARDS_SHOWN ? h("details", { class: "earlier" }, h("summary", {}, `${cards.length - CARDS_SHOWN} earlier`), cards.slice(CARDS_SHOWN)) : null);
+}
+function recordView(x, sizes) {                          // one record: its scalars flowing, its lists as chips, a file folded
+  const es = Object.entries(x), muted = (k) => h("span", { class: "muted" }, k);
+  const flow = es.filter(([, y]) => isShort(y) || (typeof y === "string" && y.startsWith("file:") && (SNAP || formatOf(y.slice(5)) === "image")));
+  const chips = es.filter(([, y]) => Array.isArray(y) && y.length && y.every((s) => typeof s === "string" && isShort(s)));
+  const files = es.filter(([, y]) => typeof y === "string" && y.startsWith("file:") && !flow.some(([, f]) => f === y));
+  const rest = es.filter((e) => !flow.includes(e) && !chips.includes(e) && !files.includes(e));
+  return [flow.length ? h("p", { class: "flow" }, flow.map(([k, y], i) => [i ? " · " : "", muted(k), " ", fieldOf(k, y, true)])) : null,
+    chips.map(([k, y]) => h("p", { class: "chips" }, muted(k), " ", y.map((s) => h("span", { class: "chip" }, s)))),
+    rest.map(([k, y]) => (isScalar(y) || Array.isArray(y) ? h("p", {}, muted(k), " ", fieldOf(k, y, true))
+      : h("div", {}, muted(k), h("dl", {}, Object.entries(y).map(([a, b]) => [h("dt", {}, a), h("dd", {}, fieldOf(a, b, true))]))))),
+    files.map(([k, y]) => fileFold(k, y.slice(5), sizes))];
+}
+function fileFold(k, path, sizes) {                      // asked for only once opened (refreshFiles skips it closed)
+  const n = sizes?.[path];
+  const open = OPENED.has(path);
+  return h("details", { class: "file-fold", "data-file": path, open: open ? "" : null,
+    ontoggle: (ev) => { const d = ev.target;
+      if (d.open === OPENED.has(path)) return;
+      if (d.open) { OPENED.add(path); fileView(path, fileUrl(path), formatOf(path), true); d.append(FILES[path].el); }
+      else { OPENED.delete(path); while (d.lastChild !== d.firstChild) d.lastChild.remove(); } } },
+    h("summary", {}, k, h("span", { class: "muted" }, ` ${path.split("/").pop()}${n == null ? "" : ` · ${n < 1024 ? `${n} B` : `${fmt(Math.round(n / 1024))} KB`}`}`)),
+    open ? fileView(path, fileUrl(path), formatOf(path), true) : null);
+}
+
 /* a file's contents, shown as what they are: one view of each file, kept across refreshes and asked for again
    with each (a 304 while it is the same); changed, only what differs in it is redrawn (open tool calls stay open) */
 const FILES = {};
-function fileView(path, url, fmt) {
+function fileView(path, url, fmt, demote = false) {      // demote: its Markdown's headings below the page's h2 and h3
   const f = FILES[path] || (FILES[path] = { el: h("div", { class: `file-view f-${fmt}` }, h("span", { class: "muted" }, "…")), text: null });
-  f.url = url; f.fmt = fmt;
+  f.url = url; f.fmt = fmt; f.demote = demote;
   loadFile(path);
   return live(f.el);
 }
@@ -263,14 +306,14 @@ function loadFile(path) {
   fetch(f.url).then((r) => (r.ok ? r.text() : Promise.reject(r.status))).then((text) => {
     if (f.text === text) return;                          // unchanged: left as it is
     f.text = text;
-    patch(f.el, render(text, f.fmt, path));
+    patch(f.el, render(text, f.fmt, path, f.demote));
   }).catch((e) => { f.text = null; patch(f.el, h("span", { class: "muted" }, `cannot read ${path} (${e})`)); });
 }
 /* the files on the page, asked for again (a refresh whose answers did not change still reads them) */
-function refreshFiles() { for (const [path, f] of Object.entries(FILES)) if (f.el.isConnected) loadFile(path); }
+function refreshFiles() { for (const [path, f] of Object.entries(FILES)) if (f.el.isConnected && !f.el.closest("details:not([open])")) loadFile(path); }
 const fileUrl = (path) => "/file/" + path.split("/").map(encodeURIComponent).join("/");   // a path: relative links resolve
-function render(text, fmt, path) {
-  if (fmt === "markdown") return md(text, path);
+function render(text, fmt, path, demote = false) {
+  if (fmt === "markdown") return md(text, path, demote);
   if (fmt === "json") { try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) { /* as it is */ } return code(text, "json"); }
   if (fmt === "code") return code(text, CODE[(path.split(".").pop() || "").toLowerCase()]);
   if (fmt === "claude-session") return conversation(text);
@@ -284,7 +327,7 @@ function code(text, lang) {                               // highlighted again o
 }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 let mdReady = false;
-function md(text, path = null) {                          // Markdown, its raw HTML shown as text (nothing in it runs), code highlighted
+function md(text, path = null, demote = false) {                         // Markdown, its raw HTML shown as text (nothing in it runs), code highlighted
   if (!window.marked) return h("pre", { class: "plain" }, text);
   if (!mdReady) {
     marked.use({ renderer: { html: (t) => esc(typeof t === "string" ? t : t.text || ""),
@@ -301,6 +344,11 @@ function md(text, path = null) {                          // Markdown, its raw H
       a.href = new URL(href, location.origin + fileUrl(path)).pathname;
     }
     a.target = "_blank"; a.rel = "noopener";
+  }
+  if (demote) for (const x of el.querySelectorAll("h1, h2, h3, h4, h5, h6")) {
+    const y = document.createElement(`h${Math.min(6, Number(x.tagName[1]) + 3)}`);
+    y.append(...x.childNodes);
+    x.replaceWith(y);
   }
   return el;
 }
@@ -998,7 +1046,8 @@ function leaseView(l, state) {
     rows.length ? table(["lease", "block", "run", "taken", "how", ["for", "num"], ["exit", "num"], "why"], rows, "leases") : null);
 }
 
-/* a field's history: each change, oldest first, with the event that made it (a click opens it) */
+/* an item's changes, in one section at its page's end (SPEC §5a, History), asked for only while it is open: each
+   field's, the latest first, or one field's ('N changes' beside its name), each with the event that made it */
 const when = (t) => stamp(t);
 // why an unfinished item is not done (/api/why: SPEC §5a): the summary, who acts and how, the evidence linked
 function whyBox(w) {
@@ -1019,17 +1068,25 @@ function eventLink(eid, type, d) {
 function recordLinkItem(id) {
   return h("a", { href: `/record?item=${encodeURIComponent(id)}` }, "all of them in the Record");
 }
-function historyView(cs, total, d, f) {
-  if (!total) return null;
+const CHANGES_SHOWN = 200;
+function historyView(d, of, all) {                       // the Changes section's body: each field's changes, the latest first
+  if (SNAP) return h("p", { class: "muted" }, "Its changes are not held in this snapshot: ", h("code", {}, `ergostat item ${d.id} --history`), " lists them.");
+  if (!d.history) return h("p", { class: "muted" }, "…");
+  const fs = Object.keys(d.history).filter((f) => !of || f === of);
+  const rows = fs.flatMap((f) => historyRows(d.history[f].slice(-CHANGES_SHOWN), d, f));
+  const total = fs.reduce((n, f) => n + (d.changes?.[f] || 0), 0);
+  return [h("p", { class: "note" }, of ? [`The changes to ${of}; `, h("a", { href: "#changes", onclick: (ev) => { ev.preventDefault(); all(); } }, "every field's"), "."]
+    : "Each field's changes, the latest first.",
+    rows.length < total ? [` The latest ${CHANGES_SHOWN} of a field's; `, h("code", {}, `ergostat item ${d.id} --history`), " lists all."] : null),
+    rows.length ? table(["when", "change", "path", "before", "after", "by event"], rows, "history") : h("p", { class: "muted" }, "No changes.")];
+}
+function historyRows(cs, d, f) {
   const how = (c) => c.op === "rolled up" ? `${c.count} change${c.count > 1 ? "s" : ""} from ${when(c.first.time)}, rolled up`
     : c.op === "refused" ? "refused" : c.op + (c.rule && c.rule !== "replace" ? ` (${c.rule})` : "") + (c.form !== "data" ? ` by ${c.form}` : "");
   const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldOf(f, v, true));
-  const rows = cs.slice().reverse().map((c, i) => h("tr", { key: c.event ? `${c.event}|${c.path || "/"}|${c.op}` : `${c.time}|${i}` }, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
+  return cs.slice().reverse().map((c, i) => h("tr", { key: c.event ? `${c.event}|${c.path || "/"}|${c.op}` : `${c.path}|${c.time}|${i}` }, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
     h("td", { class: "mono small" }, c.path || "/"), h("td", { class: "cell" }, c.op === "refused" ? c.why : val(c.before)),
     h("td", { class: "cell" }, c.op === "refused" ? "" : val(c.after)), h("td", { class: "nowrap" }, eventLink(c.event, c.type, d))));
-  return h("details", { class: "history" }, h("summary", {}, `history (${total} change${total > 1 ? "s" : ""})`),
-    total > cs.length ? h("p", { class: "note" }, `The latest ${cs.length} of ${total}; `, h("code", {}, `ergostat item ${d.id} --history`), " lists all.") : null,
-    table(["when", "change", "path", "before", "after", "by event"], rows, "history"));
 }
 
 /* an item's relations both ways (SPEC §5a, Relations): what it names, and what names it (the inverse, derived),
@@ -1081,15 +1138,28 @@ async function pageItem(main, id, q) {
   p.append(body);
   const note = messageBox({ about: id, title: "Send a note about this", done: () => tick() });   // lives across refreshes: what is typed stays
   let full = null;                                   // its full history, once asked for: kept across refreshes
+  let changesOpen = false, changesOf = "";           // the Changes section open, and the field it is narrowed to
+  OPENED.clear();
+  const showChanges = (f) => {
+    changesOf = f; changesOpen = true;
+    const el = p.querySelector("details.changes");
+    if (el) { el.open = true; el.scrollIntoView({ block: "start" }); }
+    tick();
+  };
   let impact = null;                                 // a failure's or a change's impact (review.js): worked out once
   const ans = answers();
   let whySig = null;                                 // what the why answer said when last drawn
+  let seq = 0, owed = false;                         // the latest tick's number; a superseded tick's draw still owed
   // a refresh asks for its answers first; if none changed (each a 304), nothing on the page is touched (its files
   // are still asked for: a transcript may grow before its events are recorded); else only what differs is
   async function tick(force = true) {
+    // only the latest request's answer is drawn: an older one, still awaited, may have asked another history=
+    const mine = ++seq, late = () => { if (mine === seq) return false; owed = true; return true; };
     ans.begin();
     let d;
-    try { d = await ans.api(`items/${encodeURIComponent(id)}`, whatifParams()); } catch (e) { d = null; }
+    try { d = await ans.api(`items/${encodeURIComponent(id)}`, { ...whatifParams(), ...(changesOpen && !SNAP ? { history: changesOf || "all" } : {}) }); }
+    catch (e) { d = null; }
+    if (late()) return;
     if (!d) { patch(body, h("p", { class: "muted" }, "Nothing is recorded about this id.")); return; }
     const k = d.kind_of;
     const ms = !k?.name?.startsWith("ergostat.") ? await ans.api("messages", { item: id }).catch(() => null) : null;
@@ -1101,15 +1171,17 @@ async function pageItem(main, id, q) {
     const w = !S.at && !(k?.final || []).includes(d.state) ? await api("why", { item: id }).catch(() => null) : null;
     const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
       r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
-    if (!p.isConnected) return;
+    if (!p.isConnected || late()) return;
     const same = wsig === whySig;
     whySig = wsig;
-    if (!force && !ans.changed && same) { refreshFiles(); return; }
+    if (!force && !owed && !ans.changed && same) { refreshFiles(); return; }
+    owed = false;
     const pair = (label, value) => h("span", {}, h("span", {}, label), value);
     const head = h("div", { class: "meta" },
       pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
       d.state ? pair("State", h("span", {}, h("b", {}, d.state), ` for ${dur(nowS() - d.entered)}`)) : null,
-      d.eta ? pair("Expected done", h("span", { "data-eta": "" }, h("b", {}, etaWhen(d.eta.p50)), h("span", { class: "muted" }, ` (${etaP90(d.eta)}`
+      d.eta?.unscheduled ? pair("Expected done", h("span", { "data-eta": "" }, `not scheduled: ${d.eta.said || "it cannot move"}`))
+      : d.eta ? pair("Expected done", h("span", { "data-eta": "" }, h("b", {}, etaWhen(d.eta.p50)), h("span", { class: "muted" }, ` (${etaP90(d.eta)}`
         + (d.eta.start != null && d.eta.start > nowS() + 60 ? `; started about ${etaWhen(d.eta.start)}` : "")
         + (d.eta.dead ? `; a dead letter in ${Math.round(d.eta.dead * 100)}% of runs` : "") + ")"))) : null,
       d.cost ? pair("Cost", h("span", { "data-cost": "", title: "What the runs that took it cost: their AI sessions, from its leases" },
@@ -1123,19 +1195,34 @@ async function pageItem(main, id, q) {
     const ended = fin.has(d.state), rest = (k?.states || []).filter((s) => !path.includes(s) && (!ended || fin.has(s)));
     const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
+    // where it went in the model: its path drawn alone in Dynamics and Blocks, when anything there counted it
+    const toDiagram = (view, by, v) => `/diagram?view=${view}&${by}=${encodeURIComponent(v)}`;
+    const went = !d.path ? [] : [h("h2", {}, "Where it went"), d.path.some((st) => st.stock || st.flow || st.block)
+      ? h("p", { class: "went" }, h("a", { href: toDiagram("dynamics", "item", id) }, "Draw its path in Dynamics"), ", ",
+        h("a", { href: toDiagram("blocks", "item", id) }, "in Blocks"), k ? ["; ",
+        h("a", { href: toDiagram("dynamics", "kind", k.name) }, `what every ${k.name} touches`)] : null, ".")
+      : h("p", { class: "went muted" }, "Its moves are not counted anywhere in the model.")];
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, when(m.time)), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
     // its kind's chosen fields first, in their order, then the rest by name
     const first = (k?.show || []).filter((f) => f in d.fields);
-    const hist = d.history || {}, gone = Object.keys(hist).filter((f) => f && !(f in d.fields));   // removed since: still have a history
+    const counts = d.changes || {}, gone = Object.keys(counts).filter((f) => f && !(f in d.fields));   // removed since: still have changes
     const order = [...first, ...Object.keys(d.fields).filter((f) => !first.includes(f)).sort(), ...gone.sort()].filter((f) => f !== "lease");
     const lease = d.fields.lease && typeof d.fields.lease === "object" ? [h("h2", {}, "Lease"), leaseView(d.fields.lease, d.state)] : [];
-    const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f, key: f },
-      h("th", {}, f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null),
-      h("td", {}, f in d.fields ? fieldOf(f, d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
-        historyView(hist[f] || [], (d.changes || {})[f] || 0, d, f))))))
+    // short fields in a flowing grid, the kind's chosen first; every other a full-width block below, headed by its name
+    const name = (f) => [f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null,
+      counts[f] > 1 ? h("a", { class: "small changes-of", href: "#changes", onclick: (ev) => { ev.preventDefault(); showChanges(f); } }, ` ${counts[f]} changes`) : null];
+    const grid = order.filter((f) => !(f in d.fields) || isShort(d.fields[f]));
+    const fields = order.length ? [grid.length ? h("div", { class: "field-grid" }, grid.map((f) => h("div", { class: "field", "data-field": f, key: f },
+      h("div", { class: "field-name" }, name(f)), h("div", {}, f in d.fields ? fieldOf(f, d.fields[f]) : h("span", { class: "muted" }, "removed"))))) : null,
+      ...order.filter((f) => !grid.includes(f)).map((f) => h("div", { class: "field-block", "data-field": f, key: f },
+        h("h3", {}, name(f)), pageFieldView(d.fields[f], (k?.formats || {})[f], d.file_sizes)))]
       : h("p", { class: "muted" }, "No fields: its events carry no data.");
+    const changes = h("details", { class: "history changes", id: "changes", key: "changes",
+      ontoggle: (ev) => { if (ev.target.open === changesOpen) return; changesOpen = ev.target.open; if (!changesOpen) changesOf = ""; tick(); } },
+      h("summary", {}, h("h2", {}, "Changes", h("span", { class: "muted" }, ` ${Object.values(counts).reduce((a, b) => a + b, 0)}`))),
+      changesOpen ? historyView(d, changesOf, () => showChanges("")) : null);
     const refused = (d.refused || []).length ? [h("h2", {}, "Refused"), h("p", { class: "note" }, "Events recorded that changed nothing: their changeset could not apply, so none of it did."),
       table(["when", "event", "as", "why"], d.refused.slice().reverse().map((r) => h("tr", { key: r.event }, h("td", { class: "nowrap" }, when(r.time)),
         h("td", { class: "nowrap" }, eventLink(r.event, r.type, d)), h("td", { class: "muted" }, r.form), h("td", {}, r.why))), "refused")] : [];
@@ -1164,9 +1251,9 @@ async function pageItem(main, id, q) {
     const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
     const why = d.eta?.why ? h("p", { class: "note eta-why" }, h("b", {}, d.eta.waits_in ? `Waiting in ${d.eta.waits_in}` + (d.eta.position ? `, ${ordinal(d.eta.position)} in its queue` : "") + ": " : ""),
       d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: `/items?kind=${encodeURIComponent(k?.name || "")}&view=timeline` }, "the timeline"), ")")) : null;
-    patch(body, whyBox(w), head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    patch(body, whyBox(w), head, track, why, ...went, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
-      eventsTable(full ? full.events : d.record, true));
+      eventsTable(full ? full.events : d.record, true), changes);
   }
   await tick();
   // not while the owner is answering (a reason being typed in a decision's or an action's row)
