@@ -35,6 +35,10 @@ not the link, takes the header's first line, and only while the link shows (styl
 Acceptance: tests/test_diagram_rendering.py::test_a_changed_count_of_what_waits_is_announced. It watches every write
 into the polite region holding the link for two polls with nothing new, then for a second request. It was seen to
 fail on two breaks: the text written on every poll, and the aria-live removed.
+Not run here: the whole of tests/test_diagram_rendering.py. A serial run was stopped at the session's 20-minute
+command limit before it reported, and a longer background run was refused. Only the new test and
+test_what_waits_for_you_is_one_step_from_every_page were run (2 passed, rc 0). The rest of that file and the other
+three browser files are left to the factory's runs.
 
 Choices made with nobody to ask (each easy to reverse):
 - The words announced are the visible "N wait for you", the header's own words (Q43). No separate
