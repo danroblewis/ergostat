@@ -873,8 +873,8 @@ work that is plainly waiting on someone. Build the model so that every wait has 
 - **Who or what takes each state.** For every state an item rests in unfinished, one of: a block's `takes:` (a
   program or AI step), or, for work done outside ergostat (a person's review, a reviewer at a code host), a
   **working state**: not the kind's first state, left by an event that records the work (`change.reviewed`). `why`
-  then names "whoever records change.reviewed" (the event that moves it on to its next state, before a side exit or
-  a move back) and lists the others. The kind's first state is where items wait to
+  then names "whoever records change.reviewed" (the first event of its `on:` that moves it out, in the order
+  written, so write the way on before side exits) and lists the others. The kind's first state is where items wait to
   be taken: when nothing in ergostat takes them, give the kind a first state no event moves an item into (`new`) and
   let the arriving event put it straight into its working state (`todo.added: todo`).
 - **Owners and people as blocks.** A `person` block is asked while its goal is off but never takes an item, so a

@@ -146,3 +146,24 @@ started). Run, each passing: `tests/test_why_guide.py` (11), `tests/test_why.py`
 `tests/test_coherence.py`, `tests/test_dashboards_doc.py`, `tests/test_spec_items.py`; ruff clean. No code outside
 tests and docs changed this round. The whole unit suite and the four browser files were not run here (the factory
 runs them).
+
+Round 5, answering the queue's finding (the failing merge of a batch of 8, and three tests of
+`tests/test_todo_template.py` failing again alone): the cause was this branch's change to `_onward` in
+`ergostat/why/blocks.py`. It sorted a working state's ways on by the state each leads to, later states first. Main's
+`todo` template's `waiting` state is left by `todo.freed` or `todo.ready` (both to `ready`, earlier in the kind's
+order) or by `todo.done`. The sort put `todo.done` first, so `why` on a waiting to-do named "whoever records
+todo.done" where the template's tests expect `todo.ready`. Reproduced here: 3 failed, 16 passed. The sort is taken out,
+so `_onward` is main's again (the order written in `on:`). Since main's `_onward` already leaves out a move back to the
+kind's first state, the worked example's `in-review` gets `change.reviewed` first in written order anyway, and
+`test_a_working_state_names_whoever_records_the_move_on_to_the_next_state` passes unchanged except for its docstring.
+`blocks.py` now matches main, so this branch's code outside tests and docs is `spec/findings.py` and
+`spec/waits.py`. SPEC §5a and the guide's §3m now say the owner is the first way out in the order `on:` writes them,
+so a kind should write its way on before its side exits. This is the most reversible fix: it takes the branch's
+change out and keeps main's behaviour. The round-1 break test of the owner order no longer applies, because that code
+is gone. The three to-do tests failing with the sort and passing without it are the new break test. Run, each
+passing: `tests/test_todo_template.py` (19), `tests/test_why_guide.py` (11), `tests/test_why.py`,
+`tests/test_factory_knowledge.py` (103), `tests/test_held_up.py`, `tests/test_queue_batch_item.py` (unit: 15 passed,
+the Playwright test skipped since playwright is not installed in this run), `tests/test_coherence.py`,
+`tests/test_spec_items.py`, `tests/test_dashboards_doc.py`, `tests/test_item_about.py`; ruff clean. Refused this
+round: `git checkout main -- ergostat/why/blocks.py` (done with an edit instead) and one shell loop running three test
+files (run one at a time instead). The whole unit suite and the four browser files were not run here.

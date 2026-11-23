@@ -160,14 +160,11 @@ def taken(ctx, it, info) -> dict:
 
 
 def _onward(kind, state: str) -> list[str]:
-    """Its kind's ``on:`` events that can move it out of ``state``: not into it, not back to the kind's first state
-    (made again), and not one whose ``moves-from:`` leaves ``state`` out. The move on to a later state comes first,
-    nearest first, then moves back; events to the same state stay in the order written."""
+    """Its kind's ``on:`` events, in the order written, that can move it out of ``state``: not into it, not back to
+    the kind's first state (made again), and not one whose ``moves-from:`` leaves ``state`` out."""
     first = kind.states[0] if kind.states else None
-    at = {s: i for i, s in enumerate(kind.states)}
-    return sorted((e for e, s in (kind.on or {}).items()
-                   if s not in (state, first) and state in kind.moves_from.get(e, (state,))),
-                  key=lambda e: (at.get(kind.on[e], -1) <= at.get(state, -1), at.get(kind.on[e], -1)))
+    return [e for e, s in (kind.on or {}).items()
+            if s not in (state, first) and state in kind.moves_from.get(e, (state,))]
 
 
 def _waits_none(ctx, it) -> str:

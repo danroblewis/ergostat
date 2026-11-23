@@ -1762,8 +1762,9 @@ them when it ranks lower (`more` counts the rest, none holding more than it). On
 unfinished) it answers in under 200 ms (`tests/test_held_up.py`).
 
 **What the model must say for why.** An item in a working state no block takes is `work` outside ergostat, its owner
-whoever records the first of the events that move it on, ordered by the state each moves it to: the states after its
-own first, in the kind's order (its next state before a side exit), then those before it, then by name. `check` finds
+whoever records the first of the events that move it on, in the order its kind's `on:` writes them (not one into its
+own state or the kind's first, nor one whose `moves-from:` leaves its state out), so a kind writes its way on first.
+`check` finds
 `wait-unexplained` (`spec/waits.py`) for a kind whose finished states `messages: done:` declares, not `ergostat.*`,
 sealed or made by a template, with no precedence relation, and a state an `on:` event moves its items into that is
 not finished, paused, `leased` or `dead`, that no block's `takes:` names, and that is either the kind's first state

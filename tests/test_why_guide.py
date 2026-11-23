@@ -176,9 +176,9 @@ def test_without_the_budget_the_dead_lease_cannot_be_told_from_live_work(tmp_pat
 
 
 def test_a_working_state_names_whoever_records_the_move_on_to_the_next_state(tmp_path):
-    """The review is a person's working state: ``why`` names the event that moves it on to the next state
-    (change.reviewed), before a side exit or a move back (change.dropped, change.held); a move back to the kind's
-    first state (change.proposed, made again) is not one of its ways on."""
+    """The review is a person's working state: ``why`` names the first event of its ``on:``, in the order written,
+    that moves it out (change.reviewed, before change.held and change.dropped); a move back to the kind's first state
+    (change.proposed, made again) is not one of its ways on."""
     from ergostat.why import answer
     p = project(tmp_path)
     p.events.add("change.proposed", item="change/c9")
