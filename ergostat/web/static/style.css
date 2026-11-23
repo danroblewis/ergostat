@@ -251,6 +251,11 @@ details.suggest .hint { margin-top: var(--sp-3); }
 .set-chip .n { font-variant-numeric: tabular-nums; }
 .set-chip button { min-height: 0; border: 0; padding: var(--sp-0) var(--sp-2); }
 .set-chip.bad { color: var(--bad); }
+/* the Items page's lists fit their width: a field's text wraps onto more lines, never cut; on a phone, the item, its
+   state and how long it has been in it */
+table.kind-items th { white-space: normal; }
+table.kind-items td.cell { white-space: normal; overflow: visible; overflow-wrap: anywhere; min-width: 6em; }
+@media (max-width: 700px) { table.kind-items tr > :nth-child(n+3):not(.keep) { display: none; } }
 .item-set table.item-list td.cell { max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* the diagram: the canvas and its side panel */

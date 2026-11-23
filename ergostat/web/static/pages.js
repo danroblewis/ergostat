@@ -225,6 +225,8 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
                         fmt === "claude-session" ? "conversation" : name);
     return fileView(path, url, fmt);
   }
+  const pr = small && typeof v === "string" && /^https?:\/\/\S+\/(?:pull|pulls|merge_requests)\/(\d+)\/?$/.exec(v);
+  if (pr) return h("a", { href: v, target: "_blank", rel: "noopener", title: v }, `PR #${pr[1]}`);   // a pull request: its number
   if (typeof v !== "object") return typeof v === "number" ? fmt(v) : String(v);
   if (small || depth > 2) return h("span", { class: "mono muted" }, JSON.stringify(v).slice(0, 80));
   if (Array.isArray(v)) {
@@ -857,7 +859,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
         "data-sort": by === f ? (down > 0 ? "ascending" : "descending") : "none", onclick: () => { sort = sort.replace(/^-/, "") !== f ? f : !sort.startsWith("-") ? `-${f}` : ""; go(); } },   // from the sort now
         f, by === f ? h("span", { "aria-hidden": "true" }, down > 0 ? " \u25b4" : " \u25be") : "");
       return table(["item", "state", ...show.map((f) => (nums.has(f) ? [head(f), "num"] : head(f))),
-        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
+        ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num keep"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, "data-kind": i.kind || "", "data-state": i.state || "", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
           show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldOf(f, i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
@@ -865,8 +867,8 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
           ...(movedCol ? [h("td", { class: "num nowrap", title: (i.moved_at || []).map(when).join("\n") },
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
           ...(etaCol ? [etaCell(i.eta)] : []),
-          h("td", { class: "num nowrap" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
-          h("td", { class: "muted nowrap" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items",
+          h("td", { class: "num nowrap keep" }, i.state ? dur(nowS() - i.entered) : ""), h("td", { class: "num" }, String(i.events)),
+          h("td", { class: "muted" }, i.latest), h("td", { class: "muted nowrap" }, ago(i.last)))), "items kind-items",
         `${its[0]?.kind || "No kind"} items${paged() && d.cut ? `, sorted among the newest ${d.cut} of ${d.total}` : ""}`);
     };
     // a kind's pager, in its bar and under its table: "1-25 of 77 · Prev · Next", and how many a page
