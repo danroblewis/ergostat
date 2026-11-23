@@ -319,12 +319,17 @@ def test_edit_mode_moves_resizes_and_removes_by_keyboard(browser, site):
     pid = was[0]
     cell = pg.locator(f'[data-panel="{pid}"]')
     cell.focus()
-    pg.keyboard.press("Alt+ArrowRight")
-    assert order(pg)[:2] == [was[1], pid]
+    def at():
+        return pg.evaluate("(id) => dashboardDraft().panels.find((p) => p.id === id).layout", pid)
+    start = at()
+    pg.keyboard.press("Alt+ArrowDown")                                             # a line down: what it covers goes below it
+    assert at() == {**start, "y": start["y"] + 1}
     assert pg.evaluate("() => document.activeElement.dataset.panel") == pid       # focus stays on the panel
-    assert "moved to place 2 of" in pg.locator(".dash-live").inner_text()
+    assert "column 1, row 2" in pg.locator(".dash-live").inner_text()
+    pg.keyboard.press("Alt+ArrowUp")
+    assert at() == start
     pg.keyboard.press("Alt+ArrowLeft")
-    assert order(pg) == was
+    assert at() == start and "no further" in pg.locator(".dash-live").inner_text()
 
     pg.keyboard.press("Shift+Alt+ArrowRight")
     def size():
@@ -336,9 +341,10 @@ def test_edit_mode_moves_resizes_and_removes_by_keyboard(browser, site):
     assert pg.evaluate("(id) => dashboardDraft().panels.find((p) => p.id === id).tall", pid) is True
     pg.keyboard.press("Shift+Alt+ArrowUp")
 
+    now = order(pg)
     pg.keyboard.press("Delete")
     assert pid not in order(pg)
-    assert pg.evaluate("() => document.activeElement.dataset.panel") == was[1]    # focus goes to the next
+    assert pg.evaluate("() => document.activeElement.dataset.panel") == now[now.index(pid) + 1]    # focus goes to the next
     pg.get_by_role("button", name="Undo").click()
     assert pid in order(pg)
     assert pg.errors == []
@@ -354,16 +360,21 @@ def test_edit_mode_moves_and_resizes_by_mouse(browser, site):
     to = pg.locator(f'[data-panel="{was[1]}"]').bounding_box()
     pg.mouse.move(grip["x"] + 3, grip["y"] + 3)
     pg.mouse.down()
-    pg.mouse.move(to["x"] + to["width"] / 2, to["y"] + to["height"] / 2, steps=4)
+    def lay(pid):
+        return pg.evaluate("(id) => dashboardDraft().panels.find((p) => p.id === id).layout", pid)
+    first, second = lay(was[0]), lay(was[1])
+    pg.mouse.move(to["x"] + 3, to["y"] + 3, steps=4)                              # dropped where the second is: it goes below
     pg.mouse.up()
-    assert order(pg)[:2] == [was[1], was[0]]
+    assert lay(was[0])["x"] == second["x"] and lay(was[0])["y"] == second["y"]
+    assert lay(was[1])["y"] == second["y"] + first["h"]
+    assert order(pg)[:2] == [was[0], was[2]]
     pg.wait_for_function("() => !document.getAnimations().some((a) => a.effect?.target?.classList?.contains('dash-cell'))")   # settled
 
     handle = pg.locator(f'[data-panel="{was[1]}"] .dash-handle').bounding_box()
     pg.mouse.move(handle["x"] + 3, handle["y"] + 3)
     pg.mouse.down()
     grid = pg.locator(".dash-grid").bounding_box()
-    pg.mouse.move(grid["x"] + grid["width"] * 0.48, handle["y"] + 3, steps=4)
+    pg.mouse.move(handle["x"] + 3 + grid["width"] * 2 / 12, handle["y"] + 3, steps=4)     # two columns wider: a half
     pg.mouse.up()
     assert pg.evaluate("(id) => dashboardDraft().panels.find((p) => p.id === id).size", was[1]) == "m"
     assert "draft=" in pg.url

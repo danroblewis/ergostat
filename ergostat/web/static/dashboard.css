@@ -31,6 +31,15 @@
                                 border-top: var(--hair) solid var(--line); }
 .dash-tools button { min-height: 0; padding: 0 var(--sp-1); font-size: var(--text-sm); color: var(--ink-2); }
 .dash-gap { flex: 1; }
+/* a row: a titled line across the grid; a repeated panel's copies are its source's to move and change */
+.dash-row { justify-content: center; border-bottom: var(--hair) solid var(--line-strong); border-radius: 0; }
+.dash-grid.editing .dash-row { background: var(--chrome); }
+.dash-row-bar { display: flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+.dash-row-bar button { min-height: 0; padding: 0 var(--sp-1); color: var(--ink-2); }
+.dash-row-toggle { font-weight: 600; color: var(--ink) !important; }
+.dash-row-input { min-width: 0; flex: 0 1 20em; font-weight: 600; }
+.dash-cell.is-copy .dash-tools, .dash-cell.is-copy .dash-edge, .dash-cell.is-copy .dash-foot { display: none; }
+.dash-cell.is-copy .panel-head { cursor: default; }
 .dash-grip { cursor: grab; touch-action: none; }
 /* the edges lie in the gutter between panels, so nothing is ever over a plot */
 .dash-edge { position: absolute; z-index: 2; touch-action: none; }

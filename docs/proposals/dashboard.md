@@ -260,7 +260,7 @@ That is the same check the compiler makes, done here because a draft is never co
 localStorage) and never to the server. With editing on, each panel is one focusable region with a small toolbar
 (Move, Resize, Remove):
 
-- **Move**: Alt+Arrow keys move the focused panel one place earlier or later.
+- **Move**: Alt+Arrow keys move the focused panel a column or a line (the toolbar's ← and → a column).
 - **Resize**: Shift+Alt+Arrow keys step through `s`, `m`, `l` and `full`, and to and from `tall`.
 - **Remove**: the Delete key, or the toolbar's Remove. Focus goes to the next panel, else the one before it, else
   **Add panel**.
@@ -268,7 +268,20 @@ localStorage) and never to the server. With editing on, each panel is one focusa
   already uses (the Items page's kind and state pickers, the diagram's part picker). On Add, focus goes to the new
   panel. On Escape, focus goes back to the button.
 
-Every move and resize is announced through an `aria-live` region ("Backlog: moved to place 3 of 8"). Mouse dragging
+**A panel stays where it is put** (owner, 2026-11-23). Panels go at any free offset of the grid, and removing,
+shrinking or moving one never moves another: gaps stay. A panel dropped or grown onto others pushes down only those it
+covers (and what they then cover), never up. **Rows** are full-width titled lines (Edit, **Add row**): the panels under
+a row, down to the next, are its own, and a row is a guaranteed break, so a panel above it that grows pushes the row
+down with all its panels and never crosses it. A row folds (its panels kept in it, what is below closing up by what it
+spanned) and opens again to the same places; it is dragged by its grip, or moved with ↑ and ↓, taking its panels.
+**Repeated panels** (the editor's *Repeat*): one panel for each series a query answers with (its label's values), or
+for each value of a variable the draft names (`vars`), at most 24, and at most 64 charts on the page. The copies are
+drawn beside the panel in its row, line after line, and are added and removed as the values change; only they lay
+themselves out. The lines they took are kept while the page is open, so values going away move nothing below. On a
+phone the panels are one column in reading order, and dragging one there gives it the place in reading order it is
+dropped at. Older drafts keep their positions.
+
+Every move and resize is announced through an `aria-live` region ("Backlog: column 3, row 1, ..."). Mouse dragging
 is the same operations, never an extra path. **Done** leaves editing. **Keep** files the display proposal (section
 5), and **Copy link** copies the address.
 

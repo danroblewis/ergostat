@@ -454,6 +454,24 @@ def test_a_field_gone_from_the_model_is_shown_and_keeps_the_panel(ed, tmp_path):
     assert result(ed)["saved"]["size"] == "l"
 
 
+def test_repeat_is_chosen_from_the_panels_queries_and_saved(ed):
+    config = {"id": "p7", "title": "By label", "queries": [{**HOUR_COST, "id": "a"}, {**HOUR_COST, "id": "b"}]}
+    opened(ed, config)
+    wait_drawn(ed)
+    pick = ed.get_by_label("Repeat", exact=True)
+    pick.focus()
+    assert pick.locator("option").all_inner_texts() == ["No", "One per series of query a", "One per series of query b"]
+    pick.select_option("b")
+    ed.get_by_role("button", name="Save", exact=True).click()
+    assert result(ed)["saved"]["repeat"] == {"query": "b"}
+    opened(ed, {**config, "repeat": {"var": "env"}})
+    wait_drawn(ed)
+    assert ed.get_by_label("Repeat", exact=True).input_value() == "$env"
+    ed.get_by_label("Repeat", exact=True).select_option("")
+    ed.get_by_role("button", name="Save", exact=True).click()
+    assert "repeat" not in result(ed)["saved"]
+
+
 def test_fields_that_cannot_be_read_lose_nothing_and_can_be_tried_again(ed):
     ed.evaluate("""() => { const real = queryFields; let first = true;
         window.queryFields = () => { if (first) { first = false; return Promise.reject(new Error('busy')); } return real(); }; }""")
