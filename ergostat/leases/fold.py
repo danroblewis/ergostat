@@ -65,7 +65,8 @@ def apply(it, e: dict, kind, history: bool = False) -> tuple[str | None, str | N
         ttl = float(d.get("ttl") or 0)
         lease.update({"fence": want, "holder": d.get("run"), "block": d.get("block"), "tier": d.get("tier"), "ttl": ttl,
                       "taken": now, "renewed": now, "expires": now + ttl, "back": d.get("back") or it.state,
-                      "max": int(d.get("max") or 1), "attempts": int(cur.get("attempts") or 0)})
+                      "max": int(d.get("max") or 1), "attempts": int(cur.get("attempts") or 0),
+                      "engine": d.get("engine")})              # (the engine that took it: leases/gone.py)
         lease.pop("not_before", None)
         lease.pop("news", None)
         lease.pop("woken", None)

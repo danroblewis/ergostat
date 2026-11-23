@@ -90,10 +90,73 @@ def test_coherence_is_near_one_for_a_linear_system_and_low_for_unrelated_noise()
     e = noise(4096, 8)
     linear = fr.estimate(x, [2 * a + 0.05 * b for a, b in zip(x, e, strict=True)], 1.0, 16)
     assert sum(linear["frequency"]["coherence"]) / len(linear["frequency"]["coherence"]) > 0.99
+    assert linear["supported"] is True and linear["coherence_floor"] > linear["coherence_floor_each"]
     apart = fr.estimate(x, e, 1.0, 16)
-    c = apart["frequency"]["coherence"]
-    assert sum(c) / len(c) < 0.15
-    assert sum(v > apart["coherence_floor"] for v in c) / len(c) < 0.12    # about the 5% the floor promises
+    assert apart["supported"] is False and apart["coherence_peak"] < apart["coherence_floor"]
+
+
+# ---- whether the record supports a response at all (dev/records/frequency-refuses-noise.md)
+
+def refused_share(n, segments, records=200, seed=0):
+    out = 0
+    for s in range(records):
+        got = fr.estimate(noise(n, 10_000 + seed + 2 * s), noise(n, 10_001 + seed + 2 * s), 1.0, segments)
+        out += got["supported"] is False
+    return out / records
+
+
+def test_uncorrelated_input_and_output_are_refused_in_at_least_95_percent_of_records():
+    """Done item 1: at the default settings (fields.py's segments default), 1,024-sample records of unrelated noise."""
+    assert refused_share(1024, fr.SEGMENTS) >= 0.95
+
+
+@pytest.mark.parametrize("n,segments", [(512, 4), (2048, 16), (2048, 64)])
+def test_unrelated_noise_is_refused_at_other_lengths_and_averages_too(n, segments):
+    assert refused_share(n, segments, records=100, seed=7) >= 0.95
+
+
+def test_an_unsupported_record_says_why_and_carries_no_curve():
+    got = fr.estimate(noise(1024, 3), noise(1024, 4), 1.0)
+    assert got["supported"] is False
+    assert all(v == [] for v in got["frequency"].values()), "nothing to draw as if it were a response"
+    assert "no frequency is coherent past chance" in got["refused"] and f"{got['coherence_peak']:.2f}" in got["refused"]
+    assert got["segments"] == 4 and got["coherence_floor"] > got["coherence_floor_each"]
+
+
+def test_the_corrected_floor_rises_with_the_frequencies_looked_at():
+    assert fr.family_floor(16, 1) == pytest.approx(fr.floor(16))
+    assert fr.floor(16) < fr.family_floor(16, 10) < fr.family_floor(16, 500) < 1
+    assert fr.family_floor(1, 100) == 1.0
+
+
+def first_order_record(n, tau, noise_sd, seed):
+    """y = a first-order lag of x, gain 1 and time constant tau, sampled every second, with noise on the output."""
+    a = math.exp(-1.0 / tau)
+    x, e = noise(n + 500, seed), noise(n + 500, seed + 1)
+    y, s = [], 0.0
+    for v, w in zip(x, e, strict=True):
+        s = a * s + (1 - a) * v
+        y.append(s + noise_sd * w)
+    return x[500:], y[500:], a
+
+
+def test_a_first_order_system_with_a_real_excitation_is_still_drawn_within_tolerance():
+    """Done item 2: 4,096 samples (1,024-sample stretches) at the default settings, white-noise excitation, output
+    noise at about an eighth of the output's own spread. Stated tolerance: of the frequencies up to twice the corner,
+    at least four are called coherent, and each one called coherent has its gain within 1 dB and its phase within 5
+    degrees of the lag's exact response there."""
+    tau = 20.0
+    for seed in (21, 23, 25, 27, 29):
+        x, y, a = first_order_record(4096, tau, 0.02, seed)
+        got = fr.estimate(x, y, 1.0)
+        assert got["supported"] is True, got.get("refused")
+        f = got["frequency"]
+        band = [i for i, hz in enumerate(f["hz"]) if hz <= 2 / (2 * math.pi * tau) and f["coherence"][i] >= got["coherence_floor"]]
+        assert len(band) >= 4
+        for i in band:
+            want = (1 - a) / (1 - a * cmath.exp(-2j * math.pi * f["hz"][i]))
+            assert f["magnitude_db"][i] == pytest.approx(20 * math.log10(abs(want)), abs=1.0)
+            assert f["phase_deg"][i] == pytest.approx(math.degrees(cmath.phase(want)), abs=5.0)
 
 
 def test_a_gap_is_never_bridged():

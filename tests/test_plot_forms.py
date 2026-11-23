@@ -211,8 +211,10 @@ def candles(n=48):
     }
 
 
-def frequency(fr=None):
-    return {"id": "a", "frequency": fr or first_order(), "method": "empirical", "samples": 240, "unit": "", "read_log": False}
+def frequency(fr=None, floor=0.6):
+    """An empirical answer as query/frequency.py gives it: the floor is the server's, never the page's."""
+    return {"id": "a", "frequency": fr or first_order(), "method": "empirical", "samples": 240, "unit": "", "read_log": False,
+            "supported": True, "coherence_floor": floor}
 
 
 CANDLE_META = {"now": NOW, "since": NOW - 3600 * 47, "until": NOW, "step": 3600}
@@ -508,6 +510,39 @@ def test_bode_can_hide_low_coherence_and_says_it_did(site):
     site.mount(config("bode", {"coherence": "hide-low"}), frequency(third_order()))
     assert len(site.model()["pts"]) == 121 - 12
     assert "12 of 121 points hidden" in site.page.locator(".panel-legend").inner_text()
+
+
+def test_bode_marks_unreliable_points_by_the_servers_floor_not_its_own(site):
+    """dev/records/frequency-refuses-noise.md: the panel uses the floor the server sends, and says it."""
+    site.mount(config("bode"), frequency(third_order(), floor=0.96))
+    assert sum(p["low"] for p in site.model()["pts"]) == 121, "0.95 is under the server's 0.96"
+    assert "coherence under 0.96" in site.page.locator(".panel-legend").inner_text()
+    site.clear()
+    site.mount(config("bode"), frequency(third_order(), floor=0.2))
+    assert sum(p["low"] for p in site.model()["pts"]) == 0, "0.3 is over the server's 0.2"
+
+
+def test_coherence_with_no_floor_sent_is_all_unreliable(site):
+    site.mount(config("bode"), {**frequency(first_order()), "coherence_floor": None})
+    assert all(p["low"] for p in site.model()["pts"])
+    assert "none sent" in site.page.locator(".panel-legend").inner_text()
+
+
+@pytest.mark.parametrize("form", ["bode", "nyquist"])
+def test_a_record_the_server_refuses_is_said_and_no_curve_is_drawn(site, form):
+    """dev/records/frequency-refuses-noise.md: the server's decision is shown, never redrawn as a response."""
+    why = "no frequency is coherent past chance: the highest coherence is 0.81"
+    empty = {k: [] for k in ("hz", "magnitude_db", "phase_deg", "re", "im", "coherence")}
+    site.mount(config(form), {**frequency(empty, floor=0.97), "supported": False, "refused": why, "coherence_peak": 0.81})
+    panel = site.page.locator(".panel")
+    assert panel.get_attribute("data-state") == "empty"
+    said = site.page.locator(".panel-message").inner_text()
+    assert "cannot support a frequency response" in said and why in said
+    assert site.page.locator(".plot-base").count() == 0
+    site.clear()
+    refused_with_points = {**frequency(third_order(), floor=0.5), "supported": False, "refused": why}
+    site.mount(config(form), refused_with_points)
+    assert site.page.locator(".plot-base").count() == 0, "a refused record is not drawn even if points came with it"
 
 
 def test_bode_wrapped_phase_stays_within_a_turn(site):

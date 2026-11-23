@@ -171,6 +171,7 @@ class Live:
         self._loading = threading.Lock()               # one thread reads a changed model; the others answer meanwhile
         self._lock = threading.Lock()
         self._snaps: dict = {}
+        self._seq = 0                      # the number of the last snapshot made (moment)
         self._making: dict = {}            # snapshots being made: one at a time for each moment, however many ask
         self._kept: OrderedDict = OrderedDict()   # the answers worked out, the least recently used first
         from .goal_work import GoalWork
@@ -213,13 +214,18 @@ class Live:
         moment (``at``) is kept until the model changes. Made once however many ask at once: on a
         long record, requests that each made their own (and kept making it after their clients gave
         up) were what left every later answer waiting."""
+        return self.moment(p, window, at)[0]
+
+    def moment(self, p, window: float, at: float | None):
+        """The snapshot, and its number: each snapshot made is numbered in turn, so two of one window are told apart
+        by equality of their number, never by their times (a dashboard's panels and its later polls, dashboard_api)."""
         key = (window, at, self.mtime)
         import threading
         while True:
             with self._lock:
                 got = self._snaps.get(key)
                 if got and (at is not None or time.time() - got[0] < 1.5):
-                    return got[1]
+                    return got[1], got[2]
                 busy = self._making.get(key)
                 if busy is None:                       # this request makes it; the others asking meanwhile wait for it
                     busy = self._making[key] = threading.Event()
@@ -230,8 +236,9 @@ class Live:
             with self._lock:
                 if len(self._snaps) > 32:
                     self._snaps.clear()
-                self._snaps[key] = (time.time(), snap)
-            return snap
+                self._seq += 1
+                self._snaps[key] = (time.time(), snap, self._seq)
+                return snap, self._seq
         finally:
             with self._lock:
                 self._making.pop(key, None)
@@ -261,6 +268,14 @@ class Live:
             finally:
                 self._loading.release()
         return self.p
+
+
+def _compute(p, spec, running: bool) -> dict:
+    """Each of the model's pools' status as the running engine's last heartbeat gives it (SPEC §12s.4); None for a
+    pool it does not give (no engine running, none written yet, or not connected), never a guess."""
+    from ..watcher import beats
+    got = next((b["compute"] for b in beats(p.dir) if isinstance(b.get("compute"), dict)), {}) if running else {}
+    return {name: got[name] if isinstance(got.get(name), dict) else None for name in spec.compute}
 
 
 def _edited(live: Live, p, running: bool) -> dict | None:
@@ -430,6 +445,39 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
         kept = [{**i, "fields": {**{f: v for f, v in i["fields"].items() if f in show.get(i.get("kind") or "", ())},
                                  **_lease_of(i["fields"])}} for i in kept]
     return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
+
+
+def _with_hidden(kinds: list) -> list:
+    """Each kind with its ``hidden``: its count in each state the list leaves out (SPEC §5a, *Finished items*)."""
+    from ..spec.items import hidden_states
+    return [{**k, "hidden": {s: k["counts"][s] for s in hidden_states(k) if k["counts"].get(s)}} for k in kinds]
+
+
+def _unfinished(p, spec, got: dict, kind: str | None, until: float, n: int, offset: int, pk: int,
+                folded: set = frozenset()) -> dict:
+    """The plain list without each kind's finished and dead items (SPEC §5a, *Finished items*): each kind's
+    ``hidden`` (its count in each state left out), and its items paged by the index in its other states, never
+    cut first and filtered after. The counts stay whole."""
+    from ..spec import items as its
+    hid = {k["name"]: its.hidden_states(k) for k in got["kinds"]}
+    kinds = _with_hidden(got["kinds"])
+    got = {**got, "kinds": kinds, "total": got["total"] - sum(sum(k["hidden"].values()) for k in kinds
+                                                             if not kind or k["name"] == kind)}
+    if not any(k["hidden"] for k in kinds if not kind or k["name"] == kind):
+        return got
+    vis = lambda k: [s for s in dict.fromkeys([*k["states"], *k["counts"]]) if s not in hid[k["name"]]]   # noqa: E731
+    page = lambda name, states, n_, at: its.listing(p.events, spec, kind=name, until=until, n=n_, offset=at,   # noqa: E731
+                                                    states=states)["items"]
+    if kind:                                          # the chosen kind: its page in its other states
+        k = next(k for k in kinds if k["name"] == kind)
+        return {**got, "items": page(kind, vis(k), n, offset)}
+    if pk:                                            # each kind's newest: those hiding something asked again (not folded)
+        again = {k["name"] for k in kinds if k["hidden"] and k.get("system") not in folded}
+        items = [i for i in got["items"] if not any(k["hidden"] and k["name"] == i.get("kind") for k in kinds)]
+        return {**got, "items": items + [i for k in kinds if k["name"] in again for i in page(k["name"], vis(k), pk, 0)]}
+    each = [i for k in kinds for i in page(k["name"], vis(k) if k["hidden"] else None, offset + n, 0)]
+    each += page("", None, offset + n, 0) if got.get("unkinded") else []                  # the items of no kind
+    return {**got, "items": sorted(each, key=lambda i: -i["last"])[offset:offset + n]}
 
 
 def inferred_of(spec, kind: str, name: str | None) -> dict | None:
@@ -634,7 +682,8 @@ def _held_up(p) -> dict:
     return headline(p)
 
 
-def _answer(live: Live, path: str, q: dict, project=None):
+def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
+    """``pinned``: the snapshot to answer from (a dashboard's panels, all of one moment), else the moment's own."""
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
         got = _LISTED
         return dict(got, age=None if got["at"] is None else max(0.0, time.time() - got["at"]))
@@ -663,6 +712,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
             return None
         except ig.Bad as e:
             raise BadSet(str(e)) from e
+    if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4f)
+        from . import dashboard_api
+        return dashboard_api.listing(p) if head == "dashboards" else dashboard_api.answer(live, p, name, q)
     if head == "why":                             # why an item is not done (SPEC §5a), as the record is now
         if not one("item") or one("at"):
             raise BadSet("why: item=ID, as the record is now (never at=)")
@@ -684,7 +736,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "items-overview":                  # the Items page's overview: from the item index, with no snapshot
         from .items_overview import overview
         return overview(p, at if at is not None else time.time(), _window(q))
-    snap = live.snapshot(p, _window(q), at)
+    snap = pinned if pinned is not None else live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates
         from ..runner import running_pid
@@ -693,6 +745,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
         spec = getattr(m, "spec", None)              # the diagram's caption: what the model is for, its loops
         said = {"purpose": spec.purpose, "top": len(spec.subsystems(None)),
                 "controlled": sorted(g for g in spec.goals if spec.loop(g).controllers)} if spec else {}
+        if spec:                                     # the Blocks caption's counts: the one function's, of the controlled goals
+            held = {g: lp for g, lp in snap["loops"].items() if g in said["controlled"]}
+            said["controlled_off"] = st.goals_off({"loops": held})
         return {"name": m.name, **said, "running": running, "live": snap["live"], "first": p.events.first_time(),
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
@@ -705,7 +760,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:],
-                **({"web": w} if (w := live.web.recent()) else {})}
+                **({"web": w} if (w := live.web.recent()) else {}),
+                **({"compute": _compute(p, spec, running)} if getattr(spec, "compute", None) else {})}
     if head == "coherence":                          # the three views held against each other (the Check page)
         from .numbers_api import coherence
         return coherence(live, p, snap, _window(q) if one("since") else None)
@@ -876,7 +932,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
         from ..costs import record as costs
         use = costs.per_block(p, snap["at"] - snap["window"], snap["at"])
-        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {})}
+        span = min(snap["window"], snap["recorded"])     # the runs its interval asks for over the window's record
+        return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {}),
+                    "expected": int(span // a["every"]) if a.get("every") else None, "span": span}
                 for n, a in snap["agents"].items()}
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})
@@ -957,12 +1015,22 @@ def _answer(live: Live, path: str, q: dict, project=None):
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
+        fin = one("finished") or "hide"
+        if fin not in ("hide", "waits", "show"):
+            raise BadSet(f"finished={fin}: hide, waits or show")
+        hide = fin != "show" and not one("state") and not one("q") and spec is not None   # never a searched or chosen state
         paged = bool(one("kind")) and one("kind") in its.kinds_of(spec)   # a kind's page (SPEC §5a): searched, sorted
         if paged:
             from ..spec.item_systems import kind_systems
-            page = its.kind_page(p.events, spec, one("kind"), one("state"), snap["at"], n, max(0, offset),
-                                 (one("q") or "").strip() or None, one("sort") or None)
             frame = its.listing(p.events, spec, kind=one("kind"), state="\0", until=snap["at"], n=1)
+            vis = None
+            if hide:                                  # its page in its other states, paged by the index
+                frame = {**frame, "kinds": _with_hidden(frame["kinds"])}
+                k = next((k for k in frame["kinds"] if k["name"] == one("kind")), None)
+                if k and k["hidden"]:
+                    vis = [s for s in dict.fromkeys([*k["states"], *k["counts"]]) if s not in its.hidden_states(k)]
+            page = its.kind_page(p.events, spec, one("kind"), one("state"), snap["at"], n, max(0, offset),
+                                 (one("q") or "").strip() or None, one("sort") or None, states=vis)
             got = {**frame, **page, "items": [its._listed(i, its.kinds_of(spec), kind_systems(spec)) for i in page["items"]]}
         else:
             got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
@@ -975,10 +1043,16 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 if have.get(k["name"], 0) < min(pk, sum(k["counts"].values())):
                     more = its.listing(p.events, spec, kind=k["name"], until=snap["at"], n=pk)["items"]
                     got["items"] = [i for i in got["items"] if i.get("kind") != k["name"]] + more
+        if hide and not paged:
+            got = _unfinished(p, spec, got, one("kind"), snap["at"], n, offset, pk, set((one("hide") or "").split(",")))
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
         out = _as_listed(got, None if paged else one("q"), 0 if paged else int(one("per_kind") or 0), bool(one("shown")),
                          one("hide"))
+        if one("q") and not paged:                    # a finished match is listed, and counted apart (a kind's: its finished)
+            hid = {k["name"]: set(its.hidden_states(k)) for k in out["kinds"]}
+            out["finished_matched"] = {k: n_ for k in hid if (n_ := sum(i.get("kind") == k and i.get("state") in hid[k]
+                                                                      for i in out["items"]))}
         if getattr(spec, "remotes", None):            # each remote's own section, asked by the page on its own
             out["remotes"] = [{"name": k, "url": r["url"]} for k, r in spec.remotes.items()]
         est = _estimates(p, m, snap, one("whatif"))
