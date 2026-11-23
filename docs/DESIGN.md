@@ -165,7 +165,9 @@ The control diagram is the product's main view. Conventions:
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
   plant (the stock), its output y, and the sensor H on the feedback path carrying ym back to Σ.
-  Every block names the agent that fills it; the loop's lines take its status colour. An open
+  Every block names the agent that fills it. No status colour: each loop's error label, at its junction's
+  output, says e's value and, when its goal is not holding, the goal's word from the server (`e = −36 off`,
+  bold when off; a junction with no error line says its word beside it, `e open`). An open
   loop has `t: <schedule>` driving C with no Σ, and ym ends in "watched against r, not fed
   back". With several systems the rows are grouped by system and tagged. The command line prints
   the same in text (`ergostat system --blocks`).

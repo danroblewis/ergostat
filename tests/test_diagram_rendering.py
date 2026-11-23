@@ -2685,7 +2685,7 @@ BD_LEGEND_DRAWN = {
     "a zero-order hold": '.bd-node[data-id^="zoh:"]', "an In or Out port": ".bd-port", "a port mark": ".bd-portmark",
     "a block's tier": ".bd-tier", "not linear": '.bd-node:not(.bd-collector):not([data-id^="zoh:"]) text.bd-name',
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
-    "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig",
+    "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
 }
 
 
@@ -3147,6 +3147,75 @@ def test_the_goals_page_says_each_goals_word_as_the_server_does_live_and_from_a_
     pg.close()
     assert live == want and offline == want, (live, offline, want)
     assert not errors and not asked, (errors, asked)
+
+
+BD_STATES = """() => Object.fromEntries(S.graph.nodes.filter((n) => n.role === 'comparator').map((n) => {
+  const t = document.querySelector(`svg.canvas text.bd-sig[data-sum="${CSS.escape(n.id)}"]`), st = t?.querySelector('.bd-state');
+  const wires = [...document.querySelectorAll('svg.canvas .bd-edge')].filter((e) => e.dataset.nodes.split(' ').includes(n.id))
+    .map((e) => getComputedStyle(e.querySelector('.bd-wire')).stroke);
+  const b = t?.getBBox(), cuts = b && S.layout.edges.some((le) => { const q = bdPts(le); return q.slice(1).some((p, i) =>
+    Math.max(p.x, q[i].x) > b.x && Math.min(p.x, q[i].x) < b.x + b.width &&
+    Math.max(p.y, q[i].y) > b.y && Math.min(p.y, q[i].y) < b.y + b.height); });
+  return [n.loops[0], t && { text: t.textContent, state: st?.textContent || '', weight: st ? getComputedStyle(st).fontWeight : '',
+    size: parseFloat(getComputedStyle(st || t).fontSize), wires: [...new Set(wires)], cuts }];
+}))"""
+
+
+def test_a_loops_state_is_printed_on_its_error_in_its_word_bold_when_off_and_never_by_colour(browser, tmp_path, monkeypatch):
+    """Acceptance (blocks-status-without-colour): one goal of each word; in ?view=blocks&open=* each comparator's
+    error label says e's value, /api/loops' error, and the goal's word when it is not holding, bold only when off;
+    at least 11 px, clear of every wire; an off loop's wires are stroked as a holding loop's; the legend says so."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from tests.conftest import FOUR_GOALS
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    d = tmp_path / "four"
+    d.mkdir()
+    (d / "ergostat.toml").write_text(FOUR_GOALS)
+    Project(mdl.load(d)).measurements.add("sensor/disk-usage", 70)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        loops = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        assert sorted(lp["word"] for lp in loops.values()) == ["holding", "off", "open", "unknown"], loops
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=*", 0)
+        pg.wait_for_function("() => document.querySelector('svg.canvas .bd-state')", timeout=DRAWN_S * 1000)
+        got = pg.evaluate(BD_STATES)
+        legend = pg.locator(".side .bd-legend").inner_text()
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    assert not errors, errors
+    assert set(got) == set(loops) and all(got.values()), [n for n, x in got.items() if not x]   # every loop's error labelled
+    for name, lp in loops.items():
+        g, word = got[name], lp["word"]
+        value = "" if lp["error"] is None else " = " + pg_number(lp["error"])
+        assert g["state"] == value + ("" if word == "holding" else f" {word}"), (name, g, lp)   # 1: its value, its word
+        assert g["weight"] == ("600" if word == "off" else "400"), (name, g)                      # bold only when off
+        assert g["size"] >= 11 and not g["cuts"], (name, g)                                       # 3: readable, clear of wires
+    off, holding = (next(n for n, lp in loops.items() if lp["word"] == w) for w in ("off", "holding"))
+    assert got[off]["text"].endswith(" off") and got[off]["wires"] and got[off]["wires"] == got[holding]["wires"], got   # 2
+    assert "a loop's state, on its error" in legend, legend                        # 4
+
+
+def pg_number(x: float) -> str:
+    """A number as the page's fmt writes it: integers as they are, others to three figures, a real minus."""
+    t = str(int(x)) if float(x).is_integer() else str(round(x)) if abs(x) >= 100 else f"{float(f'{x:.3g}'):g}"
+    return t.replace("-", "−")
 
 
 def test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks(browser, tmp_path, monkeypatch):

@@ -200,6 +200,20 @@ def test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked():
         assert decl.get("pointer-events") == "none", f"{sel} still takes clicks"
 
 
+def test_a_blocks_loop_state_is_bold_when_off_and_never_a_colour():
+    """Blocks has no status colour (docs/DESIGN.md's colour rules): the state blocks.js prints on a loop's error label
+    (.bd-state, .bd-off when the server's word is off) is set in ink, the off one only bolder, and no rule naming
+    either class gives it a colour, a fill or a stroke. The browser half is in tests/test_diagram_rendering.py."""
+    js = (CSS.parent / "blocks.js").read_text()
+    assert 'st.word === "off" ? " bd-off"' in js, "blocks.js no longer marks the off word with .bd-off"
+    _, rules = split()
+    found = [(sel.strip(), dict(declarations("{" + body + "}")))
+             for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", rules) if "bd-state" in sel or "bd-off" in sel]
+    assert any("bd-off" in s and d.get("font-weight") == "600" for s, d in found), found
+    painted = [(s, p) for s, d in found for p in d if p in ("color", "fill", "stroke", "background", "opacity")]
+    assert not painted, painted
+
+
 def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():
     """A saved picture is drawn light whatever the theme: each dark-theme rule excludes the class export.js sets on
     <html> while it reads the drawing's styles, and export.js sets and then clears that very class."""

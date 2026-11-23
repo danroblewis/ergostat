@@ -529,6 +529,8 @@ svg.bd { color: var(--ink); }
 .bd .bd-name { font-weight: 500; font-size: var(--canvas); font-family: var(--font); }
 .bd .bd-note { fill: var(--muted); font-size: var(--canvas-sm); font-family: var(--font); }
 .bd .bd-sig { fill: var(--ink); }
+.bd .bd-state { font-family: var(--font); font-style: normal; }   /* a loop's state on its error: in ink, bold when off */
+.bd .bd-state.bd-off { font-weight: 600; }
 .bd .bd-sign { font-weight: 600; font-size: var(--canvas); font-family: var(--font); }
 .bd .bd-count { fill: var(--ink); font-size: var(--canvas-sm); font-family: var(--font); }
 .bd .bd-sketch .bd-axis { stroke: var(--muted); stroke-width: .8; fill: none; }
