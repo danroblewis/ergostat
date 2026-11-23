@@ -72,3 +72,19 @@ had no other finding. 1 net line outside tests (16 in all).
 - Run here: tests/test_inbox_page.py (3 passed, rc 0, Playwright, under the watchdog); tests/test_inbox.py
   (30 passed); ruff clean. Not run here: the unit suite and the four browser files. Nothing to merge: `main` has not
   moved since the clone.
+
+Round 3: main (bf6dbebf1aa4) merged in. It conflicted in ergostat/state.py, ergostat/web/static/diagram.js and
+tests/test_inbox_page.py. Main's side list now holds still while the reader is in it and keys every row by its entry,
+which covers round 2's key, so its version of the list is kept whole. In `inboxAnswer` the branch's version is kept,
+with main's two additions: the row found with `closest(".inbox-act")`, and focus moved to the reply when answered
+from the keyboard. The entry keeps main's `kind` and the branch's `object`.
+- Main's new browser tests were written for the old row. They are changed only where this gap changes the row:
+  the reason box is found by `aria-label^="Why"` (its name is now "Why deny the push"). From the reason, Deny is
+  two Tabs on, past Approve (it was one Shift+Tab back). In the test where the next request's reason box starts
+  empty, its Deny is now checked to be off, and a reason of its own is typed before denying.
+- The branch's two tests now wait for the answered row to say so, and for the reader to leave
+  before the row goes, because the list now holds still. The Tab walk skips the row's folded command (now a
+  tab stop ahead of the answer) and checks the order of the answer's controls.
+  With the reason put after the buttons, it failed again.
+- Run here: tests/test_inbox_page.py (9 passed, rc 0, Playwright, under the watchdog); tests/test_inbox.py
+  (33 passed); ruff clean. Not run here: the unit suite and the four browser files.

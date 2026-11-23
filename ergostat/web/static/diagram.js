@@ -1391,7 +1391,6 @@ function inboxAnswer(a) {
   if (SNAP || S.at) return null;
   const said = h("span", { class: "note", "aria-live": "polite", tabindex: "-1" });
   const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
-<<<<<<< HEAD
   // each button names what it answers, seen ("Approve the push") and heard (with the entry's id, unique in the list)
   const thing = { action: `the ${a.object}`, person: `${a.object}'s ask`, advise: `${a.object}'s command`,
                   breaker: `the reset of ${a.object}'s breaker`, steptest: "the step test", change: "the model change",
