@@ -104,7 +104,30 @@ def test_the_inbox_aggregates_every_kind(tmp_path):
     assert all(e["age"] >= 0 and e["summary"] for e in es.values())
     att = st.attention(st.snapshot(p), False, p.model)
     assert [a["what"] for a in att[:5]] == [e["id"] for e in entries.entries(p)]       # first, and answerable
+    objects = {a["what"].split("/")[0]: a["object"] for a in att[:5]}                 # what each answer is about
+    assert objects["action"] == "push" and objects["person"] == "reviewer" and objects["advise"] == "pusher"
     assert measures.measure(p, "ergostat.inbox.waiting") == 5.0 and measures.measure(p, "inbox.asked") == 5.0
+
+
+def test_a_persons_entry_says_what_its_number_moves(tmp_path):
+    p, snap = project(tmp_path)
+    seed(p, snap)
+    e = next(e for e in entries.entries(p) if e["kind"] == "person")
+    assert (e["flow"], e["unit"]) == ("reviewed", "jobs") and "yes_no" not in e      # the stock's unit, from: queue
+    att = next(a for a in st.attention(st.snapshot(p), False, p.model) if a["what"] == e["id"])
+    assert (att["flow"], att["unit"]) == ("reviewed", "jobs")                         # passed on to the side list
+
+
+def test_the_jobs_two_ended_person_asks_keep_their_number_along_the_flow_it_moves():
+    """the-job's approve-ramps (approved / rejected) and declare-incident (declared / dismissed): the number moves the
+    first flow only, so the entry names that flow and its stock's unit, and nothing makes either a yes or no."""
+    from pathlib import Path
+
+    from ergostat.spec import load
+    spec = load(Path(__file__).resolve().parent.parent / "examples" / "the-job" / "ergostat.yaml")
+    got = {n: entries._done_in(spec, spec.blocks[n]) for n in ("approve-ramps", "declare-incident")}
+    assert got == {"approve-ramps": {"flow": "ramps-approved", "unit": "ramps"},
+                   "declare-incident": {"flow": "outages-declared", "unit": "outages"}}, got
 
 
 def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):
@@ -114,6 +137,24 @@ def test_the_why_of_an_action_is_its_items_impact_and_tests(tmp_path):
     gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "failure/1"})
     e = entries.entries(p)[0]
     assert e["why"] == "restores 12 an hour; tests passed" and "for failure/1" in e["summary"]
+
+
+def test_an_action_says_its_command_and_its_reason_once_in_the_cli_the_message_and_the_status(tmp_path, capsys):
+    p, _ = project(tmp_path, MODEL.replace("blocks:", "items:\n  failure:\n    id: failure/*\n    states: [open]\n"
+                                                   "    on: {failure.seen: open}\nblocks:", 1)
+                   .replace('run: "cat >> sent.txt"', 'run: "cat >> sent.txt"\n      detail: full'))
+    p.events.add("failure.seen", item="failure/1", data={"impact": {"said": "restores 12 an hour"}, "tests": "passed"})
+    gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "failure/1"})
+    assert cli(["-C", str(tmp_path), "inbox"]) == 0
+    out = capsys.readouterr().out
+    deliver.sweep(p, p.model.spec, time.time() + 300)
+    msg = sent(tmp_path)
+    ask = next(a for a in st.attention(st.snapshot(p), False, p.model) if a["what"].startswith("action/"))
+    for said in (out, msg, ask["says"]):                       # the reason said once wherever it can be approved
+        assert said.count("restores 12 an hour") == 1, said
+    assert "runs: echo pushed >> pushed.txt" in out and "runs: echo pushed >> pushed.txt" in ask["says"]
+    assert "runs: echo flow-1 >> flow-1.txt" in msg            # what will run (a message's: model names scrubbed)
+    assert ask["first"].endswith("because restores 12 an hour; tests passed") and ask["more"] is None
 
 
 def test_each_kind_is_answered_from_the_cli(tmp_path, capsys):
@@ -158,6 +199,32 @@ def test_each_kind_is_answered_from_the_api(tmp_path):
     assert actions_api.answer(live, "inbox/steptest%2Fst123456/approve", {})[0] == 400   # nothing runs a test: refused
     assert actions_api.answer(live, "inbox/nothing/approve", {})[0] == 400
     assert kinds(p) == ["steptest"]
+
+
+def test_an_answered_action_says_the_item_it_is_for(tmp_path):
+    p, _ = project(tmp_path)
+    a = gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "ticket/SCRUM-2"})
+    x = answer.answer(p, p.model.spec, f"action/{record.short(a['id'])}", "deny", note="not now")
+    assert (x["said"], x["item"]) == ("denied", "ticket/SCRUM-2") and "link" in x
+
+
+def test_a_request_answered_leaves_the_attention_list_the_side_list_keys_by_what(tmp_path):
+    """The side list (diagram.js) keys each request's row by its ``what`` and, while the reader is in it, marks a row
+    "no longer waiting" when that ``what`` drops out of the graph answer's attention: so each request must be there
+    under its own ``what`` with its verbs, and an answered one gone while the others stay, in their order (the browser
+    half of this check is tests/test_inbox_page.py)."""
+    from ergostat.web.server import Live
+    p, _ = project(tmp_path)
+    shorts = [record.short(gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None})["id"])
+              for _ in range(3)]
+
+    def waiting() -> list[str]:
+        return [a["what"] for a in st.attention(st.snapshot(p), False, p.model) if a.get("answer")]
+    before = waiting()
+    assert sorted(w for w in before if w.startswith("action/")) == sorted(f"action/{s}" for s in shorts), before
+    code, x = actions_api.answer(Live(p), f"inbox/action%2F{shorts[1]}/deny", {"note": ["not now"]})
+    assert code == 200 and x["id"] == f"action/{shorts[1]}"
+    assert waiting() == [w for w in before if w != f"action/{shorts[1]}"]
 
 
 def test_the_mcp_lists_and_answers(tmp_path):
@@ -370,7 +437,8 @@ def test_a_message_says_little_unless_the_channel_asks_for_detail_and_then_scrub
     gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "secret-host.corp.internal"})
     deliver.sweep(p, p.model.spec, time.time() + 300)
     full = sent(tmp_path)
-    assert "secret-host.corp.internal" not in full and "for host-1: echo" in full      # its summary, scrubbed
+    assert "secret-host.corp.internal" not in full and "for host-1, " in full      # its summary, scrubbed
+    assert "\n  runs: echo " in full                                                     # and what will run
     (tmp_path / "minimal").mkdir()
     p2, _ = project(tmp_path / "minimal")
     gate.request(p2, p2.model.spec, "push", {}, {"block": "pusher", "item": "ticket/7"})
@@ -637,6 +705,21 @@ def test_the_status_and_notifications_say_how_a_request_is_denied(tmp_path):
     assert entries.command(e) in deliver.message(n, [{**e, "age": 60.0}], False, "")[1]
 
 
+def test_a_held_request_carries_its_fold_part_and_system_to_the_side_list(tmp_path):
+    """The page folds alike held requests by (code, asker): the entry and its attention row carry both, and the part's
+    system (dev/records/ui-requests-that-are-alike-fold-into-one-with-a-cou.md)."""
+    from ergostat.spec.ir import Ref
+    p, r, eid = held_request(tmp_path)
+    spec = p.model.spec
+    e = next(e for e in entries.entries(p) if e["id"] == eid)
+    assert e["fold"] == f"{r['code']}|{r['source']}" and r["code"] and r["source"]
+    assert e["about"] == r["about"] and e["system"] == spec.owner(Ref.parse(r["about"]))
+    a = next(a for a in st.attention(st.snapshot(p), False, p.model) if a["what"] == eid)
+    assert a["fold"] == e["fold"] and a["about"] == e["about"] and a.get("system") == e["system"]
+    assert not any("fold" in x for x in st.attention(st.snapshot(p), False, p.model) if x["what"] != eid
+                   and not x["what"].startswith("request/"))         # only held requests fold
+
+
 def test_every_inbox_entry_kind_has_a_verb(tmp_path):
     (tmp_path / "a").mkdir()
     p, snap = project(tmp_path / "a", MODEL.replace("blocks:\n", "blocks:\n  poked:\n    type: program\n"
@@ -653,3 +736,57 @@ def test_every_inbox_entry_kind_has_a_verb(tmp_path):
         with pytest.raises(answer.AnswerError) as no:
             answer.answer(q if e["kind"] == "request" else p, None, e["id"], wrong)
         assert "--" in str(no.value).split(" is answered with ", 1)[1], e["id"]
+
+
+GROUPED = """\
+name: grouped
+stocks:
+  backlog:
+    unit: tickets
+    sensor:
+      manual: true
+flows:
+  finishing:
+    from: backlog
+goals:
+  short-backlog:
+    stock: backlog
+    hold: "<= 5"
+blocks:
+  reviewer:
+    type: person
+    ask: review the backlog
+    goal: short-backlog
+    out: flow.finishing
+uses:
+  modelling:
+    use: modelling
+"""
+
+
+def test_each_loop_line_carries_its_state_and_whether_the_goal_is_modellings(tmp_path, monkeypatch):
+    """What the side list groups by (design review Q42): each loop entry says its status, a goal of a `use: modelling`
+    instance is marked modelling's, the system's own is not, and the reports-upstream line is marked waiting."""
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    d = tmp_path / "grouped"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(GROUPED)
+    p = Project(mdl.load(d))
+    now = time.time()
+    p.measurements.add("sensor/backlog.main", 9, at=now - 30)                    # the system's goal: off
+    p.measurements.add("sensor/unanswered-requests.main", 3, at=now - 30)        # modelling's goal: off
+    snap = st.snapshot(p, now=now)
+    loops = {a["what"]: a for a in st.attention(snap, False, p.model) if a["what"].startswith("loop ")}
+    assert loops["loop short-backlog"]["state"] == "off" and "modelling" not in loops["loop short-backlog"], loops
+    assert loops["loop requests-handled"]["state"] == "off" and loops["loop requests-handled"]["modelling"] is True
+    assert all(a["state"] == snap["loops"][w.split(" ", 1)[1]]["status"] for w, a in loops.items()), loops
+    snap["reports"] = [{"id": "report/1", "title": "a crash"}]
+    said = [a for a in st.attention(snap, False, p.model) if a["what"] == "reports upstream"]
+    assert said and said[0]["waiting"] is True, said
+    from ergostat.numbers import requests as rq
+    rq.event(p, "r1", "held", {"code": "flow-unmeasured", "about": "flow.x", "source": "check", "tier": "ai"})
+    p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 2, "ask": "look"})
+    asks = {a["what"]: a for a in st.attention(st.snapshot(p, now=time.time()), False, p.model) if "answer" in a}
+    assert asks["request/r1"]["kind"] == "request", asks                     # the page puts these under housekeeping
+    assert [a["kind"] for w, a in asks.items() if w != "request/r1"] and all(
+        a["kind"] != "request" for w, a in asks.items() if w != "request/r1"), asks

@@ -1,0 +1,7 @@
+[{"goto":"http://127.0.0.1:8796/"},{"wait":4000},{"shot":"plan-notation-sf-home.png"},
+ {"goto":"http://127.0.0.1:8796/diagram?system=product"},{"wait":5000},{"shot":"plan-notation-sf-product-dyn.png"},
+ {"text":"css=aside"},
+ {"goto":"http://127.0.0.1:8796/diagram?system=product&view=blocks"},{"wait":5000},{"shot":"plan-notation-sf-product-blocks.png"},
+ {"goto":"http://127.0.0.1:8797/"},{"wait":5000},{"shot":"plan-notation-big-home.png"},
+ {"goto":"http://127.0.0.1:8797/diagram?system=api"},{"wait":5000},{"shot":"plan-notation-big-api-dyn.png"},
+ {"goto":"http://127.0.0.1:8797/diagram?system=api&view=blocks"},{"wait":5000},{"shot":"plan-notation-big-api-blocks.png"}]

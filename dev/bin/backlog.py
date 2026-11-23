@@ -110,11 +110,38 @@ def check(gaps: dict[str, dict], p: dict, known: tuple[dict, list[str]] = ({}, [
         if s.get("gap") in gaps and gaps[s["gap"]]["state"] in CLOSABLE and 2 <= len(s.get("into") or []) <= 6 \
                 and f"{s['gap']}-1" not in gaps:
             why = built(gaps[s["gap"]])
-            if why:
-                refused.append(f"split {s['gap']}: {why}; its parts would start from main and abandon that work")
+            parts, bad = own_waits(gaps, graph, s)
+            if why or bad:
+                refused.append(f"split {s['gap']}: " + (f"{why}; its parts would start from main and abandon that work"
+                                                        if why else bad))
             else:
-                out["splits"].append(s)
+                out["splits"].append({**s, "into": parts})
     return out, refused
+
+
+def own_waits(gaps: dict[str, dict], graph: dict[str, set[str]], s: dict) -> tuple[list[dict], str | None]:
+    """A split's parts with the dependencies the proposal names for each made gap ids (a gap, or an earlier part as
+    `gap/<parent>-<n>`), and why the split is refused instead: a name that is no gap, a later part, or the parent, one
+    above it or one waiting on it (a cycle: a split parent waits on its children). Refused whole, never dropped: a
+    dropped dependency would make the part runnable (lesson-3)."""
+    find, top = deps.resolver(gaps, {}), {s["gap"], *deps.ancestors(gaps, s["gap"])}
+    parts = []
+    for n, part in enumerate(s["into"], 1):
+        earlier = {f"{s['gap']}-{i}" for i in range(1, n)}
+        got = []
+        for name in fac.ids(part.get("depends_on")):
+            d = name if name in earlier else find(str(name))
+            if d not in earlier and (d is None or d in top or deps.reaches(graph, d, s["gap"])):
+                return [], f"part {n} depends on {name!r}: no gap or earlier part, or the parent or what waits on it"
+            got.append(d)
+        parts.append({**part, "depends_on": sorted(set(got))} if got else part)
+    return parts, None
+
+
+def inherited(gaps: dict[str, dict], gid: str) -> list[str]:
+    """What a split parent still waits on: each dependency not finished (merged or closed; one that is no gap counts
+    as unfinished), which its parts without a sibling to wait on take, so a split makes nothing runnable."""
+    return sorted(d for d in fac.ids(gaps[gid]["fields"].get("depends_on")) if gaps.get(d, {}).get("state") not in deps.DONE)
 
 
 def built(g: dict) -> str | None:
@@ -166,13 +193,15 @@ def apply(gaps: dict[str, dict], p: dict, by: str) -> tuple[list[str], list[str]
     for c in p["closes"]:
         close(gaps, c["gap"], c["end"], str(c.get("reason") or ""), c.get("of"), by)
     for s in p["splits"]:
-        kids, prev = [], []
+        kids, prev, held = [], [], inherited(gaps, s["gap"])
         for part in s["into"]:
             kid = f"{s['gap']}-{len(kids) + 1}"
+            on = {*prev, *(part.get("depends_on") or [])}
+            on = sorted(on if on & set(kids) else on | set(held))     # no sibling to wait on: the parent's waits
             say("gap.requested", kid, title=str(part.get("title") or kid)[:100], source="groom", parent=[s["gap"]],
-                branch=fac.slug(kid.split("/", 1)[1], 32), depends_on=prev, why=str(part.get("why") or ""),
+                branch=fac.slug(s["gap"].split("/", 1)[1], 29) + f"-{len(kids) + 1}", depends_on=on, why=str(part.get("why") or ""),
                 requested_at=time.time())
-            gaps[kid] = {"id": kid, "state": "open", "fields": {"depends_on": prev}}
+            gaps[kid] = {"id": kid, "state": "open", "fields": {"depends_on": on}}
             kids, prev = [*kids, kid], [kid]
         say("gap.split", s["gap"], children=kids, split_at=time.time(), split_by=by)
         gaps[s["gap"]]["state"] = "split"

@@ -176,8 +176,8 @@ class FakeEngine:
         self.moved_by[b.name] = {"steps1": q - was}
         return ["steps1"]
 
-    def after_acting(self, flows):
-        return []
+    def _read_moved(self, flows, cause, spec=None):
+        pass
 
     def say(self, *_):
         pass

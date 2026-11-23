@@ -1,11 +1,31 @@
+import contextlib
 import fcntl
+import json
+import multiprocessing.spawn
 import os
+import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 from pathlib import Path
 
 import pytest
+
+_DEV_BIN = Path(__file__).resolve().parent.parent / "dev" / "bin"
+_preparation = multiprocessing.spawn.get_preparation_data
+
+
+def _without_dev_bin(name):
+    """What a spawned process starts from, less dev/bin: many tests put it on sys.path, a spawned process inherits that,
+    and there dev/bin/queue.py hides the standard library's `queue`, which multiprocessing itself imports."""
+    data = _preparation(name)
+    data["sys_path"] = [x for x in data.get("sys_path", []) if not x or Path(x).resolve() != _DEV_BIN]
+    return data
+
+
+multiprocessing.spawn.get_preparation_data = _without_dev_bin
 
 DISK = """
 name = "t"
@@ -47,6 +67,52 @@ name = "cleaner"
 kind = "program"
 command = "python3 clean.py"
 every = "1s"
+"""
+# the disk model with one goal of each word, once disk-usage reads 70: holding (disk-under-80), off (disk-under-50),
+# open (disk-cleaned-nightly: its valve drains another stock) and unknown (inodes-under-90, never read)
+FOUR_GOALS = DISK + """
+[[controller]]
+name = "disk-under-50"
+holds = "disk-used"
+setpoint = "<= 50"
+reads = ["disk-usage"]
+drives = ["delete-old-files"]
+agent = "cleaner"
+
+[[stock]]
+name = "inodes-used"
+unit = "%"
+systems = ["host"]
+
+[[flow]]
+name = "inodes-freed"
+from = "inodes-used"
+
+[[sensor]]
+name = "inode-usage"
+measures = "inodes-used"
+agent = "cleaner"
+
+[[controller]]
+name = "inodes-under-90"
+holds = "inodes-used"
+setpoint = "<= 90"
+reads = ["inode-usage"]
+drives = ["free-inodes"]
+agent = "cleaner"
+
+[[valve]]
+name = "free-inodes"
+flow = "inodes-freed"
+agent = "cleaner"
+
+[[controller]]
+name = "disk-cleaned-nightly"
+holds = "inodes-used"
+setpoint = "<= 95"
+reads = ["inode-usage"]
+drives = ["delete-old-files"]
+agent = "cleaner"
 """
 
 
@@ -180,3 +246,66 @@ def project(repo):
 
 def here() -> Path:
     return Path(__file__).parent
+
+
+class FactoryState:
+    """scripts/factory_fixture.py's state directory: ``model`` (the repository), ``home`` (its ERGOSTAT_HOME),
+    ``record`` (its state directory), ``stats`` (what the script said it wrote), ``digests`` (each record file's
+    sha256 as built), ``project()``, and ``serve()``: a page server on it, a context manager giving its URL."""
+
+    def __init__(self, out: Path, stats: dict, digests: dict | None = None):
+        import hashlib
+        self.model, self.home, self.record, self.stats = out / "model", out / "home", Path(stats["record"]), stats
+        self.digests = digests if digests is not None else {
+            str(f.relative_to(self.record)): hashlib.sha256(f.read_bytes()).hexdigest()
+            for f in sorted(self.record.rglob("*")) if f.is_file() and f.name != "repo.json"}
+
+    def project(self):
+        from ergostat import model
+        from ergostat.store import Project
+        return Project(model.load(self.model), self.record, note=False)
+
+    @contextlib.contextmanager
+    def serve(self):
+        from http.server import ThreadingHTTPServer
+
+        from ergostat.web.server import handler
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(self.project()))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            yield f"http://127.0.0.1:{srv.server_address[1]}"
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
+def clean_env(**more: str) -> dict:
+    """This process's environment without what an ergostat running the suite gave it (its socket, run, home: as the
+    ``home`` fixture clears for a test), but the watchdog's tag; a session fixture is set up before ``home`` runs."""
+    return {**{k: v for k, v in os.environ.items() if not k.startswith("ERGOSTAT_") or k == "ERGOSTAT_SUITE_WATCH"}, **more}
+
+
+def build_factory_state(out: Path, *args: str) -> dict:
+    got = subprocess.run([sys.executable, str(here().parent / "scripts/factory_fixture.py"), str(out), *args],
+                         check=True, capture_output=True, text=True, timeout=900, env=clean_env())
+    return json.loads(got.stdout)
+
+
+@pytest.fixture(scope="session")
+def factory_state(request, tmp_path_factory) -> FactoryState:
+    """A factory-size state directory (seed 1, its record ending at this hour; tests/README.md), built once a run: under
+    xdist by the first worker to ask, in the run's own temporary root, while the others wait on its lock, so a parallel
+    run holds one copy, not one a worker. Its digests are taken as built. Skipped under a ``-m fast`` run."""
+    if "fast" in (request.config.getoption("markexpr") or ""):
+        pytest.skip("the factory-size state directory is not built in a -m fast run")
+    root = tmp_path_factory.getbasetemp()
+    root = root.parent if os.environ.get("PYTEST_XDIST_WORKER") else root     # (a worker's is <run's root>/<worker id>)
+    said = root / "factory-state.json"
+    with open(root / "factory-state.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)                    # (let go as the file closes, the build failed or not)
+        if not said.exists():
+            out = Path(tempfile.mkdtemp(prefix="factory-", dir=root)) / "state"
+            built = FactoryState(out, build_factory_state(out, "--seed", "1", "--end", str(int(time.time()) // 3600 * 3600)))
+            said.write_text(json.dumps({"out": str(out), "stats": built.stats, "digests": built.digests}))
+        got = json.loads(said.read_text())
+    return FactoryState(Path(got["out"]), got["stats"], got["digests"])

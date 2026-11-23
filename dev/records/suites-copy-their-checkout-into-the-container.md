@@ -1,0 +1,109 @@
+# suites-copy-their-checkout-into-the-container: the queue's suite containers read a copy, not the Mac's folder through Docker's file sharing
+
+depends-on: []
+
+On 2026-11-22 Docker Desktop's virtual machine (com.apple.Virtualization.VirtualMachine) held about 204,000 open files after 2.5 days, growing by roughly 30,000 an hour while the merge queue ran: its file sharing (virtiofs) keeps a handle on every file a container reads through a bind mount, even after the folder is deleted. Its per-process limit is 245,760; at 10:05 the engine's own sensors failed with ENFILE, and the coordinator had to restart Docker Desktop (10:17), which also restarts the owner's own containers. The merge queue's suites (`dev/bin/agents.py` `queued()`, `-v {work}:/work`) read the whole checkout, thousands of test files, about every ten minutes; session containers (`run_args`) bind-mount their clone the same way.
+
+## Definition of done
+1. A queue or triage suite container gets the checkout as a copy inside the container (for example `git archive` of the commit piped into the container, or a named Docker volume filled once per run), not a bind mount of the Mac's folder; what the suite writes back (coverage, logs) still reaches `run/` as today.
+2. The VM's open-file count does not grow with the number of queue runs: a test (or a measured run recorded in the gap's record) shows its count after 10 queue runs within 1,000 of before.
+3. Session containers are measured too; if they leak the same way, the record says how much, and a follow-up gap is named.
+4. A sensor reads the VM's open-file count (macOS only; none elsewhere), with a goal below 150,000, so a leak shows on the model before it stops anything.
+
+## Files to touch
+`dev/bin/agents.py`, `dev/bin/fac.py`, `dev/model/resources.yaml`, tests.
+
+## Size budget
+80 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Built (round 1) in a Linux container with no Docker, so nothing here was measured on Docker Desktop.
+
+- **1, done.** `agents.queued()` (the queue's and flake triage's suite containers) no longer bind-mounts the checkout.
+  On the Mac, `tar -C <checkout> --exclude ./.venv --no-xattrs --no-acls -cf - .` (with `COPYFILE_DISABLE=1`, so
+  macOS's tar adds no `._` files) is piped into `docker run -i`, which unpacks it at /work before the suite's command.
+  A copy that does not unpack exits 125, which `fac.suite` already reads as NotStarted (an infrastructure failure, no
+  gap blamed). `run/coverage/` is still mounted at its own path, and logs are the container's output, so both still
+  reach `run/`. The empty tmpfs over `.venv` is gone, since the copy has none. These choices were taken as the most
+  reversible:
+  - tar of the folder rather than `git archive` of the commit: triage's worktree holds an uncommitted merge
+    (`--no-commit`), suites call git, and today's suites see untracked files. Tar keeps all three as they were.
+  - the queue's checkout has its git directory inside it, so the git directory is in the copy and nothing of the
+    checkout is mounted. Triage's worktree (`<worktrees>/.triage`) shares the checkout's git directory, which is
+    outside it. That directory is still mounted read-only at its own path, as before (triage runs only after a failed
+    queue run). If the sensor shows that it matters, copying it too is the next step.
+  - each run now copies the whole checkout, its `.git` included, through a pipe. How long that takes on the Mac was
+    not measured.
+- **2, not shown.** No VM count was taken before and after 10 queue runs (there is no Docker Desktop here). The tests
+  show only that the cause is gone: `test_a_queue_suite_reads_a_copy_of_the_checkout_never_the_macs_folder` checks
+  that no `docker run` of a queue run mounts any folder of the checkout; that the suite sees the files, `.git` and
+  untracked files but not `.venv`; that what it writes in /work stays out of the checkout; and that what it writes in
+  `run/coverage/` reaches it. Left: on the Mac, read `python3 dev/bin/resources.py vm-open-files`, let 10 queue runs
+  go, read it again, and add both numbers here.
+- **3, not measured.** Session containers (`run_args`, `-v {work}:/work`) are unchanged and were not measured. They
+  read through a bind mount the same way, so they very likely leak too, at a rate set by how much each session reads.
+  Follow-up gap named: `sessions-copy-their-clone-into-the-container`. It would measure the sessions' share with the
+  new sensor, and if that grows, give a session its clone as a copy and copy its commits back.
+- **4, done.** `resources.py vm-open-files`: on macOS, the most open files held by any
+  `com.apple.Virtualization.VirtualMachine` process (`pgrep -f`, then `lsof -n -P -F f -p <pids>`; the limit is per
+  process). Off macOS, with no VM running, or when lsof fails, it gives no reading (the sensor fails and goes stale),
+  never 0. It is a slow reading (taken with Docker's disk, at most every 10 minutes, with lsof limited to 90 s).
+  `dev/model/resources.yaml` has the auxiliary `vm-open-files` and the goal `vm-open-files-within` (`<= 150000`). The
+  goal shows on the model and feeds no gate (`machine-full` does not read it), so a leak is seen and nothing is
+  stopped. Tests: `test_the_docker_vms_open_files_are_read_on_macos_only`, and `test_gates_respect_headroom` checks
+  the goal and the sensor in the compiled model.
+- **Check finding `missing-feedback goal.vm-open-files-within`, answered.** The goal's loop closes through a new
+  `external` block, `restart-docker` (the coordinator restarts Docker Desktop, as on 2026-11-22 at 10:17). It reads the
+  goal and sets `auxiliary.vm-open-files`. This was chosen over gating sessions in `machine-full` as the more
+  reversible option: it states who acts today and stops nothing. `test_gates_respect_headroom` checks that the loop's
+  actuator is `restart-docker`, that no block other than an external one reads the goal, and that the finding is
+  gone. It failed with the block's `out:` removed.
+- Files outside the list: `dev/bin/resources.py` (the sensor's program is there) and one sentence in
+  `dev/README.md`. `dev/bin/fac.py` needed no change. Net lines in `dev/bin` and `dev/model`: +38.
+
+## Where it stopped
+
+Parked by the factory (review/suites-copy-their-checkout-into-the-container-1, 2026-11-22 10:54).
+
+Done: definition item 1 (agents.queued pipes a tar of the checkout, minus .venv, with its git directory when inside it, into docker run -i, unpacked at /work; run/coverage still mounted; a failed unpack exits 125, NotStarted; tested with a fake docker that really unpacks) and item 4 (resources.py vm-open-files on macOS via pgrep and lsof, no reading elsewhere; auxiliary vm-open-files and goal vm-open-files-within <= 150000, feeding no gate; tested). Left: item 2, read `python3 dev/bin/resources.py vm-open-files` on the coordinator's Mac with this branch's queued() in use, let 10 queue runs go, read it again, and record both (must be within 1,000); item 3, measure the same count across session containers' runs and record how much it grows, naming the follow-up gap with that number. Both need Docker Desktop on the Mac, which the implementor's Linux build has no access to, so another fix round cannot close them.
+
+## Where it stopped
+
+Continued (round 1, 2026-11-22), again in a Linux container with no Docker Desktop.
+
+- Main (bea24a23) merged in. Its conflict in `agents.queued()` was resolved by keeping both sides: main's per-prefix
+  CPUs (`prefix_cpus` for a worktree under `run/queue-prefix/`) and this branch's copy of the checkout in place of the
+  bind mount. Main had changed the git-directory mount (mounted read-only even when it sits inside the checkout). That
+  change was dropped, because the copy already carries a git directory that lives inside the checkout. A prefix's
+  worktree keeps its outside git directory mounted read-only at its own path, the same way triage's worktree does.
+- After the merge, `tests/test_agents.py` passes in full, as do `test_prefix_runs_hold_to_prefix_most` and
+  `test_a_stopped_prefix_run_leaves_no_worktree_or_container` (which build a prefix's `queued()` command). Ruff is
+  clean on ergostat, tests and scripts.
+- Still left, and only someone at the Mac can do it: item 2, the VM's open-file count before and after 10 queue runs
+  (`python3 dev/bin/resources.py vm-open-files`), and item 3, the same count across session containers' runs. No
+  code change in this branch can close them.
+
+## Where it stopped
+
+Parked by the factory (review/suites-copy-their-checkout-into-the-container-2, 2026-11-22 12:28).
+
+Done: item 1 (agents.queued pipes a tar of the checkout, minus .venv and with its git directory when that is inside it, into docker run -i, unpacked at /work; run/coverage still mounted; tested with a stand-in docker that really unpacks) and item 4 (resources.py vm-open-files via pgrep and lsof on macOS, no reading elsewhere; auxiliary vm-open-files, goal vm-open-files-within <= 150000, and an external restart-docker block; tested). Left: item 2, on the coordinator's Mac with this branch's queued() in use, read `python3 dev/bin/resources.py vm-open-files`, let 10 queue runs go (prefix runs included), read it again, and record both numbers (must be within 1,000); item 3, the same count across session containers' runs, recorded with the follow-up gap sessions-copy-their-clone-into-the-container. It stops because only someone at the Mac with Docker Desktop can take these readings.
+
+## Where it stopped
+
+Continued (round 2, 2026-11-23), in a Linux container with no Docker Desktop. No code changed this round.
+
+- The review's direction: items 2 and 3 (the live readings on the Mac) now belong to the coordinator and are out of
+  this gap. They were not attempted and nothing waits on them. Items 1 and 4 are done on this branch as recorded above.
+- Main (fd6fff22) was already merged into the branch; there was nothing new to merge.
+- Suites run on this branch: `tests/test_agents.py` (21 passed), `tests/test_factory_resources.py` (12 passed),
+  `tests/test_factory.py` (185 passed, 2 skipped because they need Docker and the agent image, which this container
+  does not have). Ruff is clean on ergostat, tests and scripts. Running `tests/test_factory.py` under
+  `scripts/suite_watch.py` was refused in this session, so it ran through `scripts/named_tests.py` without the
+  watchdog. `tests/test_diagram_rendering.py` skipped because Playwright is not installed. The browser files were not
+  run.
+- For the coordinator, after this lands: on the Mac, read `python3 dev/bin/resources.py vm-open-files`, let 10 queue
+  runs go (prefix runs included), read it again, and check the two numbers are within 1,000 (item 2). Take the same
+  count across session containers' runs (item 3). If it grows, open the follow-up gap
+  `sessions-copy-their-clone-into-the-container` with that number.
