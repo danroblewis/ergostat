@@ -134,3 +134,19 @@ dropping `bold: false` failed it ({italic 400, normal 700}). Both edits were und
 in the background (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python
 scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/dr.log 2>&1`), so it was not run this round. That is
 left to the merge queue.
+
+Round 3, after the `build` failure (rc 5, `1 skipped`: the browser file alone, no Playwright): the merge of main
+(3b299fa1) was already committed, and neither file had conflict markers left. Removing the round-2 unit test had left
+`tests/test_diagram_rendering.py` as the only test file the branch changes, so the build step had nothing it could
+run. The branch now adds
+`tests/test_blockdiagram.py::test_a_systems_letter_carries_its_name_once_closed_and_open`. It pins the fact that the
+frame-title rule in `blocks.js` reads (`f.fn.sub !== f.label`): a C or P system's fn has its letter as sym and the
+system's name as sub, and a named one has its name as sym, no sub and `named` set. This holds on the closed block and
+the open frame, whose label is the system's name, in every example. To show it can fail: with blockdiagram.py line
+1352's sub cut to `name[:3]` for a moment, 6 of 23 examples failed. The edit was undone. No code outside `tests/`
+changed this round.
+- Tests run: `tests/test_blockdiagram.py` (118 passed) and ruff (clean). The browser file was not run again: the code
+  is the same as the round-3 run above. Refused: a compound Bash command (a `cat` heredoc into /tmp and an append to
+  the test file), so the test was written with the editor instead. Also refused: one call that ran `git diff`, the
+  test file, ruff and a dry run of `scripts/affected_tests.py -- echo` together. The first three were then run one
+  by one; the dry run of the selection was not run again.
