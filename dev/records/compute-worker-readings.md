@@ -69,3 +69,9 @@ given the plain writer, the sub-second test fails (`KeyError: 'resources'`).
 Overrun reason: 248 net lines against 150 after the merge (+24: `final`, the `ended` writer and the beat's merged
 `runs`, the integration with main's `ended` that the definition's "the whole in `ended.resources`" now needs). The
 four reasons above still stand.
+
+Round 4: the one finding was the conflict with main (e43046dc) in docs/SPEC.md, in 12s's opening paragraph. It is
+resolved by keeping both sides: main's sentence that a model may declare `compute:` pools and `runs-on:` (checked
+only), and the branch's "its CPU and memory read (12s.3)". Main's other change, to ergostat/compute/compile.py, does
+not touch the worker, so no code changed this round. After the merge, the five readings tests pass, and so do the
+keeper, output, worker-protocol and compile tests.
