@@ -776,7 +776,8 @@ forward into each gap stacked on it. It never rebases or squashes, so the review
 the queue's lock, taken only if it is free (a queue run holding it means the next pass). It reads the gaps inside the
 lock and takes the stale ones bottom-up, so a stack of three moves in one pass:
 
-- a gap leased, building or in review is never touched: its next implementor round merges the base itself;
+- a gap leased, building, in review or in fix is never touched: its next implementor round merges the base itself
+  (`fac.stack_base` reads the bases' reviewed heads again), and a fix gap's review findings stay as they are;
 - an approved gap whose branch is no longer its reviewed head is left alone (the queue refuses it as it is);
 - otherwise each moved base's head is merged into the gap's branch (`--no-ff`, by the factory) in a scratch clone of
   the drop. The drop's branch moves only from the tip it was read at (update-ref's old value): a branch moved by
@@ -784,10 +785,10 @@ lock and takes the stale ones bottom-up, so a stack of three moves in one pass:
   refused too (this narrows the window to a reviewer or implementor lease but does not close it). When the merge is
   clean, `stacked_on` is updated. An approved gap stays approved with the merge as its `reviewed_head`
   (`reviewed_by: stack-forward`): the merge brings in only reviewed commits, and the queue tests the result. A built
-  gap gets the merge as its `head`, so the review judges it. A gap in fix is moved and left for its next round;
+  gap gets the merge as its `head`, so the review judges it;
 - a conflict is aborted and the gap is sent back to fix (`sent_back_by: stack-forward`, the files in
-  `stack_conflict`), not counted as a failed gate. The implementor's next round merges the base again and hands the
-  conflict to its session;
+  `stack_conflict`), not counted as a failed gate. In fix it is no longer stale, so a later pass does not send it
+  back again. The implementor's next round merges the base again and hands the conflict to its session;
 - a base that has landed (merged or closed) is dropped from `stacked_on`, and nothing is merged.
 
 A `stacked_on` that cannot be read, or that names a gap not in the record, counts in `stale-stacks` and is never

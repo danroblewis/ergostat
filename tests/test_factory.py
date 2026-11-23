@@ -5395,6 +5395,14 @@ def test_a_conflicting_merge_forward_sends_the_descendant_to_fix(tmp_path):
     assert f.item("gap/b")["state"] == "fix" and b["stack_conflict"] == ["a.txt"] and b["sent_back_by"] == "stack-forward"
     assert "failed_gates" not in b and "gap/a" in b["findings"][0] and "a.txt" in b["findings"][0]   # uncounted
     assert tip(f, "b") == mine and not holds(tmp_path / "live" / "drop.git", new, mine)              # aborted
+    assert stale_stacks(f) == "0"                     # in fix: its next round merges the bases itself (implement.py)
+    said, _ = f.run("stack.py")                       # a pass more: no clone, no second sent-back
+    assert said == [] and f.item("gap/b")["fields"] == b
+    review = ["a blocking finding of its review"]     # a fix gap with a review's findings, its base moved again
+    f.fold([{"event": "gap.measured", "item": "gap/b", "data": {"findings": review}}], None)
+    commit_on(f, "a", {"a3.txt": "a's next fix round"})
+    said, _ = f.run("stack.py")
+    assert said == [] and f.item("gap/b")["fields"]["findings"] == review and tip(f, "b") == mine
 
 
 def test_a_leased_descendant_is_not_merged_forward(tmp_path):

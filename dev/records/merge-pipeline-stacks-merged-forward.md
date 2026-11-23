@@ -189,3 +189,23 @@ the shortcut turned off). Run here, serially: tests/test_fac_items.py, 9 passed.
 -n 8. To undo it, revert the fac.items hunk: nothing else depends on it. Refused here: a per-call timer in fac.py from
 the shell, running the old fac.py from `git show` (the shortcut was turned off with an edit instead), and appending
 this note with printf.
+
+Round 5 (two review findings, both answered):
+- Main 6ffe441e merged in. It conflicted in dev/bin/fac.py and tests/test_fac_items.py. Both were resolved to main's
+  text: main's own fix for the same listing (regression-flake-main-fixed) is kept, and the branch's fac.items hunk and
+  its test test_a_kind_under_the_cap_is_one_listing are dropped. Both files now equal main's (git diff 6ffe441e on
+  them is empty), so the branch no longer touches anything outside its Files to touch.
+- Fix gaps are no longer merged forward. MOVES is now approved and built only. So a gap in fix (one review sent back
+  with its findings, or a stack-forward conflict) is never stale and never touched: no scratch clone, no second
+  gap.sent-back, no findings overwritten. Its next implementor round reads the bases' reviewed heads again
+  (fac.stack_base) and merges them itself. This narrows the Change's "clean, on a built or fix gap" to built gaps.
+  That is the more reversible of the two options the review gave (put "fix" back in MOVES to undo it). It is also the
+  only one that stops the repeat send-backs, because a conflict leaves stacked_on stale. dev/README.md (Stacked gaps)
+  and the stale-stacks description in dev/model/building.yaml say so.
+  test_a_conflicting_merge_forward_sends_the_descendant_to_fix now also runs a second pass (nothing said, fields
+  unchanged), then gives the fix gap a review's findings and moves its base again: nothing said, the findings kept,
+  the branch unmoved. With "fix" put back in MOVES, it failed (stale-stacks read 1, not 0).
+Run here, serially: ruff clean; the five stack-forward tests,
+test_ergostat_check_on_the_factory_model_reports_no_new_finding and tests/test_fac_items.py (9) passed. The whole
+file and the build under -n 8 were not run. Refused: `git checkout --theirs` on the two conflicted files (resolved
+with edits instead).

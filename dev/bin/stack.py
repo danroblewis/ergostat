@@ -1,8 +1,8 @@
 """stack-forward (the block stack-forward, dev/model/building.yaml): a stacked gap's moved bases merged forward into it.
 
-A gap with `stacked_on` (implement.py), approved, built or in fix, is stale when a base was approved again at a new
+A gap with `stacked_on` (implement.py), approved or built, is stale when a base was approved again at a new
 reviewed head or has landed; `stack.py stale` counts them (the sensor stale-stacks). `stack.py` is one pass under the
-queue's lock (only if free), the stale gaps bottom-up: leased, building and in-review ones never touched, each moved
+queue's lock (only if free), the stale gaps bottom-up: leased, building, in-review and fix ones never touched, each moved
 base's head merged in `--no-ff` in a scratch clone of the drop, the drop's branch moved from the tip read only; a
 conflict aborted and the gap sent back to fix, uncounted. A `stacked_on` that cannot be read counts as stale and is
 never moved (lesson-3). dev/README.md, Stacked gaps, says the rest."""
@@ -19,7 +19,7 @@ sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
 
-MOVES = ("approved", "built", "fix")        # merged forward; leased, building and in-review never are
+MOVES = ("approved", "built")   # merged forward; leased, building, in-review never; fix: its next round does it
 LANDED = ("merged", "closed")
 SHA = re.compile(r"[0-9a-f]{40}")
 
