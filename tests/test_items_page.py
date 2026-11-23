@@ -125,15 +125,15 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     assert len(lab) == 6 and len({c["top"] for c in lab[:3]}) == 1 and lab[3]["top"] > lab[0]["top"], lab   # three a row
     assert all(c["width"] > 300 for c in lab), lab
     for c in lab:
-        if c["chart"] is not None:                                                 # each chart as wide as its card
-            assert abs(c["chart"] - c["width"]) < 4, lab
+        if c["chart"] is not None:                                                 # each chart within its card
+            assert c["width"] * 0.5 < c["chart"] <= c["width"], lab      # the legend sits beside it
     pg.set_viewport_size({"width": 900, "height": 1000})
     pg.wait_for_timeout(400)
     lab = cards(pg, "lab")
     assert len({c["top"] for c in lab}) == 3 and lab[0]["top"] == lab[1]["top"] < lab[2]["top"], lab   # two across
     for c in lab:
         if c["chart"] is not None:                                                 # the charts followed their cards
-            assert abs(c["chart"] - c["width"]) < 4, lab
+            assert c["width"] * 0.5 < c["chart"] <= c["width"], lab      # the legend sits beside it
     assert not errors, errors
     pg.close()
 
@@ -1363,8 +1363,8 @@ messages:
 
 
 def test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_on(browser, tmp_path):
-    """items-kinds-say-which-states-finish: under each kind's states, 'finished: ... (declared)' with its paused
-    states, or 'lives on' for a kind with one state."""
+    """items-kinds-say-which-states-finish: each kind's legend's tooltip, 'finished: ... (declared)' with its
+    paused states, or 'lives on' for a kind with one state; it takes no line of its own."""
     from ergostat import model as mdl
     from ergostat.store import Project
     from ergostat.web import serve as web_serve
@@ -1382,9 +1382,9 @@ def test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_o
     pg.on("pageerror", lambda e: errors.append(str(e)))
     try:
         pg.goto(f"{url}/items")
-        pg.wait_for_function("() => document.querySelectorAll('.kind-flow .finish-line').length >= 2")
+        pg.wait_for_function("() => document.querySelectorAll('.kind-flow .cfd-states[title]').length >= 2")
         lines = dict(pg.locator(".kind-flow").evaluate_all("""els => els.map((e) => [
-            e.querySelector('.kname').firstChild.textContent, e.querySelector('.finish-line')?.textContent])"""))
+            e.querySelector('.kname').firstChild.textContent, e.querySelector('.cfd-states')?.title])"""))
         assert lines["gap"] == "finished: merged, closed (declared) · paused: parked", lines
         assert lines["pool"] == "lives on", lines
         assert not errors, errors

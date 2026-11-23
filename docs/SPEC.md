@@ -1248,7 +1248,7 @@ first state, a state a block takes from, `leased`, `dead`, or a state `messages:
 *paused*, listed apart). A kind with one state, or with nothing declared and nothing inferable, *lives on*: it has
 no finished state (a pool is held, never done). `/api/items` gives each kind `finished`, `paused`, `dead` (a dead
 letter ends its items), `finished_from` (`declared`, `inferred` or `none`) and `lives_on`, and the Items page says it
-in one line under each kind's states: `finished: merged, closed (declared)`, `finished: answered (inferred: no item
+in the tooltip of each kind's legend: `finished: merged, closed (declared)`, `finished: answered (inferred: no item
 has left it yet)`, or `lives on`, with `paused: …` after it. The process map, the cumulative flow and message routing
 keep their own older rule for now (a kind's last state when every state has been left).
 
