@@ -55,3 +55,11 @@ their hand-made run a record naming a live process.
 
 Not mine, left alone: `tests/test_agents.py::test_a_rerun_is_timed_by_the_suite_that_failed` fails alone, before
 any change of this branch to dev/bin, on `ModuleNotFoundError: No module named 'flakes'` (dev/bin/onmain.py:25).
+
+Round 2 (no review findings came back, so I checked the branch against the review lessons myself). Fixed, lesson-3
+and done 2: an engine killed between starting a run's process and writing its run record left a live run with no
+record, and the next engine's first pass read that as "the run no longer exists" and released its lease.
+`runrecord.look` now says `unknown` (never gone) when the record is missing but the run's `.in` or `.out` file is
+there (`.in` is written before the process starts). Tests: `tests/test_lease_gone.py::test_a_run_record_tells_gone_from_unknown`
+and `::test_at_start_a_lease_of_a_run_that_no_longer_exists_is_ended` (a lease whose run has only its input is left);
+both failed with the new branch mutated to return `none`. About 8 net lines more outside tests/, docs/ and dev/.

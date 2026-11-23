@@ -2,7 +2,8 @@
 engine is not following (a previous engine's, left behind by a restart or a crash) is ended, given back uncounted,
 when its run's record (``runs/RUN.json``: its pid and that pid's start time, ``spec/runrecord.py``) says its process
 is gone: no such pid, a zombie, or another process under that pid. On the engine's first pass a lease whose run has no
-record at all is ended too: the run no longer exists (its end was read and its files removed, or it never started).
+record at all is ended too: the run no longer exists (its end was read and its files removed, or it never started);
+one whose input or output is there without its record may have started before the record was written, and is left.
 Left alone: a run this engine follows (its own end ends it), a block's daemon's run and a block this engine does not
 run (remote, or no longer in the model: no record of theirs is here), a live run, and one whose record or process
 cannot be read (unknown is never gone). The cause is outside the item (the engine that held it stopped), so no

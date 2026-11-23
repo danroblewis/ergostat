@@ -129,9 +129,12 @@ def test_an_engines_own_live_run_is_never_released(tmp_path):
 def test_at_start_a_lease_of_a_run_that_no_longer_exists_is_ended(tmp_path):
     """No run record: ended on the engine's first pass; one taken later by a run with no record is left to its TTL
     (another's start, never this engine's); a block this engine does not run (here, none of the model's) is left."""
-    p = queue(tmp_path, 3)
+    p = queue(tmp_path, 4)
     p.events.add(TAKEN, item="ticket/1", source="ergostat",
                  data={"run": "vanished", "block": "worker", "fence": 1, "ttl": 600.0, "max": 1, "back": "ready"})
+    runrecord.files(p.dir, "starting")["in"].write_text("")       # (begun, its record not written yet: left)
+    p.events.add(TAKEN, item="ticket/4", source="ergostat",
+                 data={"run": "starting", "block": "worker", "fence": 1, "ttl": 600.0, "max": 1, "back": "ready"})
     p.events.add(TAKEN, item="ticket/3", source="ergostat",
                  data={"run": "elsewhere", "block": "remote-block", "fence": 1, "ttl": 600.0, "max": 1, "back": "ready"})
     e = Engine(p, say=lambda s: None)
@@ -139,6 +142,7 @@ def test_at_start_a_lease_of_a_run_that_no_longer_exists_is_ended(tmp_path):
         e.dispatch.watch()
         (ev,) = ended(p)
         assert ev["data"]["count"] is False and "no longer exists" in ev["data"]["why"]
+        assert not ended(p, "ticket/4"), "a run begun before its record was written taken as gone"
         p.events.add(TAKEN, item="ticket/2", source="ergostat",
                      data={"run": "later", "block": "worker", "fence": 1, "ttl": 600.0, "max": 1, "back": "ready"})
         e.dispatch.watch()
@@ -163,3 +167,9 @@ def test_a_run_record_tells_gone_from_unknown(tmp_path):
         proc.wait()
     assert runrecord.state(rec) == "gone"
     assert runrecord.look(tmp_path, "r") == "none"
+    f = runrecord.files(tmp_path, "r")                         # its input written, its process perhaps started, its
+    f["in"].write_text("")                                     # record not yet: unknown, never "no longer exists"
+    assert runrecord.look(tmp_path, "r") == "unknown"
+    f["in"].unlink()
+    f["out"].write_text("")
+    assert runrecord.look(tmp_path, "r") == "unknown"
