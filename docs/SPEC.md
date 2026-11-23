@@ -6125,9 +6125,9 @@ remote), and the same push through `git-push` after the owner's approval.
 ### Compute pools
 
 `compute:` declares pools of **nodes**: machines a model's runs may later execute on (the plan is
-`docs/proposals/compute-systems.md`). **So far a pool is declared and checked only**: nothing connects to a node,
-reads a secret's file or runs anywhere but on the engine's own machine, and a model without `compute:` compiles to
-the same model as before. A block names no pool yet (`runs-on:` is a later change).
+`docs/proposals/compute-systems.md`). **So far a pool is declared, checked and connected to** (section 12s.4, *The
+engine's connection*): nothing reads a secret's file or runs anywhere but on the engine's own machine, and a model
+without `compute:` compiles to the same model as before and opens no session. A block names no pool yet (`runs-on:` is a later change).
 
 ```yaml
 compute:
@@ -6933,8 +6933,8 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 
 A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
 and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
-the protocol: the worker, its frame, `hello`, `beat` and `ping`. Nothing in the engine speaks to it yet, and no
-model says `compute:` or `runs-on:` yet; a model is unchanged by any of this.
+the protocol: the worker, its frame, `hello`, `beat` and `ping`, and the engine's session with each node of a
+pool (section 12s.4). No model says `runs-on:` yet, so nothing runs on a node.
 
 **The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
 modules import each other by bare name and nothing from ergostat (a test reads every import of every module), so a
@@ -6993,8 +6993,41 @@ run folders and the per-run keeper.)
 
 ### 12s.4 Pools in the model, and the engine's connection
 
-(To be filled: `compute:` and `runs-on:`, their `check` findings and ceilings, `ssh` or `connect:`, the
-`ergostat.compute.*` measures.)
+`compute:` and its `check` findings and ceilings are in section 12k, *Compute pools*. (Still to be filled:
+`runs-on:`, the `ergostat.compute.*` measures, and the round trips and status shown.)
+
+**The engine's connection** (`ergostat/compute/connection.py`). When the engine starts, it opens a session with
+every node of every pool the model declares; a swap closes the sessions of a pool changed or removed and opens those
+of a pool added (a pool unchanged keeps its sessions); closing the engine ends every one. Under shards (§9.8) the
+lead alone connects: one session per node per engine process. Each node is named **`POOL/N`**, by its place in the
+pool's list (from 1), and never by its host.
+
+- **The session** is a subprocess, `ssh -T -o BatchMode=yes HOST ergostat worker --stdio` for `{ssh: HOST}`, or the
+  `connect:` argv as written, in a process group of its own, spoken to over its standard input and output by one
+  reader thread per node (at most 64 nodes, counting sessions still closing: a pool that would pass that is not
+  connected, and is said). Its standard error is kept, once the session ends (its last MiB), in the pool's log,
+  `logs/compute.POOL.log` in the state folder, each line stamped and prefixed with `POOL/N`, with an `ssh:` host
+  (in any case) written as `POOL/N`; until then it is held in an unnamed temporary file. The log turns over to
+  `.log.1` past 8 MiB. A `connect:` command's words are the owner's and are not rewritten.
+- **In service** only after the first line is a `hello` of protocol 1 (the frame of §12s, checked as the worker
+  checks the engine's, `seq` too) whose `labels` include each of the pool's `labels:` with the same text, and whose
+  `slots` is a whole number from 0 to 64. Otherwise the node is **refused**: out of service with the reason kept
+  (`line 1: protocol v2 is not v1`, `its labels lack the pool's gpu`, or the worker's own `error`), and its session
+  ended.
+- **Lost** at the session's end (`the session ended`), after three beats missed (30 s with nothing heard: `3 beats
+  missed`; any line heard counts), or on a later line that is not a frame; its process group is then killed and
+  reaped (a stopped worker too). Each lost or refused session is tried again after a wait of 1 s, doubling each try
+  to ten minutes; a hello taken starts the wait at 1 s again. A refused node is tried again the same way, and stays
+  refused with its reason until a hello is taken.
+- **Requests.** `request(msg, timeout=30)` sends `msg` with a new integer `id` and returns the frame that repeats
+  it (a worker's `error` with that id included); it raises `Lost` when the node is out of service or its session
+  ends first, and `TimeoutError` past the timeout. `on(type, fn)` calls `fn(node, frame)`, on the reader thread, for
+  each frame of that type that answers no request (`beat`, later `out` and `ended`); a handler that raises is said
+  in the pool's log and the session goes on.
+- **The record.** `compute.node.up` (`node`, `slots`) when a hello is taken; `compute.node.lost` and
+  `compute.node.refused` (`node`, `why`) when a node goes out of service, once for each new reason (a node that stays
+  down is not said again on each try). Their data, the pool's log and what the engine says name a node only as
+  `POOL/N`: no host name, address or user.
 
 ### 12s.5 The lease on a node
 

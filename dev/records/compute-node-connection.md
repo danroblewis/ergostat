@@ -33,3 +33,22 @@ Its runs failed past their attempts (a dead letter):
 - attempt 4: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 5: nack exited 1
 - attempt 6: nack the run ended with gap/compute-node-connection still parked
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, continued round 1). ergostat/compute/connection.py (Node, Pools), the engine's
+start/swap/close wiring in ergostat/spec/engine.py, the six tests of tests/test_compute_connection.py, SPEC §12s.4
+*The engine's connection* (and the two "nothing connects yet" sentences of §12k and §12s corrected). Nothing left
+within the definition; round trips, `least_rtt`, the status in the heartbeat and `/api/status` are compute-node-status's.
+
+Choices taken alone (each the more reversible one):
+- A refused node (another `v`, labels lacking, a bad `slots`, the worker's `error`) is tried again with the same
+  backoff as a lost one, staying refused with its error kept until a hello is taken: a worker upgraded in place comes
+  back without an engine restart. Never retrying is one line (`break` after a refusal) if the owner wants it.
+- A session's stderr is kept in an unnamed temporary file and written into the pool's log (its last MiB, the ssh host
+  replaced by POOL/N) when the session ends, not line by line: the one reader thread stays the only thread per node,
+  and a host ssh prints is never on disk as printed. A `connect:` argv's words are the owner's and are not rewritten.
+- Under shards only the lead engine connects (one session per node per engine process).
+- Events: `compute.node.up`, `compute.node.lost`, `compute.node.refused`, each said once per new reason.
+
+Overrun reason: connection.py is 302 lines (about 267 not blank) plus 14 in engine.py against a budget of 200, because the session half carries the fail-closed hello checks (version, seq, labels, slots), the process-group kill and reap held under the node's lock so close never races a spawn or signals a reaped group (lessons 1, 6), the redaction of ssh's stderr that the no-host done item needs, the run-time 64-node ceiling counting sessions still closing (lesson 4), and the swap sync that closes only pools changed or removed; the plan's own budget for this gap with status and pings was 280.
