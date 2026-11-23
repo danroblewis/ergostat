@@ -78,3 +78,11 @@ phone acceptance test (2 cases), test_a_one_sided_limit_is_drawn_and_named_as_a_
 test_a_stock_with_no_unit_reads_unit_query_after_its_value_and_the_legend_explains_it 4 passed under the watchdog.
 The whole tests/test_diagram_rendering.py was not run here; the merge queue runs it. `node --check` on diagram.js
 was refused; the browser tests load the merged script without page errors.
+
+Round 5: merged main (dc47a763). The conflicts were again separate new tests added at the same place: in
+tests/test_style_tokens.py main's arrows-and-guide-dot contrast test beside the branch's hint test, and in
+tests/test_diagram_rendering.py main's side-list fold tests (leave_list, FOLD_SYSTEMS, IN_VIEW and the tests after
+them) beside the branch's phone test; the merge keeps all of them. No page code conflicted and the page code is
+unchanged. The bash one-off that resolved both files in one go was refused, so they were resolved by hand with edits.
+After the merge: ruff clean; tests/test_style_tokens.py 12 passed; the phone acceptance test (2 cases) 2 passed
+under the watchdog. The whole tests/test_diagram_rendering.py was not run here; the merge queue runs it.
