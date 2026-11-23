@@ -49,5 +49,13 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   no code changed. Ruff is clean; the five acceptance tests pass, and so do tests/test_spec_items.py (7),
   tests/test_changesets.py (58) and tests/test_fac_items.py (8). The whole of tests/test_factory.py was not run again
   this round (it gave 204 passed, 2 skipped in round 2, on the same code).
+- Round 3, the build (`-n 8 --dist worksteal` on tests/test_factory.py) failed: its tail stops after 24 results with one
+  `F` and no summary, so the failing test is not named and could not be checked against this branch. Serially, here,
+  tests/test_factory.py gives 204 passed, 2 skipped (943 s). Found and fixed while looking: the mend tests' `mend.main()`
+  ran `fac.stop_on_term()`, which left a SIGTERM handler (`sys.exit(143)`) in the pytest worker for every later test.
+  The fixture now replaces it with a no-op (tests/test_factory.py, one line). Nothing on test_factory.py's path forks,
+  so this probably did not cause the `F`; it could have reached forked tests (keeper.py, test_sandbox_attacks.py) in
+  the merge queue's unit suite. Not run: the file under xdist (named_tests.py runs serially and takes no options).
+  If the `F` comes back, it needs its name from the build's full log.
 
 Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.

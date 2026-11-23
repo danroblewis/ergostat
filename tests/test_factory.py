@@ -773,6 +773,7 @@ def mend_record(tmp_path, monkeypatch, says: dict, most=5, quarantined=()):
         return 0, 0.1
     monkeypatch.setattr(mend.fac, "suite", suite)
     monkeypatch.setattr(mend.fac, "wait_quiet", lambda cfg, why="": 0.0)
+    monkeypatch.setattr(mend.fac, "stop_on_term", lambda: None)    # (no SIGTERM handler left in the pytest worker)
     monkeypatch.setattr(mend.fac, "quarantine", lambda repo, ref: list(quarantined) if ref == shas["c2"] else [])
     monkeypatch.setattr(mend, "pushed", lambda cfg: shas["c2"])
     monkeypatch.setattr(mend, "tree", lambda cfg, sha: repo)
