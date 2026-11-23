@@ -42,6 +42,25 @@ _STATIC_REF = re.compile(r'((?:src|href)=")/static/([\w./-]+)(")')
 FOREVER = "public, max-age=31536000, immutable"
 
 
+def _item_cost(p, m, fields: dict, until: float) -> dict | None:
+    """What the runs that took an item cost (its lease's history names every take, a rolled-up one too, SPEC §9.5):
+    their totals, how many took it, and ``ai``, whether any of them is an AI block (an ai, narrow-ai or decision rung,
+    or a block the model no longer has: the worst case). ``unknown`` counts only those blocks' runs: a program's failed
+    run had no session to spend. A run not ended yet is counted in ``taken``, never as $0. None when no run took it."""
+    from ..costs import record as costs
+    lease = fields.get("lease") if isinstance(fields.get("lease"), dict) else {}
+    taken = {h["run"]: (h.get("block"), float(h.get("taken") or 0)) for h in lease.get("history") or []
+             if isinstance(h, dict) and h.get("run")}
+    if not taken:
+        return None
+    since = min(t for _, t in taken.values())
+    ends = {b: [costs.numbers(e) for e in costs.ended(p, since, until, b) if e.get("causedby") in taken]
+            for b in {b for b, _ in taken.values() if b}}
+    ai = [b for b in ends if b not in m.agents or m.agents[b].rung in (1, 2, 3)]
+    return {**costs.totals([r for rs in ends.values() for r in rs]), "taken": len(taken), "ai": bool(ai),
+            "unknown": costs.totals([r for b in ai for r in ends[b]])["unknown"]}
+
+
 def asset_version(name: str) -> str | None:
     """A static file's version: a hash of its content, kept until the file changes (its mtime or size). The page
     references every file with it (``/static/NAME?v=VERSION``), so an update changes the address the browser asks
@@ -664,7 +683,26 @@ def _query(live: Live, p, parts: list, q: dict, reader: bool = False):
     name = unquote(parts[1]) if len(parts) > 1 else None
     if name == "fields":
         return fields(live, p, reader)
+    if name == "suggest":
+        return _suggest(p, q, reader)
     return answer(live, p, (q.get("q") or [None])[0], reader) if name is None else None
+
+
+def _suggest(p, q: dict, reader: bool) -> dict:
+    """``GET /api/query/suggest?source=&what=metrics|labels|values&prefix=&metric=&label=``: the names a query editor
+    completes, from the data source's own metadata (ergostat/datasources), bounded; a reader is refused, nothing sent."""
+    from .. import datasources
+    from ..query.engine import READER_REFUSED
+    one = lambda k: (q.get(k) or [""])[0]                                   # noqa: E731
+    if reader:
+        return {"suggestions": [], "error": f"{one('source')}: {READER_REFUSED}", "error_kind": "refused"}
+    try:
+        return datasources.suggest(getattr(p.model, "spec", None), one("source"), one("what"), one("prefix"),
+                                   one("metric"), one("label"))
+    except datasources.SourceError as e:
+        return {"suggestions": [], "error": f"{one('source')}: {e}", "error_kind": e.kind}
+    except Exception as e:                            # (its type only: the words may hold the source's address)
+        return {"suggestions": [], "error": f"{one('source')}: could not be read ({type(e).__name__})"}
 
 
 def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
@@ -720,6 +758,9 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     if head == "items-overview":                  # the Items page's overview: from the item index, with no snapshot
         from .items_overview import overview
         return overview(p, at if at is not None else time.time(), _window(q))
+    if head == "series" and one("measured"):     # the module boxes' sparklines: the measurement store alone, no snapshot
+        refs = [r for r in (one("refs") or "").split(",") if r]
+        return series.measured(p, at if at is not None else time.time(), _window(q), refs, int(one("points") or 48))
     snap = pinned if pinned is not None else live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates
@@ -976,7 +1017,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 from ..process import _done
                 ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
                 d["kind_of"]["final"] = [s for s in d["kind_of"]["states"] if s in ends]
-            return d
+            return {**d, "cost": _item_cost(p, m, d["fields"], snap["at"])} if d else d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
         if "search" in q:                         # the items whose fields hold every word, as now (SPEC §5a, Search)
