@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -125,6 +126,80 @@ def test_the_record_page_filters_by_machine_and_type(repo):
     assert [e["type"] for e in p.events.query(n=None, type="invoice.sent,mail.*")] == ["invoice.sent", "mail.sent"]
 
 
+def test_the_record_narrows_to_a_goal_and_its_window_and_the_filter_matches_item_and_source(repo):
+    """A crossing's link (/record?about=<goal>&from=&to=) asks for the goal's events, its controller's, valves' and
+    their agents', within the window; the filter box (match=) takes a type, an item or a source."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    server, url = serve(p, free_port())
+    try:
+        def types(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [e["type"] for e in json.loads(r.read())]
+        assert types("about=disk-under-80") == ["loop.off", "cleanup.done", "cleanup.done"]   # the goal, its agents
+        assert types(f"about=disk-under-80&from={now - 595}&to={now - 200}") == ["cleanup.done"]   # its window
+        assert types("about=disk-under-80&match=loop.*") == ["loop.off"]                    # both: the goal's that match
+        assert types("about=no-such-goal") == []                                              # never everything
+        assert types("match=mailer") == ["mail.sent"]                                         # a source
+        assert types("match=invoice/7") == ["invoice.sent", "mail.sent"]                      # an item
+        assert types("match=invoice.*") == ["invoice.sent"]                                   # a type, as before
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_goals_filtered_rows_are_not_lost_behind_more_than_n_newer_events_of_one_name(repo):
+    """With about= and match= both, the match is asked with each name, so matching events older than the newest n
+    of that name still show (never 'Nothing recorded yet.' while they exist)."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    for i in range(5):                        # more than n newer events of the goal, and of its agent, none matching
+        p.events.add("loop.on", item="disk-under-80", source="ergostat", at=now - 50 + i)
+        p.events.add("scan.done", item="tmp", source="cleaner", at=now - 40 + i)
+    server, url = serve(p, free_port())
+    try:
+        def types(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [e["type"] for e in json.loads(r.read())]
+        assert types("about=disk-under-80&match=loop.off&n=3") == ["loop.off"]                  # by type
+        assert types("about=disk-under-80&match=disk&n=3") == ["cleanup.done", "cleanup.done"]   # by item
+        assert types("about=disk-under-80&match=disk-under-80&n=3") == ["loop.on"] * 3           # the goal itself
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_filter_box_keeps_the_addresss_item_and_machine(repo):
+    """match= with item= or machine= (a valve's link, itemsets.js; a machine's) holds to both, never wider."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    p.events.add("valve.opened", item="cleanup", source="ergostat", at=now - 20)
+    p.events.add("valve.opened", item="other-valve", source="ergostat", at=now - 10)
+    server, url = serve(p, free_port())
+    try:
+        def rows(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [(e["type"], e["item"]) for e in json.loads(r.read())]
+        assert rows("match=valve.opened&item=cleanup") == [("valve.opened", "cleanup")]          # one valve's, not all
+        assert rows("match=invoice/7&machine=mailer") == [("mail.sent", "invoice/7")]             # the machine kept
+        assert rows("match=invoice/7&machine=billing") == [("invoice.sent", "invoice/7")]         # and its instances
+        assert rows("match=mail.*&machine=billing") == []
+        assert rows("match=mailer&item=invoice/8") == []
+        assert rows("about=disk-under-80&match=cleanup.done&machine=nobody") == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def run_cli(repo, *args, capsys=None):
     rc = main(["-C", str(repo.path), *args])
     out = capsys.readouterr().out if capsys else ""
@@ -158,6 +233,8 @@ def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals
                     ignore=shutil.ignore_patterns("run", "__pycache__"))
     f = d / "ergostat.yaml"
     f.write_text(f.read_text().replace("name: the-job\n", "name: the-job\npurpose: keep my work moving\n", 1))
+    m = d / "job" / "messages.yaml"                    # one goal no controller holds: notes-reach-work, its block gone
+    m.write_text(m.read_text().split("\nblocks:\n")[0] + "\n")
     server, url = serve(Project(model.load(d)), free_port())
     try:
         with urllib.request.urlopen(url + "/api/status", timeout=30) as r:
@@ -194,6 +271,8 @@ def test_the_web_api_serves_what_the_cli_shows(project):
                 return r.status, r.read()
         st, body = get("/api/status")
         assert st == 200 and json.loads(body)["loops"]["disk-under-80"]["status"] == "holding"
+        s = json.loads(body)                                 # the header's window: how much of it is on record
+        assert isinstance(s["recorded"], (int, float)) and 0 <= s["recorded"] < s["window"]
         assert json.loads(get("/api/graph?view=control")[1])["kind"] == "control"
         assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "process"     # the wiring's address: the process map
         assert json.loads(get("/api/part/stock/disk-used")[1])["now"]["value"] == 70
@@ -213,6 +292,42 @@ def test_the_web_api_serves_what_the_cli_shows(project):
         server.server_close()
 
 
+def test_the_loops_row_writes_shares_through_share_text_and_names_flapping_at_twenty():
+    """Without a browser (the build's suite has none): the Loops row's time off goes through shareText, which writes
+    '<1%' for a share that rounds to 0, no literal "0%" remains there, and flapping is named from FLAP_AT = 20 through
+    the hysteresis (steadyWord). The behaviour itself is checked in the browser by
+    tests/test_diagram_rendering.py::test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named."""
+    import re
+
+    from ergostat.web.server import STATIC
+    util, pages = (STATIC / "util.js").read_text(), (STATIC / "pages.js").read_text()
+    assert re.search(r'const shareText = .*x > 0 && x < 0\.005 \? "<1%"', util), "shareText no longer writes '<1%'"
+    assert re.search(r"const FLAP_AT = 20;", util), "the flapping count is not 20"
+    loops = pages[pages.index("async function pageLoops"):]
+    loops = loops[:loops.index("\nasync function ", 1)]
+    row = (STATIC / "goalrow.js").read_text()   # the Loops row is drawn by goalRow
+    assert "shareText(g.off_share)" in row and '"0%"' not in row + loops, "time off is not written through shareText"
+    assert "behaviour: word(g.name, g)" in loops and "g.behaviour ??" in row, "the row's behaviour skips the hysteresis"
+    assert re.search(r"lp\.times_off >= FLAP_AT \? steadyWord\(n, `flapping \(", loops), "flapping not named in the row"
+
+
+def test_only_the_record_folds_runs_of_identical_events():
+    """Without a browser (the page test is tests/test_items_page.py::test_the_record_folds_runs_of_identical_events):
+    a run's key is the event's type, source, item and shown data, and only the Record (local and remote) asks for
+    the fold, so an item's own event list and a folded run's list show each event."""
+    import re
+
+    from ergostat.web.server import STATIC
+    details, pages = (STATIC / "details.js").read_text(), (STATIC / "pages.js").read_text()
+    assert "JSON.stringify([e.type, e.source, e.item, changeOf(e)])" in details
+    assert re.search(r"if \(fold && last && last\.sig === sig\)", details)
+    assert (details + pages).count("eventsTable(") == 6    # the definition, the Record's two, item, history, run
+    assert (details + pages).count(", false, true)") == 2 and "eventsTable(run.slice().reverse(), false)" in details
+    record = pages[pages.index("async function pageRecord"):]
+    record = record[:record.index("\n}\n")]
+    assert record.count("eventsTable(") == 2 and record.count(", false, true)") == 2
+
+
 def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_path, monkeypatch):
     from ergostat.web import serve
     from tests.test_goal_upkeep import seeded
@@ -227,6 +342,81 @@ def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_pat
     got = body["goals_off"]
     assert got["own"] == {"modelling": 2} and got["system"] >= 1 and got == state.goals_off(state.snapshot(p))
     assert body["loops"]["model-fits"]["upkeep"] == "modelling" and "upkeep" not in body["loops"]["queue-short"]
+
+
+OPEN_GOAL = '  queue-watched: {stock: queue, hold: "<= 5", system: shop}\n'      # no block holds it: open
+
+
+def test_status_and_projects_print_the_one_count_api_status_gives(tmp_path, monkeypatch, capsys):
+    """A system goal off, the modelling upkeep goals off and a goal open: `ergostat`, `ergostat projects` and
+    /api/status say the same numbers, state.goals_off's, and the open goal is not counted off."""
+    from types import SimpleNamespace
+
+    from ergostat.web import serve
+    from tests.test_goal_upkeep import MODEL, seeded
+    monkeypatch.setattr("tests.test_goal_upkeep.MODEL", MODEL.replace("goals:\n", "goals:\n" + OPEN_GOAL))
+    p = seeded(tmp_path, monkeypatch)
+    server, url = serve(p, free_port())
+    try:
+        with urllib.request.urlopen(url + "/api/status", timeout=10) as r:
+            body = json.loads(r.read())
+    finally:
+        server.shutdown()
+        server.server_close()
+    g = body["goals_off"]
+    assert body["loops"]["queue-watched"]["status"] == "open" and body["loops"]["queue-short"]["status"] == "off"
+    assert g["system"] >= 1 and g["open"] >= 1 and g["own"] == {"modelling": 2}, g
+    said = state.goals_said(g)
+    assert said.startswith(f"{g['system']} goal") and f"{g['open']} open" in said and "model upkeep 2" in said, said
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), capsys=capsys)
+    assert rc == 0 and said in out.splitlines(), out
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), "projects", capsys=capsys)
+    assert rc == 0 and said in out, out
+    rc, out = run_cli(SimpleNamespace(path=tmp_path / "repo"), "--json", capsys=capsys)
+    assert json.loads(out)["goals_off"] == g
+
+
+def test_status_of_one_system_counts_only_that_systems_goals(tmp_path, monkeypatch, capsys):
+    """`ergostat --system shop` lists shop's goals, and its goals line and --json `goals_off` count those and no
+    other system's (the modelling and upkeep goals off stay out), the one count over the narrowed map."""
+    from types import SimpleNamespace
+
+    from tests.test_goal_upkeep import MODEL, seeded
+    monkeypatch.setattr("tests.test_goal_upkeep.MODEL", MODEL.replace("goals:\n", "goals:\n" + OPEN_GOAL))
+    seeded(tmp_path, monkeypatch)
+    ns = SimpleNamespace(path=tmp_path / "repo")
+    rc, out = run_cli(ns, "--json", capsys=capsys)
+    whole = json.loads(out)["goals_off"]
+    rc, out = run_cli(ns, "--json", "--system", "shop", capsys=capsys)
+    got = json.loads(out)
+    assert set(got["loops"]) == {"queue-short", "queue-watched"}, sorted(got["loops"])
+    assert got["goals_off"] == state.goals_off({"loops": got["loops"]}), got["goals_off"]
+    assert got["goals_off"]["system"] == 1 and got["goals_off"]["open"] == 1 and not sum(got["goals_off"]["own"].values())
+    assert whole["system"] > 1 and whole["own"] == {"modelling": 2}, whole     # the whole project's differs: a real narrowing
+    rc, out = run_cli(ns, "--system", "shop", capsys=capsys)
+    assert rc == 0 and "1 goal off · 1 open" in out.splitlines(), out
+
+
+def test_no_page_code_counts_goals_by_their_status():
+    """The page prints the server's count (state.goals_off) and never makes its own: every comparison of a goal's
+    status or state with 'off' in util.js, pages.js and diagram.js is one of the allowed lines (row grouping or styling),
+    and no filter by 'off' is counted (.length, reduce)."""
+    import re
+    from pathlib import Path
+    static = Path(__file__).resolve().parent.parent / "ergostat" / "web" / "static"
+    allowed = {                                          # the line, as it is; why it is not a count
+        'const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);',  # rows grouped
+        'const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");',  # whether suggestions start open
+        ': Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)'
+        '   // the goals the count counts',                  # the header's tooltip: the names, not a count
+    }
+    seen = []
+    for f in ("util.js", "pages.js", "diagram.js"):
+        for line in (static / f).read_text().splitlines():
+            if re.search(r"""[=!]==?\s*["']off["']|["']off["']\s*[=!]==?|\[[^\]]*["']off["'][^\]]*\]\.includes""", line):
+                seen.append(line.strip())
+            assert not re.search(r"""filter\([^;]*["']off["'][^;]*\)\s*\.length""", line), (f, line)
+    assert set(seen) <= allowed, set(seen) - allowed
 
 
 def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_it_under(project):
@@ -252,6 +442,126 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page(project):
+    """A pasted link's ?window= is S.since (main.js reads it only when it names one of WINDOWS) and goes to the API as
+    since=: each name must be a window the server reads as its seconds, never its 1h fallback. A link with ?select=,
+    ?window= and ?filter= is still the page (the browser half of this check is tests/test_diagram_rendering.py::
+    test_the_address_holds_what_is_chosen_and_the_window)."""
+    import re
+    from pathlib import Path
+
+    from ergostat.web import serve
+    main_js = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "main.js").read_text()
+    windows = json.loads(re.search(r"const WINDOWS = (\{[^}]*\});", main_js).group(1))
+    assert {"1h", "6h"} <= set(windows)
+    server, url = serve(project, free_port())
+    try:
+        for name, secs in windows.items():
+            with urllib.request.urlopen(f"{url}/api/loops/disk-under-80?since={name}", timeout=10) as r:
+                lp = json.loads(r.read())
+            assert abs(lp["until"] - lp["since"] - secs) < 1, (name, lp["since"], lp["until"])
+        for path in ("/loops?select=disk-under-80&window=6h", "/diagram?view=dynamics&select=stock.disk-used&window=1d",
+                     "/record?filter=valve.*&window=10m"):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                assert r.status == 200 and b'name="ergostat-token"' in r.read(), path
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
+    """A controller's and a process's panel start with loopTable (control.js): rows law, process, held-out fit, time
+    off, settling, saturation, the fit naming its measure. The image-squeeze tuner's loop answer holds every field
+    those rows read, and a fit is a signed share, never clamped at 0 (the browser half of this check is
+    tests/test_diagram_rendering.py::test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_inside)."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.control import loop
+    from ergostat.store import Project
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "ergostat" / "web" / "static" / "control.js").read_text()
+    table = js[js.index("function loopTable"):js.index("/* ---- what is known of the process")]
+    assert re.findall(r'\["([a-z -]+)", ', table) == ["law", "process", "held-out fit", "time off", "settling", "saturation"]
+    assert 'const FIT = "NRMSE fit, 100% is perfect, below 0 is worse than the mean"' in js and "(${FIT})" in table
+    rows = js[js.index("function identRows"):]
+    assert "not identified: needs a step of u" in table and "Math.max(0" not in rows[:rows.index("\n}\n")]
+    proc = js[js.index("function processSection"):]
+    proc = proc[:proc.index("\n}\n")]
+    assert not re.search(r"Math\.max\(0, Math\.round\([^)]*fit", proc) and "NRMSE fit ${pcFit(o.fit_val)} held out (${FIT})" in proc
+    # a controller's tables are its own loops' only (as controlBox's), not a loop whose path merely runs through it
+    blocks = (root / "ergostat" / "web" / "static" / "blocks.js").read_text()
+    assert "d.controller?.block === n.id.slice(4) || (d.controllers || []).includes(n.id.slice(4))" in blocks
+    assert "held.filter(own).map(loopTableBox)" in blocks
+    # the table is drawn again when a proposal of its loop is answered (a browser test accepts one and sees it change)
+    assert 'dispatchEvent(new CustomEvent("loop-answered", { detail: goal }))' in js and '"loop-answered", again' in js
+    # each loop settled on its own; a process's identification (procs) right after its tables, before its words
+    assert "mine.map((l) => loopControl(l).catch(" in blocks and "Promise.all(mine.map((l) => loopControl(l)))" not in blocks
+    assert 'h("h2", {}, title), top, ...(n.role === "process" ? [procs] : [])]' in blocks and "kids.push(procs)" not in blocks
+    shutil.copytree(root / "examples" / "image-squeeze", tmp_path / "x", ignore=shutil.ignore_patterns("run", "__pycache__"))
+    d = loop.analyse(Project(model.load(tmp_path / "x")), "quality-held")
+    assert d and not d.get("why"), d
+    assert {"says", "law", "block"} <= set(d["controller"]) and d["controller"]["block"] == "tuner", d["controller"]
+    assert "found" in d["identified"] and {"excursions", "saturation"} <= set(d["performance"]), d["performance"]
+    assert {"count", "settling"} <= set(d["performance"]["excursions"]) and d["how"] in ("setting", "valve")
+
+
+def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
+    """big has no kinds of item: its Process answer is empty, so the page takes its empty branch, whose words give the
+    reason and Dynamics, laid over the canvas (not below it). The browser half of this check, the text's box inside the
+    canvas's, is tests/test_diagram_rendering.py::test_process_view_with_no_kinds_says_so_inside_the_canvas."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import serve
+    root = Path(__file__).resolve().parents[1]
+    d = tmp_path / "big"
+    shutil.copytree(root / "examples" / "big", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    server, url = serve(Project(model.load(d)), free_port())
+    try:
+        def get(path):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                return r.read().decode()
+        g, js, css = json.loads(get("/api/graph?view=process")), get("/static/diagram.js"), get("/static/style.css")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert not g["nodes"] and not g["kinds"], g                  # nothing to draw: the empty branch
+    assert "No kinds of item in ${here}: its parts are counted by sensors. See `" in js
+    assert re.search(r'go\(\{ view: "dynamics" \}\); \} \}, "Dynamics"\), "\."', js)    # where to look instead
+    rule = re.search(r"\.canvas-wrap > \.empty \{([^}]*)\}", css)
+    assert rule and all(p in rule.group(1) for p in ("position: absolute", "inset: 0", "align-items: center",
+                                                       "justify-content: center")), rule
+
+
+def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
+    """Each page's header carries 'N wait for you' (#waits) before its nav, a link to /diagram#waiting, and the
+    Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""
+    import re
+    from http.server import ThreadingHTTPServer
+
+    from ergostat.web.server import STATIC, handler
+    diagram = (STATIC / "diagram.js").read_text()
+    assert re.search(r'h\("h3", \{[^}]*id: "waiting"[^}]*\}, "Waiting for you"', diagram), "the heading lost its id"
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(project))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}"
+    try:
+        for path in ("/items", "/agents", "/loops", "/record"):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                header = r.read().decode().split("<header", 1)[1].split("</header>", 1)[0]
+            link = re.search(r'<a id="waits"[^>]*href="/diagram#waiting"', header)
+            assert link and link.start() < header.index("<nav"), path
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():
     """While a side-panel chart's numbers are asked for it says so in words: no element is made with the text '…' (or
     '\\u2026'), which reads as a stuck load, and the four charts of the panels start from the one placeholder (the
@@ -265,6 +575,26 @@ def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():
     for chart in ("causesStrip", "loopDominance", "moduleCharts", "loopScope"):
         body = re.search(rf"\nfunction {chart}\(.*?\n}}\n", charts, re.S).group(0)
         assert "working()" in body, chart
+
+
+def test_the_count_of_what_waits_sits_in_one_polite_live_region():
+    """The header's 'N wait for you' link is inside an always-present aria-live='polite' region (so a count appearing
+    from 0 is announced too), and the script writes its text through setText, which writes only a changed text. The
+    browser half (the text written only when N changes) is test_diagram_rendering's
+    test_a_changed_count_of_what_waits_is_announced."""
+    import re
+
+    from ergostat.web.server import STATIC
+    html = (STATIC / "index.html").read_text()
+    region = re.search(r'<span class="waits-said"([^>]*)>(.*?)</span>', html)
+    assert region, "the waits link has no wrapping region"
+    assert 'aria-live="polite"' in region.group(1) and 'aria-atomic="true"' in region.group(1)
+    assert re.search(r'<a id="waits"[^>]*\bhidden\b', region.group(2)), "the link, not the region, is hidden at 0"
+    util = (STATIC / "util.js").read_text()
+    assert "setText(waits, `${n} wait for you`)" in util
+    body = re.search(r"\nfunction setText\((\w+), (\w+)\) \{(.*?)\n\}", util, re.S)
+    assert body and re.search(rf"if \({body.group(1)}\.textContent !== {body.group(2)}\)", body.group(3)), \
+        "setText must write only a changed text"
 
 
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
@@ -306,6 +636,25 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(project):
+    """What the side list's goal button reads (diagram.js goalButton/showGoal): an off goal's attention entry is
+    `loop NAME` and that loop names its stock. This is a stand-in without a browser, so the build collects a test.
+    The button's behaviour is checked in tests/test_diagram_rendering.py
+    (test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction)."""
+    import json as _json
+    import re as _re
+
+    from ergostat.web.snapshot import build
+    project.measurements.add("sensor/disk-usage", 95.0)
+    html = build(project)
+    data = _json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1).replace("<\\/", "</"))["data"]
+    st = data["status"]
+    assert st["loops"]["disk-under-80"]["status"] == "off" and st["loops"]["disk-under-80"]["stock"]
+    off = [a for a in st["attention"] if a["what"] == "loop disk-under-80" and a["level"] == "bad"]
+    assert off, st["attention"]
+    assert "function showGoal(" in html and "goalButton(goal, what)" in html
 
 
 def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_path, monkeypatch):
@@ -530,6 +879,26 @@ def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
     assert key("graph", {"view": "control", "system": "", "around": "undefined", "since": "1h"}) == "graph?view=control"
 
 
+def test_a_snapshot_inlines_every_stylesheet_and_script_the_page_links(project, tmp_path, monkeypatch):
+    import shutil
+
+    from ergostat.web import snapshot
+    static = tmp_path / "static"
+    shutil.copytree(snapshot.STATIC, static)
+    (static / "second-sheet.css").write_text(".second-sheet { color: var(--ink); } /* </style><b>not a tag */")
+    (static / "second-script.js").write_text("window.secondScript = 1;")
+    page = (static / "index.html").read_text()
+    page = page.replace("</head>", '<link rel="stylesheet" href="/static/second-sheet.css">\n</head>', 1)
+    page = page.replace("</body>", '<script src="/static/second-script.js"></script>\n</body>', 1)
+    (static / "index.html").write_text(page)
+    monkeypatch.setattr(snapshot, "STATIC", static)
+    html = snapshot.build(project)
+    assert '<link rel="stylesheet"' not in html and '<script src="' not in html      # nothing fetched
+    assert ".second-sheet { color: var(--ink); }" in html and "window.secondScript = 1;" in html
+    assert "</style><b>" not in html                                                 # a stylesheet cannot close its element
+    assert html.count("<style>") == html.count("</style>") == page.count('rel="stylesheet"')
+
+
 def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     from ergostat.web.snapshot import build
     project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
@@ -667,6 +1036,26 @@ def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
     assert {"epic/e1", "epic/e2", "goal/g"} <= both and data["items-graph?kinds=epic,goal"]["asked"] == ["epic", "goal"]
 
 
+def test_a_snapshot_holds_the_timeline_of_a_system_without_relations(tmp_path):
+    # as pages.js: a system none of whose kinds has relations asks for its kinds that have items (the Timeline)
+    import re as _re
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    (tmp_path / "ergostat.yaml").write_text("systems:\n  desk: {description: the help desk}\nitems:\n"
+                                            "  ticket: {id: ticket/*, system: desk}\n  call: {id: call/*, system: desk}\n"
+                                            "  memo: {id: memo/*, system: desk}\n")
+    p = Project(mdl.load(tmp_path))
+    p.events.add("ticket.opened", item="ticket/a", data={"title": "printer"})
+    p.events.add("call.taken", item="call/c", data={"title": "a call"})
+    data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
+    got = data.get("items-graph?kinds=ticket,call") or data.get("items-graph?kinds=call,ticket")
+    assert got is not None, sorted(k for k in data if k.startswith("items-graph"))
+    assert {x["id"] for x in got["items"]} == {"ticket/a", "call/c"}                # memo: no items, not asked
+    assert not any("memo" in k and "," in k for k in data if k.startswith("items-graph"))
+
+
 def _snapshot_data(p) -> dict:
     import re as _re
 
@@ -698,8 +1087,9 @@ def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monk
     for path, params in want:
         k = key(path, params)
         assert k in data, k
+        every = {"finished": ["show"]} if path == "items" else {}   # a snapshot holds the finished too (SPEC §5a)
         assert _timeless(data[k]) == _timeless(json.loads(json.dumps(
-            api(live, path, {"since": ["1h"], **{a: [b] for a, b in params.items()}}), default=str))), k
+            api(live, path, {"since": ["1h"], **every, **{a: [b] for a, b in params.items()}}), default=str))), k
     ids = lambda k: sorted(i["id"] for i in data[k]["items"])                       # noqa: E731
     assert ids("items?kind=ticket") == ["ticket/a", "ticket/b"]
     assert ids("items?kind=ticket&state=doing") == ["ticket/a"]                     # ticket.started: doing
@@ -710,7 +1100,8 @@ def test_a_snapshot_holds_each_kind_chosen_and_each_of_its_states(tmp_path, monk
 def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_path, monkeypatch):
     from ergostat.web import snapshot
     real = snapshot.api
-    broken = [("items", {"kind": "ticket"}), ("items", {"kind": "epic", "state": "underway"}),
+    every = {"finished": "show"}                                   # each items answer is asked with the finished too
+    broken = [("items", {"kind": "ticket", **every}), ("items", {"kind": "epic", "state": "underway", **every}),
               ("items-graph", {"kinds": "note"})]
 
     seen = []
@@ -725,8 +1116,9 @@ def test_a_kind_whose_list_cannot_be_answered_is_left_out_of_the_snapshot(tmp_pa
     data = _snapshot_data(related_project(tmp_path))
     for path, params in broken:
         assert (path, params) in seen, (path, params)                     # asked, so its absence is the failure's
+        params = {k: v for k, v in params.items() if k != "finished"}                # held under the page's own key
         assert snapshot.key(path, params) not in data                                # absent, not empty
-    assert ("items", {"kind": "ticket", "state": "doing"}) not in seen   # no states asked without the kind's own answer
+    assert ("items", {"kind": "ticket", "state": "doing", **every}) not in seen   # no states asked without the kind's own answer
     assert not any(k.startswith("items?kind=ticket") for k in data)    # its states, from its own answer: none to be had
     assert {"items", "items?kind=epic", "items?kind=epic&state=planned", "items?kind=goal", "items?kind=note",
             "items-graph?kinds=ticket", "items-graph?kinds=epic,goal", "status", "graph"} <= set(data)
@@ -746,3 +1138,49 @@ def test_the_items_graph_says_when_its_finish_is_still_being_worked_out(tmp_path
     assert past["eta_pending"] is False
     monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: {"items": {}, "kinds": {}})
     assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is False
+
+
+def test_every_examples_loops_answer_carries_each_goals_word_and_row(tmp_path, monkeypatch):
+    """The Goals page draws a goal's row from /api/loops alone (goalrow.js): every goal of every example says its word,
+    the status's own, and its row's columns."""
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import server
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    seen = 0
+    for ex in sorted((Path(__file__).resolve().parent.parent / "examples").glob("*/ergostat.yaml")):
+        d = tmp_path / ex.parent.name
+        shutil.copytree(ex.parent, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+        loops = server.api(server.Live(Project(model.load(d))), "loops", {})
+        for name, lp in loops.items():
+            assert lp["word"] == (lp["status"] if lp["status"] in state.WORDS else "unknown"), (ex, name, lp["word"])
+            assert set(lp["row"]) == {"measure", "value", "unit", "bound_words", "trend", "expected"}, (ex, name)
+            assert lp["row"]["measure"] == lp["stock"] and lp["row"]["value"] == lp["value"], (ex, name)
+            seen += 1
+    assert seen > 20, seen
+
+
+GOAL_TEXT = [  # a goal's state made reader text in a page script: only goalrow.js may (goalWord, goalRow)
+    re.compile(r"\bstatus\s*[!=]==?\s*[\"'](?:holding|off|open|unknown|stale)[\"']"),
+    re.compile(r"[\"']holding[\"']"),
+    re.compile(r"\b(?:statusEl|exceptional)\([^)]*\.status\b"),
+]
+NOT_A_GOAL = {  # (file, what the line says): states that are not a goal's
+    ("details.js", "exceptional(n.status) ? statusEl(n.status)"),   # a system box's own state (openSystem)
+    ("pages.js", 'x.how || "holding"'),                             # a lease still held
+}
+
+
+def test_no_page_script_words_a_goals_state_but_goalrow():
+    """Every surface printing a goal's state asks goalWord or goalRow; a page mapping status to a word itself fails."""
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static"
+    vendored = {"elk.bundled.js", "marked.min.js", "highlight.min.js", "goalrow.js"}
+    found = [(f.name, line.strip()) for f in sorted(static.rglob("*.js")) if f.name not in vendored and "uplot" not in f.parts
+             for line in f.read_text().splitlines() if any(r.search(line) for r in GOAL_TEXT)
+             and not any(f.name == n and s in line for n, s in NOT_A_GOAL)]
+    assert not found, found
+    assert '<script src="/static/goalrow.js">' in (static / "index.html").read_text()

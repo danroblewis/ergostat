@@ -209,6 +209,54 @@ def test_the_session_is_started_with_claudes_permission_flags_and_sandbox(tmp_pa
     assert sandbox.flags({"read": ["/docs"], "tools": None, "actions": []}) == ["--add-dir", "/docs"]
 
 
+def test_each_class_says_asked_approved_denied_waiting_and_its_gate(tmp_path):
+    """record.asked: each action asked this week counted once, by where it ended, so asked is the sum; an approval
+    later denied at the act counts as denied; the gate is the model's for the class."""
+    p = project(tmp_path)
+    spec = p.model.spec
+    gate.request(p, spec, "note", {"text": "a"}, ctx(tmp_path))
+    gate.request(p, spec, "nuke", {}, ctx(tmp_path))
+    held = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gone = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gate.approve(p, spec, gone["id"])
+    gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gate.deny(p, held["id"])
+    got = actions_api.listing(p, classes=True)["asked"]
+    assert got["note"] == {"asked": 1, "approved": 1, "by_gate": 1, "denied": 0, "waiting": 0, "gate": "auto", "actions": ["note"]}
+    assert got["nuke"] == {"asked": 1, "approved": 0, "by_gate": 0, "denied": 1, "waiting": 0, "gate": "deny", "actions": ["nuke"]}
+    assert got["outward"] == {"asked": 3, "approved": 1, "by_gate": 0, "denied": 1, "waiting": 1, "gate": "approve",
+                              "actions": ["push"]}
+    assert all(c["asked"] == c["approved"] + c["denied"] + c["waiting"] for c in got.values())
+    assert record.asked(p, spec, now=time.time() + 8 * 86400) == {}          # a week on: none asked this week
+
+
+MIXED = """\
+  ask:
+    run: "echo asked"
+    gate: approve
+    class: mixed
+  tell:
+    run: "echo told"
+    gate: auto
+    class: mixed
+blocks:"""
+
+
+def test_a_class_mixing_gates_is_said_by_its_strictest(tmp_path):
+    """record.asked: a class whose actions have different gates takes the strictest, from the model and, with no
+    model, from the actions asked, whichever was declared or asked last."""
+    text = textwrap.dedent(MODEL).replace("blocks:", MIXED, 1).replace("[note, push, nuke]", "[note, push, nuke, ask, tell]")
+    (tmp_path / "ergostat.yaml").write_text(text)
+    m = mdl.load(tmp_path)
+    assert not [x for x in m.problems if x.level == "error"]
+    p, spec = Project(m), m.spec
+    gate.request(p, spec, "ask", {}, ctx(tmp_path))
+    gate.request(p, spec, "tell", {}, ctx(tmp_path))            # the auto one declared and asked last
+    got = record.asked(p, spec)["mixed"]
+    assert (got["gate"], got["waiting"], got["approved"]) == ("approve", 1, 1)
+    assert record.asked(p, None)["mixed"]["gate"] == "approve"   # no model: the strictest asked
+
+
 def test_the_cli_and_the_page_answer_a_held_action(tmp_path, capsys):
     p = project(tmp_path)
     spec = p.model.spec
@@ -262,3 +310,30 @@ def test_the_owner_may_promote_a_class_to_auto(tmp_path, capsys):
     p = Project(mdl.load(tmp_path))
     assert gate.request(p, p.model.spec, "push", {}, ctx(tmp_path))["state"] == "ran"
     assert record.counts(p, cls="outward")["auto"] == 1
+
+
+def test_each_action_names_who_asked_and_who_answered_in_the_list_and_the_items_page(tmp_path):
+    from ergostat.web.server import _as_listed
+    p = project(tmp_path)
+    spec = p.model.spec
+    auto = gate.request(p, spec, "note", {"text": "hi"}, ctx(tmp_path))
+    held = gate.request(p, spec, "push", {}, ctx(tmp_path, block=None))       # a session with no block
+    gate.approve(p, spec, held["id"], note="offline stand-in")
+    no = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    gate.deny(p, no["id"], note="not now")
+    waits = gate.request(p, spec, "push", {}, ctx(tmp_path))
+    never = gate.request(p, spec, "nuke", {}, ctx(tmp_path))                  # its gate is deny: the gate's own denial
+    late = gate.request(p, spec, "push", {}, ctx(tmp_path))                   # approved, then its gate is deny at the act
+    y = tmp_path / "ergostat.yaml"
+    y.write_text(y.read_text().replace("gate: approve\n    class: outward", "gate: deny\n    class: outward"))
+    assert gate.approve(p, spec, late["id"], note="offline stand-in")["state"] == "denied"
+    want = {auto["id"]: ("dev", "gate (auto)"), held["id"]: ("session/dev-1", "owner (offline stand-in)"),
+            no["id"]: ("dev", "denied by owner (not now)"), waits["id"]: ("dev", "not yet answered"),
+            never["id"]: ("dev", "denied by its gate: its gate is deny: never run"),
+            late["id"]: ("dev", f"owner, then denied by its gate: {record.get(p, late['id'])['note']}")}
+    assert "its gate at the act is deny" in want[late["id"]][1]
+    assert {a["id"]: (a["by"], a["approved by"]) for a in actions_api.listing(p)["actions"]} == want
+    got = {"kinds": [{"name": "ergostat.action", "show": ["by", "approved by"]}],
+           "items": [{"id": a["id"], "kind": "ergostat.action", "state": a["state"], "fields": a} for a in record.stored(p).values()]}
+    listed = _as_listed(got, None, 0, True)["items"]
+    assert {i["id"]: (i["fields"]["by"], i["fields"]["approved by"]) for i in listed} == want

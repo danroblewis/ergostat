@@ -1,0 +1,9 @@
+[
+ {"goto": "http://127.0.0.1:8794/diagram?view=dynamics&system=delivery"}, {"wait": 7000},
+ {"shot": "plan-ks-road-dyn-delivery.png"},
+ {"click": "css=.node[data-id*='started']"}, {"wait": 3000},
+ {"shot": "plan-ks-road-valve-started.png"},
+ {"text": "css=#detail"},
+ {"click": "css=.node[data-id*='finished']"}, {"wait": 3000},
+ {"shot": "plan-ks-road-valve-finished.png"}
+]

@@ -64,13 +64,45 @@ function padRange(lo, hi) {
   return [lo - d, hi + d];
 }
 
-/* drawn under the data: the stretches a loop was off (the one red), a tolerance band, a zero line */
+/* the off stretches' fill: the bad wash hatched in the bad ink, so off reads without its colour; the key's swatch too */
+function offHatch(ctx, k = devicePixelRatio) {
+  const n = Math.round(6 * k), c = document.createElement("canvas"), x = c.getContext("2d");
+  c.width = c.height = n;
+  x.fillStyle = tok("--bad-wash"); x.fillRect(0, 0, n, n);
+  x.strokeStyle = tok("--bad"); x.lineWidth = k; x.beginPath();
+  for (const d of [-n, 0, n]) { x.moveTo(d, n); x.lineTo(d + n, 0); }
+  x.stroke();
+  return ctx.createPattern(c, "repeat");
+}
+function offKey() {
+  const c = h("canvas", { class: "off-key", width: 18 * devicePixelRatio, height: 10 * devicePixelRatio }), x = c.getContext("2d");
+  x.fillStyle = offHatch(x); x.fillRect(0, 0, c.width, c.height);
+  return h("span", { class: "off-said" }, c, "off");
+}
+/* on the chart over the time axis: each off stretch wide enough, labelled "off" at its foot */
+function offLabels(off) {
+  return (u) => {
+    const ctx = u.ctx, { top, height } = u.bbox, k = devicePixelRatio;
+    ctx.save();
+    ctx.font = `${parseFloat(tok("--canvas-sm")) * k}px ${tok("--font")}`;
+    ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.lineWidth = 3 * k; ctx.strokeStyle = tok("--bad-wash"); ctx.fillStyle = tok("--bad");
+    for (const [a, b] of off) {
+      const x0 = u.valToPos(a, "x", true), x1 = u.valToPos(b, "x", true);
+      if (x1 - x0 < ctx.measureText("off").width + 6 * k) continue;
+      ctx.strokeText("off", (x0 + x1) / 2, top + height - 2 * k); ctx.fillText("off", (x0 + x1) / 2, top + height - 2 * k);
+    }
+    ctx.restore();
+  };
+}
+
+/* drawn under the data: the stretches a loop was off (hatched), a tolerance band, a zero line */
 function underlay({ off = [], band = null, zero = false, now = null }) {
   return (u) => {
     const ctx = u.ctx, { left, top, width, height } = u.bbox;
     ctx.save();
     ctx.beginPath(); ctx.rect(left, top, width, height); ctx.clip();
-    ctx.fillStyle = tok("--bad-wash");
+    ctx.fillStyle = offHatch(ctx);
     for (const [a, b] of off) {
       const x0 = u.valToPos(a, "x", true), x1 = u.valToPos(b, "x", true);
       ctx.fillRect(x0, top, Math.max(devicePixelRatio, x1 - x0), height);
@@ -250,7 +282,7 @@ function lineChart({ group, name, role, unit, per, times, values, since, until, 
                                                  Math.max(hi ?? desired ?? 1, desired ?? -Infinity, goal?.band?.[1] ?? -Infinity, zero ? 0 : -Infinity, fanHi, pastHi))),
       hooks: { drawClear: [underlay({ off, band: goal?.band, zero, now: ahead.length ? until : null }), ...(hasFan ? [fanUnder(fan, ahead, until, from)] : []),
                             ...(replayFan ? [fanPast(replayFan, times)] : [])],
-               draw: desired != null ? [lineLabel(desired, level || `desired ${op(goal.setpoint)}`)] : [],
+               draw: [...(desired != null ? [lineLabel(desired, level || `desired ${op(goal.setpoint)}`)] : []), ...(xAxis && off.length ? [offLabels(off)] : [])],
                setCursor: [(u) => { const i = u.cursor.idx; if (i == null) return show(last); const v = valueAt(i);
                                     val.textContent = v == null ? "\u2013" : `${fmt(v)}${unitText ? " " + unitText : ""}${i >= times.length ? ", projected" : ""}`; }] } });
     o.series = series;
@@ -384,7 +416,12 @@ function loopsToggle(now) {
 }
 /* with the loops running: each goal on these parts, its chance of being off at the horizon (the Monte Carlo's) */
 function riskLines(d) {
-  return (d.risk || []).filter((r) => r.said).map((r) => h("p", { class: `small risk${r.p_off_end >= 0.5 ? " s-open" : ""}` }, r.said));
+  return (d.risk || []).filter((r) => r.sentence).map((r) => forecastEl(r, "small risk"));
+}
+/* a goal's forecast as a sentence (forecast_words.py), its p, runs, horizon and method in its title and a closed disclosure */
+function forecastEl(r, cls = "") {
+  return h("div", { class: `forecast ${cls}` }, h("p", { class: r.p_off_end >= 0.5 ? "s-open" : "", title: r.title }, `${r.goal}: ${r.sentence}`),
+    r.how?.length ? h("details", { class: "small" }, h("summary", { class: "muted" }, "How this was worked out"), dl(r.how)) : null);
 }
 /* what stands in for the machine blocks near these parts, in words (the closed-loop projection runs them, not the blocks) */
 function modelsSaid(d) {
@@ -522,14 +559,14 @@ function sideChartsChanged() {                          // the chosen parts chan
   const sig = [...(S.sel || [])].sort().join(",");
   if (sig === S.selSig) return;
   S.selSig = sig;
-  if (S.graph?.kind === "dynamics" && S.sideChartsEl?.isConnected) S.redrawSide?.();
+  if (S.graph?.kind === "dynamics") S.redrawSide?.();      // (with none chosen the charts are not in the panel)
 }
 
 /* ---------------------------------------------------------------- the scope */
 
 /* a loop as a control engineer reads it: y measured and r dashed on one plot, the tolerance shaded;
    u below (each opening of its valve, or the knob's value), its limits dashed; e = r − y below that;
-   the stretches it was off tinted red on all three; then its numbers */
+   the stretches it was off hatched on all three, and labelled "off" over the time axis; then its numbers */
 function loopScope(goal, { numbers = true } = {}) {
   const box = h("div", { class: "strip scope" }, working());
   api("loop-scope", { goal, points: CHART_POINTS }).then((d) => {
@@ -545,8 +582,8 @@ function loopScope(goal, { numbers = true } = {}) {
     charts.push(lineChart({ group, name: "e", role: "r − y", unit: d.unit, times: d.times, values: d.e, since: d.since, until: d.until,
                             off: d.off, height: 60, zero: true, xAxis: true }));
     const nb = d.numbers || {};
-    box.replaceChildren(...charts, h("div", { class: "chart-foot" }, h("span", { class: "muted" }, d.off.length ? "Red: off" : ""), group.when),
-      numbers ? dl([["time off", numbers === "new" ? null : `${Math.round((nb.off_share || 0) * 100)}%`],
+    box.replaceChildren(...charts, h("div", { class: "chart-foot" }, h("span", { class: "muted" }, d.off.length ? offKey() : ""), group.when),
+      numbers ? dl([["time off", numbers === "new" ? null : shareText(nb.off_share)],
                     ["back in", numbers === "new" || nb.back_in == null ? null : `${dur(nb.back_in)}, typically (${nb.times_off} times)`],
                     ["saturated", nb.saturated != null ? `${Math.round(nb.saturated * 100)}% of ${u.openings ? "its openings" : "the time"}` : null],
                     ["last decision", nb.last_decision ? `${ago(nb.last_decision.time)}: ${nb.last_decision.decision ?? "–"}` : null]]) : null);
@@ -621,7 +658,17 @@ function useChart({ group, name, unit = "", times, values, since, until, text = 
 /* a kind's states stacked over the window in state order, the first on top and where they finish at
    the bottom: bands are stocks, their edges' slopes flows. Each state named at the right with its count
    (at the cursor, or now): a click filters the table, as the counts did */
-function flowChart(d, group, { chosen = null, onState = null } = {}) {
+/* which of a kind's states are finished and where that came from (spec/finished.py), or 'lives on'; paused states named:
+   the legend's tooltip, so it takes no line of its own */
+function finishSaid(k) {
+  if (!k || !k.finished) return null;
+  const fin = k.lives_on ? "lives on" : `finished: ${k.finished.join(", ")} (${k.finished_from === "declared" ? "declared"
+    : `inferred: no item has left ${k.finished.length > 1 ? "them" : "it"} yet`})`;
+  return fin + (k.paused?.length ? ` · paused: ${k.paused.join(", ")}` : "");
+}
+const finishOf = (k, st) => (k?.finished?.includes(st) ? "finished" : k?.paused?.includes(st) ? "paused" : null);
+
+function flowChart(d, group, { chosen = null, onState = null, kind = null, height = 120, xAxis = true } = {}) {
   const states = d.states;
   const ramp = ["--line", "--line-strong", "--muted", "--ink-2"];
   const step = (i) => ramp[Math.min(ramp.length - 1, Math.floor((i / Math.max(1, states.length - 1)) * (ramp.length - 1) + 0.0001))];
@@ -632,15 +679,15 @@ function flowChart(d, group, { chosen = null, onState = null } = {}) {
   let cur = d;                                            // the data shown: set in place by update()
   const labels = states.map((st, k) => {
     const n0 = h("span", { class: "n" }, String(d.now[st] || 0));
-    const a = h("a", { href: "#", class: boxClass(d, st, chosen),
+    const a = h("a", { href: "#", class: boxClass(d, st, chosen), title: finishOf(kind, st),
                       onclick: (ev) => { ev.preventDefault(); onState?.(st); } }, h("span", { class: "swatch", style: `background:var(${step(k)})` }), n0, st);
     a.count = n0;
     return a;
   });
   const plotEl = h("div", { class: "chart-plot" });
-  const el = h("div", { class: "cfd" }, plotEl, h("div", { class: "cfd-states" }, ...labels.slice()));
+  const el = h("div", { class: "cfd" }, plotEl, h("div", { class: "cfd-states", title: finishSaid(kind) }, ...labels.slice()));
   mountPlot(plotEl, (width) => {
-    const o = baseOpts({ width, height: 120, group, since: cur.since, until: cur.until, xAxis: true,
+    const o = baseOpts({ width, height, group, since: cur.since, until: cur.until, xAxis,
       yRange: (_, lo, hi) => [0, Math.max(1, hi || 1) * 1.05],
       hooks: { setCursor: [(u) => { const i = u.cursor.idx;
         states.forEach((st, k) => { setText(labels[k].count, String(i == null ? cur.now[st] || 0 : cur.counts[st][i])); }); }] } });
@@ -651,8 +698,9 @@ function flowChart(d, group, { chosen = null, onState = null } = {}) {
     return new uPlot(o, [cur.times, ...cumOf(cur)], plotEl);
   });
   // new data for the same states: the counts and the plot's data set in place (false: the states differ, draw it again)
-  el.update = (d2, chosen2 = null) => {
-    if (JSON.stringify(d2.states) !== JSON.stringify(states)) return false;
+  const finSig = (k) => JSON.stringify([k?.finished, k?.paused, k?.finished_from, k?.lives_on]);
+  el.update = (d2, chosen2 = null, kind2 = kind) => {
+    if (JSON.stringify(d2.states) !== JSON.stringify(states) || finSig(kind2) !== finSig(kind)) return false;
     cur = d2;
     states.forEach((st, k) => {
       setText(labels[k].count, String(d2.now[st] || 0));

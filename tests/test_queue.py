@@ -385,3 +385,76 @@ def test_a_wait_for_the_suite_slot_is_not_a_stall(tmp_path):
     got = json.loads(r.stdout.splitlines()[-1])
     assert got.get("rc") == 3 and got["seconds"] >= 9, got                    # never stopped while it waited
     assert not (tmp_path / "suite.log.held").exists()
+
+
+# ---- each suite's pytest counts (dev/records/regression-queue-test-counts.md)
+
+def counted(p=0, f=0, s=0, d=0, e=0) -> dict:
+    return {"passed": p, "failed": f, "skipped": s, "deselected": d, "errors": e}
+
+
+def test_counts_reads_every_summary_form_pytest_prints_and_none_without_one():
+    counts, c = module("fac").counts, counted
+    assert counts("..F\n1 failed, 2 passed in 0.12s\n") == c(2, 1)                          # -q
+    assert counts("==== 3 passed, 1 skipped, 2 deselected, 4 warnings in 1.50s ====\n") == c(3, s=1, d=2)
+    assert counts("1 failed, 5 passed, 1 xfailed, 1 xpassed, 1 warning, 2 errors in 70.01s (0:01:10)\n") == c(5, 1, e=2)
+    assert counts("!!! Interrupted: 1 error during collection !!!\n1 error in 0.30s\n") == c(e=1)
+    assert counts("no tests ran in 0.01s\n") == c() and counts("7 deselected in 0.02s\n") == c(d=7)
+    xdist = ("created: 8/8 workers\n8 workers [120 items]\n" + "." * 120 + " [100%]\n"
+             "=========== 118 passed, 2 skipped in 31.27s ===========\n")
+    assert counts(xdist) == c(118, s=2)
+    assert counts("\x1b[32m\x1b[1m4 passed\x1b[0m\x1b[32m in 0.05s\x1b[0m\n") == c(4)              # coloured
+    assert counts("1 failed in 0.1s\nlater\n9 passed in 2.0s\ntrailing output\n") == c(9)           # the last one
+    for none in ("", "tests/test_x.py::test_hangs\n", "8 workers [120 items]\n", "Interrupted: 1 error during collection",
+                 "All checks passed!\n", "3 passed\n"):                                      # killed, ruff, cut short
+        assert counts(none) is None, none
+
+
+def test_a_landed_run_records_each_pytest_suites_counts_and_their_sum(tmp_path):
+    (tmp_path / "unit.sh").write_text("echo '....s'; echo '4 passed, 1 skipped, 2 deselected in 3.10s'\n")
+    (tmp_path / "browser.sh").write_text("echo '2 workers [3 items]'; echo '== 2 passed, 1 error, 1 warning in 9.00s =='\n")
+    f = Factory(tmp_path, unit=f"sh {tmp_path / 'unit.sh'}")
+    f.config.write_text(f.config.read_text().replace('\nbrowser = "true"', f'\nbrowser = "sh {tmp_path / "browser.sh"}"'))
+    approved_gaps(f, {"a": 1})
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"]
+    a = f.item("gap/a")["fields"]
+    got = a["suites_queue"]
+    assert got["unit"]["counts"] == counted(4, s=1, d=2) and got["browser"]["counts"] == counted(2, e=1)
+    assert "counts" not in got["ruff"] and "counts" not in got["demo"] and "skipped" not in got["browser"]
+    run = a["queue_runs"][-1]
+    assert run["counts"] == counted(6, s=1, d=2, e=1) and run["suites"] == ["unit", "browser"]   # host off: not one
+
+
+def test_a_suite_whose_log_cannot_say_records_unknown_never_zeros(tmp_path):
+    f = Factory(tmp_path, unit="echo ....")                                    # no summary line: unknown
+    approved_gaps(f, {"a": 1})
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"]
+    a = f.item("gap/a")["fields"]
+    assert a["suites_queue"]["unit"]["counts"] == "unknown"
+    assert a["queue_runs"][-1]["counts"] == "unknown" and a["queue_runs"][-1]["suites"] == ["unit", "browser"]
+    # a suite stopped by its failing sibling: unknown, even had it printed a summary before it was killed
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b.sh").write_text("echo '1 passed in 0.1s'; sleep 60\n")
+    g = Factory(tmp_path / "b", unit="echo FAILED tests/test_x.py::test_x - boom; echo 1 failed in 0.1s; exit 1")
+    g.config.write_text(g.config.read_text().replace('\nbrowser = "true"', f'\nbrowser = "sh {tmp_path / "b.sh"}"'))
+    approved_gaps(g, {"a": 1})
+    began = time.time()
+    said, _ = g.run("queue.py", "gap/a")
+    assert "gap.queue-failed" in said and time.time() - began < 50
+    got = g.item("gap/a")["fields"]["suites_queue"]
+    assert got["browser"]["stopped_by"] == "unit" and got["browser"]["counts"] == "unknown"
+    assert got["unit"]["counts"] == counted(f=1)
+
+
+def test_a_runs_sum_is_over_the_suites_that_ran_unknown_if_any_is():
+    from tests.test_queue_host import queue_module
+    summed, c = queue_module().summed, counted
+    ruff = {"rc": 0, "seconds": 1}
+    assert summed({"ruff": ruff, "unit": {"counts": c(5)}, "host": {"counts": c(2, 1)}}) == \
+        {"counts": c(7, 1), "suites": ["unit", "host"]}
+    not_run = {"unit": {"counts": c(5)}, "browser": {"counts": "not_run"}}    # not run by rule: neither unknown nor 0
+    assert summed(not_run) == {"counts": c(5), "suites": ["unit"]}
+    for unknown in ({"unit": {"counts": c(5)}, "browser": {"counts": "unknown"}}, {"unit": {"counts": c(5)}, "browser": {}}):
+        assert summed(unknown) == {"counts": "unknown", "suites": ["unit", "browser"]}

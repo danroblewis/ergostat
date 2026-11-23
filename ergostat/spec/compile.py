@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+from .. import datasources
 from ..durations import DurationError, parse_duration
 from . import files
 from .equation import FUNCS as FUNCTIONS
@@ -65,10 +66,11 @@ from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
 SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "every", "cron", "timeout", "parse", "unit",
-               "description", "averages"}
+               "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
+                      "attention"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -83,7 +85,7 @@ AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "descripti
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file", "tls"}}
 BLOCK_COMMON = COMMON | {"type", "in", "out", "role", "on-stale"}
-MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on"}
+MACHINE_COMMON = {"agent", "max", "min", "timeout", "every", "cron", "mode", "takes", "pool", "lease", "on", "runs-on"}
 LAW_KEYS = {"gain", "integral-time", "deadband", "resolution", "limits"}   # a machine block's law, when it says it (its params)
 TYPE_KEYS = {
     "program": MACHINE_COMMON | LAW_KEYS | {"run", "daemon", "parse", "goal", "until", "review", "workspace", "actions",
@@ -91,7 +93,7 @@ TYPE_KEYS = {
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
                                        "workdir", "workspace", "read", "tools", "actions", "read-only", "network"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
-    "external": {"agent", "identify"},
+    "external": {"agent", "identify", "law"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up", "reviewed",              # judge: model (SPEC §12e)
               "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
@@ -468,7 +470,7 @@ class Compiler:
     # ---- sections
 
     def sensors(self, owner: Map, of: Ref, what: str) -> dict[str, Sensor]:
-        from ..library import bounds
+        from ..library import bounds, runs
         out = {}
         raw = {}
         if "sensor" in owner and "sensors" in owner:
@@ -493,6 +495,9 @@ class Compiler:
             changes = s.get("changes")
             self.keys(s, SENSOR_KEYS | (ITEM_SENSOR_KEYS if counted else set()) | ({"changes", "over"} if changes is not None
                                                                                   else {"changes"}), sw)
+            if "runs-on" in s:                                # a sensor runs here, beside what reads it (§12k)
+                self.err(f"{sw}.runs-on: a sensor runs here; only a program block runs on a pool", s.at("runs-on"),
+                         "runs-on-sensor")
             kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon") if s.get(k) not in (None, False)]
             if len(kinds) != 1:
                 self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin: or daemon: (it has "
@@ -557,7 +562,8 @@ class Compiler:
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
                                     description=self.text(s, "description"), where=s.where,
-                                    daemon=s.get("daemon"), push=s.get("push") is True)
+                                    daemon=s.get("daemon"), push=s.get("push") is True,
+                                    run_in=runs.OWNER if measure else runs.verdict(self.doc.uses, s.where, of, str(name)))
         return out
 
     def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
@@ -572,8 +578,8 @@ class Compiler:
         for k in ("entering", "leaving"):
             if s.get(k) is not None:
                 q[k] = str(s[k])
-        if of.kind != "flow":
-            for k in ("entering", "leaving", "over", "sum"):
+        if of.kind != "flow" and not (of.kind == "auxiliary" and ("entering" in q or "leaving" in q)):
+            for k in ("entering", "leaving", "over", "sum"):   # (an auxiliary may count the moves over a window)
                 if s.get(k) is not None:
                     self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving:, over: and "
                              f"sum: measure a flow", s.at(k), "items-on-stock")
@@ -692,10 +698,22 @@ class Compiler:
                      f"(goal.x, stock.y), folded by replace: an event that sets it replaces the list", m.at("about"),
                      "bad-about")
             about = None
+        final = m.get("final") or []                 # states no event moves an item out of (SPEC §5a)
+        final = [final] if isinstance(final, str) else final
+        if not isinstance(final, list) or not all(isinstance(s, str) and s in states for s in final):
+            self.err(f"{what}.final: a list of its states that no event moves an item out of ([completed])",
+                     m.at("final") or m.where, "bad-final")
+            final = []
+        attention = m.get("attention")               # the field whose latest item's words need the owner (SPEC §5a)
+        if attention is not None and (not isinstance(attention, str) or not attention or attention in relations):
+            self.err(f"{what}.attention: the name of a field (not a relation) whose words, on the latest item that has "
+                     f"them, are shown on the attention list", m.at("attention"), "bad-attention")
+            attention = None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what), about=about)
+                        join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
+                        attention=attention)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -823,6 +841,16 @@ class Compiler:
                 getattr(got, attr)[str(kind)] = vals[0] if key == "reopen-to" else vals
         spec.messages = got
 
+    def runs(self, spec: Spec) -> None:
+        """``runs:``: ``outlive_engine``, whether a block's run is kept going by its keeper past the engine (§9.1)."""
+        if (r := self.doc.runs) is None:
+            return
+        if isinstance(r, Map):
+            self.keys(r, {"outlive_engine"}, "runs")
+            spec.outlive_engine = self.flag(r, "outlive_engine", "runs")
+        else:
+            self.err("runs: a map (outlive_engine: true or false)", None, "not-a-map")
+
     def budget(self, spec: Spec) -> None:
         """``budget:``: the day's AI budget, ``daily`` and ``max-cost``, both required and bounded (SPEC §9.9)."""
         m, w = self.doc.budget, self.doc.budget_at
@@ -921,18 +949,21 @@ class Compiler:
                 self.err(f"system {name}.within: {parent} is within {name}: systems nest, they do not go round", w,
                          "system-cycle")
                 del spec.within[name]
+        panel_types = datasources.types()                    # the types a panel can query (ergostat/datasources)
         for name, m, what in self.named("sources"):
             t = m.get("type")
-            if t not in SOURCE_TYPES:
-                self.err(f"{what}.type: one of {', '.join(SOURCE_TYPES)}", m.at("type"), "bad-type")
+            if not isinstance(t, str) or (t not in SOURCE_TYPES and t not in panel_types):
+                self.err(f"{what}.type: one of {', '.join(sorted({*SOURCE_TYPES, *panel_types}))}", m.at("type"), "bad-type")
                 continue
-            self.keys(m, SOURCE_TYPES[t], what)
+            keys = {"type", *(panel_types[t].KEYS if t in panel_types else ())}
+            self.keys(m, SOURCE_TYPES.get(t, set()) | keys, what)
             if t in ("prometheus", "ergostat") and not m.get("url"):
                 self.err(f"{what}: a {t} source needs url:", m.where, "missing-key")
             if m.get("tls") is not None and not isinstance(m["tls"], dict):
                 self.err(f"{what}.tls: a map of cert:, key: and (optional) ca:", m.at("tls"), "bad-remote")
             spec.sources[name] = Source(name, t, self.text(m, "url"), m.where, self.text(m, "token-file"),
-                                        dict(m["tls"]) if isinstance(m.get("tls"), dict) else None)
+                                        dict(m["tls"]) if isinstance(m.get("tls"), dict) else None,
+                                        {k: m[k] for k in sorted(keys - {"type"}) if m.get(k) is not None})
         for name, m, _ in self.named("items"):
             k = self.item_kind(name, m, f"item kind {name}")
             if k.id.startswith("ergostat."):
@@ -1065,10 +1096,13 @@ class Compiler:
         from ..actions import compile as gated
         from ..workspaces import compile as pools
         pools.workspaces(self, spec)                         # workspaces: the pools AI blocks' runs work in (SPEC §12k)
+        from ..compute import compile as compute
+        compute.compute(self, spec)                          # compute: the pools of nodes runs may execute on (§12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
         from ..inbox import config as notify
         notify.parse(self, spec)                             # notify: each channel a gated action notify.NAME (SPEC §12o)
+        self.runs(spec)                                      # runs: whether a run outlives the engine (SPEC §9.1)
         if spec.actions:
             spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
         if spec.workspaces:
@@ -1137,6 +1171,7 @@ class Compiler:
         check_relations(self, spec)
         check_joins(self, spec)
         self.references(spec)
+        compute.pools_used(self, spec)                       # runs-on: a pool there is, its blocks in one shard (§9.8)
         self.equations(spec)
         self.ends(spec)
         self.watched(spec)
@@ -1471,6 +1506,15 @@ class Compiler:
             else:
                 got = {k: self.ref(idf[k], w, f"{what}.identify.{k}", ("stock", "flow", "auxiliary")) for k in idf}
                 params["identify"] = got if all(got.values()) else None
+        known, raw = None, params.pop("law", None)
+        if t == "external" and raw is not None:   # a known law, declared (control/laws.py, SPEC §12d)
+            from ..control import laws
+            known, bad = laws.check(raw)
+            if m.get("identify") is None:
+                known, bad = None, [*bad, (None, "a law is declared of what it reads and sets: write identify: with it")]
+            for key, why in bad:
+                at = raw.at(key) if key is not None and isinstance(raw, Map) else m.at("law")
+                self.err(f"{what}.law{'' if key is None else f'.{key}'}: {why}", at, "bad-law")
         if m.get("until") is not None:
             sp = Setpoint.parse(m["until"])
             if sp is None:
@@ -1541,13 +1585,16 @@ class Compiler:
         lease_keys = {"takes": leases.takes(self, m, what), **dict(zip(("pool", "pool_now"), leases.pool(self, m, what), strict=True)),
                       "lease": leases.terms(self, m, "lease", what), "on": triggers.compile_on(self, m, what)} \
             if t in MACHINE else {}
+        from ..compute import compile as compute
+        if t in MACHINE and (on := compute.runs_on(self, name, m, what, t)) is not None:
+            lease_keys["runs_on"] = on                       # set only when a pool is named: local is no field set
         return Block(name, t, inputs, outs, params, signs=signs, agent=m.get("agent") and str(m["agent"]), role=role,
                      **lease_keys,
                      system=self.system("blocks", name, m), description=self.text(m, "description"),
                      every=self.duration(m, "every", what), cron=self.cron(m, "cron", what),
                      timeout=self.duration(m, "timeout", what, 300.0), max=self.number(m, "max", what) if t in MACHINE else None,
                      min=self.number(m, "min", what) if t in MACHINE else None, mode=mode, where=m.where,
-                     on_stale=self.on_stale(m, what))
+                     on_stale=self.on_stale(m, what), law=known)
 
     def references(self, spec: Spec) -> None:
         """Every reference resolves, to the right kind of thing; one actuator per flow; no algebraic
@@ -1586,6 +1633,8 @@ class Compiler:
             for r in refs:
                 if (why := exists(r)) is not None:
                     self.err(f"system {name}.show: {why}", self.doc.defined.get(("systems", name)), "unknown-ref", str(r))
+        from .dashboards import check as dashboards
+        dashboards(self, spec, exists)                       # dashboards:, checked as show: is (SPEC §4f)
         for lp in spec.named_loops.values():
             for r in lp.through:
                 if (why := exists(r)) is not None:

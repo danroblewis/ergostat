@@ -1,0 +1,2 @@
+[{"goto":"http://127.0.0.1:8798/loops"},{"shot":"plan-perf-live-loops-idle.png"},
+ {"goto":"http://127.0.0.1:8798/diagram"},{"wait":1500},{"shot":"plan-perf-live-diagram-1s.png"},{"wait":8000},{"shot":"plan-perf-live-diagram-10s.png"}]
