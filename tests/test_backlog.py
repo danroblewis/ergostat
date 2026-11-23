@@ -8,6 +8,7 @@ import json
 import shutil
 import sys
 import time
+from pathlib import Path
 
 from ergostat import model as mdl
 from ergostat import precedence as pr
@@ -450,3 +451,9 @@ def test_a_split_of_an_unbuilt_gap_still_applies(tmp_path):
     assert f.item("gap/one-continued")["state"] == "open" and f.item("gap/four")["state"] == "split"
     assert f.item("gap/four-1")["fields"]["parent"] == ["gap/four"] and f.item("gap/four-2")["state"] == "open"
     assert f.item("gap/three")["fields"]["groomed_why"] == "the rest applies"
+
+
+def test_the_halves_of_a_split_never_share_a_branch():
+    """A long name cut to fit lost its -1 and -2, and both halves built on one branch from one definition."""
+    text = (Path(__file__).resolve().parent.parent / "dev" / "bin" / "backlog.py").read_text()
+    assert 'fac.slug(s["gap"].split("/", 1)[1], 29) + f"-{len(kids) + 1}"' in text

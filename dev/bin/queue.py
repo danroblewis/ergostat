@@ -188,12 +188,31 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
     return out
 
 
+def present(repo, head: str, tests: list[str]) -> list[str]:
+    """The named tests that exist at ``head``: a test a later merge adds is not on the prefixes before it."""
+    keep, files = [], {}
+    for t in tests:
+        path, *rest = t.split("::")
+        if path not in files:
+            r = subprocess.run(["git", "-C", str(repo), "show", f"{head}:{path}"], capture_output=True, text=True)
+            files[path] = r.stdout if r.returncode == 0 else ""
+        if rest and re.search(rf"\bdef {re.escape(rest[-1].split('[')[0])}\b", files[path]):
+            keep.append(t)
+    return keep
+
+
 def named(cfg: dict, repo, tag: str, logs, failed: dict) -> dict | None:
     """Only the tests a red run named, on the checkout as it is (`[suites] rerun`, serial, `-rA`), for bisecting. Red
     when one of them fails (said as the suite that named them); green only when the run passed and said PASSED for
-    every one; else (a test not on this prefix, a run that could not start) None, and that step runs every suite. It
-    never counts as the green run anything lands on (land())."""
-    tests = failed["tests"]
+    every one asked. A test whose `def` is in the red tree (``failed["tip"]``) and not here was added by a later merge,
+    so it cannot fail here and is not asked; green when none is left. Else (a test not found for any other reason, a
+    run that could not start) None, and that step runs every suite. It never counts as the green run anything lands on
+    (land())."""
+    tests, tip = failed["tests"], failed.get("tip")
+    if tip:
+        tests = [t for t in tests if present(repo, "HEAD", [t]) or not present(repo, tip, [t])]
+        if not tests:
+            return {"named": {"suite": failed["failed"], "tests": 0, "rc": 0, "seconds": 0, "not_on_this_prefix": True}}
     log = logs / f"{tag}-named.txt"
     rc, secs = fac.suite(cfg, "rerun", repo, log, slot=False, box="queue", tests=[*tests, "-rA"])
     text = log.read_text()
@@ -208,16 +227,27 @@ def prefixed(cfg: dict, repo, heads: list[str], failed: dict, tag: str, logs) ->
     """One parallel round: ``failed``'s check on every one of ``heads`` at once (prefixes.run_all, its logs in
     ``logs``): its named tests (`[suites] rerun`, `-rA`), or ruff when it named none. Each (pass, fail or unknown; the
     tests failing; run_all's result), read from the whole log as named() reads: fail on a test's FAILED or ERROR line
-    (ruff: its exit); pass only on rc 0 and a PASSED line for each test; else unknown, never a pass (lesson-3)."""
+    (ruff: its exit); pass only on rc 0 and a PASSED line for each test; else unknown, never a pass (lesson-3). Each
+    prefix is asked only the tests it has: one a later merge adds cannot fail before it. A named test found on no prefix
+    (not written as a plain `def`) is asked of every prefix, as it cannot be told where it starts."""
     tests = failed.get("tests") or []
     logs.mkdir(parents=True, exist_ok=True)
-    check = prefixes.suite(cfg, "rerun", logs, tag, tests=[*tests, "-rA"]) if tests else prefixes.suite(
-        cfg, "ruff", logs, tag)
+    here = [present(repo, h, tests) for h in heads] if tests else [[] for _ in heads]
+    unseen = [t for t in tests if not any(t in x for x in here)]
+    here = [[*x, *unseen] for x in here]
+
+    def asked(i: int, work) -> int:
+        if not here[i]:
+            prefixes.log_of(logs, tag, i).write_text("none of the named tests is on this prefix\n")
+            return 0
+        return prefixes.suite(cfg, "rerun", logs, tag, tests=[*here[i], "-rA"])(i, work)
+
+    check = asked if tests else prefixes.suite(cfg, "ruff", logs, tag)
     out = []
-    for r in prefixes.run_all(cfg, repo, heads, check, tag, logs):
-        said = fac.outcomes(Path(r["log"]).read_text(errors="replace"), tests) if r["result"] != "unknown" else {}
+    for i, r in enumerate(prefixes.run_all(cfg, repo, heads, check, tag, logs)):
+        said = fac.outcomes(Path(r["log"]).read_text(errors="replace"), here[i]) if r["result"] != "unknown" else {}
         bad = sorted(t for t, v in said.items() if v == "fail")
-        ok = r["result"] == "pass" and set(said.values()) <= {"pass"} and len(said) == len(tests)
+        ok = r["result"] == "pass" and set(said.values()) <= {"pass"} and len(said) == len(here[i])
         out.append(("fail", bad, r) if bad or (not tests and r["result"] == "fail") else
                    ("pass", [], r) if ok else ("unknown", [], r))
     return out
@@ -853,6 +883,7 @@ def land(cfg: dict, repo, batch: list[tuple[dict, str]], pre: str, began: float,
                 if red.get("tests") and not blamed:  # main itself first, before any gap is blamed (on_main())
                     on_main(repo, pre, red, run, tag, [g["id"] for g, _ in todo])
                 full = alone if alone and alone.get("failed") else None  # they fail there alone: on them; else full
+                full = {**full, "tip": heads[-1]} if full else None      # (a test only later merges add: not asked before)
             hi, more = len(todo), False              # the first lo merges ran green (or none); the first hi red
             if rounded or len(todo) > 1 and (full or red["failed"] == "ruff"):
                 got = parallel(full or red, known)
