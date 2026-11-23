@@ -27,3 +27,7 @@ catch, the escapes-found sensor). About 115 net lines, within the 130 budget. Ch
 - Outside the Files list, comments and descriptions only: the gap.reverted comment in ergostat.yaml and the
   main-watch description in dev/model/landing.yaml, kept current. Also the fold harness in tests/test_factory.py
   takes the no-state event gap.reverted.
+
+Round 2: main (ead497d1) merged in. The one conflict, in tests/test_factory.py, was main moving the fixture's fold
+into fold_line(); it is resolved as main's version, with gap.reverted added to fold_line's no-state events. The five
+acceptance tests and the risk test pass again after the merge. `ruff check ergostat tests scripts` is clean.
