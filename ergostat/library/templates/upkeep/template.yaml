@@ -31,7 +31,10 @@ reading: |
   The watched loops are drawn, not run: protection stays in ergostat's code, and no goal here turns it off.
   The stock heartbeat-age (ergostat.upkeep.heartbeat-age, the seconds since the last pass heartbeat.json gives) is
   held under `stale` by heartbeat-fresh, and stalls (ergostat.engine.stalled over the last hour) at 0 by no-stalls;
-  restarts counts the outer watcher's restarts over the last day. Their controllers are external blocks, observed
+  restarts counts the outer watcher's restarts over the last day, held at or under `restarts-most` (3, 0 to 100) by
+  few-restarts, served by the owner (restarts-keeper, a person): ergostat never acts on restarts itself, and no goal
+  changes the watcher or the watchdog. The heartbeat the run writes as it starts keeps the last one's stale (180 to
+  3600, so a start is never cut inside its 120 s deadline; else none), so the watcher holds the last model's limit until the first beat. Their controllers are external blocks, observed
   and never run by ergostat, in layers: the engine's own watchdog (spec/watchdog.py) mends a wedged pool or loop
   within its own process; the outer watcher (watcher.py, kept running by `ergostat run --service`: launchd or
   systemd) restarts an engine dead or whose heartbeat is older than `stale`, which the engine writes into
@@ -95,6 +98,12 @@ params:
     min: 60
     max: 3600
     description: the oldest the engine's last pass may be, in seconds, before the outer watcher restarts it (60 to 3600)
+  restarts-most:
+    type: integer
+    default: 3
+    min: 0
+    max: 100
+    description: the most restarts of the engine by the outer watcher over a day before the owner is asked to look (0 to 100)
   watch-every:
     type: duration
     default: 1m
@@ -229,6 +238,7 @@ goals:
     description: no measurement row kept past its raw window or its tier's keep
   heartbeat-fresh: {stock: heartbeat-age, hold: "<= ${stale}", description: "the engine's last pass at most ${stale}s ago (the outer watcher's limit, written into heartbeat.json)"}
   no-stalls: {stock: stalls, hold: "<= 0", tolerance: 0, description: no stall of the engine over the last hour}
+  few-restarts: {stock: restarts, hold: "<= ${restarts-most}", tolerance: 0, description: "at most ${restarts-most} restarts of the engine by the outer watcher over the last day"}
   no-overdue-leases: {if: "${leases}", stock: overdue-leases, hold: "<= 0", tolerance: 0, description: no lease held past its expiry}
   no-quarantined-workspaces: {if: "${pool}", stock: quarantined-workspaces, hold: "<= 0", tolerance: 0, description: "no workspace of pool ${pool} kept aside"}
 blocks:
@@ -242,6 +252,13 @@ blocks:
     in: goal.heartbeat-fresh
     out: [flow.heartbeat-renewed, flow.restarts-made]
     description: the outer watcher (ergostat/watcher.py, kept running by ergostat run --service - launchd or systemd), which restarts an engine dead or whose last pass is older than heartbeat.json's stale (60 to 3600 s, else 180)
+  restarts-keeper:
+    type: person
+    goal: few-restarts
+    in: +stock.restarts
+    out: block.outer-watcher
+    ask: the outer watcher restarted the engine more than ${restarts-most} times in a day - look at run.log and the stalls folder for why, and mend it, or stop the engine with ergostat run --stop (ergostat never acts on restarts itself)
+    description: the owner, the last layer past the watchdog and the outer watcher, who mends why the engine keeps being restarted, or stops it on purpose (ergostat run --stop, which the watcher leaves stopped)
   lease-expiry:
     if: ${leases}
     type: external
