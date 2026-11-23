@@ -168,3 +168,13 @@ changed. No check changed.
   `test_xmile_export_check_reads_structure_not_bytes`.
 
 Overrun reason: unchanged from round 2 (221 lines under dev/conformance/, all of it dev/, which the budget counts); round 3 changes only tests/.
+
+## Where it stopped
+
+Round 4 (implementor, 2026-11-23). The only finding was the conflict with main in
+`tests/test_conformance_lists_ergostat.py`: main's conformance-diagrams-list added its own tests to the same file.
+I kept both sides: one docstring for both lists, the imports of both, `ROOT` resolved the way main has it, and one
+`load(path, name)` helper used by the branch's `formats` fixture and by main's `checks()`. The branch's tests come
+first, then main's diagrams tests, unchanged. No check changed. All 21 tests in the file pass, and ruff is clean.
+
+Overrun reason: unchanged from round 2 (221 lines under dev/conformance/, all of it dev/, which the budget counts); round 4 changes only tests/.
