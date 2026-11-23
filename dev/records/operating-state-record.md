@@ -69,3 +69,12 @@ Choices taken where nobody could be asked (each reversible):
   CLI's help (`ergostat/cli/__init__.py`). Neither file was in the list to touch.
 - Not covered (said in SPEC): a state entered longer ago than the model's `keep:` is pruned with its event and then
   reads as `normal`. Keeping it belongs with the record's pruning, outside this gap.
+
+Round 2. The one finding, the conflict with main in `docs/SPEC.md`, is answered by the merge of main (b6d7a1db) in
+bd812a8e. It also conflicted in `ergostat/spec/ir.py`, `ergostat/spec/load.py` and `schema/ergostat.schema.json`,
+where main had added `runs:` and `dashboards:` next to this gap's `operating:`. Each was resolved by keeping both
+sides: §12k's new subsection sits before main's "Compute pools", and `TOP`, `Document`, `Spec` and the schema hold
+both keys. No code changed outside the merge, so the net lines and the overrun reason above stay as they were. After
+the merge, `tests/test_operating_state.py` (7 passed), `tests/test_spec_schema.py`, `tests/test_dashboards.py` and
+`tests/test_runs_outlive_engine.py` (82 passed) pass, and ruff is clean. The unit suite and the browser files were not
+run here; the factory runs them.
