@@ -81,3 +81,14 @@ branch's *Why isn't this done* is now 3m. The references follow: SPEC §5a, the 
 `tests/test_faults_healthy.py`, `tests/test_item_about.py`; ruff clean. The whole unit suite and the four browser files
 were not run here (the factory runs them). The conflicting merge was resolved with edits, because a shell rewrite of
 the file was refused.
+
+Round 2, after the build suite: `tests/test_factory_knowledge.py::test_an_approved_lesson_is_applied_with_no_gap`
+failed once in the build step (`lesson.py hours` gave 0.668 where the test expects 0.667) and passes alone here (1
+passed in 64 s). No code was changed for it. The expected mean is two lessons proposed an hour back plus one the
+coordinator adds and that is applied "~0" later. But that third lesson's real approval-to-apply span runs across a
+drain, a failed apply and a `block_in` subprocess, and `hours` measures that span as it is. When the three spans add
+up to more than about 9 s under load, the rounding goes to 0.668. This is a wall-clock assumption in the test, not a
+fault in `lesson.py`. The branch changes neither `dev/bin` nor this test, and its one change to the lesson kind (a
+first state `new` that no event uses) does not touch the timing. Lesson 13 says this is reported, not fixed here: a
+fix would make the test's clock fixed, or make its bound allow the real span, and that belongs to its own gap. The
+command refused in this round: a shell heredoc appending this paragraph (`cat >> dev/records/... <<'EOF'`).
