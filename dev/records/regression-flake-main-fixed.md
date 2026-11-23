@@ -29,3 +29,13 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   fac.config is not in the Files list).
 - The write holds run/flakes.lock (flakes.held) across the read and the patch, so the patch's `test` op guards only
   against writers outside the lock (fac.add); the test puts such a write between the read and the patch.
+- The block's `in`/`out` need parts to name, so dev/model/landing.yaml also gains a stock `flakes-main-broken`
+  (sensor: flake items in main-broken), a flow `flakes-mended` out of it (sensor: entering fixed with fixed_by
+  main-mend) and an estimated parameter `mend-time` (1h). The model-loading and `ergostat check` tests in
+  tests/test_factory.py pass with them. Removing them means removing the block's in/out lines too.
+- Round 2 (no review findings to answer): main had not moved since the last merge (a72d29ea). Ruff is clean;
+  tests/test_factory.py gave 204 passed, 2 skipped (both need Docker and the agent image); tests/test_changesets.py,
+  tests/test_spec_items.py and tests/test_fac_items.py pass. Seen to fail: with the ancestor check in mend.py
+  removed, `test_main_mend_writes_only_where_the_items_main_is_the_commit_run_on_or_an_ancestor` fails.
+
+Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.
