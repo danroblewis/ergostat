@@ -835,6 +835,7 @@ function drawGraph(svg, g, lay) {
   svg.classList.toggle("sd", sd);
   if (sd) sdPlaceSigns(svg);                          // each sign beside its own head (dynamics.js)
   applyView(svg);
+  if (sd) sdSparks(svg, g);                           // closed modules' sparklines, after the structure (dynamics.js)
   if (S.hl) highlightLoop(S.hl);
   if (sd && S.hlCausal) sdApply(S.hlCausal);
   if (S.hoverKey || S.selKey) trace(S.hoverKey || S.selKey);   // a redraw keeps the line being followed
@@ -861,6 +862,7 @@ function toggleSide() {
 function applyView(svg) {
   const vp = svg.querySelector("#viewport");
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
+  if (typeof sdSparksZoomed === "function") sdSparksZoomed(svg);   // a sparkline too small to read is not drawn
   // whether some of the diagram lies beyond the edge, after a drag or a zoom too
   const hint = document.getElementById("panhint"), lay = S.layout, r = svg.getBoundingClientRect();
   if (hint && lay && r.width) {
