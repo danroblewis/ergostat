@@ -70,3 +70,16 @@ Round 2 (the review's one finding):
   project (projects.py, unchanged; its header assertions before that line pass). A run on clean main was refused in
   this session (a git worktree and checking out main's files were both denied), so that they fail on main too is
   read from the diff, not seen.
+
+Round 3: the merge of main (ead497d1) conflicted in details.js and pages.js.
+- Main (ui-a-one-sided-limit-is-drawn-and-named-as-a-limit) changed the Loops rows that the branch draws with goalRow:
+  the bound cell became `holdText` ("limit ≤ 0", "setpoint 5 ±1"), the column header "setpoint" became "r", and the
+  "how far" title now says "its limit" or "its setpoint". Those three now live in goalrow.js's `bound` and `far` cells
+  and in pageLoops' header, so the page reads as main has it. The loop panel's "holds" row takes main's `holdText`,
+  and its status row takes the branch's `goalWord`. The side list's sub line (`goalLine`) is left as the branch had it.
+- Ran: ruff (clean); the three acceptance unit tests; tests/test_runner_and_state.py (45 passed); in the browser,
+  under the watchdog, the goals-page acceptance test, main's test_a_one_sided_limit_is_drawn_and_named_as_a_limit,
+  test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks and
+  test_the_headers_tooltip_names_the_goals_its_count_counts (all passed, rc 0). The whole suites are left to the factory.
+- A heredoc append to this file with `cat >>` followed by a commit, given as one Bash command, was refused in this
+  session; this section was written with the editor instead.
