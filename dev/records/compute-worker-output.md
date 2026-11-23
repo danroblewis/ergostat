@@ -1,0 +1,7 @@
+# compute-worker-output: A node run's output sent by offset, resumed by attach, capped
+
+depends-on: [compute-worker-keeper]
+
+Problem: the engine records a run's lines as it follows a local file (ergostat/spec/stream.py:27-62); over a session that can be cut, lines must be addressable so a resend is recorded once (compute-systems.md section 2.3; order by offset, never time). Change: new module ergostat/compute/worker/output.py: a follower over each run's out and err sends `out {run, stream, offset, text}` (offset of the first byte; at most 64 KiB a line, split at a line end where possible; whole lines only until the run ends). `attach {run, out, err}` resends from those offsets; beat carries each run's offsets taken. Flow control: at most 4 MiB sent ahead of the engine's acknowledged offsets across runs. A file past limits.log (default 64 MiB, at most 1 GiB) stops its run with how `log over its cap`. `ended` comes after the run's last out; `done {run}` writes runs/RUN/done. Done: 10,000 lines covered exactly once in order; attach from a middle offset resends only from there; a line over 64 KiB rejoins exactly by offset; with the reader stalled at most 4 MiB is unacknowledged and RSS stays bounded (measured); a run over its log cap is stopped. Files: ergostat/compute/worker/output.py, ergostat/compute/worker/serve.py (registrations), tests/compute_pipe.py, tests/test_compute_output.py (six tests), docs/SPEC.md. Budget: 220 net lines.
+
+Area: compute. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
