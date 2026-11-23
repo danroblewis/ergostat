@@ -86,3 +86,22 @@ left in the tree.
   `#running`, which main's unchanged `util.js` writes as `N off`). It fails on main too, so it is left for main
   (lesson 13). The whole of `tests/test_diagram_rendering.py`, the other browser files and the unit suite were not run
   here; the merge queue runs them.
+
+Round 4: main (ead497d1) merged in at 80fc5a21. The conflicts are resolved and both sides are kept.
+
+- `diagram.js` Suggestions: main now reads the goal's name from a hint's `what` (no longer from its `says`). The
+  branch keeps its `(?:loop|goal)` match, now applied to `what`. `test_dynamics_view.py`: the branch's `goal NAME`
+  and `what serves it` assertions, with main's new hint text (`was off 60% …`, which no longer starts with the
+  name). `test_diagram_rendering.py`: the branch's acceptance test and main's two new tests are all kept.
+- Runs: ruff clean; `tests/test_dynamics_view.py` 16 passed. Under the watchdog: the acceptance test,
+  `test_a_one_sided_limit_is_drawn_and_named_as_a_limit` and the boxed parametrization of
+  `test_a_goal_name_opens_its_evidence…` passed. Its unboxed parametrization failed three times out of three, at the
+  Suggestions step main added (`.side .suggest .hint button.name` "not visible"). The button is there and reads
+  `goal short-backlog`, but `#detail` is still open, so `.side` is `display: none`. This is a race in main's code:
+  `openLoop` (`details.js`, the same as on main) draws a "Loading…" panel, waits for `/api/loops/NAME`, and then
+  calls `showDetail` again. That answer lands after the test's `closeDetail()`, so the panel reopens. This branch does
+  not touch that path. Not shown: that it fails on clean main too, because making a main worktree
+  (`git worktree add … ead497d1`) and checking out main's files (`git checkout ead497d1 -- …`) were both refused
+  here. So it is left for main (lesson 13). Not run here: `test_needs_attention_is_three_headed_groups_in_a_fixed_order`
+  (it failed on main in rounds 2 and 3), the rest of `tests/test_diagram_rendering.py`, the other browser files and
+  the unit suite.
