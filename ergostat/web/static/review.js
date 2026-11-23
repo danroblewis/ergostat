@@ -401,8 +401,8 @@ function availableView(d, box) {
       ["fit, residuals, history", h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); document.getElementById("model-fit")?.scrollIntoView(); } }, "below")],
     ];
     patch(box,
-      h("h3", {}, "Loops"),
-      goals.length ? table(["loop", "u \u2192 y, process", "what would identify or tune it", "panels"], loopRows(one), "avail", "Loops") : h("p", { class: "muted" }, "No goal: no loop to identify."),
+      h("h3", {}, "Control loops"),
+      goals.length ? table(["loop", "u \u2192 y, process", "what would identify or tune it", "panels"], loopRows(one), "avail", "Control loops") : h("p", { class: "muted" }, "No goal: no loop to identify."),
       queues.length ? h("p", { class: "small muted" }, "Closing through queues, with no one process to identify: ",
         ...linkList(queues.map((g) => toolLink(g, { view: "blocks", find: isComparator(g) }, "its scope and how it is doing"))), ".") : null,
       h("h3", {}, "Parameters to estimate"),
