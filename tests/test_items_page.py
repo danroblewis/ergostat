@@ -1314,10 +1314,43 @@ from pathlib import Path
 from ergostat import model as mdl
 from ergostat.store import Project
 p = Project(mdl.load(Path(sys.argv[1])))
-for stock, value in (("inbox", 10), ("model-error", 0.5), ("unanswered-requests", 3)):   # inbox-short holds; the two
-    s = next(iter(p.model.spec.stocks[stock].sensors.values()))                         # modelling goals are off
+inbox = float(sys.argv[2]) if len(sys.argv) > 2 else 10                                 # 10: inbox-short holds
+for stock, value in (("inbox", inbox), ("model-error", 0.5), ("unanswered-requests", 3)):   # the two modelling
+    s = next(iter(p.model.spec.stocks[stock].sensors.values()))                            # goals are off
     p.measurements.add(s.series, value, at=time.time())
 """
+
+
+def test_the_headers_tooltip_names_the_goals_its_count_counts(browser, tmp_path):
+    """Done item 3 of goal-row-one-renderer: with inbox-short off and the two modelling goals off, the header says
+    '1 goal off' and its tooltip names that one goal by goalWord, not the upkeep goals counted apart."""
+    d, env = tmp_path / "first-loop", {**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}
+    shutil.copytree(ROOT / "examples" / "first-loop", d)
+    subprocess.run([sys.executable, "-c", UPKEEP_SEED, str(d), "100"], env=env, check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    try:
+        for _ in range(150):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        else:
+            pytest.fail("the page never came up")
+        pg.goto(f"http://127.0.0.1:{port}/items")
+        st = pg.evaluate("() => fetch('/api/status').then((r) => r.json())")
+        assert sorted(n for n, lp in st["loops"].items() if lp["word"] == "off") == [
+            "inbox-short", "model-fits", "requests-handled"]
+        pg.wait_for_function("() => / off/.test(document.querySelector('#running').textContent)")
+        assert re.match(r"^1 goal off\b", pg.locator("#running").inner_text())
+        assert pg.locator("#running").get_attribute("title") == "inbox-short: off"
+    finally:
+        pg.close()
+        proc.terminate()
+        proc.wait(timeout=10)
 
 
 def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser, tmp_path):

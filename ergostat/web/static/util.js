@@ -391,7 +391,8 @@ async function refreshHeader() {
     if (run.className !== cls) run.className = cls;
     const open = document.querySelector('meta[name="ergostat-public"]') ? " · public, read only, no login" : "";   // web: open: read
     const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here"
-      : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off").map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");   // the goals off, each by its word
+      : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
+        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");                                  // (upkeep apart), each by its word
     if (run.title !== tip) run.title = tip;
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
