@@ -62,3 +62,12 @@ session (`git worktree add --detach /tmp/maincheck main`).
 
 test_diagram_rendering.py::test_off_in_the_scope_is_hatched_labelled_and_keyed_and_the_arrows_read_in_both_themes
 passes: it reads the strip's arrows on an uncounted kind. Ruff is clean. Main is merged in: already up to date.
+
+Build step, round 1: `[suites] build` failed with rc 5, not on a test. The branch changed only one test file,
+tests/test_items_page.py. That file needs Playwright, which the build step does not install, so pytest skipped it at
+module level and collected nothing. To fix it, tests/test_footprint.py has a new unit test,
+`test_the_item_pages_where_it_went_joins_each_flow_to_the_block_whose_out_names_it`. It checks the data the new
+section reads: `taken_by[].out` names each flow as `flow.X`, which joins to a path step's `flow`, and a taken item
+carries its lease's holder, block and time taken. It runs without a browser, so the build step now has a test that
+runs. Its file passes (10) and ruff is clean. The build step's own command (`scripts/affected_tests.py -- ...`) was
+refused in this session, so it was not run here.
