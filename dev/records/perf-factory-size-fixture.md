@@ -69,3 +69,19 @@ No page changed. main had not moved since the branch was made, so there was noth
 Parked by the factory (review/perf-factory-size-fixture-1, 2026-11-22 07:07).
 
 Done 1, 2 and 4 are built with acceptance tests that can fail: the counts test (every size, read back from the model and record, no lease event refused by the fold, `ergostat check` exits 0), the determinism test (a second build in its own process, sha256 per record file) and the served-answers test (/api/status and /api/items from a real ThreadingHTTPServer). Done 3 is half done: the fixture's snapshot cost is measured, but the factory copy's is not, because the live factory's state is not in the implementor's container and cannot be shipped. The branch can't merge until the PR gives both numbers within a factor of two. Nothing in the gap's own code is wrong enough to block.
+
+## Where it stopped
+
+Round 2 (2026-11-23). This round had one finding: the work is done apart from readings from the live Mac or factory,
+which belong to the coordinator and are not part of this gap. No code changed. main (7cb97857) is already merged into
+the branch (02c924b8) and has not moved since, so there was nothing new to merge. On the merged branch, `uv run ruff
+check ergostat tests scripts` is clean and `scripts/named_tests.py tests/test_factory_fixture.py` passes all 3 tests
+(the counts test, the determinism test, the served-answers test) in 283 s, serially.
+
+Readings the coordinator owes (done 3): on a copy of the live factory's state, taken by hand and not in CI, time
+`state.snapshot` cold and warm, the `ergostat snapshot` command and `ergostat check`, and give the record's size. Put
+them in the PR beside the fixture's numbers from round 1: 0.61 s cold, 0.29-0.32 s warm, 390 s, 107 s, 101 MB. Done 3
+holds if the factory copy's `state.snapshot` is within a factor of two of the fixture's.
+
+Not run here: the unit suite and the four browser files. Under the rules they are run by the factory and the merge
+queue. No page changed.
