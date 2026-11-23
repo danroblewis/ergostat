@@ -18,13 +18,16 @@ from ergostat.datasources import _frames
 from ergostat.query import frames
 from ergostat.query.buckets import grid
 from ergostat.store import Project
+from tests import test_data_sources as ds
 from tests.test_data_sources import T as PT
 from tests.test_data_sources import ask as ask_source
-from tests.test_data_sources import project, prom  # noqa: F401  (a fixture)
+from tests.test_data_sources import project
 from tests.test_query_axes import COST, T, _wave, ask
 from tests.test_query_engine import _record
 
 ITEMS = {"source": "items", "kind": "ticket"}
+prom = ds.prom                     # (the stub Prometheus, a fixture)
+BOX = {"q1": 2, "median": 3, "q3": 5, "lo": 1, "hi": 9, "outliers": [], "n": 9}
 
 
 def _p(tmp_path):
@@ -46,7 +49,8 @@ def _model(tmp_path):
 def from_source(frame: dict) -> dict:
     """A typed frame as a data source's answer comes to the page: read, checked and given its envelope."""
     g = grid(T, T + 480, 4)
-    return {"id": "a", **frames.framed(_frames.answer(frame, g, datasources.MOST_SERIES), types.SimpleNamespace(source="sql", text="SELECT"))}
+    asked = types.SimpleNamespace(source="sql", text="SELECT")
+    return {"id": "a", **frames.framed(_frames.answer(frame, g, datasources.MOST_SERIES), asked)}
 
 
 def samples(tmp_path) -> dict[str, dict]:
@@ -75,7 +79,7 @@ def samples(tmp_path) -> dict[str, dict]:
                                        "t": [T, T + 120, T + 240, T + 360], "order": "time"}),
         "quartiles": {"id": "a", "shape": "distribution", "form": "quartiles", "unit": "s",
                       "x": {"type": "category", "label": "state", "unit": "", "scale": "category", "distribution": True},
-                      "series": [{"name": "open", "xs": ["open"], "values": [3], "box": {"q1": 2, "median": 3, "q3": 5, "lo": 1, "hi": 9, "outliers": [], "n": 9}}]},
+                      "series": [{"name": "open", "xs": ["open"], "values": [3], "box": BOX}]},
         "survival": {"id": "a", "shape": "distribution", "form": "survival", "unit": "s", "series": []},
         "over-time": {"id": "a", "shape": "distribution", "form": "over_time", "unit": "s", "series": []},
     }
@@ -144,7 +148,8 @@ def test_a_frame_over_its_bound_is_a_limit(monkeypatch):
 
 
 def test_a_non_finite_value_is_no_value():
-    got = _frames.answer({"shape": "points", "x": {"values": [1, float("nan")]}, "y": {"values": [float("inf"), 2]}}, grid(T, T + 480, 4), 50)
+    frame = {"shape": "points", "x": {"values": [1, float("nan")]}, "y": {"values": [float("inf"), 2]}}
+    got = _frames.answer(frame, grid(T, T + 480, 4), 50)
     assert got["series"][0]["xs"] == [1.0, None] and got["series"][0]["values"] == [None, 2.0]
 
 
@@ -186,8 +191,8 @@ def test_a_promql_and_a_sql_answer_of_one_shape_are_the_same_answer(tmp_path, pr
 
 def test_two_signals_from_a_source_are_drawn_one_against_the_other():
     got = _frames.answer({"shape": "series", "time": [T, T + 120], "series": [
-        {"key": "load", "role": "input", "unit": "/s", "values": [1, 2]}, {"key": "latency", "role": "output", "unit": "s", "values": [5, 7]}]},
-        grid(T, T + 480, 4), 50)
+        {"key": "load", "role": "input", "unit": "/s", "values": [1, 2]},
+        {"key": "latency", "role": "output", "unit": "s", "values": [5, 7]}]}, grid(T, T + 480, 4), 50)
     assert got["roles"] == ["input", "output"] and got["x"]["label"] == "load" and got["unit"] == "s"
     assert got["series"][0]["xs"][:2] == [1.0, 2.0] and got["series"][0]["values"][:2] == [5.0, 7.0]
     assert frames.describe(got)["roles"] == ["input", "output"]

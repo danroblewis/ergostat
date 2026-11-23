@@ -4,8 +4,9 @@ the source's own language; the answer has the shape of every chart's (``times``,
 
 A type is one module in this package, found by its name: ``TYPE`` (the word in ``sources:``), ``KEYS`` (its connection
 keys besides ``type``), ``LANGUAGE`` (what its text is written in) and ``query(source, text, window)``, which returns
-``[(name, [(time, value), ...]), ...]``, or a typed frame (series with roles, a table or points: _frames.py). It offers nothing else: a module with any other public function or class is
-refused, so ``query`` is the one operation anything can call on a source (and a type's ``query`` must itself only read).
+``[(name, [(time, value), ...]), ...]``, or a typed frame (series with roles, a table or points: _frames.py). It offers
+nothing else: a module with any other public function or class is refused, so ``query`` is the one operation anything
+can call on a source (and a type's ``query`` must itself only read).
 Every query is bounded here, whatever its type: its text, its window, its points and its series, and it is refused
 with words naming the bound it is over."""
 
