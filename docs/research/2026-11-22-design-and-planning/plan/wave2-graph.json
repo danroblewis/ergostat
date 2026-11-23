@@ -1,0 +1,1089 @@
+{
+ "gaps": [
+  {
+   "rank": 1,
+   "name": "merge-pipeline-browser-names-its-failures",
+   "title": "The browser suite and the rerun print FAILED lines, so their failures are named, excused and triaged",
+   "size": "quick",
+   "area": "merge-pipeline",
+   "depends_on": [],
+   "definition": "Problem: dev/factory.toml:170 (browser) and :180 (rerun) run pytest with `-q -rs`, which replaces the default `fE`, so no FAILED/ERROR line is printed and fac.failed_tests (dev/bin/fac.py:556-561) names nothing. Every browser red is anonymous: never excused as a flake (queue.py:217-222), bisected with full runs (queue.py:698), sent to fix by triage (triage.py:60). Change: both use `-rfEs` with a comment like the unit suite's; a config test that every suite command fac.failed_tests reads keeps f and E in its -r or has none. Done: a failing browser test is named by fac.failed_tests; the SKIPPED count (queue.py:111) and nowhere() read the same skips; the config test fails if f or E is dropped. Files: dev/factory.toml, tests/test_factory.py. Tests: test_every_suite_fac_reads_prints_failed_lines, test_a_failing_browser_test_is_named. Budget: 0 net lines of code."
+  },
+  {
+   "rank": 2,
+   "name": "merge-pipeline-gaps-entries-in-records",
+   "title": "A GAPS.md entry has a form in its gap's record, and docs/GAPS.md can be rendered from the records",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [],
+   "definition": "Problem: nearly every branch edits docs/GAPS.md (dev/knowledge/house-rules.md:33-34); the union merge from gaps-md-no-collisions turned conflicts into paragraph splices. Evidence, from the live record and to be cited by item id in this gap's record: the reviewer send-backs of 2026-11-22 on gap/relative-gain-array, gap/remote-items-record and gap/remote-process-lines each name a spliced GAPS.md paragraph. Change (format and renderer only, nothing reads or writes with them yet): new dev/bin/gapsdoc.py with parse(record) for a record's `## Entry` section (`section:`, optional `entry-of: <branch>`, `done: DATE sentence` lines, the bullet text), render(records, head) giving GAPS.md's text (sub-gaps' done lines rendered under their umbrella, in date order), split(gaps_md) as the inverse (head to dev/records/GAPS-head.md), and a CLI `render [--check]` / `split --dry-run`. Done: the round trip is pinned to a named commit, never to the moving file: a copy of docs/GAPS.md as of the commit this gap is built on is kept as tests/fixtures/gaps_md_pinned.md with its sha in the test, and render(split(fixture)) equals the fixture line for line once exact duplicate entries (the union merge's, which intake's twice() tolerates today) are removed; split reports every duplicate it drops by entry name and line, and `split --dry-run` lists them; two sub-gaps of one umbrella merge with no conflict and both render once; a malformed Entry or two entries slugging to one branch is reported by name, never skipped (`render --check` exits 1); dev/prompts/definition.md shows the Entry shape. Files: dev/bin/gapsdoc.py (new), dev/prompts/definition.md, tests/test_gapsdoc.py (new), tests/fixtures/gaps_md_pinned.md. Budget: 220 net lines in dev/bin."
+  },
+  {
+   "rank": 3,
+   "name": "merge-pipeline-gaps-md-regenerated-on-land",
+   "title": "The entries move to the records and the merge queue writes docs/GAPS.md from them inside each landing; every reader still reads GAPS.md",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-gaps-entries-in-records"
+   ],
+   "definition": "Problem: the entries must move to dev/records/ without a window in which a branch's GAPS.md edit is read by nothing or overwritten. So the writing is cut over first and the readers later: after this gap GAPS.md is always the render of the records, and every reader (intake, deps, brief, plan, knowledge) still reads it, unchanged. Change: (1) run `gapsdoc.py split` once and commit it: each entry appended as `## Entry` at the end of dev/records/<branch>.md, never overwriting, head to dev/records/GAPS-head.md; GAPS.md itself does not change in that commit. (2) Old definitions stay findable: fac.definition_file (dev/bin/fac.py:224-233) counts dev/records/<branch>.md as the definition only when it has a `## Definition of done` section, otherwise it returns docs/roadmap/overnight/<branch>.md when that exists; implement.definition_first (implement.py:44-58) appends to an Entry-only record and never writes a second definition for a gap whose old-folder file exists. (3) queue.py renders inside the landing: after land() returns and before the point of no return (before `done = True`, the saved `landing` state and gap.merged, queue.py:835-842), it first carries the batch's own GAPS.md edits into the records (gapsdoc.carry(pre, head): entry text and done lines the batch added to GAPS.md that the records lack are appended to the named records and said by name; one it cannot place is said on the run as `gaps_md_unplaced` and kept in dev/records/GAPS-unplaced.md, never dropped), then renders and commits a differing result as `docs/GAPS.md from the records`; `merged` is reassigned to that commit, so main_sha on every landed gap and the sha ask() pushes are the same head, and recover() treats it as part of the landing. A render failure lands the batch without the commit and says `gaps_md: why` on the run, never blocking a merge. (4) implement.py refuses, uncounted and before the suites (next to strays, implement.py:228-231), a branch whose own new commits touch docs/GAPS.md, with a brief pointing at the record's Entry; branches already approved are carried by (3). house-rules.md:33-34 and dev/README.md say the entry is written in the record. The union merge stays until merge-pipeline-gaps-md-edits-retired. Done: intake and deps give the same gaps, closes, links and sources after the migration commit as before it; an approved branch that edited GAPS.md lands and its text is in a record and on the pushed head; main_sha equals the pushed sha (tested); no record change makes no commit; a malformed record lands the batch and leaves GAPS.md as it was; a gap defined only in the old folder still resolves to that file after the split (tested for a continued gap's REF too); a new GAPS.md edit is refused uncounted. Files: dev/bin/queue.py, dev/bin/gapsdoc.py, dev/bin/implement.py, dev/bin/fac.py, dev/records/, dev/knowledge/house-rules.md, dev/README.md, tests/test_factory.py, tests/test_gapsdoc.py. Budget: 130 net lines in dev/bin."
+  },
+  {
+   "rank": 4,
+   "name": "merge-pipeline-gaps-intake-reads-records",
+   "title": "The intake reads the entries from dev/records/, and twice() is retired",
+   "size": "quick",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-gaps-md-regenerated-on-land"
+   ],
+   "definition": "Problem: the intake reads docs/GAPS.md on main (dev/bin/intake.py:218) and tolerates the union merge's duplicates with twice(); tests/test_gaps_doc.py pins live GAPS.md text and reds the queue when a merge moves it. Since GAPS.md is now the render of the records, reading the records gives the same answer without the file. Change: intake reads gapsdoc.parse over main's dev/records/ (one helper gapsdoc.entries(repo, ref) that later readers share); twice() goes; a record counts as a definition only with `## Definition of done`, so an Entry-only record never makes a gap ready; an unreadable record is said by name, never read as no entry. tests/test_gaps_doc.py moves to fixtures under tests/fixtures/. Done: on the pinned fixture the intake gives the same gaps, closes, links and sources from the records as from the GAPS.md rendered from them; an Entry-only record makes nothing ready; an unreadable record is reported and the pass goes on; tests/test_gaps_doc.py reads no live docs/GAPS.md. Files: dev/bin/intake.py, dev/bin/gapsdoc.py, tests/test_backlog.py, tests/test_gaps_doc.py. Budget: 50 net lines in dev/bin."
+  },
+  {
+   "rank": 5,
+   "name": "merge-pipeline-gaps-deps-read-records",
+   "title": "The dependency reader reads the entries from dev/records/",
+   "size": "quick",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-gaps-md-regenerated-on-land"
+   ],
+   "definition": "Problem: dev/bin/deps.py:44-70 parses docs/GAPS.md on main for each gap's dependencies and closes. Change: deps reads the same entries through gapsdoc.entries over main's dev/records/ (the helper is added here if merge-pipeline-gaps-intake-reads-records has not landed; whichever lands second reuses it and the reviewer checks there is one). Done: on the pinned fixture deps gives the same dependencies, closes and blocked reasons from the records as from the rendered GAPS.md; an unreadable record is said by name and the gaps it names are treated as blocked, never as free; no test of deps reads the live docs/GAPS.md. Files: dev/bin/deps.py, dev/bin/gapsdoc.py, tests/test_backlog.py. Budget: 40 net lines in dev/bin."
+  },
+  {
+   "rank": 6,
+   "name": "merge-pipeline-gaps-briefs-read-records",
+   "title": "The briefs, the planner and the knowledge block read the entries from dev/records/",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-gaps-md-regenerated-on-land"
+   ],
+   "definition": "Problem: dev/bin/brief.py:42-54, plan.py:133 and :422 and knowledge.py:231 read docs/GAPS.md on main for a gap's entry and its section, and tests/test_item_search_gaps.py pins live GAPS.md text. Change: all three read gapsdoc.entries over main's dev/records/ (added here if neither sibling reader gap has landed); the role prompts under dev/prompts/ and dev/README.md say the entry is in the record; test_item_search_gaps.py moves to a fixture. Done: an implementor's, a reviewer's and a planner's brief carry the same entry text from the records as from the rendered GAPS.md on the pinned fixture; an unreadable record is said in the brief by name, never read as no entry; a test asserts no file under tests/ opens docs/GAPS.md. Files: dev/bin/{brief,plan,knowledge}.py, dev/bin/gapsdoc.py, dev/prompts/, dev/README.md, tests/test_item_search_gaps.py, tests/test_factory.py. Budget: 60 net lines in dev/bin."
+  },
+  {
+   "rank": 7,
+   "name": "merge-pipeline-gaps-md-edits-retired",
+   "title": "No branch edits docs/GAPS.md any more: the carry step and the union merge go",
+   "size": "quick",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-gaps-intake-reads-records",
+    "merge-pipeline-gaps-deps-read-records",
+    "merge-pipeline-gaps-briefs-read-records"
+   ],
+   "definition": "Problem: the carry step in the queue (gapsdoc.carry) and `GAPS.md merge=union` in docs/.gitattributes exist only for branches approved before the cutover. Once none is left they are dead code and the union merge can still splice. Change: before removing anything the gap checks, and says in its record, that no gap in building, built, review, fix, approved, queued or push-pending has a branch whose diff against main touches docs/GAPS.md; if one does, the gap is given back uncounted naming it. Then: remove gapsdoc.carry and its call; the queue gives back to fix, uncounted, an approved gap whose diff touches docs/GAPS.md, with the brief implement.py already gives; remove the union line from docs/.gitattributes; dev/records/GAPS-unplaced.md, if it holds anything, is listed in the record for the coordinator and not deleted. Done: a batch-mate editing GAPS.md goes back uncounted and the batch lands without it; the regeneration commit is unchanged; README and the queue's docstring no longer mention carrying. Files: dev/bin/queue.py, dev/bin/gapsdoc.py, docs/.gitattributes, dev/README.md, tests/test_factory.py. Budget: -20 net lines in dev/bin (a removal)."
+  },
+  {
+   "rank": 8,
+   "name": "merge-pipeline-prefix-runs-in-parallel",
+   "title": "The queue can run one check on every prefix of a batch at once, each in its own worktree and container",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [],
+   "definition": "Problem: the queue tests one tree at a time (queue.py:91-169), so bisecting is serial (queue.py:705-709). Evidence from the live record, to be cited in this gap's record with its suites_queue: the queue run tagged operating-states-20261122T094631Z made 23 suite runs in 75 minutes. agents.queued (agents.py:434-450) already supports a worktree as the work. Change: new dev/bin/prefixes.py with run_all(cfg, repo, heads, check, tag, logs, most): a detached worktree per head under run/queue-prefix/<tag>-<i>, check (fac.suite, box queue: rerun with tests, or ruff) run in threads, at most `[suites] prefix_most` at once (default 4, at most 8), each container with `[agents] prefix_cpus` (default 1.5) within queue_cpuset; result per prefix pass, fail or unknown with its log. Done: 5 heads give 5 results in order, a run that did not start is unknown never pass; the cap holds; a stop leaves no container or worktree; worktrees left by a killed run are removed at the next start, only those under run/queue-prefix/ matching the tag pattern; out-of-bounds settings refused with the reason. Files: dev/bin/prefixes.py (new), dev/bin/agents.py, dev/factory.toml, tests/test_factory.py. Budget: 140 net lines in dev/bin."
+  },
+  {
+   "rank": 9,
+   "name": "merge-pipeline-stacks-land-bottom-up",
+   "title": "The merge queue lands a stacked gap only with or after its base, and never without it",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "bisect-tests-main-itself"
+   ],
+   "definition": "Problem: a stacked branch holds its base's reviewed commits, but picks() (queue.py:505-558) and land() (queue.py:635-729) see only each gap's own reviewed commit: taken alone it would land its base's work under its own name, and in a red batch a descendant re-merged onto the green prefix (queue.py:718-722) would bring the failing commit back. Change, reading the field `stacked_on: [{gap, sha}]`: picks() brings an unmerged base in below its dependent, bottom-up and recursively, and only at the sha the dependent holds: a base whose reviewed head is not that sha gives the dependent back uncounted (it waits for merge-forward); a base not approved, held by a run, or a stack over the batch cap gives the run's own gap back uncounted (after 10m, never towards EMPTY_MOST, queue.py:561-580); a stacked batch-mate whose base cannot come is skipped. land(): when a merge is blamed, every later merge whose stacked_on reaches it at any depth goes back to approved uncounted and is never re-merged. Done: A then B land in one batch; B with A in fix is given back with the reason; B holding an older sha of A than A's reviewed head is given back and A lands alone; A failing gives B back and the pushed tree holds neither; a stack of 3 with cap 2 gives the own gap back; a batch with no stacked gap behaves exactly as today (pinned). Files: dev/bin/queue.py, tests/test_factory.py. Budget: 95 net lines in dev/bin."
+  },
+  {
+   "rank": 10,
+   "name": "merge-pipeline-bisect-in-parallel-rounds",
+   "title": "A red batch finds every failing merge in parallel rounds of its named tests, then lands on one full run",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-prefix-runs-in-parallel",
+    "bisect-tests-main-itself",
+    "merge-pipeline-stacks-land-bottom-up"
+   ],
+   "definition": "Problem: after each failing merge land() starts a new full run of 9 to 13 minutes on the rest (queue.py:718-722), and a ruff failure bisects with full runs of every suite (queue.py:698). Change: in land(), a red run whose named tests fail alone on the red tree (and are not main's, per bisect-tests-main-itself) is bisected in rounds: run the named tests on every prefix at once (prefixes.run_all); the first failing prefix's last merge is blamed and given to triage as now, with its stacked descendants; rebuild the survivors and repeat until the names pass; then one full run on the survivors (red with new names starts again). Ruff is bisected the same way per prefix. An unknown prefix result makes that round serial; the time allowance (Late) is checked before each round; batch_rounds and prefix_runs go on suites_queue. Done: 8 with one bad merge costs one full run, one named run, the main check, one parallel round and one full run on the 7; two bad merges take two rounds and one final full run; ruff found in one round; unknown never counts as pass; docstring says an interaction failure blames the later merge. Files: dev/bin/queue.py, dev/README.md, tests/test_factory.py. Budget: 120 net lines in dev/bin."
+  },
+  {
+   "rank": 11,
+   "name": "merge-pipeline-relation-starts-at",
+   "title": "A precedence relation may name the target states at which a dependent may start",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [],
+   "definition": "Problem: precedence is finish-to-start only (ergostat/precedence.py:93-105; ergostat/leases/ready.py:75-84), so a dependent waits for its target to finish though work could start once the target is, say, approved. Engine part only; the factory does not use it yet. Change: a relation's map form takes `starts_at: [STATE, ...]`, states of the target kind (ergostat/spec/relations.py REL_KEYS, the Relation IR); a target in one of them does not block `takes: {unblocked: true}` or precedence status. CPM and the schedule stay finish-to-start (said in docstring and SPEC). check refuses a state the target kind lacks, starts_at on a non-precedence relation, and a finished or paused state named. The item index and Items API expose it. Done: a gap whose only dependency is approved is taken with `starts_at: [approved]`, not with the dependency in fix; the critical path still waits for the finish; one finding per refusal with a stated code; SPEC \u00a75a and \u00a79.5 and schema/ergostat.schema.json updated. Files: ergostat/spec/relations.py, ergostat/spec/ir.py, ergostat/precedence.py, ergostat/leases/ready.py, schema, docs/SPEC.md, tests/test_relations.py, tests/test_precedence.py. Budget: 90 net lines."
+  },
+  {
+   "rank": 12,
+   "name": "merge-pipeline-stacked-gap-builds-on-its-base",
+   "title": "A gap whose dependencies are approved is built on their reviewed branches, not on main",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [],
+   "definition": "Problem: agents.clone always branches from origin/main (agents.py:282-296) and implement.py measures and merges against main (implement.py:200, 202, 227, 228, 238, 244), so a gap cannot start until its dependencies merged. Inert until stacks-turned-on. Change: fac.stack_base(cfg, gap) returns the reviewed heads ({gap, sha}, rank order) of a gap whose unfinished dependencies are each approved, queued or push-pending, else none. With bases, implement.py clones as now and merges each base's reviewed head (`--no-ff`, never a rebase or squash), records `stacked_on` on gap.started and gap.built, uses the merge of main and every base (a commit under refs/stack/<branch>) as the base for strays, net_lines, check findings and onmain, and has finish hold each base sha. Bases that conflict with each other give the gap back uncounted naming files. A base whose reviewed head moved after the gap started is not a give-back loop: a gap not yet started simply takes the new head, and a started gap keeps building on the sha it holds and waits for merge-forward (merge-pipeline-stacks-merged-forward) to carry the new one. Done: net_lines and strays count only the gap's own commits; two conflicting bases give back uncounted naming files; stacked_on is on the item; finish refuses a head missing a base sha; a fix round on a gap whose base moved still builds (on the held sha); an unstacked gap builds exactly as today (pinned). Files: dev/bin/fac.py, dev/bin/implement.py, dev/bin/agents.py, tests/test_factory.py. Budget: 130 net lines in dev/bin."
+  },
+  {
+   "rank": 13,
+   "name": "merge-pipeline-stacks-merged-forward",
+   "title": "When a stacked gap's base moves, the new base is merged forward into it; a conflict goes back to its implementor",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-stacked-gap-builds-on-its-base"
+   ],
+   "definition": "Problem: a base can change after its descendant started (back to fix and approved at a new head); the descendant still holds the old reviewed sha and nothing carries the new commits forward. The owner's direction is merge forward, never rebase or squash. Change: new dev/bin/stack.py run as a block stack-forward in dev/model/building.yaml (every 5m, commanded by a sensor counting stale stacks). For each gap whose base's reviewed head moved and is approved again (or landed: only update stacked_on): skip if leased, building or in review; else merge the new base head into the branch in a scratch clone (`--no-ff`) and move the drop's branch from its old tip only. Clean on an approved gap: record the new reviewed_head with `reviewed_by: stack-forward` and stacked_on. Clean on built or fix: move the branch. Conflict: abort, send to fix with the files (`stack_conflict`), uncounted. Bottom-up, so a stack of three moves in one pass. Done: those four cases, a drop branch that moved during the merge is refused (theirs kept), block and sensor in the model with no new check finding. Files: dev/bin/stack.py (new), dev/model/building.yaml, dev/README.md, tests/test_factory.py. Budget: 150 net lines in dev/bin."
+  },
+  {
+   "rank": 14,
+   "name": "merge-pipeline-stacks-turned-on",
+   "title": "Stacking turned on: gaps start on approved dependencies, reviewed against their base",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-relation-starts-at",
+    "merge-pipeline-stacked-gap-builds-on-its-base",
+    "merge-pipeline-stacks-land-bottom-up",
+    "merge-pipeline-stacks-merged-forward"
+   ],
+   "definition": "Problem: with the engine option, the implementor, the queue and merge-forward ready, the factory still waits for merges: ergostat.yaml:115 declares depends_on finish-to-start, the reviewer diffs against main (review.py:182-187) so a stacked gap would be sized with its base's lines, and deps.blocked_reason (deps.py:165-166) says it waits. It is turned on only after merge-forward exists, because without it a base reworked to a new head would strand every gap stacked on it. Change: ergostat.yaml `depends_on: {kind: gap, starts_at: [approved, queued, push-pending]}`; review.py uses fac.stack_base's merged base (refs/stack/<branch>) for the diff, net_lines and gate 1's main check, and the brief names the bases; deps.py says `stacked on X (approved)`; dev/model/building.yaml gains a stock gaps-stacked; dev/README.md gains a section Stacked gaps (built, reviewed, landed, and what happens when a base fails, moves or parks). Done: on a copy of the factory's model a ready gap whose only dependency is approved is taken; the reviewer gets only the gap's own diff and its net lines match the implementor's; a base sent to fix and approved at a new head is merged forward and the descendant then lands (one test through all four pieces); the Items page shows stacked on (no new UI); `ergostat check` adds no finding. Files: ergostat.yaml, dev/bin/review.py, dev/bin/deps.py, dev/model/building.yaml, dev/README.md, tests/test_factory.py, tests/test_backlog.py. Budget: 60 net lines."
+  },
+  {
+   "rank": 15,
+   "name": "merge-pipeline-browser-daily-on-main",
+   "title": "Once a day the browser suite runs on main; a flake is recorded, a real failure is a test broken on main",
+   "size": "incremental",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-browser-names-its-failures",
+    "regression-flake-writes-hold-state"
+   ],
+   "definition": "Problem: the owner wants the browser suite on a trigger rather than in every batch; that needs a safety net for changes outside its paths, and nothing runs the suite on main by itself (queue.py:156 is the only run). Change: new dev/bin/browserday.py run as a block browser-daily in dev/model/landing.yaml (every 24h), under the queue's lock (fac.queue_lock) after fac.wait_quiet, in a detached worktree at origin/main made and removed by name. Green: write {sha, at} to run/browser-daily.json. Red: rerun each named test alone twice (`-rA`). Every flake event goes through flakes.say, the one writer regression-flake-writes-hold-state makes: passing both reruns is flake.seen; the rest are tests broken on main, written as flake.main-broken with main's sha and, through onmain.record's intervention (dev/bin/onmain.py:89-97, one per main commit, class main-broken), the first-parent merges since the last green sha as suspects. There is no second representation of a broken main: the main-failing-tests stock and main-green goal of regression-guarantees-model see these items, and main-mend clears them. No names in the log: one intervention of class queue with the tail. A sensor browser-daily-age (hours since the last finished run, green or red; no reading when the file cannot be read) with a goal browser-daily-ran (<= 30, on-stale off, served by the block's own schedule and factory-off) says the net itself is alive; no new page. Done: green records the sha and the next day still runs; a flake raises nothing but flake.seen; a real failure is a main-broken item naming test and suspects; no flake event is written outside flakes.say; the lock is held; worktree and containers removed on every way out; no new check finding; README says so. Files: dev/bin/browserday.py (new), dev/bin/onmain.py (record takes suspects), dev/model/landing.yaml, dev/README.md, tests/test_factory.py. Budget: 150 net lines in dev/bin."
+  },
+  {
+   "rank": 16,
+   "name": "merge-pipeline-browser-only-on-its-paths",
+   "title": "A batch skips the browser suite only when everything it touches is known not to reach the pages",
+   "size": "quick",
+   "area": "merge-pipeline",
+   "depends_on": [
+    "merge-pipeline-browser-daily-on-main"
+   ],
+   "definition": "Problem: every queue run, each bisect step included, runs the four browser files (queue.py:156; factory.toml:170), about 9-10 minutes of 4 CPUs, though many batches change nothing a page reads. A list of paths that do reach the pages cannot be kept right by hand: ergostat/web/server.py imports ergostat/graph.py, model.py, history.py, series.py and state.py, and the diagrams come from ergostat/blockdiagram.py, dynamics.py, process.py and ergostat/spec/. So the rule is the safe way round: run the suite unless every changed path is on a list known not to reach it. Change: `[suites] browser_skips` in dev/factory.toml (default dev/bin/**, dev/prompts/**, dev/knowledge/**, dev/records/**, dev/factory.toml, docs/** but not docs/screenshots/**, *.md, and tests/test_*.py other than the browser files). Nothing under ergostat/, examples/, dev/model/, ergostat.yaml, tests/fixtures/, tests/conftest.py or scripts/ is skippable by default. queue.suites skips the browser step only when every path of `git diff --name-only pre HEAD` matches; then it records `browser: {not_run: \"no path that reaches the pages changed\"}` on suites_queue. rest() (queue.py:230-232) and excused() treat a not-run suite as finished, never stopped. An empty list runs browser always. Bisect sub-runs use the batch's decision. A config test walks the import closure of ergostat.web.server and of the four browser test files (ast, no import run) and fails if any module or fixture in it matches a skip pattern. Done: a dev/bin-only batch skips and says so; a batch touching ergostat/blockdiagram.py or dev/model/ runs it; an unlisted new path runs it; docstring and README name the daily run as the net. Files: dev/bin/queue.py, dev/factory.toml, dev/README.md, tests/test_factory.py. Budget: 40 net lines in dev/bin."
+  },
+  {
+   "rank": 17,
+   "name": "remote-and-libraries-remote-parts-are-data",
+   "title": "A remote's parts are data here: never integrated, fitted or judged unexercised locally",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [],
+   "definition": "Problem: remote-systems.md \u00a76 and SPEC \u00a74c say a remote's stocks are data here, but served flows keep their equations (ergostat/remote/serve.py:26; compose.py:440), simulate.py:96 integrates every stock with flows, fit.py:211-217 counts remote stocks in the local fit total the modelling goals hold, and exercised.py:56-117 judges remote parts never-moved. Change: one helper (remote_parts) decides; simulate.plan leaves remote stocks out of what it integrates by default (given, with a note), the projection and closedloop carry them as inputs (hold or trend); the fit total, residual examination and exercised findings skip them; the remote's flow equations stay for texts written for its owner (numbers/remote_text.py). Done: plan(spec) integrates no remote stock unless integrate= asks; a local flow from a remote stock still moves the local stock; fit.compare lists remote stocks under a new key `remote`; residuals and exercised skip them; tests/test_remote_proposals.py passes unchanged; SPEC \u00a74c says it in one paragraph. Files: ergostat/numbers/{simulate,fit,residuals,exercised}.py, ergostat/remote/__init__.py, docs/SPEC.md, the gap's record entry, tests/test_remote_analysis.py (new, four tests). Budget: 140 net lines."
+  },
+  {
+   "rank": 18,
+   "name": "remote-and-libraries-remote-stale-finding",
+   "title": "check and the Check page say remote-stale when a remote's readings fail",
+   "size": "quick",
+   "area": "remote-and-libraries",
+   "depends_on": [],
+   "definition": "Problem: remote-systems.md \u00a75 promises remote-unreachable and remote-stale findings; only remote-unreachable exists (ergostat/remote/compose.py:180-188). When the model answers but its readings fail or are refused as stale (readings.py:198-204; status read_ok False, cache.py:108-116), only the status's attention says so and `check` is silent. Change: compose adds a finding `remote-stale` on system.NAME from the same status the box reads: 'remote NAME: its readings fail (WHY) since T; its measures here are N old'. Done: read_ok False with the model answering gives the finding, read_ok True or never read gives none; unreachable and stale are never both given for one remote at one load (unreachable wins); SPEC \u00a74c lists the code and AGENT-GUIDE \u00a73a step 4 says what to do. Files: ergostat/remote/compose.py, docs/SPEC.md, docs/AGENT-GUIDE.md, tests/test_remote.py. Tests: test_remote_stale_finding, test_unreachable_wins_over_stale. Budget: 50 net lines."
+  },
+  {
+   "rank": 19,
+   "name": "remote-and-libraries-explain-remote-parts",
+   "title": "explain names a remote's parts and the loops that cross into a remote",
+   "size": "quick",
+   "area": "remote-and-libraries",
+   "depends_on": [],
+   "definition": "Problem: remote-systems.md \u00a76 says explain names the remote parts on a loop, but ergostat/spec/explain.py:141-157 lists loops with no remote marking and a part's or system's explanation (explain.py:389, :495) never says a part is a remote's, though AGENT-GUIDE \u00a73a tells agents to explain before referencing. remote_of and box (ergostat/remote/__init__.py:9, :61) already know. Change: explaining a remote's part starts with 'remote NAME's (runs at URL, model vM, read T ago | not answering)', and a block is said never run here; explain system.NAME for a remote's box says it once; a loop with a remote part ends ' (crosses remote NAME: part, part)'; a goal whose loop reads a remote part says that part is a measured input, never an actuator. Done: the MCP explain tool returns the same text; a model with no remotes is unchanged (golden text); AGENT-GUIDE \u00a73a step 2 updated. Files: ergostat/spec/explain.py, docs/AGENT-GUIDE.md, tests/test_remote.py. Tests: test_explain_marks_remote_part, test_explain_loop_crossing_remote, test_explain_without_remotes_unchanged. Budget: 80 net lines."
+  },
+  {
+   "rank": 20,
+   "name": "remote-and-libraries-mcp-remotes-tool",
+   "title": "Agents see the model's remotes through an MCP tool",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [],
+   "definition": "Problem: an agent modelling a system that composes a remote must know which parts are the remote's, whether it answers and which texts wait for its owner; this is only in the CLI (ergostat/cli/remote.py:17-23) and ergostat/mcp.py:30-191 has no remote tool. Change: one read-only MCP tool `remotes` built on the CLI's functions (no new reads, no refresh). With no argument, per remote: name, url, version, read seconds ago, state (ok, unreachable, unknown), why when failing, part count by kind, missing references, its box's show. With `name`: the part map (local to remote name, kind) up to 500, and `proposals: true` adds the open texts as `ergostat remote proposals NAME --json` gives them. Done: an unknown name is an error naming the model's remotes; a model with none answers {remotes: []}; it works on the last good model when the YAML is broken and writes nothing; the tool description and AGENT-GUIDE \u00a73a say when to call it. Files: ergostat/mcp.py, ergostat/cli/remote.py (rows factored into shared functions), docs/AGENT-GUIDE.md, docs/SPEC.md, tests/test_remote.py (four tests). Budget: 120 net lines."
+  },
+  {
+   "rank": 21,
+   "name": "remote-and-libraries-template-exports",
+   "title": "A template declares its exports; a reference to its internals is a finding",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [],
+   "definition": "Problem: external-systems.md (Deployment) says a shared module's ports are its public interface, but any part of an instance can be named from anywhere (docs/SPEC.md:142) and templates take only HEAD keys (ergostat/library/templates.py:24), so a library author can change nothing without breaking someone. Change: an optional template key `exports:`, a list of the template's own refs; absent means everything is exported. Done: templates.read accepts it and refuses an entry that names no part of the template (bad-template; SAFE name rule for untrusted templates); after expansion a reference from outside an instance to a non-exported part is a finding `template-internal-reference` at the referencing line, never for references within the instance; an inner instance's exports count outside the outer only if re-exported; the `templates` MCP tool and author.library show exports; respond-to declares exports and every demo still checks clean; SPEC \u00a72a and AGENT-GUIDE document it. Files: ergostat/library/{templates,uses,author}.py, ergostat/spec/compile.py, ergostat/library/templates/respond-to.yaml, docs, tests/test_template_exports.py (new, five tests). Budget: 150 net lines."
+  },
+  {
+   "rank": 22,
+   "name": "remote-and-libraries-fetched-untrusted-held",
+   "title": "A fetched library not marked trusted is held by the untrusted gate, not refused outright",
+   "size": "quick",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "library-fetch"
+   ],
+   "definition": "Problem: library-fetch makes every use of a fetched library without `trust: owner` the error library-untrusted, saying later gaps relax it. The untrusted gate is already on main for folders (ergostat/library/templates.py:59-64, :87-89; uses.py:57-76, :122-125) and the sandbox gaps run its programs, so a colleague's library is unusable unless trusted whole, the riskier choice. Change: a fetched library without trust: owner reads its templates with trust 'untrusted', exactly as a `{folder: PATH}` entry, and the blanket refusal goes. Done: such templates are looked up after every trusted one and never shadow; the allowlist, text rule, bounds, marks and untrusted-limit apply unchanged; a refusal names the library (name, commit), not a folder path; library-fetch's blanket-refusal tests now assert that structure-only uses compile and a use that makes a command is refused; SPEC \u00a72a and SECURITY say fetched libraries are trusted the same way as folders. Files: ergostat/library/{fetched,templates,uses}.py, tests/test_library_fetch.py, tests/test_library_trust.py, docs/SPEC.md, docs/SECURITY.md. Budget: 80 net lines."
+  },
+  {
+   "rank": 23,
+   "name": "remote-and-libraries-qualified-use",
+   "title": "use: LIBRARY/TEMPLATE names which library a template comes from",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "library-fetch"
+   ],
+   "definition": "Problem: library-fetch finds templates by bare name in order and only notes shadowing, so with two libraries offering one name only the first is usable, a use does not say where its template comes from, and adding a library can silently change what an existing use gets. Change: `use: LIB/TEMPLATE` resolves only in fetched library LIB; a bare name works as today. Done: an unknown or refused LIB, or a template LIB does not offer, is unknown-template naming what exists (and the refusal reason); a bare name offered by two or more sources still resolves as today and check adds a finding `template-ambiguous` suggesting the qualified form; inside a library's template a bare name resolves first in its own library; the `templates` MCP tool lists fetched templates under qualified names and add_use writes them; instance naming unchanged, where.template records the qualified name; SPEC \u00a72a and AGENT-GUIDE document it. Files: ergostat/library/{uses,templates,author}.py, ergostat/mcp.py, docs, tests/test_library_qualified.py (five tests). Budget: 100 net lines."
+  },
+  {
+   "rank": 24,
+   "name": "remote-and-libraries-libraries-listed",
+   "title": "check and the templates tool say each library: where from, pin, trust, and whether its programs run",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "library-fetch"
+   ],
+   "definition": "Problem: after library-fetch a model can depend on several git libraries but nothing lists them: check says only errors and the templates tool's entries carry `from` and `trust` (ergostat/library/author.py:39-50) without name, url, version or commit, so nobody can review what a model trusts. Change: one function in ergostat/library/fetched.py describes each libraries: entry from what load already read (no network, no git): name, url, version, path, commit (12 hex), tree ok or the refusal code and reason, trust, templates offered, and per template whether its programs run on the owner's shell, in the sandbox, or are refused (failing closed). Done: `ergostat check` prints one note per library (code `library`, never an error; nothing for a model without libraries:); templates tool entries carry `library: {name, version, commit}`; `ergostat library` with no subcommand prints the listing offline, on the last good model when the YAML is broken, writing nothing; SPEC \u00a72a documents it. Files: ergostat/library/fetched.py, ergostat/cli/library.py, ergostat/cli/spec_cmds.py, ergostat/library/author.py, docs/SPEC.md, tests/test_library_fetch.py (four tests). Budget: 110 net lines."
+  },
+  {
+   "rank": 25,
+   "name": "remote-and-libraries-library-update-check",
+   "title": "An update to a library is reviewed before it is taken: what the new version breaks and changes",
+   "size": "large",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "library-fetch"
+   ],
+   "definition": "Problem: external-systems.md says updating a pinned version is a reviewable change, but library-fetch's `fetch --update` swaps the new commit in at once and nothing says a newer version exists. Change: a dry run, `ergostat library fetch NAME --update --dry-run` and an MCP tool `library_update` (name, optional version), that fetches the candidate into a mkdtemp folder under .libraries (same allowlists, caps, timeouts, flock), never swaps or writes the lock, compiles the model twice in memory and reports: commit from and to, newer tags (one `git ls-remote --tags`), templates added and removed, per use the parameters added, removed, newly required, defaults changed, exports removed (if template-exports landed), parts added and removed by full name, parameter values moved, and errors and findings new in the candidate (broken reference first). Done: .libraries/NAME and libraries.lock unchanged by hash, no temp folder left; exit 0 when the candidate compiles with no new error, else 1 (MCP `ok`); nothing reaches the running model, snapshot or record; SPEC \u00a72a and AGENT-GUIDE updated. Files: ergostat/library/compare.py (new), ergostat/library/fetch.py, ergostat/cli/library.py, ergostat/mcp.py, docs, tests/test_library_update.py (new, six tests). Budget: 260 net lines."
+  },
+  {
+   "rank": 26,
+   "name": "remote-and-libraries-known-controller-laws",
+   "title": "An external block may declare a known law (kubernetes-hpa, alert-rule), checked at compile",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [],
+   "definition": "Problem: external-systems.md says an observed controller's law is declared where it is known and a library of known controllers ships with ergostat; today an external block takes only `agent` and `identify` (ergostat/spec/compile.py:94, :1466-1473) and the HPA's multiplicative rule is in no family (ergostat/numbers/extlaw.py:24). This gap is the catalogue and the compile only; drawing and explaining it is remote-and-libraries-known-laws-drawn-and-explained. Change: ergostat/control/laws.py, a catalogue of laws with typed, bounded parameters and a constructor of an extlaw.Law: kubernetes-hpa (target, min, max, tolerance 0.1, stabilize-down 5m, stabilize-up 0s, every 15s) and alert-rule (threshold, side, for; the onoff family with levels 0 and 1). extlaw gains the `ratio` family's step (desired = ceil(u*x/target) outside the tolerance band, scale-down takes the largest desired over the window, clamped); no fitting here. compile accepts `law: {kind, ...}` on an external block with `identify:` and puts it in the IR; an unknown kind or parameter, a missing required one, a value out of its bounds, or law without identify is bad-law at that key. Done: both kinds compile and their Law steps as the rule says on a hand-worked sequence (scale up at once, scale down only after the window, clamped at min and max; the alert fires after `for`); each refusal has its place; a model with no `law:` compiles to an identical IR; SPEC \u00a712d lists the catalogue and its parameters. Files: ergostat/control/laws.py (new), ergostat/numbers/extlaw.py, ergostat/spec/compile.py, ergostat/spec/ir.py, docs/SPEC.md, tests/test_known_laws.py (new, four tests). Budget: 160 net lines."
+  },
+  {
+   "rank": 27,
+   "name": "remote-and-libraries-known-laws-drawn-and-explained",
+   "title": "A declared law is drawn as its block's function in Blocks and said in words by explain",
+   "size": "quick",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "remote-and-libraries-known-controller-laws"
+   ],
+   "definition": "Problem: after known-controller-laws a declared law is in the IR but the Blocks view still draws an external block as an unknown function and explain says nothing of it. Change: ergostat/blockdiagram.py draws the declared law as the block's function, in the block diagram's own notation, marked 'declared kubernetes-hpa' (or 'declared alert-rule'), where an identified law is marked identified today; no new panel or element kind. ergostat/spec/explain.py says the law in words with its parameters ('scales to ceil(replicas x utilisation / 0.6), within 2..10, down only after 5m'). AGENT-GUIDE says when to declare a law and that a declared law is an assumption until tested against the record. Done: the Blocks answer for a block with `law:` carries the function and its mark; a block without one is drawn exactly as today (golden); the MCP explain tool returns the same words; the browser test for the Blocks view passes with one fixture using a declared law. Files: ergostat/blockdiagram.py, ergostat/spec/explain.py, docs/AGENT-GUIDE.md, tests/test_known_laws.py (three tests). Budget: 70 net lines."
+  },
+  {
+   "rank": 28,
+   "name": "remote-and-libraries-declared-law-tested",
+   "title": "A declared law is tested against the record: does the controller behave as configured",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "remote-and-libraries-known-controller-laws",
+    "ui-a-loop-s-panel-starts-with-a-table-law-process-h"
+   ],
+   "definition": "Problem: external-systems.md says a declared law is tested against what the controller did, but after known-controller-laws a declared law is never compared with the record; identification (ergostat/numbers/external.py:59-74; extlaw.judge, extlaw.py:349) judges only its own fitted laws. Change: external.declared(p, spec, name, since, until) runs the declared Law on the record's measured input with extlaw.run and judges it on the same grid and held-out quarter as identify (skill one step ahead, R\u00b2 run free, points), or says why not. Done: a finding `external-law-disagrees` when the declared law's held-out skill is below 0 or the identified law's held-out error is lower by the parsimony margin, worded 'fits its record worse', never 'misconfigured'; holding is never a finding; the loop's panel table (made by the filed ui-a-loop-s-panel-starts-with-a-table-law-process-h, on which this depends; no new table) shows the declared law's held-out fit as a row beside the identified one; /api/loop-control includes `declared: {kind, short, skill, r2, points}`; with no `law:` nothing changes; SPEC \u00a712d documents it. Files: ergostat/numbers/external.py, the loop-control answer's web module, docs/SPEC.md, tests/test_known_laws.py (four tests). Budget: 150 net lines."
+  },
+  {
+   "rank": 29,
+   "name": "remote-and-libraries-declared-law-projected",
+   "title": "A declared law runs in the closed-loop projection and its risk",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "remote-and-libraries-known-controller-laws"
+   ],
+   "definition": "Problem: the closed-loop projection runs an external block only as its identified law (ergostat/numbers/external.py:155-171 models(); closedloop.py:14, :431), so a declared law is ignored and a what-if on an HPA's target cannot be projected, even when the record is too short to identify one. Change: external.models prefers a declared law, else the identified one. Done: for a block with `law:`, models() returns an ExternalModel with form 'declared', basis 'its declaration', started from the record as settle() starts an identified one; the projection's notes and Run.how say 'declared law', and the risk samples none of its numbers (stated, not estimated); a what-if may change a declared parameter (`block.B.target=0.5`), an unknown parameter is refused naming the law's parameters; external-not-run applies as to an identified law; with no law nothing changes; SPEC \u00a712c and \u00a712d say it. Files: ergostat/numbers/external.py, ergostat/numbers/closedloop.py, docs/SPEC.md, tests/test_known_laws.py. Tests: test_projection_runs_declared_law, test_declared_wins_over_identified, test_whatif_changes_declared_target, test_no_law_unchanged. Budget: 90 net lines."
+  },
+  {
+   "rank": 30,
+   "name": "remote-and-libraries-hpa-ratio-family",
+   "title": "Identification fits the HPA's multiplicative rule as its own family",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "remote-and-libraries-known-controller-laws"
+   ],
+   "definition": "Problem: GAPS (Identifying existing controllers, Left) lists the HPA's multiplicative rule as its own family. extlaw's families (ergostat/numbers/extlaw.py:24) approximate an autoscaler with the fixed-step stepper, which mistells an HPA whose step grows with the load; known-controller-laws adds the ratio step but not its fit. Change: extlaw.fit tries `ratio` beside the others, chosen by the same held-out score and parsimony rule. _fit_ratio(xs, us, dt): target by least squares on the moves (log u_next/u = log x/target), tolerance from the largest |x/target - 1| with no move, stabilize-down from the shortest time from a lower desired to the move down, min and max from the record's bounds when it saturates; None with too few moves (MIN_MOVES). Done: FAMILIES includes 'ratio' with said/short text and standard errors for target and tolerance; over 20 seeds ratio wins on an HPA-made record in at least 18 (target within 10%) and the stepper still wins on a stepper-made one; Blocks draws it marked identified; SPEC \u00a712d's family table gains the row. Files: ergostat/numbers/extlaw.py, ergostat/blockdiagram.py, docs/SPEC.md, tests/test_identify_ratio.py (new). Budget: 140 net lines."
+  },
+  {
+   "rank": 31,
+   "name": "remote-and-libraries-autoscaler-template",
+   "title": "Built-in templates for known controllers: an observed autoscaler and an alert rule, used by the autoscaler demo",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "remote-and-libraries-known-controller-laws",
+    "demo-observed-external-controller"
+   ],
+   "definition": "Problem: external-systems.md says a library of known controllers ships as model fragments you include and bind to your metrics, but the built-in library (ergostat/library/templates/) has no fragment for an observed controller, so every user writes the stock, auxiliary, external block and identify: by hand. The filed demo-observed-external-controller writes exactly that fragment by hand in a demo; this gap comes after it and replaces the demo's hand-written parts with the template, so the fragment exists once. Change: two built-in templates. `observed-autoscaler` (target, min, max, the HPA's optional ones, replicas and load as sensor queries with stand-ins, within, description) makes a stock replicas, an auxiliary utilisation, a goal on utilisation at the target, and an external block reading utilisation and setting replicas with law kubernetes-hpa and identify; its `reading:` says it in control and in system dynamics terms. `alert-rule` (threshold, side, for, the signal, what it pages) makes an external block with law alert-rule, the signal auxiliary and a stock of firing alerts. Done: both compile on stand-ins alone (template-stand-in finding), run offline and draw in both views, the Blocks loop showing r (target), y (utilisation), u (replicas); the demo that demo-observed-external-controller added uses `use: observed-autoscaler`, draws the same parts under the same names and still passes its own test and demo_check; the templates tool lists them; docs/ADDING.md, `ergostat help adding` and SPEC name them. Files: the two template YAMLs, the autoscaler demo's model, docs/ADDING.md, docs/SPEC.md, tests/test_templates.py. Budget: 130 net lines, YAML counted."
+  },
+  {
+   "rank": 32,
+   "name": "remote-and-libraries-shared-library-demo",
+   "title": "A worked shared library: two models using one library, and a guide to writing one",
+   "size": "incremental",
+   "area": "remote-and-libraries",
+   "depends_on": [
+    "library-sandbox-sensors",
+    "remote-and-libraries-template-exports"
+   ],
+   "definition": "Problem: there is a worked remote (examples/remote-pair/) but no worked shared library, and docs/AGENT-GUIDE.md:366-383 says only how to read an untrusted library's refusals, not how to write a library for others. Change: examples/shared-library/ with a folder `library/` (two templates: one with a sensor script under ${here} and exports, one structure-only) and two models: `team-a/` lists it as an owner folder (its script runs on the owner's shell), `team-b/` lists it as `{folder: ...}` untrusted (the scripted sensor runs sandboxed where the OS sandbox exists, else its reading fails with the no-sandbox reason). README says what each shows and how the folder becomes a git library. AGENT-GUIDE gains 'Writing a library for others': layout, a template per file, parameters with stand-ins, exports, scripts under ${here}, version tags for fetch, never asking users to mark it trusted. Done: scripts/demo_check.py passes both models; team-b shows untrusted marks and no untrusted-limit error; a planted reference to a non-exported part gives template-internal-reference; examples/README.md lists it. Files: examples/shared-library/, examples/README.md, docs/AGENT-GUIDE.md, tests/test_shared_library_demo.py. Budget: 200 net lines, YAML and scripts counted."
+  },
+  {
+   "rank": 33,
+   "name": "research-design-queues-walk-and-demo-scripts",
+   "title": "Two scripts let a session start a demo and walk it in Chromium: demo_up.py and walk.py",
+   "size": "incremental",
+   "area": "research-design-queues",
+   "depends_on": [],
+   "definition": "Problem: no factory session can look at a running demo: the design review's walker lives outside the repository, scripts/demo_check.py:150-187 cannot leave one demo running, and sessions run only allowlisted commands (dev/bin/agents.py:38-46). Chromium and playwright 1.63.0 are already in the image. Change: scripts/demo_up.py: `start DEMO [--port N]` copies examples/DEMO to a fresh folder (demo_check's fresh_copy and OFFLINE), runs it, waits up to 90 s for its web and prints one JSON line {demo, url, copy, log}; `stop DEMO` ends it; a name must be a folder of examples/ holding an ergostat.yaml. scripts/walk.py: reads a JSON list of steps (goto, size, dark, wait, click, hover, fill, press, scroll, shot, text), runs them in one Chromium page (1440x900), writes screenshots only under --shots DIR with names matching ^[a-z0-9][a-z0-9._-]{0,63}\\.png$, prints text cut at 6000 characters plus console errors and failed requests; no proxy for loopback, HTTPS_PROXY for other hosts; a failed step is printed and the walk goes on; exit 0 only when every step ran, else 2. Done: starts each of the six demos; unknown names, paths and `..` refused before any copy; a second start refused; docs/DEVELOPMENT.md describes both. Files: scripts/demo_up.py, scripts/walk.py, scripts/demo_check.py if needed, docs/DEVELOPMENT.md, tests/test_walk_scripts.py (six tests). Budget: 200 net lines."
+  },
+  {
+   "rank": 34,
+   "name": "research-design-queues-research-sources-checked",
+   "title": "A research answer is checked for evidence: its cited files and lines exist, its URLs were opened; an unsourced answer is asked again once",
+   "size": "incremental",
+   "area": "research-design-queues",
+   "depends_on": [],
+   "definition": "Problem: the research queue promises a written answer with evidence, but dev/bin/research.py:42-51 stores the ## Sources lines as they are and says research.answered even with none or with a file that does not exist; the stand-in's 'Sources: none' (dev/bin/fac.py:670) passes. Change: before research.answered, research.py checks each source: a `path` or `path:line` must exist in the session's clone at its sha with the line in range; a URL must appear in the session's own tool calls (WebFetch, WebSearch results, the walker's goto; read from the session item's tool_calls). At least one checked source: answered, with `sources_checked` and `sources_unchecked` (with why). None: research.unsourced (new state) and the question asked again once with the reason; a second unsourced answer is research.dead (new state, which plan.py:304 and manage.py:295 already read). Model: a flow research-unsourced; research-answered counts only answered. Done: those cases, the stand-in cites a real file so existing tests pass, the researcher's prompt says how sources are checked. Files: dev/bin/research.py, dev/bin/fac.py, ergostat.yaml, dev/model/knowledge.yaml, dev/prompts/researcher.md, tests/test_factory_knowledge.py (four new tests). Budget: 120 net lines."
+  },
+  {
+   "rank": 35,
+   "name": "research-design-queues-research-in-gap-briefs",
+   "title": "A gap's answered research is in its implementor's, reviewer's and planner's briefs, and the coordinator can ask research for a gap",
+   "size": "quick",
+   "area": "research-design-queues",
+   "depends_on": [],
+   "definition": "Problem: research answers are read once and lost: the planner gets its own questions' reports while planning (dev/bin/plan.py:312, cut at 4000 characters), knowledge.block gives the implementor and reviewer no research (dev/bin/knowledge.py:36-39), the reports live in run/research/ where no session container reads, and dev/bin/ask.py cannot tie a question to a gap: it has no options at all and joins its arguments into the question. Change: a source \"research\" in knowledge.block, first in MORE for implementor, reviewer and planner: the answered research items in the gap's `research` field and its parents', plus those whose `gap` field names the gap or a parent; each shown as question, summary and report (research.report), cut to `[knowledge] research_chars` (default 6000) apiece within the role's budget, its id recorded carried or dropped. ask.py gains argument parsing (argparse; the question is the positional words as today) and `--gap GAP`, recording it and refusing an unknown gap. Done: an implementor's and a reviewer's brief carry the report under 'Research for this gap'; asked, unsourced or dead items are not carried; over budget it is dropped and recorded, never cut mid-tag; ask.py with no option behaves as today; dev/knowledge/README.md says what briefs carry. Files: dev/bin/knowledge.py, dev/bin/ask.py, dev/factory.toml, dev/knowledge/README.md, tests/test_factory_knowledge.py (four tests). Budget: 70 net lines."
+  },
+  {
+   "rank": 36,
+   "name": "research-design-queues-sessions-see-a-demo",
+   "title": "Implementor and designer sessions may start a demo and walk it, with a pictures folder and the CPUs it needs",
+   "size": "incremental",
+   "area": "research-design-queues",
+   "depends_on": [
+    "research-design-queues-walk-and-demo-scripts"
+   ],
+   "definition": "Problem: even with the scripts a session cannot use them: the implementor's allowlist (dev/bin/agents.py:38-46) names only named tests and the browser files, screenshots have nowhere to go that leaves the container (/tmp is tmpfs, agents.py:53-54), every session gets 1.5 CPUs (dev/factory.toml:78), and NO_PROXY is empty (agents.py:153). Change in agents.py: a role `designer` (read-only clone like the reviewer) whose tools are the reviewer's plus `Bash(uv run python scripts/demo_up.py:*)` and `Bash(uv run --with playwright==1.63.0 python scripts/walk.py:*)`; the implementor gains the same two. Each implementor or designer session gets a host folder run/shots/<session>/ mounted read-write at /shots. `[agents] designer_cpus` (default 3, within (0, 4]) for designers and for implementors whose brief says the gap touches ergostat/web/. NO_PROXY=127.0.0.1,localhost. designer_model, designer_session_usd ($2), a timeout (3600) and a stand-in answer in fac.STANDIN. Done: the designer's argv mounts /work read-only and /shots read-write and nothing else new; tools exactly as stated, the reviewer's unchanged; a bad designer_cpus refuses the session with its reason; dev/README.md says what a session can run and where pictures land. Files: dev/bin/agents.py, dev/bin/fac.py, dev/factory.toml, dev/README.md, tests/test_agents.py (five tests). Budget: 90 net lines."
+  },
+  {
+   "rank": 37,
+   "name": "research-design-queues-research-open-web",
+   "title": "The researcher reads a listed set of web hosts: WebFetch and the walker through an egress proxy of its own, private addresses refused",
+   "size": "incremental",
+   "area": "research-design-queues",
+   "depends_on": [
+    "research-design-queues-walk-and-demo-scripts"
+   ],
+   "definition": "Problem: the research queue should answer with evidence from the web, but WebFetch is denied (dev/bin/agents.py:34-35) and every session's only way out is the egress proxy for api.anthropic.com (dev/factory.toml:74; agents.py:121-132). Whether the researcher may reach any public HTTPS host is the owner's to say, so the default built here is the narrow one, which can be loosened by one setting and never needs tightening after the fact. Change: a second internal network ergostat-research and proxy container ergostat-egress-research, used only by researcher sessions, started like egress() under the same lock, allowing the API host plus `[agents] research_hosts`, by default an explicit list of primary-source documentation hosts written in dev/factory.toml with a comment (the documentation sites of Python, git, Docker, Kubernetes, Prometheus and Playwright, and the public standards and paper archives; the implementor writes the exact host names and the record lists them for the owner). In dev/agent/egress.py a listed name allows CONNECT on 443 when the SNI matches; the value `*` (never the default; only the owner sets it) allows any such host; in both cases a host any of whose resolved addresses is not ipaddress.is_global (loopback, private, link-local) is refused and logged. The researcher's tools gain WebFetch and the walker command with a /shots folder; its prompt names its tools and the hosts it can reach, says a cited URL must be one it opened, and prefers primary sources. Done: only the researcher runs on that network and proxy; listed hosts tunnel, an unlisted public host is refused with why and named in the session's log, the private ranges and ::1 are refused even under `*`, the SNI check holds; other roles' tools unchanged; README and prompt say so. Owner question, asked in the record in one sentence and not blocking: any public HTTPS host (`*`), or this list. Files: dev/agent/egress.py, dev/bin/agents.py, dev/factory.toml, dev/prompts/researcher.md, dev/README.md, tests/test_agents.py, tests/test_egress.py. Budget: 120 net lines."
+  },
+  {
+   "rank": 38,
+   "name": "research-design-queues-findings-applied-carried",
+   "title": "The knowledge queue holds findings: a sourced research answer is proposed as a finding, applied by lesson-apply and carried by area",
+   "size": "incremental",
+   "area": "research-design-queues",
+   "depends_on": [
+    "research-design-queues-research-sources-checked",
+    "research-design-queues-research-in-gap-briefs"
+   ],
+   "definition": "Problem: the knowledge base holds only house rules, review lessons and decisions; `finding` entries are synced but not carried in briefs (dev/knowledge/README.md:24), so what research learns never reaches the next gap in the area. The knowledge queue (dev/bin/lesson.py:1-11; knowledge.applied, knowledge.py:103-127) takes only lessons, and the parked kb-proposals made facts into gaps, which the owner refused. Change: lesson items take kind `finding`. ask.py, on the argument parsing and `--gap` that research-in-gap-briefs adds, gains a new option `--areas A,B` recorded on the research item. On research.answered with at least one checked source, research.py proposes exactly one: lesson/finding-<slug at most 40>-<hash6>, its entry the summary plus 'Source: research/<id>' and the checked sources, its areas from the item's `areas`, else the touched packages of the gap the question was asked for (`gap`), else none (then carried nowhere and said so); asked through knowledge-change, never again for an id in any state. lesson-apply applies an approved one; knowledge.applied makes entry `finding-<slug>`; knowledge.block carries findings for implementor, planner and researcher by the area-word match used for decisions, under 'What the factory has found', after the gap's own research in MORE; `lesson.py retire` works on findings; a stock findings-active. Done: unsourced answers propose nothing, a denied finding is never re-proposed, a retired one is not carried, no gap is made at any step; README describes findings. Files: dev/bin/{research,lesson,knowledge,ask}.py, dev/model/knowledge.yaml, ergostat.yaml, dev/knowledge/README.md, tests/test_factory_knowledge.py (six tests). Budget: 150 net lines."
+  },
+  {
+   "rank": 39,
+   "name": "research-design-queues-story-kind-and-sync",
+   "title": "User stories are items: story/A1..H6 synced from docs/roadmap/stories.md, owned by the design system",
+   "size": "incremental",
+   "area": "research-design-queues",
+   "depends_on": [
+    "stories-reflect-owner-decisions"
+   ],
+   "definition": "Problem: the 46 stories measure whether a newcomer can use ergostat, but the factory knows them only as a markdown file walked by documentation-only gaps in the gap queue, the wrong queue by the owner's rule of one queue per kind of work. Change: an item kind `story` in ergostat.yaml (ids story/<code>; states due, obvious, possible, impossible, not-yet, retired; events story.listed and story.due to due, one per verdict, story.retired; shown: section, title, audience, demo, url, done_when, baseline, walked_at, walked_sha, screenshots, gaps; relation gaps: gap). New dev/bin/stories.py `sync` (program block, every 10 minutes) parses docs/roadmap/stories.md on main (each ### heading with its As, Demo and Done-when bullets, the demo from the URL's port through the Demos table), lists new stories, writes story.changed on a text change, retires removed ones. A system `design` within factory and dev/model/design.yaml: stocks stories-due, stories-obvious, stories-impossible, auxiliary stories-obvious-share, goal stories-obvious (share >= 0.8, tolerance 0.1; the 0.8 an estimate the owner sets). Done: a second sync writes nothing; a heading without a Demo line or with an unknown port refuses the sync by name, recording nothing; the model checks; dev/README.md gains 'The story queue'. Files: ergostat.yaml, dev/model/design.yaml, dev/bin/stories.py, dev/README.md, tests/test_factory_stories.py (five tests). Budget: 160 net lines."
+  },
+  {
+   "rank": 40,
+   "name": "research-design-queues-stories-due-after-merges",
+   "title": "Stories become due again after a merge touches the page code or their demo, failing ones first",
+   "size": "quick",
+   "area": "research-design-queues",
+   "depends_on": [
+    "research-design-queues-story-kind-and-sync"
+   ],
+   "definition": "Problem: a story is worth re-testing only when the page code or its demo changed, and nothing says when a story is stale. Cost is not the constraint: the factory's AI budget is $3000 a day (dev/model/budget.yaml:19) and a full sweep of 46 walks at $2 a session is $92, so no daily cap on walks is built; the designer block is paced by its pool of 1 and by goal.ai-budget.off (research-design-queues-designer-walks-stories). Change: `stories.py due`, a program block every 15 minutes in dev/model/design.yaml. A story not due and not retired is stale when `git diff --name-only walked_sha..main` touches ergostat/web/**, a module the pages render from (the same import closure of ergostat.web.server that merge-pipeline-browser-only-on-its-paths tests, computed here by a small shared helper if that gap has landed, else ergostat/** outside ergostat/compute/ and ergostat/library/run/), or examples/<its demo>/**, or when it was never walked. Every stale story is made due (story.due with why: the files and the merge), written in the order impossible, possible, not-yet, obvious, then oldest walk, so the designer, which takes the oldest due first, walks failing stories first. Model: a flow stories-made-due and a goal stories-walked (stories-due <= 0). Done: a merge touching ergostat/web/static/items.js makes stale stories due, failing first; a docs-only merge makes none due; a merge touching examples/the-job/ makes only that demo's stories due; the first run makes all never-walked stories due once; a second run with main unmoved writes nothing; an unreadable git state makes nothing due and exits non-zero. Files: dev/bin/stories.py, dev/model/design.yaml, tests/test_factory_stories.py (five tests). Budget: 70 net lines."
+  },
+  {
+   "rank": 41,
+   "name": "research-design-queues-designer-walks-stories",
+   "title": "The designer queue: a session per due story starts its demo, walks it in a browser as a newcomer, and records a verdict with screenshots",
+   "size": "incremental",
+   "area": "research-design-queues",
+   "depends_on": [
+    "research-design-queues-sessions-see-a-demo",
+    "research-design-queues-story-kind-and-sync"
+   ],
+   "definition": "Problem: once stories are items nothing walks them; walks were done by hand outside the factory, so verdicts never reach the model, no stock moves and no goal is off. Change: a block `designer` (type ai, system design, pool 1, lease 60m, timeout 1h) in dev/model/design.yaml taking {kind: story, at: due, to: [obvious, possible, impossible, not-yet]}, driven by expr designer-when = goal.stories-walked.off * (1 - goal.ai-budget.off). New dev/bin/design.py clones main read-only, writes a brief from new dev/prompts/designer.md (the story's text, demo and URL, the newcomer rules, the owner's design decisions, the demo_up.py and walk.py commands with --shots /shots), runs one designer session, parses <walk verdict=\"obvious|possible|impossible|not-yet\">steps, what was seen, why</walk>, copies /shots to run/stories/<story>-<n>/ and says story.<verdict> with walked_at, walked_sha, steps, why, screenshots and cost. No <walk> or an unknown verdict is a failed attempt (the lease retries once), never a verdict. The prompt: a newcomer who has not read the docs, stops at the story's bound, judges from screenshots, never edits. Done: the stand-in's verdict moves the story with screenshots copied; the block waits when the day's budget is spent; the item page lists screenshots and verdict history (fields only, no new UI); the model loads; README says how a walk runs. Files: dev/bin/design.py, dev/prompts/designer.md, dev/model/design.yaml, dev/bin/fac.py, dev/README.md, tests/test_factory_stories.py (four tests). Budget: 180 net lines."
+  },
+  {
+   "rank": 42,
+   "name": "research-design-queues-walk-findings-as-gaps",
+   "title": "A walk that is not possible and obvious files its findings as small gaps, linked to the story, which is due again when they merge",
+   "size": "incremental",
+   "area": "research-design-queues",
+   "depends_on": [
+    "research-design-queues-designer-walks-stories"
+   ],
+   "definition": "Problem: a verdict alone fixes nothing; the owner wants the designer queue to file findings as gaps, bounded so a sweep cannot flood the gap queue, never duplicated, and the story walked again when its gap merges. Change: under a non-obvious verdict the designer prompt asks for up to 3 <finding step=\"N\" screenshot=\"name.png\">one or two sentences</finding> tags outside code fences. design.py requests each as gap/story-<code>-<hash8 of the story and normalised finding>: title '<code>: <finding, cut>', source: story, size: S (no planner session), the story, the screenshot path, and a definition written by the program to run/defs/<branch>.md in the house shape (Problem with the done-when and screenshot, Change 'make this step possible and obvious within the owner's decisions', acceptance 'the story walked again passes this step', budget 80 lines). At most 3 per walk and `[design] gaps_per_day` (default 6, the bound on what a sweep may put in the gap queue, not a cost limit) per day from the record; an id that exists in any state is never requested again; each filed gap is added to the story's gaps. `stories.py due` also makes a story due when one of its gaps merges, written ahead of the other stale stories. Done: two findings file two S gaps linked on the story; the same finding next walk files nothing; five findings file 3 and note the rest; a fenced finding is ignored; README says so. Files: dev/bin/design.py, dev/bin/stories.py, dev/prompts/designer.md, dev/factory.toml, dev/README.md, tests/test_factory_stories.py (five tests). Budget: 130 net lines."
+  },
+  {
+   "rank": 43,
+   "name": "compute-runner-interface",
+   "title": "A runner interface in the core, its first backend today's local runs",
+   "size": "large",
+   "area": "compute",
+   "depends_on": [
+    "shard-supervisor"
+   ],
+   "definition": "Problem: a machine block's run reaches its process directly in five places (Engine._ran, ergostat/spec/engine.py:1060-1110; stop_run, :1855-1865; close, :1985-2001; the lease kill, ergostat/leases/kill.py:39-62; runner.LIVE and kill_all, ergostat/runner.py:38-59), so nothing but this machine can execute one (docs/proposals/compute-systems.md section 1). Order: the filed shard-supervisor also changes ergostat/runner.py and the engine's run handling, and this gap is a behaviour-preserving move whose done-when is that no test changes; so it is built after shard-supervisor has merged, on the code as that leaves it. Change: new ergostat/compute/runner.py with a Runner protocol (start(spec) -> Handle, follow, alive, kill(handle, why, grace), resources, cleanup) and `local`, today's code moved behind it unchanged; _ran, stop_run, close and leases/kill.py reach runs only through handles (eng.live maps run id to Handle); runner(spec, block) returns `local` always. Daemon runs stay as they are. No behaviour changes. Done: _ran holds no Measured, runrecord or stream call of its own; the records a run writes keep exactly their shape; the unit suite and the four browser files pass with no test edited except imports; SPEC \u00a79.1 names the interface. Files: ergostat/compute/__init__.py, ergostat/compute/runner.py, ergostat/spec/engine.py, ergostat/leases/kill.py, tests/test_compute_runner.py (three tests), docs/SPEC.md. Full text: wave2-compute.md. Budget: 250 net lines."
+  },
+  {
+   "rank": 44,
+   "name": "compute-run-spec",
+   "title": "A run as one JSON-able spec handed to its runner",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-runner-interface"
+   ],
+   "definition": "Problem: what a run is (command, input, cwd, environment, limits) is spread over local variables of _ran (ergostat/spec/engine.py:995-1059), so a backend on another machine can take none of it, and the engine's whole environment, every secret included, is in each run's. Change: ergostat/compute/spec.py, a RunSpec dataclass with to_json/from_json: run id, block, block type, command, input, cwd, env (only the ERGOSTAT_* variables _ran sets), secrets (names only), limits (wall from the block's timeout; the rest None unless given), work, out, lease (fence, ttl, expires). _ran builds one and passes it to runner.start. The local backend still runs with {**os.environ, **spec.env} (today's behaviour, said in a comment); allowlisted_env() returns PATH, HOME, LANG, the ERGOSTAT_* variables and the secrets named, for later backends. Run ids are checked against ^[0-9a-f]{32}$ for any backend but local. Done: exactly one RunSpec per run; a local run sees the same environment, input, cwd and command; it round-trips through JSON for program and ai blocks, leased, event-started and commanded; no secret value is a field. Files: ergostat/compute/spec.py, ergostat/compute/runner.py, ergostat/spec/engine.py, tests/test_compute_spec.py (four tests), docs/SPEC.md. Budget: 180 net lines."
+  },
+  {
+   "rank": 45,
+   "name": "compute-pools-config",
+   "title": "compute: pools in the model, with their check findings and ceilings",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [],
+   "definition": "Problem: a model cannot declare where runs may execute: there is no `compute:` section (ergostat/spec/compile.py:86-92; workspaces are the pattern, ergostat/workspaces/compile.py:15-41). This gap is the pools only; `runs-on:` on a block is compute-runs-on-config. Change: ergostat/compute/compile.py compiles `compute:` pools (nodes [{ssh: HOST} | {connect: [argv]}], backend process|docker, image, slots, limits {cpus, memory, pids, disk, wall, network, log}, repos, secrets {NAME: file}, labels) into a ComputePool in the IR (beside WorkspacePool, ir.py:503). Errors with their place: an unknown key; a bad size or duration; over 64 nodes or 64 slots; nodes x slots over 256 across pools; wall over a day; log over 1 GiB; `network: none` on the process backend; docker without image; a node entry naming an address or a user (`@` in ssh:). Nothing runs differently. Done: each refusal has its code; a model without compute: compiles to an identical IR; SPEC gains a compute: subsection. Files: ergostat/compute/compile.py, ergostat/spec/compile.py, ergostat/spec/ir.py, tests/test_compute_compile.py, docs/SPEC.md. Full text: wave2-compute.md (the pool half). Budget: 170 net lines."
+  },
+  {
+   "rank": 46,
+   "name": "compute-runs-on-config",
+   "title": "runs-on: on a block names its pool, with the refusals for blocks that cannot run on a node",
+   "size": "quick",
+   "area": "compute",
+   "depends_on": [
+    "compute-pools-config"
+   ],
+   "definition": "Problem: with pools declared, a block still cannot say it runs on one: there is no `runs-on:` key. Change in ergostat/compute/compile.py and the block compiler: `runs-on: POOL|local` becomes Block.runs_on in the IR. Errors with their place: an unknown pool; runs-on on a daemon, sensor or ai block; runs-on on a command that uses calls (ERGOSTAT_CMD, ERGOSTAT_SOCKET, `ergostat `), until compute-calls-from-node lifts it; a pool used by blocks of two shards. Nothing runs differently yet: runner() still returns local. Done: each refusal has its code; a block with `runs-on: local` or none compiles to an identical IR; the schema (schema/ergostat.schema.json) and SPEC's block keys list runs-on. Files: ergostat/compute/compile.py, ergostat/spec/compile.py, ergostat/spec/ir.py, schema, tests/test_compute_compile.py, docs/SPEC.md. Full text: wave2-compute.md (the runs-on half of compute-pools-config). Budget: 90 net lines."
+  },
+  {
+   "rank": 47,
+   "name": "compute-worker-protocol",
+   "title": "ergostat worker --stdio: the worker package, the protocol's frame, hello, beat and ping",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [],
+   "definition": "Problem: nothing on another machine can speak to the engine: there is no `ergostat worker` (ergostat/cli/__init__.py:356-369) and no protocol (compute-systems.md sections 2, 2.1, 3). The worker must run on a node with no ergostat installed, and ten later gaps add to it, so its shape is decided here: not one file but a small package of single-purpose modules, by the house rule (dev/knowledge/house-rules.md, Code). Change: ergostat/compute/worker/, standard library only, flat (its modules import each other by bare name, nothing from ergostat), with __main__.py so `python3 -I PATH/worker --stdio` runs it as a directory and a zipapp of the same folder runs the same way; `ergostat worker --stdio [--root DIR]` (new ergostat/cli/worker.py) calls the same main, and `ergostat worker --pack FILE` writes the zipapp for copying to a node. This gap makes frames.py (one JSON object a line each way, each with v (1), seq and type, at most 1 MiB; requests carry id) and serve.py (the loop and a table of message type to handler that each later gap extends with one module and one registration line). First line hello: node (a random 32-hex id kept in the root, never a host name, address or user), cpus, memory, disk.root, arch, os, backends, images, labels, slots (at most its CPUs, at most 64), runs. beat every 10 s; ping answered pong; another v answered error then exit; an unknown type answered error without ending. The root defaults to ~/.local/state/ergostat-worker/ and nothing is written elsewhere. A helper tests/compute_pipe.py starts the worker over a pipe. Done: the directory, the zipapp and the CLI entry each answer hello then pong under `python3 -I` (tested on the image's Python; if isolated mode cannot run a directory, __main__ loads its siblings by path and the test says so); a test asserts no module of the package imports outside the standard library and the package; the node id persists; seq rises by one per line; nothing written outside the root; SPEC gains a Compute systems section with one subsection per later gap to fill. Files: ergostat/compute/worker/{__main__,frames,serve}.py, ergostat/cli/worker.py, ergostat/cli/__init__.py, tests/compute_pipe.py, tests/test_compute_worker_protocol.py (eight tests), docs/SPEC.md. Budget: 240 net lines."
+  },
+  {
+   "rank": 48,
+   "name": "compute-worker-keeper",
+   "title": "The worker starts a run under a detached keeper, which runs it in its own process group and records its exit",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-worker-protocol"
+   ],
+   "definition": "Problem: a run started by an SSH-launched worker would die with the session; the local wrapper only writes the exit (ergostat/spec/runrecord.py:22-30). This gap is the keeper's process control; its deadlines are compute-worker-keeper-deadlines. Change: new module ergostat/compute/worker/keeper.py and a `start` handler: `start` (run id checked against ^[0-9a-f]{32}$; refusals `bad name`, `full`, `limits over the node`) makes runs/RUN/ with run.json, in and a cwd, then starts a detached keeper (`--keep RUN`, setsid, SIGHUP ignored) and answers started or `refused no keeper`. The keeper forks the run in its own process group (pgid file written before exec, rlimits from the limits, on Linux PDEATHSIG and oom_score_adj), execs `/bin/sh -c COMMAND` with out/err to files, waits, and writes exit with the code and how (exit, or the signal). `kill {run}` writes a stop file; the keeper, seeing it within a quarter second, sends SIGTERM then SIGKILL after the grace and records how. It then waits for `done` or a day, removes its folder by name under the root, and exits. Done: a run reports its exit code; closing the worker's stdin leaves the run going and its exit is still written; on Linux a killed keeper takes its run with it (death signal); kill is TERM then KILL to the whole group; each refusal makes no folder and no process. At most 8 processes a test. Files: ergostat/compute/worker/keeper.py, ergostat/compute/worker/serve.py (one registration), tests/test_compute_keeper.py (five tests), docs/SPEC.md. Full text: wave2-compute.md (compute-worker-keeper, the process half). Budget: 180 net lines."
+  },
+  {
+   "rank": 49,
+   "name": "compute-worker-keeper-deadlines",
+   "title": "The keeper holds a run's wall and lease deadlines on a clock that counts suspend",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-worker-keeper"
+   ],
+   "definition": "Problem: a run on a node must not outlive its timeout or its lease when the session, or the engine, is gone; locally the timeout lives in the engine's follower (ergostat/spec/stream.py:36-38), which a node does not have. Change: new module ergostat/compute/worker/deadline.py used by the keeper. `start` writes the first deadline file (runs/RUN/deadline) from the spec's wall limit and lease. The keeper holds the wall deadline and the lease deadline, read from the file every quarter second, on a suspend-counting clock (CLOCK_BOOTTIME on Linux, the equivalent continuous clock on macOS; the module names the one it uses); an unreadable or garbage file keeps the last value and can never move a deadline later; at the earlier deadline it sends SIGTERM then SIGKILL after K and writes exit with how `wall` or `lease`. Done: a run past its wall is killed with how wall; a run whose lease deadline passes is killed with how lease; garbage written to the deadline file never extends; a deadline moved earlier takes effect within half a second; with the worker gone (stdin closed) both deadlines still hold; a simulated clock jump of an hour in the time of day changes nothing. At most 8 processes a test. Files: ergostat/compute/worker/deadline.py, ergostat/compute/worker/keeper.py, tests/test_compute_keeper_deadlines.py (six tests), docs/SPEC.md. Full text: wave2-compute.md (compute-worker-keeper, the deadline half). Budget: 130 net lines."
+  },
+  {
+   "rank": 50,
+   "name": "compute-worker-output",
+   "title": "A node run's output sent by offset, resumed by attach, capped",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-worker-keeper"
+   ],
+   "definition": "Problem: the engine records a run's lines as it follows a local file (ergostat/spec/stream.py:27-62); over a session that can be cut, lines must be addressable so a resend is recorded once (compute-systems.md section 2.3; order by offset, never time). Change: new module ergostat/compute/worker/output.py: a follower over each run's out and err sends `out {run, stream, offset, text}` (offset of the first byte; at most 64 KiB a line, split at a line end where possible; whole lines only until the run ends). `attach {run, out, err}` resends from those offsets; beat carries each run's offsets taken. Flow control: at most 4 MiB sent ahead of the engine's acknowledged offsets across runs. A file past limits.log (default 64 MiB, at most 1 GiB) stops its run with how `log over its cap`. `ended` comes after the run's last out; `done {run}` writes runs/RUN/done. Done: 10,000 lines covered exactly once in order; attach from a middle offset resends only from there; a line over 64 KiB rejoins exactly by offset; with the reader stalled at most 4 MiB is unacknowledged and RSS stays bounded (measured); a run over its log cap is stopped. Files: ergostat/compute/worker/output.py, ergostat/compute/worker/serve.py (registrations), tests/compute_pipe.py, tests/test_compute_output.py (six tests), docs/SPEC.md. Budget: 220 net lines."
+  },
+  {
+   "rank": 51,
+   "name": "compute-worker-readings",
+   "title": "Per-run CPU and memory on the node, in beats and at the end",
+   "size": "quick",
+   "area": "compute",
+   "depends_on": [
+    "compute-worker-keeper"
+   ],
+   "definition": "Problem: a local run's CPU and memory come from the shared sampler and the wait status (ergostat/costs/sampler.py:1-24; engine.py:1082-1089) and go on agent.ran/agent.failed as `resources`; a node run has neither (compute-systems.md section 2.8). Change: new module ergostat/compute/worker/sampler.py (standard library only, so a small tree sampler of its own): each process-backend run's tree (its process group and descendants by parent), from /proc on Linux and one `ps -A -o pid=,ppid=,pgid=,rss=,utime=,stime=` elsewhere, sampled once a second for ten seconds then every ten; per run CPU seconds, peak resident memory and peak process count. The latest is in each beat and the whole in `ended.resources` with the same keys a local run's resources carry (sampler.Sampler.finish, sampler.py:235). One sampling thread for all runs; readings are measurements, never events. Done: a 2 s CPU burn reports at least 1.5 CPU seconds; a 100 MB allocation reports a peak at least that; the keys equal a local run's; one thread samples four runs. Files: ergostat/compute/worker/sampler.py, ergostat/compute/worker/serve.py (one registration), tests/test_compute_readings.py (four tests), docs/SPEC.md. Budget: 150 net lines."
+  },
+  {
+   "rank": 52,
+   "name": "compute-worker-restart-states",
+   "title": "A starting worker lists its runs as running, gone or unknown, and sweeps by name",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-worker-keeper"
+   ],
+   "definition": "Problem: a worker started again must say which runs it still holds and never call a run gone on a reading it did not make (compute-systems.md sections 2.4, 2.9); the local record decides alive by pid and start time only (ergostat/spec/runrecord.py:75-80). Change: new module ergostat/compute/worker/states.py: at start read every runs/RUN/ folder named ^[0-9a-f]{32}$; each run is `running` (pid alive with the recorded start time), `gone` only on an allowlisted reading (exit file written; or pid absent or restarted and its process group read as empty), else `unknown` (record unreadable, ps failed, group not read, run alive but keeper gone). hello.runs and beats carry the states. For unknown the worker at once stops the run by name (SIGTERM then SIGKILL to the recorded group) and keeps listing it unknown. A keeper gone with its run ended: the worker records the exit and cleans up. A sweep at start and hourly removes only run folders of that name form, resolved inside the root, when `done` exists or a day has passed since the end; never all-but-a-list. Done: the five cases in wave2-compute.md (running after restart; gone on exit file; ps failure is unknown and stopped; reused pid by group state; the sweep leaves other names, outward symlinks and young folders). Files: ergostat/compute/worker/states.py, ergostat/compute/worker/serve.py (hello and beat read it), tests/test_compute_restart_states.py (six tests), docs/SPEC.md. Budget: 200 net lines."
+  },
+  {
+   "rank": 53,
+   "name": "compute-worker-lease-clock",
+   "title": "The worker turns the engine's lease renewals into its keeper's deadline, on its own clock",
+   "size": "quick",
+   "area": "compute",
+   "depends_on": [
+    "compute-worker-keeper-deadlines"
+   ],
+   "definition": "Problem: a keeper must kill a run whose lease the engine stopped renewing, by the engine's expiry, without comparing a time of the engine's with its own (compute-systems.md section 2.7); the keeper reads runs/RUN/deadline but only its first value is written. Change: new module ergostat/compute/worker/leaseclock.py: each engine message carrying `sent` (start's lease, `renew {run, fence, left, sent}`, ping) gives heard - sent on the worker's suspend-counting clock; `base` is the least over the last ten minutes. A run's lease deadline is sent + base + left of the latest renewal heard for its fence, written by temporary file and os.replace; an older fence is ignored; a later renewal of the same fence may move it either way. Only a renewal heard writes the file. K = grace(ttl)/4 (ergostat/leases/terms.py:38-41) is written beside it for the keeper's SIGKILL. Done: with random delays the deadline is never later than the engine's expiry plus the least delay seen; a clock of day an hour off changes nothing; a delayed renewal does not extend; an old fence is ignored; after a cut session the keeper kills by the last deadline plus K. Files: ergostat/compute/worker/leaseclock.py, ergostat/compute/worker/serve.py (one registration), tests/test_compute_lease_clock.py (five tests), docs/SPEC.md. Budget: 120 net lines."
+  },
+  {
+   "rank": 54,
+   "name": "compute-node-connection",
+   "title": "The engine's connection to each node of a pool: session, hello, beats, loss and reconnect",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-pools-config",
+    "compute-worker-protocol"
+   ],
+   "definition": "Problem: the engine has no way to reach a worker (compute-systems.md sections 2.1, 3). This gap is the session; round trips and the status shown are compute-node-status. Change: ergostat/compute/connection.py, one Node per entry of each declared pool, named POOL/N by its place in the list and never by host, started with the engine and closed on close or swap: a subprocess (`ssh -T -o BatchMode=yes HOST ergostat worker --stdio`, or the pool's connect: argv) with pipes, one reader thread, stderr kept in the pool's log. It parses hello (version 1 only; labels must include the pool's), marks the node lost after three missed beats (30 s) or EOF, reconnects with backoff from 1 s doubling to ten minutes, and exposes request(msg) with ids and a timeout, and on(type, fn). Done: a connect: pool comes up; killing the worker loses the node at EOF, SIGSTOP after three beats; it returns with backoff; another v leaves the node out of service with the error kept; closing the engine ends every session and leaves no ssh or worker child; no host name, address or user appears in logs or events. Files: ergostat/compute/connection.py, ergostat/spec/engine.py, tests/test_compute_connection.py (six tests), docs/SPEC.md. Full text: wave2-compute.md (compute-node-connection, the session half). Budget: 200 net lines."
+  },
+  {
+   "rank": 55,
+   "name": "compute-node-status",
+   "title": "Each node's round trips measured, and a pool's status in the heartbeat and /api/status",
+   "size": "quick",
+   "area": "compute",
+   "depends_on": [
+    "compute-node-connection"
+   ],
+   "definition": "Problem: the lease rule for node runs needs each node's least round trip, and nothing shows whether a pool's nodes are in service. Change in ergostat/compute/connection.py: a ping every 2 s per node, least_rtt(window=60) from the pongs; a per-pool status() (nodes in service, lost, slots, free, last error, least round trip) that goes in the heartbeat and in /api/status under `compute` (ergostat/web/server.py:447-455) only when the model has pools. No page changes: the status is data in an existing answer. Done: least_rtt is the least of the window and has no value before the first pong; a lost node's slots leave the pool's status at the next reading; a model without pools has no `compute` key; another v's error is in status; no host name, address or user appears in status. Files: ergostat/compute/connection.py, ergostat/web/server.py, tests/test_compute_connection.py (four tests), docs/SPEC.md. Full text: wave2-compute.md (compute-node-connection, the status half). Budget: 90 net lines."
+  },
+  {
+   "rank": 56,
+   "name": "compute-capacity-measures",
+   "title": "A pool's slots as built-in measures, and the dispatcher's room capped by them",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-node-status",
+    "compute-runs-on-config"
+   ],
+   "definition": "Problem: a pool's capacity must read like any stock so a controller can hold a queue against it, and the dispatcher must stop sending to a pool whose slots are gone (compute-systems.md section 4). The workspace pools are the pattern (WORKSPACES, ergostat/spec/ir.py:205-212; numbers/measures.py:180, :190, :201; room at leases/dispatch.py:193-203). Change: COMPUTE = ^ergostat\\.compute\\.(slots|free|busy|nodes|lost)(?:@POOL)?$ and COMPUTE_MEASURES in ir.py, read from the connections' status in measures.py and recognised as built-in names. In tick_block a block with runs_on gets room = min(room, its pool's free slots less starts in flight), and globally at most 256 node runs held or draining before any start. A lost node's slots leave slots and free at once. No diagram changes: a model may declare a stock on these measures and it is drawn as any stock. Done: measures per pool and summed; a block with pool 8 and 2 free slots takes at most 2 items a pass; a lost node drops slots@POOL at the next reading; the 256 cap holds across two pools; a model without pools has no new measures and identical dispatch. Files: ergostat/spec/ir.py, ergostat/numbers/measures.py, ergostat/leases/dispatch.py, ergostat/compute/connection.py, tests/test_compute_capacity.py (five tests), docs/SPEC.md. Budget: 160 net lines."
+  },
+  {
+   "rank": 57,
+   "name": "compute-remote-backend",
+   "title": "A block with runs-on runs on a pool's node through the runner interface",
+   "size": "large",
+   "area": "compute",
+   "depends_on": [
+    "compute-runner-interface",
+    "compute-run-spec",
+    "compute-node-connection",
+    "compute-worker-output",
+    "compute-runs-on-config"
+   ],
+   "definition": "Problem: with the interface, the spec, the connection and the worker's output in place nothing joins them: runner(spec, block) returns local always and a runs-on block still runs here. Change: ergostat/compute/remote.py, a `remote` backend of the Runner protocol over a pool's connection. start(spec) picks a node in service with a free slot (fewest runs first), sends start with the RunSpec as JSON (the allowlisted environment, never the engine's) and returns a handle; `refused` raises Refused, which the engine turns into outcome[\"nack\"] = {why, after: POOL_FULL_AFTER, count: False} as a full workspace pool does (ergostat/spec/engine.py:1170-1171). follow takes out lines in offset order, drops any below the offset taken, hands complete lines to take as stream.follow does, keeps the offset in the run's record after each batch, sends acks and returns at ended (how `wall` gives the timeout note). kill sends kill; alive is the node's last beat; resources is ended.resources; cleanup sends done. Done: a runs-on block over a same-machine worker records like the same block run locally; a forced resend records each line once; a refused start gives the item back uncounted; a lease kill reaches the node run; a block without runs-on is unchanged. Files: ergostat/compute/remote.py, ergostat/compute/runner.py, ergostat/spec/engine.py, tests/test_compute_remote_backend.py (five tests), docs/SPEC.md. Budget: 260 net lines."
+  },
+  {
+   "rank": 58,
+   "name": "compute-lease-renew-on-node",
+   "title": "A node run's lease renewed by the same activity as a local run's, killed on the node when not",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-remote-backend",
+    "compute-worker-lease-clock",
+    "compute-node-status"
+   ],
+   "definition": "Problem: the watchdog renews a local run's lease by activity only at its look, after the expiry (ergostat/leases/dispatch.py:458, 470-476, activity at 506-525); a node's keeper kills at the expiry, so a node run kept alive only by activity the fold does not count would be killed first (compute-systems.md section 2.7). Change in remote.py and dispatch.py: for each node run the engine sends `renew {run, fence, left, sent}` at once after any move of the lease's expiry and every 2 s besides. On each tick while the lease has under half its TTL left it calls activity() as the watchdog does; later activity records the same `renewed` event (seen: activity), at most one a tick per run. Before start, the node's least round trip over the last minute (compute-node-status) must be at most grace(ttl)/4 (ergostat/leases/terms.py:38-41), else the item goes back uncounted as full; a running run whose node's round trips grow past it is killed. Fence and watchdog unchanged. Done: after a cut session the keeper kills by expiry plus grace/2, before the watchdog, the item goes back once and a later line is refused by the fence; a run active only through events about another item outlives its TTL as it does locally; a silent one is killed and expired, counted; a slow node is sent no start; renewals bounded. Files: ergostat/compute/remote.py, ergostat/leases/dispatch.py, ergostat/compute/connection.py, tests/test_compute_lease_on_node.py (six tests), docs/SPEC.md. Budget: 230 net lines."
+  },
+  {
+   "rank": 59,
+   "name": "compute-reattach",
+   "title": "A cut session to a node is resumed: held runs attached from their offsets, others killed",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-remote-backend",
+    "compute-worker-restart-states"
+   ],
+   "definition": "Problem: when the session to a node ends and comes back within one engine process, the runs keep going but each follow has lost its stream, and a run the engine holds no lease for must never be left running (compute-systems.md section 2.4; the engine-restart half is compute-adopt-node-runs). Change in remote.py: on a node's hello after a reconnect, for each run listed: held by a lease of this engine (in dispatch.mine, fence matching) and running or gone, send `attach {run, out, err}` from the offsets in the run's record and the waiting follow resumes, recording each line once; not held, send kill then done once ended; unknown, keep the lease, record no end and send no renewal, so the watchdog expires it (ergostat/leases/dispatch.py:468-504) and the run ends agent.failed with the note `unknown on its node`. A followed run the hello does not list is ended `lost on its node` only when its lease has expired. Done: a session cut mid-run and reconnected records every line exactly once and ends agent.ran; an unheld run is killed and its folder removed; an unknown run keeps its lease until expiry with no renew sent; a missing run is not ended before its lease's expiry. Files: ergostat/compute/remote.py, ergostat/compute/connection.py, tests/test_compute_reattach.py (four tests), docs/SPEC.md. Budget: 180 net lines."
+  },
+  {
+   "rank": 60,
+   "name": "compute-adopt-node-runs",
+   "title": "An engine started again takes up the runs on nodes its record says it started",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-reattach",
+    "rs-adopt-continued"
+   ],
+   "definition": "Problem: after an engine restart no _ran thread waits for a run it had started, so nothing records its end; SPEC says taking up a run left by a stopped engine is not built (docs/SPEC.md:2379-2380). The parked rs-adopt-continued builds that for local runs; node runs need the same through the same mechanism (compute-systems.md section 2.4). Change: extend what rs-adopt-continued lands to node runs: a node run's record (pool, node index, run id, fence, offsets taken; written by compute-remote-backend) is read at engine start; once the node's hello lists the run the engine starts a follow thread through the remote backend's handle exactly as compute-reattach does, recording lines from the offset taken and the end, the lease kept and renewed. A run whose node never comes back keeps its lease until the watchdog expires it. The end is recorded before the run's record file is released. Done: an engine killed mid node run and restarted records the remaining lines once and ends agent.ran; a node gone at restart ends only at lease expiry, counted; local and node runs are adopted by one code path; SPEC's sentence is replaced. When rs-adopt-continued is resumed it should depend on compute-runner-interface. Files: ergostat/compute/remote.py, the adoption module, tests/test_compute_adopt.py (three tests), docs/SPEC.md. Budget: 150 net lines."
+  },
+  {
+   "rank": 61,
+   "name": "compute-secrets",
+   "title": "A pool's secrets read from files, sent at start, never written by ergostat",
+   "size": "quick",
+   "area": "compute",
+   "depends_on": [
+    "compute-remote-backend"
+   ],
+   "definition": "Problem: a local run inherits the engine's whole environment (ergostat/spec/engine.py:995); a node run gets only the allowlisted one, so it has no way to receive a secret (compute-systems.md section 2.6). Change: the pool's `secrets: {NAME: file}` are read at each start by the remote backend (`~` expanded; an unreadable file refuses the start by name, item given back uncounted) and sent in start.secrets. On the worker a new module ergostat/compute/worker/secret.py keeps them in memory only: the process backend passes them to the keeper through an inherited pipe (never a file or argv) into the run's environment; docker later passes `-e NAME`. The worker replaces each secret's exact value in forwarded lines with `[secret NAME]` as a second layer. Records, events, run.json, beats and errors carry names only; agent.started gets `secrets: [names]`. Done: after a run the value is in no file under the worker's root, the engine's state folder, the event record or any log (a test walks and greps them all); the run sees it and agent.started names it; a printed secret is recorded masked; an unreadable file refuses the start uncounted. Files: ergostat/compute/remote.py, ergostat/compute/worker/secret.py, ergostat/compute/worker/keeper.py, tests/test_compute_secrets.py (four tests), docs/SPEC.md. Budget: 140 net lines."
+  },
+  {
+   "rank": 62,
+   "name": "compute-work-in",
+   "title": "A node run starts in a worktree at an exact commit sent as a git bundle",
+   "size": "large",
+   "area": "compute",
+   "depends_on": [
+    "compute-remote-backend"
+   ],
+   "definition": "Problem: a node run has an empty folder and cannot work on the model's repository (compute-systems.md section 2.5, In); locally workspace pools make worktrees (ergostat/workspaces/git.py:50-58). Change: RunSpec.work = {repo, commit} (a name in the pool's repos: and a commit id, never a branch), set when the block says `work: {repo, commit: FIELD}` naming an item field (one block key added to the compute compiler). On the worker a new module ergostat/compute/worker/work.py keeps one bare repository per name under its root (repos/NAME.git) and answers `need {repo, commit, have: [newest commits]}` when it lacks the commit; the engine makes a `git bundle create` of what is missing, sends it as `bundle` chunks of at most 1 MiB, 2 GiB in all, with size and SHA-256; the worker verifies, fetches and makes the run's folder a detached worktree at that commit. Bare repositories are pruned by age and a disk cap. Done: a run sees the tree at the commit (file content and git rev-parse HEAD); a later commit sends a smaller bundle; a wrong hash or over-cap bundle refuses the start uncounted; a branch name is refused; pruning removes only repositories under repos/ of the name form. Files: ergostat/compute/worker/work.py, ergostat/compute/{remote,spec,compile}.py, tests/test_compute_work_in.py (five tests), docs/SPEC.md. Budget: 260 net lines."
+  },
+  {
+   "rank": 63,
+   "name": "compute-work-out",
+   "title": "A node run's commits, artifacts and transcripts brought back, hashed, capped and fenced",
+   "size": "large",
+   "area": "compute",
+   "depends_on": [
+    "compute-work-in"
+   ],
+   "definition": "Problem: what a node run makes stays on the node and is removed with its folder (compute-systems.md section 2.5, Out); the factory's containers bring work out as a git bundle (dev/bin/agents.py:309-335), unreachable from a model. Change: RunSpec.out = {bundle, artifacts: [globs], transcripts: [globs]} from the block's `out:` key. When the run ends the worker (new module ergostat/compute/worker/results.py) bundles the commits on top of the given commit, collects files matching the globs inside the run folder only (symlinks resolving outside refused and said), and sends each as `result` chunks with size and SHA-256, capped (bundle 256 MiB, artifacts 1 GiB, transcripts 64 MiB by default). The engine verifies each, fetches the bundle into a side ref refs/ergostat/runs/RUN-FENCE of the named repository (never a branch) and keeps the rest under runs/RUN/ in the state folder; agent.ran carries names, sizes and hashes. A result after the lease ended is refused by the fence and said. `done` is sent only after the results are kept. Done: two commits arrive at the side ref and no branch moved; artifacts byte-exact, an outward symlink refused and named; over a cap refused and noted on the end; a late result refused and recorded. Files: ergostat/compute/worker/results.py, ergostat/compute/{remote,spec,compile}.py, tests/test_compute_work_out.py (five tests), docs/SPEC.md. Budget: 260 net lines."
+  },
+  {
+   "rank": 64,
+   "name": "compute-docker-backend",
+   "title": "The worker's Docker backend: a run in a named container under its limits",
+   "size": "large",
+   "area": "compute",
+   "depends_on": [
+    "compute-worker-keeper-deadlines",
+    "compute-worker-readings"
+   ],
+   "definition": "Problem: the process backend cannot limit network or isolate files (compute-systems.md section 2.2, docker); the factory runs sessions in containers with hard limits (dev/bin/agents.py:53-54) only for itself. Change: new module ergostat/compute/worker/docker.py: backend `docker` when docker is on PATH (hello.backends, hello.images). The keeper runs `docker run -d --init --name ergostat-run-RUN --cpus --memory --memory-swap --pids-limit --network none(default) --cap-drop ALL --security-opt no-new-privileges -v RUNFOLDER:/work -w /work IMAGE /bin/sh -c COMMAND`, output redirected to the run folder's out/err by a wrapper in the container, records the container id in run.json, waits with docker wait and writes the exit; at its deadlines `docker stop -t K` then `docker rm -f`. Readings from the container's cgroup in the process backend's keys. `no such image` is refused at start. If compute-worker-restart-states has landed, it reads a container by its recorded id; otherwise that gap adds it. The sweep removes only containers named ergostat-run- plus 32 hex. SPEC says Docker is a resource limit, not a security boundary. Done: output, exit and readings arrive as a process run's; with network none a socket fails; after a cut session the keeper asked docker rm -f by expiry plus grace/2; tests skip without docker. Files: ergostat/compute/worker/docker.py, ergostat/compute/worker/keeper.py, tests/test_compute_docker.py (five tests), docs/SPEC.md. Budget: 250 net lines."
+  },
+  {
+   "rank": 65,
+   "name": "compute-calls-from-node",
+   "title": "A node run calls the engine back through a socket its worker forwards",
+   "size": "large",
+   "area": "compute",
+   "depends_on": [
+    "compute-remote-backend"
+   ],
+   "definition": "Problem: a local run calls `ergostat act`, `event --add`, `lease` and `item` through ERGOSTAT_SOCKET (ergostat/spec/engine.py:1005-1008, 1817-1819; ergostat/calls/); on a node there is no socket, so compute-runs-on-config refuses every runs-on block whose command uses calls. Change: new module ergostat/compute/worker/calls.py: the worker serves a Unix socket in each run's folder (runs/RUN/calls.sock, mounted for docker), puts its path in the run's ERGOSTAT_SOCKET and forwards each call as `call {run, id, body}`, at most 20 a second a run (beyond: `busy`). The engine answers as its own socket does (ergostat/calls/server.py's handler, the run's identity taken from the handle, never from the call) and the worker relays `answer`. ERGOSTAT_CMD on a node names the worker's `--call` mode, a client speaking the protocol of ergostat/calls/client.py. The compile refusal is lifted for program blocks. Done: a node run's `$ERGOSTAT_CMD event --add` is recorded caused by its run; a call naming another run's identity is answered as the caller's; the 21st call in a second is busy; a call after the lease ended is refused by the fence; check allows calling blocks. Files: ergostat/compute/worker/calls.py, ergostat/compute/{remote,compile}.py, ergostat/calls/server.py, tests/test_compute_calls.py (five tests), docs/SPEC.md. Budget: 250 net lines."
+  },
+  {
+   "rank": 66,
+   "name": "compute-demo",
+   "title": "examples/compute-pair: items worked on two same-machine nodes, one lost mid-run",
+   "size": "incremental",
+   "area": "compute",
+   "depends_on": [
+    "compute-capacity-measures",
+    "compute-lease-renew-on-node",
+    "compute-reattach"
+   ],
+   "definition": "Problem: nothing shows a compute pool working end to end and scripts/demo_check.py covers no compute model; examples/remote-pair/ with tests/test_remote_pair.py is the pattern. Change: examples/compute-pair/, a model with one item kind, a program block with `runs-on: pair`, and a pool of two nodes each `connect: [python3, -I, ../../ergostat/compute/worker, --stdio, --root, ...]` (the worker package run as a directory; roots under the demo's state folder), plus a stock and goal on ergostat.compute.free@pair so the capacity is drawn as any stock in Dynamics and as a plant input in Blocks (only what the model declares). run.sh starts it; a script kills one worker and its keepers mid-run; README says what to watch. Done: run.sh completes on macOS and Linux; tests/test_compute_pair.py::test_node_lost_item_reworked sees the node lost, slots@pair drop, the lease expire (counted), the item re-run on the other node and done, with no host names anywhere; demo_check passes with the demo; nothing undeclared is drawn. Files: examples/compute-pair/ (model, README.md, run.sh), tests/test_compute_pair.py, scripts/demo_check.py, docs/SPEC.md (one line). Budget: 150 net lines, model YAML counted."
+  },
+  {
+   "rank": 67,
+   "name": "regression-queue-test-counts",
+   "title": "The merge queue records each suite's pytest counts, unknown when its log cannot say",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [],
+   "definition": "Problem: the queue keeps only rc, seconds and a SKIPPED count per suite (dev/bin/queue.py:111-114), so no measure can say main lost tests (regression-guarantees.md section 4). Change: a pure parser fac.counts(text) next to fac.outcomes (dev/bin/fac.py:582-588) reading pytest's final summary line from the suite's whole log, taking the last such line. In suites()'s one() each pytest suite (unit, browser, host) gains `counts: {passed, failed, skipped, deselected, errors}`; a suite with no summary line, stopped by a sibling, stalled or unreadable records `counts: \"unknown\"`, never zeros; a suite not run by rule (merge-pipeline-browser-only-on-its-paths) records `counts: \"not_run\"`, which is neither unknown nor zero. The landed run's queue_runs entry (queue.py:836-837) gains counts summed over the suites that ran, with `suites: [names]` saying which, or \"unknown\" if any that ran is. ruff and demo record none. Done: fac.counts parses every summary form pytest -q prints, xdist's included, and returns None without one; the existing skipped field and the browser skip rule (queue.py:111, 216-220) are unchanged; dev/README.md names the fields. Files: dev/bin/fac.py, dev/bin/queue.py, dev/README.md, tests/test_queue.py (four tests). Budget: 60 net lines."
+  },
+  {
+   "rank": 68,
+   "name": "regression-flake-writes-hold-state",
+   "title": "A flake seen never takes a test out of main-broken, and a second break keeps the first clock",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [],
+   "definition": "Problem: the kind flake moves to seen on every flake.seen (ergostat.yaml:197-200) and four writers emit it without looking (dev/bin/onmain.py:74, queue.py:241-242, triage.py:76, manage.py:231), so a test still failing on main leaves main-broken; every flake.main-broken writes a fresh main_broken_at (onmain.py:92-94), restarting the repair clock; a flake fixed then seen again keeps its old times. Change: new dev/bin/flakes.py with one writer flakes.say(event, test, **data) that every flake writer calls. Under one lock file in the run dir it re-reads the item and writes synchronously with fac.add: flake.seen on a main-broken item writes flake.measured (counts times, no state move); flake.main-broken on a main-broken item updates main and unions gaps, leaving main_broken_at; either on a fixed item is a remake, a patch changeset setting times to 1 and removing main_fixed_at, fixed_by and green_passes; an unreadable item is written as today with the failure on stderr. Done: no other code emits flake.seen or flake.main-broken (grep test over dev/bin, which later writers such as merge-pipeline-browser-daily-on-main must also pass); the three state rules hold; two concurrent writers never lose a state; `ergostat check` has no errors. Files: dev/bin/flakes.py, dev/bin/{onmain,queue,triage,manage}.py, ergostat.yaml, tests/test_factory.py (five tests). Budget: 120 net lines."
+  },
+  {
+   "rank": 69,
+   "name": "regression-flake-main-fixed",
+   "title": "A test broken on main leaves main-broken when it passes twice alone on a newer main",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-flake-writes-hold-state"
+   ],
+   "definition": "Problem: nothing takes an item out of main-broken (ergostat.yaml:197-200; the only writer is dev/bin/onmain.py:94 and nothing emits fixed), so a stock of tests failing on main would only rise. Change: declare `flake.main-fixed: fixed`. New dev/bin/mend.py as a block main-mend in dev/model/landing.yaml (every 30m, pool 1, a lease, timeout 30m): fetch the pushed main, wait for a quiet machine (fac.wait_quiet), take at most `[gates] mend_most` main-broken items oldest first (default 5, ceiling 20), and run their tests alone twice on that sha in a suite container with -rA (a browser test with the browser suite's command and playwright), results from fac.outcomes over the whole log. A test passing both gets flake.main-fixed with passed_on, main_fixed_at and fixed_by: main-mend, written as a patch changeset whose first op tests the item's `main` as read, and only if that main is passed_on or an ancestor of it, so a newer break written in between refuses it. Failed, skipped, not collected, quarantined or unreadable is unknown and stays main-broken. Done: only two passes on the pushed main clear an item; a refused patch also refuses the state move; at most mend_most a run; dev/README.md describes the block. Files: dev/bin/mend.py, dev/model/landing.yaml, ergostat.yaml, dev/factory.toml, dev/README.md, tests/test_factory.py (five tests). Budget: 150 net lines."
+  },
+  {
+   "rank": 70,
+   "name": "regression-flake-fixed-after-green",
+   "title": "A seen flake is fixed after N green queue runs that each say it passed",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-flake-writes-hold-state",
+    "merge-pipeline-browser-names-its-failures"
+   ],
+   "definition": "Problem: flake.fixed is declared (ergostat.yaml:200) and emitted nowhere, so no flake leaves seen; the queue's green runs could clear them, but its unit and browser commands print no PASSED lines (dev/factory.toml:158, :170), so a deleted or renamed flake would count as passed. Change: add `p` to the -r flags of `[suites] unit` and `browser` (on top of the -rfEs that merge-pipeline-browser-names-its-failures gives browser, the same line), checking fac.failed_tests and queue.nowhere (queue.py:198-213) still read the same lines. After a green landing (next to gap.merged, queue.py:842) flakes.green(logs) takes each seen item not quarantined, at most 50, and reads its outcome from the run's unit and browser logs with fac.outcomes: a pass raises green_passes by one (a patch testing the value read), unknown changes nothing (a suite not run in that batch is unknown for its tests), and at `[gates] flake_fixed_after` (default 5, ceiling 50) it writes flake.fixed with fixed_by: green-runs and fixed_on. Every flake.seen through flakes.say sets green_passes to 0, so the count is consecutive, in queue order. A failure here never fails or delays a landing. Done: N consecutive green runs naming the test PASSED fix it; a seen between restarts the count; a test absent from the log never counts; README says how a flake leaves seen. Files: dev/factory.toml, dev/bin/flakes.py, dev/bin/queue.py, dev/README.md, tests/test_queue.py, tests/test_factory.py. Budget: 110 net lines."
+  },
+  {
+   "rank": 71,
+   "name": "regression-flake-fixed-by-hand",
+   "title": "A person can say a flake is fixed, and the quarantine's release is one event",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [
+    "regression-flake-writes-hold-state"
+   ],
+   "definition": "Problem: a test that was deleted or renamed stays seen or main-broken forever, and so does every goal on those stocks; manage.py has a `flake` command that writes flake.seen (dev/bin/manage.py:228-233) and no way out. The quarantine's release is a bare flake.measured with quarantined: false (dev/bin/fac.py:594-598, on main today), so the record cannot tell a release from any measurement. Change: `manage.py flake-fixed TEST --why W` writes flake.fixed from seen or main-broken with fixed_by (the person) and why, and records an intervention with intervene(\"flake-fixed\", ...) (manage.py:56); an item in neither state is refused with a message. fac.beside's release writes flake.released (quarantined: false, released_at), declared as a no-state event in the kind's comment; quarantined folds as before. Done: the command moves an item from either state to fixed and records one intervention; it refuses an unknown test or one already fixed; a release is one flake.released event after which quarantined is false; dev/README.md 'Record an intervention' lists the command. Files: dev/bin/manage.py, dev/bin/fac.py, ergostat.yaml, dev/README.md, tests/test_factory.py (three tests). Budget: 50 net lines."
+  },
+  {
+   "rank": 72,
+   "name": "regression-flake-rate-counts-excused",
+   "title": "flake-rate counts the queue's excused flakes, and has no value with no runs",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [],
+   "definition": "Problem: flake-rate reads only the gaps' retries over their queue_attempts (dev/bin/measure.py:174-176), and only triage writes retries (triage.py:77). A red run the queue itself excuses as a flake (dev/bin/queue.py:235-244) writes flake.seen and lands with `excused` in its suites_queue but counts nowhere, so the goal flakes-rare (dev/model/measures.yaml:115-119) undercounts; with no runs it reads 0.0, which fails open. Change: flake-rate = (triage retries in the window + queue runs in the window whose landed gaps carry suites_queue.excused, each run once by batch_id) / the queue runs in the window (distinct `run` in queue_runs, as merges-per-hour counts them, measure.py:160-164). A window with no queue runs exits 1 with no value. The docstring lists flake-rate among the measures with no value, and the auxiliary's description says it counts both. Done: an excused run raises the rate; a run excused for a batch of three counts once; no runs gives no value, never 0.0; triage retries count as before. Files: dev/bin/measure.py, dev/model/measures.yaml, tests/test_factory_measure_runs.py (three tests). Budget: 30 net lines."
+  },
+  {
+   "rank": 73,
+   "name": "regression-escapes-from-reverts",
+   "title": "A revert on main is recorded as an escape of the gap it reverts, and escapes-found gets a sensor",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [],
+   "definition": "Problem: the stock escapes counts reverted merges, but gap.reverted is entered only by hand (ergostat.yaml:153-154) and its inflow escapes-found has no sensor (dev/model/pools.yaml:66-69), so a revert commit on main is invisible. Change: in `upgrade.py watch` (block main-watch, dev/model/landing.yaml:358-364; dev/bin/upgrade.py:24-41) a step escapes.watch() in new dev/bin/escapes.py walks `git rev-list --first-parent` from the last commit read (run/escapes.json) to the pushed main, at most 200 commits (said when hit), looking for `This reverts commit <sha>`. A reverted commit is matched to a merged gap first by its second parent being the gap's reviewed_head, then by main_sha (main_sha is the batch's pushed head, shared by a batch's gaps and, after merge-pipeline-gaps-md-regenerated-on-land, a commit that is no gap's merge, so it identifies a gap only when exactly one gap carries it). A match writes gap.reverted with reverted: true, revert_sha, reverted_at. No match writes intervention.recorded as intervention/reverted-<sha12>, class reverted-unmatched, which dev/bin/risk.py counts as an escape as it does an unmatched main-broken (risk.py:79-88). Ids make a second read a no-op. escapes-found gets a sensor `pools.py read escapes-day`. Done: a revert is recorded once however often main-watch runs; a revert of one merge of a batch of three blames only that gap; an unmatched one still counts; check reports no flow without a sensor in pools.yaml; a git error stops only this step; README says reverts are found by main-watch. Files: dev/bin/{escapes,upgrade,risk,pools}.py, dev/model/pools.yaml, dev/README.md, tests/test_factory.py (five tests). Budget: 130 net lines."
+  },
+  {
+   "rank": 74,
+   "name": "regression-guarantees-model",
+   "title": "The guarantees system: main's failing tests as a stock, held at zero by main-green",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-flake-main-fixed"
+   ],
+   "definition": "Problem: when main breaks the model shows it only as one main-broken intervention (dev/model/interventions.yaml:9-12); no stock counts the tests failing on main and no goal says main is green (regression-guarantees.md sections 3, 6a). Change: ergostat.yaml gains a system `guarantees` within oversight, showing stock.main-failing-tests. New dev/model/guarantees.yaml: stock main-failing-tests ({items: flake, state: main-broken, every: 1m}); flows main-tests-broken (entering main-broken over 1d) and main-tests-fixed (entering fixed where fixed_by: main-mend, equation stock over a parameter main-repair-time); goal main-green (hold <= 0, tolerance 0, critical, on-stale off, per item); a named balancing loop main-repair. Wiring: remedy-when (interventions.yaml:43-50) gains `main: goal.main-green.off`, remedy's out gains flow.main-tests-fixed, and main-mend gets out flow.main-tests-fixed, so the loop closes through people and an existing program. Asked of the owner in the record and not built: should main-green off also hold the queue for batches that do not touch the failing tests. Done: check reports no errors and no missing feedback for main-green; main-repair drawn balancing; a break turns the goal off and its main-fixed turns it holding; stale counts as off; README gains 'Regression guarantees'. Files: ergostat.yaml, dev/model/{guarantees,interventions,landing}.yaml, dev/README.md, tests/test_factory.py (three tests). Budget: 40 net lines of code."
+  },
+  {
+   "rank": 75,
+   "name": "regression-tests-passing-goal",
+   "title": "tests-passing on main as a measure, with a goal that it does not fall over ten merges",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-queue-test-counts",
+    "regression-guarantees-model",
+    "cx-trend-auxiliaries"
+   ],
+   "definition": "Problem: nothing measures how many tests main passes, so a gap that skips tests, or makes them fail to collect, passes every gate unseen (regression-guarantees.md section 4). This is not the filed cx-test-ratio's count: that one counts the tests defined in the code (in the code-health cache, for the ratio of tests to code); this one counts the tests a queue run on main actually passed, which falls when a test is skipped, deselected or broken though still defined. The record says so, and the two are never summed. Change: new dev/bin/passing.py with two readings. `tests-passing` is the summed `passed` of the latest landed queue run on main whose counts cover unit, browser and host (runs where browser was not run by rule are passed over, never read as a fall), chosen by main's first-parent seq, never by time. `tests-passing-change` is the latest less the earliest such run within the last 10 seqs, each sha once, computed by the trend-by-seq helper the filed cx-trend-auxiliaries uses for the code-health stocks (measure.py:357-420), reused and if need be given a values argument, never copied. `counts: unknown` on the latest full run, fewer than two full runs in the window or no checkout gives no value (exit 1); a missing summary never counts as zero. dev/model/guarantees-passing.yaml: auxiliaries tests-passing and tests-passing-change (every 30m) and a goal tests-not-falling (>= 0, tolerance 0, on-stale off), left unserved until regression-guarantees-wired. Done: both readings come from the recorded counts by seq through the shared helper; unknown gives no value; a browser-skipped run between two full runs changes nothing; a fixture with two runs and fewer passed turns the goal off; check has no errors and the only new finding is missing-feedback@tests-not-falling; README lists the measure and how it differs from the test ratio. Files: dev/bin/passing.py, dev/bin/measure.py (the helper's argument, if needed), dev/model/guarantees-passing.yaml, dev/README.md, tests/test_factory_measure_runs.py (five tests). Budget: 70 net lines."
+  },
+  {
+   "rank": 76,
+   "name": "regression-escape-rate-goal",
+   "title": "escape-rate, escapes per merged gap, held under the owner's setpoint",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [
+    "regression-escapes-from-reverts",
+    "regression-guarantees-model"
+   ],
+   "definition": "Problem: the stock escapes (dev/model/pools.yaml:28-32) is cumulative and has no goal; it only feeds the pools' risk (pools.yaml:39-43), so nothing says quality is slipping (regression-guarantees.md sections 3, 4). Change: `pools.py read escape-rate`: escapes over merged gaps in the last 14 days, from risk.evidence (dev/bin/risk.py:62-102) restricted to that window by merge time, reusing the evidence with no second count; no merged gaps in the window gives no value (exit 1). dev/model/guarantees-escapes.yaml: auxiliary escape-rate (driven-by +stock.escapes), parameter escape-tolerance (0.05, a placeholder the owner sets, like risk-tolerance at pools.yaml:87-90), goal escapes-rare (<= escape-tolerance, on-stale off), left unserved until regression-guarantees-wired. The pool tuner is unchanged. Done: the reading equals escapes over merged gaps of the window on a fixture; no merges gives no value; the setpoint is a parameter; the existing risk tests pass as they are; check has no errors. Files: dev/bin/pools.py, dev/bin/risk.py (a window argument if needed), dev/model/guarantees-escapes.yaml, tests/test_factory.py (three tests). Budget: 40 net lines."
+  },
+  {
+   "rank": 77,
+   "name": "regression-flake-measures",
+   "title": "Flakes open, the hours main stays broken and the hours a flake stays unfixed, with goals",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-flake-main-fixed",
+    "regression-flake-fixed-after-green",
+    "regression-guarantees-model"
+   ],
+   "definition": "Problem: nothing measures how long main stays broken or a flake stays unfixed, and no goal names the oldest flake (regression-guarantees.md sections 3, 4). Change: dev/bin/flakes.py gains readings taken from the items' moves in record order (`ergostat item ID --json`, as dev/bin/times.py and watch.py:92-101 read them), never by comparing stamps, over at most 500 items (said when hit). main-repair-hours: the median over 14 days, per stay, from the move into main-broken from another state to the move to fixed; a repeat break inside one stay does not restart the clock. flake-fix-hours: the median from the move into seen to fixed. With no ended stay in the window either gives no value. dev/model/guarantees-flakes.yaml: stock flakes-open ({items: flake, state: seen}); goal flakes-few (<= 3, per item so the oldest is named, on-stale off); auxiliaries main-repair-hours and flake-fix-hours; goal main-repaired-fast (<= 24, on-stale off); flows flakes-seen and flakes-fixed with item sensors. Setpoints are parameters; the goals stay unserved until regression-guarantees-wired. Done: repair hours run from the first break of a stay; a remake starts a new stay; check has no errors. Files: dev/bin/flakes.py, dev/model/guarantees-flakes.yaml, dev/README.md, tests/test_factory.py (four tests). Budget: 90 net lines."
+  },
+  {
+   "rank": 78,
+   "name": "regression-quarantine-goals",
+   "title": "The quarantine as a stock that must not grow, and the age of its oldest test as a measure",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [
+    "regression-guarantees-model"
+   ],
+   "definition": "Problem: the quarantine is a file only a reviewer reads, 'added and released by hand' (tests/quarantine.txt:1-3); it holds eight tests today, the oldest from 2026-11-21, and nothing says it is growing or stale (regression-guarantees.md sections 3, 4). It needs only what is on main: the list with its `when` column and fac.quarantine (dev/bin/fac.py:566-571), both from the merged quarantine-list-honest; it does not wait for flake-quarantine-continued. A goal that is off from its first reading would hold the coordinator's commander on for good, so the setpoint comes from the evidence. Change: new dev/bin/held.py reads the list on the pushed main and cross-checks it with the flake items marked quarantined. `held.py quarantined` gives the number listed; `held.py quarantine-oldest-days` the age of the oldest `when`. A list or date that cannot be read gives no value; a listed test with no quarantined flake item, or the reverse, is named on stderr. dev/model/guarantees-quarantine.yaml: stock quarantined; parameter quarantine-most, set to the count on main the day this is built (8 at filing; the implementor reads it and says the number in the record; the owner lowers it as tests are released); goal quarantine-small (<= quarantine-most, on-stale off), which holds on its first reading and goes off only when the quarantine grows, unserved until regression-guarantees-wired; auxiliary quarantine-oldest-days with no goal yet. Asked of the owner in the record in one sentence and not built: how many days a test may stay quarantined; a goal on the age is added only with that answer and only once the oldest test is under it. Done: count and oldest age match the list on a fixture; unreadable gives no value; mismatches are named; quarantine-small holds on main as it is and is off with one test added; check has no errors and no goal on the age. Files: dev/bin/held.py, dev/model/guarantees-quarantine.yaml, dev/README.md, tests/test_factory.py (four tests). Budget: 60 net lines."
+  },
+  {
+   "rank": 79,
+   "name": "regression-gate-catches",
+   "title": "How often each gate catches something, as evidence for keeping or changing it",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-guarantees-model"
+   ],
+   "definition": "Problem: a gate that fails is a finding, not a measure; nothing counts how often each gate catches something, so nobody can see a gate that never does (regression-guarantees.md sections 3, 4, 6c). Change: dev/bin/times.py already reads each gap's events incrementally (times.py:3-5, :132-160); its per-gap output (gap.timed) gains `catches: {gate: n}`, counted from the gap's gap.sent-back events by sent_back_by (queue, triage, review, lint, measure-runs) and from the implementor's refusals for strays. Gates are in an allowlist CATCHING; an unlisted sender is counted under `unlisted` and named on stderr. `measure.py gate-catches-GATE` gives the catches in the last 14 days by the event's time. dev/model/guarantees-gates.yaml: one auxiliary per listed gate and no goal, since a quiet gate is evidence, not a regression. The simplifier's brief (dev/prompts/simplify.md) names each gate with no catch in 30 days as a candidate to question, never to remove unasked. Done: catches per gate equal a fixture's sent-back events; an unlisted sender is counted and named; the brief carries the quiet gates; check has no errors. Files: dev/bin/times.py, dev/bin/measure.py, dev/model/guarantees-gates.yaml, dev/prompts/simplify.md, tests/test_factory_times.py (three tests). Budget: 90 net lines."
+  },
+  {
+   "rank": 80,
+   "name": "regression-lessons-recurring",
+   "title": "A lesson's class found again after a brief carried it is counted, and held low",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [
+    "regression-guarantees-model"
+   ],
+   "definition": "Problem: first-pass-with-lessons compares yields (dev/model/knowledge.yaml:74-79), but nothing counts a review finding of a class the gap's own brief carried, which is the lesson failing as a guarantee (regression-guarantees.md sections 3, 4). The data exists: the librarian records each review's classes (review.measured: classes, dev/bin/librarian.py:1-11) and each brief records the lesson ids it carried (knowledge, dev/bin/knowledge.py:264-272). Change: `measure.py lessons-recurring` (in knowledge_reading, dev/bin/measure.py:291-311): over reviews written in the last 14 days, the count of classes found that are in the reviewed gap's first brief's carried lesson ids. A review with no recorded classes is left out and counted on stderr; no reviews in the window gives no value. dev/model/guarantees-lessons.yaml: auxiliary lessons-recurring and goal lessons-hold (<= 2, on-stale off, the setpoint a parameter), unserved until regression-guarantees-wired, where its loop goes to the librarian. Done: a finding of a carried class counts and one of a class not carried does not; check has no errors. Files: dev/bin/measure.py, dev/model/guarantees-lessons.yaml, tests/test_factory_knowledge.py (three tests). Budget: 40 net lines."
+  },
+  {
+   "rank": 81,
+   "name": "regression-escape-learning",
+   "title": "Each escape becomes an item, and the librarian is asked once for its lesson or test",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-escapes-from-reverts",
+    "regression-escape-rate-goal"
+   ],
+   "definition": "Problem: an escape (a reverted merge, main broken after a merge, a gap named as a cause) only lowers the pools (dev/model/pools.yaml:113-121); no lesson is asked for and no test is added (regression-guarantees.md section 4). Change: a kind `escape` (escape/<gap>; states found, learned, dismissed) in ergostat.yaml. `librarian.py escapes` (every 30m) reads the escaped gaps from risk.evidence (dev/bin/risk.py:62-102, refactored to also return the blamed ids) and writes escape.found with the cause and evidence for each one without an item, at most 10 a run. A block escape-librarian takes escape at found under a lease (pool 1, attempts 2), so each escape gets one step: one small AI call with the librarian prompt and the gap's definition, diff stat and cause, which either proposes a lesson through the existing gated knowledge-change (dev/bin/librarian.py:30-32) or requests a gap adding the missing test (gap.requested, source escape), then writes escape.learned; a step that cannot decide writes escape.dismissed with why. guarantees-escapes.yaml gains the stock escapes-unlearned and the loop escape-learning. Done: one item per escape however often the scan runs; one step per item; the outcome is a gated proposal or a requested gap, never a direct edit; within the day's AI cap (fac.may_spend); check has no errors. Files: ergostat.yaml, dev/bin/librarian.py, dev/bin/risk.py, dev/model/{guarantees-escapes,knowledge}.yaml, dev/prompts/librarian.md, tests/test_factory_knowledge.py (four tests). Budget: 150 net lines."
+  },
+  {
+   "rank": 82,
+   "name": "regression-guarantees-wired",
+   "title": "Every regression goal reaches the coordinator through one block, and every loop is named",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-guarantees-model",
+    "regression-tests-passing-goal",
+    "regression-escape-rate-goal",
+    "regression-flake-measures",
+    "regression-quarantine-goals",
+    "regression-lessons-recurring",
+    "regression-escape-learning"
+   ],
+   "definition": "Problem: the measure gaps land their goals unserved, each missing feedback (docs/SPEC.md:2232), on purpose so parallel gaps never edit the same lines; until something serves them a broken guarantee shows only as a check finding (regression-guarantees.md section 6a). Change in dev/model/guarantees.yaml: an expr block guarantees-off, the max of tests-not-falling, escapes-rare, flakes-few, main-repaired-fast, quarantine-small and lessons-hold, each .off, feeding factory-off as one new input (dev/model/measures.yaml:132-147), so the coordinator keeps one commander, as code-health-off does (dev/model/code-health.yaml:163-172). A goal goes into guarantees-off only if it holds on main the day this is built: the gap reads each goal's state on a copy of the live record, says them in its record, and any that is off then (with its reason) is left out of the expression with a comment and listed for the owner, so the commander is never on from its first tick for a known standing cause. There is no goal on the quarantine's age (regression-quarantine-goals). escapes-rare and lessons-hold also reach the librarian's escape step. `loops:` names flake-repair, quarantine-release, escape-learning and tests-kept. The guarantees system's show: lists main-failing-tests, flakes-open, quarantined and escape-rate. dev/README.md gets one table of measure, goal and the loop that acts. Done: check has no errors, no missing-feedback for any goal in dev/model/guarantees*.yaml that is in the expression, and every named loop balancing; each goal's loop closes through a block (spec.loop(n).closes, the pattern of tests/test_factory.py:3774-3787); turning any one included goal off sets factory-off; on the live record's copy factory-off is not commanded by guarantees-off at the first reading. Files: dev/model/{guarantees,measures,knowledge}.yaml, ergostat.yaml, dev/README.md, tests/test_factory.py (four tests). Budget: 20 net lines of code."
+  },
+  {
+   "rank": 83,
+   "name": "regression-guarantees-on-diagrams",
+   "title": "A broken guarantee is seen off in Dynamics, Blocks and Process, and a browser test fails if it is drawn holding",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-guarantees-wired"
+   ],
+   "definition": "Problem: the proposal claims each broken guarantee shows through what already exists, with no new page or panel (regression-guarantees.md section 5): an excess beside its stock in Dynamics, red periods on its block's chart in Blocks (ergostat/web/static/charts.js:545), a state items enter and never leave in Process, and the off goals on the guarantees box. No test checks those claims. Change: no UI code is expected. The test goes in tests/test_diagram_rendering.py, one of the four files the queue's browser command already names (dev/factory.toml:170), so it runs in the queue with no change to the command; no new browser test file is made. It reads a fixture copy of the factory model (ergostat.yaml and dev/model/, which the browser suite's skip rule never skips) with a record that breaks main and leaves a flake in seen, and checks: Dynamics draws main-failing-tests with its desired value and an excess above zero; in Blocks main-green's comparator is off and its chart marks the off period; Process shows the flake kind's seen state with items in and none out; the guarantees box lists its off goals first. Screenshots go to docs/screenshots/. The test is broken once on purpose with the goal forced holding to see it fail, and that run is said in the record. A claim that does not hold is fixed in the model's layout or narrowed in the proposal's section 5, never by a new panel. Done: the four checks pass in the browser suite as the queue runs it; the forced-holding run fails; screenshots committed. Files: tests/test_diagram_rendering.py, docs/screenshots/, docs/proposals/regression-guarantees.md if narrowed. Budget: 30 net lines outside tests, none expected."
+  },
+  {
+   "rank": 84,
+   "name": "regression-fixes-hold-goal",
+   "title": "The repair template's goal that no fix regressed in the last 14 days, and the stock in SPEC's parts table",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [],
+   "definition": "Problem: the repair template has the stock regressed-fixes and the flows fixes-regressed and fixes-reverted (ergostat/library/templates/repair/template.yaml:49, :63-64) but its only goals are no-open-failures and fixes-answered (:66-67), so a fix that regressed breaks no goal. A goal on the stock itself could never recover, since a denied revert-fix leaves the failure regressed for good (docs/SPEC.md:6710), and SPEC's parts table leaves the stock out (docs/SPEC.md:6723). Change: template.yaml gains an auxiliary fixes-regressed-recent (sensor {items: ergostat.failure, entering: regressed, over: 14d}, driven-by +flow.fixes-regressed) and a goal fixes-hold (<= 0, tolerance 0, on-stale off), which recovers when a window passes with no new regression and is served by the existing gated revert ask; if check finds no block serving it, the template's person approver block reads it. SPEC section 12r's parts table lists regressed-fixes, fixes-regressed-recent and fixes-hold and says why the goal is on the window. Done: a regressed fix turns fixes-hold off and it holds again after a window with none; a denied revert does not hold it off for good; check on a model using the template reports no errors or missing feedback. Files: ergostat/library/templates/repair/template.yaml, docs/SPEC.md, tests/test_repair_verify.py (three tests). Budget: 25 net lines."
+  },
+  {
+   "rank": 85,
+   "name": "regression-template",
+   "title": "A library template, regressions, that gives a user's model passing counts, escapes and regressed fixes",
+   "size": "incremental",
+   "area": "regression",
+   "depends_on": [
+    "regression-fixes-hold-goal"
+   ],
+   "definition": "Problem: ergostat adds nothing of its own accord, so a user gets regression guarantees only by asking, and there is no template to ask for (regression-guarantees.md section 6b). Change: ergostat/library/templates/regressions/template.yaml, used as `uses: {regressions: {use: regressions, with: {...}}}`, each part opt-in through with:. Passing counts: an auxiliary tests-failing whose sensor runs the model's declared `claims: tests` command (docs/SPEC.md:5236) on a schedule through a small reader `python -m ergostat.regressions counts` with a pytest-style summary parser in new ergostat/regressions.py; a run that cannot be read or has no summary gives no value; goal tests-green (<= 0, on-stale off). Escapes: an auxiliary on builtin ergostat.trust.contradicted@${block} (SPEC:5299-5309), goal claims-kept (<= ${escape-share}). Regressed model changes: builtin ergostat.model.regressed (SPEC:5187), goal changes-hold (<= 0). Regressed fixes: when the model also uses repair, a parameter names its instance and the template reads fixes-hold without duplicating it. Every goal is served by a person block by default, the agent a parameter. Flakes and quarantine are left out. Done: a model using it checks clean with no missing feedback; a failing run turns tests-green off; an unreadable command leaves it stale and off. Files: the template, ergostat/regressions.py, tests/test_regressions_template.py (four tests). Budget: 150 net lines."
+  },
+  {
+   "rank": 86,
+   "name": "regression-template-docs-demo",
+   "title": "SPEC and the agent guide describe regression guarantees, and a demo uses the template",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [
+    "regression-template"
+   ],
+   "definition": "Problem: once the regressions template exists nothing tells a user or an agent when to offer it, and no demo shows it working (regression-guarantees.md milestone gap 7). Change: docs/SPEC.md gains a short section next to 12g (claims and trust) and 12r (repair) covering the four parts of a guarantee (a measured quantity, a setpoint, a loop that acts, seen broken on the diagrams), the template's parts, and what holding does not promise (proposal section 6c). docs/AGENT-GUIDE.md gets one paragraph: offer the template when a model declares `claims: tests` or uses repair, and never add it unasked. examples/image-squeeze, which declares claims: (examples/image-squeeze/lab.yaml:43), uses the template. Done: the SPEC section and the guide paragraph exist and match the template's parts; image-squeeze uses the template, passes `scripts/demo_check.py image-squeeze` and `ergostat check` with no errors, and its goals hold in the healthy demo. Files: docs/SPEC.md, docs/AGENT-GUIDE.md, examples/image-squeeze/lab.yaml, and the demo's own check if one names its goals. Budget: 20 net lines outside docs/ and examples/."
+  },
+  {
+   "rank": 87,
+   "name": "regression-test-build-hours-park",
+   "title": "A test that a gap past its build hours is parked",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [],
+   "definition": "Problem: the kill rule parks a gap whose building took more than `[gates] build_hours` (dev/bin/implement.py:190-193; dev/factory.toml:17), but no test parks a gap on build_hours; the proposal lists that part of F8 as untested (regression-guarantees.md section 2a), so a refactor that drops the check would land green. Change: one test in tests/test_factory.py on the Factory fixture (GATES, tests/test_factory.py:117). A gap with build_hours at the limit, taken by the implementor, is parked with the kill rule's reason and starts no session; one just under the limit is built (tests/test_factory.py:1263 already folds one just under). The test is broken once on purpose, with the comparison flipped, to see it fail, and that run is said in the gap's record. Done: the test parks at the limit and builds below it; it fails with the check removed. Files: tests/test_factory.py. Acceptance test: test_a_gap_past_its_build_hours_is_parked. Budget: 0 net lines outside tests/."
+  },
+  {
+   "rank": 88,
+   "name": "regression-test-empty-install-idle",
+   "title": "A test that an empty install runs nothing",
+   "size": "quick",
+   "area": "regression",
+   "depends_on": [],
+   "definition": "Problem: invariant 12 says an empty install runs nothing (CLAUDE.md:52-53), and the proposal notes that no test checks it (regression-guarantees.md section 2b, U5 row), so a default block, sensor or template added by accident would land green. Change: one test that starts the engine on an empty model (a folder with a minimal ergostat.yaml and no parts), steps it for a few ticks, and asserts that no block runs (no agent.started), no sensor reads, no item is made, and the record holds only ergostat's own start events. The test is broken once on purpose, with a stray default part added, to see it fail, and that run is said in the gap's record. Done: the test passes on main; it fails when a default part is added. Files: tests/test_empty_install.py (new). Acceptance test: test_an_empty_install_runs_nothing. Budget: 0 net lines outside tests/."
+  },
+  {
+   "rank": 89,
+   "name": "conformance-list-files",
+   "title": "Conformance lists: a list file read and validated, every limit refused by name",
+   "size": "incremental",
+   "area": "conformance",
+   "depends_on": [],
+   "definition": "Problem: the owner wants the features we wish we had listed, each tested, and the passing count kept as a stock. docs/proposals/conformance-stock.md section 1 defines the list file (`list`, `description`, `cases` each with check, timeout, asked, from, description) and nothing on main reads one. Change: a small pure module ergostat/library/run/conformance_lists.py. read(folder, names) -> Lists reads <folder>/<name>.yaml in order and raises ListError(name, why) on the first problem, never returning a partial result; Case(list, name, id = case/<list>/<name>, check, timeout_s, asked, from_, description); Lists.cases, Lists.declared and Lists.digest (sha256 over the named files' bytes in name order). Refused by list name and key: a missing file; YAML that is not a mapping; list: not equal to the file name; a name repeated in names; a name off ^[a-z0-9][a-z0-9-]{0,63}$; a case without check; a timeout unparseable or over 10m (default 1m); asked not a bool (default true); an unknown key; over 500 cases in a list, over 20 lists, over 500 cases across them. Durations use ergostat.durations.parse_duration. Done: the digest moves only with the named files; the module imports nothing from ergostat.spec beyond durations. Files: the module, tests/test_conformance_lists.py (eleven tests). Budget: 140 net lines."
+  },
+  {
+   "rank": 90,
+   "name": "conformance-runner-runs-cases",
+   "title": "Conformance runner: runs each case in its own process group and reports met, unmet or broken",
+   "size": "incremental",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-list-files"
+   ],
+   "definition": "Problem: the proposal's runner (conformance-stock.md section 2) does not exist; `conformance` is not in the library's program table (ergostat/library/run/__main__.py:9-12). A run sensor's timeout kills only the process it started (ergostat/spec/engine.py:2402-2406) and a non-zero exit records nothing (:2407-2410). Change: ergostat/library/run/conformance.py, registered as `conformance --folder F --lists NAME... [--when CMD] [--budget SECONDS] [--instance NAME]`. It reads the lists (a ListError prints the reason and exits 2, running nothing); works out a key from --when's stdout and the lists' digest, and with the last run's key (common.kept) prints only the declared count; otherwise increments a run counter and runs each case one at a time with shell=True and start_new_session, killing the whole process group at the timeout (SIGTERM, SIGKILL after 2 s): exit 0 met, 1 unmet, anything else, a timeout or a command that cannot start broken. It stops starting cases when the budget left is under the next timeout, naming each skipped case on stderr. Per case run it prints one observation line {event: case.met|case.unmet|case.broken, item: case/<list>/<name>, data: {list, asked, description, from, run, key, said}}; the declared count is the last line and the exit is 0 whatever the cases said. Done: a hung check's children are killed; run numbers rise by one and never repeat; the lines pass engine.observations. Files: the program, __main__.py, __init__.py, tests/test_conformance_runner.py (ten tests). Budget: 200 net lines."
+  },
+  {
+   "rank": 91,
+   "name": "conformance-runner-withdraws",
+   "title": "Conformance runner: a case taken off its list, or a list dropped, is withdrawn",
+   "size": "quick",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-runner-runs-cases"
+   ],
+   "definition": "Problem: without this a case taken off a list stays met and keeps counting (conformance-stock.md section 2 step 5); the runner prints only the cases it ran. A sensor's command can read the record back through $ERGOSTAT_CMD (ergostat/spec/engine.py:2359-2367) with `item --kind case --json` (docs/SPEC.md:1729). Change in ergostat/library/run/conformance.py, after the cases run and only on a real run: read the items of kind case and print {event: case.withdrawn, item: id, data: {list, run}} for each item not already withdrawn whose id is case/<list>/<name> where either <list> was read and <name> is not in it, or <list> is not among --lists. Judge by the id's prefix, never by data.list. If the item read fails (no $ERGOSTAT_CMD, a non-zero exit, output that is not JSON) withdraw nothing, say so on stderr, and still exit 0 with the count. An id not of that form is left alone and named on stderr. Done: a removed case is withdrawn once and not again on a second run; with two lists a removal touches only its list; a dropped list has every item withdrawn; an unreadable list stops the run before any withdrawal; a failed item read changes nothing. Files: the program, tests/test_conformance_runner.py (five tests). Budget: 60 net lines."
+  },
+  {
+   "rank": 92,
+   "name": "conformance-template",
+   "title": "use: conformance, a built-in template: the case kind, the met count as a stock, its flows and goals",
+   "size": "incremental",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-runner-runs-cases"
+   ],
+   "definition": "Problem: any project should be able to count its wishes without writing its own bench.py; the only model that does is hand-written (examples/image-squeeze/benchmark.yaml:9-25, :57-72, :114-117). Change: ergostat/library/templates/conformance.yaml, `once: true`, with the proposal's section 2 body: the item kind case (states unmet, met, broken, withdrawn; show list, description, from, asked, run, key, said); stocks conformance-declared (the runner's number), conformance-met and conformance-wanted (items: sensors); auxiliary conformance-unaccounted; flows conformance-gained and conformance-lost; goals every-wish (<= 0), nothing-lost (<= 0) and every-case-run (== 0). Parameters: folder and lists (required), when (optional, passed as --when), every (default 10m), timeout (default 30m, the sensor's timeout and passed as --budget ${timeout:seconds}). It has reading:, example: and a stand-in list folder inside the template (two cases, true and false) so it runs offline. SPEC \u00a72a and docs/AGENT-GUIDE.md say how to use it, say 'conformance list' (never 'suite', which already means the storage backends' suite), and give the per-list count recipe. Done: one use checks clean and Dynamics draws conformance-met with its two flows; a second use is refused as used-twice; the stand-in reads met 1, wanted 1, declared 2, unaccounted 0; an unlisted or never-run case puts every-case-run off; --budget equals the sensor's timeout. Files: the template and its stand-in lists, docs, tests/test_conformance_template.py (six tests). Budget: 0 net lines of Python, about 110 of YAML."
+  },
+  {
+   "rank": 93,
+   "name": "conformance-diagrams-list",
+   "title": "ergostat's first conformance list: diagrams, five cases with checks that can fail",
+   "size": "incremental",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-list-files"
+   ],
+   "definition": "Problem: the only count of what is drawn is a hand-kept '19 drawn today' (docs/DISCIPLINES.md:57) that nothing checks. Change: dev/conformance/diagrams.yaml (`list: diagrams`, each case citing its doc line in from:) with five cases: stock-and-flow, block-diagram and process-map (expected met; ergostat/web/server.py:460-491), service-map (no `map` view; docs/proposals/diagram-options.md:59-64) and sequence-diagram (docs/DISCIPLINES.md:36), both expected unmet and `asked: false` because the owner holds new diagrams. dev/conformance/checks/diagrams.py CASE builds the graph answer for examples/image-squeeze in-process through the function the /graph route calls (no server, no network) and exits 0 only when the answer holds what the case says (a node per stock and flow; a block per block and a junction per goal served; a node per state and a line per move on a small record it writes), 1 when the view or field is missing, 2 on its own error. Checks live outside tests/, so pytest never collects them. Done: the reader accepts the file with exactly these five cases; each check's result on main is in the record with any difference explained; each met check is shown able to fail (its view's builder patched to return no nodes exits 1); each runs under 60 s. Files: the list, the checks, tests/test_conformance_lists_ergostat.py (three tests). Budget: 150 net lines, dev/ counted."
+  },
+  {
+   "rank": 94,
+   "name": "conformance-model-formats-list",
+   "title": "ergostat's conformance list: model formats, YAML, TOML, served model and XMILE both ways",
+   "size": "incremental",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-list-files"
+   ],
+   "definition": "Problem: the proposal's section 6 model-formats list is not written. Change: dev/conformance/model-formats.yaml (`list: model-formats`, all asked: true) and dev/conformance/checks/formats.py CASE with five cases. ergostat-yaml (expected met): `ergostat check` on every examples/*/ergostat.yaml exits 0. ergostat-toml (met): every old TOML example converts into a temp dir and compiles (ergostat/spec/convert.py). served-model (met): the served answer built in-process says ergostat-model/1 (ergostat/remote/serve.py:12) and names every stock of image-squeeze. xmile-export (unmet): exit 1 while there is no export entry point; once there is, export image-squeeze and parse with xml.etree for XMILE 1.0's namespace, one <stock> per stock, one <flow> per flow, every <eqn> free of ergostat-only syntax. xmile-import (unmet): a 2-stock, 1-flow fixture becomes a draft model whose stocks, flows and causes' signs match; exit 1 while there is no importer. An absent feature is unmet (exit 1), never broken. The filed export-dynamics-xmile builds the export; none of it is written here, and its merge flips xmile-export to met. Done: five cases; results on main recorded with differences explained; each met check shown able to fail on a broken copy; the XMILE checks test structure, not bytes. Files: the list, the checks, checks/fixtures/small.xmile, tests/test_conformance_lists_ergostat.py. Budget: 170 net lines, dev/ counted."
+  },
+  {
+   "rank": 95,
+   "name": "conformance-discovery-list",
+   "title": "ergostat's conformance list: discovery algorithms, eleven cases from identification to residuals",
+   "size": "large",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-list-files"
+   ],
+   "definition": "Problem: the proposal's section 6 discovery list is not written. Change: dev/conformance/discovery.yaml (`list: discovery`, 11 cases, all asked: true) and dev/conformance/checks/discovery.py CASE. Expected met: prometheus-draft and unwritten-loop (ergostat/spec/discover.py:60, :154), process-fopdt and process-integrating (ergostat/control/ident.py:310), law-onoff, law-proportional, law-pi and law-stepper (ergostat/numbers/extlaw.py:26). Expected unmet: law-changed (docs/GAPS.md:79-82) and law-kubernetes-hpa (GAPS.md:82-83). structure-from-residuals must be measured, not assumed, since finding-structure-from-residuals merged after the proposal (ergostat/numbers/structural.py). Each met check runs its algorithm directly on a seeded simulation, not a pytest node, with a stated tolerance (K within 5% and tau within 15%; k within 10%; the right law family). law-changed: a controller retuned halfway must be said changed with at most 1 false alarm over 30 unchanged seeds; law-kubernetes-hpa: `law: kubernetes-hpa` accepted and fitted to a simulated record (met once remote-and-libraries-known-controller-laws and remote-and-libraries-hpa-ratio-family merge; not a dependency, the case is simply unmet until then); prometheus-draft uses a fake Prometheus on loopback started and stopped by the check. Done: results on main recorded with each difference explained; each met check exits 1 with its tolerance at zero or a wrong family; every check gives the same result three runs in a row; the whole list runs under 10 minutes. Files: the list, the checks, tests/test_conformance_lists_ergostat.py. Budget: 260 net lines, dev/ counted."
+  },
+  {
+   "rank": 96,
+   "name": "conformance-factory-model",
+   "title": "The factory counts ergostat's wishes: one use of conformance over its three lists",
+   "size": "incremental",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-template",
+    "conformance-runner-withdraws",
+    "conformance-diagrams-list",
+    "conformance-model-formats-list",
+    "conformance-discovery-list"
+   ],
+   "definition": "Problem: the factory's model includes every dev/model/*.yaml (ergostat.yaml:17-18) but has no count of what ergostat can do, only of the gaps flowing through it (conformance-stock.md section 7, milestone gap 2). Change: new dev/model/conformance.yaml with a system `conformance` within factory showing stock.conformance-met, stock.conformance-wanted and auxiliary.conformance-unaccounted; one `use: conformance` with folder: dev/conformance, lists: [diagrams, model-formats, discovery] and when: git rev-parse main; three stocks diagrams-met, model-formats-met and discovery-met, each {items: case, state: met, where: {list: ...}}. It is run once on main by `ergostat sensor` on the declared stock, and the real counts are recorded beside the proposal's expectations (14 met, 7 unmet, 5 of them asked) with each difference explained. No loop yet: every-wish may be off and nothing acts on it. Done: check gives no new finding and Dynamics draws the system; one run records one item per case and conformance-unaccounted reads 0; the per-list stocks sum to conformance-met; a second read with main unmoved runs no check; a broken list file stops the run and moves no case; dev/README.md gains a short section on the lists, where they live and how to add a case. Files: dev/model/conformance.yaml, dev/README.md, tests/test_factory.py if it pins the model's parts. Budget: 0 net lines of code, about 60 of YAML."
+  },
+  {
+   "rank": 97,
+   "name": "conformance-gap-requester",
+   "title": "A program asks the factory for one gap per unmet, asked conformance case",
+   "size": "incremental",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-factory-model"
+   ],
+   "definition": "Problem: the factory never lets an AI change main directly; work arrives as gaps. The simplifier shows how a program asks for one (dev/bin/simplify.py:147-173): pool 1 under a lock, the open gaps read again under it, a definition written and gap.requested recorded with source. Change: new dev/bin/conformance.py. `request`: under run/conformance.lock read the open gaps and the case items, pick the unmet case with asked: true that has no gap in flight (by its `case` field) and has waited longest by its first case.unmet, write a definition in the house shape (the case's description and from as the problem; the change left to the implementor; a definition of done whose first point is '<check> exits 0 on main'; the check as the acceptance test; a budget of 300), and record gap.requested with source: conformance, case, title and definition through fac.add and fac.rel. `in-flight` prints the count of source: conformance gaps not merged, parked or closed. The gap kind in ergostat.yaml (:85) gains the relation `case: case`. Done: one gap naming the check and citing from; none while one is in flight; a case that is not asked, broken or withdrawn is never chosen; two runs at once ask at most once; the gap's item page shows the case as related; no machine or user names in the generated definition. Files: dev/bin/conformance.py, ergostat.yaml, tests/test_conformance_requester.py (five tests). Budget: 160 net lines, dev/ counted."
+  },
+  {
+   "rank": 98,
+   "name": "conformance-loop-wiring",
+   "title": "The factory's loop that raises the conformance count: when to ask, and what was asked",
+   "size": "quick",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-gap-requester"
+   ],
+   "definition": "Problem: after conformance-gap-requester the program exists but nothing runs it. The simplifier's wiring is the pattern (dev/model/code-health.yaml:143-152 the expr block with goal.ai-budget.off, :173-180 the program block, :43-47 the in-flight auxiliary, :132-136 gaps counted by source). every-wish is meant to stay off while the list is open, so the loop is paced by pool 1 and the AI budget (conformance-stock.md section 4). Change in dev/model/conformance.yaml: the auxiliary conformance-requests-in-flight (run `python3 dev/bin/conformance.py in-flight`, every 10m); the flow conformance-requested into gaps-open (system intake) with sensor {items: gap, entering: open, where: {source: conformance}, over: 1d}; the expr block conformance-when with inputs goal.every-wish.off, the in-flight auxiliary and goal.ai-budget.off, `expr: wanted * (inflight < 1) * (1 - over)`, out to block.conformance-requester; the program block conformance-requester (`python3 dev/bin/conformance.py request`, every 6h, timeout 15m, out flow.conformance-requested); one line in dev/README.md. Done: check gives no new finding and Blocks draws the loop; replayed, the requester is commanded only when wanted, none in flight and the budget not spent; a requested gap shows on the flow; the intake's balance is unchanged for other sources. Files: dev/model/conformance.yaml, dev/README.md, tests/test_factory.py. Budget: 0 net lines of code, about 40 of YAML."
+  },
+  {
+   "rank": 99,
+   "name": "conformance-regressions-ask",
+   "title": "A lost conformance case asks the coordinator, as the code measures do",
+   "size": "quick",
+   "area": "conformance",
+   "depends_on": [
+    "conformance-factory-model"
+   ],
+   "definition": "Problem: a case that was met and stops being met is the flow conformance-lost and its goal nothing-lost is off for a day (conformance-stock.md section 4), but nothing acts on it. The factory's measures already have one commander for the coordinator: code-health-off feeds factory-off (dev/model/code-health.yaml:163-172), which asks the coordinator with a stated prompt (dev/model/measures.yaml:132-153). Change in dev/model/conformance.yaml: an expr block conformance-off (system measures, beside code-health-off), input goal.nothing-lost.off, `expr: lost`, out block.factory-off. factory-off's ask text in measures.yaml gains one clause: a lost case is named by `ergostat item --kind case --state unmet` with its last said, and the coordinator requests a gap that restores it. The record asks the owner in one sentence whether a merge that loses a met case should also be held by the merge queue; that is not built. Done: check gives no new finding, in particular no interface finding for a link into measures; replayed, a met case moved to unmet puts nothing-lost off and commands factory-off; a case moving from met to withdrawn does not (if it does, the flow's sensor is narrowed to cases entering unmet or broken, and the record says so). Files: dev/model/conformance.yaml, dev/model/measures.yaml, tests/test_factory.py. Budget: 0 net lines of code, about 20 of YAML."
+  }
+ ],
+ "notes": "Revised graph: 99 gaps (was 92). Ranks: merge pipeline 1-16, remote systems and shared libraries 17-32, research and design queues 33-42, compute 43-66, regression guarantees 67-88, conformance 89-99. Within an area dependencies come before dependents; one cross-area exception: merge-pipeline-browser-daily-on-main (15) depends on regression-flake-writes-hold-state (68), so it and rank 16 wait for that gap.\n\nWHICH TEXT TO FILE. <workdir>/design/plan/wave2-merged.json holds the planners' full text for the FIRST graph and was not rewritten. For the gaps changed or new in this revision, the definition in this answer is the text to file (it supersedes that file); for every other gap, file the full text from that file under the same name, with this graph's rank and depends_on. Changed or new: merge-pipeline-gaps-entries-in-records, -gaps-md-regenerated-on-land, -gaps-intake-reads-records (new), -gaps-deps-read-records (new), -gaps-briefs-read-records (new), -gaps-md-edits-retired (new), -prefix-runs-in-parallel, -stacks-land-bottom-up, -stacked-gap-builds-on-its-base, -stacks-turned-on, -browser-daily-on-main, -browser-only-on-its-paths; remote-and-libraries-known-controller-laws, -known-laws-drawn-and-explained (new), -declared-law-tested, -autoscaler-template; research-design-queues-research-in-gap-briefs, -research-open-web, -findings-applied-carried, -stories-due-after-merges, -walk-findings-as-gaps; compute-runner-interface, -pools-config, -runs-on-config (new), -worker-protocol, -worker-keeper, -worker-keeper-deadlines (new), every other compute-worker-* gap plus compute-secrets, -work-in, -work-out, -docker-backend, -calls-from-node, -demo (file paths only: the worker is now a package), compute-node-connection, -node-status (new), -capacity-measures, -remote-backend, -lease-renew-on-node; regression-queue-test-counts, -flake-writes-hold-state, -flake-main-fixed, -flake-fixed-after-green, -flake-fixed-by-hand, -escapes-from-reverts, -tests-passing-goal, -quarantine-goals, -guarantees-wired, -guarantees-on-diagrams; conformance-discovery-list. Removed name: merge-pipeline-gaps-readers-read-records (split into the four gaps at ranks 3-7).\n\nWHAT I CHECKED IN THE TREE (ergostat at 277a9c6c29e3) before accepting the critic: dev/model/budget.yaml:19 holds ai-budget at <= 3000; queue.py says gap.merged with main_sha=merged and saves `landing` before ask() pushes `merged` (826-861); fac.definition_file (224-233) prefers dev/records/<branch>.md whenever it exists; ask.py has no argument parsing; fac.beside's release is on main (594-598); the browser command names four files explicitly (factory.toml:170); web/server.py imports graph, history, series, model and state; tests/quarantine.txt lists tests from 2026-11-21; onmain.record writes flake.main-broken and one main-broken intervention per main commit. The filed gaps named below exist in all-gaps.json in the states given. I did not re-check the planners' other file:line citations.\n\nTHE CRITIC'S PROBLEMS, all of which stand; how each is fixed:\n1. Story walk cap ($92 against $40): false, the budget is $3000 a day. The daily cap on walks is dropped; walks are paced by the designer's pool of 1 and goal.ai-budget.off; failing-first ordering is kept as an ordering only. gaps_per_day in walk-findings-as-gaps stays, restated as a bound on the gap queue, not a cost limit.\n2. stacks-turned-on now depends on stacks-merged-forward, and one end-to-end test covers a base reworked to a new head. Also fixed at the source: stacked-gap-builds-on-its-base no longer gives a started gap back when its base's head moved (it keeps the sha it holds and waits for merge-forward), and stacks-land-bottom-up brings a base in only at the sha the dependent holds.\n3. GAPS.md regeneration is moved inside the landing, before the point of no return and before gap.merged; `merged` is reassigned to the regenerated commit, so main_sha equals the pushed head (tested). regression-escapes-from-reverts now matches a revert by second parent first and by main_sha only when one gap carries it.\n4, 5, 6. The GAPS.md move is re-sequenced so there is no window: rank 2 format and renderer; rank 3 the cutover of writing (migration commit, queue renders on land and carries already-approved branches' GAPS.md edits into the records, new edits refused) while every reader still reads GAPS.md, now always the render; ranks 4-6 one small gap per reader group; rank 7 retires the carry step and the union merge once no open branch touches GAPS.md. Old-folder definitions: definition_file counts a record as a definition only with a `## Definition of done` section, else falls back to docs/roadmap/overnight/, with a test including a continued gap's REF. The migration commit does not change GAPS.md itself, so it does not conflict with in-flight branches there.\n7. browser-only-on-its-paths is inverted to a skip list: the suite runs unless every changed path is known not to reach the pages; nothing under ergostat/, examples/, dev/model/ or tests/fixtures/ is skippable, and a config test checks the list against the import closure of the web server and the browser tests.\n8. browser-daily-on-main depends on regression-flake-writes-hold-state, writes only through flakes.say, and records a real failure as flake.main-broken with onmain's intervention, so main-failing-tests and main-green see it. Its own goal is now only that the daily run happened.\n9. findings-applied-carried depends on research-in-gap-briefs; --areas is listed as new, on the argument parsing that gap adds.\n10. declared-law-tested depends on the filed ui-a-loop-s-panel-starts-with-a-table-law-process-h (ready).\n11. The dependencies on flake-quarantine-continued (in fix) are removed from regression-flake-fixed-by-hand and regression-quarantine-goals: both need only what is on main. flake-quarantine-continued may touch fac.beside too, a textual conflict at most.\n12. Quarantine goals: quarantine-small's setpoint is the count on main the day it is built (8 at filing), so it goes off only on growth; the age of the oldest test is a measure with no goal until the owner says how long is allowed. guarantees-wired also leaves out any goal that is off on the live record the day it is built, and tests that guarantees-off does not command factory-off at the first reading.\n13. Sizes: the rule is now 250 net lines or more is large. Split: known-controller-laws (catalogue and compile, 160) and known-laws-drawn-and-explained (70); worker-keeper (process control, 180) and worker-keeper-deadlines (130); node-connection (200) and node-status (90); pools-config (170) and runs-on-config (90). Marked large and not split, each one cohesive piece: library-update-check, compute-runner-interface, compute-remote-backend, compute-work-in, compute-work-out, compute-docker-backend, compute-calls-from-node, conformance-discovery-list. These eight are the likeliest to be sent back for size.\n14. The worker is a stdlib-only package, ergostat/compute/worker/, decided in compute-worker-protocol: one single-purpose module per later gap plus one registration line, run as a directory or zipapp under python3 -I, with a test that it imports nothing outside the standard library. Each gap fills its own SPEC subsection. If isolated mode cannot run a directory on the image's Python the gap falls back to loading siblings by path and says so; that is the one technical assumption here I did not test.\n15. compute-runner-interface depends on the filed shard-supervisor (ready) and is built on the code as it leaves it.\n16. research-open-web defaults to an explicit list of documentation hosts; `*` exists but only the owner sets it. The owner question stays open and no longer blocks or risks anything.\n17. Overlaps: tests-passing is said to differ from cx-test-ratio (passed in a queue run against tests defined in the code) and now depends on cx-trend-auxiliaries to reuse its trend helper; autoscaler-template depends on demo-observed-external-controller and replaces the demo's hand-written fragment, so the fragment exists once.\n18. guarantees-on-diagrams puts its test in tests/test_diagram_rendering.py, already in the queue's browser command; its fixture reads dev/model/, which the skip rule never skips.\n19. The two record-based claims now name their items (gap/relative-gain-array, gap/remote-items-record, gap/remote-process-lines; the queue run tagged operating-states-20261122T094631Z) and the gaps must cite them in their records. I took these from the merge-pipeline planner's notes and did not read the live record. The round-trip test is pinned to a fixture copy of GAPS.md at a named commit, with union-merge duplicates reported by name rather than round-tripped.\n\nConsequences of the fixes elsewhere: regression-queue-test-counts records `not_run` for a suite skipped by rule; tests-passing passes over runs where browser was not run; flake-fixed-after-green treats a suite not run as unknown; main-mend runs a browser test with the browser command.\n\nDuplicates: none against all-gaps.json (423 filed) or across areas. Near-overlaps kept, as before: conformance's xmile-export case only checks what the filed export-dynamics-xmile builds; compute-adopt-node-runs extends the parked rs-adopt-continued; findings-applied-carried covers the parked kb-proposals as knowledge items, not gaps (close or re-define kb-proposals); the designer queue replaces the filed stories-rerun-after-owner-list and stories-rerun-after-redesigns (close them once the designer walks and files findings).\n\nFiled gaps depended on: bisect-tests-main-itself (approved), library-fetch (building), library-sandbox-sensors (building), rs-adopt-continued (parked, so compute-adopt-node-runs waits until it is resumed), stories-reflect-owner-decisions (ready), shard-supervisor (ready), cx-trend-auxiliaries (ready), demo-observed-external-controller (ready), ui-a-loop-s-panel-starts-with-a-table-law-process-h (ready).\n\nNot dependencies, but implementors should know: after rank 3 a branch may not edit docs/GAPS.md, so the remote-and-libraries full texts that list docs/GAPS.md among their files write the record's Entry instead; conformance-regressions-ask and regression-guarantees-wired both add an input to factory-off in dev/model/measures.yaml; many merge-pipeline and regression gaps edit dev/bin/queue.py; the reader gaps at ranks 4-6 each may add the shared helper gapsdoc.entries, and whichever lands later reuses it.\n\nOwner questions carried in the gaps, none built and none blocking: should main-green being off hold the merge queue; should a merge that loses a met conformance case be held; what share of stories must be possible and obvious (0.8 is an estimate); may the researcher reach any public HTTPS host or only the list; how many days may a test stay quarantined.\n\nNo machine names, addresses or user names appear in any gap; nodes are POOL/N and the research hosts are described by kind, with the implementor to list the exact public documentation host names."
+}

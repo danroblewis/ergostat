@@ -18,7 +18,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
     reading says the version moved; parts brought in as an external subsystem, blocks never run, sensors
     reading the remote, `systems:` to narrow); source type `ergostat` (one batched request per remote a
     period, stale readings refused); local references checked against the remote's current model
-    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
+    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`, `remote-stale`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
     `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
@@ -346,10 +346,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `dev/records/ai-calls-ask-the-budget.md`). Done: every call through `decisions/ai.call` (decisions extract, the
   intent verdicts from `Engine.judge` and `ergostat intent judge`, `improve --architecture`) reserves its per-call cap
   under P3's lock (`costs/budget.ask`), is refused when the day's budget is gone, is closed with its reported cost
-  (unknown: its reserve), and is counted once inside a reserving run. Left: the calls through
-  `numbers/modeller.call` (the redesigner, the modelling reviewer, the ai tier: `modeller-calls-ask-the-budget`), and
-  models in `ergostat.toml` (`runner.run_agent`), which have no `budget:` (`toml-models-budget`). Their ends count in
-  spent when priced, but nothing refuses them when the day's budget is gone.
+  (unknown: its reserve), and is counted once inside a reserving run. So does every call through
+  `numbers/modeller` (the redesigner, the modelling reviewer, the ai tier, the architecture review:
+  `modeller-calls-ask-the-budget`, `dev/records/modeller-calls-ask-the-budget.md`), at its `unsaid` estimate. A
+  structural scan (`test_only_listed_ai_starts`) finds AI commands started only in `decisions/ai.py`,
+  `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`, `supervisor.chat`, `spec/engine.py`,
+  `repair/fix.py`). Left: models in `ergostat.toml` (`runner.run_agent`), which have no `budget:`
+  (`toml-models-budget`). Their ends count in spent when priced, but nothing refuses them when the day's budget is
+  gone.
 - **T1: a run stopped at its spend cap** (done; `run-budget-trip`, SPEC §9.9, `dev/records/run-budget-trip.md`):
   each run gets its reserve as its cap (`ERGOSTAT_MAX_COST`; `--max-budget-usd` on an `ai` block's own `claude`),
   `ergostat session` takes all that is left from a per-run ledger under `flock`, and the engine kills the run's
@@ -426,8 +430,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
     180, 60 to 3600) and `no-stalls`, and the engine's watchdog and the outer watcher as `type: external` blocks;
     with `leases: true` lease expiry, with `pool: NAME` that pool's quarantined slots held at 0 by the owner. The
     engine writes `stale` into `heartbeat.json`; the watcher uses it within 60 to 3600 s, else 180. Left: the loops
-    are drawn, not closed by ergostat (their controllers are its code); the heartbeat the run writes as it starts has
-    no `stale`, so the watcher uses 180 until the watchdog's first beat (5 s); `restarts` has no goal.
+    are drawn, not closed by ergostat (their controllers are its code).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per

@@ -241,6 +241,68 @@ def _laws(p, spec) -> dict:
 
 _FITTING: set = set()   # the projects whose laws are being fitted
 
+# The header's project list (/api/projects): the running projects, worked out by one thread every LIST_EVERY seconds;
+# a request reads the last list and loads nothing. Until the first is made: none, and stopped unknown (None).
+LIST_EVERY = 60.0
+_LISTED: dict = {"running": [], "stopped": None, "at": None}
+_LISTER = threading.Lock()                     # held only to start or stop the one thread (per process)
+_LISTING: dict = {"servers": set(), "stop": None, "thread": None}   # the page servers that need it, its stop, itself
+
+
+def list_once(stop: threading.Event | None = None) -> None:
+    """One pass: ``projects.running()`` into ``_LISTED``, unless ``stop`` was set while it ran. A pass that fails is
+    logged and keeps the last list (the answer's ``age`` says how old it is, and the menu says so when it is old)."""
+    global _LISTED
+    from .. import projects
+    try:
+        got = projects.running()
+    except Exception:
+        import logging
+        logging.getLogger("ergostat").exception("listing the running projects failed; the last list is kept")
+        return
+    if stop is None or not stop.is_set():
+        _LISTED = got
+
+
+def list_projects(stop: threading.Event, every: float = LIST_EVERY) -> None:
+    """``list_once`` at once and then every ``every`` seconds, until ``stop``."""
+    while not stop.is_set():
+        list_once(stop)
+        if stop.wait(every):
+            return
+
+
+def start_lister(server) -> None:
+    """The one lister of this process runs while any of its page servers does (each calls ``stop_lister`` when it
+    shuts down)."""
+    with _LISTER:
+        _LISTING["servers"].add(id(server))
+        if _LISTING["thread"] is None:
+            _LISTING["stop"] = threading.Event()
+            _LISTING["thread"] = threading.Thread(target=list_projects, args=(_LISTING["stop"],),
+                                                  name="ergostat-projects", daemon=True)
+            _LISTING["thread"].start()
+
+
+def stop_lister(server=None, wait: float = 10.0) -> bool:
+    """``server`` no longer needs the lister (None: no server does). When none does, it is stopped and waited for: a
+    pass running then is not kept. True when no lister runs any more (False: one outlasted ``wait``, or others need
+    it)."""
+    with _LISTER:
+        if server is None:
+            _LISTING["servers"].clear()
+        else:
+            _LISTING["servers"].discard(id(server))
+        if _LISTING["servers"]:
+            return False
+        t, _LISTING["thread"] = _LISTING["thread"], None
+        if t is None:
+            return True
+        _LISTING["stop"].set()
+    if t is not threading.current_thread():
+        t.join(wait)
+    return not t.is_alive()
+
 
 def _window(q) -> float:
     from ..durations import parse_duration
@@ -275,7 +337,8 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
     fields cut to its kind's columns. A kind whose items carry large fields (the model's changes)
     otherwise made every refresh of the list hundreds of KB, most of it never shown. The systems in
     ``hide`` (comma-separated: the page's collapsed groups) send no items, only their kinds' counts."""
-    items = got["items"]
+    from ..actions.record import ACTION, who
+    items = [{**i, "fields": {**i["fields"], **who(i["fields"], i.get("state"))}} if i.get("kind") == ACTION else i for i in got["items"]]
     if hide:
         gone = set(hide.split(","))
         items = [i for i in items if i.get("system") not in gone]
@@ -410,6 +473,37 @@ def _remote_events(spec, name, n, glob) -> dict:
             "events": evs[-n:]}
 
 
+def _scoped(ask: dict, scope: dict) -> dict | None:
+    """One question with the page's own ``item``/``machine``/``source`` added; None when the two cannot both hold."""
+    for k, v in scope.items():
+        o = ask.get(k)
+        if o is None or o == v or (k == "machine" and v.startswith(o + "/")):
+            ask = {**ask, k: v}
+        elif not (k == "machine" and o.startswith(v + "/")):
+            return None
+    return ask
+
+
+def _record_rows(p, m, snap, about, match, n, skip, span, scope=None) -> list[dict]:
+    """The Record narrowed: the events of a goal (``about``: it, its controller's and valves' agents, its valves) or
+    those whose type (a glob), item or source is ``match`` (both: the goal's that match), newest ``n``, in seq order;
+    every question also holds to ``scope`` (the address's item, machine, source), so a scoped link stays scoped."""
+    lp = snap["loops"].get(about) if about else None
+    names = [about] if about else [match]
+    if lp:
+        valves = [v for v in lp["valves"] if v in m.valves]
+        c = m.controllers.get(about)
+        names += [*valves, *(x for x in (c and c.agent, *(m.valves[v].agent for v in valves)) if x)]
+    names = list(dict.fromkeys(names))
+    asks = [{k: v} for v in names for k in ("item", "machine")] + ([] if about else [{"type": match}])
+    if about and match:          # the match asked inside each question, so none is capped at n before it is matched
+        asks = [{k: v, **w} for v in names for k, o in (("item", "machine"), ("machine", "item"))
+                for w in ({"type": match}, {o: match})] + ([{"item": match}, {"machine": match}] if match in names else [])
+    asks = [a for a in (_scoped(a, scope or {}) for a in asks) if a is not None]
+    got = {e["id"]: e for a in asks for e in p.events.query(n=n, skip=skip, **a, **span)}
+    return sorted(got.values(), key=lambda e: e["seq"])[-n:]
+
+
 def api(live: Live, path: str, q: dict):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view."""
@@ -434,6 +528,9 @@ def _answer_with(live: Live, path: str, q: dict, model):
 
 
 def _answer(live: Live, path: str, q: dict, project=None):
+    if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
+        got = _LISTED
+        return dict(got, age=None if got["at"] is None else max(0.0, time.time() - got["at"]))
     p = project or live.get()
     m = p.model
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
@@ -468,19 +565,20 @@ def _answer(live: Live, path: str, q: dict, project=None):
         from ..runner import running_pid
         running = bool(running_pid(p))
         edited = _edited(live, p, running)
-        return {"name": m.name, "running": running, "live": snap["live"], "first": p.events.first_time(),
+        spec = getattr(m, "spec", None)              # the diagram's caption: what the model is for, its loops
+        said = {"purpose": spec.purpose, "top": len(spec.subsystems(None)),
+                "controlled": sorted(g for g in spec.goals if spec.loop(g).controllers)} if spec else {}
+        return {"name": m.name, **said, "running": running, "live": snap["live"], "first": p.events.first_time(),
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
-                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"],
+                + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 **({"edited": edited} if edited else {}),
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],
-                "at": snap["at"], "window": snap["window"], "rate_units": rates.overrides(getattr(m, "spec", None)),
+                "at": snap["at"], "window": snap["window"], "recorded": snap.get("recorded"),   # the window's span on record
+                "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:]}
-    if head == "projects":
-        from ..projects import known
-        return known()
     if head == "coherence":                          # the three views held against each other (the Check page)
         from .numbers_api import coherence
         return coherence(live, p, snap, _window(q) if one("since") else None)
@@ -490,6 +588,20 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "guide":                              # the Guide's frames: tiny models, the same for every project
         from ..guide import frames
         return frames()
+    if head == "export":                             # the model behind the picture, as Markdown (export_api.py)
+        from ..blockdiagram import _Diagram, identified, spec_of
+        from .export_api import export, file_name
+        view = one("view")
+        if view not in ("dynamics", "blocks") or (one("format") or "md") not in ("md", "json"):
+            raise BadSet("export: view=dynamics or view=blocks, and format=md (or json)")
+        g = _answer(live, "graph", {**{k: v for k, v in q.items() if k != "have"}, "view": [view]}, p)
+        flat = _Diagram(spec_of(m), {**snap, "laws": _laws(p, getattr(m, "spec", None)) or {}}) \
+            if view == "blocks" and spec_of(m) is not None else None
+        if flat is not None:
+            flat.build()
+            identified(flat)
+        return {"file": file_name(m.name, view, one("system"), snap["at"]),
+                "markdown": export(m, view, one("system"), snap, g, flat)}
     if head == "graph":
         system = one("system") or None
         around = one("around") or None
@@ -586,7 +698,18 @@ def _answer(live: Live, path: str, q: dict, project=None):
             from ..daemons.supervise import of_daemon
             b = m.spec.blocks.get(name) if getattr(m, "spec", None) else None
             dn = b.params.get("daemon") if b is not None else None
-            return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:],
+            from ..actions import record as acts
+            began = {e.get("causedby") for e in runs[-80:]}   # the gated actions each run asked for, by its start's id
+            asked: dict[str, list] = {}
+            for x in acts.stored(p, until=snap["at"]).values():
+                if x.get("run") in began:
+                    asked.setdefault(x["run"], []).append({k: x.get(k) for k in ("id", "action", "state")})
+            from ..leases import ENDED  # how each run's lease ended (a nack: it gave its item back), from its start on
+            since = min((e["time"] - (e["data"].get("seconds") or 0) for e in runs[-80:]), default=snap["at"]) - 60
+            ended = {e["causedby"]: {k: e["data"].get(k) for k in ("how", "why")} for e in p.events.query(
+                n=None, type=ENDED, since=since, until=snap["at"]) if e.get("causedby") in began}
+            return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:], "asked": asked,
+                    "ended": ended,
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
@@ -617,14 +740,20 @@ def _answer(live: Live, path: str, q: dict, project=None):
         if name:                                  # one event, by id
             return p.events.get(name)
         after = one("after")
-        skip = () if one("runs") or one("type") else ("agent.started", "agent.ran")   # as `ergostat event`
-        if not one("type") and not one("item"):   # a transcript's lines are on its item's page, asked by type or item
+        typed = one("type") or one("match")
+        skip = () if one("runs") or typed else ("agent.started", "agent.ran")   # as `ergostat event`
+        if not typed and not one("item"):   # a transcript's lines are on its item's page, asked by type or item
             skip = (*skip, "claude.*")
         before = one("before")
-        return p.events.query(n=max(1, min(int(one("n") or 100), EVENTS_MOST)), type=one("type"), item=one("item"),
+        n = max(1, min(int(one("n") or 100), EVENTS_MOST))
+        span = {"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}
+        span |= {k: float(one(w)) for k, w in (("since", "from"), ("until", "to")) if one(w)}
+        if one("about") or one("match"):          # the Record's filter box, or a crossing's goal (details.js)
+            return _record_rows(p, m, snap, one("about"), one("match"), n, skip, span,
+                                {k: one(k) for k in ("item", "machine", "source") if one(k)})
+        return p.events.query(n=n, type=one("type"), item=one("item"),
                               source=one("source"), machine=one("machine"), after_seq=int(after) if after else None,
-                              before_seq=int(before) if before else None, skip=skip,
-                              **({"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}))
+                              before_seq=int(before) if before else None, skip=skip, **span)
     if head == "items":
         from ..spec import items as its
         spec = getattr(m, "spec", None)
@@ -641,6 +770,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
 
                 from ..spec.footprint import item_path
                 d["path"] = item_path(spec, SimpleNamespace(kind=d["kind"], moves=d["moves"], fields=d["fields"]))
+            if d and d.get("kind_of") and spec and d["kind_of"]["name"] in spec.items:   # its endings, as the process map counts them
+                from ..process import _done
+                ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
+                d["kind_of"]["final"] = [s for s in d["kind_of"]["states"] if s in ends]
             return d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
@@ -731,7 +864,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "items-graph":                     # the Items page's Graph and Timeline: relations (SPEC §5a)
         from .eta_api import merge
         from .relations_api import graph as items_graph
-        return merge(items_graph(p, m, snap, q), _estimates(p, m, snap, one("whatif")))
+        est = _estimates(p, m, snap, one("whatif"))   # None while the first is worked out: the legend says so
+        return {**merge(items_graph(p, m, snap, q), est), "eta_pending": est is None and abs(time.time() - snap["at"]) < 5}
     if head == "items-flow":
         return series.items_flow(p, snap, one("kind") or "", int(one("points") or series.POINTS))
     if head == "residuals":
@@ -1039,6 +1173,8 @@ def handler(project):
                     return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")
                 if data is None:
                     return self._send(404, b'{"error": "not found"}', "application/json")
+                if u.path == "/api/export" and (q.get("format") or ["md"])[0] == "md":    # the document itself, for curl
+                    return self._send(200, data["markdown"].encode(), "text/markdown; charset=utf-8")
                 return self._send(200, json.dumps(data, default=str).encode(), "application/json", True)
             if u.path == "/file":                          # a file an item names (file:PATH), from inside the project only
                 return self._file((parse_qs(u.query).get("path") or [""])[0])
