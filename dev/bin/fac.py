@@ -76,10 +76,18 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def _aihold():
+    """dev/bin/aihold.py, found beside this file when fac was loaded by path (dev/bin not on sys.path)."""
+    if str(HERE / "bin") not in sys.path:
+        sys.path.append(str(HERE / "bin"))
+    import aihold
+    return aihold
+
+
 def draining(cfg: dict) -> bool:
     """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
     review) waits for its next turn instead of starting; so it does while the AI is held (aihold.py)."""
-    import aihold
+    aihold = _aihold()
     return (run_dir(cfg) / "drain.json").exists() or aihold.held(cfg) is not None
 
 
@@ -87,7 +95,7 @@ def drain_holds(cfg: dict) -> bool:
     """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), or the AI is held for the
     provider's usage limit (aihold.py), an AI run takes no new item: it gives it back uncounted, to be taken again
     after the switch, or at the reset."""
-    import aihold
+    aihold = _aihold()
     if aihold.holds(cfg):
         return True
     if not (run_dir(cfg) / "drain.json").exists():
@@ -646,7 +654,7 @@ def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = Non
     Its conversation is kept as the item session/<item>-<role>-<n> (sessions.py; ``item``: the gap, research or
     review it works for, else the run's own). One that ends on the provider's usage limit holds the AI till its reset
     and ends the run, its lease given back uncounted (aihold.py)."""
-    import aihold
+    aihold = _aihold()
     import sessions
     model, usd = cfg["ai"][f"{role}_model"], float(cfg["ai"][f"{role}_session_usd"])
     who = dict(role=role, model=model, item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
