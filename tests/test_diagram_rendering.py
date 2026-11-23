@@ -6960,6 +6960,32 @@ def test_a_closed_module_draws_three_sparklines_after_its_structure_without_movi
         assert not errors, errors
 
 
+def test_a_measure_the_answer_cut_past_its_ceiling_draws_nothing_never_no_readings(browser, tmp_path):
+    """The measured answer reads at most MEASURED_REFS parts and names the rest in ``cut``: a box whose measure was cut
+    (here archive's, the answer rewritten as the server's would be past its ceiling) draws nothing for it, never 'no
+    readings', while the parts answered draw as before."""
+    import json as _json
+    with sparked(tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+
+        def cut(route):
+            d = route.fetch().json()
+            d["series"] = [x for x in d["series"] if x["ref"] != "stock.filed"]
+            d["cut"] = ["stock.filed"]
+            route.fulfill(status=200, content_type="application/json", body=_json.dumps(d))
+        pg.route(re.compile(r"/api/series\?.*measured=1"), cut)
+        drawn(pg, url, "view=dynamics", 0)
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length >= 3", timeout=30000)
+        pg.wait_for_timeout(3000)                        # (and asked again on the interval: still nothing for it)
+        got = pg.evaluate(SPARKS)
+        assert sorted(x["ref"] for x in got) == ["auxiliary.pressure", "flow.arriving", "stock.backlog"], got
+        assert all(x["box"] == DESK for x in got), got
+        pg.close()
+        assert not errors, errors
+
+
 def test_an_examples_closed_modules_find_room_for_their_measures_and_nothing_read_is_no_line(browser, tmp_path):
     """image-squeeze, served unrun (nothing read): every closed module with a show: draws at least one of its measures in
     its box (room found in its own rows), each with no line and said as having no readings, and none outside its box."""

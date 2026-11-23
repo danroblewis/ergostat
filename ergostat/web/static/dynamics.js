@@ -147,8 +147,9 @@ function sdSparks(svg, g) {
   S.sparks = { ...(c && c.win === win ? c : { win, data: {}, at: 0 }), asking: true, askingFor: win + refs.join(",") };
   api("series", { refs: refs.join(","), points: SPARK.w, measured: 1 }).then((d) => {
     if (seq !== S.sparkSeq || sdSparkWindow() !== win) return;        // a later ask, or the window changed: not this one
-    const data = Object.fromEntries(refs.map((r) => [r, null]));      // (asked and not answered: a part not measured)
-    for (const x of d.series || []) data[x.ref.replace(/^auxiliary\./, "stock.")] = data[x.ref] = x;
+    const data = Object.fromEntries(refs.map((r) => [r, undefined]));  // asked and not answered (cut past the server's
+    for (const x of d.series || []) data[x.ref.replace(/^auxiliary\./, "stock.")] = data[x.ref] = x;   // ceiling, or
+    // unknown to it): nothing drawn, never "no readings", for that is not known (the answer's ``cut`` names the first)
     S.sparks = { win, data, at: performance.now(), asking: false };
     const now = document.querySelector("svg.canvas");
     if (now && S.graph?.kind === "dynamics") sdSparksPaint(now, S.graph);

@@ -132,3 +132,26 @@ browser tests (Playwright, under suite_watch) gave 4 passed, rc 0: test_no_panel
 browser half of the same check) and the two sparkline acceptance tests (3 cases). ruff is clean. main is already merged
 in (the local main is an ancestor of HEAD). The whole of tests/test_diagram_rendering.py was not run again. Done item 5
 stands as rounds 1 and 2 left it.
+
+Round 4, 2026-11-23. The finding (blocking): past `MEASURED_REFS` (60) the server dropped refs without saying so, and
+the page drew every ref it asked for and got no answer to as "no readings" ("nothing read over the window"). So past
+20 closed modules, boxes with readings in the store said they had none (lessons 3 and 8). It was the only finding, and
+it is fixed. I kept the single batched request (done item 3) and did not ask in chunks:
+- `series.measured` now names the refs past the ceiling in its answer's `cut` (in the order asked). It still reads at
+  most 60, so the ceiling holds (lesson 4).
+- `sdSparks` now treats any ref it asked for and got no answer to (cut, or unknown to the server) as not known, and
+  draws nothing for it. "No readings" now shows only for a part the server answered with no readings in the window.
+  The upshot: on a diagram with more than 20 closed modules, the later boxes show fewer lines, or none. Chunked asks
+  would draw them all, but done item 3 asks for one request. Choosing this was my call (nobody to ask). It is
+  reversible: the page could ask a second time for `cut`.
+- SPEC §4a says both.
+Tests: tests/test_module_sparklines.py::test_parts_past_the_ceiling_are_named_as_cut_never_answered_as_unread (70
+measured stocks, every one read: the first 60 answered with their readings, the last 10 in `cut`). The ceiling test
+now also checks `cut`. tests/test_diagram_rendering.py::test_a_measure_the_answer_cut_past_its_ceiling_draws_nothing_never_no_readings
+(the answer rewritten as the server's would be past the ceiling, with archive's `stock.filed` cut: archive draws
+nothing, while reception's three draw as before). Seen to fail (lesson 9): with the page's old null prefill, the
+browser test fails on archive's "filed 149 no readings". With `cut` always [], both unit tests fail.
+Run: tests/test_module_sparklines.py, tests/test_series.py and tests/test_spec_schema.py, 49 passed.
+tests/test_parity.py and tests/test_graph_cli_web.py, 71 passed. The three sparkline browser tests plus the new one
+(Playwright, under suite_watch), 4 passed, rc 0. ruff is clean. The whole of tests/test_diagram_rendering.py was not
+run again. Done item 5 stands as rounds 1 to 3 left it.

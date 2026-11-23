@@ -696,8 +696,10 @@ now and a sparkline of its behaviour over the page's window, on its own scale (i
 never seem to share an axis). They sit in the free middle of the box's existing rows (its description's second line,
 its port rows), only those that fit there, and never move or size a box. They are drawn after the structure, from one
 answer for every box drawn (`GET /api/series?measured=1&refs=…`: sensor readings from the measurement store alone,
-never the event log and no snapshot; a flow no sensor reads is all gaps), asked again on the page's interval; a bucket
-with no reading is a gap; while the line would be under 7 px high on the screen none is drawn. Stocks, flows and
+never the event log and no snapshot; a flow no sensor reads is all gaps; at most 60 parts are read, the rest named in
+its `cut`), asked again on the page's interval; a bucket
+with no reading is a gap; a measure asked for and not answered (cut, or unknown to the server) draws nothing, never
+"no readings", so past 20 closed modules the later boxes may show fewer lines; while the line would be under 7 px high on the screen none is drawn. Stocks, flows and
 auxiliaries draw none; the module's panel charts every measure in full. A box opens in place (its parts, laid out
 together inside its outline, its own systems still boxed), or is drawn alone: its parts, and
 what it reaches outside as terminals at its edge, each naming the system it is in. A system alone

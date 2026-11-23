@@ -265,11 +265,13 @@ def measured(p, at: float, window: float, refs: list[str], n: int = POINTS) -> d
     """``GET /api/series?measured=1``: each ref's sensor readings over ``[at - window, at]`` from the measurement
     store alone (never the event log, never the page's state): a stock's or an auxiliary's last reading in each
     bucket, a flow's mean reading. A bucket with no reading is None; a flow no sensor reads is all None, said as
-    ``not measured``. For the module boxes' sparklines, asked once for every box drawn."""
+    ``not measured``. For the module boxes' sparklines, asked once for every box drawn. At most ``MEASURED_REFS``
+    parts are read; the rest are named in ``cut`` (never read, so never said to have no readings)."""
     since, until = at - window, at
     n = max(2, min(n, MAX_POINTS))
     m, out = p.model, []
-    for r in list(dict.fromkeys(refs))[:MEASURED_REFS]:
+    asked = list(dict.fromkeys(refs))
+    for r in asked[:MEASURED_REFS]:
         got = parse_ref(r)
         real = kind_of(m, got[1]) if got else None
         if real is None or (got[0] == "flow") != (real == "flow"):
@@ -286,7 +288,8 @@ def measured(p, at: float, window: float, refs: list[str], n: int = POINTS) -> d
             vals, s = level(p, name, since, until, n), {"unit": m.stocks[name].unit}
         out.append({"ref": f"{real}.{name}", "kind": real, "name": name, **s,
                     "values": [round(v, 6) if v is not None and math.isfinite(v) else None for v in vals]})   # (NaN: a gap)
-    return {"since": since, "until": until, "points": n, "times": [round(t, 3) for t in times(since, until, n)], "series": out}
+    return {"since": since, "until": until, "points": n, "times": [round(t, 3) for t in times(since, until, n)],
+            "series": out, "cut": asked[MEASURED_REFS:]}
 
 
 def off_stretches(p, loop: str, since: float, until: float) -> list[list[float]]:

@@ -107,3 +107,26 @@ def test_the_answer_reads_at_most_its_ceiling_of_parts(project):
     d = ask(p, ",".join(["stock.backlog"] * 5 + [f"stock.x{i}" for i in range(200)]))
     assert [s["ref"] for s in d["series"]] == ["stock.backlog"]        # (asked again: answered once)
     assert series.MEASURED_REFS == 60
+    assert d["cut"] == [f"stock.x{i}" for i in range(59, 200)], d["cut"]   # (the 59 after backlog are read, if unknown)
+
+
+def test_parts_past_the_ceiling_are_named_as_cut_never_answered_as_unread(tmp_path, monkeypatch):
+    """More than MEASURED_REFS parts asked, every one read in the store: the first 60 are answered with their readings,
+    the rest named in ``cut`` and absent from ``series`` (so the page draws nothing for them, never 'no readings')."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    d = tmp_path / "wide"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text("name: wide\nstocks:\n" + "".join(
+        f"  s{i}:\n    unit: things\n    sensor:\n      manual: true\n" for i in range(70)))
+    p = Project(mdl.load(d))
+    now = time.time()
+    for i in range(70):
+        for k in range(12):
+            p.measurements.add(f"sensor/s{i}.main", i, at=now - 3600 + k * 300)
+    refs = [f"stock.s{i}" for i in range(70)]
+    got = ask(p, ",".join(refs), at=now + 1)
+    assert [s["ref"] for s in got["series"]] == refs[:60], got["series"]
+    assert all(any(v == i for v in s["values"]) for i, s in enumerate(got["series"])), "a read part answered as unread"
+    assert got["cut"] == refs[60:], got["cut"]
