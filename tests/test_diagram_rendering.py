@@ -6786,3 +6786,121 @@ def test_a_changed_count_of_what_waits_is_announced(browser, tmp_path, monkeypat
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+# ---- drawn alone: what an item passed through, or what a kind touches (item= and kind=, SPEC §5a)
+
+def seed_scrum2(p, t: float) -> None:
+    """ticket/SCRUM-2 on ticket-factory: new, taken by pick-up to picked, taken by locate (a nack: picked again, a
+    second run) to located, taken by work to worked; nothing after."""
+    from ergostat.leases import ENDED, TAKEN
+    ev, i = p.events, "ticket/SCRUM-2"
+    ev.add("ticket.found", item=i, data={"title": "a ticket"}, at=t)
+    for n, (run, block, back, then, how) in enumerate([("r1", "pick-up", "new", "ticket.pick-up", "ack"),
+                                                        ("r2", "locate", "picked", None, "nack"),
+                                                        ("r3", "locate", "picked", "ticket.locate", "ack"),
+                                                        ("r4", "work", "located", "ticket.work", "ack")]):
+        at = t + 10 * (n + 1)
+        ev.add(TAKEN, item=i, data={"run": run, "block": block, "fence": n + 1, "ttl": 300, "max": 3, "back": back}, at=at)
+        if then:
+            ev.add(then, item=i, causedby=run, at=at + 1)
+        ev.add(ENDED, item=i, data={"run": run, "fence": n + 1, "how": how, **({"why": "x"} if how == "nack" else {})},
+               at=at + 2)
+
+
+SCRUM2 = {"stock:new", "stock:picked", "stock:located", "stock:worked", "flow:pick-up", "flow:locate", "flow:work"}
+SUBSET_DRAWN = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && S.graph?.subset && "
+                "document.querySelectorAll('svg.canvas g.node').length > 0")
+
+
+def graph_of(url: str, **q) -> dict:
+    from urllib.parse import urlencode
+    return json.loads(urllib.request.urlopen(f"{url}/api/graph?{urlencode(q)}", timeout=60).read())
+
+
+def test_an_items_path_is_drawn_alone(browser, tmp_path):
+    """Dynamics with item=: exactly the stocks and valves on ticket/SCRUM-2's path, each stock numbered by its steps
+    in move order (picked twice: a nack), each valve with the runs that took it; the chip clears it back to the whole,
+    with no page error, and the subset lays out in under a second."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served("ticket-factory", tmp_path) as url:
+        seed_scrum2(Project(mdl.load(tmp_path / "ticket-factory")), time.time() - 3000)
+        time.sleep(1.6)                                   # past the page's snapshot of the moment it started
+        g = graph_of(url, view="dynamics", item="ticket/SCRUM-2")
+        assert {n["id"] for n in g["nodes"]} == SCRUM2, sorted(n["id"] for n in g["nodes"])
+        marks = {n["id"]: n.get("path") for n in g["nodes"] if n["kind"] == "stock"}
+        assert marks == {"stock:new": [1], "stock:picked": [2, 3], "stock:located": [4], "stock:worked": [5]}, marks
+        runs = {n["id"]: n.get("attempts") for n in g["nodes"] if n["kind"] == "valve"}
+        assert runs == {"flow:pick-up": 1, "flow:locate": 2, "flow:work": 1}, runs
+        assert g["subset"]["says"] == "what ticket/SCRUM-2 passed through" and g["subset"]["kind"] == "ticket"
+        whole = graph_of(url, view="dynamics", open="*")
+        assert SCRUM2 < {n["id"] for n in whole["nodes"]} and "subset" not in whole
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        pg.goto(f"{url}/diagram?view=dynamics&item=ticket%2FSCRUM-2")
+        pg.wait_for_function(SUBSET_DRAWN, timeout=DRAWN_S * 1000)
+        drawn_ids = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.node')].map((g) => g.dataset.id)")
+        assert set(drawn_ids) == SCRUM2, drawn_ids
+        nums = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node')]"
+                           ".filter((g) => g.querySelector('.sd-path'))"
+                           ".map((g) => [g.dataset.id, g.querySelector('.sd-path').textContent]))")
+        assert nums == {"stock:new": "1", "stock:picked": "2, 3", "stock:located": "4", "stock:worked": "5"}, nums
+        assert "2 attempts" in pg.locator('svg.canvas g.node[data-id="flow:locate"]').text_content()
+        assert pg.evaluate("() => S.pinKey").endswith(".kind:ticket")     # an item's pins are its kind's
+        assert pg.evaluate("() => S.showHulls") is False                  # flat, as around= is
+        first, _ = pg.evaluate(TIMED)
+        assert first < 1000, first
+        chip = pg.locator(".toolbar .subset")
+        assert chip.inner_text().startswith("what ticket/SCRUM-2 passed through")
+        chip.locator("button").click()
+        pg.wait_for_function("() => !location.search.includes('item=') && S.graph && !S.graph.subset && S.layout",
+                             timeout=DRAWN_S * 1000)
+        assert pg.locator(".toolbar .subset").count() == 0
+        pg.close()
+    assert not errors, errors
+
+
+def test_blocks_draws_whole_loops_an_item_touched(tmp_path):
+    """Blocks with item=: the control loops whose parts ticket/SCRUM-2 passed through, each drawn whole (every node
+    of each, as the whole diagram opened draws them), nothing outside them but ports, no system closed into a box;
+    kind=ticket draws the kind's footprint, and a kind nothing counts says so and draws nothing."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+
+    def edit(d):
+        (d / "local").mkdir(exist_ok=True)
+        (d / "local" / "note.yaml").write_text("items:\n  note: {id: note/*, states: [open, closed]}\n")
+    with served("ticket-factory", tmp_path, edit) as url:
+        p = Project(mdl.load(tmp_path / "ticket-factory"))
+        seed_scrum2(p, time.time() - 3000)
+        p.events.add("note.made", item="note/1")
+        time.sleep(1.6)
+        g = graph_of(url, view="blocks", item="ticket/SCRUM-2")
+        whole = graph_of(url, view="blocks", open="*")
+        drawn = [n for n in g["nodes"] if n.get("kind") != "port"]
+        touched = {n["id"].split(":", 1)[1] for n in drawn if n["id"].startswith("ref:")}    # a loop's own reference
+        assert {"new-picked-up", "picked-located", "located-worked", "worked-opened"} <= touched, touched
+        assert not touched & {"opened-asked", "reviews-answered", "merged-closed"}, touched
+        ids = {n["id"] for n in drawn}
+        looped = {n["id"] for n in drawn if set(n["loops"]) & touched}
+        between = {e["target"] for e in g["edges"] if e["source"] in looped} & {e["source"] for e in g["edges"]
+                                                                                if e["target"] in looped}
+        assert ids == looped | between, sorted(ids - looped - between)    # a loop's parts, and what joins two of them
+        assert {"psum:stock.picked", "psum:stock.located"} <= ids         # a stock's sum: the loop not cut there
+        assert not [n["id"] for n in g["nodes"] if n["id"].startswith("sys:")]
+        for goal in touched:                              # each whole: as the whole diagram, everything open, draws it
+            want = {n["id"] for n in whole["nodes"] if goal in n.get("loops", [])}
+            assert want == {n["id"] for n in drawn if goal in n["loops"]}, goal
+        assert len(drawn) < len([n for n in whole["nodes"] if n.get("kind") != "port"])
+        fp = json.loads(urllib.request.urlopen(f"{url}/api/kinds/ticket").read())
+        k = graph_of(url, view="dynamics", kind="ticket")
+        want = {f"{'flow' if c['kind'] == 'flow' else 'stock'}:{c['name']}" for c in fp["counted_in"]}
+        want |= {f"flow:{f.split('.', 1)[1]}" for t in fp["taken_by"] for f in t["out"]}
+        assert {n["id"] for n in k["nodes"] if n["kind"] in ("stock", "auxiliary", "valve", "disturbance")
+                and not n.get("outside")} == want and k["subset"]["says"] == "what kind ticket touches"
+        for view in ("dynamics", "blocks"):
+            none = graph_of(url, view=view, item="note/1")
+            assert not none["nodes"] and none["subset"]["says"] == "what note/1 passed through: not counted anywhere in the model"

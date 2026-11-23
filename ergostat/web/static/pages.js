@@ -1095,6 +1095,13 @@ async function pageItem(main, id, q) {
     const ended = fin.has(d.state), rest = (k?.states || []).filter((s) => !path.includes(s) && (!ended || fin.has(s)));
     const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
+    // where it went in the model: its path drawn alone in Dynamics and Blocks, when anything there counted it
+    const toDiagram = (view, by, v) => `/diagram?view=${view}&${by}=${encodeURIComponent(v)}`;
+    const went = !d.path ? [] : [h("h2", {}, "Where it went"), d.path.some((st) => st.stock || st.flow || st.block)
+      ? h("p", { class: "went" }, h("a", { href: toDiagram("dynamics", "item", id) }, "Draw its path in Dynamics"), ", ",
+        h("a", { href: toDiagram("blocks", "item", id) }, "in Blocks"), k ? ["; ",
+        h("a", { href: toDiagram("dynamics", "kind", k.name) }, `what every ${k.name} touches`)] : null, ".")
+      : h("p", { class: "went muted" }, "Its moves are not counted anywhere in the model.")];
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
       d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, when(m.time)), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
@@ -1136,7 +1143,7 @@ async function pageItem(main, id, q) {
     const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
     const why = d.eta?.why ? h("p", { class: "note eta-why" }, h("b", {}, d.eta.waits_in ? `Waiting in ${d.eta.waits_in}` + (d.eta.position ? `, ${ordinal(d.eta.position)} in its queue` : "") + ": " : ""),
       d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: `/items?kind=${encodeURIComponent(k?.name || "")}&view=timeline` }, "the timeline"), ")")) : null;
-    patch(body, whyBox(w), head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    patch(body, whyBox(w), head, track, why, ...went, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true));
   }

@@ -1109,21 +1109,25 @@ async function pageDiagram(main, q) {
   S.pmShow = pq.show;
   const system = q.get("system") || "";
   const around = q.get("around") || "";
+  const item = view !== "process" ? q.get("item") || "" : "", kind = view !== "process" && !item ? q.get("kind") || "" : "";
+  const subQ = item ? { item } : kind ? { kind } : {};          // drawn alone: what an item passed through, a kind touches
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
   const proposal = view !== "process" ? q.get("proposal") || "" : "";   // a change waiting, drawn as it would leave the model
   if (q.has("select")) S.sel =new Set(q.get("select").split(",").filter(Boolean));   // the parts chosen, from a link (interact.js)
   S.portAt = {}; S.portRank = {};                                 // a new view: ports face what they join here
-  S.pinKey = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}`;   // (whatever is open: kept from systems' frames)
+  // (whatever is open: kept from systems' frames); a subset's its kind's, an item's too once its kind is known (show)
+  const pinBase = `ergostat.pins.${S.status?.name || ""}.${view}.${system}.${around}`;
+  S.pinKey = pinBase + (kind ? `.kind:${kind}` : item ? `.item:${item}` : "");
   S.pins = loadPins();
-  S.showHulls = !around;
+  S.showHulls = !around && !item && !kind;
   const wrap = h("div", { class: "canvas-wrap" });
   const svg = s("svg", { class: "canvas", "aria-labelledby": "diagram-caption" });
   const caption = h("h1", { id: "diagram-caption", class: "caption" }, captionText(S.status, view));   // the page's name
-  const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "" }) }, h("option", { value: "" }, "Everything"));
+  const sysSel = h("select", { title: "The system drawn", "aria-label": "System", onchange: (ev) => go({ system: ev.target.value, around: "", item: "", kind: "" }) }, h("option", { value: "" }, "Everything"));
   for (const name of S.status?.systems || []) sysSel.append(h("option", { value: name, selected: name === system ? "" : null }, name));
   function go(over) {
     const to = over.view || view;
-    const p = new URLSearchParams({ view, system, around, ...(openQ != null ? { open: openQ } : {}), ...(to === "process" ? pq : {}),
+    const p = new URLSearchParams({ view, system, around, ...(to !== "process" ? subQ : {}), ...(openQ != null ? { open: openQ } : {}), ...(to === "process" ? pq : {}),
                                     ...(proposal && to !== "process" ? { proposal } : {}), select: [...S.sel].join(","), ...over });
     for (const [k, v] of [...p]) if (!v) p.delete(k);
     navigate("/diagram?" + p.toString());
@@ -1206,6 +1210,8 @@ async function pageDiagram(main, q) {
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
     around ? h("span", { class: "around" }, "around ", h("b", {}, around), " ", h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ around: "" }) }, "\u00d7")) : null,
+    item || kind ? h("span", { class: "around subset" }, item ? ["what ", h("b", {}, item), " passed through "] : ["what kind ", h("b", {}, kind), " touches "],
+      h("button", { class: "ghost", title: "Draw everything again", "aria-label": "Clear", onclick: () => go({ item: "", kind: "" }) }, "\u00d7")) : null,
     more, caption);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
@@ -1243,9 +1249,9 @@ async function pageDiagram(main, q) {
     let g;
     // the blocks view draws every loop, each in its system's outline: it asks for everything opened
     const openArg = openQ != null && view !== "process" ? { open: openQ } : {};
-    S.graphQ = { system, around, ...openArg };      // (the other view's answer is asked the same: interact.js)
+    S.graphQ = { system, around, ...subQ, ...openArg };      // (the other view's answer is asked the same: interact.js)
     const pmArg = view !== "process" ? {} : Object.fromEntries(["kinds", "by", "paths"].filter((k) => pq[k]).map((k) => [k, pq[k]]));
-    const ask = { view, system, around, ...openArg, ...pmArg, ...(proposal ? { proposal } : {}) }, key = JSON.stringify(ask);
+    const ask = { view, system, around, ...subQ, ...openArg, ...pmArg, ...(proposal ? { proposal } : {}) }, key = JSON.stringify(ask);
     if (!SNAP) ask.have = (S.held?.key === key && S.held.hash) || "-";   // the structure it holds: then only the values come
     const t0 = performance.now();
     try { g = await api("graph", ask); fails = 0; }
@@ -1270,6 +1276,9 @@ async function pageDiagram(main, q) {
     wrap.querySelector(".loading")?.remove();
     shell.classList.remove("opening");
     S.graph = g;
+    if (item && g.subset?.kind && S.pinKey !== `${pinBase}.kind:${g.subset.kind}`) {   // an item's: its kind's pins
+      S.pinKey = `${pinBase}.kind:${g.subset.kind}`; S.pins = loadPins();
+    }
     if (typeof quietRefresh === "function") quietRefresh(g);   // an open system's panel: its quiet sentence (details.js)
     setText(caption, captionText(S.status, view));
     caption.title = caption.textContent;
@@ -1311,7 +1320,7 @@ async function pageDiagram(main, q) {
       wrap.querySelector(".empty")?.remove();
       if (!g.nodes.length) {
         svg.replaceChildren();
-        wrap.append(h("div", { class: "empty" }, "No control system here: no goal, and no block that acts."));
+        wrap.append(h("div", { class: "empty" }, g.subset ? `${g.subset.says}.` : "No control system here: no goal, and no block that acts."));
       } else if (!S.pressed) {
         await drawBlocksView(svg, g);
         if (S.anchor && S.anchored) S.fitted = true;  // a system just opened or closed: the view stays as it was
@@ -1326,7 +1335,7 @@ async function pageDiagram(main, q) {
     if (!g.nodes.length) {
       svg.replaceChildren();
       wrap.querySelector(".empty")?.remove();
-      wrap.append(h("div", { class: "empty" }, "Nothing to draw: the model is empty."));
+      wrap.append(h("div", { class: "empty" }, g.subset ? `${g.subset.says}.` : "Nothing to draw: the model is empty."));
       renderSide(side, g, view);
       return;
     }
