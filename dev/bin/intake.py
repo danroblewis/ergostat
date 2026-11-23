@@ -120,7 +120,8 @@ def definition(cfg: dict, gap: dict) -> str | None:
     on = (cfg["git"]["base"], fac.git_branch(branch))
     refs = [f"{ref}:{d}/{branch}.md" for d in (fac.DEFS, fac.OLD_DEFS) for ref in on]     # the new path first
     for where in (str(gap["fields"].get("definition") or ""), f"run/defs/{branch}.md", *refs):
-        if where and brief.definition_text(cfg, where, branch).strip():
+        text = brief.definition_text(cfg, where, branch) if where else ""
+        if text.strip() and not fac.entry_only(text):                 # (a record holding only its GAPS.md entry)
             return where
     return None
 

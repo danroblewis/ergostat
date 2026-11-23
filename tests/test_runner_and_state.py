@@ -168,19 +168,28 @@ def test_a_run_past_its_timeout_is_stopped_with_what_it_started(project, repo):
     from ergostat import model
     from ergostat.store import Project
     p = Project(model.load(repo.path))
-    repo.write("clean.py", "import subprocess, time\nsubprocess.Popen(['sleep', '30'])\ntime.sleep(30)\n")
+    # The run and the child it starts hold the write end of this test's own fifo; the test watches only that, never
+    # the machine's process table, so another test's processes cannot be counted and one already gone is no error.
+    os.mkfifo(repo.path / "alive")
+    held = os.open(repo.path / "alive", os.O_RDONLY | os.O_NONBLOCK)
+    repo.write("clean.py", """
+        import os, subprocess, time
+        w = os.open("alive", os.O_WRONLY)
+        subprocess.Popen(["sleep", "30"], pass_fds=(w,), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+        os.write(w, b"started")
+        time.sleep(30)
+    """)
     t = time.time()
     r = runner.run_agent(p, p.model.agents["cleaner"])
     assert time.time() - t < 10 and r["note"] == "stopped after its timeout of 1s"
-    import subprocess
-    left = subprocess.run(["pgrep", "-f", "sleep 30"], capture_output=True, text=True).stdout.split()
-    assert not [x for x in left if int(x) != 0 and _child_of_test(int(x))], "the run's own children were stopped too"
-
-
-def _child_of_test(pid: int) -> bool:
-    import subprocess
-    cwd = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], capture_output=True, text=True).stdout
-    return "/repo" in cwd and "pytest" in cwd
+    os.set_blocking(held, True)
+    said = b""
+    while chunk := os.read(held, 64):          # end of file once every process holding the write end has exited
+        said += chunk
+    os.close(held)
+    assert said == b"started", "the run never started its child"
+    assert time.time() - t < 10, "the run's own children were not stopped with it"
 
 
 def test_a_valve_position_is_a_setting_kept_as_a_measurement(project, repo):

@@ -12,7 +12,9 @@ is kept with its fence and renewed; once it has ended it is ended from its journ
 engine had been there: ``agent.ran`` (or ``agent.failed``; its id made from the run's, so written once) at the time it
 really ended (its exit file's), its costs at that time, what follows any run's end (``after``: its failure triaged,
 its claims checked, its review), then its lease's ack or nack. Its lines keep when they were printed, by its keeper's
-stamps of its journal (``Stamps``)."""
+stamps of its journal (``Stamps``). The engine may be another version than the one that started the run (a version
+switch): a run whose record states a format of its files it cannot read (``runrecord.JOURNAL``) is refused
+(``refuse``), never read."""
 
 from __future__ import annotations
 
@@ -261,7 +263,9 @@ def take_up(eng, root: Path, name: str) -> threading.Thread | None:
     if not isinstance(rec, dict):                        # (none written: its keeper's group id, its start unknown,
         pgid = _json(d / "pgid")                         # so never taken for gone while that pid is there)
         rec = {"pid": pgid, "start": None} if type(pgid) is int else None
-    run = rec["run"] if rec and isinstance(rec.get("run"), str) else name
+    fmt = rec.get("journal", 1) if isinstance(rec, dict) else 1     # (none stated: written before it was, format 1)
+    readable = type(fmt) is int and fmt == runrecord.JOURNAL
+    run = rec["run"] if readable and rec and isinstance(rec.get("run"), str) else name
     begun = eng.p.events.get(run)
     if not begun or begun.get("type") != "agent.started":
         eng.say(f"runs: {name[:8]}: no start of it in the record: left as it is")
@@ -271,6 +275,9 @@ def take_up(eng, root: Path, name: str) -> threading.Thread | None:
     b = eng.spec.blocks.get(begun.get("item") or "")
     if b is None:
         eng.say(f"runs: {run[:8]}: its block {begun.get('item')} is no longer in the model: left as it is")
+        return None
+    if not readable:
+        refuse(eng, b, begun, f, d, fmt)
         return None
     data = begun.get("data") or {}
     item, fence = data.get("item"), data.get("lease")
@@ -292,6 +299,24 @@ def take_up(eng, root: Path, name: str) -> threading.Thread | None:
                          name="run-taken-up")
     t.start()
     return t
+
+
+def refuse(eng, b, begun: dict, f: dict, d: Path, fmt) -> None:
+    """A run whose record states a format of its files this engine cannot read (``runrecord.JOURNAL``): refused, named
+    (``run.refused``, said once in the record however often it is found, and in the engine's log each time), none of
+    its lines read; its keeper told to stop it, and its lease released uncounted (a nack with no count: the item is
+    taken again, by a run this engine can read, and no run of it goes on beside that one)."""
+    from ..leases.kill import grace
+    run, data = begun["id"], begun.get("data") or {}
+    why = (f"its journal {f['out'].name} is of format {json.dumps(fmt)}, which this ergostat cannot read (it reads "
+           f"format {runrecord.JOURNAL}): refused, its lease released uncounted")
+    eng.say(f"{b.name}: its run {run[:8]} {why}")
+    eng.p.events.add("run.refused", item=b.name, source=SOURCE, causedby=run, id=hashlib.sha256(
+        f"refused:{run}".encode()).hexdigest()[:32], data={"run": run, "journal": str(f["out"]), "format": fmt, "why": why})
+    if d.is_dir() and keeper.ended(str(d)) is None:
+        keeper.put(str(d / "stop"), json.dumps({"grace": grace(), "why": "refused: a journal format not read here"}))
+    if data.get("item"):
+        eng.dispatch.finish(b, data["item"], data.get("lease"), run, {"nack": {"why": why, "count": False}})
 
 
 def _through(eng, b, begun: dict, proc: Adopted, f: dict, item, fence, key: str) -> None:

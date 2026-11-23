@@ -13,10 +13,17 @@ into and resets: each version is its own worktree, detached at its commit, with 
     live.py init [SHA]        make the instance's folder, on SHA (after the first install)
     live.py start | stop      start or stop the engine of the current version, on [instance] port
     live.py switch SHA        stop, point current at SHA, start, check its health; back to the previous on failure
-    live.py switch SHA --detach   the same in a process of its own (the switcher's, dev/bin/drain.py, once the runs
-                              under way drained: the engine that runs it is the one it stops); a switch ends the
-                              drain (run/drain.json) whatever becomes of it
+    live.py switch SHA --detach   the same in a process of its own (the switcher's, dev/bin/drain.py: the engine
+                              that runs it is the one it stops); it removes the switcher's run/switch.json whatever
+                              becomes of it
     live.py revert            switch to the previous version
+
+A switch stops the engine only (`ergostat run --stop`, never `--runs`): with the model's `runs: outlive_engine` each
+run under way is held by a keeper of its own, so it carries on under the version it started with (its process, its
+$ERGOSTAT_CMD), its lease kept with its fence, and the new version's engine takes it up from its journal (SPEC section
+9.1, *Runs taken up again*); a revert, the same, back the other way. None is waited for, stopped or given back. The
+version switched from is touched as it stops running, so cleanup.py keeps it [resources] session_keep_hours on (past
+any run's timeout) for the runs that still use it.
     live.py health            the running engine's health: a pass, the sensors reading, the record read, the queue
     live.py status            which version runs, which is previous, and the versions installed
 
@@ -286,7 +293,9 @@ def switch(cfg: dict, sha: str) -> dict:
     was, before = target(lv / "current"), target(lv / "previous")
     began = time.time()
     wait = float((cfg.get("instance") or {}).get("health_wait", HEALTH_WAIT))
-    stop(cfg)
+    stop(cfg)                                            # (the engine only: the runs under way carry on)
+    if was and (lv / was).is_dir():
+        os.utime(lv / was)                               # (its runs' version, kept by cleanup.py while they may run)
     h: dict = {"healthy": False}
     kept = None
     try:
@@ -316,6 +325,7 @@ def switch(cfg: dict, sha: str) -> dict:
         pass
     if not was or was == sha:
         return h                                         # nothing to go back to: left stopped, said by the caller
+    os.utime(lv / sha)                                   # (the runs it started carry on under it, as above)
     point(lv / "current", was)
     if before:
         point(lv / "previous", before)                  # previous is what it was: the failed one is never gone back to
@@ -341,7 +351,8 @@ def switch(cfg: dict, sha: str) -> dict:
 
 
 def detach(cfg: dict, sha: str) -> Path:
-    """The switch in a process of its own (it stops the engine that started it); its log."""
+    """The switch in a process of its own (it stops the engine that started it, and leaves the runs under way); its
+    log."""
     log = fac.run_dir(cfg, "logs") / f"switch-{sha[:12]}.log"
     subprocess.Popen([sys.executable, __file__, "switch", sha], stdout=log.open("a"), stderr=subprocess.STDOUT,
                      stdin=subprocess.DEVNULL, start_new_session=True, cwd=instance(cfg))
@@ -364,8 +375,8 @@ def main(argv: list[str]) -> int:
     elif what == "switch":
         try:
             h = switch(cfg, argv[1])
-        finally:                                        # the drain that waited for it ends, whatever became of it
-            (fac.run_dir(cfg) / "drain.json").unlink(missing_ok=True)
+        finally:                                        # the switcher's flag goes, whatever became of it
+            (fac.run_dir(cfg) / "switch.json").unlink(missing_ok=True)
         print(json.dumps(h))
         return 0 if h.get("healthy") else 1
     elif what == "revert":

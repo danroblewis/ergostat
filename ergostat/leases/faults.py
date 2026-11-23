@@ -10,7 +10,8 @@ reading, a goal whose part is stale) is never healthy: it holds the queue as an 
 
 The hold is an event about the block, ``ergostat.queue.held`` (``block``, ``healthy``, ``cause``: unhealthy or
 unknown, ``why``, ``since``), and its end ``ergostat.queue.resumed`` (the same, with ``until`` and ``held``, seconds,
-caused by the hold). A hold an earlier engine left open is taken up from the record, so it is ended once."""
+caused by the hold). A hold an earlier engine left open is taken up from the record, so it is ended once.
+``faults: {hold-by: [FIELD]}``, a hold on one value's items only, is ``groups.py``'s."""
 
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ import time
 
 from ..spec.ir import Ref
 from ..spec.observer import stale_age
+from . import groups
 from .poolnow import unread
 
 HELD, RESUMED = "ergostat.queue.held", "ergostat.queue.resumed"
@@ -30,22 +32,26 @@ QUIET = 30.0          # seconds after the engine starts (or wakes) that an unkno
 
 # ---- the model: compiled and checked
 
-def compile_healthy(c, raw, what: str) -> Ref | None:
-    """``faults: {healthy: R}`` in a block's ``takes:`` (None without it). ``sensor.NAME`` is resolved by ``check``."""
+def compile_faults(c, raw, what: str) -> tuple[Ref | None, list[str]]:
+    """``faults: {healthy: R, hold-by: [FIELD]}`` in a block's ``takes:``: its ``healthy`` (None without it; a
+    ``sensor.NAME`` is resolved by ``check``) and its ``hold-by`` fields (``groups.py``)."""
     f = raw.get("faults")
     if f is None:
-        return None
+        return None, []
     w = f"{what}.takes.faults"
-    if not isinstance(f, dict) or "healthy" not in f:
-        c.err(f"{w}: a map with healthy: (a sensor, goal or command; faults: {{healthy: sensor.NAME}})", raw.at("faults"),
-              "bad-takes")
-        return None
-    c.keys(f, {"healthy"}, w)
+    if not isinstance(f, dict) or not ({"healthy", "hold-by"} & set(f)):
+        c.err(f"{w}: a map with healthy: (a sensor, goal or command; faults: {{healthy: sensor.NAME}}) or hold-by: "
+              f"(item fields; faults: {{hold-by: [vpn]}})", raw.at("faults"), "bad-takes")
+        return None, []
+    c.keys(f, {"healthy", "hold-by"}, w)
+    by = groups.compile_hold_by(c, f, raw.at("faults"), w)
+    if "healthy" not in f:
+        return None, by
     x = f["healthy"]
     m = SENSOR.match(x) if isinstance(x, str) else None
     if m:
-        return Ref("sensor", m.group(1))
-    return c.ref(x, raw.at("faults"), f"{w}.healthy", (*PARTS, "goal", "block"))
+        return Ref("sensor", m.group(1)), by
+    return c.ref(x, raw.at("faults"), f"{w}.healthy", (*PARTS, "goal", "block")), by
 
 
 def check(c, spec, b) -> None:

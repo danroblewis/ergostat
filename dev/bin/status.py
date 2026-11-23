@@ -2,7 +2,7 @@
 
     status.py      in flight, blocked (on what), failed (why), the queue, the top of the backlog by rank, research,
                    proposed lessons, spend today and first-pass yield, the pools (their risk, its bound, the tolerance
-                   and the target), the switch (waiting, draining or switching: drain.py), and the time in each state,
+                   and the target), the switch (waiting or switching: drain.py), and the time in each state,
                    the loop and the gates (median and p90, with goals)
     status.py session GAP [ROLE] [N]
                    a session's conversation (run/sessions/, sessions.py): each message, each tool call with its input
