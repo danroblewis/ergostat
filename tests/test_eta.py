@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from ergostat import precedence as pr
-from ergostat.numbers import eta
+from ergostat.numbers import eta, etacheck
 from ergostat.numbers.etamodel import Attempt, BlockIn, Inputs, ItemAt, KindIn, _unscheduled, fundamental, read
 from ergostat.numbers.survival import KM
 
@@ -257,6 +257,97 @@ def test_backtest_p90_coverage_on_a_synthetic_record(tmp_path):
     assert 0.3 <= mean("all", "p50") <= 0.7
     assert mean("path", "coverage") < 0.6                             # a median path with no pool: the owner's 17:43
     assert mean("all", "mae") < mean("path", "mae") * 0.6
+
+
+# ---- the calibration the Timeline says (etacheck.py, from the eta worker)
+
+
+def test_calibration_of_last_weeks_estimates_on_the_owners_record(tmp_path):
+    # now 1.75 days after the batch's first 15 minutes: the week's last cut lands there, the three before the record
+    p = owners_record(tmp_path)
+    now = T0 + 86400 + 900 + 1.75 * 86400
+    assert etacheck.cuts(now)[-1] == T0 + 86400 + 900
+    cal = etacheck.calibration(p, p.model.spec, ["ticket"], now)["ticket"]
+    assert cal["items"] >= 100 and 0.8 <= cal["coverage"] <= 1.0, cal
+    assert cal["mae"] > 0 and cal["since"] == now - etacheck.WEEK
+    assert "finished by their p90" in cal["said"] and f"({cal['items']} tickets)" in cal["said"]
+    from ergostat.web.eta_api import merge
+    est = {"at": now, "runs": 1, "kinds": {}, "capacity": {}, "schedule": {}, "items": {"ticket/x": {}},
+           "calibration": {"ticket": cal}}
+    assert merge({"items": []}, est)["eta"]["calibration"]["ticket"] == cal
+    worse = etacheck.said("ticket", {"items": 41, "coverage": 0.79})   # rounded down: never said better than it was
+    assert worse == "last week's estimates: 7 in 10 tickets finished by their p90 (41 tickets)"
+
+
+def test_calibration_with_three_finished_says_too_few(tmp_path):
+    p = project(tmp_path, pool=3)
+    generate(p, T0, 10, rate=0, pool=3, backlog=3, fail=0.0, rework=0.0, seed=2)
+    now = T0 + 600 + 1.75 * 86400                                        # the last cut 10 minutes in
+    cal = etacheck.calibration(p, p.model.spec, ["ticket"], now)["ticket"]
+    assert cal["items"] <= 3
+    assert cal["said"] == "tickets: too few finished last week to check"
+
+
+def test_calibration_counts_an_item_open_at_every_cut_once(monkeypatch):
+    # three items open at all four cuts, each finished an hour after the last: 3 items, not 12 judgements, so too few
+    now = T0 + 2 * 86400
+    at = etacheck.cuts(now)
+
+    def three(p, spec, kinds, t, truth=False):
+        inp = inputs(n=3, pool=3, at=t)
+        inp.finished_at = {i: at[-1] + 3600 for i in inp.items}
+        return inp
+    monkeypatch.setattr(etacheck, "read", three)
+    monkeypatch.setattr(eta, "simulate", lambda inp, *a, **k: {"runs": 5, "items": {
+        i: {"p50": inp.at + 600, "p90": inp.at + 1200 if inp.at < at[-1] else at[-1] + 7200, "mean": inp.at + 700}
+        for i in inp.items}})
+
+    class P:
+        class events:
+            query = staticmethod(lambda **k: [{"time": now}])
+    cal = etacheck.calibration(P, None, ["t"], now)["t"]
+    assert cal["items"] == 3 and cal["coverage"] == 1.0                    # each by its latest cut: by its p90
+    assert cal["said"] == "ts: too few finished last week to check"
+    every = etacheck.score([three(None, None, None, t) for t in at], now)["kinds"]["t"]
+    assert every["items"] == 12 and every["coverage"] == 0.25             # (the backtest's: each estimate judged)
+
+
+def test_calibration_is_worked_out_by_the_worker_never_on_a_request(tmp_path, monkeypatch):
+    # the calibration held up in the worker: the estimates come first, a request is not slowed, and once it is
+    # worked out it is given beside them; asked again within the hour, it is not worked out again
+    import threading
+    import time
+    from collections import OrderedDict
+
+    from ergostat.web import eta_api
+    for name in ("_CACHE", "_WANT", "_CAL", "_CAL_WANT"):
+        monkeypatch.setattr(eta_api, name, OrderedDict())
+    p = project(tmp_path, pool=3)
+    generate(p, time.time() - 3 * 3600, 3, rate=4, pool=3, backlog=10, seed=5)
+    held, calls = threading.Event(), []
+
+    def slow(p_, spec, kinds, now):
+        calls.append(now)
+        held.wait(30)
+        return {"ticket": {"coverage": 0.5, "items": 20, "mae": 60.0, "since": now - etacheck.WEEK, "said": "said"}}
+    monkeypatch.setattr(etacheck, "calibration", slow)
+    try:
+        first = eta_api.estimates(p, p.model, wait=30)
+        assert first and first["items"] and "calibration" not in first     # the estimates, not held up by it
+        deadline = time.monotonic() + 10
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert calls                                                          # begun, and held
+        t = time.monotonic()
+        again = eta_api.estimates(p, p.model)
+        assert time.monotonic() - t < 0.5 and "calibration" not in again
+    finally:
+        held.set()
+    deadline = time.monotonic() + 10
+    while "calibration" not in (eta_api.estimates(p, p.model) or {}) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert eta_api.estimates(p, p.model)["calibration"]["ticket"]["coverage"] == 0.5
+    assert len(calls) == 1
 
 
 # ---- what cannot move is not scheduled; a failure is said

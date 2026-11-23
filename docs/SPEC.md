@@ -1588,14 +1588,25 @@ as its error (`eta_error` on the Timeline's answer, tried again as an answer wou
 two kinds, a rate limit), a goal that switches a block off (its
 gate is not simulated: a block takes whenever it has room), a process that changed (the record's two weeks are taken
 as how the work goes now), relations as they stand now, and a state never seen left (its items move to the next state
-in their kind's order, assumed). **Validated** (`tests/test_eta.py`; `tests/eta_backtest.py` replays past moments,
-estimates from the record before each alone, and compares with what happened): an M/M/c queue's mean wait matches
+in their kind's order, assumed). **Validated** (`tests/test_eta.py`; `numbers/etacheck.py`, which
+`tests/eta_backtest.py` uses, replays past moments, estimates from the record before each alone, and compares with
+what happened): an M/M/c queue's mean wait matches
 Erlang C within 12%; on three synthetic records of the owner's case (100 tickets brought in at once, a pool of six)
 the p90 covers 89 to 94% of the items, the estimates' mean is within a fifth of the error of what happened, and the
 p50's error is about a third of the median path's, whose p90 covered 36 to 42%. The components were kept by a
 backtest with ablations (`docs/roadmap/overnight/eta.md`): a throughput cap measured from the record changed no
 estimate, and was dropped. On the ticket-factory demo's record, with its workspace pool read as a capacity, the p90
 covers every item.
+
+**How well last week's held.** The same replay runs on the project's own record, so the Timeline says whether to
+believe it: the estimates' worker (never a page's request; when no estimate waits, after the estimates are kept) works
+out each kind's **calibration** at most once an hour: 4 moments over the last 7 days (7, 5¼, 3½ and 1¾ days ago),
+100 runs each within five seconds, against what happened by now. Per kind (`eta.calibration` in the items-graph
+answer): the p90's coverage (an item that finished, judged as above), how many items were judged (an item open at
+several of the moments judged once, by the latest it could be judged at), the p50's mean absolute error, and since when. The Timeline's note adds a clause per kind: "last week's estimates: 8 in 10 tickets
+finished by their p90 (41 tickets)", the share rounded down; fewer than 10 judged: "tickets: too few finished last
+week to check"; a coverage under 0.7 in the warning ink. Not said until first worked out, and kept as the last worked
+out when one fails.
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind

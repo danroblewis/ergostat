@@ -903,7 +903,7 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 .rg-tstage { overflow: visible; cursor: default; }
 .rg-svg { display: block; width: 100%; height: 100%; user-select: none; }
 .rg-gantt { height: auto; }
-.rg-note:empty { display: none; }
+.rg-note:empty, .rg-note:has(> span:empty + .rg-calibration:empty) { display: none; }
 .rg-legend { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); font-size: var(--text-sm); color: var(--muted); margin: var(--sp-2) 0 0; }
 .rg-key { display: inline-flex; align-items: center; gap: var(--sp-1); }
 .rg-key i { display: inline-block; width: var(--sp-3); height: var(--sp-3); border: var(--hair) solid var(--ink); border-radius: var(--radius); background: var(--bg); }
