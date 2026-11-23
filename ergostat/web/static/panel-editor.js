@@ -12,8 +12,8 @@
   const WINDOWS = [2, 3, 5, 10, 20, 60];
   const FORMS = [["line", "Line"], ["area", "Area"], ["stacked", "Stacked"], ["bars", "Bars"], ["stat", "Stat"], ["table", "Table"]];
   const SIZES = [["s", "Third"], ["m", "Half"], ["l", "Two thirds"], ["full", "Full"]];
-  const LEGENDS = [["right", "Right"], ["left", "Left"], ["none", "Hidden"]];
-  const LEGEND_VALUES = [["last", "Last"], ["min", "Min"], ["max", "Max"], ["avg", "Average"], ["sum", "Total"]];
+  const LEGENDS = [["", "Automatic"], ["right", "Right"], ["bottom", "Below"], ["hidden", "Hidden"]];
+  const LEGEND_VALUES = [["last", "Last"], ["min", "Min"], ["max", "Max"], ["avg", "Average"]];
   const UNITS = ["items", "items/h", "events", "usd", "usd/h", "s", "%", "bytes", "tokens"];
   const ORDER = ["source", "kind", "field", "measure", "state", "series", "type", "where", "group_by", "agg", "transform", "rate_per", "window"];
   const FOCUSABLE = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
@@ -235,8 +235,7 @@
     }
     function draw({ results, meta, firstError }) {
       if (!results.length) { chart.setState("error", firstError || "No answer for these queries"); return; }
-      chart.update(results, meta);
-      if (!results.some(r => (r.series || []).some(x => (x.values || []).some(v => v != null)))) chart.setState("empty", "Nothing recorded in this window");
+      chart.update(results, meta);             // (the panel says for itself when they hold nothing)
     }
 
     function renderUnit() {
@@ -391,7 +390,7 @@
       h("option", { value: "" }, "Automatic"), [0, 1, 2, 3, 4].map(n => h("option", { value: n }, String(n))));
     decSel.value = draft.display.decimals ?? "";
     const legendSel = h("select", { onchange: () => setDisplay("legend", legendSel.value) }, LEGENDS.map(([v, t]) => h("option", { value: v }, t)));
-    legendSel.value = draft.display.legend || "right";
+    legendSel.value = draft.display.legend || "";
     const legendValues = h("div", { class: "pe-checks" }, LEGEND_VALUES.map(([v, t]) => {
       const input = h("input", { type: "checkbox", value: v, onchange: () => {
         const on = new Set(draft.display.legend_values || []);

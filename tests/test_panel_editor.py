@@ -63,7 +63,11 @@ function chartPanel(config) {
   el.style.cssText = 'display:flex;flex-direction:column;height:100%;background:var(--bg);padding:8px;box-sizing:border-box';
   let cfg = config;
   __log.charts.push(config);
-  el.update = (results) => { __log.updates.push(JSON.parse(JSON.stringify(results))); el.dataset.state = 'drawn'; drawStub(el, cfg, results); };
+  el.update = (results) => {
+    __log.updates.push(JSON.parse(JSON.stringify(results)));
+    el.dataset.state = 'drawn';
+    drawStub(el, cfg, results);
+  };
   el.setState = (state, reason) => { __log.states.push([state, reason]); el.dataset.state = state; el.textContent = reason || state; };
   el.setConfig = (c) => { cfg = c; __log.configs.push(JSON.parse(JSON.stringify(c))); };
   el.destroy = () => { __log.destroyed++; };
@@ -337,7 +341,7 @@ def test_display_changes_redraw_without_asking_again(ed):
     ed.get_by_label("Log scale").check()
     assert "above 0" in ed.locator(".pe-side [role=status]").inner_text()
     ed.get_by_label("Minimum").fill("1")
-    ed.get_by_label("Position").select_option("left")
+    ed.get_by_label("Position").select_option("bottom")
     ed.get_by_label("Decimals").select_option("3")
     ed.locator(".pe-checks .pe-seg", has_text="Max").click()
     ed.get_by_role("button", name="Add threshold").click()
@@ -349,7 +353,7 @@ def test_display_changes_redraw_without_asking_again(ed):
     assert ed.evaluate("__log.asked.length") == asked
     ed.get_by_role("button", name="Save", exact=True).click()
     saved = result(ed)["saved"]
-    assert saved["display"] == {"y": {"min": 1, "max": 50, "log": True}, "legend": "left", "decimals": 3,
+    assert saved["display"] == {"y": {"min": 1, "max": 50, "log": True}, "legend": "bottom", "decimals": 3,
                                 "legend_values": ["max"], "thresholds": [{"value": 100, "label": "budget"}]}
     assert saved["size"] == "l" and saved["tall"] is True
 
@@ -453,7 +457,7 @@ def test_at_phone_width_it_stacks_with_no_sideways_scroll(ed, scheme, tmp_path):
                         {**HOUR_COST, "id": "b", "field": "retired"}]}
     opened(ed, many)
     wait_drawn(ed)
-    wide = ed.evaluate("""() => { const o = document.querySelector('.pe-overlay');
+    wide = ed.evaluate("""() => { const o = document.querySelector('.pe-body');
         const over = [...o.querySelectorAll('*')].filter(e => e.getClientRects().length
              && e.getBoundingClientRect().right > innerWidth + 0.5
              && !e.closest('.pe-live') && getComputedStyle(e).position !== 'absolute');
@@ -463,5 +467,7 @@ def test_at_phone_width_it_stacks_with_no_sideways_scroll(ed, scheme, tmp_path):
         .map(s => document.querySelector(s).getBoundingClientRect().top)""")
     assert boxes == sorted(boxes), "preview, then queries, then options"
     shot(ed, f"phone-{scheme}", tmp_path)
-    ed.locator(".pe-overlay").evaluate("e => e.scrollTo(0, e.scrollHeight)")
+    ed.locator(".pe-body").evaluate("e => e.scrollTo(0, e.scrollHeight)")
+    assert ed.evaluate("""Math.abs(document.querySelector('.pe-preview').getBoundingClientRect().top
+        - document.querySelector('.pe-body').getBoundingClientRect().top) < 1"""), "the preview stays in sight"
     shot(ed, f"phone-{scheme}-options", tmp_path)
