@@ -4,7 +4,7 @@ for its limit, a critical goal decaying); those take a project."""
 
 from __future__ import annotations
 
-from .ir import Ref, Spec
+from .ir import Ref, Spec, template_made
 from .load import Problem
 
 
@@ -64,6 +64,10 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
                 f"stock has memory: its value persists, and changes only through its flows. A quantity without memory, "
                 f"determined at each moment by others (a ratio, a score), is an auxiliary: give it its flows, or move it "
                 f"to auxiliaries:",
+                st.where, f"stock.{st.name}")
+        if not (st.unit or "").strip() and not template_made(st):   # a property of the model, not a request (SPEC §12e)
+            say("no-unit", f"stock {st.name}: no unit. Give it the natural unit of what it counts (alerts, tickets, GB), "
+                f"never a generic one: its flows take it per hour, and the dimensional checks then hold them to it",
                 st.where, f"stock.{st.name}")
         if st.limit is not None and not any(g.of == Ref("stock", st.name) for g in spec.goals.values()):
             say("unguarded-limit", f"stock {st.name}: has a limit ({st.limit:g}) but no goal: nothing keeps it from it",

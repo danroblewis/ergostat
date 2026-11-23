@@ -5,7 +5,6 @@ professional in its discipline would have drawn it, beyond being correct. ``chec
 
 - ``no-description``: a stock, flow, auxiliary, parameter, goal, block, item kind or agent with no description (the
   diagrams show nothing when a reader clicks it);
-- ``no-unit``: a stock with no unit (its flows have none either, and the dimensional checks pass it by);
 - ``no-equation``: a flow between two stocks with no equation nor declared rate (replayed, never projected);
 - ``collector-undescribed``: a sensor that reads the outside (``run:``, ``query:``) with no description (the Blocks
   view titles the collector with its command);
@@ -26,7 +25,7 @@ import re
 from .ir import Spec
 from .ir import template_made as _made
 
-CODES = ("no-description", "no-unit", "no-equation", "collector-undescribed", "event-names-mixed",
+CODES = ("no-description", "no-equation", "collector-undescribed", "event-names-mixed",
          "queue-goal-tolerance", "schedule-removed", "process-not-identified")
 IRREGULAR = {"done", "sent", "made", "taken", "begun", "written", "given", "run", "set", "put", "read", "seen", "found",
              "held", "kept", "left", "lost", "met", "paid", "sold", "told", "won", "built", "bought", "brought", "caught",
@@ -82,12 +81,6 @@ def notes(spec: Spec, say) -> None:
             say("no-description", f"{kind} {n}: no description, so the diagrams show nothing when a reader clicks it: "
                 f"one line a newcomer can read without the YAML, in the world's words"
                 + (" (for a flow, what decides it)" if kind == "flow" else ""), getattr(x, "where", None), f"{kind}.{n}")
-    for n, st in spec.stocks.items():
-        if _made(st) or (st.unit or "").strip():
-            continue
-        say("no-unit", f"stock {n}: no unit. Give it the natural unit of what it counts (alerts, tickets, GB), never a "
-            f"generic one: its flows take it per hour, and the dimensional checks then hold them to it", st.where,
-            f"stock.{n}")
     for n, f in spec.flows.items():
         if _made(f) or not (f.source and f.target) or f.equation is not None or f.rate is not None:
             continue
