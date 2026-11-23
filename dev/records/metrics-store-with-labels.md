@@ -64,3 +64,9 @@ Why: the environment, for the second time in a row. No dependency is missing. I 
 wrote no untested code: code that cannot be run or committed would fail review (done means tests pass and the work is
 committed). Do not schedule round 3 until a session's Bash is shown to work, for example by running
 `git -C /work status --short` as the session's first command before the gap is handed over.
+
+## Where it stopped
+
+Parked by the factory (review/metrics-store-with-labels-2, 2026-11-23 14:49).
+
+Done: only the definition of done and the stopped-round notes are committed (0 core lines). Left: everything in the definition. That is the idempotent SQLite-to-VictoriaMetrics migration with a test against a real binary (skipped when absent) that keeps every reading and answers PromQL, a test that running it twice changes nothing, bounded series labels, the built-in Prometheus-compatible data source, the SQLite message on PromQL panels, VictoriaMetrics as a supervised process and the default for new installs, the guide text on turning it on, and the rate()/increase() comparison against Prometheus. Why stop: in three rounds, every build session's shell commands were refused ('don't ask mode'), so no code could be run, tested or committed. Another round in the same environment would fail the same way. The cause is the environment, not the gap's approach.
