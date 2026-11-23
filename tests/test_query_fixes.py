@@ -50,6 +50,17 @@ def test_rolled_buckets_match_the_raw_readings_they_came_from(tmp_path):
     assert all(got[b][1] == want[b][0] and got[b][2] == want[b][1] for b in whole)
 
 
+def test_a_first_bucket_holding_a_roll_up_from_before_the_window_has_no_count(tmp_path):
+    m, _ = _rolled(tmp_path)
+    since = BASE + 900.0                 # halfway through a 600 s row
+    g = series_grid(m, "s", since, since + 6 * 3600, 120, None)
+    assert sources.overhangs(m, "s", g)
+    assert not sources.overhangs(m, "s", series_grid(m, "s", BASE + 1200, BASE + 1200 + 6 * 3600, 120, None))
+    q = engine.Query(id="a", source="series", agg="sum", series="s")
+    read = sources.series(type("P", (), {"measurements": m, "model": type("M", (), {"stocks": {}, "flows": {}})()})(), None, q, g)
+    assert read.levels["s"][0] is None and read.levels["s"][1] is not None and "first bucket" in read.note
+
+
 def test_a_store_with_nothing_rolled_keeps_the_asked_step(tmp_path):
     m = Measurements(tmp_path, raw=DAY, tiers=[(600.0, 1e9)])
     m.add("s", 1.0, at=BASE)

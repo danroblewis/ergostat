@@ -218,11 +218,21 @@ def series_grid(m, name: str, since: float, until: float, points: int, asked: fl
     for _ in range(4):
         with m._c() as c:
             parts = m._sources(c, name, g.since, g.until, fine=g.step)
-        tiers = {int(e) for e, _, _ in parts if 0 < e <= g.step}
+        tiers = {int(e) for e, _, _ in parts if e > 0}     # (one wider than the step asked for is the finest the record holds)
         if not tiers or g.step % (unit := math.lcm(*tiers)) == 0:
             return g
         g = grid(since, until, points, float(math.ceil(g.step / unit) * unit))
     return g
+
+
+def overhangs(m, name: str, g: Grid) -> bool:
+    """Whether the first bucket is answered by a roll-up row that began before the window: it holds readings from
+    outside it, which cannot be told apart from those inside."""
+    if not hasattr(m, "_sources"):
+        return False
+    with m._c() as c:
+        parts = m._sources(c, name, g.since, g.until, fine=g.step)
+    return bool(parts) and parts[0][0] > 0 and parts[0][1] < g.since
 
 
 def series(p, spec, q: Query, g: Grid) -> Read:
@@ -237,7 +247,12 @@ def series(p, spec, q: Query, g: Grid) -> Read:
         rows = [(t, v, v) for t, v in m.sampled(q.series, g.since, g.until, points=READINGS_MOST // 2)]
         return Read(rows={q.series: rows} if rows else {}, unit=unit, before=before and before[1], before_t=before and before[0],
                     note="percentiles over rolled-up spans read their buckets' means")
-    return Read(levels={q.series: _rolled(m, q, g)}, unit=unit, before=before and before[1], before_t=before and before[0])
+    row = _rolled(m, q, g)
+    note = None
+    if q.agg in ("count", "sum") and row[0] is not None and overhangs(m, q.series, g):
+        row[0] = None
+        note = "the first bucket is left empty: its roll-up began before the window, so its count and sum are not this window's"
+    return Read(levels={q.series: row}, unit=unit, before=before and before[1], before_t=before and before[0], note=note)
 
 
 def _rolled(m, q: Query, g: Grid) -> list:
