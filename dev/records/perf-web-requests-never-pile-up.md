@@ -56,3 +56,9 @@ Main (2a97eafb2781) conflicted in the three web files, and the branch now holds 
 No review findings were listed for this round other than the merge conflicts, so nothing else changed.
 
 Run in round 3, after the merge: tests/test_web_lanes.py (11 passed), tests/test_web_access.py (26 passed), tests/test_projects_header.py (6 passed), tests/test_page_polling.py with Playwright under suite_watch (20 passed, rc 0, none skipped, 897 s), and ruff (clean). Not run: the full unit suite, the other three browser files (test_page_refresh among them, which reads /api/projects) and demo_check (no example touched).
+
+### Round 4: main merged in again
+
+Main (7cb97857e338) conflicted only in tests/test_page_polling.py: main added test_the_loops_page_asks_once_for_every_goal where the branch added test_leaving_a_page_cancels_its_fetches_in_flight. Both tests are kept, unchanged. No other finding was listed, so no code changed.
+
+Run in round 4, after the merge: tests/test_web_lanes.py (11 passed), tests/test_web_access.py (26 passed), tests/test_projects_header.py (6 passed), tests/test_page_polling.py with Playwright under suite_watch (21 passed, rc 0, none skipped, 951 s), and ruff (clean). Not run: the full unit suite, the other three browser files and demo_check (no example touched).
