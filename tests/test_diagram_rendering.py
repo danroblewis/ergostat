@@ -3794,7 +3794,7 @@ def test_a_change_of_window_shows_that_windows_behaviour_at_once(browser, tmp_pa
         pg.goto(url + "/loops")
         cell = "() => document.querySelector('td[data-perf=\"steady\"]')?.textContent || ''"
         pg.wait_for_function(f"() => ({cell})().startsWith('within')", timeout=20000)
-        switch = "(k) => { S.since = k; S.graphSig = ''; showAt(); route(); refreshHeader(); }"   # as the window menu does
+        switch = "(k) => setWindow(k)"                   # what the window menu calls (it puts window= in the address)
         pg.evaluate(switch, "10m")                       # (the record is longer than ten minutes, shorter than a day)
         pg.wait_for_function("() => S.status.window === 600 && S.status.at - S.status.first > 700", timeout=10000)
         pg.wait_for_function(f"() => ({cell})().startsWith('within')", timeout=5000)
@@ -5807,6 +5807,137 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert "remote incidents's" in pg.locator("#detail").inner_text()
     pg.close()
     assert not errors, errors
+
+
+def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
+    """A loop chosen on the Loops page, and the window chosen, are in the address (?select=, ?window=): the address
+    opened in a new tab shows the same panel and window. Changing the window leaves the panel open and says
+    'Loading…' in the table until it is answered. A stock chosen on the diagram is in the address, and a reload rings
+    it; the Record's filter is in the address, and a reload keeps it. (first-loop's inbox-short stands in for the
+    review's api-q2-low, a demo's goal no test has.)"""
+    d = tmp_path / "first-loop"
+    shutil.copytree(ROOT / "examples" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    panel = "(n) => !document.querySelector('#detail').hidden && (document.querySelector('#detail h2')?.textContent || '').includes(n)"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        ctx = browser.new_context(viewport={"width": 1500, "height": 1000})
+        pg = ctx.new_page()
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/loops")
+        pg.locator("#main tr.click", has_text="inbox-short").first.click()
+        pg.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        assert "select=inbox-short" in pg.url, pg.url
+        # the window changed: the loops' answer held back, so what the table says meanwhile is seen
+        held: list = []
+        pg.route(lambda u: u.split("?")[0].endswith("/api/loops"), lambda rt: held.append(rt))
+        pg.locator("#when .menu-btn").click()
+        pg.locator(".menu-item", has_text="Last 6 hours").click()
+        loading = "() => [...document.querySelectorAll('#main .page p.muted')].some((p) => p.textContent === 'Loading…')"
+        pg.wait_for_function(loading, timeout=20000)
+        assert pg.evaluate(panel, "inbox-short"), "the panel closed when the window changed"
+        assert "window=6h" in pg.url and "select=inbox-short" in pg.url, pg.url
+        for rt in held:
+            rt.continue_()
+        pg.unroute_all()
+        pg.wait_for_function(f"() => document.querySelector('#main tr.click') && !({loading})()", timeout=20000)
+        # the address, in a new tab: the same panel and window
+        tab = ctx.new_page()
+        tab.on("pageerror", lambda e: errors.append(str(e)))
+        tab.goto(pg.url)
+        tab.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        assert tab.evaluate("[S.since, document.querySelector('#when .menu-btn').textContent]") == ["6h", "Last 6h"]
+        tab.locator("#detail button.close").click()                  # closed by hand: no longer in the address
+        tab.wait_for_function("() => !location.search.includes('select=')", timeout=5000)
+        tab.close()
+        # back and forward: each entry's address names the window it shows, and the page shows that window
+        agree = "() => [S.since, new URLSearchParams(location.search).get('window'), document.querySelector('#when .menu-btn').textContent]"
+        pg.evaluate("() => setWindow('1d')")
+        pg.evaluate("() => navigate('/items')")
+        assert "window=1d" in pg.url, pg.url
+        overview = "() => !!document.querySelector('#main .kind-overview')"    # bare /items: the kinds' overview, whatever the window
+        assert pg.evaluate(overview), "/items?window=1d is not the overview"
+        pg.evaluate("() => setWindow('6h')")
+        assert "window=6h" in pg.url and pg.evaluate(overview), pg.url
+        pg.evaluate("() => setWindow('1h')")
+        assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
+        pg.go_back()
+        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        assert pg.evaluate(agree) == ["1d", "1d", "Last 1d"]
+        pg.go_forward()
+        pg.wait_for_function("() => location.pathname === '/items'", timeout=5000)
+        assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
+        pg.goto(url + "/items?window=1d")                              # a pasted link with a window: still the overview
+        pg.wait_for_function(overview, timeout=20000)
+        assert pg.evaluate(agree) == ["1d", "1d", "Last 1d"]
+        # the diagram: a stock chosen is in the address, and a reload rings it
+        pg.goto(url + "/diagram")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        hit = pg.locator('g.node[data-id="stock:inbox"] .hit').first.bounding_box()
+        pg.mouse.click(hit["x"] + hit["width"] / 2, hit["y"] + hit["height"] / 2)
+        pg.wait_for_function("() => new URLSearchParams(location.search).get('select') === 'stock.inbox'", timeout=5000)
+        pg.reload()
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        pg.wait_for_function("() => document.querySelector('g.node[data-id=\"stock:inbox\"]').classList.contains('selected')",
+                             timeout=5000)
+        # a stock's panel, then a flow's (shown by no opener the window asks again): the window changed keeps the
+        # flow's, not the stock's asked again in its place
+        pg.goto(url + "/diagram?view=dynamics")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        kind = "() => document.querySelector('#detail .kind')?.textContent"
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        assert pg.evaluate(kind) == "Stock" and pg.evaluate(panel, "inbox")
+        pg.evaluate("() => openEdgeSD(S.graph.edges.find((e) => e.kind === 'pipe'))")
+        assert pg.evaluate(kind) == "Flow", pg.evaluate(kind)
+        pg.evaluate("() => setWindow('1d')")                         # (resolves once the panel's opener, if any, answered)
+        assert pg.evaluate(kind) == "Flow", "the window changed: the flow's panel was replaced by " + str(pg.evaluate(kind))
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        pg.evaluate("() => { document.querySelector('#detail').append(Object.assign(document.createElement('i'), { id: 'stale' })); }")
+        pg.evaluate("() => setWindow('6h')")                         # a stock's own panel is asked again in the new window
+        assert pg.evaluate(kind) == "Stock" and not pg.evaluate("() => !!document.querySelector('#stale')")
+        # Back with another page's panel open: the panel shown is the address's select= loop, not the stock's left over;
+        # Forward again: no panel left over, and a window change there opens none
+        pg.goto(url + "/loops")
+        pg.locator("#main tr.click", has_text="inbox-short").first.click()
+        pg.wait_for_function(panel, arg="inbox-short", timeout=20000)
+        pg.evaluate("() => navigate('/diagram?view=dynamics')")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
+        assert pg.evaluate(kind) == "Stock"
+        pg.go_back()
+        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        assert "select=inbox-short" in pg.url, pg.url
+        pg.wait_for_function(f"() => ({panel})('inbox-short') && ({kind})() === 'Loop' && !!document.querySelector('#detail dl')",
+                             timeout=20000)          # (its answer in, not its 'Loading…': a late one is another matter)
+        pg.go_forward()
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        assert pg.evaluate("() => document.querySelector('#detail').hidden"), "a panel was left over after Forward"
+        pg.evaluate("() => setWindow('1d')")
+        assert pg.evaluate("() => document.querySelector('#detail').hidden"), "a window change reopened the loop's panel"
+        # the Record's filter: written as main's match=, a link's filter= read as well
+        pg.goto(url + "/record")
+        pg.locator(".filters input[type=search]").fill("valve.*")
+        pg.locator(".filters input[type=search]").press("Enter")
+        pg.wait_for_function("() => new URLSearchParams(location.search).get('match') === 'valve.*'", timeout=5000)
+        pg.reload()
+        pg.wait_for_function("() => document.querySelector('.filters input[type=search]')?.value === 'valve.*'", timeout=20000)
+        pg.goto(url + "/record?filter=agent.*")
+        pg.wait_for_function("() => document.querySelector('.filters input[type=search]')?.value === 'agent.*'", timeout=20000)
+        ctx.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
 
 
 ON_PHONE = """() => {
