@@ -257,12 +257,12 @@ A panel whose refs no longer exist after a model edit says so ("stock.x: not in 
 That is the same check the compiler makes, done here because a draft is never compiled.
 
 **Editing (story H5).** An **Edit** button turns editing on. Every change goes to the draft (the address and
-localStorage) and never to the server. With editing on, each panel is one focusable region with a small toolbar
-(Move, Resize, Remove):
+localStorage) and never to the server. With editing on, each panel is one focusable region, moved by its title,
+resized by its edges, and offering only Edit and Remove over its header's corner on hover or focus:
 
-- **Move**: Alt+Arrow keys move the focused panel a column or a line (the toolbar's ← and → a column).
+- **Move**: Alt+Arrow keys move the focused panel a column or a line.
 - **Resize**: Shift+Alt+Arrow keys step through `s`, `m`, `l` and `full`, and to and from `tall`.
-- **Remove**: the Delete key, or the toolbar's Remove. Focus goes to the next panel, else the one before it, else
+- **Remove**: the Delete key, or its ×. Focus goes to the next panel, else the one before it, else
   **Add panel**.
 - **Add panel**: opens a dialog. It names the kinds and asks each kind's parameters with the controls the full view
   already uses (the Items page's kind and state pickers, the diagram's part picker). On Add, focus goes to the new
@@ -273,7 +273,7 @@ shrinking or moving one never moves another: gaps stay. A panel dropped or grown
 covers (and what they then cover), never up. **Rows** are full-width titled lines (Edit, **Add row**): the panels under
 a row, down to the next, are its own, and a row is a guaranteed break, so a panel above it that grows pushes the row
 down with all its panels and never crosses it. A row folds (its panels kept in it, what is below closing up by what it
-spanned) and opens again to the same places; it is dragged by its grip, or moved with ↑ and ↓, taking its panels.
+spanned) and opens again to the same places; it is dragged by its bar, or moved with ↑ and ↓, taking its panels.
 **Repeated panels** (the editor's *Repeat*): one panel for each series a query answers with (its label's values), or
 for each value of a variable the draft names (`vars`), at most 24, and at most 64 charts on the page. The copies are
 drawn beside the panel in its row, line after line, and are added and removed as the values change; only they lay

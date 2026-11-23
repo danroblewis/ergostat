@@ -94,3 +94,28 @@ Choices made alone, each the easier one to undo:
   (a drag cancelled) changes the draft in memory only, to the places it already shows.
 - Since a drag starts from the drawn places, the round-1 known limit "a drag's drop point is worked out on the draft's
   own places" is gone. The other two known limits stand.
+
+### Round 3
+
+Merged, round 3. The one finding was a conflict with main (28ad5c4a) in dashboard.css and dashboard.js. Main's
+dashboard-panel-controls-on-hover had cut a panel's edit-mode bar down to Edit and × over the header's corner, and
+removed the grip, the ←/→/−/+/↕ buttons and the foot. The branch had changed that bar (round 1's ← and → became
+"move a column"). Net code outside tests and docs, against main: +279 lines (dashboard.js, dashboard.css,
+panel-editor.js).
+
+How it was resolved, keeping both sides:
+- A panel's tools are main's (Edit and ×). Moving a column or a line by keyboard (Alt+arrows) and resizing
+  (Shift+arrows when lifted) stay as they were. The toolbar's ← and → from round 1 are gone along with main's bar.
+- A row had its own grip (⠇). Main's tests/test_dashboard_controls.py says `dash-grip` appears nowhere in
+  dashboard.js, so I removed the row's grip as well. A row is now dragged by its bar, the way a panel is dragged by its
+  title (pointerdown takes `.panel-head, .dash-row-bar`, never a button or the title field). Its ↑, ↓ and × stay.
+  The row-drag step of `test_rows_fold_open_drag_with_their_panels_and_are_a_break` now drags the bar's empty stretch.
+- That test's `tools_built` read every `dashTool(...)` in the file. I narrowed it to `dashCell`, since a row's
+  ↑ ↓ × are not a panel's tools. The rest of that test, including the whole-file check for the grip and arrows, is
+  unchanged. This is a change to another gap's test, and the easier one to undo: the other way was to build the
+  row's buttons without `dashTool`, which would only dodge the check.
+- docs/proposals/dashboard.md no longer mentions a toolbar or a row grip.
+
+Run here, after the merge: tests/test_dashboard_controls.py (2 passed), tests/test_dashboard_layout.py (26),
+tests/test_dashboard_page.py (33), tests/test_panel_editor.py (34), tests/test_dashboards_doc.py (34), all under
+suite_watch with rc 0 and nothing skipped. Ruff clean. Not run here: the unit suite and the four browser files.
