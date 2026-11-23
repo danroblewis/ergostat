@@ -108,3 +108,12 @@ switch test went from 146 s to within 74 s with tests/test_fac_items.py). It is 
 
 Until that gap lands, the build's switch test may still fail under load. That failure is on main, not this
 branch's code (reasons in round 1 above), so the factory's rerun on clean main should place it there.
+
+Continued, round 2 (build after d7119763): the build failed on
+tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine (the switcher still running
+at its 120 s bound; 1 failed, 194 passed, 2 skipped). This is the failure the paragraph above expected. Its code fix
+is the fac.items change that this round's review told the branch to take out (lesson 13). Putting it back would
+reopen that blocking finding, so no code changed. The test's bounds were not changed either. The branch does not
+change dev/bin/fac.py, dev/bin/drain.py or dev/bin/live.py, so the code the test waits on is main's. The failure needs
+the proposed gap "fac.items lists only the states that hold items" (55d39de7 has the fix). Until that gap lands,
+this gap waits on it, or on the factory's rerun on clean main to place the failure there.
