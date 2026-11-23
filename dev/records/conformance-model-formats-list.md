@@ -75,3 +75,52 @@ Its runs failed past their attempts (a dead letter):
 - attempt 3: nack given back
 - attempt 4: nack exited 1
 - attempt 5: nack the run ended with gap/conformance-model-formats-list still parked
+
+## Where it stopped
+
+Built, round 1 (implementor, 2026-11-23): `dev/conformance/model-formats.yaml` (the 5 cases, all `asked: true`),
+`dev/conformance/checks/formats.py` (`python3 dev/conformance/checks/formats.py CASE [ROOT]`),
+`dev/conformance/checks/fixtures/small.xmile`, and `tests/test_conformance_lists_ergostat.py` (the 3 named tests plus
+4 more: the results on main, broken-not-unmet, and the two XMILE checks against stand-in modules).
+
+Each check run on main (`test_checks_on_main_give_the_recorded_results`), beside section 6's expectations:
+
+| Case | Expected | Got on main | Note |
+|---|---|---|---|
+| `ergostat-yaml` | met | met (exit 0) | `ergostat check --no-coherence` on all 20 `examples/*/ergostat.yaml` |
+| `ergostat-toml` | met | met (exit 0) | the 12 old examples are `tests/fixtures/toml/*.toml` (none is left under `examples/`) |
+| `served-model` | met | met (exit 0) | |
+| `xmile-export` | unmet | unmet (exit 1) | no `ergostat/xmile.py` |
+| `xmile-import` | unmet | unmet (exit 1) | no importer |
+
+No differences. Seen able to fail (lesson-9): first-loop with `out: flow.nowhere`, and first-loop.toml with its
+valve on `flow = "nowhere"`, both exit 1 (a good copy of each exits 0); the served answer with `FORMAT`
+`ergostat-model/2`, or with one stock left out, exits 1. Four mutations of the checks were each seen to fail a test,
+then reverted: the served format test removed, TOML compile errors ignored after convert, the `<eqn>` syntax scan
+turned off, and causes read without their sign.
+
+Choices the definition left open, each taken the more reversible way:
+- **The export entry point.** The export gap's brief names a new module, `ergostat/xmile.py`, but not its function.
+  If the module is missing, the case is unmet. If it is there, the check calls the first of `export`, `to_xmile` or
+  `write` with the compiled spec of image-squeeze, and takes text, bytes or an `Element` back. If the module is
+  there but has none of those functions, the case is *broken* (exit 2, "update this check"), not unmet, so a
+  renamed function cannot hide a built export. When that gap merges, its own name for the function should be added
+  to `EXPORTS` if it differs.
+- **What the XMILE checks compare.** Structure only (definition item 4): the root's tag in XMILE 1.0's namespace,
+  and the `<stock>` and `<flow>` names, compared as sets with `-`, `_` and spaces taken as the same character.
+  Every `<eqn>` must hold no `stock.`/`flow.`/`auxiliary.`/`parameter.`/`goal.`/`block.` reference, no `${`, and no
+  hyphenated name from the model written as it is. Order, whitespace, headers and vendor elements do not count
+  (tested).
+- **The importer entry point.** Nothing names it. The check looks for `ergostat.xmile.draft`/`from_xmile`, then
+  `ergostat.spec.discover.from_xmile` (named like `from_prometheus`). It passes the fixture's text and reads back
+  YAML text, a `(text, notes)` pair or a mapping. The draft must have stocks `backlog` and `done`, one flow `work`
+  from backlog to done, and `driven-by` exactly `+backlog` and `-done` (an unsigned cause does not match).
+  Auxiliaries are not compared: the definition's fixture has 2 stocks and 1 flow, and no auxiliary.
+- `ergostat check` is run with `--no-coherence`, so the result does not depend on any machine's record.
+- Nothing to check is broken (exit 2), never met: no examples, no TOML fixtures, or image-squeeze not compiling.
+- `test_checks_on_main_give_the_recorded_results` takes about 100 s, almost all of it in `ergostat-yaml`, which
+  runs `ergostat check` once per example in turn (each can wait up to 5 s for the extreme-conditions tests). It is
+  kept so that item 2 is checked by a test, not by one run by hand. It could be dropped from the unit suite if that
+  time is too much.
+
+Overrun reason: the budget of 170 lines counts dev/, and the three files under dev/conformance/ come to 218 lines (formats.py 180, the list 25, the fixture 13), about 50 of them blank lines and docstrings. The five checks, the broken-copy ROOT argument and the stricter met/unmet/broken split need them. The factory's own net-line count (fac.net_lines) leaves dev/ out, which gives 0.
