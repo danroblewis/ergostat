@@ -185,6 +185,11 @@ function keepAnchor(a) {
   if (Math.abs(dy) >= 1) a.sc.scrollTop += dy;
 }
 
+/* a share as a percentage: one that is not zero is never written '0%' ('<1%') */
+const shareText = (x) => (x > 0 && x < 0.005 ? "<1%" : `${Math.round((x || 0) * 100)}%`);
+/* a goal that went off this many times in the window or more is flapping: past its bound and back, again and again */
+const FLAP_AT = 20;
+
 /* the one number formatter: integers as they are (thousands separated from 10,000), others to three
    significant figures, a real minus */
 function fmt(x) {
@@ -349,7 +354,7 @@ function leavePage() { if (PAGE.el && !PAGE.el.isConnected) PAGE.c?.abort(); }
 const pageLeft = (e) => e?.name === "AbortError";
 window.addEventListener("unhandledrejection", (ev) => { if (pageLeft(ev.reason)) ev.preventDefault(); });
 /* an answer as its text, and the address it came from */
-async function apiText(path, params = {}, kept = false) {
+async function apiText(path, params = {}, kept = false) {   // ``kept``: true (the header's), or an AbortSignal of the page's own, to let it go sooner
   if (SNAP) {
     const k = snapKey(path, params);
     if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
@@ -358,7 +363,9 @@ async function apiText(path, params = {}, kept = false) {
   const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
   for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
   const url = `/api/${path}?${q}`;
-  const signal = kept ? undefined : pageSignal();
+  const own = kept instanceof AbortSignal ? kept : null;
+  const page = kept === true ? undefined : pageSignal();
+  const signal = own && page ? AbortSignal.any([own, page]) : own || page;
   const r = await fetch(url, { signal });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return [url, await r.text()];
@@ -372,8 +379,8 @@ function answers() {
   const a = {
     changed: true,
     begin() { a.changed = false; },
-    async api(path, params = {}) {
-      const [key, text] = await apiText(path, params);
+    async api(path, params = {}, signal = null) {   // ``signal``: an AbortController's, to let it go
+      const [key, text] = await apiText(path, params, signal);
       if (last.get(key) !== text) { last.set(key, text); a.changed = true; }
       return JSON.parse(text);
     },
@@ -429,9 +436,8 @@ async function refreshHeader() {
       refreshProjects(sel);
     }
     // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
-    // the server's one count (state.goals_off); a status without it counts every goal off, as before
-    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => goalWord(l) === "off").length, own: {} };
-    const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
+    // the server's one count (state.goals_off); a status without it (an old snapshot) shows "?", never its own count
+    const { off, upkeep } = goalsOff(st);
     setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
     const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
@@ -449,11 +455,28 @@ async function refreshHeader() {
     if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
     setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43); written only when N
                                                          // changes, so its polite live region (index.html) says only that
+    // what holds the work up (SPEC §5a): its first line, red only for a stall; the whole line as its title
+    const held = $("#heldup"), hu = !SNAP && st.held_up;
+    if (held && held.hidden !== !hu) held.hidden = !hu;
+    if (held && hu) {
+      const hcls = "runstate heldup" + (hu.stall ? " bad" : hu.nothing_stuck ? "" : " warn");
+      if (held.className !== hcls) held.className = hcls;
+      if (held.title !== hu.line) held.title = hu.line;
+      setText(held, hu.line);
+    }
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
   } catch (e) { /* the server may be restarting */ }
 }
+
+/* the goals off as the server counted them (state.goals_off, in the status answer), never counted here: the system's,
+   and the model's own upkeep apart. A status without it (an older snapshot): "?", not known, never read as none */
+function goalsOff(st = S.status) {
+  const g = st?.goals_off;
+  return g ? { off: g.system, upkeep: Object.values(g.own || {}).reduce((a, b) => a + b, 0) } : { off: "?", upkeep: 0 };
+}
+const goalsOffText = (o = goalsOff()) => `${o.off}${o.upkeep ? ` · model upkeep ${o.upkeep}` : ""}`;
 
 /* the other running projects on this machine, in the header's list, to switch to, with what is off or unknown; then
    one muted line counting the stopped ones (the server lists them every minute, off the request path). Not waited

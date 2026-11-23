@@ -84,6 +84,14 @@ def _aihold():
     return aihold
 
 
+def _outage():
+    """dev/bin/outage.py, found beside this file (as _aihold)."""
+    if str(HERE / "bin") not in sys.path:
+        sys.path.append(str(HERE / "bin"))
+    import outage
+    return outage
+
+
 def draining(cfg: dict) -> bool:
     """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
     review) waits for its next turn instead of starting; so it does while the AI is held (aihold.py)."""
@@ -617,6 +625,9 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     if boxed and p.returncode in agents_module().NOT_STARTED:
         raise agents_module().NotStarted(f"the {name} suite's container did not start (exit {p.returncode}): "
                                          f"{log.read_text()[-400:].strip()}")
+    if boxed and p.returncode and (down := _outage().docker_down()):    # (Docker gone during it: no red suite)
+        raise agents_module().NotStarted(f"the {name} suite's container ended (exit {p.returncode}) as Docker went "
+                                         f"down: {down}")
     return p.returncode, time.time() - began
 
 
@@ -835,9 +846,14 @@ def last_attempt(given: dict) -> bool:
 def guarded(given: dict, began: float, measured: str, stop) -> int:
     """For a run's unexpected failure (a session timed out or gave no result, a verdict that does not parse, no
     definition, Docker or the egress proxy failing): its hours recorded; on its last attempt, ``stop(why)`` (the gap
-    parked with where it stopped) instead of a dead letter; before, raised again (the attempt counted)."""
+    parked with where it stopped) instead of a dead letter; before, raised again (the attempt counted). An outage
+    (Docker or the AI service unreachable, outage.py) is neither: given back uncounted, put off, tried again."""
     import traceback
     e = sys.exc_info()[1]
+    if why := _outage().of(e):                           # (its hours not counted toward the kill rule's either)
+        say("gap.measured", last_error=f"outage: {why}"[:500])
+        nack(f"outage: {why}", after=_outage().AFTER, count=False)
+        return 0
     say("gap.measured", **{measured: round((time.time() - began) / 3600, 3)}, last_error=f"{type(e).__name__}: {e}"[:500])
     if last_attempt(given):
         stop(f"Stopped on its last attempt by {type(e).__name__}: {e}\n\n```\n{traceback.format_exc()[-1500:]}\n```")

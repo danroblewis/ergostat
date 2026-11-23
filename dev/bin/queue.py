@@ -1219,6 +1219,12 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
                 batches.end("given-back", f"main fails {', '.join(e.args[0]['tests'][:5])} too")
                 held_by_main(cfg, e.args[0])
                 return 0
+            except Exception as e:                         # Docker or the AI service unreachable: an outage, no
+                if not (why := fac._outage().of(e)):       # gap blamed, nothing counted (outage.py); main undone
+                    raise
+                batches.end("given-back", f"outage: {why}")
+                fac.nack(f"queue: outage: {why}", after=fac._outage().AFTER, count=False)
+                return 0
             batches.settled([g["id"] for g, _ in landed], merged, [(g["id"], why) for g, why in back])
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})

@@ -42,6 +42,7 @@ from ..costs import ai as costs_ai
 from ..costs import budget
 from ..costs import record as costs_record
 from ..costs.sampler import SAMPLER, Measured
+from ..leases import gone as run_gone
 from ..library import bounds, reap
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
@@ -162,6 +163,7 @@ class Engine:
         self.daemons = Supervisor(self)               # the long-lived runners blocks and sensors hand work to (SPEC §9.7)
         from .joins import Joins
         self.joins = Joins(self)                      # parents moved on by their children (SPEC §5a, Join)
+        self.compute = None                           # the sessions with the pools' nodes, once a model has pools (§12s.4)
         # the loop (``_schedule``): readings asked for, taken a batch at a time; commands and queries read by a fixed
         # pool, counts of items from what the fold keeps (counts.py); then one pass over what changed (scale.md #1, #4)
         from .counts import Counts
@@ -1856,6 +1858,7 @@ class Engine:
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
         self._listen()
         self.daemons.sync(self.spec)                             # (after the socket: its path is in their environment)
+        self._connect()
         self.looping = True                                      # readings go to the loop from now (no thread each)
         threading.Thread(target=self._schedule, name="ergostat-loop", daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
@@ -1880,6 +1883,15 @@ class Engine:
         except OSError as e:                                     # the commands do what they did before
             self.calls, self.socket = None, None
             self.say(f"socket: {type(e).__name__}: {e}")
+
+    def _connect(self) -> None:
+        """The sessions with the model's compute nodes (SPEC §12s.4): one per node per engine process, so the lead's."""
+        pools = self.spec.compute if self.leads() else {}
+        if self.compute is None and pools:
+            from ..compute.connection import Pools
+            self.compute = Pools(self.p, self.say)
+        if self.compute is not None:
+            self.compute.sync(pools)
 
     def _record_follow(self) -> None:
         """The loop woken when the record is written (``notify.py``): counts of items read at once (``_readings``)."""
@@ -2005,6 +2017,7 @@ class Engine:
             self.version = version
             self.full = True                                     # the next pass works out everything, under the new model
         self.daemons.sync(new)                                   # a daemon whose definition changed: drained, replaced
+        self._connect()                                          # a pool changed or removed: its sessions closed
         self.wake.set()
         self._ingest()
         finishing = {k: v for k, v in finishing.items() if v}   # what runs once more, under its old definition
@@ -2057,6 +2070,8 @@ class Engine:
                 if not isinstance(proc, keeper.Kept):    # (one its keeper holds goes on: SPEC §9.1)
                     old._kill(proc)
         self.daemons.close()
+        if self.compute is not None:
+            self.compute.close()                # every session ended: no ssh or worker child left
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
             time.sleep(0.05)
@@ -2064,6 +2079,7 @@ class Engine:
         # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
         # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
         self.dispatch.give_back()                # (and every lease still held here, its run's own end failed)
+        run_gone.closed(self.dispatch)              # (its leases' owner gone now: leases/gone.py)
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid(), "shard": self.shard})
 
 

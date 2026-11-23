@@ -89,6 +89,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    without it after those with it; the critical first among equals). The completion estimates and the Timeline
    project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
    notes an order field no item holds yet (`takes-order-unset`).
+   **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
+   `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
+   the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.
    **When a queue's items share something that can be down** (a tracker, a build service), give the stock that
    checks it a sensor reading 1 while up and 0 while down, and say so on the block: `takes: {kind: ticket, at: todo,
    faults: {healthy: sensor.tracker-up}}` (or a `goal.` that holds, or a `block.` command). While it is down or
@@ -472,6 +475,9 @@ ergostat measures every run itself (SPEC §9.1): what its AI sessions cost (doll
 estimated from tokens), its tokens, the CPU time and peak memory of its processes, its wall time and exit. You do not
 write anything for this: an `ai` block's own `claude -p`, and `ergostat session` inside any block's `run:`, report
 through the run. The Agents page shows each agent's totals and history; `ergostat agent NAME` the same.
+An agent whose last run failed, that never ran on its schedule, or that ran under half the runs its `every:` asks for
+over the window's record ("behind: 10 of ~120") is marked in red with its reason under the row, and counted on the
+page's top line.
 
 When the person wants a limit ("no more than $5 a day on AI"), make it a goal, read from a built-in measure, and gate
 the AI blocks on it, so the loop that does the work also stops when the money is spent:
@@ -833,6 +839,10 @@ exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per 
   the root (a lease, a full pool, the budget, a gate and which of its inputs is 0, a parked or missing dependency, a
   cycle, nothing taking its state, ...), names who must act and the command, and links the evidence. Ask it before
   guessing why work has stalled; when it says `unknown`, the record lacks what it needs (SPEC §5a).
+- **What holds the work up**: `ergostat held-up [--json]` (MCP `held_up`, `/api/held-up`) groups every unfinished
+  item by its root, ranks the roots (stalls first, then by what waits on them), folds the goals off because of a root
+  under it, and its first line names the biggest stall and its next step, or says nothing is stuck. Ask it first when
+  many goals are off at once: fix the first stall, then ask again (SPEC §5a).
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.
@@ -846,6 +856,9 @@ exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per 
 - **Docs**: [SPEC.md](SPEC.md) (the format; sections 5a items, 6 sensors, 7 flows, 8 goals, 9 blocks,
   9.5 leases, 12k gated actions, 4c remote systems), [MODELLING.md](MODELLING.md) (improving a model from its record),
   [MODELLING-WELL.md](MODELLING-WELL.md) (the craft of each diagram),
+  [DASHBOARDS.md](DASHBOARDS.md) (`ergostat help dashboards`: sensible Dashboard panels, each from the question it
+  answers and the decision it supports, with recipes and real `chartPanel` configs; read it before you build a
+  dashboard for someone),
   [QUICKSTART.md](QUICKSTART.md), `examples/ticket-factory/` and `examples/the-job/`.
 
 ## 6. When ergostat itself is wrong
