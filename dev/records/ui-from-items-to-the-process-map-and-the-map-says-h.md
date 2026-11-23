@@ -136,3 +136,14 @@ Runs after the merge:
   link), process.js (one label) and style.css (one rule). None of it touches the Dynamics side panel's item sets
   or the header's project picker. That is not shown on main, though: `git worktree add --detach /tmp/mainwt main` was
   refused in this session. The factory's rerun on clean main should settle it.
+
+### Round 3, after main's merge at 5e292c17
+
+The finding (conflict with main in tests/test_graph_cli_web.py) is answered: main (63998238) is an ancestor of the
+branch, the merge at 5e292c17 went through without a conflict, and no conflict markers are left in `ergostat/` or
+`tests/`. That merge brought only dev/bin/live.py, dev/bin/ui.py and tests/test_ui_front.py, none of which this gap
+touches. No source changed this round.
+
+Runs: ruff clean; tests/test_graph_cli_web.py 41 passed; the gap's browser test under suite_watch with Playwright,
+1 passed (rc 0). Not run again: tests/test_items_page.py (its 6 failures in round 3 are reported above as not touched
+by this branch), the unit suite and the four browser files, which the merge queue runs.
