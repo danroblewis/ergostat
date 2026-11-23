@@ -891,8 +891,9 @@ run was killed ends when the next run takes over: `given-back` when recovery put
 merges landed but before its push was recorded, with what it landed (`why` says it was killed) as the next batch begins.
 
 The merge pipeline's health is read from the batch items (`dev/bin/landing.py`, through `measure.py`):
-`main-still-minutes` (since the latest batch that landed something, its `landed_at`), `batch-runs`,
-`batch-first-green`, `crash-lost-minutes` and `gaps-landed-per-hour` (the last day), charted together on the dashboard
+`main-still-minutes` (since the latest batch whose landing stood, ended `landed` or `partial`, at its `landed_at`;
+one still pushing, or whose push was denied, moved nothing), `batch-runs`, `batch-first-green`, `crash-lost-minutes`
+and `gaps-landed-per-hour` (the last day, landings that stood), charted together on the dashboard
 `landing.merge-pipeline`. The goal `main-moving` (in `landing.yaml`, beside its measure; the pipeline watch reads its
 reason in code, with no `in:` edge, which would widen `managing`'s boundary) holds `main-stalled-minutes` at 120 (tolerance 30): the minutes main has
 not moved while gaps wait (approved, queued, or leased by merge-queue), from the later of its last move and the oldest

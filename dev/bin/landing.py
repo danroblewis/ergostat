@@ -1,16 +1,16 @@
 """The merge pipeline's health, read from its `batch` items (dev/model/landing.yaml; batches.py says them) and the
 gaps waiting for it: measure.py's landing measures, the goal main-moving's reason, and a waiting gap's place.
 
-  main-still-minutes    minutes since main last moved: since the latest batch that landed something (its
-                        `landed_at`; one from before that field, its `started_at`, earlier, so never a shorter wait);
-                        no value (exit 1) when no batch ever landed
+  main-still-minutes    minutes since main last moved: since the latest batch whose landing stood (ended landed or
+                        partial: pushed; one pushing or denied is not counted), at its `landed_at` (one from before
+                        that field, its `started_at`, earlier, so never a shorter wait); no value (exit 1) when none
   main-stalled-minutes  the same while gaps wait for the queue (approved, queued, or leased by merge-queue), counted
                         from the later of main's last move and the oldest waiting gap's approval; 0 when none waits
                         (the goal main-moving holds it)
   batch-runs            mean runs of the suites per batch, over the batches ended in the window
   batch-first-green     the share of batches whose first run passed, over those with a run finished in the window
   crash-lost-minutes    minutes of the runs that crashed, over the batches started in the window
-  gaps-landed-per-hour  gaps landed by batches over the last DAY, per hour
+  gaps-landed-per-hour  gaps landed by batches whose landing stood, over the last DAY, per hour
 
 batch-runs and batch-first-green have no value (exit 1) with nothing to measure. `main-stalled-why` prints the reason:
 the current batch (the open one started last; with none open, the last one), its run and the cause, e.g. "batch/x-...,
@@ -25,6 +25,7 @@ import sys
 
 DAY = 86400.0
 FINAL = ("landed", "partial", "failed", "given-back")
+STOOD = ("landed", "partial")                           # the ends whose merges stayed on main, pushed
 WAITING = ("approved", "queued")                        # (and leased by merge-queue: the queue's own gap)
 QUEUE_BLOCK = "merge-queue"
 MEASURES = ("main-still-minutes", "main-stalled-minutes", "batch-runs", "batch-first-green", "crash-lost-minutes",
@@ -47,9 +48,11 @@ def runs_of(b: dict) -> list[dict]:
 
 
 def landed_at(b: dict) -> float | None:
-    """When the batch moved main (its gaps merged), or None when it landed nothing."""
+    """When the batch moved main (its gaps merged and pushed), or None when its landing did not stand: it landed
+    nothing, its push is not settled yet (pushing), or the push was denied (failed: the merges undone, its gaps sent
+    back, though the fold keeps batch.landed's fields) or never settled (given-back)."""
     f = b["fields"]
-    if not f.get("landed"):
+    if b["state"] not in STOOD or not f.get("landed"):
         return None
     return num(f.get("landed_at")) or num(f.get("started_at")) or num(b.get("first"))
 

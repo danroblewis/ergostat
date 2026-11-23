@@ -212,3 +212,45 @@ Under Playwright 1.63.0 and the watchdog, rc 1 for both files:
     I am reporting it, not fixing it here.
 
 Not run: the unit suite, the other two browser files, demo_check (no example touched).
+
+### Round 5: main (278f54a4) merged, and the review's two findings
+
+`dev/model/landing.yaml` conflicted in `goals:`. Main (switch-without-draining) removed `drains-within-bound` and its
+`drain-overrun`. The branch had `main-moving` beside it. Main's removal is kept, and so is the branch's goal
+(885bf854). Main's batch states (a `new` state first, and `batch.started` and `batch.run-started` written last) come
+in unchanged. `git rev-list --count HEAD..main` is 0.
+
+- **A landing that did not stand moved main** (`dev/bin/landing.py`, `landed_at`). A batch now counts as having moved
+  main only when it ended `landed` or `partial` (`STOOD`). Those are the ends whose merges stayed on main and were
+  pushed. A `pushing` batch (its push not settled), a `failed` one (its push denied: merges undone, gaps sent back,
+  though the fold keeps `batch.landed`'s `landed` and `landed_at`) and a `given-back` one count for nothing in
+  `main-still-minutes`, `main-stalled-minutes` or `gaps-landed-per-hour`. I chose not to count `pushing` because
+  origin's main has not moved until the push runs. A push waiting on approval then reads as main still, which the
+  reason already names ("landed N gap(s) and waits for its push to settle"). To count it, add one word to `STOOD`.
+  New test `test_a_landing_that_did_not_stand_does_not_move_main`: a `failed` batch and a `pushing` one, each
+  carrying `landed` and a later `landed_at`, leave main-still at batch/c-2's 420 minutes, landed-per-hour at 0.125,
+  and the goal off at 312. The same batch as `partial` moves main (216).
+- **The queue's head gap, moved on to `queued`, was not ahead** (`ergostat/why/within.py`). A batch now counts ahead
+  of a waiting gap when it names an item of the gap's kind that waits in the gap's state (a leased one counted in
+  the state it was taken from, as before) or that has left that state: a `from` of one of its moves is the waiting
+  gap's state. That covers the real queue's path, approved, then leased, then queued (`queue.py take()`:
+  `gap.queued`). Nothing in the rule names a kind (SPEC §5a updated). A gap that never was in the waiting gap's
+  state still isn't counted, so a batch of a gap queued straight from elsewhere is not ahead of an approved one.
+  The test now moves `gap/r` on to `queued` after its lease and reads the same "ahead of it: 1 unfinished batch
+  item, the latest batch/r-6 (testing; size 1)". The test model's gap kind now begins in a `new` state, as the
+  factory's begins in `open`. An item arrives in its kind's first state (`ergostat/spec/items.py:128`), and with
+  `approved` first, `gap/q` had passed through approved on arrival.
+- Seen to fail with the code broken: without the "has left its state" clause, the queued assertion fails (ahead is
+  `{}`). Without the `STOOD` check, the denied-push test fails (216.0 == 420.0).
+
+Docs: SPEC §5a (*place*), dev/README.md and `main-still-minutes`'s description in `dev/model/measures.yaml`.
+
+Size: 112 net lines outside tests/, docs/ and dev/ (within.py 104, the why hooks 8, pages.js 0). Under 600.
+
+Run here, serially, rc 0: tests/test_landing_goal.py (13 passed), tests/test_why.py with
+tests/test_queue_batch_item.py and tests/test_factory_manager.py (82 passed, 1 skipped: the batch-item browser
+test, without Playwright in that run), `tests/test_factory.py::test_ergostat_check_on_the_factory_model_reports_no_new_finding`
+(passed), and `uv run ruff check ergostat tests scripts dev/bin/measure.py dev/bin/landing.py` (clean).
+Not run this round: the browser files under Playwright (no page changed this round), the unit suite, demo_check (no
+example touched). Bash refused a debug script (a Python heredoc reading an item's moves), so I found the
+first-state arrival by reading `items.py` instead.

@@ -1844,7 +1844,9 @@ while the item is unfinished. The answer:
   kind (one that declares an `inverse`, and is neither precedence, a group nor a remote's): `in`, the unfinished items
   naming it (at most 5), each with its state and the first 3 of its kind's `show:` fields that hold a value (a batch
   naming the gaps it tests: "It is in batch/x (isolating; size 3; run 6; outcome crashed)"); else `ahead`, per kind,
-  how many unfinished items of it name an item of its kind in its state, and the latest of them ("ahead of it: 1
+  how many unfinished items of it name an item of its kind in its state (a leased one in the state it was taken from)
+  or one that has left its state (by a move from it: the gap a batch tests, taken from approved and then queued, is
+  ahead of an approved gap), and the latest of them ("ahead of it: 1
   unfinished batch item, the latest …"). Null when no relation may name its kind; a holder that cannot be read is
   said under **missing**, never raised. The summary carries it.
 - **evidence**: each claim's event or reading, with a link (the item's page, `/api/events/ID`, the block in the

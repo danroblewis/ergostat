@@ -93,7 +93,7 @@ auxiliaries:
   # The merge pipeline's health, from its batch items (dev/bin/landing.py; the goal main-moving is landing.yaml's)
   main-still-minutes:
     unit: minutes
-    description: minutes since main last moved - since the latest batch that landed something; no value before any did
+    description: minutes since main last moved - since the latest batch whose landing stood (ended landed or partial, pushed); no value before any did
     driven-by: [-flow.gaps-merged]
     sensor: {run: python3 dev/bin/measure.py main-still-minutes, every: 1m, timeout: 1m, description: the batch items}
   batch-runs:

@@ -112,6 +112,21 @@ def test_each_measure_against_the_hand_worked_record():
     assert measured("main-still-minutes", [ENDED[0], old]) == 540.0    # no landed_at: its start (1 h), never later
 
 
+def test_a_landing_that_did_not_stand_does_not_move_main():
+    # batch.landed said, then its push denied: failed, its merges undone, though the fold keeps landed and landed_at
+    denied = batch("batch/d-7", "failed", T0 + 6 * H, [run_(1, "full", "passed", 20)], gaps=["gap/g", "gap/h"],
+                   landed=["gap/g", "gap/h"], landed_at=T0 + 6.4 * H, ended_at=T0 + 6.5 * H, why="its push denied")
+    pushing = batch("batch/p-8", "pushing", T0 + 7 * H, [run_(1, "full", "passed", 20)], gaps=["gap/g"],
+                    landed=["gap/g"], landed_at=T0 + 7.4 * H)                  # its push not settled yet
+    for b in (denied, pushing):
+        batches = ENDED + [b]
+        assert measured("main-still-minutes", batches) == 420.0              # batch/c-2's landing at 3 h stands
+        assert measured("gaps-landed-per-hour", batches) == 0.125            # a's 2 and c's 1, not b's
+        assert measured("main-stalled-minutes", batches, WAITING) == 312.0   # and the goal stays off
+    stood = {**denied, "state": "partial"}
+    assert measured("main-still-minutes", ENDED + [stood]) == 216.0          # one that stood: at 6.4 h
+
+
 def test_a_measure_with_nothing_to_measure_has_no_value(tmp_path):
     for name in ("main-still-minutes", "batch-runs", "batch-first-green"):
         r = measure(tmp_path, name, [batch("batch/x-9", "testing", NOW - 60, [])], [])
@@ -183,7 +198,7 @@ WHY = """
 items:
   gap:
     id: gap/*
-    states: [approved, queued, merged]
+    states: [new, approved, queued, merged]        # (a gap arrives in its first state, as the factory's in open)
     on: {gap.approved: approved, gap.queued: queued, gap.merged: merged}
   batch:
     id: batch/*
@@ -237,6 +252,13 @@ def test_a_waiting_gap_s_why_names_its_batch_and_run_or_the_batches_ahead(tmp_pa
     assert d["place"]["ahead"] == {"batch": {"n": 1, "latest": {"item": "batch/r-6", "kind": "batch",
                                                                  "state": "testing", "shown": {"size": 1}}}}
     assert "ahead of it: 1 unfinished batch item, the latest batch/r-6 (testing; size 1)" in d["summary"]
+    # ... and then moved on to queued (queue.py's take(): gap.queued), as the real queue's head gap always is
+    p.events.add("gap.queued", item="gap/r", at=T0 + 85)
+    assert answer(p, "gap/r", now=now, engine=up)["now"]["state"] == "queued"
+    e = answer(p, "gap/later", now=now, engine=up)
+    assert e["place"]["ahead"] == d["place"]["ahead"]
+    assert "ahead of it: 1 unfinished batch item, the latest batch/r-6 (testing; size 1)" in e["summary"]
+    assert answer(p, "gap/q", now=now, engine=up)["place"]["in"][0]["item"] == "batch/q-5"   # (its own batch)
 
 
 def test_a_kind_no_relation_names_has_no_place(tmp_path):
