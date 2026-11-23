@@ -58,3 +58,12 @@ Built, round 1. 23 net lines in dev/bin (queue.py +31/-8, onmain.py's docstring 
   and suite-watch-command tests (3 passed each). ruff clean on ergostat, tests, scripts. Not run here: the whole unit
   suite and the four browser files (the factory and queue run them). The clone is made from main, with no new commits
   on it, so there was nothing to merge.
+
+Round 2: main (059ff718) merged in; its one conflict, dev/factory.toml's `browser` line, resolved by keeping main's
+`-rpfEs` flag and comment (the PASSED lines flakes.green reads) with the branch's "browser on browser_paths" wording
+and `browser_paths` list. Checked against main's new `queue.greened`/`flakes.outcomes`: a not-run browser entry has
+no `rc` or `log`, so its tests are read as unknown, never as a pass. Run again after the merge: the three acceptance
+tests (3 passed); test_a_landed_run_records_each_pytest_suites_counts_and_their_sum,
+test_a_green_landing_counts_each_seen_flake_it_says_passed, test_a_green_batch_lands_every_gap (3 passed). ruff clean
+on ergostat, tests, scripts (the B023 in dev/bin/plan.py and the E501 in dev/bin/review.py come from main and are not
+this branch's). Not run here: the whole unit suite and the four browser files.
