@@ -25,3 +25,17 @@ items:
   release:
     id: release/*
     show: [commit, tickets]
+
+# A shared dashboard (SPEC §4f): added by the Supervisor, never written by hand. GET /api/dashboard/week.
+dashboards:
+  week:
+    title: The factory, this week
+    description: where tickets wait, and whether the backlog clears
+    window: 7d
+    panels:
+      - {panel: goals, size: full}
+      - {panel: states, kind: ticket, size: l, note: Where tickets wait}
+      - {panel: cycle-time, kind: ticket, size: s}
+      - {panel: chart, title: Backlog and review, refs: [stock.backlog, stock.in-review], replay: true, size: m}
+      - {panel: items, kind: ticket, state: review, size: m}
+      - {panel: scope, goal: reviews-done, size: m}
