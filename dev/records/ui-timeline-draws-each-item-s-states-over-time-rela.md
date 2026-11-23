@@ -137,3 +137,39 @@ waiting for the header's project picker (`#project` options, main.js/util.js) to
 the same way in round 2, and this branch does not change the header or the project list, so it is left alone as
 unrelated (lesson-13). It was not run on clean main here; the factory's rerun on main settles it. The five other
 round-2 failures now pass.
+
+## Where it stopped (round 4, answering the review)
+
+Both findings answered:
+
+1. *The acceptance on a project shaped like the demo.* New test
+   `tests/test_items_page.py::test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkeep`, on a
+   fixture shaped like ticket-factory: the ticket kind declares `relations: {blocked_by: ticket}` and no `system:`
+   (as `ticket.yaml`), ticket/2 is blocked by ticket/1, three of the 8 tickets are done (1, 3, 5), and the built-in
+   `ergostat` system has ten unfinished messages (twelve, two moved on so "routed" is a state that is left). With
+   `?view=timeline&frontier=0&collapse=0`: 8 rows, one per ticket, each above 900 px, each split into `todo`,
+   `doing` segments named in their bars (a finished ticket's bar ends where it was closed); the tickets' Timeline is
+   above their charts; the tickets' system comes before `ergostat`; no "relations:". With the defaults
+   (`?view=timeline`): the 5 unfinished tickets are drawn, above 900 px, still before `ergostat`.
+   **The claim is narrowed:** on a project where tickets finish, "one row per ticket (8)" holds with the Frontier
+   and Collapse done off, not on plain `?view=timeline`. The Frontier, on by default, leaves the finished out (and
+   collapses ticket/1 into ticket/2's line). SPEC §5a's Timeline row, from main, says so ("The frontier with the
+   finished collapsed by default"). Changing that default is outside this gap, so it is left as it is (the most
+   reversible option). The `desk` test (no relations, none finished) still shows 8 rows on plain `?view=timeline`.
+2. *Built-in upkeep leading the Timeline.* `pages.js`: among the systems a mode draws, ergostat's own now comes after
+   the project's (rank: the project's drawn, then ergostat's drawn, then those with nothing to draw; List keeps the
+   server's order). This matters when the project's kinds are under `other`, which the server lists after `ergostat`.
+   The built-in kinds still get their own Timeline (they have states over time), only after the project's. SPEC §5a
+   says so. Seen to fail without it: with the built-in rank removed, the new test fails on the order
+   (`['ergostat', 'other']`). The 900 px check alone did not catch that at this fixture's size; the order check does.
+
+Net code against main: +15 −6 = +9 lines (`pages.js` +8 −3, `relations.js` +2 −1, `snapshot.py` +5 −2); within
+budget.
+
+Tests run: `uv run ruff check ergostat tests scripts` clean; `tests/test_graph_cli_web.py` 43 passed;
+`tests/test_items_page.py` with Playwright under the watchdog: 34 passed, 1 failed, rc 1. The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, the same one as in rounds 2 and 3: a timeout
+waiting for the header's project picker (`#project`, main.js/util.js), which this branch does not change. So it is
+left alone as unrelated (lesson-13); the factory's rerun on clean main settles it. Not run by me: the unit suite and
+the other three browser files (left to the factory). There was nothing newer on `main` to merge (the clone's `main`
+is the branch's base).

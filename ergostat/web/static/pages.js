@@ -790,7 +790,9 @@ async function pageItems(main, q) {
       anyRows ||= t.length > 0;
       groups.push(h("section", { class: "sys-group", "data-system": g.name, key: g.name, ...(relAsked[g.name]?.want.length ? { "data-draws": "" } : {}) }, head, ...(view === "list" ? [charts, ...t] : [...t, charts])));   // a mode's own drawing first
     }
-    groups.sort((a, b) => b.hasAttribute("data-draws") - a.hasAttribute("data-draws"));   // and the systems it draws first (List: none)
+    // and the systems it draws first, the project's before ergostat's own upkeep (List: none drawn, its order kept)
+    const rank = (e) => (e.hasAttribute("data-draws") ? (e.getAttribute("data-system") === "ergostat" ? 1 : 0) : 2);
+    groups.sort((a, b) => rank(a) - rank(b));
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
     const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
