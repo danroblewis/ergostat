@@ -175,9 +175,11 @@ def engine(cfg: dict, sha: str, *args: str, timeout: int = 120) -> subprocess.Co
 
 def start(cfg: dict) -> str:
     sha = target(live(cfg) / "current")
-    r = engine(cfg, sha, "run", "--port", str(cfg["instance"]["port"]))
+    r = engine(cfg, sha, "run", "--no-web")          # the page is its own process (dev/bin/ui.py): it outlives this
     if r.returncode:
         raise RuntimeError(f"start {sha[:12]}: {(r.stderr or r.stdout)[-400:]}")
+    if cfg["ai"]["mode"] != "standin":               # (a test's stand-in factory starts no page of its own)
+        run([sys.executable, str(Path(__file__).with_name("ui.py")), "ensure"], timeout=30, cwd=instance(cfg))
     return sha
 
 
@@ -302,8 +304,8 @@ def switch(cfg: dict, sha: str) -> dict:
             if h["healthy"]:
                 record(cfg, sha, "upgrade.kept", health=h, healthy_at=time.time())
                 forget_previous(cfg)
-                if kept:
-                    edits_as_gap(cfg, sha, kept)
+                if kept and (cfg.get("instance") or {}).get("edits_as_gaps", True):   # (false: an operator's live-only
+                    edits_as_gap(cfg, sha, kept)                                     # edits stay in run/model-edits/)
                 return h
         h["why"] = f"not healthy within {wait:g}s"
     except Exception as e:  # noqa: BLE001 - whatever failed, the instance goes back to what ran

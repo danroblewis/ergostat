@@ -48,6 +48,7 @@ def _requests(project) -> list[tuple[str, dict]]:
         reqs.append(("dominance", pts))                  # which feedback loops drive the behaviour, for every loop's panel
         reqs += [("loop-control", {"goal": n}) for n in m.spec.goals]   # each loop as a control engineer reads it
     reqs += [("items-flow", {"kind": k, **pts}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]
+    reqs += [(f"kinds/{_q(k)}", {}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]   # what each touches
     for kind, table in m.tables().items():
         for n in table:
             k = "disturbance" if kind == "flow" and getattr(table[n], "disturbance", False) else kind
@@ -108,6 +109,10 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             data[key(path, params)] = got
     for path, params in _requests(project):
         ask(path, params)
+    if isinstance(data.get("loops"), dict):     # the Loops page's one answer: each goal's summary from its analysis above
+        from .control_api import summary
+        data[key("loops", {"perf": 1})] = {n: {**lp, "perf": summary(data[c]) if (c := key("loop-control", {"goal": n})) in data
+                                               else None} for n, lp in data["loops"].items()}
     for k in (data.get("items") or {}).get("kinds") or []:      # a kind chosen, and each of its states
         ask("items", {"kind": k["name"]})
         for st in _states(data.get(key("items", {"kind": k["name"]})) or {}, k["name"]):
