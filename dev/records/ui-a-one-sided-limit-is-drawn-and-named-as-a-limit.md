@@ -60,3 +60,18 @@ Built (round 1), +10 net lines outside tests (28 added, 18 removed).
   could not show that it fails on main as well: putting main's `ergostat/` in the tree to rerun it was refused in this
   session, so the merge queue should confirm it on main. Not run here: the unit suite and the other three browser
   files (left to the factory).
+
+Round 2: the merge of main (7cb97857) conflicted in details.js, pages.js and tests/test_diagram_rendering.py.
+
+- Main replaced the error row and column (loop panel and Loops) with "how far" (`off_by_words`), which already says
+  "within its bound" for a limit at e = 0. That covers "nothing saying why", so main's "how far" is kept and the
+  branch's own error wording ("0: within its limit", ", within") is dropped. Kept from the branch: the "holds" row
+  `holdText`, the Loops column header "r", and the cell `holdText` ("limit ≤ 0"). The "how far" cell's title says
+  "its limit" or "its setpoint" to match. Main's removal of the per-loop perf polling (now `perf: 1` on the server) is
+  kept as main has it.
+- The test file: both sides had added tests at the same place, and both are kept.
+- Ran: ruff (clean), tests/test_blockdiagram.py (67 passed), and in the browser, under the watchdog, the acceptance
+  test plus `test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks` and
+  `test_loops_and_items_say_loading_under_their_heading_until_their_answer` (4 passed, rc 0). Running the whole of
+  tests/test_diagram_rendering.py in the background with its log under /tmp was refused in this session, so that file
+  is left to the factory.
