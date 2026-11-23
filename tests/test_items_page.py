@@ -1510,7 +1510,8 @@ def test_the_side_panels_and_item_tables_are_captioned(browser, site):
 @pytest.mark.parametrize("route, nav, view", [
     ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
     ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
-    ("/items", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"), ("/record", "/record", None),
+    ("/items", "/items", None), ("/items?view=list", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"),
+    ("/record", "/record", None),
     ("/model", "/model", None)])
 def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
     """Acceptance (ui-the-current-page-view-and-mode-are-announced-tab): on each page, no button or link without a
@@ -1524,8 +1525,10 @@ def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
     if nav == "/diagram":
         pg.wait_for_function(DIAGRAM_READY, timeout=60000)
     else:
-        pg.wait_for_selector("#main table", timeout=20000)
+        pg.wait_for_selector("#main table" if route != "/items" else "#main .kind-card", timeout=20000)
     pg.wait_for_timeout(500)                                  # the parts asked for after the first (counts, charts)
+    if route == "/items":                                     # the overview: its one switch says which is on
+        assert pg.locator(".seg[aria-label=States] button[aria-pressed=true]").all_inner_texts() == ["State groups"]
     got = pg.evaluate(NAMES)
     assert got["out"] == [], got["out"]
     # The diagram's view buttons also say what each view shows ("Dynamics · what is"): the view's word leads the name.

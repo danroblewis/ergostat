@@ -37,7 +37,7 @@ async function pageKinds(main, q) {
 
   /* the switch and every card, from the answer held (``d``): never a request */
   function showStates() {
-    const seg = (on, text, title, fn) => h("button", { class: on ? "on" : "", title, onclick: fn }, text);
+    const seg = (on, text, title, fn) => h("button", { class: on ? "on" : "", "aria-pressed": String(on), title, onclick: fn }, text);
     const pick = (to) => () => { if (all === to) return; all = to; replaceRoute(all ? "/items?states=all" : "/items"); showStates(); };
     bar.replaceChildren(h("span", { class: "seg", role: "group", "aria-label": "States" },
       seg(!all, "State groups", "Each kind's states as waiting, working, stopped and done", pick(false)),

@@ -72,3 +72,15 @@ Round 2 (answering the one finding of the review, blocking):
   states as the unfinished count. Main (ead497d1) was already merged in; nothing newer.
 - Run here: `tests/test_items_overview.py` (7 passed); ruff clean. Not run here: the browser files and the unit suite
   (this round changes no page script; the merge queue runs them).
+
+Round 3 (the queue's one finding: a conflict with main in `tests/test_items_page.py`):
+- Merged main (5411f137): both sides had added tests at the file's end; the branch's overview tests are kept, and
+  main's milestone Graph and Timeline tests stay last, as main's comment asks.
+- Main's new `test_the_page_view_and_controls_are_named` expected bare `/items` to be the List with a table. It now
+  opens the overview (waits for a kind card, no View switch pressed) and also `/items?view=list` for the List; the
+  overview's States switch now says which button is on with `aria-pressed`, as main's other switches do, and the
+  test checks it (seen failing with the attribute removed).
+- Run here: `tests/test_items_page.py` whole (54 passed, 1 failed: the unrelated header test of round 1, now at line
+  1652, the project switcher never lists the other project in this container); `tests/test_items_overview.py`
+  (7 passed alone; its 200 ms test failed once while the browser file ran beside it, which is load, and passed
+  alone); ruff clean. Not run here: the unit suite and the other three browser files (the merge queue runs them).
