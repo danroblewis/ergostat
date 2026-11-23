@@ -1630,6 +1630,13 @@ while the item is unfinished. The answer:
   has none, a field that cannot be read, a lease whose taking recorded no pid, as with no `budget:` declared, so that
   whether its process runs is not known, or nothing found holding it). Each root says who or what must act (`owner`),
   the action and the command. Up to 200 items are looked at and 8 roots kept; the first is the answer's.
+- **place** (`ergostat/why/within.py`): where it is held as one of many, when a relation of the model may name its
+  kind (one that declares an `inverse`, and is neither precedence, a group nor a remote's): `in`, the unfinished items
+  naming it (at most 5), each with its state and the first 3 of its kind's `show:` fields that hold a value (a batch
+  naming the gaps it tests: "It is in batch/x (isolating; size 3; run 6; outcome crashed)"); else `ahead`, per kind,
+  how many unfinished items of it name an item of its kind in its state, and the latest of them ("ahead of it: 1
+  unfinished batch item, the latest …"). Null when no relation may name its kind; a holder that cannot be read is
+  said under **missing**, never raised. The summary carries it.
 - **evidence**: each claim's event or reading, with a link (the item's page, `/api/events/ID`, the block in the
   Blocks view); **missing**: what the record cannot tell, never guessed.
 - **summary**: one paragraph to paste to someone else.
