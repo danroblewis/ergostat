@@ -117,3 +117,16 @@ test_result_shapes (13). All passed. ruff is clean. `git merge main`: "Already u
 test_dashboard_page, the three `test_entering_edit_mode_moves_no_panel_content` cases timed out. The cause was my new
 test's module constant `SETTLED`, which replaced the file's own constant of that name. I renamed it `ANSWERED` and all 36
 then passed. Not run here: the whole unit suite and the four browser files (the factory's).
+
+### Round 3
+
+The queue's one finding: merging main (2f08c24e) conflicted in `ergostat/datasources/__init__.py`. Main added
+`suggest` (the PromQL editor's completions), and this branch added typed frames. Resolved by keeping both. The module
+docstring now names the frame answer and `suggest`. The list-of-series answer keeps the branch's `"shape": "series"`,
+and main's `suggest()` is kept whole. No other code changed this round.
+
+Run here after the merge, one file at a time or up to three, browser files under the watchdog, none skipped:
+unit test_result_shapes, test_data_sources and test_query_engine (83 passed). Browser: test_result_shapes_page (7),
+test_panel_editor (34), test_promql_editor with test_promql_suggest and test_data_source_panels (19),
+test_dashboard_page (36), test_panels with test_dashboards_doc and test_plot_forms (185). All passed. ruff is clean. Not
+run here: the whole unit suite and the four browser files (the factory's).
