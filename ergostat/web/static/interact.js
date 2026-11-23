@@ -134,6 +134,7 @@ function markInteraction(svg) {
   const stale = new Set((S.layout?.edges || []).filter((le) => le.stale).map((le) => le.id));
   for (const el of svg.querySelectorAll(".edge")) el.classList.toggle("stale", stale.has(el.dataset.id));
   sideChartsChanged();                                 // the side panel charts what is chosen (charts.js)
+  if (typeof keyable === "function") keyable(svg);    // each clickable part a button, by keyboard too (keys.js)
 }
 
 /* a line with a slanted piece (a stand-in from part to part, until libavoid's way comes) drawn square
