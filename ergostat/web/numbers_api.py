@@ -4,6 +4,7 @@ the page may change: a proposal the owner accepts or dismisses (``POST``)."""
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 
@@ -746,10 +747,11 @@ def redesign_asked(live, p, system: str) -> tuple[int, dict]:
     return 200, {"asked": got["asked"], **rd.settings(p.model.spec)}
 
 
-def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, dict]:
+def post(live, path: str, window: float, q: dict | None = None, body: bytes = b"") -> tuple[int, dict]:
     """``POST /api/estimate?calibrate=parts|systems|whole`` (calibrate, and make the proposals),
     ``/api/propose?whatif=NAME:V,NAME:V`` (the owner's what-if, every value tried made one proposal; or
-    ``parameter=NAME&value=V``),
+    ``parameter=NAME&value=V``), ``/api/propose?keep=dashboard`` with the draft as its JSON body (the owner's Keep:
+    one display change, ``numbers/display.py``),
     ``/api/proposals/ID/accept`` and ``/api/proposals/ID/dismiss``: the page's only writes, each the
     owner's own act, and none of them changes the model but Accept."""
     q = q or {}
@@ -771,6 +773,13 @@ def post(live, path: str, window: float, q: dict | None = None) -> tuple[int, di
             finally:
                 ESTIMATING.release()
         if parts == ["propose"]:
+            if q.get("keep") == ["dashboard"]:          # the Dashboard page's Keep: the server works out the edit
+                from ..numbers import display
+                try:
+                    draft = json.loads(body or b"null")
+                except (ValueError, RecursionError):
+                    return 400, {"error": "keep: the draft is not JSON"}
+                return 200, display.keep(p, draft)
             if q.get("whatif"):                     # every value tried together, as the charts drew them
                 raw = dict(x.split(":", 1) for x in q["whatif"][0].split(",") if ":" in x)
                 return 200, pr.propose_values(p, {k.strip(): v.strip() for k, v in raw.items()}, snap)

@@ -26,8 +26,9 @@ KINDS = {
     "scope": {"goal", "points"},                          # GET /api/loop-scope
     "items-graph": {"kinds", "system"},                   # GET /api/items-graph
     "timeline": {"kinds", "system"},                      # GET /api/items-graph
+    "query": {"form", "queries", "display", "layout"},   # the page's own panel, as a kept draft holds it (GET /api/query)
 }
-NEEDS = {"chart": "refs", "states": "kind", "cycle-time": "kind", "scope": "goal", "items": "kind", "note": "text"}
+NEEDS = {"query": "queries","chart": "refs", "states": "kind", "cycle-time": "kind", "scope": "goal", "items": "kind", "note": "text"}
 TEXTS = {"text", "moved", "moved_since", "moved_until", "through", "followed", "search"}
 LISTS = {"refs", "goals", "kinds", "state", "where"}     # a list, or one string (comma-separated as the address writes it)
 
@@ -148,6 +149,16 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
                 c.err(f"{what}.{k}: text", w, "bad-dashboard")
                 ok = False
                 continue
+        elif k == "queries":
+            ok = _queries(c, spec, v, what, w) and ok
+        elif k in ("display", "layout") and not isinstance(v, dict):
+            c.err(f"{what}.{k}: a map", w, "bad-dashboard")
+            ok = False
+            continue
+        elif k == "form" and (not isinstance(v, str) or not v):
+            c.err(f"{what}.{k}: text", w, "bad-dashboard")
+            ok = False
+            continue
         params.setdefault(k, v)
         ok = _refs(c, spec, exists, k, v, params, what, w) and ok
     if ok and kind == "items":
@@ -161,6 +172,51 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
         return None
     return Panel(kind, str(x.get("title") or ""), size if size in SIZES else "m", str(x.get("note") or ""), params,
                  getattr(x, "where", None) or near)
+
+
+def sent(v) -> list:
+    """A query panel's queries as the page sends them (panels.js queryPanels): its own words (``label``, ``hidden``)
+    left out, and a query another reads by id (``x.query``, ``input``, ``output``) put in its place; one that leads
+    nowhere, or back to itself, stays as written, so the query engine refuses it."""
+    qs = v if isinstance(v, list) else []
+    by = {str(x.get("id")): x for x in qs if isinstance(x, dict)}
+
+    def one(x, seen: frozenset):
+        if not isinstance(x, dict):
+            return x
+        y = {k: w for k, w in x.items() if k not in ("label", "hidden")}
+        ref = lambda r: one(by[str(r)], seen | {str(r)}) if str(r) in by and str(r) not in seen else r   # noqa: E731
+        for side in ("input", "output"):
+            if isinstance(y.get(side), str | int):
+                y[side] = ref(y[side])
+        if isinstance(y.get("x"), dict) and isinstance(y["x"].get("query"), str | int | dict):
+            q = y["x"]["query"]
+            y["x"] = {**y["x"], "query": one(q, seen) if isinstance(q, dict) else ref(q)}
+        return y
+    return [one(x, frozenset({str(x.get("id"))}) if isinstance(x, dict) else frozenset()) for x in qs]
+
+
+def _queries(c, spec, v, what: str, w) -> bool:
+    """A query panel's queries, as the query engine reads them (``query.parse``): each must be asked as written, and
+    the kind of item each reads the model's."""
+    from ..query.parse import BadQuery, Refused, parse
+    try:
+        got = parse({"queries": sent(v)}).queries
+    except BadQuery as e:
+        c.err(f"{what}.queries: {e}", w, "bad-dashboard")
+        return False
+    ok = True
+    for q in got:
+        if isinstance(q, Refused):
+            c.err(f"{what}.queries: {q.error}", w, "bad-dashboard")
+            ok = False
+    for x in v:
+        k = x.get("kind") if isinstance(x, dict) else None
+        if k is not None and k not in spec.items:
+            c.err(f"{what}.queries: {k!r} is not a kind of item" + c.suggest(str(k), spec.items), w, "unknown-ref",
+                  f"items.{k}")
+            ok = False
+    return ok
 
 
 def _words(c, m, keys: tuple, what: str) -> None:

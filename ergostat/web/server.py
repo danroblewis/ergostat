@@ -1437,7 +1437,7 @@ def handler(project):
                     from .intent_api import post as intent
                     code, data = intent(live, u.path.removeprefix("/api/"), q)
                 else:
-                    code, data = post(live, u.path.removeprefix("/api/"), _window(q), q)
+                    code, data = post(live, u.path.removeprefix("/api/"), _window(q), q, body)
             except Exception as e:                      # a broken request never takes the page down
                 crash_noted(live, e, "web")                # a report for the owner (SPEC §12m)
                 code, data = 500, {"error": f"{type(e).__name__}: {e}"}
