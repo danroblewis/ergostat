@@ -159,7 +159,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    they say rather than proposing the same idea again. Do not hand-write these parts. When the person asks for an
    architecture review, `ergostat improve --architecture [SYSTEM]` (one haiku call a system, `--max-cost` $1 by
    default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
-   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other built-in templates
+   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. When the
+   person asks for regression guarantees, `use: regressions` with only the parts they ask for (`every: 1h` for their
+   `claims: tests` command's failing count, `block: NAME` for that block's contradicted claims, `changes: true`,
+   `repair: NAME` when they use repair): nothing is made without its parameter. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    its item-index files held at `index-files` (6) by a rule-tier tidier, and the record's roll-up, forgetting past
    `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and

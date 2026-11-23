@@ -1,0 +1,82 @@
+"""The reader behind ``use: regressions``' passing counts (dev/records/regression-template.md): ``python -m
+ergostat.regressions counts`` runs the model's own ``claims: tests`` command (SPEC §12g) and prints how many of its
+tests failed (failed and errors), read from the pytest-style summary it ends with. A run it cannot read gives no
+value (exit 1, nothing printed), never 0: no command declared, a model that does not load, a run past its time, no
+summary, a summary that counts nothing, or a run that exited non-zero with no failure counted."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+SUMMARY = re.compile(r"^=*\s*(.*?)\s+in\s+[\d.]+\s*s(?:econds)?\b.*?=*$")   # "== 3 passed, 1 failed in 0.52s =="
+COUNT = re.compile(r"^(\d+)\s+(passed|failed|errors?|skipped|xfailed|xpassed|deselected|warnings?|rerun)$")
+RAN = {"passed", "failed", "errors", "xfailed", "xpassed"}
+
+
+def parse(text: str) -> dict[str, int] | None:
+    """The counts of the last pytest-style summary line in ``text`` (``error`` and ``warning`` folded into their
+    plurals), or None when there is none or no test ran ("no tests ran", only skipped: not a pass)."""
+    for line in reversed(text.splitlines()):
+        m = SUMMARY.match(line.strip())
+        if not m:
+            continue
+        parts = [COUNT.match(x.strip()) for x in m.group(1).split(",")]
+        if None in parts:
+            continue                                      # "done in 3s", "no tests ran in 0.01s": not counts
+        got: dict[str, int] = {}
+        for c in parts:
+            word = {"error": "errors", "warning": "warnings"}.get(c.group(2), c.group(2))
+            got[word] = got.get(word, 0) + int(c.group(1))
+        return got if RAN & set(got) else None            # only skipped or deselected: nothing ran
+    return None
+
+
+def failing(counts: dict[str, int]) -> int:
+    return counts.get("failed", 0) + counts.get("errors", 0)
+
+
+def counts(within: float) -> tuple[int | None, str]:
+    """The model's tests run once: how many failed, or None and why not."""
+    from .spec import SpecError, find, load
+    main = find(Path.cwd())
+    try:
+        spec = load(main) if main else None
+    except SpecError as e:
+        return None, f"the model does not load: {e}"
+    if spec is None or (c := spec.claims.get("tests")) is None:
+        return None, "no model here, or it declares no claims: tests command"
+    env = {**os.environ, "ERGOSTAT_ROOT": str(spec.root)}
+    p = subprocess.Popen(c.run, shell=True, cwd=Path(spec.root) / c.in_, env=env, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, errors="replace", start_new_session=True)
+    try:
+        out, _ = p.communicate(timeout=min(c.timeout, within))
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)                  # the whole run, not only its shell
+        p.communicate()
+        return None, f"no answer within {min(c.timeout, within):g}s"
+    got = parse(out)
+    if got is None:
+        return None, f"exited {p.returncode} with no test summary"
+    if p.returncode != 0 and not failing(got):
+        return None, f"exited {p.returncode} with no failure counted"
+    return failing(got), ""
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="python -m ergostat.regressions")
+    ap.add_argument("what", choices=["counts"])
+    ap.add_argument("--within", type=float, default=600.0, help="seconds the run may take, at most")
+    a = ap.parse_args(argv)
+    n, why = counts(a.within * 0.9)                       # before the sensor's own timeout, which stops only this
+    print(why if n is None else n, file=sys.stderr if n is None else sys.stdout)
+    return 1 if n is None else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
