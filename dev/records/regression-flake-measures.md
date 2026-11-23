@@ -111,4 +111,4 @@ is a YAML edit to undo:
   `test_main_green_goes_off_and_holds_again` and the quarantine-small test all passed, and ruff on
   `ergostat tests scripts` is clean.
 
-Overrun reason: only under the definition's "outside tests/" reading: 174 net lines (guarantees-flakes.yaml 99, flakes.py 50, dev/README.md 17, guarantees.yaml 7), the extra over round 1 being the flows, block, loops and parameter check's six findings needed; the factory's rule counts none of it (all under dev/).
+Overrun reason: only under the definition's "outside tests/" reading: 173 net lines (guarantees-flakes.yaml 99, flakes.py 50, dev/README.md 17, guarantees.yaml 7), the extra over round 1 being the flows, block, loops and parameter check's six findings needed; the factory's rule counts none of it (all under dev/).
