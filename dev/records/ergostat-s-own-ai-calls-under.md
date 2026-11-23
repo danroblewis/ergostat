@@ -97,3 +97,49 @@ and the four browser files (left to the factory). No page changed.
 
 Seen, not changed (outside the gap): the AGENT-GUIDE §3b lead-in still says "The modeller's calls … are outside
 it", which its own later bullet contradicts (those calls ask since `modeller-calls-ask-the-budget`).
+
+### Round 2: the merge of main (f086f76e), and the review's finding
+
+Main now carries `toml-models-budget` (`dev/records/toml-models-budget.md`, `tests/test_toml_budget.py`), which
+landed the same design in parallel: `model._budget`, `budget.of`, `run_agent` asking `budget.permit` under its flock,
+the close on a raise, `Runner._recover`, and `ergostat agent NAME --now` printing `refused: budget: …` (to stderr,
+exit 1). I resolved the conflicts by keeping main's code for all of that. That is the most reversible choice: main
+already ships it, and its own file tests it. From this branch I kept only what main lacks:
+
+- `--max-budget-usd` at the run's reserve on a `claude` command, replacing any value already in it (`runner.py`).
+  That is now this branch's whole code change against main: `ergostat/runner.py` +9 −6, net +3 lines.
+- `tests/test_toml_models_budget.py`, changed only to use main's names. A refusal is the key `budget` (not
+  `budget_refused`), and the test reads the CLI's refusal from stdout and stderr together.
+
+Taken from main, and so changed from round 1: an `[[agent]]` with no `kind` written is charged. This is main's
+stricter rule (`budget.of` passes its kind as None). Round 1 read such an agent as `program` and let it run free.
+Round 1's `budget_refused` key and its extra CLI branch are gone, as they were dead next to main's. The error
+messages are main's, and each still names its key (`[budget].daily: out of bounds`, `[budget]: missing max-cost`,
+`[budget]: unknown key 'weekly'`).
+
+The review's finding (this gap listed twice in GAPS): main's `toml-models-budget` has landed, so the toml part is
+now done. I kept the entry under *Done recently* (main's, which says done) and added this gap's record and the cap to
+it. I removed the Runtime entry, which said "in part" and had a "Left: models in `ergostat.toml`" clause. I also
+removed a one-line fragment of it that an earlier merge left dangling above the P3 entry (`… (done;
+factory/ai-calls-ask-the-budget, SPEC §9.9,`). One entry is left, with no "Left" clause. This goes against the
+finding's literal instruction (remove the Done recently entry), because its premise, that the gap is not done, no
+longer holds on main. SPEC §9.9 keeps main's "In `ergostat.toml`" bullet, with one sentence added for the cap. The
+branch's duplicate "Models in `ergostat.toml`" bullet and its second "Limits, stated" are dropped. The agent guide
+keeps main's bullet, with the cap sentence added.
+
+Breaks re-run on the merged code (each applied by hand, then restored, and the file seen green again, 11 passed):
+- the permit call removed (the start written with its reserve and no decision): 6 failed,
+  `test_toml_run_refused_when_day_spent`, `test_toml_permit_holds_the_lock`, `test_toml_free_kinds_only[ai]`,
+  `test_toml_free_kinds_only[narrow-ai]`, `test_toml_run_raised_is_closed_at_reserve`, `test_toml_orphan_recovered`.
+- the free-kinds allowlist widened (`"narrow-ai"` added to `budget.FREE`): `test_toml_free_kinds_only[narrow-ai]`.
+- the close-on-raise removed (`budget.close` replaced by `pass`): `test_toml_run_raised_is_closed_at_reserve`.
+- the `--max-budget-usd` rewrite removed (`if False and …`): `test_toml_claude_command_capped`.
+- the competing write put in the gap (fold read, `budget._between()`, then the write, no flock):
+  `test_toml_permit_holds_the_lock` failed on its own assertion (the second run was admitted).
+  `test_toml_run_refused_when_day_spent` failed too, but only on the reason's text.
+
+Tests run after the merge (`scripts/named_tests.py`, serially): `tests/test_toml_models_budget.py` (11 passed);
+`tests/test_toml_budget.py`, `tests/test_runner_and_state.py`, `tests/test_run_budget.py` (104 passed);
+`tests/test_ai_calls_budget.py`, `tests/test_run_budget_trip.py`, `tests/test_agents.py` (48 passed);
+`tests/test_model.py`, `tests/test_reload_in_place.py`, `tests/test_modeller_budget.py` (38 passed). ruff clean.
+Not run here: the whole unit suite and the four browser files (left to the factory). No page changed.

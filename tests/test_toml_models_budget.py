@@ -61,12 +61,12 @@ def test_toml_run_refused_when_day_spent(tmp_path, capsys):
     p = project(tmp_path)
     spend(p, 0.6)                                             # 0.6 spent + 0 reserved + 0.5 > 1
     r = run(p)
-    assert "refused: budget" in r["note"] and "0.60 spent" in r["budget_refused"]
+    assert "refused: budget" in r["note"] and "0.60 spent" in r["budget"]
     assert not evs(p, "agent.started") and not ran(p)
     (no,) = evs(p, budget.REFUSED)
     assert no["item"] == "cleaner" and no["data"]["reserve"] == 0.5
     assert main(["-C", str(p.repo), "agent", "cleaner", "--now"]) == 1
-    out = capsys.readouterr().out
+    out = "".join(capsys.readouterr())
     assert "refused: budget: 0.60 spent" in out and "ran in" not in out
     assert not evs(p, "agent.started") and not ran(p)
 
@@ -91,8 +91,8 @@ def test_toml_permit_holds_the_lock(tmp_path, monkeypatch):
     first = run(p)
     t, blocked = waited
     t.join(10)
-    assert first["exit"] == 0 and "budget_refused" not in first
-    assert len(second) == 1 and second[0].get("budget_refused"), second
+    assert first["exit"] == 0 and "budget" not in first
+    assert len(second) == 1 and second[0].get("budget"), second
     assert len(evs(p, "agent.started")) == 1 and blocked
 
 
@@ -102,7 +102,7 @@ def test_toml_free_kinds_only(tmp_path, kind):
     spend(p, 0.9)                                             # the day is spent
     r = run(p)
     if kind in ("ai", "narrow-ai"):
-        assert r["budget_refused"] and not evs(p, "agent.started") and not ran(p)
+        assert r["budget"] and not evs(p, "agent.started") and not ran(p)
         q = project(tmp_path, kind=kind, name="other")        # with the day free: it reserves max-cost
         assert run(q)["exit"] == 0
         (s,) = evs(q, "agent.started")
@@ -145,7 +145,7 @@ def test_toml_orphan_recovered(tmp_path, monkeypatch):
     gone = subprocess.Popen(["true"])
     gone.wait()
     orphan = p.events.add("agent.started", item="cleaner", source=budget.SOURCE, data={"reserve": 0.6, "pid": gone.pid})
-    assert run(p)["budget_refused"] and not ran(p)               # 0 spent + 0.6 reserved + 0.6 > 1
+    assert run(p)["budget"] and not ran(p)               # 0 spent + 0.6 reserved + 0.6 > 1
     r = runner.Runner(p, say=lambda s: None)
     r._recover()
     (c,) = evs(p, budget.CLOSED)
