@@ -18,6 +18,8 @@ folds only what is newer than it.
   relation, the id it names), indexed both ways, so an item's links and the links to it (the inverse: ``blocks``,
   ``children``) are both one lookup. A kind that declares ``about:`` keeps there too, as relation ``@about``, each
   part of the model its items name (``goal.x``), as its field now holds them: "the items about goal.x" is one lookup.
+- ``number_log`` and ``numbers``: each change of an item's numeric field (when, the value, by how much) and each
+  item's value now (``itemnumbers.py``), so a chart of a field reads its kind, field and window and decodes no body.
 
 In memory, only items still open are kept folded (their fold state, a few thousand at most, the
 latest touched): an item in a finished state, or with no event for ``storage: items: idle``, is
@@ -55,12 +57,13 @@ from collections import OrderedDict
 from pathlib import Path
 
 from ..store import damaged
-from . import codec
+from . import codec, itemnumbers
 from .about import parts_named
-from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
+from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, kind_of, text_of
 from .relations import links_of
 
-VERSION = 5                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links)
+VERSION = 6                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
+#                             6: the numbers)
 ABOUT = "@about"            # the links of an item to the parts of the model it is about (never a relation's name)
 CHUNK = 50_000              # events folded per transaction: other processes read and write between them
 CACHED = 4096               # open items kept folded in memory, the latest touched
@@ -93,6 +96,12 @@ create table if not exists reached (kind integer, state integer, primary key (ki
 create table if not exists links (rid integer, rel integer, dst text);
 create index if not exists links_rid on links(rid);
 create index if not exists links_dst on links(dst);
+create table if not exists number_log (kind integer, field integer, t real, rid integer, value real, delta real,
+    primary key (kind, field, t, rid)) without rowid;
+create index if not exists number_log_rid on number_log(rid);
+create table if not exists numbers (rid integer, field integer, kind integer, value real, t real,
+    primary key (rid, field)) without rowid;
+create index if not exists numbers_kind on numbers(kind, field, value);
 """
 
 COLS = "rid, id, kind, state, first, last, newest, entered, n, latest, arrived, raw, raw_first, body"
@@ -421,7 +430,7 @@ class Index:
         return finished
 
     def _reset(self) -> None:
-        for t in ("items", "moves", "left", "reached", "links", "names", "meta"):
+        for t in ("items", "moves", "left", "reached", "links", "number_log", "numbers", "names", "meta"):
             self.db.execute(f"delete from {t}")
         self.names, self.rnames = {None: None}, {None: None}
         self.cache.clear()
@@ -435,6 +444,8 @@ class Index:
         if gone:
             self.db.executemany("delete from moves where rid = ?", gone)
             self.db.executemany("delete from links where rid = ?", gone)
+            self.db.executemany("delete from number_log where rid = ?", gone)
+            self.db.executemany("delete from numbers where rid = ?", gone)
             self.db.executemany("delete from items where rid = ?", gone)
             dead = {r[0] for r in gone}
             for id in [i for i, (it, *_) in self.cache.items() if getattr(it, "rid", None) in dead]:
@@ -461,7 +472,7 @@ class Index:
                 rid, arrived, newest, raw, raw_first = row[0], row[10], row[6], row[11], row[12]
             else:
                 it, rid, arrived, newest, raw, raw_first = None, None, None, None, 0, None
-            it = fold(id, evs, k, it=it, transcript=self.transcript)
+            it, numbered, renumbered = itemnumbers.follow(id, evs, k, it, self.transcript)
             restored = False
             for e in evs:
                 if e["type"] == SNAPSHOT:
@@ -484,6 +495,7 @@ class Index:
                                 "arrived=?, raw=?, raw_first=?, body=?, text=? where rid=?", (*values, rid))
             if restored:
                 self.db.execute("delete from moves where rid = ?", (rid,))
+            self._keep_numbers(rid, it, numbered, renumbered)
             if k is not None and (k.relations or k.about):     # its links, as its fields now hold them
                 self.db.execute("delete from links where rid = ?", (rid,))
                 got = links_of(k, it.fields) + [(ABOUT, t) for t in parts_named(it.fields.get(k.about) if k.about else None)]
@@ -507,6 +519,31 @@ class Index:
                 self.cache[id] = (it, raw, raw_first)
         while len(self.cache) > CACHED:
             self.cache.popitem(last=False)
+
+    def _keep_numbers(self, rid: int, it: Item, rows: list[tuple], restored: bool) -> None:
+        """An item's changes of its numeric fields written (``restored``: a snapshot's history in place of what was
+        kept), and its value now of each. Two changes of one field at one moment are one row: the last value, their
+        deltas added, however the events were split into chunks."""
+        if restored:
+            self.db.execute("delete from number_log where rid = ?", (rid,))
+            self.db.execute("delete from numbers where rid = ?", (rid,))
+        if not rows:
+            return
+        kn = self.nid(it.kind)
+        self.db.executemany(
+            "insert into number_log(kind, field, t, rid, value, delta) values (?,?,?,?,?,?) "
+            "on conflict(kind, field, t, rid) do update set value = excluded.value, delta = delta + excluded.delta",
+            [(kn, self.nid(f), t, rid, v, d) for f, t, v, d in rows])
+        latest: dict[str, float] = {}
+        for f, t, _, _ in rows:
+            latest[f] = max(t, latest.get(f, t))
+        now = itemnumbers.values(it.fields)
+        self.db.executemany("delete from numbers where rid = ? and field = ?",
+                            [(rid, self.nid(f)) for f in latest if f not in now])
+        self.db.executemany(
+            "insert into numbers(rid, field, kind, value, t) values (?,?,?,?,?) "
+            "on conflict(rid, field) do update set value = excluded.value, t = max(t, excluded.t)",
+            [(rid, self.nid(f), kn, now[f], t) for f, t in latest.items() if f in now])
 
     def _open(self, it: Item, k, now: float) -> bool:
         """Whether an item is kept folded in memory: not finished, and touched within ``idle``."""
