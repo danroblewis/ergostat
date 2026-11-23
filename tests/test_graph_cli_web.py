@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -232,6 +233,8 @@ def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals
                     ignore=shutil.ignore_patterns("run", "__pycache__"))
     f = d / "ergostat.yaml"
     f.write_text(f.read_text().replace("name: the-job\n", "name: the-job\npurpose: keep my work moving\n", 1))
+    m = d / "job" / "messages.yaml"                    # one goal no controller holds: notes-reach-work, its block gone
+    m.write_text(m.read_text().split("\nblocks:\n")[0] + "\n")
     server, url = serve(Project(model.load(d)), free_port())
     try:
         with urllib.request.urlopen(url + "/api/status", timeout=30) as r:
@@ -345,6 +348,37 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
+    """big has no kinds of item: its Process answer is empty, so the page takes its empty branch, whose words give the
+    reason and Dynamics, laid over the canvas (not below it). The browser half of this check, the text's box inside the
+    canvas's, is tests/test_diagram_rendering.py::test_process_view_with_no_kinds_says_so_inside_the_canvas."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import serve
+    root = Path(__file__).resolve().parents[1]
+    d = tmp_path / "big"
+    shutil.copytree(root / "examples" / "big", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    server, url = serve(Project(model.load(d)), free_port())
+    try:
+        def get(path):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                return r.read().decode()
+        g, js, css = json.loads(get("/api/graph?view=process")), get("/static/diagram.js"), get("/static/style.css")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert not g["nodes"] and not g["kinds"], g                  # nothing to draw: the empty branch
+    assert "No kinds of item in ${here}: its parts are counted by sensors. See `" in js
+    assert re.search(r'go\(\{ view: "dynamics" \}\); \} \}, "Dynamics"\), "\."', js)    # where to look instead
+    rule = re.search(r"\.canvas-wrap > \.empty \{([^}]*)\}", css)
+    assert rule and all(p in rule.group(1) for p in ("position: absolute", "inset: 0", "align-items: center",
+                                                       "justify-content: center")), rule
+
+
 def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
     """Each page's header carries 'N wait for you' (#waits) before its nav, a link to /diagram#waiting, and the
     Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""
@@ -381,6 +415,26 @@ def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():
     for chart in ("causesStrip", "loopDominance", "moduleCharts", "loopScope"):
         body = re.search(rf"\nfunction {chart}\(.*?\n}}\n", charts, re.S).group(0)
         assert "working()" in body, chart
+
+
+def test_the_count_of_what_waits_sits_in_one_polite_live_region():
+    """The header's 'N wait for you' link is inside an always-present aria-live='polite' region (so a count appearing
+    from 0 is announced too), and the script writes its text through setText, which writes only a changed text. The
+    browser half (the text written only when N changes) is test_diagram_rendering's
+    test_a_changed_count_of_what_waits_is_announced."""
+    import re
+
+    from ergostat.web.server import STATIC
+    html = (STATIC / "index.html").read_text()
+    region = re.search(r'<span class="waits-said"([^>]*)>(.*?)</span>', html)
+    assert region, "the waits link has no wrapping region"
+    assert 'aria-live="polite"' in region.group(1) and 'aria-atomic="true"' in region.group(1)
+    assert re.search(r'<a id="waits"[^>]*\bhidden\b', region.group(2)), "the link, not the region, is hidden at 0"
+    util = (STATIC / "util.js").read_text()
+    assert "setText(waits, `${n} wait for you`)" in util
+    body = re.search(r"\nfunction setText\((\w+), (\w+)\) \{(.*?)\n\}", util, re.S)
+    assert body and re.search(rf"if \({body.group(1)}\.textContent !== {body.group(2)}\)", body.group(3)), \
+        "setText must write only a changed text"
 
 
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
@@ -665,6 +719,26 @@ def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
     assert key("graph", {"view": "control", "system": "", "around": "undefined", "since": "1h"}) == "graph?view=control"
 
 
+def test_a_snapshot_inlines_every_stylesheet_and_script_the_page_links(project, tmp_path, monkeypatch):
+    import shutil
+
+    from ergostat.web import snapshot
+    static = tmp_path / "static"
+    shutil.copytree(snapshot.STATIC, static)
+    (static / "second-sheet.css").write_text(".second-sheet { color: var(--ink); } /* </style><b>not a tag */")
+    (static / "second-script.js").write_text("window.secondScript = 1;")
+    page = (static / "index.html").read_text()
+    page = page.replace("</head>", '<link rel="stylesheet" href="/static/second-sheet.css">\n</head>', 1)
+    page = page.replace("</body>", '<script src="/static/second-script.js"></script>\n</body>', 1)
+    (static / "index.html").write_text(page)
+    monkeypatch.setattr(snapshot, "STATIC", static)
+    html = snapshot.build(project)
+    assert '<link rel="stylesheet"' not in html and '<script src="' not in html      # nothing fetched
+    assert ".second-sheet { color: var(--ink); }" in html and "window.secondScript = 1;" in html
+    assert "</style><b>" not in html                                                 # a stylesheet cannot close its element
+    assert html.count("<style>") == html.count("</style>") == page.count('rel="stylesheet"')
+
+
 def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     from ergostat.web.snapshot import build
     project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
@@ -901,3 +975,49 @@ def test_the_items_graph_says_when_its_finish_is_still_being_worked_out(tmp_path
     assert past["eta_pending"] is False
     monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: {"items": {}, "kinds": {}})
     assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is False
+
+
+def test_every_examples_loops_answer_carries_each_goals_word_and_row(tmp_path, monkeypatch):
+    """The Goals page draws a goal's row from /api/loops alone (goalrow.js): every goal of every example says its word,
+    the status's own, and its row's columns."""
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import server
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    seen = 0
+    for ex in sorted((Path(__file__).resolve().parent.parent / "examples").glob("*/ergostat.yaml")):
+        d = tmp_path / ex.parent.name
+        shutil.copytree(ex.parent, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+        loops = server.api(server.Live(Project(model.load(d))), "loops", {})
+        for name, lp in loops.items():
+            assert lp["word"] == (lp["status"] if lp["status"] in state.WORDS else "unknown"), (ex, name, lp["word"])
+            assert set(lp["row"]) == {"measure", "value", "unit", "bound_words", "trend", "expected"}, (ex, name)
+            assert lp["row"]["measure"] == lp["stock"] and lp["row"]["value"] == lp["value"], (ex, name)
+            seen += 1
+    assert seen > 20, seen
+
+
+GOAL_TEXT = [  # a goal's state made reader text in a page script: only goalrow.js may (goalWord, goalRow)
+    re.compile(r"\bstatus\s*[!=]==?\s*[\"'](?:holding|off|open|unknown|stale)[\"']"),
+    re.compile(r"[\"']holding[\"']"),
+    re.compile(r"\b(?:statusEl|exceptional)\([^)]*\.status\b"),
+]
+NOT_A_GOAL = {  # (file, what the line says): states that are not a goal's
+    ("details.js", "exceptional(n.status) ? statusEl(n.status)"),   # a system box's own state (openSystem)
+    ("pages.js", 'x.how || "holding"'),                             # a lease still held
+}
+
+
+def test_no_page_script_words_a_goals_state_but_goalrow():
+    """Every surface printing a goal's state asks goalWord or goalRow; a page mapping status to a word itself fails."""
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static"
+    vendored = {"elk.bundled.js", "marked.min.js", "highlight.min.js", "goalrow.js"}
+    found = [(f.name, line.strip()) for f in sorted(static.rglob("*.js")) if f.name not in vendored and "uplot" not in f.parts
+             for line in f.read_text().splitlines() if any(r.search(line) for r in GOAL_TEXT)
+             and not any(f.name == n and s in line for n, s in NOT_A_GOAL)]
+    assert not found, found
+    assert '<script src="/static/goalrow.js">' in (static / "index.html").read_text()

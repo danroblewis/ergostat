@@ -7,10 +7,11 @@ from __future__ import annotations
 import re
 
 from ..spec.ir import DEAD, LEASED, TIERS, LeaseTerms, Ref, Spec, Takes, own_kind
+from . import faults
 
 TERMS_KEYS = {"ttl", "attempts"}
 POOL_KEYS = {"now", "most"}
-TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order"}
+TAKES_KEYS = {"kind", "at", "to", "where", "unblocked", "order", "faults"}
 
 
 def terms(c, m, key: str, what: str) -> LeaseTerms:
@@ -88,7 +89,7 @@ def takes(c, m, what: str) -> Takes | None:
     where = dict(where)
     if where:
         c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
-    return Takes(kind, list(states), list(to), where, unblocked, order)
+    return Takes(kind, list(states), list(to), where, unblocked, order, faults.compile_healthy(c, raw, what))
 
 
 def pool(c, m, what: str) -> tuple[int, Ref | None]:
@@ -189,6 +190,7 @@ def check(c, spec: Spec) -> None:
         if b.takes.unblocked and not any(r.precedence for r in k.relations.values()):
             c.err(f"{what}.takes.unblocked: {k.name} has no precedence relation to be blocked by (relations: "
                   f"{{blocked_by: {k.name}}})", b.where, "bad-takes")
+        faults.check(c, spec, b)
         if LEASED not in k.states:                       # held by a run: after the first state it is taken from
             k.states.insert(k.states.index(b.takes.at[0]) + 1, LEASED)
         if DEAD not in k.states:

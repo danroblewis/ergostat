@@ -509,7 +509,7 @@ function systemSize(n) {
 function loopsText(n) {
   const l = n.loops || {}, total = Object.values(l).reduce((a, b) => a + b, 0);
   if (!total) return "no loops";
-  return `${total} loop${total > 1 ? "s" : ""}: ` + ["holding", "off", "stale", "open", "unknown"].filter((k) => l[k]).map((k) => `${l[k]} ${k}`).join(", ");
+  return `${total} loop${total > 1 ? "s" : ""}: ` + GOAL_WORDS.filter((k) => l[k]).map((k) => `${l[k]} ${k}`).join(", ");
 }
 function drawSystem(n, w, hgt) {
   const tone = { off: "var(--bad)", holding: "var(--ok)", open: "var(--warn)" }[n.status] || "var(--unknown)";
@@ -740,7 +740,7 @@ function drawGraph(svg, g, lay) {
   const flowLinks = sd ? sdFlowLinks(g) : new Set();      // what Flows only keeps, by the model (dynamics.js)
   const flowEnds = new Set(g.edges.filter((e) => flowLinks.has(e.id)).flatMap((e) => [e.source, e.target]));
   if (sd && !flowLinks.size)                              // (shown with Flows only: a level with nothing it keeps says so)
-    vp.append(s("text", { class: "flows-none t-sub", x: (lay.ox || 0) + lay.width / 2, y: (lay.oy || 0) - 14, "text-anchor": "middle" },
+    vp.append(s("text", { class: "flows-none t-sub", x: (lay.ox || 0) + lay.width / 2, y: (lay.oy || 0) + lay.height + 24, "text-anchor": "middle" },
       "No flows at this level: what crosses between these systems is information only. Open a system to see its flows."));
   for (const le of lay.edges) {
     const e = edgeById[le.id];
@@ -1064,7 +1064,7 @@ function captionText(st, view) {
   // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
   if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
     const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
-    const off = names.filter((x) => st.loops[x]?.status === "off").length;
+    const off = names.filter((x) => st.loops[x] && goalWord(st.loops[x]) === "off").length;
     parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
   }
   return parts.join(" · ");
@@ -1134,6 +1134,7 @@ async function pageDiagram(main, q) {
       { sep: true },
       unpinAll]),
   ], { cls: "dots", title: view === "process" ? "More: which kinds of item, unpin" : "More: wrap, open or close every system, unpin" });
+  more.button.setAttribute("aria-label", "More diagram options");
   function pmKindItems() {                         // the kinds drawn: the system's by default, any of them by choice
     const g = S.graph?.kind === "process" ? S.graph : null;
     if (!g) return [];
@@ -1168,11 +1169,11 @@ async function pageDiagram(main, q) {
   })();
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "seg", role: "group", "aria-label": "View" },
-      h("button", { class: view === "dynamics" ? "on" : "", title: "The stock-and-flow diagram, as system dynamics draws it",
+      h("button", { class: view === "dynamics" ? "on" : "", "aria-pressed": String(view === "dynamics"), title: "The stock-and-flow diagram, as system dynamics draws it",
                     onclick: () => { carryPanel(); go({ view: "dynamics" }); } }, "Dynamics", h("span", { class: "what" }, " · what is")),   // (the panel kept: interact.js)
-      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => { carryPanel(); go({ view: "blocks" }); } },
+      h("button", { class: view === "blocks" ? "on" : "", "aria-pressed": String(view === "blocks"), title: "The control system as a block diagram", onclick: () => { carryPanel(); go({ view: "blocks" }); } },
         "Blocks", h("span", { class: "what" }, " · what is controlled")),
-      h("button", { class: view === "process" ? "on" : "", title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
+      h("button", { class: view === "process" ? "on" : "", "aria-pressed": String(view === "process"), title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
                     onclick: () => go({ view: "process" }) }, "Process", h("span", { class: "what" }, " · what happened"))),
     h("span", { class: "sep" }),
     sysSel, crumbs, ...pmBar,
@@ -1180,9 +1181,9 @@ async function pageDiagram(main, q) {
     more, caption);
   const zoom = h("div", { class: "zoom" },
     h("span", { id: "panhint", class: "panhint", hidden: true, title: "Drag to pan, or fit to see it whole" }, "More beyond the edge"),
-    h("button", { class: "z", title: "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
+    h("button", { class: "z", title: "Zoom out", "aria-label": "Zoom out", onclick: () => { S.view.k /= 1.2; applyView(svg); } }, "\u2212"),
     h("button", { title: "Show it whole", onclick: () => fit(svg, S.layout) }, "Fit"),
-    h("button", { class: "z", title: "Zoom in", onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
+    h("button", { class: "z", title: "Zoom in", "aria-label": "Zoom in", onclick: () => { S.view.k *= 1.2; applyView(svg); } }, "+"),
     h("span", { class: "sep" }),
     menu("Export", [
       { label: "SVG", hint: "as drawn", onclick: () => exportSvg(svg, file()) },
@@ -1194,7 +1195,7 @@ async function pageDiagram(main, q) {
   wrap.append(svg, toolbar, zoom);
   if (typeof splitGrips === "function") splitGrips(wrap);         // a second pane, dragged in from an edge (split.js)
   S.legendEl = legend(view);   // blocks, process and dynamics each read differently
-  const side = h("div", { class: "side" });
+  const side = h("aside", { class: "side", "aria-label": "About the diagram" });
   const shell = h("div", { class: "diagram" + (sideHidden() ? " side-hidden" : "") }, wrap, side);
   main.append(shell);
   panZoom(svg);
@@ -1241,6 +1242,7 @@ async function pageDiagram(main, q) {
     wrap.querySelector(".loading")?.remove();
     shell.classList.remove("opening");
     S.graph = g;
+    if (typeof quietRefresh === "function") quietRefresh(g);   // an open system's panel: its quiet sentence (details.js)
     setText(caption, captionText(S.status, view));
     caption.title = caption.textContent;
     proposedBanner(wrap, g, proposal, go);
@@ -1264,7 +1266,10 @@ async function pageDiagram(main, q) {
       if (!g.nodes.length) {
         svg.replaceChildren();
         S.layout = null; S.graphSig = "";
-        wrap.append(h("div", { class: "empty" }, !g.kinds.length ? "No kinds of item here: the process map draws how items moved."
+        const here = system || S.status?.name || "this model";    // (the reason, and where to look instead)
+        wrap.append(h("div", { class: "empty" }, !g.kinds.length
+          ? h("span", {}, `No kinds of item in ${here}: its parts are counted by sensors. See `,
+              h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); go({ view: "dynamics" }); } }, "Dynamics"), ".")
           : `Nothing on the record in the window for ${g.kinds.map((k) => k.name).join(", ")}.`));
       } else if (!S.pressed) {
         await drawProcessView(svg, g);
@@ -1381,12 +1386,13 @@ function withValues(base, v) {
   return g;
 }
 
-/* the legend: open the first time, then as the reader left it (remembered in this browser) */
+/* the legend, named by the diagram's type: open unless the reader closed it in this browser (it then stays closed) */
 function legendOpen() { try { return localStorage.getItem("ergostat.legend") !== "closed"; } catch (e) { return true; } }
+const LEGEND_TYPE = { dynamics: "stock and flow diagram", blocks: "block diagram", process: "process map" };   // (the caption's: DIAGRAM_TYPE)
 function legendBox(view) {
-  const d = h("details", { class: "legend-box", open: legendOpen() ? "" : null }, h("summary", {}, "How to read it"), legend(view));
-  d.addEventListener("toggle", () => { try { localStorage.setItem("ergostat.legend", d.open ? "open" : "closed"); } catch (e) { /* not remembered */ } });
-  try { if (!localStorage.getItem("ergostat.legend")) localStorage.setItem("ergostat.legend", "closed"); } catch (e) { /* not remembered */ }
+  const d = h("details", { class: "legend-box", key: "legend", open: legendOpen() ? "" : null },
+    h("summary", {}, "How to read it", h("span", { class: "muted" }, ` · the ${LEGEND_TYPE[view] || "control diagram"}`)), legend(view));
+  d.addEventListener("toggle", () => { if (d.isConnected) try { localStorage.setItem("ergostat.legend", d.open ? "open" : "closed"); } catch (e) { /* not remembered */ } });
   return d;
 }
 
@@ -1414,7 +1420,12 @@ function inboxAnswer(a) {
       if (ev.currentTarget.matches(":focus-visible")) said.focus();
       for (const b of row.querySelectorAll("button")) b.disabled = true;
       const q = { ...(nv ? { n: nv } : {}), ...(wv ? { note: wv } : {}) };
-      try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
+      try {
+        const r = await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q);
+        ANSWERED.set(a.what, { ...r, what: a.what, note: q.note, time: Date.now() / 1000 });
+        said.replaceChildren(" ", ...answeredSays(ANSWERED.get(a.what)).flat().filter(Boolean));   // in its row while held; then answeredRow
+        refreshHeader();
+      }
       catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; ready(row); }
     } }, says);
   };
@@ -1436,6 +1447,37 @@ function inboxBody(a, href) {
     run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
 }
 
+/* held requests alike (one code, one asker: the server's fold) as one entry, where the first of them stood */
+function folded(xs) {
+  const by = {}, out = [];
+  for (const a of xs) {
+    if (!a.fold) out.push(a);
+    else if (by[a.fold]) by[a.fold].members.push(a);
+    else out.push(by[a.fold] = { members: [a] });
+  }
+  return out.map((a) => (a.members?.length === 1 ? a.members[0] : a));
+}
+const PLURAL = { stock: "stocks", flow: "flows", auxiliary: "auxiliaries", parameter: "parameters", goal: "goals", block: "blocks" };
+function foldRow(ms, row) {
+  const kinds = new Set(ms.map((m) => String(m.about).split(".")[0])), systems = [...new Set(ms.map((m) => m.system).filter(Boolean))].sort();
+  const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text", placeholder: "why (to deny all)", "aria-label": "Why" });
+  // read from the clicked row as it is on the page: a refresh hands this handler to the kept nodes (patchNode)
+  const all = h("button", { class: "ghost", "data-verb": "deny-all", onclick: async (ev) => {
+    const b = ev.currentTarget, act = b.parentElement, note = act.querySelector("input").value, out = act.querySelector(".note");
+    b.disabled = true;
+    const bad = [];                                   // one at a time: each answer is the owner's event, in turn
+    for (const m of ms) await apiPost(`inbox/${encodeURIComponent(m.what)}/deny`, note ? { note } : {}).catch((e) => bad.push(e.message));
+    out.textContent = bad.length ? ` ${bad.length} not denied: ${bad[0]}` : ` ${ms.length} denied`;
+    if (!bad.length) act.querySelector("input").value = "";   // the reason was this fold's; it goes with it
+    b.disabled = false; refreshHeader();
+  } }, "Deny all");
+  // keyed by its fold: a refresh matches it to its own nodes, never another fold's by place (and its typed reason)
+  return h("div", { "data-fold": ms[0].fold, key: `fold:${ms[0].fold}` }, h("details", { class: "fold" },
+    h("summary", {}, h("span", { class: "att-word" }, "request · "), h("b", { class: "lvl-warn" },`${ms.length} ${kinds.size === 1 ? PLURAL[[...kinds][0]] || "parts" : "parts"}: ${ms[0].fold.split("|")[0].replace(/-/g, " ")}`),
+      systems.length ? ` (${systems.join(", ")})` : ""), ...ms.map(row)),
+    SNAP || S.at ? null : h("div", { class: "row inbox-act" }, why, all, said));
+}
+
 /* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
    or its summing junction (Blocks), the closed system holding it opened first (one level: the box drawn) */
 function goalButton(name, label) { return h("button", { class: "name", type: "button", onclick: () => showGoal(name) }, label); }
@@ -1447,6 +1489,16 @@ function showGoal(name) {
   if (box && !(S.graph?.open || []).includes(box)) S.toggleSystem?.(box);
   openLoop(name);
 }
+/* what the owner answered here, said in its row and then in place of it until the page is next opened: what was
+   done, by whom, when */
+const ANSWERED = new Map();
+function answeredSays(x) {
+  const at = new Date(x.time * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
+  const to = x.item ? `/item/${encodeURIComponent(x.item)}` : x.link;
+  return [`${{ approve: "Approved", deny: "Denied", done: "Done" }[x.verb]} by you at ${at} (${x.said})`, x.note ? `, reason: ${x.note}` : "",
+    to ? [" · see ", h("a", { href: to }, x.item || x.what)] : null];
+}
+const answeredRow = (x) => h("div", { key: `answered ${x.what}`, "data-answered": x.what }, h("b", {}, x.what), " ", answeredSays(x));
 
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
@@ -1461,16 +1513,18 @@ function renderSide(side, g, view) {
     side.append(h("div", { class: "att" }, h("div", {}, h("b", { class: "lvl-warn" }, "Not running. "),
       last ? `These are the last readings, from ${ago(last)}.` : "Nothing has been measured.")));
   }
-  const charts = view === "dynamics" ? sideCharts(out) : null;      // charts.js: the parts chosen, at the top
-  if (charts && S.sel?.size) side.append(live(charts));
-  // three groups, always in this order, each with its count: what waits on a person; the goals off (the system's,
-  // then modelling's after a rule: as many as the header's "loops off"); the rest, the model's housekeeping (folded,
-  // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
-  // colour is not the only cue.
+  // charts.js: the parts chosen, at the top; with none chosen, no chart
+  if (view === "dynamics" && S.sel?.size) side.append(live(sideCharts(out)));
+  // three groups, always in this order, each with its count: what waits on a person (only when something waits); the
+  // goals off (the system's, then modelling's after a rule: as many as the header's "loops off"); the rest, the model's
+  // housekeeping (folded, unless a fault is in it; modelling's held requests go there). Each entry starts with its
+  // state or kind word, so colour is not the only cue.
   const ask = waitsOnYou;                                     // (util.js: the header's "N wait for you" counts the same)
-  const waiting = problems.filter(ask);
+  // answered here: drawn as answered, until the same id, once seen gone, is listed to answer again (a request held again)
+  for (const [w, x] of ANSWERED) { const back = problems.some((a) => a.answer && a.what === w); if (back && x.left) ANSWERED.delete(w); else if (!back) x.left = true; }
+  const waiting = problems.filter((a) => ask(a) && !ANSWERED.has(a.what));
   const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
-  const rest = problems.filter((a) => !waiting.includes(a) && !off.includes(a));
+  const rest = problems.filter((a) => !ask(a) && !off.includes(a));
   const count = (xs) => h("span", { class: "muted" }, ` ${xs.length}`);
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {
@@ -1488,72 +1542,84 @@ function renderSide(side, g, view) {
     }
     return live(held);
   };
-  const list = (xs, none, cls) => {
-    const att = h("div", { class: `att ${cls}` });
-    if (!xs.length) att.append(h("div", { class: "none" }, none));
-    xs.forEach((a, i) => {
-      if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
-      const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
-      const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-      const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
-      const said = h("span", { class: "att-word" }, `${word} · `);
-      const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
-      if (a.answer && a.first) { att.append(h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
-      att.append(h("div", keys, said,
-        href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
-        linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
-        a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null));   // its suggestion, once due
+  const row = (a) => {
+    const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
+    const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
+    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
+    const said = h("span", { class: "att-word" }, `${word} · `);
+    const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
+    if (a.answer && a.first) return h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a));
+    return h("div", keys, said,
+      href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
+      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
+      a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null);   // its suggestion, once due
+  };
+  const one = (a) => (a.members ? a.members[0] : a);
+  const list = (xs, none, cls, key, answered = []) => {
+    const att = h("div", { class: `att ${cls}`, ...(key ? { key } : {}) }, ...answered);   // answered here: at the top
+    if (!xs.length && !answered.length) att.append(h("div", { class: "none" }, none));
+    folded(xs).forEach((a, i, ys) => {
+      if (i && one(a).modelling && !one(ys[i - 1]).modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
+      att.append(a.members ? foldRow(a.members, row) : row(a));
     });
     return hold(att, cls);
   };
-  side.append(h("h3", { class: "att-head", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you.", "needs"));
-  side.append(h("h3", { class: "att-head" }, "Goals off", count(off)), list(off, "No goal is off.", "goals-off"));
-  const house = h("details", { class: "housekeeping", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
+  // what waits for the owner first (the one thing a person does here), only when something waits; more than 3: one line
+  // (while the reader is in the list it holds still: folded or not, as it was). The header's link goes to its heading.
+  const inList = out.querySelector(".att.needs"), fold = heldStill(inList) ? !!inList.closest("details.waiting-fold") : waiting.length > 3;
+  let moved = null;
+  if (waiting.length || ANSWERED.size) {               // what was answered here stays until the page is loaded again
+    side.append(h("h3", { class: "att-head", key: "waiting-h", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)));
+    let rows = list(waiting, "", "needs", "waiting-rows", [...ANSWERED.values()].map(answeredRow));
+    // folded or unfolded: the rows on the page are moved, not made again, so a reason typed in one stays with it
+    if (inList && !rows.__ref && !!inList.closest("details.waiting-fold") !== fold) rows = live(moved = patchNode(inList, rows));
+    side.append(fold ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);
+  }
+  side.append(legendBox(view));
+  side.append(h("h3", { class: "att-head", key: "off-h" }, "Goals off", count(off)), list(off, "No goal is off.", "goals-off", "off-rows"));
+  const house = h("details", { class: "housekeeping", key: "house", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
       h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy.", "house"));
   side.append(house);
   if (hints.length) {
-    // open when a loop is off: then the suggestions are the diagnosis, not an aside
-    // (the moment drawn, not now; and once the reader opens or closes them, as they left them)
-    const anyOff = Object.values(g.loops || {}).some((l) => l.status === "off");
-    const open = S.suggestOpen ?? anyOff;
-    const d = h("details", { class: "suggest", open: open ? "" : null },
+    // closed, its count in the summary; once the reader opens or closes it, as they left it
+    const d = h("details", { class: "suggest", key: "suggest", open: S.suggestOpen ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
       const loop = /^loop (\S+)/.exec(a.what)?.[1];
       d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
-        loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
+        loop ? h("a", { href: "#", class: "hit24", "aria-label": `Evidence for loop ${loop}`, onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }
     side.append(d);
   }
-  if (charts && !S.sel?.size) side.append(live(charts));               // or the ones charted last
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {
-    side.append(h("h3", {}, "Loops", h("span", { class: "muted" }, ` ${loops.length}`)));
-    if (!loops.length) side.append(h("div", { class: "muted" }, "No loops in view."));
-    const rank = { off: 0, open: 1, unknown: 2, holding: 3 };       // the ones that need someone first
-    for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {
-      side.append(h("button", { class: "looprow", "data-loop": name,
+    const d = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Loops", count(loops)));
+    side.append(d);
+    if (!loops.length) d.append(h("div", { class: "muted" }, "No loops in view."));
+    for (const [name, lp] of loops.sort((a, b) => goalRank(a[1]) - goalRank(b[1]))) {       // the ones that need someone first
+      d.append(h("button", { class: "looprow", "data-loop": name,
                               onmouseenter: () => highlightLoop(name), onmouseleave: () => highlightLoop(null),
                               onclick: () => { choose(g.corr?.loops?.[name] || []); openLoop(name); } },
-        h("b", {}, name), exceptional(lp.status) ? statusEl(lp.status) : h("span"),
-        h("div", { class: "sub" }, `${lp.stock} ${fmt(lp.value)}, setpoint ${op(lp.setpoint)}${lp.band || ""}`)));
+        h("b", {}, name), exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : h("span"),
+        h("div", { class: "sub" }, goalLine(lp))));
     }
   } else if (view === "process") pmSide(side, g);          // (process.js)
   if (st.changes?.length) {
     const last = st.changes[st.changes.length - 1];
     const n = (c) => c.added.length + c.removed.length + c.changed.length;
-    const d = h("details", { class: "changes" }, h("summary", {}, `Edited ${ago(last.time)}`,
-      h("span", { class: "muted" }, `, ${n(last)} part${n(last) === 1 ? "" : "s"}${st.changes.length > 1 ? `, ${st.changes.length} edits` : ""}`)));
+    const k = st.changes.length;
+    const d = h("details", { class: "changes", key: "changes" }, h("summary", {}, "The model",
+      h("span", { class: "muted" }, ` ${k} edit${k === 1 ? "" : "s"}, the last ${ago(last.time)}, ${n(last)} part${n(last) === 1 ? "" : "s"}`)));
     for (const c of st.changes.slice().reverse()) {
       const what = [...c.added.map((x) => "+" + x), ...c.removed.map((x) => "\u2212" + x), ...c.changed.map((x) => "~" + x)];
       d.append(h("div", { class: "change" }, h("span", { class: "muted" }, ago(c.time)), " ", h("span", { class: "what" }, what.join("  "))));
     }
-    side.append(h("h3", {}, "The model"), d);
+    side.append(d);
   }
-  side.append(legendBox(view));
   patch(out, [...panel.childNodes]);
+  if (moved) moved.__persist = false;                      // moved once; patched as any other from the next refresh
   if (S.toWaiting) toWaiting();                            // the header's "N wait for you", followed
 }
 
