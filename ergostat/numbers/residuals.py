@@ -28,8 +28,11 @@ DELAYS = ("DELAY1", "DELAY3", "SMOOTH", "SMOOTH3")
 
 
 def unread(spec: Spec) -> set[str]:
-    """The stocks the residual run integrates: those with flows and no sensor (every other is taken as read)."""
-    return {s for s, st in spec.stocks.items() if spec.flows_of(s) and not st.sensors}
+    """The stocks the residual run integrates: those with flows and no sensor (every other is taken as read, and a
+    remote's always is: SPEC §4c)."""
+    from ..remote import remote_parts
+    theirs = remote_parts(spec)
+    return {s for s, st in spec.stocks.items() if spec.flows_of(s) and not st.sensors and f"stock.{s}" not in theirs}
 
 
 def residual_run(spec: Spec, data: ob.Data) -> sim.Run:
@@ -66,6 +69,9 @@ def moved(spec: Spec, data: ob.Data, run: sim.Run, name: str) -> list[float | No
 
 def examinable(spec: Spec, data: ob.Data, x: str) -> str | None:
     """Why stock ``x``'s residual cannot be worked out (None when it can)."""
+    from ..remote import remote_of
+    if (remote := remote_of(spec, f"stock.{x}")) is not None:
+        return f"remote {remote}'s: its residual is examined there, never here"
     no_start = sorted(s for s in unread(spec) if spec.stocks[s].initial is None)
     for f in spec.flows_of(x):
         near = {f.source, f.target} | {r.split(".", 1)[1] for r in (f.equation.refs if f.equation else []) if r.startswith("stock.")}

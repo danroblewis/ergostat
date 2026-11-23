@@ -411,10 +411,12 @@ def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_pa
 
 
 @contextlib.contextmanager
-def served(example: str, tmp_path: Path, edit=None):
-    """An example's page, served from a fresh copy (the model is not run; ``edit`` may change the copy first)."""
-    d = tmp_path / example
-    shutil.copytree(ROOT / "examples" / example, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+def served(example: str | Path, tmp_path: Path, edit=None):
+    """An example's page (or a model folder's), served from a fresh copy (the model is not run; ``edit`` may change
+    the copy first)."""
+    src = example if isinstance(example, Path) else ROOT / "examples" / example
+    d = tmp_path / src.name
+    shutil.copytree(src, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
     if edit:
         edit(d)
     port = free_port()
@@ -1130,8 +1132,8 @@ def test_an_items_files_show_as_what_they_are_and_nothing_in_them_runs(browser, 
 
 
 def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_transcript(browser, tmp_path, monkeypatch):
-    """Each field with its current value and a history disclosure: each change, oldest last, with
-    the event that made it (a click opens it); a refused patch said; and a session item whose
+    """Each field with its current value and 'N changes' opening the one Changes section narrowed to it: each change,
+    oldest last, with the event that made it (a click opens it); a refused patch said; and a session item whose
     transcript's lines became events, folded into its conversation. ERGOSTAT_SHOTS=DIR keeps
     screenshots of both."""
     from ergostat import model as mdl
@@ -1220,20 +1222,23 @@ def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_t
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(f"{url}/item/ticket%2F7")
-        pg.wait_for_selector("table.fields tr[data-field=title] details.history", timeout=10000)
-        assert "Thumbnails are blurry at quality 60" in pg.locator("table.fields tr[data-field=title] > td").first.inner_text()
-        notes = pg.locator("tr[data-field=notes] details.history")
-        assert notes.locator("summary").inner_text() == "history (4 changes)"
-        notes.locator("summary").click()
-        rows = notes.locator("table.history tr")
+        pg.wait_for_selector(".field-grid [data-field=title] .changes-of", timeout=10000)
+        assert "Thumbnails are blurry at quality 60" in pg.locator("[data-field=title]").first.inner_text()
+        assert pg.locator("[data-field] details.history").count() == 0          # one Changes section, not one per field
+        changes = pg.locator("details.changes")
+        notes = pg.locator("[data-field=notes] .changes-of")
+        assert notes.inner_text().strip() == "4 changes"
+        notes.click()
+        pg.wait_for_selector("details.changes[open] table.history", timeout=10000)
+        rows = changes.locator("table.history tr")
         assert rows.count() == 5                                           # the head and four changes, the latest first
         assert "add (append)" in rows.nth(1).inner_text() and "/notes/2" in rows.nth(1).inner_text()
         assert "raised it to 75" in rows.nth(1).inner_text() and "ticket.submitted" in rows.nth(1).inner_text()
-        pg.locator("tr[data-field=hours] details.history summary").click()
-        assert "(sum)" in pg.locator("tr[data-field=hours] table.history").inner_text()
-        title = pg.locator("tr[data-field=title] details.history")
-        title.locator("summary").click()
-        assert "replace by patch" in title.inner_text()
+        pg.locator("[data-field=hours] .changes-of").click()
+        pg.wait_for_function("() => document.querySelector('details.changes table.history')?.innerText.includes('(sum)')")
+        pg.locator("[data-field=title] .changes-of").click()
+        pg.wait_for_function("() => document.querySelector('details.changes table.history')?.innerText.includes('replace by patch')")
+        title = changes
         assert pg.locator("h2", has_text="Refused").count() == 1 and "test /title" in pg.locator("table.refused").inner_text()
         if shots:
             shots.mkdir(parents=True, exist_ok=True)
@@ -1242,12 +1247,12 @@ def test_an_items_page_shows_each_fields_history_and_a_session_folded_from_its_t
         pg.wait_for_selector("#detail h2", timeout=5000)
         assert pg.locator("#detail h2").inner_text() == "ticket.retitled" and "/title" in pg.locator("#detail").inner_text()
         pg.goto(f"{url}/item/session%2Fdeveloper-1a2b")
-        pg.wait_for_selector("tr[data-field=messages] table.sub", timeout=10000)
-        msgs = pg.locator("tr[data-field=messages] > td").first.inner_text()
+        pg.wait_for_selector("[data-field=messages] table.sub", timeout=10000)
+        msgs = pg.locator("[data-field=messages]").first.inner_text()
         assert "Raise the thumbnail quality" in msgs and "keeps every case under its size target" in msgs
-        assert "Grep" in pg.locator("tr[data-field=tool_calls] > td").first.inner_text()
-        assert "2,600" in pg.locator("tr[data-field=tokens_in] > td").first.inner_text() or \
-            "2600" in pg.locator("tr[data-field=tokens_in] > td").first.inner_text()
+        assert "Grep" in pg.locator("[data-field=tool_calls]").first.inner_text()
+        assert "2,600" in pg.locator("[data-field=tokens_in]").first.inner_text() or \
+            "2600" in pg.locator("[data-field=tokens_in]").first.inner_text()
         assert "4 more events are its transcript" in pg.locator("main").inner_text()
         pg.wait_for_selector(".convo .turn.tool", timeout=10000)                  # the file still shows the conversation
         if shots:
@@ -3588,8 +3593,8 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
         assert names == ["y", "u", "e"], names
         assert hover_all(pg, "#detail .scope") == (3, 3)
         assert "Saturated" in pg.locator("#detail .scope dl").inner_text()
-        # the Loops page: the sparkline opens the same scope
-        pg.goto(url + "/loops")
+        # the Goals page: the sparkline opens the same scope
+        pg.goto(url + "/goals")
         pg.locator("td.spark-cell").first.click()
         pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=20000)
         # the Items page: the kind's flow, and under its table its cycle times
@@ -5483,7 +5488,8 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         assert "window-time" in avail.inner_text() and "quality-turnover" in avail.inner_text()
         avail.locator("tr", has_text="quality-held").first.get_by_role("link", name="quality-held process", exact=True).click()
         pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden", timeout=60000)
-        pg.wait_for_function("() => /The loop quality-held/.test(document.querySelector('#detail').textContent)", timeout=60000)
+        pg.wait_for_function("() => /The control loop of goal quality-held/.test(document.querySelector('#detail').textContent)",
+                             timeout=60000)
         assert pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel?.node)?.role") == "process"
         pg.goto(url + "/model?v=1")
         pg.wait_for_function("() => document.querySelector('.available table.avail')", timeout=30000)
@@ -5942,6 +5948,73 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+MAY_DO ="You can look at everything. Approving or denying these is the only thing that changes the system."
+MAY_DO_NONE = "Nothing waits for you. Looking never changes the system."
+MAY_DO_SEEN = """() => {
+  const g = document.querySelector('[role="group"][aria-describedby="may-do"]'), may = document.getElementById("may-do");
+  const legend = document.querySelector("details.legend-box");
+  return { first: g?.firstElementChild === may, text: may?.textContent, lead: g?.innerText.trim().split("\\n")[0],
+           group: !!g, top: !!(may && legend && may.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING),
+           live: !!may?.closest("[aria-live]"), right: may?.getBoundingClientRect().right, width: innerWidth,
+           over: may ? may.scrollWidth > may.clientWidth : null, shown: (may?.getBoundingClientRect().width || 0) > 0 };
+}"""
+
+
+def hold_an_action(d: Path) -> None:
+    from ergostat import model as mdl
+    from ergostat.actions import gate
+    from ergostat.store import Project
+    p = Project(mdl.load(d))
+    gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None})
+
+
+@pytest.mark.parametrize("waiting", [True, False], ids=["waiting", "none"])
+def test_the_requests_group_opens_by_saying_what_a_person_may_do(browser, tmp_path, waiting):
+    """Needs attention opens with the one sentence on what a person may do, its group described by it (a screen reader
+    reads it once on entering, and a redraw neither replaces nor changes it); with nothing waiting, its empty form;
+    the gated actions on the Items page say the same; at 390 px it wraps within the page."""
+    from .test_inbox import MODEL
+    src = tmp_path / "src" / "inbox"
+    src.mkdir(parents=True)
+    (src / "ergostat.yaml").write_text(MODEL)
+    said = MAY_DO if waiting else MAY_DO_NONE
+    with served(src, tmp_path, edit=hold_an_action if waiting else None) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        if waiting:
+            pg.wait_for_selector('[data-inbox^="action/"]', timeout=30000)
+        pg.wait_for_selector("#may-do", timeout=30000)
+        got = pg.evaluate(MAY_DO_SEEN)
+        assert got["text"] == said and got["top"], got           # where the group is: above How to read it
+        if waiting:                                               # the first text of Waiting for you, which it describes
+            assert got["first"] and got["lead"] == said, got
+        else:                                                     # nothing waits: no group, only its empty form
+            assert not got["group"], got
+        assert not got["live"], "said with the group, not as a live region"
+        pg.evaluate("""() => { window.__may = document.getElementById("may-do"); window.__muts = 0;
+          new MutationObserver((rs) => { window.__muts += rs.length; })
+            .observe(window.__may, { childList: true, characterData: true, subtree: true, attributes: true }); }""")
+        pg.evaluate("() => { S.redrawSide(); S.redrawSide(); }")
+        assert pg.evaluate("() => document.getElementById('may-do') === window.__may && window.__muts === 0")
+        pg.set_viewport_size({"width": 390, "height": 844})
+        pg.reload()
+        pg.wait_for_selector("#may-do", timeout=30000)
+        got = pg.evaluate(MAY_DO_SEEN)
+        assert got["text"] == said and got["shown"] and not got["over"] and got["right"] <= got["width"], got
+        pg.set_viewport_size({"width": 1400, "height": 900})
+        for actions in ("items?kind=ergostat.action", "items/ergostat.action"):    # the Items tab's and their own page
+            pg.goto(f"{url}/{actions}")
+            pg.wait_for_selector("p.may-do:not([hidden])", timeout=30000)
+            assert pg.locator("p.may-do:not([hidden])").inner_text() == MAY_DO, actions
+        pg.goto(f"{url}/items")
+        pg.wait_for_selector(".filters", timeout=30000)
+        assert pg.locator("p.may-do:not([hidden])").count() == 0
+        pg.close()
+        assert not errors, errors
+
+
 SIDE_WORDS = """() => ({
   side: [...document.querySelectorAll('.side .att b, .side .suggest .hint b')].map((b) => b.textContent),
   says: [...document.querySelectorAll('.side .suggest .hint')].map((d) => d.textContent.replace(/^\\S+ \\S+ /, '')),
@@ -6043,7 +6116,7 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         pg.evaluate("() => setWindow('1h')")
         assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
         pg.go_back()
-        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        pg.wait_for_function("() => location.pathname === '/goals'", timeout=5000)
         assert pg.evaluate(agree) == ["1d", "1d", "Last 1d"]
         pg.go_forward()
         pg.wait_for_function("() => location.pathname === '/items'", timeout=5000)
@@ -6086,9 +6159,9 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
         assert pg.evaluate(kind) == "Stock"
         pg.go_back()
-        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        pg.wait_for_function("() => location.pathname === '/goals'", timeout=5000)
         assert "select=inbox-short" in pg.url, pg.url
-        pg.wait_for_function(f"() => ({panel})('inbox-short') && ({kind})() === 'Loop' && !!document.querySelector('#detail dl')",
+        pg.wait_for_function(f"() => ({panel})('inbox-short') && ({kind})() === 'Goal' && !!document.querySelector('#detail dl')",
                              timeout=20000)          # (its answer in, not its 'Loading…': a late one is another matter)
         pg.go_forward()
         pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
@@ -6684,7 +6757,7 @@ uses:
 """
 GROUPS = """() => [...document.querySelectorAll('.side h3.att-head')].map((hd) => {
   const det = hd.closest('details'), list = det ? det.querySelector('.att') : hd.nextElementSibling;
-  const rows = [...list.children].filter((x) => !x.classList.contains('none'));
+  const rows = [...list.children].filter((x) => !x.classList.contains('none') && !x.classList.contains('may-do'));
   return { head: hd.textContent.trim(), open: det ? det.open : true,
            rows: rows.map((x) => x.tagName === 'HR' ? '---' : x.textContent.trim()),
            words: rows.filter((x) => x.tagName === 'DIV')
@@ -6958,6 +7031,124 @@ def test_a_changed_count_of_what_waits_is_announced(browser, tmp_path, monkeypat
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+# ---- drawn alone: what an item passed through, or what a kind touches (item= and kind=, SPEC §5a)
+
+def seed_scrum2(p, t: float) -> None:
+    """ticket/SCRUM-2 on ticket-factory: new, taken by pick-up to picked, taken by locate (a nack: picked again, a
+    second run) to located, taken by work to worked; nothing after."""
+    from ergostat.leases import ENDED, TAKEN
+    ev, i = p.events, "ticket/SCRUM-2"
+    ev.add("ticket.found", item=i, data={"title": "a ticket"}, at=t)
+    for n, (run, block, back, then, how) in enumerate([("r1", "pick-up", "new", "ticket.pick-up", "ack"),
+                                                        ("r2", "locate", "picked", None, "nack"),
+                                                        ("r3", "locate", "picked", "ticket.locate", "ack"),
+                                                        ("r4", "work", "located", "ticket.work", "ack")]):
+        at = t + 10 * (n + 1)
+        ev.add(TAKEN, item=i, data={"run": run, "block": block, "fence": n + 1, "ttl": 300, "max": 3, "back": back}, at=at)
+        if then:
+            ev.add(then, item=i, causedby=run, at=at + 1)
+        ev.add(ENDED, item=i, data={"run": run, "fence": n + 1, "how": how, **({"why": "x"} if how == "nack" else {})},
+               at=at + 2)
+
+
+SCRUM2 = {"stock:new", "stock:picked", "stock:located", "stock:worked", "flow:pick-up", "flow:locate", "flow:work"}
+SUBSET_DRAWN = ("() => typeof S !== 'undefined' && S.layout && S.graphSig && S.graph?.subset && "
+                "document.querySelectorAll('svg.canvas g.node').length > 0")
+
+
+def graph_of(url: str, **q) -> dict:
+    from urllib.parse import urlencode
+    return json.loads(urllib.request.urlopen(f"{url}/api/graph?{urlencode(q)}", timeout=60).read())
+
+
+def test_an_items_path_is_drawn_alone(browser, tmp_path):
+    """Dynamics with item=: exactly the stocks and valves on ticket/SCRUM-2's path, each stock numbered by its steps
+    in move order (picked twice: a nack), each valve with the runs that took it; the chip clears it back to the whole,
+    with no page error, and the subset lays out in under a second."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    with served("ticket-factory", tmp_path) as url:
+        seed_scrum2(Project(mdl.load(tmp_path / "ticket-factory")), time.time() - 3000)
+        time.sleep(1.6)                                   # past the page's snapshot of the moment it started
+        g = graph_of(url, view="dynamics", item="ticket/SCRUM-2")
+        assert {n["id"] for n in g["nodes"]} == SCRUM2, sorted(n["id"] for n in g["nodes"])
+        marks = {n["id"]: n.get("path") for n in g["nodes"] if n["kind"] == "stock"}
+        assert marks == {"stock:new": [1], "stock:picked": [2, 3], "stock:located": [4], "stock:worked": [5]}, marks
+        runs = {n["id"]: n.get("attempts") for n in g["nodes"] if n["kind"] == "valve"}
+        assert runs == {"flow:pick-up": 1, "flow:locate": 2, "flow:work": 1}, runs
+        assert g["subset"]["says"] == "what ticket/SCRUM-2 passed through" and g["subset"]["kind"] == "ticket"
+        whole = graph_of(url, view="dynamics", open="*")
+        assert SCRUM2 < {n["id"] for n in whole["nodes"]} and "subset" not in whole
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+        pg.goto(f"{url}/diagram?view=dynamics&item=ticket%2FSCRUM-2")
+        pg.wait_for_function(SUBSET_DRAWN, timeout=DRAWN_S * 1000)
+        drawn_ids = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.node')].map((g) => g.dataset.id)")
+        assert set(drawn_ids) == SCRUM2, drawn_ids
+        nums = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node')]"
+                           ".filter((g) => g.querySelector('.sd-path'))"
+                           ".map((g) => [g.dataset.id, g.querySelector('.sd-path').textContent]))")
+        assert nums == {"stock:new": "1", "stock:picked": "2, 3", "stock:located": "4", "stock:worked": "5"}, nums
+        assert "2 attempts" in pg.locator('svg.canvas g.node[data-id="flow:locate"]').text_content()
+        assert pg.evaluate("() => S.pinKey").endswith(".kind:ticket")     # an item's pins are its kind's
+        assert pg.evaluate("() => S.showHulls") is False                  # flat, as around= is
+        first, _ = pg.evaluate(TIMED)
+        assert first < 1000, first
+        chip = pg.locator(".toolbar .subset")
+        assert chip.inner_text().startswith("what ticket/SCRUM-2 passed through")
+        chip.locator("button").click()
+        pg.wait_for_function("() => !location.search.includes('item=') && S.graph && !S.graph.subset && S.layout",
+                             timeout=DRAWN_S * 1000)
+        assert pg.locator(".toolbar .subset").count() == 0
+        pg.close()
+    assert not errors, errors
+
+
+def test_blocks_draws_whole_loops_an_item_touched(tmp_path):
+    """Blocks with item=: the control loops whose parts ticket/SCRUM-2 passed through, each drawn whole (every node
+    of each, as the whole diagram opened draws them), nothing outside them but ports, no system closed into a box;
+    kind=ticket draws the kind's footprint, and a kind nothing counts says so and draws nothing."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+
+    def edit(d):
+        (d / "local").mkdir(exist_ok=True)
+        (d / "local" / "note.yaml").write_text("items:\n  note: {id: note/*, states: [open, closed]}\n")
+    with served("ticket-factory", tmp_path, edit) as url:
+        p = Project(mdl.load(tmp_path / "ticket-factory"))
+        seed_scrum2(p, time.time() - 3000)
+        p.events.add("note.made", item="note/1")
+        time.sleep(1.6)
+        g = graph_of(url, view="blocks", item="ticket/SCRUM-2")
+        whole = graph_of(url, view="blocks", open="*")
+        drawn = [n for n in g["nodes"] if n.get("kind") != "port"]
+        touched = {n["id"].split(":", 1)[1] for n in drawn if n["id"].startswith("ref:")}    # a loop's own reference
+        assert {"new-picked-up", "picked-located", "located-worked", "worked-opened"} <= touched, touched
+        assert not touched & {"opened-asked", "reviews-answered", "merged-closed"}, touched
+        ids = {n["id"] for n in drawn}
+        looped = {n["id"] for n in drawn if set(n["loops"]) & touched}
+        between = {e["target"] for e in g["edges"] if e["source"] in looped} & {e["source"] for e in g["edges"]
+                                                                                if e["target"] in looped}
+        assert ids == looped | between, sorted(ids - looped - between)    # a loop's parts, and what joins two of them
+        assert {"psum:stock.picked", "psum:stock.located"} <= ids         # a stock's sum: the loop not cut there
+        assert not [n["id"] for n in g["nodes"] if n["id"].startswith("sys:")]
+        for goal in touched:                              # each whole: as the whole diagram, everything open, draws it
+            want = {n["id"] for n in whole["nodes"] if goal in n.get("loops", [])}
+            assert want == {n["id"] for n in drawn if goal in n["loops"]}, goal
+        assert len(drawn) < len([n for n in whole["nodes"] if n.get("kind") != "port"])
+        fp = json.loads(urllib.request.urlopen(f"{url}/api/kinds/ticket").read())
+        k = graph_of(url, view="dynamics", kind="ticket")
+        want = {f"{'flow' if c['kind'] == 'flow' else 'stock'}:{c['name']}" for c in fp["counted_in"]}
+        want |= {f"flow:{f.split('.', 1)[1]}" for t in fp["taken_by"] for f in t["out"]}
+        assert {n["id"] for n in k["nodes"] if n["kind"] in ("stock", "auxiliary", "valve", "disturbance")
+                and not n.get("outside")} == want and k["subset"]["says"] == "what kind ticket touches"
+        for view in ("dynamics", "blocks"):
+            none = graph_of(url, view=view, item="note/1")
+            assert not none["nodes"] and none["subset"]["says"] == "what note/1 passed through: not counted anywhere in the model"
 
 
 # ---- a closed module's sparklines (dev/records/module-box-sparklines.md)

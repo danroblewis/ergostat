@@ -34,12 +34,32 @@ FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this 
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "dashboard", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
+UI_PAGES = ("diagram", "dashboard", "goals", "loops", "agents", "items", "item", "record", "model", "check", "guide",
+            "fit", "residuals")
 
 
 _VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)
 _STATIC_REF = re.compile(r'((?:src|href)=")/static/([\w./-]+)(")')
 FOREVER = "public, max-age=31536000, immutable"
+
+
+def _item_cost(p, m, fields: dict, until: float) -> dict | None:
+    """What the runs that took an item cost (its lease's history names every take, a rolled-up one too, SPEC §9.5):
+    their totals, how many took it, and ``ai``, whether any of them is an AI block (an ai, narrow-ai or decision rung,
+    or a block the model no longer has: the worst case). ``unknown`` counts only those blocks' runs: a program's failed
+    run had no session to spend. A run not ended yet is counted in ``taken``, never as $0. None when no run took it."""
+    from ..costs import record as costs
+    lease = fields.get("lease") if isinstance(fields.get("lease"), dict) else {}
+    taken = {h["run"]: (h.get("block"), float(h.get("taken") or 0)) for h in lease.get("history") or []
+             if isinstance(h, dict) and h.get("run")}
+    if not taken:
+        return None
+    since = min(t for _, t in taken.values())
+    ends = {b: [costs.numbers(e) for e in costs.ended(p, since, until, b) if e.get("causedby") in taken]
+            for b in {b for b, _ in taken.values() if b}}
+    ai = [b for b in ends if b not in m.agents or m.agents[b].rung in (1, 2, 3)]
+    return {**costs.totals([r for rs in ends.values() for r in rs]), "taken": len(taken), "ai": bool(ai),
+            "unknown": costs.totals([r for b in ai for r in ends[b]])["unknown"]}
 
 
 def asset_version(name: str) -> str | None:
@@ -519,6 +539,32 @@ def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
     return got
 
 
+def _sizes(p, fields: dict, most: int = 200) -> dict:
+    """How big each file the fields name (``file:PATH``) is, found where ``/file/`` finds it but never in the state
+    folder: the page names a closed file by it without asking for the file. One not found is left out."""
+    found: list[str] = []
+
+    def walk(v):
+        if isinstance(v, str) and v.startswith("file:") and len(found) < most:
+            found.append(v[5:])
+        elif isinstance(v, dict | list):
+            for x in v.values() if isinstance(v, dict) else v:
+                walk(x)
+    walk(fields)
+    roots = [Path(r).resolve() for r in (p.model.path.parent if p.model.path else None, p.dir) if r]
+    state, out = Path(p.dir).resolve(), {}
+    for rel in found:
+        for root in roots:
+            try:                                      # unreadable (no permission, a loop of links): left out, unsized
+                f = (root / rel).resolve()
+                if (root == f or root in f.parents) and f != state and state not in f.parents and f.is_file():
+                    out[rel] = f.stat().st_size
+                    break
+            except (OSError, RuntimeError, ValueError):
+                continue
+    return out
+
+
 def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
     """A kind's footprint (``footprint.py``, the model's alone) with what is so now: its count per state, how many each
     block has taken now (a lease holder, whatever state the run has moved it to), and each goal's word."""
@@ -541,6 +587,30 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
     for g in fp["goals"]:
         g["status"] = (snap["loops"].get(g["goal"]) or {}).get("status")
     return fp
+
+
+def _subset(p, spec, snap: dict, item: str | None, kind: str | None) -> dict:
+    """The parts the Dynamics and Blocks views draw alone for ``item=`` (what it passed through, as of the moment) or
+    ``kind=`` (what it touches): ``graph.touched``, with ``about`` for the page's chip; no parts when nothing counts it."""
+    from types import SimpleNamespace
+
+    from ..spec import items as its
+    from ..spec.footprint import item_path, kind_footprint
+    d = None
+    if item:
+        d = its.detail(p.events, spec, item, until=snap["at"], history=0) if spec is not None else None
+        kind = (d or {}).get("kind")
+        fp = kind_footprint(spec, kind or "")
+        steps = item_path(spec, SimpleNamespace(kind=kind, moves=d["moves"], fields=d["fields"])) if d and fp else []
+        got = graph.touched(fp or {"counted_in": [], "taken_by": []}, steps)
+        says = f"what {item} passed through" if d else f"nothing is recorded about {item}"
+    else:
+        fp = kind_footprint(spec, kind)
+        got = graph.touched(fp or {"counted_in": [], "taken_by": []})
+        says = f"what kind {kind} touches" if fp else f"no kind {kind} in the model"
+    if (d or fp) and not got["parts"]:
+        says += ": not counted anywhere in the model"
+    return {**got, "about": {"item": item, "kind": kind, "says": says}}
 
 
 def _estimates(p, m, snap: dict, whatif: str | None) -> dict | None:
@@ -664,7 +734,26 @@ def _query(live: Live, p, parts: list, q: dict, reader: bool = False):
     name = unquote(parts[1]) if len(parts) > 1 else None
     if name == "fields":
         return fields(live, p, reader)
+    if name == "suggest":
+        return _suggest(p, q, reader)
     return answer(live, p, (q.get("q") or [None])[0], reader) if name is None else None
+
+
+def _suggest(p, q: dict, reader: bool) -> dict:
+    """``GET /api/query/suggest?source=&what=metrics|labels|values&prefix=&metric=&label=``: the names a query editor
+    completes, from the data source's own metadata (ergostat/datasources), bounded; a reader is refused, nothing sent."""
+    from .. import datasources
+    from ..query.engine import READER_REFUSED
+    one = lambda k: (q.get(k) or [""])[0]                                   # noqa: E731
+    if reader:
+        return {"suggestions": [], "error": f"{one('source')}: {READER_REFUSED}", "error_kind": "refused"}
+    try:
+        return datasources.suggest(getattr(p.model, "spec", None), one("source"), one("what"), one("prefix"),
+                                   one("metric"), one("label"))
+    except datasources.SourceError as e:
+        return {"suggestions": [], "error": f"{one('source')}: {e}", "error_kind": e.kind}
+    except Exception as e:                            # (its type only: the words may hold the source's address)
+        return {"suggestions": [], "error": f"{one('source')}: could not be read ({type(e).__name__})"}
 
 
 def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
@@ -786,12 +875,19 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 got = _process(p, m, snap, q, system)
                 live.keep(key, got)
             return {**got, "attention": att}
+        sub = _subset(p, getattr(m, "spec", None), snap, one("item"), one("kind")) \
+            if one("item") or one("kind") else None   # what an item passed through, or what a kind touches (SPEC §5a)
+        if sub is not None and not sub["parts"]:
+            return {"kind": one("view") or "dynamics", "nodes": [], "edges": [], "subset": sub["about"], "attention": att}
         if one("view") == "blocks":                 # the control view: the whole control system as a block diagram
             from ..blockdiagram import diagram
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
             laws = _laws(p, getattr(m, "spec", None))   # external blocks' identified laws, once fitted (SPEC §12d)
-            return {**diagram(m, {**snap, "laws": laws or {}}, want, system), "attention": att}
+            g = diagram(m, {**snap, "laws": laws or {}}, want, system, sub and sub["parts"])
+            if sub and not g["nodes"]:
+                sub["about"]["says"] += ": in no control loop"
+            return {**g, "attention": att, **({"subset": sub["about"]} if sub else {})}
         from ..dynamics import attention as sd_attention
         from ..dynamics import dynamics, finish
         from ..fold import fold
@@ -799,7 +895,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         if sd:
             att = sd_attention(att, snap)       # (in its own words)
         tree = getattr(getattr(m, "spec", None), "systems", None)
-        if tree and not around:              # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
+        if tree and not around and sub is None:      # systems as parts: boxed, opened, or drilled into (whatever it reaches outside)
             g = graph.control(m, snap, graph.select(m), graph.readings(p, at))
             opened = q.get("open")
             want = None if opened is None else {x for x in (opened[0] or "").split(",") if x}
@@ -812,9 +908,16 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 if n.get("kind") == "system":
                     n["quiet"] = st.quiet(p, snap, n["label"])
             return {**g, "attention": att}
-        sel = graph.select(m, system, around, int(one("depth") or 1))
+        drawn = sub and {x.split(".", 1)[1] for x in sub["parts"] if x.split(".", 1)[0] in ("stock", "auxiliary", "flow")}
+        sel = graph.select(m, system, around, int(one("depth") or 1), drawn)
         g = graph.control(m, snap, sel, graph.readings(p, at))
-        return {**(dynamics(g, m) if sd else g), "attention": att}
+        for n in g["nodes"] if sub else ():          # an item's marks: its steps' numbers on each stock, runs on each valve
+            what = n["id"].split(":", 1)[1]
+            if n["kind"] in ("stock", "auxiliary") and what in sub["numbers"]:
+                n["path"] = sub["numbers"][what]
+            elif n["kind"] == "valve" and what in sub["attempts"]:
+                n["attempts"] = sub["attempts"][what]
+        return {**(dynamics(g, m) if sd else g), "attention": att, **({"subset": sub["about"]} if sub else {})}
     if head == "systems":
         return [{"name": s, "description": m.systems[s].description if s in m.systems else "",
                  "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)],
@@ -966,7 +1069,13 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             from ..rollup import archived
             return archived(p, name, offset=int(one("offset") or 0), n=min(int(one("n") or 200), EVENTS_MOST))
         if name:
-            d = its.detail(p.events, spec, name, until=snap["at"], history=None if one("history") == "all" else its.HISTORY_SHOWN)
+            hist = one("history")                 # FIELD, or all, or none at all: the counts always (SPEC §5a, History)
+            d = its.detail(p.events, spec, name, until=snap["at"], history=None if hist else its.HISTORY_SHOWN)
+            if d:
+                if hist != "all":
+                    d = {**d, "history": {hist: d["history"].get(hist, [])}} if hist else \
+                        {k: v for k, v in d.items() if k != "history"}
+                d["file_sizes"] = _sizes(p, d["fields"])
             est = _estimates(p, m, snap, one("whatif"))
             if d and est and name in est.get("items", {}):
                 d["eta"] = {**est["items"][name], "at": est["at"], "runs": est["runs"]}
@@ -979,7 +1088,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 from ..process import _done
                 ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
                 d["kind_of"]["final"] = [s for s in d["kind_of"]["states"] if s in ends]
-            return d
+            return {**d, "cost": _item_cost(p, m, d["fields"], snap["at"])} if d else d
         from ..spec import item_sets
         n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
         if "search" in q:                         # the items whose fields hold every word, as now (SPEC §5a, Search)
