@@ -74,7 +74,8 @@ stocks:
 # cause; every outage pages three to five times, a few hundredths of a day apart, and the pager groups it as an
 # outage at its third page; an unreviewed ramp that breaks its service starts exactly one outage. So outages are a
 # coflow of the ramps that break, and alerts of the outages (Sterman ch. 12): so many of one per another, none of
-# them a multiple of the ramps live. The values below are what that code implies; the record refines them.
+# them a multiple of the ramps live. Each postmortem files two or three actions at once: a coflow of the
+# postmortems too. The values below are what that code implies; the record refines those marked estimate.
 parameters:
   alerts-base:
     value: 1.2
@@ -96,12 +97,18 @@ parameters:
     value: 1
     unit: outages/ramp
     description: an unreviewed ramp that breaks its service starts one outage (world/traffic.py), exactly
+  actions-each:
+    value: 2.5
+    unit: actions/outage
+    range: [2, 3]                              # the world's code files two or three, as many of each
+    description: the action items a postmortem leaves on average (two or three)
 
 auxiliaries:
   actions-per-postmortem:
     unit: actions/outage
     exogenous: true
     description: the action items a postmortem leaves (two or three), the team's habit; not measured
+    equation: actions-each
   alerts-late:
     unit: alerts
     description: alerts with no usefulness comment after half a working day
@@ -177,6 +184,7 @@ flows:
       - cause: +flow.postmortems
         instant: true                            # filed at the postmortem itself: no delay between
       - +auxiliary.actions-per-postmortem
+    equation: auxiliary.actions-per-postmortem * flow.postmortems
     sensor:
       run: python3 bin/watch.py action
       every: 10s

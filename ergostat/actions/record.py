@@ -111,6 +111,33 @@ def by_class(p, now: float | None = None) -> dict[str, dict[str, float]]:
     return {c: counts(p, now, c) for c in classes}
 
 
+def asked(p, spec=None, now: float | None = None) -> dict[str, dict]:
+    """Per class, the actions asked for over the last week, each counted once by where it ended: approved (ran,
+    failed or waiting to run; how many by the gate), denied, or waiting (held now), so asked is their sum; and its
+    gate: its strictest (deny > approve > auto, as §12p reads a class), the model's, else the strictest asked."""
+    from ..inbox.interventions import STRICT
+    now = time.time() if now is None else now
+
+    def strictest(g, h):                                   # a gate not known counts as the strictest
+        return max(g, h, key=lambda x: -1 if x is None else STRICT.get(x, 3))
+    gates: dict[str, str] = {}
+    for n, a in (getattr(spec, "actions", None) or {}).items():
+        gates[a.cls or n] = strictest(gates.get(a.cls or n), a.gate)
+    out: dict[str, dict] = {}
+    for a in stored(p, since=now - WEEK, until=now).values():
+        c = out.setdefault(a.get("class") or a.get("action") or "?",
+                           {"asked": 0, "approved": 0, "by_gate": 0, "denied": 0, "waiting": 0, "gate": None, "actions": []})
+        c["asked"] += 1
+        c["actions"] += [a.get("action")] if a.get("action") not in c["actions"] else []
+        c["gate"] = strictest(c["gate"], a.get("gate"))
+        end = {"requested": "waiting", "denied": "denied"}.get(a["state"], "approved")
+        c[end] += 1
+        c["by_gate"] += end == "approved" and a.get("approved_by") == GATE
+    for c, x in out.items():
+        x["gate"] = gates.get(c, x["gate"])
+    return dict(sorted(out.items()))
+
+
 def measure(p, name: str, now: float | None = None) -> float:
     m = ACTIONS.match(name)
     if not m:
