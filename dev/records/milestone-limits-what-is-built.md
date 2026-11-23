@@ -66,3 +66,20 @@ there to ask, so each open question went the more reversible way; each is listed
   `timeout 300 uv run python /tmp/rd.py`, and this session refused that command. So whether the container's memory
   limit is reached is still unmeasured. If the build stops again with no FAILED line and no suite_watch line, look at
   that container's OOM kills (`docker inspect` OOMKilled, or the VM's kernel log) first.
+- **Round 2's build: one `F` at about the 64th of 138 tests, then the log ends.** It ends with no FAILED line, no
+  pytest summary and no suite_watch JSON line, the same cut-off end as round 1, so the test that failed is not named
+  anywhere I can read. I could not make it fail. Run serially through `scripts/named_tests.py`, test_milestones.py
+  passes alone (39 in 124 s), and the two files pass together with test_milestones.py first (138 in 423 s), the
+  reverse of round 1's order, so neither file leaves state that breaks the other. Timed with a throwaway test file
+  (deleted, never committed): compiling the whole model, which is all that this gap's `blocks` fixture and its
+  test_factory_knowledge.py change do, takes 0.1 s. A `read()` with findings takes 61 s, and `read(extremes=False)`
+  takes 0.6 s. So this gap's tests add almost no load. The 61 s reads are main's tests (test_milestones.py's
+  `test_the_factory_model_declares_milestones`, and five in test_factory_knowledge.py). No code is changed this
+  round, since no failure points at it (lesson 13: an unnamed failure is not fixed by guessing).
+  What I could not check: the build's container. `--dist worksteal -n 8` runs on 4 CPUs, and every suite
+  container shares `suite_cpuset = "8-11"` with the other slots. Under that load a subprocess `timeout=60`/`120` in
+  test_factory_knowledge.py, or the `t.join(30)` of the lock test, could run out, and an OOM kill or an outer kill
+  would cut the log as it is cut here. This session refused `uv pip list`, a run of a /tmp script, a background run
+  of the two files, and a heredoc append to this file, so xdist could not be run here. Next step: read that run's
+  log on the host for the worker crash or FAILED line pytest never printed, or run the two files under `-n 8` in
+  that container.
