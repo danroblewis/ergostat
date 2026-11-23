@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 import urllib.error
 import urllib.request
@@ -745,6 +746,26 @@ def test_a_snapshot_is_one_file_holding_the_answers_the_page_asks_for(project):
     assert key("graph", {"view": "control", "system": "", "around": "undefined", "since": "1h"}) == "graph?view=control"
 
 
+def test_a_snapshot_inlines_every_stylesheet_and_script_the_page_links(project, tmp_path, monkeypatch):
+    import shutil
+
+    from ergostat.web import snapshot
+    static = tmp_path / "static"
+    shutil.copytree(snapshot.STATIC, static)
+    (static / "second-sheet.css").write_text(".second-sheet { color: var(--ink); } /* </style><b>not a tag */")
+    (static / "second-script.js").write_text("window.secondScript = 1;")
+    page = (static / "index.html").read_text()
+    page = page.replace("</head>", '<link rel="stylesheet" href="/static/second-sheet.css">\n</head>', 1)
+    page = page.replace("</body>", '<script src="/static/second-script.js"></script>\n</body>', 1)
+    (static / "index.html").write_text(page)
+    monkeypatch.setattr(snapshot, "STATIC", static)
+    html = snapshot.build(project)
+    assert '<link rel="stylesheet"' not in html and '<script src="' not in html      # nothing fetched
+    assert ".second-sheet { color: var(--ink); }" in html and "window.secondScript = 1;" in html
+    assert "</style><b>" not in html                                                 # a stylesheet cannot close its element
+    assert html.count("<style>") == html.count("</style>") == page.count('rel="stylesheet"')
+
+
 def test_a_snapshot_survives_html_in_the_record_and_odd_item_names(project):
     from ergostat.web.snapshot import build
     project.events.add("note.made", item="note/fix(1)", source="x", data={"text": "<!--<script>alert(1)</script>"})
@@ -961,3 +982,49 @@ def test_the_items_graph_says_when_its_finish_is_still_being_worked_out(tmp_path
     assert past["eta_pending"] is False
     monkeypatch.setattr(eta_api, "estimates", lambda *a, **k: {"items": {}, "kinds": {}})
     assert server.api(live, "items-graph", {"kinds": ["epic"]})["eta_pending"] is False
+
+
+def test_every_examples_loops_answer_carries_each_goals_word_and_row(tmp_path, monkeypatch):
+    """The Goals page draws a goal's row from /api/loops alone (goalrow.js): every goal of every example says its word,
+    the status's own, and its row's columns."""
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import server
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    seen = 0
+    for ex in sorted((Path(__file__).resolve().parent.parent / "examples").glob("*/ergostat.yaml")):
+        d = tmp_path / ex.parent.name
+        shutil.copytree(ex.parent, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+        loops = server.api(server.Live(Project(model.load(d))), "loops", {})
+        for name, lp in loops.items():
+            assert lp["word"] == (lp["status"] if lp["status"] in state.WORDS else "unknown"), (ex, name, lp["word"])
+            assert set(lp["row"]) == {"measure", "value", "unit", "bound_words", "trend", "expected"}, (ex, name)
+            assert lp["row"]["measure"] == lp["stock"] and lp["row"]["value"] == lp["value"], (ex, name)
+            seen += 1
+    assert seen > 20, seen
+
+
+GOAL_TEXT = [  # a goal's state made reader text in a page script: only goalrow.js may (goalWord, goalRow)
+    re.compile(r"\bstatus\s*[!=]==?\s*[\"'](?:holding|off|open|unknown|stale)[\"']"),
+    re.compile(r"[\"']holding[\"']"),
+    re.compile(r"\b(?:statusEl|exceptional)\([^)]*\.status\b"),
+]
+NOT_A_GOAL = {  # (file, what the line says): states that are not a goal's
+    ("details.js", "exceptional(n.status) ? statusEl(n.status)"),   # a system box's own state (openSystem)
+    ("pages.js", 'x.how || "holding"'),                             # a lease still held
+}
+
+
+def test_no_page_script_words_a_goals_state_but_goalrow():
+    """Every surface printing a goal's state asks goalWord or goalRow; a page mapping status to a word itself fails."""
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static"
+    vendored = {"elk.bundled.js", "marked.min.js", "highlight.min.js", "goalrow.js"}
+    found = [(f.name, line.strip()) for f in sorted(static.rglob("*.js")) if f.name not in vendored and "uplot" not in f.parts
+             for line in f.read_text().splitlines() if any(r.search(line) for r in GOAL_TEXT)
+             and not any(f.name == n and s in line for n, s in NOT_A_GOAL)]
+    assert not found, found
+    assert '<script src="/static/goalrow.js">' in (static / "index.html").read_text()

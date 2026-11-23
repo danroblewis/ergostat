@@ -12,7 +12,7 @@ const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y:
    opened with no server) the same path is kept in the hash instead, as #/items. UI_PAGES are the first parts
    of the paths the page answers (the server's UI_PAGES, the same list) */
 const HASHED = !!window.SNAPSHOT || location.protocol === "file:";
-const UI_PAGES = ["diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
+const UI_PAGES = ["diagram", "dashboard", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
 function isPagePath(path) { return path === "/" || UI_PAGES.includes(String(path).split(/[/?#]/)[1]); }
 function appHref(v) { return HASHED && typeof v === "string" && v.startsWith("/") && isPagePath(v) ? "#" + v : v; }
 
@@ -226,9 +226,6 @@ const op = (x) => x == null ? "" : ofRecorded(String(x)).replaceAll("<=", "\u226
 /* a goal's reference as control names it: one-sided, a limit ("limit ≤ 20"); two-sided, a setpoint ("setpoint 0.93 ±0.01") */
 const isLimit = (sp) => /^\s*[<>]/.test(sp ?? "");
 const holdText = (sp, band = "") => `${isLimit(sp) ? "limit" : "setpoint"} ${op(sp).replace(/^\s*=\s*/, "")}${(band || "").replace(/^ \((±.*)\)$/, " $1")}`;
-/* raw data, shown: every float to the precision that means something (the event's panel keeps it whole) */
-const tidy = (v) => typeof v === "number" && !Number.isInteger(v) ? +v.toPrecision(6)
-  : Array.isArray(v) ? v.map(tidy) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, tidy(x)])) : v;
 /* K_p, y_m, x_{ab}: a subscript as a subscript, in HTML or in an SVG text */
 const SUB = /([A-Za-z\u0370-\u03ff])_(\{[^}]+\}|[A-Za-z0-9]+)/g;
 function rich(text) {
@@ -252,6 +249,21 @@ function richSvg(textEl, text) {                    // (dy, not baseline-shift: 
   }
   textEl.append(s("tspan", { dy: down ? -3 : null }, str.slice(at)));
   return textEl;
+}
+/* the one time formatter: "2026-11-22 04:03:55 PST", in the browser's zone, said by its short name */
+const ZONE = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" });
+function stamp(t) {
+  if (t == null || !Number.isFinite(+t)) return "–";
+  const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
+  const zone = ZONE.formatToParts(d).find((x) => x.type === "timeZoneName")?.value || "UTC";
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${zone}`;
+}
+/* a field that holds a time (*_at, raised, since, started): its epoch seconds, or its ISO text, as a stamp; else null */
+const TIME_FIELD = /(^|_)at$|^(raised|since|started)$/;
+function timeField(name, v) {
+  if (!TIME_FIELD.test(String(name))) return null;
+  const t = typeof v === "number" ? v : typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) ? Date.parse(v) / 1000 : NaN;
+  return Number.isFinite(t) && t > 1e8 && t < 1e11 ? stamp(t) : null;
 }
 function dur(x) {                                      // seconds, said shortly
   if (x == null) return "?";
@@ -283,8 +295,7 @@ function rungDot(r, cx, cy, rad = 5.5) {              // the kind's colour, and 
     s("text", { x: cx, y: cy + rad * 0.55, "text-anchor": "middle", class: "rung-letter", style: `font-size:${rad * 1.45}px` }, RUNG_LETTER[r] ?? "?"));
 }
 /* a loop's state, as a word: quiet when it holds, coloured only when it needs someone */
-const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");
-const exceptional = (st) => st && st !== "holding";
+const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");   // (exceptional: goalrow.js)
 
 /* a menu: a button and what it holds, opened under it (or above, near the bottom of the screen).
    items: [{label, onclick, checked, hint, disabled}] or nodes, or a function giving them, called on each opening */
@@ -419,7 +430,7 @@ async function refreshHeader() {
     }
     // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
     // the server's one count (state.goals_off); a status without it counts every goal off, as before
-    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => l.status === "off").length, own: {} };
+    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => goalWord(l) === "off").length, own: {} };
     const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
     setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
@@ -427,7 +438,9 @@ async function refreshHeader() {
     const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
     if (run.className !== cls) run.className = cls;
     const open = document.querySelector('meta[name="ergostat-public"]') ? " · public, read only, no login" : "";   // web: open: read
-    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here" : "";
+    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here"
+      : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
+        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");                                  // (upkeep apart), each by its word
     if (run.title !== tip) run.title = tip;
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
@@ -595,7 +608,7 @@ async function route(keep = false) {             // keep: the window changed; th
   S.was = path === "/diagram" ? main.querySelector(":scope > .diagram") : null;   // the diagram left: shown, dimmed, until the next is drawn
   main.replaceChildren();
   leavePage();
-  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
+  const pages = { "/diagram": pageDiagram, "/dashboard": pageDashboard, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
