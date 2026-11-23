@@ -128,7 +128,7 @@ def suites(cfg: dict, repo, tag: str, logs, pre: str = "HEAD", only: tuple | Non
             raise agents.NotStarted(f"the host suite did not start (exit {rc}): {text[-400:].strip()}")
         skipped = len(re.findall(r"^SKIPPED", text, re.M)) if name == "browser" else 0
         lost = nowhere(text, logs / f"{tag}-unit.txt") if name == "host" else []
-        got = {"rc": rc, "seconds": round(secs), **({"skipped": skipped} if skipped else {}),
+        got = {"rc": rc, "seconds": round(secs), "log": str(log), **({"skipped": skipped} if skipped else {}),
                **({"nowhere": lost} if lost else {}), **({"counts": fac.counts(text) or "unknown"} if name in PYTEST else {})}
         if cov:
             got["coverage"] = coverage_kept(cfg, repo, cov, rc, pre)
@@ -1106,7 +1106,18 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
                 save(cfg, st)
         if landed:
             ask(cfg, repo, gap, landed, merged, pre)
+            greened(landed[-1][1]["suites_queue"], merged)
     return 0
+
+
+def greened(suites: dict, merged: str) -> None:
+    """The green run main landed on, counted for each seen flake it says PASSED (flakes.green), once the push is
+    asked: a failure here is said on stderr and never fails or delays the landing."""
+    try:
+        if fixed := flakes.green(suites, merged):
+            print(f"queue: fixed after green runs: {', '.join(fixed)}", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 - the flakes' count never fails a landing
+        print(f"queue: the flakes' green runs not counted ({type(e).__name__}: {e})", file=sys.stderr)
 
 
 def ask(cfg: dict, repo, gap: dict, landed: list, merged: str, pre: str) -> None:

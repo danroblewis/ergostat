@@ -15,6 +15,8 @@ kill_after = 6                       # failed gates (reviews, queue conflicts, r
 build_failures = 6                   # the implementor's failed fast suites that park a gap (main's own failures
                                      # are not counted: dev/bin/onmain.py)
 build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
+flake_fixed_after = 5                # green queue runs in a row naming a seen flake PASSED that fix it (1-50;
+                                     # dev/bin/flakes.py green)
 plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
 scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej", "test_zz*",
                     "*_tmp.py", "*.tail", ".bench*", ".mut*"]
@@ -159,9 +161,11 @@ slot = ""                            # a command that holds a machine-wide suite
                                      # queue's (whose lock is its slot): set it in factory.local.toml, e.g. the
                                      # coordinator's suite-slot.sh
 ruff = "uv run ruff check ergostat tests scripts"
-unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rfEs -n 8 --dist worksteal"
-                                     # (-rfEs: each skip named, for the host step's check; f and E keep the FAILED
-                                     # and ERROR lines fac.failed_tests reads, since -r replaces pytest's default fE)
+unit = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rpfEs -n 8 --dist worksteal"
+                                     # (-rpfEs: each skip named, for the host step's check; f and E keep the FAILED
+                                     # and ERROR lines fac.failed_tests reads, since -r replaces pytest's default fE;
+                                     # p the PASSED lines a green run counts toward a seen flake's fix, flakes.green,
+                                     # first: pytest prints them in this order, so the FAILED lines stay in the tail)
 host = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -rfEs -n 4 --dist worksteal tests/test_repair2.py tests/test_sandbox_attacks.py tests/test_notify.py"
                                      # the queue's tests its container skips (bwrap, kqueue): on the Mac, never in a
                                      # container, after unit and browser, a required step; "" turns it off. A test it
@@ -171,9 +175,9 @@ build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_
                                      # of the modules it changed (affected_tests.py). Comment it out or leave it ""
                                      # and the step runs the full unit suite, as before. The merge queue never reads
                                      # it: it always runs unit, browser and demo in full
-browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rfEs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
-                                     # (-rfEs, as unit: the SKIPPED lines queue.suites counts, and the FAILED and
-                                     # ERROR lines fac.failed_tests reads; -rs alone printed neither of those)
+browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rpfEs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+                                     # (-rpfEs, as unit: the SKIPPED lines queue.suites counts, the FAILED and
+                                     # ERROR lines fac.failed_tests reads, -rs alone printed neither, and PASSED)
 browser_ready = "uv run --with playwright==1.63.0 python -c 'from playwright.sync_api import sync_playwright as s; p = s().start(); p.chromium.launch().close(); p.stop()'"
                                      # before an implementor round with build_browser (agents.browser_ready): no
                                      # browser stops it

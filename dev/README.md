@@ -224,8 +224,17 @@ Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) g
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
-the gaps and times said, `main_fixed_at`, `fixed_by` and `green_passes` removed). An item it cannot read is written as
+the gaps and times said, `main_fixed_at`, `fixed_by` and `fixed_on` removed). An item it cannot read is written as
 said, the failure on stderr.
+
+**How a flake leaves seen.** Every `flake.seen` sets `green_passes` to 0. After each green landing, once its push
+is asked, `flakes.green` reads the unit and browser logs of the run main landed on (both print `PASSED` lines:
+`-rpfEs`) for each seen flake that is not quarantined (at most 50, by id). A test with a `PASSED` line and no `FAILED`
+or `ERROR` line raises `green_passes` by one (under the lock, a patch that tests the value it read). A test absent
+from the logs, one in a suite not run in that batch, or one in a red, stopped or unreadable log changes nothing.
+At `[gates] flake_fixed_after` (default 5, 1 to 50) green runs in a row the flake is `flake.fixed`
+(`fixed_by: green-runs`, `fixed_on`: main's head). A failure here is said on stderr and never fails or delays the
+landing. Only seen flakes are counted; nothing here moves a main-broken one.
 
 ## The backlog: ranked, groomed
 
