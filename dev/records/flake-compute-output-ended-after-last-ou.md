@@ -46,3 +46,9 @@ test passes.
 nor works around that. The factory runs it on the branch head, e.g.
 `python3 dev/bin/manage.py measure-runs gap/flake-compute-output-ended-after-last-out --runs 30 --load 4 --tests "tests/test_compute_output.py::test_ended_after_last_out"`.
 What was run here: the test alone, the whole of `tests/test_compute_output.py` (6 passed), ruff, and the reproductions above.
+
+## Where it stopped
+
+Parked by the factory (review/flake-compute-output-ended-after-last-ou-1, 2026-11-23 08:14).
+
+Done: the cause is named and correct (the test asserted on stale beats still queued in the test's pipe, built before done took effect; the code keeps no finished run listed). The test-only fix anchors on the answer to a request sent after done and asserts on the second beat after it, which must have been built after the run was dropped (checked against output.py and serve.py). Breaking the guarded behaviour was shown to fail the test (item 3). Left: done item 2, 30 consecutive passes under CPU load, which a factory session may not run (CLAUDE.md:80-85).
