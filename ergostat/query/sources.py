@@ -14,6 +14,7 @@ from .parse import Query
 EVENTS_MOST = 20_000        # events one query may read from the log
 READINGS_MOST = 20_000      # a series' readings read for a percentile
 ANY = "all"
+OHLC_SOURCES = ("items", "series", "moves")   # what has values in time; a level or a count of events has no open and close
 
 
 class Unanswerable(Exception):

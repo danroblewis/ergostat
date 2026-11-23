@@ -8,7 +8,9 @@ import threading
 import time
 import weakref
 from collections import OrderedDict
+from dataclasses import replace
 
+from . import shaped
 from . import transforms as tf
 from .buckets import Grid, grid
 from .parse import RATE_PER, Query, decode, parse
@@ -19,6 +21,12 @@ OTHER = "other"
 LIVE_EVERY = 5.0            # a window ending now ends on a multiple of this: requests in between share an answer
 MOST_CELLS = 400_000        # values kept in the cache, in all
 log = logging.getLogger("ergostat")
+
+
+def _cells(value: dict) -> int:
+    """How many numbers an answer holds, whatever its shape."""
+    lists = [*(value.get("frequency") or {}).values(), *(x for s in value.get("series", ()) for x in s.values())]
+    return 1 + sum(len(x) for x in lists if isinstance(x, list))
 
 
 class Kept:
@@ -37,7 +45,7 @@ class Kept:
             return v
 
     def put(self, key, value: dict) -> None:
-        size = 1 + sum(len(s["values"]) for s in value.get("series", ()))
+        size = _cells(value)
         with self.lock:
             if key in self.got:
                 return
@@ -162,6 +170,60 @@ def _one(live, p, q: Query, since: float, until: float, points: int, first: floa
     return got
 
 
+def _resolved(q: Query, by_id: dict[str, Query]) -> Query:
+    """Its X's query, in place of that query's id; the query it names must be a plain one in time."""
+    if q.x is None or not isinstance(q.x.query, str):
+        ref = q.x.query if q.x is not None else None
+    else:
+        if q.x.query == q.id:
+            raise Unanswerable("its X cannot be itself")
+        ref = by_id.get(q.x.query)
+        if ref is None:
+            raise Unanswerable(f"its X names query {q.x.query!r}, which is not in this request")
+        q = replace(q, x=replace(q.x, query=ref))
+    if ref is not None and (ref.x is not None or ref.source == "frequency" or ref.agg == "ohlc"):
+        raise Unanswerable(f"its X, query {ref.id!r}, must be a plain query in time")
+    return q
+
+
+def _versions(p, q: Query) -> tuple:
+    if q.source == "frequency":
+        return () if q.model else (_version(p, q.input), _version(p, q.output))
+    return (_version(p, q), _version(p, q.x.query)) if q.x is not None and isinstance(q.x.query, Query) else (_version(p, q),)
+
+
+def _build(a: shaped.Asking, q: Query, first) -> dict:
+    if q.source == "frequency":
+        return shaped.response(a, q)
+    if q.agg == "ohlc":
+        if q.x is not None:
+            raise Unanswerable("candles need a time X")
+        return shaped.ohlc(a, q, first)
+    return {"query": shaped.paired, "field": shaped.by_field, "category": shaped.category, "bins": shaped.binned}[q.x.type](a, q)
+
+
+def _shaped(live, p, q: Query, by_id: dict, since: float, until: float, points: int, first: float | None) -> dict:
+    """A query that is not one value per time bucket: kept like the rest, and failing alone."""
+    uses_log = "events" in (q.source, getattr(q.input, "source", None), getattr(q.output, "source", None))
+    try:
+        q = _resolved(q, by_id)
+        uses_log = uses_log or getattr(getattr(q.x, "query", None), "source", None) == "events"
+        kept = _kept(live)
+        key = ("shaped", q, since, until, points, getattr(live, "mtime", None), _versions(p, q))
+        if (got := kept.get(key)) is not None:
+            return got[0]
+        a = shaped.Asking(p, getattr(p.model, "spec", None), since, until, points,
+                          lambda sub, n: _one(live, p, sub, since, until, n, first))
+        got = _build(a, q, first)
+    except Unanswerable as e:
+        return {"id": q.id, "error": f"{q.source}: {e}", "read_log": uses_log}
+    except Exception as e:                            # one query's failure is its own: the others still answer
+        log.warning("ergostat: query %s (%s) failed: %s", q.id, q.source, e)
+        return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__}: {e})", "read_log": uses_log}
+    kept.put(key, got)
+    return got
+
+
 def answer(live, p, raw: str | None) -> dict:
     """``GET /api/query``: a malformed request raises ``BadQuery``; a query that cannot be answered says so in its result."""
     asked = parse(decode(raw))
@@ -169,5 +231,8 @@ def answer(live, p, raw: str | None) -> dict:
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
     since = until - asked.since
     first = p.events.first_time()
+    by_id = {q.id: q for q in asked.queries}
+    plain = lambda q: q.x is None and q.source != "frequency" and q.agg != "ohlc"   # noqa: E731
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step,
-            "results": [_one(live, p, q, since, until, asked.points, first) for q in asked.queries]}
+            "results": [_one(live, p, q, since, until, asked.points, first) if plain(q)
+                        else _shaped(live, p, q, by_id, since, until, asked.points, first) for q in asked.queries]}
