@@ -2352,6 +2352,33 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         pg.close()
 
 
+def test_a_system_is_drawn_c_p_or_named_with_the_same_p_by_m_closed_and_open(browser, tmp_path):
+    """dev/records/blocks-subsystems-classified-c-p.md: no block drawn Q; each closed block's letter, name and p × m
+    drawn again in its frame's title when it is opened; the legend defines C, P and p × m."""
+    no_q = "() => [...document.querySelectorAll('svg.canvas tspan.bd-mi')].filter((t) => t.textContent === 'Q').length"
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=-", 0)
+        boxes = pg.evaluate("""() => S.graph.nodes.filter((n) => n.role === 'subsystem').map((n) => [n.label,
+            (n.fn.sym || '') + (n.fn.sub || ''), n.fn.expr,
+            document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`)?.textContent])""")
+        assert {b[0]: b[1] for b in boxes} == {"factory": "Cfactory", "product": "Pproduct", "modelling": "modelling"}, boxes
+        assert pg.evaluate(no_q) == 0
+        legend = pg.evaluate("() => document.querySelector('.bd-legend')?.textContent || ''")
+        assert "C_name" in legend and "P_name" in legend and "p × m" in legend and not re.search(r"\bQ\b", legend), legend
+        for i, (name, head, dims, text) in enumerate(boxes, 1):
+            assert text and head in text and dims in text, (name, text)          # drawn in the closed block
+            drawn(pg, url, f"view=blocks&open={name}", i)
+            title = pg.evaluate("(id) => document.querySelector(`svg.canvas g.hull[data-hull='${id}'] > text`)?.textContent",
+                                f"frame:{name}")
+            assert title and title.startswith(head) and title.endswith(dims), (name, head, dims, title)
+            assert pg.evaluate(no_q) == 0
+        assert not errors, errors
+        pg.close()
+
+
 SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
   // parts drawn as themselves) has its marker; every connector shows its polarity (? where not known) at its head;
@@ -2845,6 +2872,7 @@ BD_LEGEND_DRAWN = {
     "a block's tier": ".bd-tier", "not linear": '.bd-node:not(.bd-collector):not([data-id^="zoh:"]) text.bd-name',
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
+    "a system as one block": ".bd-subsystem, .bd-frame-system",
 }
 
 

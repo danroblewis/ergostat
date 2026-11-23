@@ -576,6 +576,7 @@ svg.bd { color: var(--ink); }
 .bd .sys-hull.bd-frame-cascade rect { stroke-dasharray: 5 3; }
 .bd .bd-frame text { opacity: 1; fill: var(--ink); font-weight: 400; }
 .bd .bd-frame .bd-frame-name { fill: var(--muted); font-size: var(--canvas-sm); font-family: var(--font); }
+.bd .bd-frame .bd-frame-dims { font-size: var(--canvas-sm); font-family: var(--font); }
 .bd .bd-frame { cursor: pointer; }
 .bd .bd-toggle rect { fill: var(--bg); stroke: var(--muted); stroke-width: 1; }
 .bd .bd-toggle path { stroke: var(--ink); stroke-width: 1.4; }
