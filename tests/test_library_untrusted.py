@@ -329,7 +329,7 @@ def test_untrusted_block_needs_a_start(tmp_path):
     main = uses(use("a", work={"type": "program", "run": "true", "on": "ticket.opened"}))
     assert [m for m in limits(project(tmp_path, main)) if "a-work.on" in m]
     main = uses(use("a", sensor={"daemon": {"run": "x"}}))
-    assert [m for m in limits(project(tmp_path, main)) if "daemon" in m]
+    assert [p.message for p in errors(project(tmp_path, main), "library-unsandboxed") if "daemon" in p.message]
     own = "stocks:\n  s: {unit: x, sensor: {run: 'echo 1'}}\nblocks:\n  go: {type: program, run: 'true', in: {x: stock.s}}\n"
     assert not limits(project(tmp_path, own)), "the owner's own block may run on its readings"
 
