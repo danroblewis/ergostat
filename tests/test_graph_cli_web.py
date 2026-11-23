@@ -425,6 +425,7 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
             return e.code, e.headers["Content-Type"], e.read()
     try:
         for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/loops", "/agents", "/items?kind=ticket&state=open",
+                     "/items/ticket", "/items/ticket?state=in-review&view=timeline",   # a kind's page
                      "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
                      "/record?type=x.y", "/model", "/check", "/guide?frame=3", "/fit", "/residuals"):
             code, ctype, body = get(path)

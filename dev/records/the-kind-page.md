@@ -72,3 +72,8 @@ kind's page has no system headings), the model-changes test's address assertion 
 waits for the header's project switcher to list a second project (`/api/projects`, util.js `refreshProjects`), and
 this branch does not touch that path. It could not be run on `main` here: a worktree of `main` and a checkout of main's
 static files were both refused in this session. So it is reported as unrelated, unconfirmed on `main`.
+
+**The build step (after round 1).** `[suites] build` failed with rc 5. It ran only the branch's two browser files, and
+without Playwright both skipped, so pytest collected no test. The kind page's server address (`/items/<kind>`, served as
+the page by `is_page_path`) is now in tests/test_graph_cli_web.py's page-address test. That is a unit test, so the build
+step runs it and it passes. No code changed.
