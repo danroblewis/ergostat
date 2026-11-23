@@ -3109,6 +3109,52 @@ def test_a_goals_behaviour_holds_across_refreshes_of_an_open_page(browser, tmp_p
         proc.wait(10)
 
 
+def test_a_past_moment_shows_its_own_behaviour_at_once_and_keeps_the_live_one(browser, tmp_path, monkeypatch):
+    """Live, the goal is within its bound (a fresh word kept). Moved to a past moment (S.at), whose answer is past its
+    bound, the row shows that moment's word at once, not the kept live word; back to live, the live word is still the
+    one kept, and is shown at once."""
+    d = charted(tmp_path, monkeypatch)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    row = {"stock": "backlog", "value": 5, "setpoint": "<= 8", "band": "", "error": 0, "status": "holding",
+           "off_share": 0.003, "back_in": None, "times_off": 1, "observed": True}
+
+    def loops(rt):                                       # the past moment was past its bound, live is within it
+        share = 0.04 if "at=" in rt.request.url else 0.0
+        perf = {"performance": {"constraint": {"share": share, "share_off": 0, "mean": 1, "worst": 1}}}
+        rt.fulfill(status=200, content_type="application/json", body=json.dumps({"steady": {**row, "perf": perf}}))
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route(lambda u: "/api/loops?" in u, loops)
+        pg.goto(url + "/loops")
+        cell = "() => document.querySelector('td[data-perf=\"steady\"]')?.textContent || ''"
+        pg.wait_for_function(f"() => ({cell})().startsWith('within')", timeout=20000)
+        kept = "() => JSON.parse(localStorage.getItem('ergostat.behaviour.' + S.status.name + '.steady')).word"
+        live = pg.evaluate(kept)
+        assert live.startswith("within"), live
+        pg.evaluate("() => { S.at = Date.now() / 1000 - 600; route(); }")
+        pg.wait_for_function(f"() => ({cell})().startsWith('past')", timeout=5000)   # at once: well inside the hold
+        assert pg.evaluate(kept) == live, "the live word kept, not the past one"
+        pg.evaluate("() => { S.at = null; route(); }")
+        pg.wait_for_function(f"() => ({cell})().startsWith('within')", timeout=5000)
+        assert pg.evaluate(kept) == live
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 RINGED = "() => [...document.querySelectorAll('svg.canvas .node.selected')].map((n) => n.dataset.id)"
 TITLED = "(name) => (document.querySelector('#detail:not([hidden]) h2')?.firstChild?.textContent || '') === name"
 

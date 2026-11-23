@@ -208,3 +208,23 @@ Run: both behaviour tests and main's `test_one_goals_distance_reads_the_same_on_
 (3 passed, rc 0, under the watchdog); `tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (passed);
 `tests/test_graph_cli_web.py` (41 passed); ruff clean. Not run: the whole unit suite and the four browser files in
 full (left to the factory and the merge queue).
+
+## Where it stopped (continued, round 3)
+
+The review's one finding (lesson-8, lesson-9): `steadyWord` held the kept live word back on a past moment (`S.at`),
+and saved the past word under the live key. Fixed in `steadyWord` (pages.js) with 1 more net line of code (about 34
+in all): on a past moment it returns the moment's own word at once and reads and writes nothing. The hold applies only
+to the live view, where it was asked for. The live word stays kept, so going back to live is held as before.
+
+Choice made without an answer (the most reversible): no hysteresis on a past moment, not a separate kept word for
+each moment. A past view's answer never changes, so there is nothing to smooth there.
+
+Test: `tests/test_diagram_rendering.py::test_a_past_moment_shows_its_own_behaviour_at_once_and_keeps_the_live_one`.
+It loads /loops live ('within its bound', kept), then sets `S.at` ten minutes back and routes. That moment's answer is
+'past its bound', and the test sees it within 5 s, well inside the 60 s hold. The kept live word is unchanged. Back to
+live, the row reads 'within its bound' again. With the fix removed, it failed: the cell stayed 'within its bound'
+(a wait_for_function timeout).
+
+Run: the new test and both earlier behaviour tests (3 passed, rc 0, under the watchdog); `tests/test_graph_cli_web.py`
+(41 passed); ruff clean. Not run: the whole unit suite and the four browser files in full (left to the factory and the
+merge queue). `main` is still 7cb97857, already merged in, so there was nothing to merge.

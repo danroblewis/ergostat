@@ -20,9 +20,11 @@ const keyed = (el, key) => { if (el?.nodeType) el.__key = String(key); return el
 /* a loop's behaviour, with hysteresis: its class (the words without their numbers) changes only once the new class
    has held for HOLD_SHARE of the window (a minute at least), and within a class its numbers are kept as long;
    remembered across reloads (by project), so a reload alone never flips it; a word not seen within the last hold and
-   two refreshes (PERF_EVERY, as the server's PERF_LIFE) is stale and the new one is shown at once */
+   two refreshes (PERF_EVERY, as the server's PERF_LIFE) is stale and the new one is shown at once; a past moment
+   (S.at) shows its own word at once and keeps nothing, so the live word is neither shown there nor overwritten */
 const HOLD_SHARE = 0.05, PERF_EVERY = 300000;
 function steadyWord(name, word, win) {
+  if (S.at) return word;
   const key = `ergostat.behaviour.${S.status?.name || ""}.${name}`, now = Date.now(), hold = Math.max(60, HOLD_SHARE * win) * 1000;
   const cls = (w) => w.replace(/[\d(−-].*$/, "").replace(/[,\s]+$/, "");
   let k = null;
