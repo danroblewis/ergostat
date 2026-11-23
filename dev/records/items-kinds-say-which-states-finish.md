@@ -67,3 +67,21 @@ Its runs failed past their attempts (a dead letter):
 - attempt 17: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 18: nack given back
 - attempt 19: nack the run ended with gap/items-kinds-say-which-states-finish still parked
+
+## Where it stopped
+
+Continued, round 1 (2026-11-23). Main (2a97eafb) merged in. The one conflict was in tests/test_items_page.py, where
+both sides had added a test at the end of the file. Both are kept. No code was changed after the merge.
+
+Run after the merge: tests/test_finished_states.py (5 passed). tests/test_items_page.py under the watchdog had 28 passed
+and 1 failed, twice. Ruff is clean on ergostat, tests and scripts.
+
+The failure is main's new test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart, which times out at
+test_items_page.py:1297 waiting for the other project's entry in the header's project menu. This branch does not change
+that menu. The project list (web/server.py:244-272) is built once at start-up and then every 60 s. The first project's
+server makes its list before the second project is running, so that entry can take up to 60 s to appear, and the test
+waits only 30 s. This looks like a timing issue between main's test and the server, not this gap (lesson 13). It is
+left alone. It was not run on clean main because this session was not allowed to make a worktree of main
+(`git worktree add /tmp/mainwt main` was refused). This branch's own browser test in that file passes.
+
+Not run here: the unit suite as a whole and the other browser files (the factory and the merge queue run them).
