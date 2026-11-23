@@ -79,3 +79,10 @@ main's `quarantine-small` bullet and the branch's `lessons-hold` bullet after it
 sentence ("Nothing serves it yet (missing feedback)") was stale after round 1. It now names the `lessons-relearn`
 external block. After the merge, tests/test_factory_knowledge.py passed (106) and ruff was clean. The code did not
 change.
+
+**Round 2, recheck (2026-11-23).** The queue's finding "conflicts with main: dev/README.md" was answered by the merge
+above. Local `main` (2f08c24e) is an ancestor of HEAD, dev/README.md has no conflict markers, and the branch's only
+change there is the `lessons-hold` bullet, which comes after main's `quarantine-small` bullet and splices into no
+other entry. tests/test_factory_knowledge.py passed again (106) and ruff is clean. `uv run ergostat check` was refused
+in this session as well. Done item 4 still rests on the model check inside `test_a_carried_class_found_again_counts`.
+If the queue's main has moved past 2f08c24e, it has to be merged again. That main is not in this clone.
