@@ -2813,7 +2813,7 @@ repair or interventions), `upkeep: <template>`: the modelling system's own work,
 and not among them. `/api/status` carries `goals_off` (`system` off, `open`, `unknown`, and `own: {modelling: n}`,
 upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off` and carries the
 same counts as `goals`. That one count (`state.goals_off`) is the only one: the page's header, the project switcher,
-the side list's "Goals off" heading, the Loops page's heading and the diagram's caption (its total the system's goals,
+the side list's "Goals off" heading, the Goals page's heading and the diagram's caption (its total the system's goals,
 model upkeep apart; Blocks: `controlled_off`, the same count of the goals a controller holds) print it as given and
 never count goals by status themselves; `ergostat` (and its `--json`, as `goals_off`) and `ergostat projects` print
 it in one form, `N goals off · M open · K unknown · model upkeep J` (a zero left out, but the first).
@@ -2822,7 +2822,7 @@ it in one form, `N goals off · M open · K unknown · model upkeep J` (a zero l
 its subsystems, as its closed box folds them in) is holding, the system says so: `all N goals holding, nothing being
 worked`, or `..., 3 items being worked` while its blocks, or its subsystems', hold leases on items (§9.5). A goal off, open, stale or unknown, or no goal at all, and it says nothing: an unread goal is never
 called holding. `/api/systems` carries it as `quiet` (null otherwise), and so does each closed system's node in the
-graph; the Loops page prints it per system and a system's panel on the diagram at its top.
+graph; the Goals page prints it per system and a system's panel on the diagram at its top.
 
 **Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
 
@@ -5159,7 +5159,7 @@ three times their spread past 1, five crossings or more, the record four periods
 amplitude past the tolerance), with its period and amplitude; the share of time u was at a limit (a
 setting at the end of its block's `limits:`, or a valve's openings at its most); and, each time the
 loop went off and came back to stay, how long it took to **settle**, and for a level held (==) how
-far it **overshot** to the other side. Shown under the scope, and in a word on the Loops page (which
+far it **overshot** to the other side. Shown under the scope, and in a word on the Goals page (which
 says what it lacks, "needs θ" or "too little record", rather than nothing). The page asks for every goal's word
 in one answer (`/api/loops?perf=1`, with each stock's points for its trend): the server works each goal out in the
 background, one at a time within 2 s a pass, again after 5 minutes (`web/goal_work.py`), and a goal not worked out
@@ -5233,7 +5233,7 @@ Approve records a step test's approval; a dismissed one is not offered again unt
 on in the model changes. Shown where the loop is: the process block's panel in the blocks view (the
 identification, its step response and Bode plot, the process and step-test proposals), the
 controller's panel (its law with that process, margins, closed-loop step and Bode, the tuning), the
-scope (performance), and a loop's panel on the Loops page (all of it). The process block's and the
+scope (performance), and a goal's panel on the Goals page (all of it). The process block's and the
 controller's panels start with a table per loop: law, process (each parameter ± σ, or "not identified:
 needs a step of u"), held-out fit (the NRMSE fit on the record fitted and on the record held out; 100% is
 perfect, below 0 worse than the mean), time off, settling and saturation; then the charts, then the words,

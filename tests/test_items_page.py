@@ -139,7 +139,7 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
-NAV = ["/diagram", "/dashboard", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
+NAV = ["/diagram", "/dashboard", "/goals","/agents", "/items", "/record", "/model", "/check", "/guide"]
 
 
 @pytest.fixture(scope="module")
@@ -2061,7 +2061,7 @@ def test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkee
 
 @pytest.mark.parametrize("route, nav, view", [
     ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
-    ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
+    ("/diagram?view=process", "/diagram", "Process"), ("/goals", "/goals", None), ("/agents", "/agents", None),
     ("/items", "/items", None), ("/items?view=list", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"),
     ("/record", "/record", None),
     ("/model", "/model", None)])

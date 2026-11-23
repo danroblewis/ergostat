@@ -1045,7 +1045,7 @@ function legend(view) {
     row('<path d="M1 9 H20" stroke="var(--ctl-line)" stroke-width="1.8"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--ctl-line)"/>', "information link, control action: the controller opens a valve"),
     (S.graph?.edges || []).some((e) => e.kind === "influence") &&
       row('<path d="M1 9 H20" stroke="var(--dist)" stroke-width="1.6" stroke-dasharray="7 4"/><path d="M18 5 L25 9 L18 13 Z" fill="var(--dist)"/>', "information link, influence: a flow's rate follows this (driven-by)"),
-    row('<path d="M1 9 H25" stroke="var(--bad)" stroke-width="2"/>', "a loop off: its lines in red when pointed at in the list (amber: open)"),
+    row('<path d="M1 9 H25" stroke="var(--bad)" stroke-width="2"/>', "a goal off: its lines in red when pointed at in the list (amber: open)"),
     h("span", { class: "sym" }, "H A P"), h("span", { class: "kinds" }, RUNG_NAMES.map((k, i) => h("span", {}, `${RUNG_LETTER[i]} ${k}`))));
 }
 

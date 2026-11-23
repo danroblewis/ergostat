@@ -43,7 +43,7 @@ function steadyWord(name, word, win) {
 }
 
 async function pageLoops(main, q) {
-  const p = page(main, "Loops");
+  const p = page(main, "Goals");
   const box = h("div", {}, h("p", { class: "muted" }, "Loading…")), cap = h("p", { class: "note" });   // (until the first answer)
   const pick = (n) => { setQuery({ select: n }); openLoop(n); };     // the loop chosen, in the address
   if (q.get("select") && $("#detail").hidden) openLoop(q.get("select"));
@@ -68,9 +68,9 @@ async function pageLoops(main, q) {
       h("b", {}, s.name), `: ${s.quiet}`)));
     const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
     const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted", "card"];   // card: a phone's (style.css)
-    patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
+    patch(box, table(["goal", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
       rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => pick(g.name) },
-        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "loops", "Loops"));   // hysteresis and flapping (steadyWord)
+        goalRow({ ...g, behaviour: word(g.name, g) }, { columns, open: pick }))), "loops", "Goals"));   // hysteresis and flapping (steadyWord)
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
