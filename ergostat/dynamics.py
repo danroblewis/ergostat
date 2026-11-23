@@ -356,8 +356,8 @@ def finish(g: dict) -> dict:
     for n in g["nodes"]:
         if n["kind"] == "system":
             n["charted"] = [{"part": x["part"], "label": x["label"], **{k: x[k] for k in ("value", "stale", "missing",
-                            "unchecked") if k in x}} for x in n.get("measures") or []]   # its panel charts them
-            n["measures"] = []                         # a module box draws no measures: SD draws structure
+                            "unchecked") if k in x}} for x in n.get("measures") or []]   # its panel charts them,
+            n["measures"] = []                         # its box draws three as sparklines (dynamics.js: sdSparks), no rows
             n["status"] = None
             n["loops"] = {}
     return g
@@ -443,7 +443,7 @@ def shadows(g: dict) -> dict:
 # the control words the attention cards use, in system dynamics' (the regulator is the flow's valve)
 _WORDS = [
     (r"\bits valve\b", "its flow"), (r"\bthe valve\b", "the flow"), (r"\bvalves?\b", "flow"),
-    (r"\bits controller\b", "its decision"), (r"\bcontrollers?\b", "decision"),
+    (r"\bits controller\b", "what serves it"), (r"\bcontrollers?\b", "decision"),
     (r"\ba goal's setpoint\b", "a desired level"),
     (r"\bsetpoints?\b", "desired level"), (r"\ba rule\b", "a fixed decision"), (r"\brules?\b", "decision"),
     (r"\bgoals?\b", "desired level"), (r"<=", "≤"), (r">=", "≥"), (r"==", "="),
@@ -474,8 +474,12 @@ def words(text: str) -> str:
 def attention(att: list[dict], snap: dict) -> list[dict]:
     """The attention cards as the dynamics view says them: a loop off its goal as a gap (``backlog is
     4, desired backlog = 0: off by 4``), the rest in system dynamics' words."""
+    import re
     out = []
     loops = snap.get("loops") or {}
+    # 'loop' is kept for R and B loops here: a controlled goal is called a goal
+    goals = set(loops) | {w.split(" ", 1)[1] for w in (a.get("what", "") for a in att) if w.startswith(("loop ", "controller "))}
+    pat = re.compile(r"\bloop (" + "|".join(map(re.escape, sorted(goals, key=len, reverse=True))) + r")(?![\w-])") if goals else None
     for a in att:
         a = dict(a)
         what = a.get("what", "")
@@ -488,11 +492,13 @@ def attention(att: list[dict], snap: dict) -> list[dict]:
             a["says"] = f"{lp['stock']} is {fmt(lp.get('value'))}, desired {lp['stock']} = {want}{gap}"
         else:
             a["says"] = words(a.get("says", ""))
+        if pat:
+            a["says"] = pat.sub(r"goal \1", a["says"])
         for k in ("first", "more"):                   # an entry waiting on a person, as its card draws it
             if a.get(k):
                 a[k] = words(a[k])
         if name:
-            a["what"] = f"loop {name}"
+            a["what"] = f"goal {name}"
         else:
             a["what"] = words(what)
         out.append(a)

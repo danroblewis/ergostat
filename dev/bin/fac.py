@@ -789,7 +789,7 @@ STANDIN = {
                'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
     "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- `docs/GAPS.md:1`: the gaps\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
-    "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
+    "designer": "The stand-in started no demo and walked nothing.", "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
     "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}
 
 

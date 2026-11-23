@@ -29,6 +29,13 @@ const GOAL_CELLS = {
     g.behaviour ?? goalPerf(g.perf)),
   expected: (g) => h("td", { class: "muted" }, g.row?.expected ?? ""),
   acted: (g) => h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, g.observed ? "yes" : h("span", { class: "muted" }, "no")),
+  // on a phone each goal is a card (style.css): its name and word, then its value against its bound and how long off
+  // (up to the moment the answer is as of: the past moment chosen, else now)
+  card: (g) => h("td", { class: "card" }, h("div", {}, h("b", {}, g.name), " · ", statusEl(goalWord(g))),
+    h("div", { class: "muted" }, [`${fmt(g.value)} against ${op(g.setpoint)}`, goalOffFor(g),
+      g.back_in != null ? `usually back in ${dur(g.back_in)}` : null].filter(Boolean).join(" · "))),
 };
+const goalOffFor = (g) => goalWord(g) !== "off" ? null : g.off_since == null ? "off since ?"
+  : `off ${g.off_before_window ? "over " : ""}${dur((S.at || nowS()) - g.off_since)}`;
 /* the cells of one goal ({name, ...its /api/loops entry}), in the columns asked for */
 function goalRow(goal, { columns, open }) { return columns.map((c) => GOAL_CELLS[c](goal, open)); }   // open: what a click on its name does
