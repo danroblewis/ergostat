@@ -509,19 +509,16 @@ function dashWrite(d, items) {
 function dashTool(text, label, onclick) {
   return h("button", { type: "button", class: "ghost", title: label, "aria-label": label, onclick }, text);
 }
+/* in edit mode a panel offers only Edit and remove, laid over its header's corner on hover or focus (a tap focuses
+   it), so nothing moves; its title moves it, its edges resize it, and the keyboard does both (dashKeydown) */
 function dashCell(p) {
   const panel = chartPanel(p);
-  const grip = h("button", { type: "button", class: "ghost dash-grip", title: "Drag to move", "aria-label": "Drag to move" }, "⠇");
   const edit = typeof openPanelEditor === "function" ? dashTool("Edit", "Edit this panel", () => dashEditPanel(p.id)) : null;
-  const tools = h("div", { class: "dash-tools" }, grip, h("span", { class: "dash-gap" }),
-                  dashTool("←", "Move left", () => dashNudge(p.id, -1, 0)), dashTool("→", "Move right", () => dashNudge(p.id, 1, 0)),
-                  dashTool("−", "Narrower", () => dashResize(p.id, -1)), dashTool("+", "Wider", () => dashResize(p.id, 1)),
-                  dashTool("↕", "Tall or short", () => dashTall(p.id)), edit,
-                  dashTool("×", "Remove this panel", () => dashRemove(p.id)));
+  const tools = h("div", { class: "dash-tools" }, edit, dashTool("×", "Remove this panel", () => dashRemove(p.id)));
   const edge = (cls, sides, title) => h("span", { class: cls, "data-resize": sides, title });
   const el = h("section", { class: "dash-cell", "data-panel": p.id, tabindex: "0",
                             "aria-description": "Press Enter to move or resize it with the arrow keys" },
-               tools, h("div", { class: "dash-body" }, panel), h("div", { class: "dash-foot" }),
+               tools, h("div", { class: "dash-body" }, panel),
                edge("dash-edge dash-edge-r", "r", "Drag to resize"), edge("dash-edge dash-edge-b", "b", "Drag to resize"),
                edge("dash-edge dash-handle", "rb", "Drag to resize"));
   return { el, panel, sig: dashSig(p), drawn: false, at: "" };
@@ -534,7 +531,6 @@ function dashRowCell(r, sig) {
                    r.collapsed ? "▸ " : "▾ ", DASH.editing ? null : h("span", { class: "dash-row-title" }, r.title),
                    r.collapsed ? h("span", { class: "muted small" }, ` ${n} panel${n === 1 ? "" : "s"}`) : null);
   const tools = DASH.editing ? [
-    h("button", { type: "button", class: "ghost dash-grip", title: "Drag to move the row and its panels", "aria-label": "Drag to move the row" }, "⠇"),
     h("input", { class: "dash-row-input", value: r.title, "aria-label": "Row title", "data-act": "title",
                  onchange: (ev) => dashChange((d) => { dashRow(d, r.id).title = ev.target.value.trim().slice(0, DASH_LONGEST.title) || "Row"; }, "Row title changed") }),
     h("span", { class: "dash-gap" }),
@@ -952,14 +948,13 @@ function dashScroller() {
 function dashPointerDown(ev) {
   if (ev.button !== 0 || DASH.drag || DASH.pending) return;
   const edge = ev.target.closest?.("[data-resize]");
-  const grip = ev.target.closest?.(".dash-grip");
-  const head = !edge && (grip || ev.target.closest?.(".panel-head, .dash-tools, .dash-row-bar"));
+  const head = !edge && ev.target.closest?.(".panel-head, .dash-row-bar");   // a panel moves by its title, a row by its bar
   if (!edge && !head) return;
-  if (!edge && !grip && ev.target.closest("button, a, input, select, textarea, label, [role=button]")) return;
+  if (!edge && ev.target.closest("button, a, input, select, textarea, label, [role=button]")) return;
   const el = ev.target.closest(".dash-cell"), id = el?.dataset.panel;
   if (!id || el.classList.contains("is-copy") || (el.classList.contains("dash-row") && dashIsNarrow())) return;
   const sides = edge?.dataset.resize || null;
-  const held = ev.pointerType === "touch" && !edge && !grip;       // on a phone a header also scrolls the page: hold to lift
+  const held = ev.pointerType === "touch" && !edge;                // on a phone a header also scrolls the page: hold to lift
   const pend = { id, sides, pointer: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, timer: 0 };
   const begin = () => { dashPendEnd(); dashDragBegin(pend); };
   const move = (e) => {

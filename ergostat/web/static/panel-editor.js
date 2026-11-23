@@ -202,20 +202,7 @@
     svg.append(path);
     return svg;
   }
-  /* what a form asks of the data, in words, and why the current queries cannot be drawn by it (null when they can) */
-  function needWords(reg) {
-    const n = reg.needs || {};
-    if (n.text) return n.text;
-    if (n.source) return `a ${n.source} query`;
-    if (n.agg) return `${n.agg} values`;
-    if (n.x?.length) return `X: ${n.x.join(", ")}`;
-    return "any query";
-  }
-  /* the same reason, short enough for a tile; the whole of it is in the tile's description and under the gallery */
-  function shortProblem(reg, why) {
-    if (!why) return `Needs ${needWords(reg)}`;
-    return why.startsWith("Cannot") ? "Not for a frequency response" : `Needs ${needWords(reg)}`;
-  }
+  /* why the current queries cannot be drawn by a form (null when they can) */
   function formProblem(reg, queries, answer) {
     const n = reg.needs || {}, shown = queries.filter(q => q.source && !q.hidden);
     if (n.source && !shown.some(q => q.source === n.source)) return `Needs ${n.text || `a ${n.source} query`}.`;
@@ -228,51 +215,12 @@
     if (n.data && !(answer?.results || []).some(r => r[n.data] != null || r.frequency?.[n.data] != null)) return `Needs ${n.text || n.data}, which this data does not supply.`;
     return null;
   }
-  /* complete queries for the quick starts, from whatever this model has; null when it lacks the part */
-  function measures(F) {
-    const out = [];
-    for (const s of F?.sources?.series?.series || []) out.push({ source: "series", series: nameOf(s), agg: "avg", transform: "none" });
-    for (const k of kindsOf(F?.sources?.counts)) out.push({ source: "counts", kind: k, transform: "none" });
-    return out;
+  /* a form the current result can be drawn as already: nothing in the way, and any aggregation it asks for already asked */
+  function formFits(reg, queries, answer) {
+    if (formProblem(reg, queries, answer)) return false;
+    const agg = reg.needs?.agg;
+    return !agg || queries.filter(q => q.source && !q.hidden && q.source !== "frequency").every(q => q.agg === agg);
   }
-  function flowQuery(F) {
-    const s = (F?.sources?.series?.series || []).map(nameOf).find(n => /flow|rate/i.test(n));
-    if (s) return { source: "series", series: s, agg: "avg", transform: "none" };
-    for (const [k, v] of Object.entries(F?.sources?.moves?.kinds || {})) if (v.states?.length) return { source: "moves", kind: k, measure: "entries", state: v.states[0], agg: "count", transform: "rate", rate_per: "hour" };
-    return null;
-  }
-  function stockQuery(F) {
-    const s = (F?.sources?.series?.series || []).map(nameOf).find(n => /stock|level|backlog/i.test(n));
-    if (s) return { source: "series", series: s, agg: "avg", transform: "none" };
-    const k = kindsOf(F?.sources?.counts)[0];
-    return k ? { source: "counts", kind: k, transform: "none" } : null;
-  }
-  const QUICK_STARTS = [
-    { name: "Phase portrait of two measures", form: "phase", needs: "two measures", build(F) {
-      const m = measures(F);
-      return m.length < 2 ? null : { title: "Phase portrait", queries: [{ ...m[0], id: "a", x: { type: "query", query: "b" } }, { ...m[1], id: "b" }] };
-    } },
-    { name: "Bode plot of a flow against a stock", form: "bode", needs: "a flow and a stock", build(F) {
-      const input = flowQuery(F), output = stockQuery(F);
-      return input && output ? { title: "Frequency response", queries: [{ id: "a", source: "frequency", input, output, segments: 4 }] } : null;
-    } },
-    { name: "Cost against size by item", form: "scatter", needs: "a kind with two numeric fields", build(F) {
-      for (const [k, v] of Object.entries(F?.sources?.items?.kinds || {})) {
-        const names = (v.fields || []).map(nameOf);
-        if (names.length < 2) continue;
-        const y = names.find(n => /cost/i.test(n)) || names[0];
-        const x = names.find(n => n !== y && /size|lines|tokens/i.test(n)) || names.find(n => n !== y);
-        return { title: `${y} against ${x}`, queries: [{ id: "a", source: "items", kind: k, field: y, agg: "none", x: { type: "field", field: x } }] };
-      }
-      return null;
-    } },
-    { name: "Distribution of cycle time", form: "histogram", needs: "a kind with states", build(F) {
-      for (const [k, v] of Object.entries(F?.sources?.moves?.kinds || {})) {
-        if (v.states?.length) return { title: `Time in ${v.states[0]}`, queries: [{ id: "a", source: "moves", kind: k, measure: "time_in_state", state: v.states[0], agg: "count", x: { type: "bins", bins: 20 } }] };
-      }
-      return null;
-    } },
-  ];
   function nextId(queries) {
     const used = new Set(queries.map(q => q.id));
     for (const c of "abcdefghijklmnopqrstuvwxyz") if (!used.has(c)) return c;
@@ -328,7 +276,7 @@
     const opener = document.activeElement;
     let F = null, closed = false, timer = null, seq = 0, inFlight = false, lastSig = null, lastAnswer = null;
     const errors = new Map(), cards = new Map(), forms = formsRegistered();
-    let undoQuick = null, pointerPick = false;
+    let pointerPick = false;
 
     const live = h("div", { class: "pe-live", "aria-live": "polite" });
     const say = text => { live.textContent = text; };
@@ -395,13 +343,14 @@
       const results = got.results || [];
       errors.clear();
       for (const r of results) if (r.error) errors.set(r.id, r.error);
-      renderMessages();
       lastAnswer = { results: results.filter(r => !r.error), meta: got.meta, firstError: results.find(r => r.error)?.error };
+      renderMessages();
       chart.setConfig({ ...previewConfig(), queries: cfg.queries });
       draw(lastAnswer);
     }
     function draw({ results, meta, firstError }) {
-      if (!results.length) { chart.setState("error", firstError || "No answer for these queries"); return; }
+      if (currentProblem()) { chart.setState("empty"); return; }    // (said once, above the preview)
+      if (!results.length) { chart.setState("error", firstError ? "" : "No answer for these queries"); return; }   // (an error is said beside its query)
       chart.update(results, meta);             // (the panel says for itself when they hold nothing)
     }
 
@@ -669,7 +618,6 @@
       changed();
     };
     const titleIn = h("input", { type: "text", value: draft.title || "", oninput: () => { draft.title = titleIn.value; changed(); } });
-    const noteIn = h("input", { type: "text", value: draft.note || "", oninput: () => { draft.note = noteIn.value; changed(); } });
     const unitSel = h("select", { onchange: () => setDisplay("unit", unitSel.value) });
     const decSel = h("select", { onchange: () => setDisplay("decimals", decSel.value === "" ? null : Number(decSel.value)) },
       h("option", { value: "" }, "Automatic"), [0, 1, 2, 3, 4].map(n => h("option", { value: n }, String(n))));
@@ -736,12 +684,13 @@
       changed();
     }
 
-    /* the gallery of chart families, grouped as they registered; each says what it needs and why it cannot draw this */
+    /* the gallery of chart families, grouped as they registered; one that cannot draw this is disabled, its reason in its tooltip */
     const formTiles = new Map();
-    const formGuide = h("div", { class: "pe-form-guide", role: "status" });
+    const formGuide = h("div", { class: "pe-form-guide", role: "status" });     // (the chart's one error, above the preview)
     const guideText = h("span", {});
     const guideBtn = h("button", { type: "button", onclick: () => setUpForm(true) }, "Set it up");
     formGuide.append(guideText, guideBtn);
+    const currentProblem = () => { const now = formTiles.get(draft.form) || (forms.has(draft.form) ? { reg: forms.get(draft.form) } : null); return now ? formProblem(now.reg, draft.queries, lastAnswer) : null; };
     function makeGallery() {
       const groups = [...FORM_GROUPS];
       for (const reg of forms.values()) if (reg.group && !groups.some(g => g[0] === reg.group)) groups.push([reg.group, words(reg.group)]);
@@ -753,11 +702,9 @@
         const tiles = members.map(([name, reg]) => {
           const input = h("input", { type: "radio", name: uid + "-form", value: name, onchange: () => pickForm(name) });
           input.checked = name === draft.form;
-          const need = h("span", { class: "pe-form-need", id: `${uid}-need-${name}` });
-          input.setAttribute("aria-describedby", need.id);
           const tile = h("label", { class: "pe-seg pe-form", "data-form": name, onpointerdown: () => { pointerPick = true; } },
-            input, formIcon(reg, name), h("span", { class: "pe-form-name" }, reg.label || words(name)), need);
-          formTiles.set(name, { tile, input, need, reg });
+            input, formIcon(reg, name), h("span", { class: "pe-form-name" }, reg.label || words(name)));
+          formTiles.set(name, { tile, input, reg });
           return tile;
         });
         sections.push(h("div", { class: "pe-form-group" }, h("div", { class: "pe-l" }, title), h("div", { class: "pe-segs pe-gallery" }, tiles)));
@@ -768,32 +715,38 @@
       }, "aria-label": "Chart" }, sections);
     }
     function renderGallery() {
+      const judged = draft.queries.some(q => q.source && !q.hidden);     // (with nothing asked yet every form is open, and sets its queries up)
       for (const [name, t] of formTiles) {
-        const why = formProblem(t.reg, draft.queries, lastAnswer);
+        const why = judged ? formProblem(t.reg, draft.queries, lastAnswer) : null;
         t.input.checked = name === draft.form;
+        t.input.disabled = !!why;
         t.tile.classList.toggle("pe-form-blocked", !!why);
-        t.need.textContent = shortProblem(t.reg, why);
-        t.need.title = why || "";
         t.input.setAttribute("aria-description", why || "");
         t.tile.title = why || "";
       }
-      const now = formTiles.get(draft.form);
-      const why = now ? formProblem(now.reg, draft.queries, lastAnswer) : null;
+      const why = currentProblem(), now = formTiles.get(draft.form);
+      pickOpen.disabled = !lastAnswer?.results?.length;
+      pickOpen.title = pickOpen.disabled ? "Finish a query to see its charts" : "";
       formGuide.hidden = !why;
       guideText.textContent = why || "";
       guideBtn.hidden = !why || !canSetUp(now?.reg);
     }
     function canSetUp(reg) { const n = reg?.needs || {}; return !!(n.source === "frequency" || n.x?.length); }
+    /* the options a change to form ``name`` keeps: what still applies stays, the rest goes */
+    function keptOptions(name) {
+      const schema = new Map((forms.get(name)?.options || []).map(o => [o.key, o]));
+      const out = {};
+      for (const [key, value] of Object.entries(draft.options || {})) {
+        const o = schema.get(key);
+        if (o && (o.type !== "choice" || (o.choices || []).some(c => String(choiceOf(c)[0]) === String(value)))) out[key] = value;
+      }
+      return Object.keys(out).length ? out : undefined;
+    }
     function pickForm(name) {
       const next = forms.get(name);
       draft.form = name;
-      const schema = new Map((next?.options || []).map(o => [o.key, o]));
-      for (const [key, value] of Object.entries(draft.options || {})) {   // what still applies stays, the rest goes
-        const o = schema.get(key);
-        const fits = o && (o.type !== "choice" || (o.choices || []).some(c => String(choiceOf(c)[0]) === String(value)));
-        if (!fits) delete draft.options[key];
-      }
-      if (draft.options && !Object.keys(draft.options).length) delete draft.options;
+      const kept = keptOptions(name);
+      if (kept) draft.options = kept; else delete draft.options;
       const wants = next?.needs?.agg || (name === "candlestick" ? "ohlc" : null);
       for (const q of draft.queries) {
         if (!q.source || q.source === "frequency") continue;
@@ -857,6 +810,45 @@
       if (type && (type !== "bins" || q.source !== "items" || q.field)) setXType(q, type);
     }
 
+    /* the charts the current result can be drawn as, each drawn with the answer the preview has; the one clicked is chosen */
+    const pickOpen = h("button", { type: "button", class: "pe-pick-open", onclick: () => openPicker() }, "Charts of this data…");
+    let picker = null;
+    function openPicker() {
+      if (picker || !lastAnswer?.results?.length) return;
+      const base = previewConfig(), { results, meta } = lastAnswer;
+      const grid = h("div", { class: "pe-pick-grid" });
+      const box = h("div", { class: "pe-pick", role: "dialog", "aria-modal": "true", "aria-label": "Charts of this data" },
+        h("div", { class: "pe-pick-head" }, h("h3", {}, "Charts of this data"), h("button", { type: "button", onclick: () => closePicker() }, "Close")), grid);
+      picker = { box, charts: [] };
+      root.append(box);
+      for (const [name, reg] of forms) {
+        if (!formFits(reg, draft.queries, lastAnswer)) continue;
+        const one = chartPanel({ ...base, id: `${uid}-pick-${name}`, form: name, options: keptOptions(name) });
+        const label = reg.label || words(name);
+        const card = h("div", { class: "pe-pick-card", "data-form": name, onclick: () => choosePicked(name) },
+          h("div", { class: "pe-pick-chart", inert: "" }, one), h("button", { type: "button", "aria-label": `Use ${label}` }, label));
+        grid.append(card);
+        picker.charts.push(one);
+        one.update(results, meta);
+        if (["empty", "error"].includes(one.dataset.state)) { card.remove(); one.destroy?.(); }   // (its own check found it cannot draw this)
+      }
+      if (!grid.childElementCount) grid.append(h("p", {}, "No chart can draw this result."));
+      (grid.querySelector("button") || box.querySelector("button")).focus();
+    }
+    function closePicker(focus = pickOpen) {
+      if (!picker) return;
+      for (const c of picker.charts) c.destroy?.();
+      picker.box.remove();
+      picker = null;
+      if (focus?.isConnected) focus.focus();
+    }
+    function choosePicked(name) {
+      pointerPick = false;
+      closePicker(formTiles.get(name)?.input);
+      if (draft.form !== name) pickForm(name);
+      say(`${forms.get(name)?.label || words(name)} chosen`);
+    }
+
     /* the options of the chosen family, drawn from what it registered: a new family needs nothing here */
     const optionsBox = h("div", { class: "pe-options" });
     const optionsHead = h("h3", {}, "Chart options");
@@ -913,38 +905,6 @@
       optionsHead.hidden = optionsBox.hidden = !list.length;
     }
 
-    /* the common analyses: each fills in a complete panel to adjust, and can be taken back */
-    const quickBox = h("div", { class: "pe-quick" });
-    const quickUndo = h("button", { type: "button", class: "ghost", hidden: true, onclick: () => {
-      if (!undoQuick) return;
-      Object.assign(draft, undoQuick);
-      if (!undoQuick.options) delete draft.options;
-      undoQuick = null;
-      quickUndo.hidden = true;
-      titleIn.value = draft.title || "";
-      renderAll();
-      say("Put back as it was");
-      changed();
-    } }, "Undo quick start");
-    function renderQuick() {
-      quickBox.replaceChildren(...QUICK_STARTS.map(start => {
-        const built = F && forms.has(start.form) ? start.build(F) : null;
-        const b = h("button", { type: "button", class: "pe-quick-btn", disabled: !built, title: built ? "" : `Needs ${start.needs}`, onclick: () => {
-          undoQuick = { queries: clone(draft.queries), form: draft.form, options: clone(draft.options), title: draft.title };
-          draft.queries = start.build(F).queries;
-          draft.form = start.form;
-          delete draft.options;
-          if (!draft.title) { draft.title = start.build(F).title; titleIn.value = draft.title; }
-          quickUndo.hidden = false;
-          renderAll();
-          say(`${start.name}: filled in, ready to adjust`);
-          changed();
-          quickUndo.focus();
-        } }, formIcon(forms.get(start.form) || {}, start.form), h("span", {}, start.name));
-        return b;
-      }));
-    }
-
     const thresholdRows = (draft.display.thresholds || []).map(t => ({ ...t }));
     const thresholdsBox = h("div", { class: "pe-thresholds" });
     function applyThresholds() {
@@ -993,9 +953,8 @@
 
     const side = h("div", { class: "pe-side" },
       h("h3", {}, "Panel"),
-      field("Title", titleIn), field("Note", noteIn),
-      h("h3", {}, "Quick starts"), quickBox, quickUndo,
-      h("h3", {}, "Chart"), makeGallery(), formGuide,
+      field("Title", titleIn),
+      h("h3", {}, "Chart"), pickOpen, makeGallery(),
       optionsHead, optionsBox,
       h("h3", {}, "Values"),
       h("div", { class: "pe-two" }, field("Unit", unitSel), field("Decimals", decSel)),
@@ -1018,18 +977,19 @@
     const root = h("div", { class: "pe-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Edit panel", onkeydown: onKey },
       h("header", { class: "pe-head" }, h("h2", {}, "Edit panel"), saveMsg, h("span", { class: "pe-actions" }, cancelBtn, saveBtn)),
       h("div", { class: "pe-body" },
-        h("div", { class: "pe-main" }, previewBox, h("div", { class: "pe-query-area" }, fieldsMsg, queriesBox, addBtn)),
+        h("div", { class: "pe-main" }, formGuide, previewBox, h("div", { class: "pe-query-area" }, fieldsMsg, queriesBox, addBtn)),
         side),
       live);
 
     function onKey(ev) {
-      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); cancel(); return; }
+      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); if (picker) closePicker(); else cancel(); return; }
       if (ev.key !== "Tab") return;
-      const items = [...root.querySelectorAll(FOCUSABLE)].filter(el => el.getClientRects().length);
+      const scope = picker?.box || root;
+      const items = [...scope.querySelectorAll(FOCUSABLE)].filter(el => el.getClientRects().length && !el.closest("[inert]"));
       if (!items.length) return;
       const first = items[0], last = items[items.length - 1], at = document.activeElement;
-      if (ev.shiftKey && (at === first || !root.contains(at))) { ev.preventDefault(); last.focus(); }
-      else if (!ev.shiftKey && (at === last || !root.contains(at))) { ev.preventDefault(); first.focus(); }
+      if (ev.shiftKey && (at === first || !scope.contains(at))) { ev.preventDefault(); last.focus(); }
+      else if (!ev.shiftKey && (at === last || !scope.contains(at))) { ev.preventDefault(); first.focus(); }
     }
 
     const inerted = [...document.body.children].filter(el => el !== root && !el.inert && el.tagName !== "SCRIPT");
@@ -1038,6 +998,7 @@
       closed = true;
       clearTimeout(timer);
       if (openEditor === handle) openEditor = null;
+      closePicker(null);
       chart.destroy?.();
       root.remove();
       for (const el of inerted) el.inert = false;
@@ -1095,7 +1056,6 @@
         return;
       }
       if (closed) return;
-      renderQuick();
       renderAll();
       runPreview();
       if (!root.contains(document.activeElement) || (document.activeElement === titleIn && !titleIn.value)) initialFocus();

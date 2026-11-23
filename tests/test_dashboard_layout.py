@@ -254,7 +254,7 @@ def test_rows_fold_open_drag_with_their_panels_and_are_a_break(browser, site):  
 
     before = layouts(pg)                                         # the second row dragged above the first, its panels along
     u = units(pg)
-    g = pg.locator('[data-panel="r2"] .dash-grip').bounding_box()
+    g = pg.locator('[data-panel="r2"] .dash-row-bar .dash-gap').bounding_box()   # a row moves by its bar
     start = (g["x"] + g["width"] / 2, g["y"] + g["height"] / 2)
     drag(pg, start, (start[0], u["top"] + 2))
     after, rows = layouts(pg), rows_of(pg)

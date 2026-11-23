@@ -1,6 +1,7 @@
 import contextlib
 import fcntl
 import json
+import multiprocessing.spawn
 import os
 import subprocess
 import sys
@@ -11,6 +12,20 @@ import time
 from pathlib import Path
 
 import pytest
+
+_DEV_BIN = Path(__file__).resolve().parent.parent / "dev" / "bin"
+_preparation = multiprocessing.spawn.get_preparation_data
+
+
+def _without_dev_bin(name):
+    """What a spawned process starts from, less dev/bin: many tests put it on sys.path, a spawned process inherits that,
+    and there dev/bin/queue.py hides the standard library's `queue`, which multiprocessing itself imports."""
+    data = _preparation(name)
+    data["sys_path"] = [x for x in data.get("sys_path", []) if not x or Path(x).resolve() != _DEV_BIN]
+    return data
+
+
+multiprocessing.spawn.get_preparation_data = _without_dev_bin
 
 DISK = """
 name = "t"
