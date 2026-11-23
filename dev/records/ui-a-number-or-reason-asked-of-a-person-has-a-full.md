@@ -135,3 +135,21 @@ Round 5: the queue's one finding answered. Code is otherwise unchanged since rou
   the watchdog with Playwright: 13 passed, rc 0, none skipped. ruff is clean. Not run here: the unit suite and the
   other three browser files. Main has not moved (no origin/main in the clone). The Yes/No buttons stay left for a
   gap of its own, as round 3 says.
+
+Round 6: the review's two findings answered. Code changed by 3 net lines in `diagram.js` since round 5.
+
+- Finding 1 (`diagram.js` `foldRow`): the folded modelling requests' Deny all reason had no `<label>` and kept the
+  placeholder "why (to deny all)" with aria-label "Why". It now sits in the same `label.ask-in` as every other box,
+  "Reason for denying all (required)", with no placeholder; the box takes its name from that label. "Required" is
+  true: a modelling request's deny needs a note, so Deny all with no reason is refused for each member. Deny all
+  still reads `act.querySelector("input")`, which finds the box inside the label. SPEC §12o says so.
+- Finding 2 (the acceptance test could not see the fold): new
+  `tests/test_inbox_page.py::test_the_folded_requests_deny_all_reason_has_a_full_label_too`, with a `folds` fixture
+  (three alike held requests), opens the fold and runs the same check (now the module's `INPUTS`) on every input
+  of the side list: the fold's own reason and each member's. Seen to fail with the round 5 `foldRow` put back (no
+  "Reason for denying all (required)" label), and to pass with the fix.
+- Run here: `tests/test_inbox_page.py` under the watchdog with Playwright: 14 passed, rc 0, none skipped.
+  `tests/test_diagram_rendering.py`'s two fold tests (`..._fold_into_one_entry_...`, `..._two_folds_each_keep_...`)
+  pass. ruff is clean. Not run here: the unit suite and the four browser files whole (the merge queue runs them).
+  Main has not moved (no origin/main in the clone). The Yes/No buttons stay left for a gap of its own, as round 3
+  says.

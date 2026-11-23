@@ -1492,7 +1492,7 @@ function folded(xs) {
 const PLURAL = { stock: "stocks", flow: "flows", auxiliary: "auxiliaries", parameter: "parameters", goal: "goals", block: "blocks" };
 function foldRow(ms, row) {
   const kinds = new Set(ms.map((m) => String(m.about).split(".")[0])), systems = [...new Set(ms.map((m) => m.system).filter(Boolean))].sort();
-  const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text", placeholder: "why (to deny all)", "aria-label": "Why" });
+  const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text" });
   // read from the clicked row as it is on the page: a refresh hands this handler to the kept nodes (patchNode)
   const all = h("button", { class: "ghost", "data-verb": "deny-all", onclick: async (ev) => {
     const b = ev.currentTarget, act = b.parentElement, note = act.querySelector("input").value, out = act.querySelector(".note");
@@ -1507,7 +1507,8 @@ function foldRow(ms, row) {
   return h("div", { "data-fold": ms[0].fold, key: `fold:${ms[0].fold}` }, h("details", { class: "fold" },
     h("summary", {}, h("span", { class: "att-word" }, "request · "), h("b", { class: "lvl-warn" },`${ms.length} ${kinds.size === 1 ? PLURAL[[...kinds][0]] || "parts" : "parts"}: ${ms[0].fold.split("|")[0].replace(/-/g, " ")}`),
       systems.length ? ` (${systems.join(", ")})` : ""), ...ms.map(row)),
-    SNAP || S.at ? null : h("div", { class: "row inbox-act" }, why, all, said));
+    SNAP || S.at ? null : h("div", { class: "row inbox-act" },
+      h("label", { class: "ask-in" }, h("span", {}, "Reason for denying all (required)"), why), all, said));
 }
 
 /* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)

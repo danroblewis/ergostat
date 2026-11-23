@@ -230,6 +230,61 @@ def test_approve_in_the_side_panel(site):
         b.close()
 
 
+INPUTS = """() => [...document.querySelectorAll('.att .inbox-act input')].map((i) => {
+    const l = i.closest('label'), row = i.closest('.inbox-act');
+    return { label: l ? l.innerText : null, shown: !!l && l.getBoundingClientRect().height > 0,
+             whole: !!l && [l, ...l.children].every((x) => x.scrollWidth <= x.clientWidth),
+             placeholder: i.placeholder, wide: i.getBoundingClientRect().width / row.clientWidth }; })"""
+
+
+@pytest.fixture
+def folds(tmp_path, home):
+    """Three stocks with no description, each a modelling request held for the owner: alike, so one folded entry."""
+    from ergostat import model as mdl
+    from ergostat.numbers import requests as rq
+    from ergostat.store import Project
+
+    from .test_inbox import MODEL
+    from .test_modelling_core import MODELLING
+    mine = {f"stock.bare-{i}" for i in range(3)}
+    stocks = "".join(f"  bare-{i}:\n    unit: things\n    sensor: {{manual: true}}\n" for i in range(3))
+    (tmp_path / "ergostat.yaml").write_text(MODEL.replace("stocks:\n", "stocks:\n" + stocks, 1) + MODELLING)
+    p = Project(mdl.load(tmp_path))
+    rq.sync(p)
+    held = [r for r in rq.current(p, ("open",)) if r["code"] == "no-description" and r["about"] in mine]
+    assert len(held) == 3, sorted(r["about"] for r in held)
+    for r in held:
+        rq.mark(p, r, "held", "no tier has a change for it")
+    yield from serve(tmp_path, home, p, held)
+
+
+def test_the_folded_requests_deny_all_reason_has_a_full_label_too(folds):
+    """Acceptance, the folded requests (the review of round 5): the fold's own Deny all reason, and each member's
+    reason once the fold is opened, sit under a visible <label> shown whole, as wide as the row, with no placeholder."""
+    url, p, _ = folds
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        fold = pg.locator('.side .att > [data-fold^="no-description|"]')
+        fold.wait_for(state="attached", timeout=60000)
+        house = pg.locator(".side details.housekeeping")             # held requests are housekeeping (folded)
+        if house.count() and not house.evaluate("(d) => d.open"):
+            house.locator(":scope > summary").click()
+        fold.locator(":scope > details.fold > summary").click()
+        assert fold.locator(':scope > details.fold > [data-inbox^="request/"]').count() == 3
+        got = pg.evaluate(INPUTS)
+        labels = [" ".join((x["label"] or "").split()) for x in got]
+        assert labels.count("Reason for denying all (required)") == 1, got           # the fold's own reason
+        assert labels.count("Reason for denying (required)") >= 3, got              # each member's
+        for x in got:
+            assert x["label"] and x["shown"] and x["whole"] and not x["placeholder"] and x["wide"] > 0.9, x
+        assert not errors, errors
+        b.close()
+
+
 def test_every_answer_in_the_side_list_has_a_full_label_and_a_number_its_unit(decided):
     """Acceptance (ui-a-number-or-reason-asked-of-a-person-has-a-full): each input of the side list sits under a
     visible <label> shown whole (scrollWidth <= clientWidth), as wide as its row, with no placeholder to be cut; a
@@ -243,12 +298,8 @@ def test_every_answer_in_the_side_list_has_a_full_label_and_a_number_its_unit(de
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(f"{url}/diagram?view=blocks")
         pg.locator('[data-inbox^="person/decider@"] .inbox-act button').first.wait_for(timeout=20000)
-        got = pg.evaluate("""() => [...document.querySelectorAll('.att .inbox-act input')].map((i) => {
-            const l = i.closest('label'), row = i.closest('.inbox-act');
-            return { label: l ? l.innerText : null, shown: !!l && l.getBoundingClientRect().height > 0,
-                     whole: !!l && [l, ...l.children].every((x) => x.scrollWidth <= x.clientWidth),
-                     placeholder: i.placeholder, wide: i.getBoundingClientRect().width / row.clientWidth }; })""")
-        assert len(got) == 3, got                       # the two numbers and the held action's reason
+        got = pg.evaluate(INPUTS)
+        assert len(got) == 3, got                      # the two numbers and the held action's reason
         for x in got:
             assert x["label"] and x["shown"] and x["whole"] and not x["placeholder"] and x["wide"] > 0.9, x
         labels = [" ".join(x["label"].split()) for x in got]
