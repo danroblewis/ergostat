@@ -1326,7 +1326,7 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         for _ in range(60):
             r = pg.evaluate(WHEEL, [0, -500, {"ctrlKey": True}])
         assert r["after"]["k"] <= 4
-        pg.get_by_role("button", name="+", exact=True).click()
+        pg.get_by_role("button", name="Zoom in", exact=True).click()
         pg.get_by_role("button", name="Fit", exact=True).click()
         pg.close()
 
@@ -4433,7 +4433,7 @@ def test_the_model_page_says_what_is_available_and_opens_each_tools_panel(browse
         assert "quality-setting → quality" in row and "not identified" in row, row
         assert "small-images" in avail.locator("p", has_text="no one process").inner_text()
         assert "window-time" in avail.inner_text() and "quality-turnover" in avail.inner_text()
-        avail.locator("tr", has_text="quality-held").first.get_by_role("link", name="process", exact=True).click()
+        avail.locator("tr", has_text="quality-held").first.get_by_role("link", name="quality-held process", exact=True).click()
         pg.wait_for_function("() => S.graph?.kind === 'blocks' && !document.querySelector('#detail').hidden", timeout=60000)
         pg.wait_for_function("() => /The loop quality-held/.test(document.querySelector('#detail').textContent)", timeout=60000)
         assert pg.evaluate("() => S.graph.nodes.find((n) => n.id === S.bdSel?.node)?.role") == "process"

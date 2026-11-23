@@ -164,7 +164,7 @@ async function openLoop(name, asController = false) {
     ["moves", lp.flows.map((f) => `${f} ${rateText(lp.rates?.[f], "", f)}`).join(", ") || "nothing"],
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
-  kids.push(h("table", { class: "parts" }, h("tr", {}, ["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
+  kids.push(h("table", { class: "parts" }, tableCaption(`The parts along loop ${name}`), headRow(["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
     (lp.parts || []).map((pt) => h("tr", {}, h("td", {}, pt.kind), h("td", {}, h("b", {}, pt.name),
         pt.kind === "valve" ? h("span", { class: "muted" }, ` ${pt.mode}${pt.max ? `, \u2264 ${fmt(pt.max)} a run` : ""}`) : null),
       h("td", {}, agentLink(pt.agent)),
@@ -263,13 +263,14 @@ async function openAgent(name) {
   const outcome = (e) => e.type === "agent.failed" ? [h("span", { class: "s-off" }, "failed"), h("span", { class: "muted" }, `: ${e.data.note || "no reason given"}`)]
     : (a.ended || {})[e.causedby]?.how === "nack" ? [h("span", { class: "s-open" }, "refused"), h("span", { class: "muted" }, `: ${a.ended[e.causedby].why || e.data.note || "no reason given"}`)]
     : [h("span", { class: "status" }, "done"), e.data.note ? h("span", { class: "muted" }, `: ${e.data.note}`) : null];
-  kids.push(h("div", { class: "table-wrap runs-table" }, h("table", {}, h("tr", {}, th("when"), th("item"), th("outcome"), th("outward actions asked"), th("cost", "num")),
+  kids.push(h("div", { class: "table-wrap runs-table" }, h("table", {}, tableCaption(`Recent runs of ${name}, newest first`), headRow(th("when"), th("item"), th("outcome"), th("outward actions asked"), th("cost", "num")),
     last.map((e) => { const r = costOf(e.data), asked = (a.asked || {})[e.causedby] || []; return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
       h("td", { class: "cell" }, e.data.item ? itemLink(e.data.item) : h("span", { class: "muted" }, "none")), h("td", { class: "cell" }, outcome(e)),
       h("td", { class: "cell" }, asked.length ? asked.map((x, i) => [i ? ", " : "", h("a", { href: `/item/${encodeURIComponent(x.id)}`, title: x.state }, x.action || x.id)]) : h("span", { class: "muted" }, "none")),
       h("td", { class: "num nowrap", title: r.cost ? `${r.cost}${r.model ? ", " + r.model : ""}` : "" }, usd(r.cost_usd), r.cost && r.cost !== "reported" ? h("span", { class: "muted" }, " est.") : null)); }))),
     h("details", { class: "runs-resources" }, h("summary", {}, "resources"), h("div", { class: "table-wrap" }, h("table", {},
-      h("tr", {}, th("when"), ...["readings", "openings", "decisions", "tokens", "CPU", "memory"].map((t) => th(t, "num"))),
+      tableCaption(`Resources of ${name}'s recent runs, newest first`),
+      headRow(th("when"), ...["readings", "openings", "decisions", "tokens", "CPU", "memory"].map((t) => th(t, "num"))),
       last.map((e) => { const r = costOf(e.data), n = (k) => h("td", { class: "num" }, String(e.data[k] || 0)); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
         n("readings"), n("openings"), n("decisions"), h("td", { class: "num" }, tokensText(r.tokens)), h("td", { class: "num" }, cpuText(r.cpu)), h("td", { class: "num" }, bytesText(r.memory))); })))));
   if (a.log?.length) kids.push(h("h3", {}, "End of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
@@ -350,13 +351,14 @@ function eventsTable(evs, compact, fold = false) {
     const last = runs[runs.length - 1], sig = JSON.stringify([e.type, e.source, e.item, changeOf(e)]);
     if (fold && last && last.sig === sig) last.evs.push(e); else runs.push({ sig, evs: [e] });
   }
-  return h("div", { class: "table-wrap" }, h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
-    runs.map(({ evs: run }) => { const e = run[0], n = run.length; return h("tr", { key: e.id },
+  return h("div", { class: "table-wrap" }, h("table", {}, h("caption", { class: "sr-only" }, "Events, newest first"),
+    headRow(h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
+    h("tbody", {}, runs.map(({ evs: run }) => { const e = run[0], n = run.length; return h("tr", { key: e.id },
       h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, n > 1 ? `${clock(run[n - 1].time)}–${clock(e.time)}` : clock(e.time)),
       h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: n > 1 ? `${n} events in a row: list them` : `event ${e.id}`,
         onclick: (ev) => { ev.preventDefault(); n > 1 ? showRun(run) : showEvent(e); } }, e.type), n > 1 ? h("span", { class: "run-count" }, ` ×${n}`) : null),
       compact ? null : h("td", { class: "nowrap" }, e.item ? eventItemLink(e) : "–"),
-      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))); })));
+      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))); }))));
 }
 function showRun(run) {                                  // a folded run, each of its events, in the side panel
   showDetail(h("div", { class: "kind" }, "Events in a row"), h("h2", {}, `${run[0].type} ×${run.length}`), eventsTable(run.slice().reverse(), false));

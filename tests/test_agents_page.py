@@ -320,9 +320,9 @@ def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_a
     assert pg.is_visible("#detail th:text-is('CPU')")
     pg.goto(f"{site['url']}/items?kind=ergostat.action")
     pg.wait_for_selector("table.items tr.click, table tr.click")
-    heads = pg.eval_on_selector_all("table:has(th button[title='Sort by by']) th", "ths => ths.map((t) => t.textContent.trim())")
+    heads = pg.eval_on_selector_all("table:has(th button[title='Sort by author']) th", "ths => ths.map((t) => t.textContent.trim())")
     by, ok = heads.index("by"), heads.index("approved by")
-    cells = pg.eval_on_selector_all("table:has(th button[title='Sort by by']) tr.click",
+    cells = pg.eval_on_selector_all("table:has(th button[title='Sort by author']) tr.click",
                                     f"trs => trs.map((tr) => [tr.cells[{by}].textContent, tr.cells[{ok}].textContent])")
     assert len(cells) == 5 and all(c[0] not in ("", "–") for c in cells), cells
     assert sorted(c[0] for c in cells) == ["session/w1"] + ["writer"] * 4
