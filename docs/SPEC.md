@@ -846,7 +846,11 @@ page, the command line); every 32,768 events sealed into a segment of gzip block
 block, read alone) with an index (each item's and each type's rows, the times and seqs as
 columns, a Bloom filter of the ids, and what its events add up to per valve, controller and block:
 openings, decisions, runs), so a query by item, type and time reads only the rows and
-blocks that match, and a month's tallies and crossings are read from headers and columns, not event by event. `sqlite` is `events.db`, as before. Both keep a transcript's lines
+blocks that match, and a month's tallies and crossings are read from headers and columns, not event by event. Beside
+each segment, an index of what caused each event and one of its source (`.cby`, `.src`: hashed keys and their rows),
+and the head keeps the same in memory, so what a run caused (`caused_by`) and a query by source read only the
+segments, blocks and rows that hold a match; a segment sealed before these were written has them built once, from
+its blocks, the first time it is asked, and kept. `sqlite` is `events.db`, as before. Both keep a transcript's lines
 (`claude.*`) out of item counts without reading them (SQLite by a partial index, the log by its
 type columns).
 
@@ -4041,7 +4045,9 @@ goals:
 ergostat's own watchdog, on the program rung, is what acts on it: it expires a silent lease on a second look at the same
 expiry, a grace after it first found it past its TTL (a tenth of the TTL, at least a second and at most 30 s; renewed
 meanwhile, the grace starts again: a renewal the run asked for in time may still be on its way into the record, the
-engine or the machine busy), and the item is taken again. Each dead letter, and each lease that expired in the
+engine or the machine busy), and the item is taken again. A watchdog pass looks at leases for at most 0.2 s, and the
+dispatcher takes work between passes, so many overdue leases never hold up a take for another block; the leases a
+pass did not reach are looked at in the passes after, each once a round, its first look kept. Each dead letter, and each lease that expired in the
 last hour, needs attention (`ergostat`, the page's side panel); `ergostat lease ITEM --redrive` gives a
 dead letter another go once its cause is fixed. The Items page shows, for a kind with leases, who
 holds each item and when its lease expires, and its attempts; an item's page, its lease and every
