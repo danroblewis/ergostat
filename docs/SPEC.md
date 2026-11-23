@@ -6271,7 +6271,9 @@ every block here. `check` refuses, at the key: a pool `compute:` does not declar
 could have (`bad-runs-on`); `runs-on` on an `ai` block (`runs-on-ai`, for now), a `person` block (`runs-on-person`), a
 daemon's block (`runs-on-daemon`) or a sensor (`runs-on-sensor`); a block whose `run:` as written, or the file of the
 model's folder its first word names, says `ERGOSTAT_CMD`, `ERGOSTAT_SOCKET` or `ergostat ` (`runs-on-calls`: a node
-cannot answer calls yet; a script that cannot be read or is over 8 MiB counts as calling); and a pool named by blocks
+cannot answer calls yet; a script in the folder that cannot be read or is over 8 MiB counts as calling; a first word
+naming a file outside the folder, by a whole path, `..` or a link out, is not read, and only the command as written
+is checked); and a pool named by blocks
 of two engine shards (`pool-across-shards`, §9.8: a pool's slots are counted in one process), said only of a model
 with no other error. The check of calls reads text: a command that reaches ergostat some other way (a program that
 opens the socket itself) is not seen.

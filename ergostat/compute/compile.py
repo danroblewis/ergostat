@@ -137,18 +137,23 @@ def table(c, m, key: str, what: str, names: re.Pattern, say: str) -> dict[str, s
 
 def calls(c, run) -> str | None:
     """What says a command calls ergostat back (``ERGOSTAT_CMD``, ``ERGOSTAT_SOCKET``, ``ergostat ...``), which no node
-    can answer yet: in the command as written, or in the file of the model's folder its first word names. A file
-    that is there and cannot be read counts as calling (it cannot be shown not to). None: neither says so."""
+    can answer yet: in the command as written, or in the file of the model's folder its first word names. A first
+    word naming a file outside the folder (an absolute path, ``..``, a link out) is not read: the command text alone
+    says. A file in the folder that cannot be read counts as calling (it cannot be shown not to). None: neither says
+    so."""
     text = str(run or "")
     if CALLS.search(text):
         return "its command"
-    f = c.doc.root / text.split()[0] if text.split() else None
+    if not text.split():
+        return None
     try:
-        if f is None or not f.is_file():
+        root = c.doc.root.resolve()
+        f = (c.doc.root / text.split()[0]).resolve()
+        if not f.is_relative_to(root) or not f.is_file():
             return None
         with f.open("rb") as h:
             body = h.read(MAX_SCRIPT + 1)
-    except OSError:
+    except (OSError, RuntimeError):                          # RuntimeError: a link loop, before Python 3.13
         return f"its script {text.split()[0]} (which cannot be read)"
     if len(body) > MAX_SCRIPT:
         return f"its script {text.split()[0]} (over {MAX_SCRIPT >> 20} MiB, so not read whole)"

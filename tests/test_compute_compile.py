@@ -209,6 +209,19 @@ def test_a_script_is_read_for_calls(tmp_path):
     assert [e.code for e in errors] == ["runs-on-calls"]                        # ergostat at the line's end
 
 
+def test_a_file_outside_the_model_folder_is_not_read_for_calls(tmp_path):
+    model, out = tmp_path / "model", tmp_path / "bin"
+    model.mkdir(), out.mkdir()
+    (out / "node").write_bytes(b"#" * (8 << 20) + b"\nexec ergostat\n")      # large, and calling: never read
+    (model / "link.sh").symlink_to(out / "node")
+    for run in (f"{out / 'node'} build.js", "../bin/node build.js", "./link.sh"):
+        s, errors, _ = runs(model, f'  build: {{type: program, run: "{run}", every: 1h, runs-on: farm}}\n')
+        assert errors == [] and s.blocks["build"].runs_on == "farm", (run, [(e.code, e.message) for e in errors])
+    (model / "go.sh").write_text("exec ergostat\n")
+    _, errors, _ = runs(model, '  build: {type: program, run: "../model/go.sh", every: 1h, runs-on: farm}\n')
+    assert [e.code for e in errors] == ["runs-on-calls"]                        # back inside the folder: read
+
+
 def test_a_pool_is_used_by_one_shard(tmp_path):
     two = ('  a: {type: program, run: "true", every: 1h, runs-on: farm, system: left}\n'
            '  b: {type: program, run: "true", every: 1h, runs-on: farm, system: right}\n')

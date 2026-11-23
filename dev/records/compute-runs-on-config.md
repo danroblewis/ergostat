@@ -102,3 +102,13 @@ definition. Choices made with no one to ask, each the more reversible one:
 - `pool-across-shards` is worked out from `shards.plan(spec)` (the default ceiling of 16 shards, the most split an
   engine makes), only for a model with no other error, since such a model is refused already. Said at the second
   block's `runs-on`.
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, gap/compute-runs-on-config-continued-continued round 2). Main (ead497d1) merged; the
+conflict in ergostat/spec/ir.py kept both main's `Block.law` and the branch's `Block.runs_on` (unset at None, so
+hashes are as on main). Round 1's finding is answered: `calls()` resolves the first word (following links) and reads
+it only when it is under the model's folder. An absolute path, a `..` out of the folder or a link out is not read,
+and only the command text is checked (SPEC §12k says so). Test:
+test_a_file_outside_the_model_folder_is_not_read_for_calls, which failed when I removed the folder check.
+Overrun reason: 95 net lines against 90; the five over are the folder check on the script read that round 1's review asked for.
