@@ -16,8 +16,10 @@ CSS = (STATIC / "dashboard.css").read_text(encoding="utf-8")
 
 
 def tools_built():
-    """The text of every dashTool(...) button dashboard.js builds."""
-    return re.findall(r'dashTool\("([^"]*)"', JS)
+    """The text of every dashTool(...) button dashboard.js builds for a panel (dashCell; a row's bar is its own)."""
+    cell = re.search(r"\nfunction dashCell\(.*?\n\}\n", JS, re.S)
+    assert cell, "no dashCell"
+    return re.findall(r'dashTool\("([^"]*)"', cell.group(0))
 
 
 def rule(selector):

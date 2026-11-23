@@ -39,13 +39,13 @@ function dashFlowExamples(k, goals) {
                queries: [{ ...dashCount(k, "a", k.working, "working"), x: { type: "query", query: "b" } },
                          { ...dashCount(k, "b", k.waiting, "waiting"), hidden: true }],
                display: { unit: "items", decimals: 0, x: { label: "waiting" } } });
-  if (!k.done.length) return out;
-  const io = { id: "a", source: "frequency", input: { ...dashArrivals(k), id: "in" }, output: { ...dashCompletions(k), id: "out" } };
-  out.push({ title: `${k.name}: arrivals to completions, Bode`, form: "bode", note: "Gain and phase by frequency", queries: [io], display: {} },
-           { title: `${k.name}: arrivals to completions, Nyquist`, form: "nyquist", note: "The same response on the complex plane", queries: [io], display: {} });
-  out.push({ title: goals[0] ? `${goals[0]}: poles and zeros` : `${k.name}: poles and zeros`, form: "pole-zero",
-             note: goals[0] ? "From the goal's declared process" : "Needs a goal that declares a process",
-             queries: [goals[0] ? { id: "a", source: "frequency", model: { goal: goals[0] } } : io], display: {} });
+  /* arrivals against completions is not an example of a response: nothing excites the arrivals, and their record seldom
+     supports one (dev/records/frequency-refuses-noise.md). The examples are a goal's declared process, when there is one */
+  if (!goals[0]) return out;
+  const model = { id: "a", source: "frequency", model: { goal: goals[0] } };
+  out.push({ title: `${goals[0]}: the declared process, Bode`, form: "bode", note: "Gain and phase by frequency, from the model", queries: [model], display: {} },
+           { title: `${goals[0]}: the declared process, Nyquist`, form: "nyquist", note: "The same response on the complex plane", queries: [model], display: {} },
+           { title: `${goals[0]}: poles and zeros`, form: "pole-zero", note: "From the goal's declared process", queries: [model], display: {} });
   return out;
 }
 /* rows of three, the last row filled */
