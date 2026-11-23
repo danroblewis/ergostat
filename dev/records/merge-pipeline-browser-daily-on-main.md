@@ -311,3 +311,15 @@ The two requests conflict and nobody can be asked, so I took the more reversible
 - Not run this round: any test. Nothing has changed since the runs recorded above for 31011fbd.
 - Refused this round: a shell heredoc append to this file chained with `git add` and `git commit`. I wrote this
   section with the file editor instead.
+
+## Where it stopped
+
+The factory's `build` step failed once more on test_an_approved_switch_drains_and_switches_through_the_engine (the
+switcher still in `e.running` after the 120 s wait; 1 failed, 194 passed, 2 skipped, 848 s), and it asked again for
+the code to be fixed. Nothing has changed since the section above. Main is still dc47a763, which is already merged in,
+and it has no commit from gap/switcher-test-within-its-deadline-under-load. `git diff main --stat` lists only this
+gap's five files. The only code fix is the drain.py change (8b0af3b2), which this branch removed because of the last
+review's blocking finding, so again I changed no code (lesson-13, lesson-7). This gap is still waiting on
+gap/switcher-test-within-its-deadline-under-load. Once that gap is on main, merge main in and run the build again. No
+tests were run this round, because nothing has changed since 31011fbd. Refused this round: a shell heredoc append to
+this file chained with `git commit -qam`. I wrote this section with the file editor instead.
