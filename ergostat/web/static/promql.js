@@ -81,6 +81,7 @@
     return Math.min(text.length, off + Math.max(0, col - 1));
   }
 
+  /* ``source()``: the data source's name now (the query may be moved to another source of the same language) */
   function make({ source, onInput, onRun }) {
     const area = h("textarea", { "data-slot": "text", rows: 3, spellcheck: "false", class: "pe-text pq-area", placeholder: HINT,
                                  autocomplete: "off", "aria-autocomplete": "list", "aria-expanded": "false" });
@@ -121,11 +122,12 @@
       list.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
     }
     function names(c) {                         // the source's names for this place, each asked once (a bounded number kept)
-      const key = JSON.stringify([c.what, c.prefix, c.metric || "", c.label || ""]);
+      const key = JSON.stringify([source(), c.what, c.prefix, c.metric || "", c.label || ""]);
       if (!kept.has(key)) {
         if (kept.size >= MOST_KEPT) kept.delete(kept.keys().next().value);
-        kept.set(key, api("query/suggest", { source, what: c.what, prefix: c.prefix, metric: c.metric || "", label: c.label || "" })
-          .catch(e => ({ suggestions: [], error: String(e?.message || e) })));
+        kept.set(key, api("query/suggest", { source: source(), what: c.what, prefix: c.prefix, metric: c.metric || "", label: c.label || "" })
+          .then(got => { if (got.error) kept.delete(key); return got; },     // (a refusal or a failure is asked again next time)
+                e => { kept.delete(key); return { suggestions: [], error: String(e?.message || e) }; }));
       }
       return kept.get(key);
     }

@@ -398,6 +398,7 @@
       for (const slot of slots) {
         seen.add(slot.key);
         let c = card.slots.get(slot.key);
+        if (c && slot.text && c.language !== slot.language) { c.el.remove(); c = null; }   // (another language: its own editor)
         if (!c) {
           c = slot.checks ? checksControl(card, slot) : slot.text ? textControl(card, slot) : selectControl(card, slot);
           card.slots.set(slot.key, c);
@@ -482,11 +483,11 @@
     function textControl(card, slot) {
       const typed = v => { card.q.text = v; errors.delete(card.q.id); changed(); };
       const run = () => { lastSig = null; clearTimeout(timer); runPreview(); };
-      const ed = window.queryEditors?.[slot.language]?.({ source: slot.source, onInput: typed, onRun: run }) || null;
+      const ed = window.queryEditors?.[slot.language]?.({ source: () => card.q.source, onInput: typed, onRun: run }) || null;
       const area = ed?.area || h("textarea", { "data-slot": slot.key, rows: 3, spellcheck: "false", class: "pe-text", oninput: () => typed(area.value) });
       area.id ||= `pe-control-${++controlIds}`;
       const el = h("div", { class: "pe-f pe-wide" }, h("label", { class: "pe-l", for: area.id }, slot.label), ed?.el || area);
-      return { el, mark: ed?.mark, sync(s) {
+      return { el, mark: ed?.mark, language: slot.language, sync(s) {
         el.querySelector("label").textContent = s.label;
         if (ed) ed.set(card.q.text ?? ""); else if (area.value !== (card.q.text ?? "")) area.value = card.q.text ?? "";
       } };

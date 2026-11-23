@@ -188,6 +188,19 @@ def test_the_owners_exploration_pattern_is_the_starting_hint_and_runs(editor, si
     assert [n for _, n in picks(pg)] == ["instance"]
 
 
+def test_a_query_moved_to_another_source_completes_from_that_source(editor):
+    pg, open_on = editor
+    area = open_on("prom")
+    pg.keyboard.type("u")
+    shows(pg, "up", "metric")                                      # (prom's names: none starts m_)
+    pg.locator('.pe-q select[data-slot="source"]').first.select_option("big")
+    area = pg.locator('.pe-q textarea[data-slot="text"]')
+    area.fill("")
+    area.click()
+    pg.keyboard.type("m_0000")
+    shows(pg, "m_00000", "metric")                                 # asked of big, the query's source now
+
+
 @pytest.mark.parametrize("source", ["big", "rude"])
 def test_autocomplete_stays_bounded_on_a_source_of_100000_series(editor, site, source):
     pg, open_on = editor
