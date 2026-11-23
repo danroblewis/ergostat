@@ -232,6 +232,8 @@ def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals
                     ignore=shutil.ignore_patterns("run", "__pycache__"))
     f = d / "ergostat.yaml"
     f.write_text(f.read_text().replace("name: the-job\n", "name: the-job\npurpose: keep my work moving\n", 1))
+    m = d / "job" / "messages.yaml"                    # one goal no controller holds: notes-reach-work, its block gone
+    m.write_text(m.read_text().split("\nblocks:\n")[0] + "\n")
     server, url = serve(Project(model.load(d)), free_port())
     try:
         with urllib.request.urlopen(url + "/api/status", timeout=30) as r:
@@ -397,6 +399,37 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_a_process_view_with_no_kinds_is_answered_empty_and_the_page_says_so_over_the_canvas(tmp_path):
+    """big has no kinds of item: its Process answer is empty, so the page takes its empty branch, whose words give the
+    reason and Dynamics, laid over the canvas (not below it). The browser half of this check, the text's box inside the
+    canvas's, is tests/test_diagram_rendering.py::test_process_view_with_no_kinds_says_so_inside_the_canvas."""
+    import re
+    import shutil
+    from pathlib import Path
+
+    from ergostat import model
+    from ergostat.store import Project
+    from ergostat.web import serve
+    root = Path(__file__).resolve().parents[1]
+    d = tmp_path / "big"
+    shutil.copytree(root / "examples" / "big", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    server, url = serve(Project(model.load(d)), free_port())
+    try:
+        def get(path):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                return r.read().decode()
+        g, js, css = json.loads(get("/api/graph?view=process")), get("/static/diagram.js"), get("/static/style.css")
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert not g["nodes"] and not g["kinds"], g                  # nothing to draw: the empty branch
+    assert "No kinds of item in ${here}: its parts are counted by sensors. See `" in js
+    assert re.search(r'go\(\{ view: "dynamics" \}\); \} \}, "Dynamics"\), "\."', js)    # where to look instead
+    rule = re.search(r"\.canvas-wrap > \.empty \{([^}]*)\}", css)
+    assert rule and all(p in rule.group(1) for p in ("position: absolute", "inset: 0", "align-items: center",
+                                                       "justify-content: center")), rule
+
+
 def test_every_page_header_links_to_the_diagrams_waiting_for_you_heading(project):
     """Each page's header carries 'N wait for you' (#waits) before its nav, a link to /diagram#waiting, and the
     Diagram's side list gives its 'Waiting for you' heading that id (the browser half: tests/test_diagram_rendering.py)."""
@@ -433,6 +466,26 @@ def test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis():
     for chart in ("causesStrip", "loopDominance", "moduleCharts", "loopScope"):
         body = re.search(rf"\nfunction {chart}\(.*?\n}}\n", charts, re.S).group(0)
         assert "working()" in body, chart
+
+
+def test_the_count_of_what_waits_sits_in_one_polite_live_region():
+    """The header's 'N wait for you' link is inside an always-present aria-live='polite' region (so a count appearing
+    from 0 is announced too), and the script writes its text through setText, which writes only a changed text. The
+    browser half (the text written only when N changes) is test_diagram_rendering's
+    test_a_changed_count_of_what_waits_is_announced."""
+    import re
+
+    from ergostat.web.server import STATIC
+    html = (STATIC / "index.html").read_text()
+    region = re.search(r'<span class="waits-said"([^>]*)>(.*?)</span>', html)
+    assert region, "the waits link has no wrapping region"
+    assert 'aria-live="polite"' in region.group(1) and 'aria-atomic="true"' in region.group(1)
+    assert re.search(r'<a id="waits"[^>]*\bhidden\b', region.group(2)), "the link, not the region, is hidden at 0"
+    util = (STATIC / "util.js").read_text()
+    assert "setText(waits, `${n} wait for you`)" in util
+    body = re.search(r"\nfunction setText\((\w+), (\w+)\) \{(.*?)\n\}", util, re.S)
+    assert body and re.search(rf"if \({body.group(1)}\.textContent !== {body.group(2)}\)", body.group(3)), \
+        "setText must write only a changed text"
 
 
 def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_files(project):
