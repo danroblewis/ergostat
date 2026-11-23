@@ -71,3 +71,48 @@ test_upkeep_record.py, test_store_conformance.py (12 skipped: VictoriaMetrics, n
 test_calls.py, test_runner_and_state.py, test_lease_end_turns.py, test_leased_workspaces.py,
 test_lease_refused_cost.py, test_streamed_output.py, test_daemon_docs.py, test_segments_item_span.py: all pass. ruff
 is clean. Local `main` has nothing the branch lacks, so no merge was needed.
+
+### Round 2
+
+532 net lines outside tests, docs and dev (budget 600). Each review finding, and what changed:
+- settle() skipped what run_block does after a run's end. Now both share one routine, `Engine.after_end`: its failure
+  triaged (`capture.failed`, or `capture.swallowed` for one that ended well, from its run log's tail and its input),
+  `said.refused` said, its claims checked (`checks.check_all`), `outcomes()`, its `review`. `adopt.after` calls it for
+  a run taken up. Its proposals are counted (`Said.tally`, shared too). A pooled workspace taken without a lease is
+  released as run_block does (`leases.run_ended`). A kept run's record (`runs/RUN.json`) now carries what these need
+  from its start: its run log's path (also put in its `agent.ran` as `log`), the item its context was given (for
+  review), and its workspace. `RUN.offset` now saves `Said.claims` and `Said.proposals`. The steps after the end are
+  marked done (`runs/RUN.settled`, removed with the run's other files), and run_block marks them too, so an engine
+  killed after them (before its lease's end) does not do them again. An engine killed between them and the mark has
+  them done again (a review asked twice) rather than not at all. Test:
+  `test_a_run_ended_while_no_engine_was_up_has_what_follows_any_run_s_end[none|after|settled|lease]`: a claim made
+  before the engine stopped is `verified` after the take-up, `review: [{by: none}]` gives one `review.skipped` of the
+  run, and `agent.ran` has `log`; a crash at `after` still has them done, one at `settled` has them twice, and one at
+  the lease's end once. It was seen to fail with claims not restored from the offset, with `after` not called, and
+  with the `settled` mark ignored.
+- Metrics a run wrote while no engine was up now keep their time. The keeper stamps the journal: every tick (0.25 s)
+  in which it grew, `size time` is appended to `runs/RUN/stamps` (at most 100,000 stamps, about 7 hours of steady
+  output; after that, lines are read at their reading). A run taken up gets each line's time from the first stamp
+  covering it (`adopt.Stamps`, never later than now; NaN, non-numbers and stamps going back are passed over), and
+  `Said` passes it as `at=` to the line's event lines, `valve.opened`, `auxiliary.set` and its reading, decisions,
+  claims, proposals and refusals. A line not stamped yet is read at its reading, as in the engine that started the
+  run. The bare number that settle takes is at the run's end time. Tests:
+  `test_lines_printed_while_no_engine_was_up_keep_the_time_they_were_printed` (the event line and the valve opening
+  printed 2 s before the take-up have their print time, within a second; a line read live has its reading's time),
+  seen to fail with no stamps passed and with `valve.opened`'s `at=` off; `test_a_stamp_that_is_not_one_is_never_taken_for_a_time`.
+  Only runs taken up use the stamps; the engine that started a run keeps its read time (the stamp comes up to a tick
+  after the read, so a live run's lines would mostly have none). SPEC 9.1 now says this, in place of "stamped with
+  the time they are read".
+
+Known limits, said here and not built: a stopped engine's stamps are only as good as the keeper's tick. The end
+steps are run under the model loaded now, not the one the run started under (the engine that started it is gone).
+A claim's id is made from its time, so a claim line read again after a crash between its event and the offset, with
+no stamp yet, gets a new id while its event is kept once (its check then finds a claim the record does not have).
+`capture.failed` and the workspace release on a run taken up have no test of their own (the steps are run_block's,
+whose tests cover them).
+
+Not run here: the unit suite and the four browser files (the factory runs them). Run one file at a time, all pass:
+test_runs_adopted.py (20), test_runs_outlive_engine.py, test_compute_keeper.py, test_claims.py, test_recipes.py,
+test_runner_and_state.py, test_repair_traces.py, test_repair_log_events.py, test_leases.py, test_lease_kill.py,
+test_leased_workspaces.py, test_streamed_output.py, test_store_conformance.py (12 skipped: VictoriaMetrics). ruff is
+clean. Local `main` has nothing the branch lacks.

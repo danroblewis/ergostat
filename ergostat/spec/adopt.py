@@ -10,12 +10,16 @@ A starting engine (``scan``) takes up each run in ``runs/`` with a keeper's fold
 While the run is alive (its pid, and that process's start time: a pid reused by another process is gone) its lease
 is kept with its fence and renewed; once it has ended it is ended from its journal and its keeper's exit as if the
 engine had been there: ``agent.ran`` (or ``agent.failed``; its id made from the run's, so written once) at the time it
-really ended (its exit file's), its costs at that time, then its lease's ack or nack."""
+really ended (its exit file's), its costs at that time, what follows any run's end (``after``: its failure triaged,
+its claims checked, its review), then its lease's ack or nack. Its lines keep when they were printed, by its keeper's
+stamps of its journal (``Stamps``)."""
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import json
+import math
 import os
 import signal
 import threading
@@ -43,14 +47,51 @@ def files(state_dir, name: str) -> dict[str, Path]:
     f = runrecord.files(state_dir, name)
     f["out"] = f["out"].with_suffix(".jsonl")
     f["offset"] = f["out"].with_suffix(".offset")
+    f["settled"] = f["out"].with_suffix(".settled")      # (its end's steps after agent.ran done: ``after_end``)
     return f
+
+
+def settled(f: dict) -> None:
+    f["settled"].touch()
+
+
+class Stamps:
+    """Its keeper's stamps (``keeper.stamp``), read as they grow: by when its journal had reached each size, so when
+    a line ending at a byte was printed (within a ``keeper.TICK``). None for a line not stamped yet: read now."""
+
+    def __init__(self, path: Path):
+        self.path, self.pos, self.sizes, self.times = path, 0, [], []
+
+    def at(self, end: int) -> float | None:
+        if not self.sizes or self.sizes[-1] < end:
+            self._read()
+        i = bisect.bisect_left(self.sizes, end)
+        return min(self.times[i], time.time()) if i < len(self.sizes) else None
+
+    def _read(self) -> None:
+        try:
+            with open(self.path, "rb") as fh:
+                fh.seek(self.pos)
+                whole = fh.read().rpartition(b"\n")[0]
+        except OSError:
+            return
+        self.pos += len(whole) + 1 if whole else 0
+        for ln in whole.split(b"\n") if whole else []:
+            try:
+                size, t = int(ln.split()[0]), float(ln.split()[1])
+            except (ValueError, IndexError):
+                continue                                 # (a line not a stamp: its lines read at their reading)
+            if math.isfinite(t) and (not self.sizes or size > self.sizes[-1] and t >= self.times[-1]):
+                self.sizes.append(size)
+                self.times.append(t)
 
 
 # ---- the saved offset: where its journal was read to, and what its lines came to by then
 
 def save(path: Path, said, usage, offset: int) -> None:
     st = {"offset": offset, "counts": said.counts, "moved": said.moved, "nack": said.nack, "bare": said.bare,
-          "json_lines": said.json_lines, "fence_why": said.fence_why, "refused": said.refused[:5], "usage": usage.parts}
+          "json_lines": said.json_lines, "fence_why": said.fence_why, "refused": said.refused[:5], "usage": usage.parts,
+          "claims": said.claims, "proposals": said.proposals}
     tmp = path.with_suffix(".offset.tmp")
     tmp.write_text(json.dumps(st, default=str))
     os.replace(tmp, path)
@@ -72,7 +113,9 @@ def load(path: Path, size: int) -> dict:
           and isinstance(st.get("moved"), dict) and all(_num(v) for v in st["moved"].values())
           and isinstance(st.get("usage"), list) and all(isinstance(x, dict) for x in st["usage"])
           and (st.get("nack") is None or isinstance(st["nack"], dict)) and (st.get("bare") is None or _num(st["bare"]))
-          and type(st.get("json_lines")) is int and isinstance(st.get("refused"), list))
+          and type(st.get("json_lines")) is int and isinstance(st.get("refused"), list)
+          and all(isinstance(st.get(k, []), list) and all(isinstance(x, dict) for x in st.get(k, []))
+                  for k in ("claims", "proposals")))
     return st if ok else {}
 
 
@@ -85,19 +128,21 @@ def restore(said, usage, st: dict) -> None:
     said.fence_why = st.get("fence_why") if isinstance(st.get("fence_why"), str) else None
     said.refused += [str(x) for x in st["refused"]]
     usage.parts += st["usage"]
+    said.claims += st.get("claims", [])
+    said.proposals += st.get("proposals", [])
 
 
-def taker(said, usage, path: Path, also=None):
+def taker(said, usage, path: Path, also=None, stamps: Stamps | None = None):
     """The ``take`` of a kept run's journal (``stream.follow`` with a start): its lines, their AI usage counted, the
     events they make given their place's ids, and the offset saved after them. ``also(lines, parts before)``: the
-    engine's own (its run log, its spend cap)."""
+    engine's own (its run log, its spend cap). ``stamps``: a run taken up's, so its lines keep when they were printed."""
     def take(got: list[str], ends: list[int]) -> None:
         n = len(usage.parts)
         pairs = [(x, end) for raw, end in zip(got, ends, strict=True) for x in costs_ai.expand(usage, [raw])]
         lines = [x for x, _ in pairs]
         if also is not None:
             also(lines, n)
-        said.lines(lines, [e for _, e in pairs])
+        said.lines(lines, [e for _, e in pairs], [stamps.at(e) for _, e in pairs] if stamps is not None else None)
         save(path, said, usage, ends[-1])
     return take
 
@@ -247,8 +292,8 @@ def _through(eng, b, begun: dict, proc: Adopted, f: dict, item, fence, key: str)
         done = eng.p.events.get(end_id(run))
         if done is None:
             if f["out"].exists():                        # (its keeper's own deadline is its timeout: SPEC §9.1)
-                left = stream.follow(proc, f["out"], None, taker(said, usage, f["offset"]), eng.stop,
-                                     start=st.get("offset", 0)) is None
+                take = taker(said, usage, f["offset"], stamps=Stamps(Path(proc.dir) / "stamps"))
+                left = stream.follow(proc, f["out"], None, take, eng.stop, start=st.get("offset", 0)) is None
             else:
                 while proc.poll() is None and not eng.stop.wait(keeper.TICK):
                     pass
@@ -258,6 +303,9 @@ def _through(eng, b, begun: dict, proc: Adopted, f: dict, item, fence, key: str)
             done = settle(eng, b, begun, said, usage, proc)
         elif not eng.p.measurements.range(f"run/{b.name}/seconds", done["time"] - 0.001, done["time"] + 0.001):
             costs_record.write_series(eng.p, b.name, done["data"], done["time"])   # (ended, its costs not yet)
+        if not f["settled"].exists():                  # (what follows its end, once; a crash before the mark has it
+            after(eng, b, begun, said, proc, done)       # again on the next start: never none)
+            settled(f)
         moved = [k for k, v in (done["data"].get("moved") or {}).items() if v]
         if item:
             note = done["data"].get("note") or ""
@@ -290,22 +338,58 @@ def settle(eng, b, begun: dict, said, usage, proc: Adopted) -> dict:
         eng.stopping_runs.discard(b.name)
     note = (f"killed: {killed}" if killed else f"stopped after its timeout of {b.timeout:g}s" if how == "timeout"
             and b.timeout else STOPPED_BY_OWNER if code and asked else f"exited {code}" if code else "")
-    if code == 0 and not note:                           # (a bare number: its events of the end's own place)
-        token = store.LINE.set([f"{run}:end", 0])
+    at = proc.ended_at() or time.time()
+    if code == 0 and not note:                           # (a bare number: its events of the end's own place and time)
+        token, said.at = store.LINE.set([f"{run}:end", 0]), at
         try:
             said.finish()
         finally:
             store.LINE.reset(token)
-    at = proc.ended_at() or time.time()
-    d0 = begun.get("data") or {}
+    said.tally()
+    d0, rec = begun.get("data") or {}, proc.rec if isinstance(proc.rec, dict) else {}
     data = {"exit": code, "seconds": round(max(0.0, at - begun["time"]), 3), "why": d0.get("trigger"), **said.counts,
+            **({"log": rec["log"]} if _log(b, rec) else {}),
             **({"item": d0["item"]} if d0.get("item") else {}), **({"note": note} if note else {}),
             **({"moved": said.moved} if said.moved else {}), "model": d0.get("model"), "taken_up": True,
             **({"ai": ai} if (ai := usage.record()) else {})}
+    ws = rec.get("workspace")
+    if isinstance(ws, dict) and isinstance(ws.get("item"), str):   # its run was its lease: released, as run_block does
+        try:                                             # (none recorded: held, till its item finishes, never freed
+            from ..workspaces import leases
+            leases.run_ended(eng.p, eng.spec, ws["item"], run, ws.get("lease"))
+        except Exception as e:
+            eng.say(f"{b.name}: workspace: {type(e).__name__}: {e}")
     failed = bool(note) and note != STOPPED_BY_OWNER
     ended = eng.p.events.add("agent.failed" if failed else "agent.ran", item=b.name, source=SOURCE, causedby=run,
                              data=data, at=at, id=end_id(run))
     costs_record.write_series(eng.p, b.name, data, at)
-    if failed:
-        eng.say(f"{b.name}: {note}")
     return {**ended, "data": data, "time": at}
+
+
+def _log(b, rec: dict) -> bool:
+    """Whether its record names a run log of its block's, as the engine that started it opened (``runlog``)."""
+    got = rec.get("log")
+    return isinstance(got, str) and got.startswith(f"logs/runs/{b.name}/") and "/" not in got[len(f"logs/runs/{b.name}/"):] \
+        and ".." not in got
+
+
+def after(eng, b, begun: dict, said, proc: Adopted, done: dict) -> None:
+    """What the engine does after a run's end (``Engine.after_end``): its failure triaged from its run log's tail and
+    its input, its claims checked, its recipes' outcomes, its review."""
+    from ..repair.capture import TAIL, clip
+    rec = proc.rec if isinstance(proc.rec, dict) else {}
+    data, tail, unread = done["data"], "", ""
+    if _log(b, rec):
+        try:
+            with open(eng.p.dir / rec["log"], "rb") as fh:
+                fh.seek(max(0, os.fstat(fh.fileno()).st_size - (TAIL + 1) * 4))
+                tail = clip(fh.read().decode("utf-8", "replace")[-(TAIL + 1):])
+        except OSError as e:
+            tail = unread = f"its run log could not be read: {type(e).__name__}: {e}"
+    try:
+        stdin = (Path(proc.dir) / "in").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        stdin = ""
+    given = {"item": rec["given"]} if isinstance(rec.get("given"), str) else None
+    eng.after_end(b, eng.spec, begun, data, said, done.get("type") == "agent.failed", given, stdin, tail, unread,
+                  logged=_log(b, rec))

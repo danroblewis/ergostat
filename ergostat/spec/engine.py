@@ -1125,7 +1125,10 @@ class Engine:
                         with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
                             proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
                                             stderr=lf, start_new_session=True)
-                    runrecord.write(files, proc.pid, begun["id"], b.name, item, fence)
+                    runrecord.write(files, proc.pid, begun["id"], b.name, item, fence, {
+                        "log": rl.rel, "given": (given or {}).get("item"),
+                        "workspace": {"item": ready.item, "lease": ready.lease} if ready.workspace else None,
+                    } if kept else None)
                 except OSError as e:
                     note = refused or f"could not start: {e}"
                     if proc is not None:                         # started, but its record not written: stopped
@@ -1203,9 +1206,7 @@ class Engine:
             note = budget.T1
         if code == 0 and not note:                              # a bare number only from a run that finished well
             said.finish()
-        if said.proposals:
-            said.counts["proposed"] = sum(1 for x in said.proposals if x["status"] != "not-proposed")
-            said.counts["not_proposed"] = sum(1 for x in said.proposals if x["status"] == "not-proposed")
+        said.tally()
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"daemon": b.params["daemon"]} if b.params.get("daemon") else {}),
                 **({"log": rl.rel} if rl else {}),
@@ -1233,12 +1234,22 @@ class Engine:
         budget.OPEN.discard(begun["id"])                          # (ended: nothing after this closes it again)
         if kept_end and item and outcome is not None:            # its files go once its lease's end is written too
             outcome["done"] = lambda: adopt.let_go(*kept_end)
-        elif kept_end:
-            adopt.let_go(*kept_end)
         try:                                                     # its numbers as series of its block (SPEC §9.1)
             costs_record.write_series(self.p, b.name, data, ended["time"])
         except Exception as e:
             self.say(f"{b.name}: its costs: {type(e).__name__}: {e}")
+        self.after_end(b, spec, begun, data, said, failed, given, stdin, tail, unread, logged=rl is not None)
+        if kept_end:                                             # (its end's steps done: not again by the next engine)
+            adopt.settled(kept_end[0])
+            if not (item and outcome is not None):
+                adopt.let_go(*kept_end)
+        return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
+
+    def after_end(self, b: Block, spec: Spec, begun: dict, data: dict, said: Said, failed: bool, given: dict | None,
+                  stdin: str, tail: str, unread: str = "", logged: bool = True) -> None:
+        """What follows a run's end, once its ``agent.ran`` or ``agent.failed`` is written: its failure triaged, its
+        claims checked, its recipes' outcomes, its review. A run taken up has the same (``adopt.settle``, SPEC §9.1)."""
+        code, note = data.get("exit"), data.get("note") or ""
         if failed:
             self.say(f"{b.name}: {note}")
             if spec.items.get("ergostat.failure"):               # triaged, one failure a signature (SPEC §12r)
@@ -1247,7 +1258,7 @@ class Engine:
                     capture.failed(self.p, spec, b, begun, data, stdin, tail)   # (its own file's, only)
                 except Exception as e:
                     self.say(f"{b.name}: its failure: {type(e).__name__}: {e}")
-        elif code == 0 and not note and rl is not None and b.type in ("program", "ai") and spec.items.get("ergostat.failure"):
+        elif code == 0 and not note and logged and b.type in ("program", "ai") and spec.items.get("ergostat.failure"):
             try:                                                 # an error it caught and printed (SPEC §12r)
                 if unread:                                       # (unread: nothing recorded, and said)
                     raise OSError(unread)
@@ -1266,7 +1277,6 @@ class Engine:
             self.outcomes()
         if not failed and b.params.get("review"):                # who reviews its work, and how deeply, by its trust
             self.review(b, begun["id"], given)
-        return [f for f, v in said.moved.items() if v]           # moving nothing is not a reason to read again
 
     def place(self, b: Block, ctx: dict, run: str, env: dict, given: dict | None, spec: Spec | None = None):
         """An ``ai`` block's folder and what its session may use (SPEC §12k): a workspace from its pool for the item it
@@ -2120,11 +2130,13 @@ class Said:
         self.fence_seen = False                  # its lease looked at for this batch of lines
         self.fence_why: str | None = None        # why its lease has ended: once it has, it stays ended
         self.fence_at: int | None = None         # the newest lease event about its item when it was last folded
+        self.at: float | None = None             # when the line being taken was printed, when known (else now)
 
-    def lines(self, raws: list[str], ends: list[int] | None = None) -> None:
+    def lines(self, raws: list[str], ends: list[int] | None = None, ats: list[float | None] | None = None) -> None:
         """A batch of its lines, as they arrived: each taken in turn, the events among them recorded by the end of it.
         One bad line never leaves the rest untaken. ``ends``: where each line ends in its journal (a kept run's, SPEC
-        §9.1): the events a line makes have ids of that place (``store.line_id``), so a line taken again adds none."""
+        §9.1): the events a line makes have ids of that place (``store.line_id``), so a line taken again adds none.
+        ``ats``: when each was printed (its keeper's stamps, a run taken up): its events and readings at that time."""
         self.fence_seen = False
         seed = [None, 0]
         token = store.LINE.set(seed) if ends is not None else None
@@ -2132,6 +2144,8 @@ class Said:
             for i, raw in enumerate(raws):
                 if ends is not None and seed[0] != f"{self.run_id}:{ends[i]}":
                     seed[:] = [f"{self.run_id}:{ends[i]}", 0]
+                if ats is not None:
+                    self.at = ats[i]
                 try:
                     self.line(raw)
                 except Exception as err:
@@ -2156,7 +2170,8 @@ class Said:
             for r in rows:
                 try:
                     self.e.p.events.add(r["type"], item=r.get("item"), source=r["source"], causedby=r["causedby"],
-                                        data=r.get("data"), patch=r.get("patch"), set=r.get("set"), id=r.get("id"))
+                                        data=r.get("data"), patch=r.get("patch"), set=r.get("set"), id=r.get("id"),
+                                        at=r.get("at"))
                 except ChangesetError as err:
                     self.counts["events"] -= 1
                     self.refuse({k: r.get(k) for k in ("type", "item")}, str(err))
@@ -2166,7 +2181,7 @@ class Said:
         self.counts["refused"] += 1
         self.refused.append(why)
         self.e.p.events.add("agent.refused", item=self.b.name, source=SOURCE, causedby=self.run_id,
-                            data={"line": line, "why": why})
+                            data={"line": line, "why": why}, at=self.at)
 
     def line(self, raw: str) -> None:
         raw = raw.strip()
@@ -2225,6 +2240,12 @@ class Said:
         if self.bare is not None and not self.json_lines:
             self.take({"value": self.bare}, bare=True)
 
+    def tally(self) -> None:
+        """Its proposals, counted for its end: those proposed, and those not."""
+        if self.proposals:
+            self.counts["proposed"] = sum(1 for x in self.proposals if x.get("status") != "not-proposed")
+            self.counts["not_proposed"] = sum(1 for x in self.proposals if x.get("status") == "not-proposed")
+
     def target(self, obj: dict) -> Ref | None:
         outs = self.b.targets()
         name = obj.get("out")
@@ -2249,14 +2270,14 @@ class Said:
         if "decision" in obj:
             served = sorted(self.e.served(self.b) | {r.name for r in self.b.reads() if r.kind == "goal"}) or [self.b.name]
             for g in served:
-                ev.add("controller.decided", item=g, source=self.b.name, causedby=self.run_id,
+                ev.add("controller.decided", item=g, source=self.b.name, causedby=self.run_id, at=self.at,
                        data={"decision": str(obj["decision"]), **({"why": str(obj["why"])} if "why" in obj else {})})
             self.counts["decisions"] += 1
             return
         if "propose" in obj:                          # a change to the model, from any block: validated, then queued
             from ..numbers import improve
             try:
-                got = improve.submit(self.e.p, self.b.name, obj["propose"], run=self.run_id)
+                got = improve.submit(self.e.p, self.b.name, obj["propose"], run=self.run_id, at=self.at)
             except Exception as err:                  # a proposal that cannot even be judged is the block's to read
                 got = {"status": "not-proposed", "why": f"{type(err).__name__}: {err}", "title": ""}
             self.proposals.append(got)
@@ -2269,7 +2290,7 @@ class Said:
             from ..claims import record
             try:
                 self.claims.append(record.made(self.e.p, self.spec, self.b.name, obj["claim"], run=self.run_id,
-                                               n=len(self.claims)))
+                                               n=len(self.claims), at=self.at))
             except record.ClaimError as err:
                 self.refuse(obj, str(err))
                 return
@@ -2345,7 +2366,8 @@ class Said:
                 self.refuse(obj, str(err))
                 return
             self.pending.append({"type": t, "item": obj.get("item"), "source": self.b.name, "causedby": self.run_id,
-                                 "data": data, "id": store.line_id(), **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None}})
+                                 "data": data, "id": store.line_id(), "at": self.at,
+                                 **{k: obj[k] for k in ("patch", "set") if obj.get(k) is not None}})
             self.counts["events"] += 1
             return
         r = self.target(obj)
@@ -2373,7 +2395,7 @@ class Said:
             self.moved[r.name] = self.moved.get(r.name, 0.0) + amount
             if amount:
                 ev.add("valve.opened", item=valve_name(self.spec, self.b.name, r.name), source=self.b.name,
-                       causedby=self.run_id, data={"amount": amount, "flow": r.name,
+                       causedby=self.run_id, at=self.at, data={"amount": amount, "flow": r.name,
                                                    **({"note": obj["note"]} if "note" in obj else {})})
                 self.counts["openings"] += 1
         elif r.kind == "block":
@@ -2390,8 +2412,9 @@ class Said:
             self.e.touch(goals=(r.name,))
             self.counts["commands"] += 1
         elif r.kind == "auxiliary":                         # its value, stated whole: what it was set to is its reading
-            self.e.p.measurements.add(f"sensor/{r.name}.set", amount)
-            ev.add("auxiliary.set", item=r.name, source=self.b.name, causedby=self.run_id, data={"value": amount})
+            self.e.p.measurements.add(f"sensor/{r.name}.set", amount, at=self.at)
+            ev.add("auxiliary.set", item=r.name, source=self.b.name, causedby=self.run_id, data={"value": amount},
+                   at=self.at)
             self.counts["commands"] += 1
 
 

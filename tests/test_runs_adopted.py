@@ -90,10 +90,11 @@ def wait_for(cond, seconds=20.0):
     return cond()
 
 
-def project(tmp_path) -> Project:
-    (tmp_path / "work.py").write_text(textwrap.dedent(WORK))
+def project(tmp_path, first: str = "", block: str = "") -> Project:
+    """``first``: a line the run prints before all else; ``block``: more of the worker block's YAML."""
+    (tmp_path / "work.py").write_text(textwrap.dedent(WORK).replace("say({", first + "say({", 1))
     run = json.dumps(f"{PY} work.py {shlex.quote(str(tmp_path / 'go'))}")
-    (tmp_path / "ergostat.yaml").write_text(MODEL.replace("RUN", run))
+    (tmp_path / "ergostat.yaml").write_text(MODEL.replace("RUN", run) + block)
     p = Project(mdl.load(tmp_path))
     p.events.add("ticket.opened", item="ticket/1", source="t")
     return p
@@ -403,6 +404,81 @@ def test_a_journal_line_s_events_are_kept_once_in_either_record(tmp_path, backen
             store.LINE.reset(token)
     ev.add("thing.said", source="w")
     assert sorted(e["type"] for e in ev.query(n=None)) == ["thing.also", "thing.said", "thing.said"]
+
+
+CLAIMED = 'say({"claim": {"says": "the command succeeded", "check": "exit"}})\n'
+REVIEWED = "    review:\n      - by: none\n"
+
+
+AFTER = {"after": (adopt, "after"), "settled": (adopt, "settled"), "lease": (dispatch_mod.Dispatcher, "finish")}
+
+
+@pytest.mark.parametrize("crash", ["none", *sorted(AFTER)])
+def test_a_run_ended_while_no_engine_was_up_has_what_follows_any_run_s_end(tmp_path, keepers, monkeypatch, crash):
+    """Ended as if the engine had been there: the claim it made before its engine stopped (kept in its offset) is
+    checked, its block's review: decides (``review.skipped`` here), its agent.ran names its run log. An engine killed
+    before those steps, or after them and before they were marked done, leaves them to the next: never none; killed
+    once they were marked (before its lease's end), the next does not do them again."""
+    from ergostat.claims import record
+    p = project(tmp_path, CLAIMED, REVIEWED)
+    keepers(p)
+    _, run = left_by_a_stop(p, tmp_path)
+    assert [c["state"] for c in record.of_run(p, run)] == ["made"]
+    go(tmp_path, 1, 2)
+    assert wait_for(lambda: keeper.ended(str(runs_dir(p) / run)) is not None)
+    if crash != "none":
+        owner, name = AFTER[crash]
+        real = getattr(owner, name)
+
+        def boom(*a, **k):
+            raise RuntimeError(f"killed at {crash}")
+        monkeypatch.setattr(owner, name, boom)
+        _, threads = take_up(p)
+        joined(threads)
+        monkeypatch.setattr(owner, name, real)
+        assert len(ends(p)) == 1 and not lease_ends(p), "its lease ended before what follows its end was done"
+    _, threads = take_up(p)
+    joined(threads)
+    end = ended_once(p, run)
+    assert end["data"]["claims"] == 1 and end["data"]["log"].startswith("logs/runs/worker/")
+    assert [c["state"] for c in record.of_run(p, run)] == ["verified"], "its claim was never checked"
+    skipped = p.events.query(n=None, type="review.skipped", item="worker")
+    assert [x["data"]["of"] for x in skipped] == [run] * (2 if crash == "settled" else 1), skipped
+
+
+def test_lines_printed_while_no_engine_was_up_keep_the_time_they_were_printed(tmp_path, keepers):
+    """Its keeper stamps the journal as it grows: a line printed during the outage has its events (a valve opening,
+    an event line) at the time it was printed, not when the next engine read it; a line read live, at its reading."""
+    p = project(tmp_path)
+    keepers(p)
+    _, run = left_by_a_stop(p, tmp_path)
+    t1 = time.time()
+    go(tmp_path, 1)
+    time.sleep(2.0)                                      # (the outage goes on after it printed)
+    t0 = time.time()
+    _, threads = take_up(p)
+    assert wait_for(lambda: noted(p) == [1, 2]), "the line printed during the outage never taken"
+    n2 = [x for x in p.events.query(n=None, type="ticket.noted") if x["data"]["n"] == 2][0]
+    opened = p.events.query(n=None, type="valve.opened")
+    assert t1 <= n2["time"] <= t1 + 1.0 < t0 and len(opened) == 1 and t1 <= opened[0]["time"] <= t1 + 1.0, \
+        (t1, n2["time"], [x["time"] for x in opened], t0)
+    t2 = time.time()
+    go(tmp_path, 2)
+    joined(threads)
+    ended_once(p, run)
+    n3 = [x for x in p.events.query(n=None, type="ticket.noted") if x["data"]["n"] == 3][0]
+    assert t2 <= n3["time"] <= time.time()
+
+
+def test_a_stamp_that_is_not_one_is_never_taken_for_a_time(tmp_path):
+    """Stamps not a size and a finite time, or going back, are passed over: a line they would cover is read now."""
+    f = tmp_path / "stamps"
+    f.write_text("10 100.0\n20 nan\nnot one\n15 300.0\n30 50.0\n12 350.0\n40 400.0\n50 500")
+    s = adopt.Stamps(f)
+    assert [s.at(e) for e in (5, 10, 11, 35, 40, 45)] == [100.0, 100.0, 300.0, 400.0, 400.0, None]
+    with f.open("a") as fh:
+        fh.write(".0\n")                                 # (the half stamp now whole)
+    assert s.at(45) == 500.0
 
 
 @pytest.mark.slow

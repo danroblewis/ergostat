@@ -70,9 +70,11 @@ def start_time(pid: int) -> str | None:
     return out.stdout.strip() or None
 
 
-def write(f: dict[str, Path], pid: int, run_id: str, block: str, item: str | None, fence: int | None) -> dict:
+def write(f: dict[str, Path], pid: int, run_id: str, block: str, item: str | None, fence: int | None,
+          more: dict | None = None) -> dict:
+    """``more``: what a kept run's end needs from its start, should another engine end it (``adopt.settle``)."""
     rec = {"pid": pid, "start": start_time(pid), "run": run_id, "block": block,
-           "lease": {"item": item, "fence": fence} if item else None}
+           "lease": {"item": item, "fence": fence} if item else None, **(more or {})}
     tmp = f["json"].with_suffix(".json.tmp")
     tmp.write_text(json.dumps(rec))
     os.replace(tmp, f["json"])

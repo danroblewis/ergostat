@@ -2790,7 +2790,7 @@ sample). Its exit code is the wrapper's, as above.
   `agent.ran` later carries its real cost; the day is charged the larger, never less than it spent.
 - **Runs taken up again** (`ergostat/spec/adopt.py`). As it reads a kept run's journal, the engine saves, after each
   batch of lines, where it has read to and what the lines came to by then (`runs/RUN.offset`: the counts, what it
-  moved, its nack, its AI usage), written whole or not at all, after the batch's events. Each event a journal line
+  moved, its nack, its AI usage, its claims and proposals), written whole or not at all, after the batch's events. Each event a journal line
   makes has an id made of the run, the line's place in the journal and its count within the line, and the record
   keeps an id once; so a line read again after a crash between its events and the saved offset adds no event, and
   every event line, valve opening, decision and refusal is in the record exactly once. (What a line does outside the
@@ -2811,14 +2811,26 @@ sample). Its exit code is the wrapper's, as above.
   - **Ended while no engine was up** (its keeper's exit written; or its process gone with none written for 3 s,
     read as killed, -9): its journal is read from its saved offset to the end, then it is ended as if the engine had
     been there: `agent.ran` (`agent.failed` with its note), at the time its keeper wrote its exit, with `taken_up:
-    true` and its id made from the run's (written once, whichever engine writes it); its run's series at that time;
-    then its lease's ack or nack (section 9.5), not counted against it when it moved the item on. Its journal, record
-    and offset are removed only after that, and its keeper let go, so a crash at any step leaves it to be ended by
-    the next start, each of these recorded once. The same order holds for a kept run its own engine reads to its end.
+    true` and its id made from the run's (written once, whichever engine writes it); its pooled workspace taken
+    without a lease released; its run's series at that time; then what follows any run's end (the engine's
+    `after_end`): its failure triaged from its run log's tail (section 12r: `capture.failed`, or `capture.swallowed`
+    for one that ended well), its claims checked (section 12g), its recipes' outcomes, its review (section 12j,
+    `review.required` or `review.skipped`); then its lease's ack or nack (section 9.5), not counted against it when
+    it moved the item on. Its run record carries what these need from its start (its run log, the item its context
+    was given, its workspace). Its journal, record and offset are removed only after that, and its keeper let go, so
+    a crash at any step leaves it to be ended by the next start, each of the record's events written once; the steps
+    after the end are marked done (`runs/RUN.settled`) once they are, so a crash between them and the mark has them
+    again (a review asked twice), never not at all. The same order holds for a kept run its own engine reads to its
+    end.
   - **Its lease taken over** while no engine was up (it expired, and the item was leased again: a newer fence): its
     lines about the item are refused (fencing, as a late run's are), its lease is neither renewed nor ended by it.
-  Lines read from a journal take effect when they are read: their events are stamped with that time, not when the
-  run printed them; what the run's end writes (its `agent.ran` and series) has the time it ended, and readings a run
+  **When its lines were printed.** Its keeper stamps the journal: each tick (0.25 s) it grew, its size and the time
+  are appended to `runs/RUN/stamps` (at most 100,000 stamps). A run taken up has each line's events, valve
+  openings, `auxiliary` readings, decisions, claims, proposals and refusals at the time of the first stamp that
+  covers the line (within a tick after it was printed, never later than now), so what it did while no engine was up
+  stays in the period it happened. A line not stamped yet (still being written, past the stamps' limit, or a stamp
+  not readable) takes effect when it is read, as a kept run's lines do in the engine that started it. What the run's
+  end writes (its `agent.ran` and series) has the time it ended, and readings a run
   records itself (`ergostat sensor STOCK.SENSOR --read V`, a manual sensor's) go to the store as it makes them, engine or none. What a run taken up
   printed that is not JSON is not added to its run log (its errors still are: its keeper holds that file).
 - **What still stops it**, the whole process group each time, through its group's id (the run's own pid). While
