@@ -1,0 +1,15 @@
+# A person's own to-dos (use: todo): each with its instructions and where it must be done, grouped into one batch a
+# place, so a bastion's or a VPN's work is done in one sitting. The to-dos are read from todos.jsonl (one JSON object
+# a line); add one there, or record it in one step: ergostat event --add todo.ready --item todo/ID --data '{...}'.
+name: todo-list
+systems:
+  mine:
+    description: what I must do by hand, and for whom
+uses:
+  todo:
+    use: todo
+    within: mine
+    with:
+      command: cat todos.jsonl
+      poll: 10s
+      regroup: 10s

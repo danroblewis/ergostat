@@ -280,6 +280,52 @@ def _edges(project, causedby, sensor) -> list[dict]:
     return out
 
 
+def _first_words(cmd: str) -> list[tuple[int, int]]:
+    """The spans of the shell words of ``cmd``'s first simple command: up to its first unquoted ``|``, ``&``, ``;``,
+    ``(``, ``)``, backquote or line end (a quote, a backslash and ``$(…)`` keep what they hold inside the word). Blank
+    lines before it are skipped, as the shell skips them."""
+    words, i, n = [], len(cmd) - len(cmd.lstrip()), len(cmd)
+    while i < n and cmd[i] not in "|&;()`\n":
+        if cmd[i].isspace():
+            i += 1
+            continue
+        start, quote, depth = i, None, 0
+        while i < n and (quote or depth or not (cmd[i].isspace() or cmd[i] in "|&;()`\n")):
+            c = cmd[i]
+            if c == "\\" and quote != "'":
+                i += 1
+            elif quote:
+                quote = None if c == quote else quote
+            elif c in "'\"":
+                quote = c
+            elif c == "$" and cmd[i + 1:i + 2] == "(":
+                depth, i = depth + 1, i + 1
+            elif c == ")":
+                depth -= 1
+            i += 1
+        words.append((start, min(i, n)))
+    return words
+
+
+def capped(cmd: str, usd) -> str:
+    """``cmd``, whose first word is ``claude``, with ``--max-budget-usd usd`` right after that word and the flag's own
+    words in that claude call removed, so the cap reaches the claude call however the shell line goes on (``| jq``,
+    ``&& git``, ``;``, more lines) and nothing after it is given the flag."""
+    words, drops, skip = _first_words(cmd), [], False
+    if not words:
+        return cmd
+    for k, (s, e) in enumerate(words[1:], 1):
+        word = cmd[s:e]
+        flag = not skip and (word == "--max-budget-usd" or word.startswith("--max-budget-usd="))
+        if skip or flag:
+            drops.append((words[k - 1][1], e))          # the word with the space before it
+        skip = flag and word == "--max-budget-usd"      # its value is the next word
+    out, at = cmd[:words[0][1]] + f" --max-budget-usd {usd}", words[0][1]
+    for a, b in drops:
+        out, at = out + cmd[at:a], b
+    return out + cmd[at:]
+
+
 def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule", version: str | None = None) -> dict:
     """One run: start the command, feed it its context, record its lines, and record the run. ``version``: the
     model it starts under (recorded on the run; it finishes under that agent's definition whatever changes)."""
@@ -287,7 +333,7 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
         from .history import version as model_version
         version = model_version(project.model)
     from .costs import budget
-    started, run_id, spec = time.time(), uuid.uuid4().hex, budget.of(project.model)
+    started, run_id, spec, cmd = time.time(), uuid.uuid4().hex, budget.of(project.model), agent.command
 
     def write(more: dict | None = None) -> dict:
         return project.events.add("agent.started", item=agent.name, source=SOURCE, id=run_id,
@@ -296,12 +342,16 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
     if spec is None or spec.budget is None:
         begun = write()
     else:                                       # the permissive (SPEC §9.9): the agent's declared kind, none charged
-        begun, no = budget.permit(project, spec, SimpleNamespace(name=agent.name, agent=agent.name, type=None),
-                                  write, run_id)
+        blk = SimpleNamespace(name=agent.name, agent=agent.name, type=None)
+        begun, no = budget.permit(project, spec, blk, write, run_id)
         if begun is None:
             return {"budget": no, "note": f"refused: budget: {no}"}
-    try:
-        return _ran(project, agent, trigger, why, version, started, begun)
+    try:                                        # from the reserving start on, a raise is closed at its reserve
+        if spec is not None and spec.budget is not None:
+            from .costs import ai as costs_ai
+            if costs_ai.is_claude(cmd):         # T1: its reserve as its cap, ours replacing any in the command
+                cmd = capped(cmd, budget.reserve_of(spec, blk))
+        return _ran(project, agent, trigger, why, version, started, begun, cmd)
     except BaseException:
         if begun["id"] in budget.OPEN:          # raised before its end: its reserve stays charged
             with contextlib.suppress(Exception):
@@ -311,7 +361,7 @@ def run_agent(project, agent, trigger: dict | None = None, why: str = "schedule"
         budget.OPEN.discard(begun["id"])
 
 
-def _ran(project, agent, trigger, why, version, started, begun) -> dict:
+def _ran(project, agent, trigger, why, version, started, begun, cmd) -> dict:
     """The run, once its ``agent.started`` is written: to its end."""
     rec = Recorder(project, agent, begun["id"])
     log = log_path(project, agent.name)
@@ -325,7 +375,7 @@ def _ran(project, agent, trigger, why, version, started, begun) -> dict:
                  f"({trigger['type'] if trigger else why})\n")
         lf.flush()
         try:
-            p = subprocess.Popen(agent.command, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,
+            p = subprocess.Popen(cmd, shell=True, cwd=project.repo, env=env, stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE, stderr=lf, text=True, start_new_session=True)
             LIVE.add(p)
         except OSError as e:
