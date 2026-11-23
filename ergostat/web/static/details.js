@@ -20,11 +20,12 @@ function showDetail(...kids) {
   const defs = kids.filter((k) => k.nodeType && k.matches?.("details.what")), rest = kids.filter((k) => !defs.includes(k));
   const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: shutDetail }, "\u00d7");
   const head = rest[0]?.classList?.contains("kind") ? h("div", { class: "head" }, rest.shift(), close) : h("div", { class: "head" }, h("span"), close);
+  const inside = !d.hidden && d.contains(document.activeElement);   // (filled in again as its numbers come: kept in it)
   d.replaceChildren(head, ...rest, ...defs);
   d.hidden = false;
   d.scrollTop = 0;
   if (typeof panelNote === "function") panelNote(d);   // where the other view draws what is chosen (interact.js)
-  const hd = S.keyHead && d.querySelector("h2, h3");    // opened by keyboard: the focus to its heading (keys.js)
+  const hd = (S.keyHead || inside) &&d.querySelector("h2, h3");    // opened by keyboard: the focus to its heading (keys.js)
   if (hd) { S.keyHead = null; hd.tabIndex = -1; hd.focus(); }
 }
 /* a panel being opened: its kind and title, and "Loading…", at once, until what it says has been read */

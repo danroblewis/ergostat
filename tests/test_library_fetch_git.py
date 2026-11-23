@@ -59,14 +59,20 @@ def test_fetch_writes_lock(tmp_path):
     assert entry == {**src, "commit": commit, "tree": fetch.tree.digest(root / ".libraries/lib")}
     assert fetch.fetch(root, {"lib": src}) == {"lib": "kept"}
     assert _tmps(root) == []
-    # the tag moved upstream: a re-fetch of the missing copy is refused, the copy and lock untouched
+    # the tag moved upstream: a re-fetch of the missing copy fetches the locked commit, the lock untouched
     _commit(up, {"t/one.yaml": "a: 2\n"})
     _git(up, "tag", "-f", "v1")
     shutil.rmtree(root / ".libraries/lib")
+    assert fetch.fetch(root, {"lib": src}) == {"lib": "fetched"}
+    assert (root / ".libraries/lib/one.yaml").read_text() == "a: 1\n" and _lock(root)["lib"] == entry
+    # a locked commit whose tree is not the lock's is refused, the copy and lock untouched
+    shutil.rmtree(root / ".libraries/lib")
+    bad = {**entry, "tree": "sha256:" + "0" * 64}
+    (root / "libraries.lock").write_text(json.dumps({"lib": bad}))
     with pytest.raises(fetch.FetchError) as e:
         fetch.fetch(root, {"lib": src})
     assert e.value.code == "lock-mismatch"
-    assert not (root / ".libraries/lib").exists() and _lock(root)["lib"] == entry and _tmps(root) == []
+    assert not (root / ".libraries/lib").exists() and _lock(root)["lib"] == bad and _tmps(root) == []
     # a locked commit that is not hex never reaches git; an unreadable lock stops the fetch
     (root / "libraries.lock").write_text(json.dumps({"lib": {**entry, "commit": "--upload-pack=touch /tmp/x"}}))
     with pytest.raises(fetch.FetchError) as e:

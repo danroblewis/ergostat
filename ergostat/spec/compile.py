@@ -65,8 +65,8 @@ from .ir import (
 from .load import SINGULAR, Document, Map, Problem, Where
 
 COMMON = {"system", "description"}
-SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "every", "cron", "timeout", "parse", "unit",
-               "description", "averages", "runs-on"}
+SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "journal", "push", "every", "cron", "timeout", "parse",
+               "unit", "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
@@ -498,10 +498,19 @@ class Compiler:
             if "runs-on" in s:                                # a sensor runs here, beside what reads it (§12k)
                 self.err(f"{sw}.runs-on: a sensor runs here; only a program block runs on a pool", s.at("runs-on"),
                          "runs-on-sensor")
-            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon") if s.get(k) not in (None, False)]
+            kinds = [k for k in ("run", "query", "manual", "items", "changes", "builtin", "daemon", "journal")
+                     if s.get(k) not in (None, False)]
             if len(kinds) != 1:
-                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin: or daemon: (it has "
-                         f"{', '.join(kinds) or 'none'})", s.where, "sensor-kind")
+                self.err(f"{sw}: exactly one of run:, query:, manual:, items:, changes:, builtin:, daemon: or journal: "
+                         f"(it has {', '.join(kinds) or 'none'})", s.where, "sensor-kind")
+            journal = s.get("journal")
+            if journal is not None:                    # a folder inside the model's root (SPEC §6)
+                root = Path(self.doc.root).resolve()
+                if not isinstance(journal, str) or not journal.strip() or Path(journal).is_absolute() or \
+                        not (root / journal).resolve().is_relative_to(root):
+                    self.err(f"{sw}.journal: a folder inside the model's folder, written relative to it (journals/), "
+                             f"not {str(journal)[:80]!r}", s.at("journal"), "bad-journal")
+                    journal = None
             measure = None
             if s.get("builtin") is not None:
                 measure = str(s["builtin"])
@@ -562,7 +571,7 @@ class Compiler:
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
                                     description=self.text(s, "description"), where=s.where,
-                                    daemon=s.get("daemon"), push=s.get("push") is True,
+                                    daemon=s.get("daemon"), push=s.get("push") is True, journal=journal,
                                     run_in=runs.OWNER if measure else runs.verdict(self.doc.uses, s.where, of, str(name)))
         return out
 

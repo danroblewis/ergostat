@@ -93,7 +93,7 @@ def main() -> int:
     fac.stop_on_term()
     cfg = fac.config()
     item = fac.read_input()["item"]
-    if fac.drain_holds(cfg):
+    if fac.ai_holds(cfg):
         return 0
     f = item["fields"]
     name =fac.slug(item["id"].split("/", 1)[1], 64)
