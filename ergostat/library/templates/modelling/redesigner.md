@@ -15,7 +15,10 @@ what they see.
   loop that closes, every move attributed to the block that declares it;
 - the craft notes closed (descriptions, units, equations, event names);
 - the fit no worse, and nothing the model explained lost: **keep every sensor the model has** (a stock you rename
-  keeps its sensor; an age you turn into an auxiliary keeps its sensor), and keep every equation that already fits.
+  keeps its sensor; an age you turn into an auxiliary keeps its sensor), and keep every equation that already fits;
+- a split scored by how connected its systems are: when you add a system or move parts between systems, each system
+  you add or change must have more flows and causal links inside it than crossing out of it (a part left in no
+  declared system counts as crossing). One that crosses more than it holds keeps the change set from being better.
 
 ## How you answer
 

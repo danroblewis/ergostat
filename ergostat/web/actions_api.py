@@ -7,11 +7,13 @@ from __future__ import annotations
 from ..webaccess import who
 
 KEEP = ("id", "state", "action", "class", "gate", "args", "command", "in", "item", "branch", "block", "session", "time",
-        "approved_by", "denied_by", "note", "exit", "output", "deliveries")
+        "approved_by", "denied_by", "note", "exit", "output", "deliveries", "moves")
 
 
-def listing(p, item: str | None = None) -> dict:
+def listing(p, item: str | None = None, classes: bool = False) -> dict:
     from ..actions import record
+    if classes:                                   # the Items page's line per class: asked, approved, denied, held
+        return {"asked": record.asked(p, getattr(p.model, "spec", None))}
     got = record.about(p, item) if item else sorted(record.stored(p).values(), key=lambda a: -a["time"])
     return {"actions": [{**{k: a.get(k) for k in KEEP}, **record.who(a, a.get("state"))} for a in got[:100]], "classes": record.by_class(p),
             "counts": record.counts(p)}

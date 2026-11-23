@@ -565,6 +565,8 @@ class Sensor:
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
     untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
+    run_in: str | None = None   # "owner" only when compile proved its run the owner's or ergostat's; else (None too)
+    #                             it runs in ergostat.sandbox (library/runs.py)
 
     @property
     def window(self) -> float:
@@ -723,6 +725,14 @@ class Goal:
 
 
 @dataclass
+class KnownLaw:
+    """An external block's declared law, from the catalogue of known laws (control/laws.py, SPEC §12d): its kind and
+    its parameters as checked (numbers as floats, durations in seconds), each one the catalogue names, defaults filled."""
+    kind: str
+    params: dict
+
+
+@dataclass
 class Block:
     name: str
     type: str
@@ -749,6 +759,10 @@ class Block:
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
     untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
+    law: KnownLaw | None = None  # an external block's declared law (``law: {kind: ...}``); None when it declares none
+    # ``runs-on: POOL``: the compute pool its runs are for (SPEC §12k); None: here. Left out of its plain form while None,
+    # so a model that names no pool hashes as it did before the key existed (numbers/version._plain).
+    runs_on: str | None = field(default=None, metadata={"unset": None})
 
     @property
     def builtin(self) -> bool:
@@ -862,6 +876,7 @@ class Takes:
     unblocked: bool = False         # only items whose predecessors are all finished, the critical first (SPEC §5a, relations)
     order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
                                                      # without one after those with it; the order above among equals
+    healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
 
 
 @dataclass
@@ -999,6 +1014,7 @@ class Spec:
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
+    outlive_engine: bool = False            # runs: outlive_engine: a run kept by its keeper, never stopped with us (§9.1)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept
