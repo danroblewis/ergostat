@@ -260,3 +260,32 @@ for it here.
   ergostat, tests and scripts.
 - Refused in this session: `git checkout -- tests/test_factory.py` (the timing was taken out by hand instead), and
   running a short Python script through bash.
+
+## Where it stopped
+
+Built, in round 3 of the second continuation: main (ee43cf60) merged in (03e3eb81). The four conflicts were resolved,
+keeping both sides. Nothing new was built.
+
+- `dev/bin/fac.py`, `fac.items`: main fixed the same slowness another way. When one listing holds every item, it
+  returns that listing. Both are kept: main's single listing is tried first, and only past the cap is each state
+  listed, skipping the states the kind's line counts 0 (the branch's d8aac05e).
+- `tests/test_fac_items.py`: both tests are kept. The branch's `test_a_state_counted_empty_is_not_listed` now sets
+  `cap=2`, so it goes past one listing and still tests the skip. Its all-empty case is one listing.
+- `dev/bin/queue.py`: main added `except Exception` (an outage) and `batches.settled(...)` after land(). The
+  branch's `gaps_md(...)` now runs after the outage handler and before `batches.settled`, so the batch is recorded
+  as settled with `merged` set to the render commit (the same head as main_sha and the push).
+- `dev/records/ergostat-s-own-ai-calls-under.md`: main's definition comes first, and the Entry comes last. The Entry
+  is main's GAPS.md text, under *Done recently*, where main moved it (main removed the Runtime entry). Its `@entry`
+  slot in `dev/records/GAPS-head.md` moved to the top of *Done recently* to match. Checked once with a scratch test
+  (deleted, never committed). The records' render shows that entry exactly as main's GAPS.md does, and its only
+  problem is the known benign one, *External event logs*. Other entries main edited since the split differ from
+  the records. As designed, the first landing carries them: there is no GAPS-head.md at `pre`.
+- Tests run (`scripts/named_tests.py`): tests/test_fac_items.py, tests/test_gapsdoc.py and tests/test_queue.py, 60
+  passed. tests/test_queue_halves.py and tests/test_gaps_doc.py, together with the landing test, 65 passed. The other
+  four gap tests in tests/test_factory.py passed. The switcher test and tests/test_backlog.py passed, 22 with the
+  definition test. ruff is clean on ergostat, tests and scripts. Not run here: the whole unit suite and the browser
+  files.
+- Refused in this session: running a short Python script through bash (`python3 - <<'EOF' ...`), and a bash
+  heredoc append to this file. Both were done with Edit instead.
+
+Overrun reason: dev/bin is about 219 net lines against 130, unchanged by this merge. The reasons are the ones given in the earlier rounds.
