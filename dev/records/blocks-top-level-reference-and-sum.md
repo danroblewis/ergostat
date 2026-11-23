@@ -14,3 +14,55 @@ Acceptance tests: unit: a two-system spec yields junction, r, e, u, y and an H r
 Budget: 160 net lines.
 
 Milestone: r4-blocks-textbook. Owner items: R4 piece 4. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. 84 net lines outside tests and docs (blockdiagram.py 81, correspond.py 2, blocks.js 1), within the
+160 budget.
+
+- `fold()` calls `_top_loops(d, cls, boxes, edges, out, groups)` over `_coupled(boxes, edges)`, the (C box, P box)
+  pairs joined by a u wire. `_top_loop` draws one pair: `ref:top:P` (r_P, bold with the goals beneath it when there
+  are several), `sum:top:P` (+ r on the west, − y_m on the south), e into C, the existing u wire, y out to `out:top:P`
+  and to `h:top:P` (a sensor block, so it lies on the return), y_m into the junction, and `dist:top:P` (d_P) into P's
+  north side when P has disturbance ports. The P→C y wire is replaced by the return. A C box's input port becomes e,
+  carrying the measured keys C reads. A bundled vector leaving a C is now named u_C, not y_C. A collector's record
+  crossing between systems, which had no symbol, is labelled y_collector (ticket-factory's only unlabelled wire).
+- correspond.py: each `*:top:*` node is a region standing for the parts of the signals it carries. Without this it
+  read `sum:top:product` as a goal named `top:product`. tests/test_correspond.py gains the rule for these shapes.
+- blocks.js: a vector input's width makes room for its goals written beneath it. A comparator over several loops does
+  not write the first loop's error state after its e.
+- SPEC §4a says the loop.
+
+Choices made alone, the most reversible:
+- r is every goal inside P whose loop has a controller or actuator inside C and none inside P. This approximates the
+  proposal's "C's u reaches it", read from `spec.loop`, not from a causal walk.
+- The loop is drawn only when both systems are closed boxes at the same level. Opening either one gives the existing
+  wires, so the frame's ports carry the same keys as the top-level wires (done item 3, pinned by key sets).
+- e and y_m are drawn bare, without the `_product` subscript, as the textbooks write them beside their Σ. With the
+  subscript they found no free spot beside the vector slashes and went undrawn. r, y and d keep the system's name.
+- H's head is `H_P = <entry>` when every sensor has the same function, otherwise `H_P = diag(H_1 … H_m)`. Its panel
+  math gives the full diag.
+- When C serves no goal of P (proposal §2's empty r), nothing new is drawn and the wires stay as they were. P's
+  "r: none, held inside P" port text is not built: no done item asks for it.
+
+Tests: tests/test_blockdiagram.py `test_a_two_system_spec_draws_junction_r_e_u_y_and_h_on_the_return_at_the_top_level`,
+`test_every_wire_at_the_top_level_has_a_label_and_software_factory_closes_its_loop` (every wire touching a system
+box or the loop, every system closed, every example with systems),
+`test_the_top_loop_stands_for_its_goals_and_signals_in_the_correspondence`,
+`test_opening_either_subsystem_shows_the_same_signals_at_its_frame_ports[two|software-factory]`. Browser:
+tests/test_diagram_rendering.py `test_the_top_of_blocks_is_a_loop_with_its_junction_ahead_of_the_controller_and_h_beneath`
+(Σ left of C, H's centre below C's and P's, both signs, every wire's label drawn or said by its input/output node,
+the port marks of each opened frame). Each was seen failing with `_top_loops` given no groups. The label test failed
+on ticket-factory before the record label. `test_closed_systems_are_subsystem_blocks_and_vectors_join_them` now
+pins the subsystem boxes and allows the loop's nodes beside them.
+
+Done item 4: `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram` (the Blocks layout rules, every
+view of every example, 23 examples) passed on all 23. In the same run, every failure was in the Dynamics view, which this branch does
+not touch. `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip` failed on 22 examples, all at
+`view=dynamics&open=*` on a `<title>` "Drawn alike here with …" that `ergostat/web/static/dynamics.js:580` writes.
+`test_every_view_draws_cleanly_and_in_time` failed on autoscaler and ticket-factory (satellite-far over its ceiling)
+and the-job (valve-orientation-mismatch over its ceiling). These are Dynamics rules. Not rerun on clean main here:
+`git checkout main` was refused in this session.
+Not run here: the whole unit suite and the four browser files (the factory and the merge queue run them).
+In the opened product frame one of the four port marks has no room for its name. That view is unchanged by this
+branch, and the browser test checks only that each named mark is a u or y.
