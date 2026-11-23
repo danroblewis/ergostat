@@ -55,3 +55,42 @@ Known limits, not in the definition: while a drag is in progress, a repeat's val
 the drag; below a repeat whose copies pushed things down, a drag's drop point is worked out on the draft's own places,
 so it can land a few lines from the pointer; rows are moved by keyboard with their ↑ and ↓ buttons, not lifted with
 Enter like panels.
+
+### Round 2
+
+Built, round 2. Net code outside tests and docs, against main: +278 lines (dashboard.js +252, dashboard.css +9,
+panel-editor.js +17).
+
+The two findings of round 1's review, both answered:
+- A preview changed the kept room (dashShowItems ran dashView on every drag frame and lifted-arrow step, and dashView
+  wrote the room each time). Now `dashView` changes the room only when the caller says the drawing is kept, and only
+  `dashDraw` says so; drags, lifted panels, the refresh and the feed read it and never write it.
+- The room was lines of copies times the panel's current height, kept only in the view. Now `spread` keeps the room as
+  the grid rows, down from the panel's top, that it and its copies reached (`reach`), so a repeat made short keeps the
+  rows its copies took. And before any change by hand (`dashChange`, a nudge, a lift, a drag's start), `dashSettle`
+  gives the draft the places as drawn (what copies pushed down is written down where it is shown) and lets the rooms
+  go, so removing a repeated panel, moving it, or setting its Repeat to No moves nothing it had pushed. The rooms are
+  also let go on Undo and Reset, as they were the later arrangement's.
+- Found while testing: a row pushed by a copy carried its panels down by the row's whole step even when one had
+  already been pushed further by the same copy, so it went twice as far. A carried panel now goes only as far as keeps
+  its place under the row.
+
+Test added in tests/test_dashboard_layout.py: `test_a_repeat_shrunk_cancelled_unrepeated_or_removed_moves_nothing_below_it`
+(a 14-high repeated panel whose 5 copies push the next row from 22 to 36. On five freshly opened pages it is dragged
+toward column 9 and cancelled with Escape, made short, set to repeat no more, removed and undone, and all three in a
+row. Each time, every panel and row outside it keeps its grid place, the room stays at 28 rows, and nothing overlaps).
+The variable test now checks the room in grid rows (14). Seen to fail: letting every view keep the room fails it
+(room 70, not 28); taking the settle out of `dashChange` fails it at the Repeat set to No; the old carry fails its first
+assertion (p3 at 50, not 37).
+
+Run here: tests/test_dashboard_layout.py (26 passed), tests/test_panel_editor.py (34), tests/test_dashboard_page.py
+(28), ruff clean. Not run here: the unit suite and the four browser files (the factory's and the queue's). Main had no
+new commits to merge (the clone's main is the one this branch already merged).
+
+Choices made alone, each the easier one to undo:
+- This reverses round 1's "the draft is never written from data" in one narrow place. A change by hand starts from the
+  places as drawn, and so does what is saved, because what a panel's copies pushed down has to be down in the draft
+  for removing the panel to move nothing. Data alone still never writes the draft. A settle with no change after it
+  (a drag cancelled) changes the draft in memory only, to the places it already shows.
+- Since a drag starts from the drawn places, the round-1 known limit "a drag's drop point is worked out on the draft's
+  own places" is gone. The other two known limits stand.

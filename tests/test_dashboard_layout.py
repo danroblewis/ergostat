@@ -330,13 +330,60 @@ def test_a_panel_repeated_by_a_variable_asks_once_per_value_and_keeps_its_room(b
       const items = [{ id: "s", x: 0, y: 1, w: 4, h: 7 }, { id: "r", row: true, x: 0, y: 8, w: 12, h: 1 },
                      { id: "o", x: 0, y: 9, w: 6, h: 7 }];
       const five = DashLayout.spread(items, "s", ["c1", "c2", "c3", "c4"]);
-      const three = DashLayout.spread(items, "s", ["c1", "c2"], five.lines);
+      const three = DashLayout.spread(items, "s", ["c1", "c2"], five.reach);
       const y = (r, id) => r.items.find((x) => x.id === id).y;
-      return [five.lines, y(five, "r"), y(five, "o"), y(three, "r"), y(three, "o"), DashLayout.overlaps(five.items)];
+      return [five.reach, y(five, "r"), y(five, "o"), three.reach, y(three, "r"), y(three, "o"), DashLayout.overlaps(five.items)];
     }""")
-    assert got == [2, 15, 16, 15, 16, False]
+    assert got == [14, 15, 16, 14, 15, 16, False]                 # the room is grid rows, not lines of copies
     assert pg.errors == []
     ctx.close()
+
+
+def test_a_repeat_shrunk_cancelled_unrepeated_or_removed_moves_nothing_below_it(browser, site):  # noqa: F811
+    """What a repeat's copies pushed down stays down: a drag of it cancelled (its preview never changes the room),
+    made short, set to repeat no more, or removed, and the row below and its panels keep their places."""
+    values = [f"v{i}" for i in range(5)]
+    draft = {"title": "Repeat", "rows": [{"id": "r1", "title": "By value", "layout": {"y": 7}},
+                                         {"id": "r2", "title": "After", "layout": {"y": 22}}],
+             "panels": [panel(1, "m", layout={"x": 0, "y": 0, "w": 6, "h": 7}),
+                        panel(2, "s", tall=True, repeat={"query": "a"}, layout={"x": 0, "y": 8, "w": 4, "h": 14}),
+                        panel(3, "m", layout={"x": 0, "y": 23, "w": 6, "h": 7}), panel(4, "m", layout={"x": 6, "y": 23, "w": 6, "h": 7})]}
+    ys = """() => Object.fromEntries([...document.querySelectorAll('.dash-cell')]
+      .map((c) => [c.dataset.panel, c.style.getPropertyValue('--y')]))"""
+    shrink, unrepeat = "dashTall('p2', false)", "dashChange((d) => { delete d.panels.find((p) => p.id === 'p2').repeat; })"
+    # each from a page just opened, so no earlier step has already set the panels below where they are drawn
+    for steps in (["drag"], [shrink], [unrepeat], ["dashRemove('p2')", "dashUndo()"], [shrink, unrepeat, "dashRemove('p2')"]):
+        ctx = context(browser, 1440, 1600)
+        ctx.route("**/api/query?*", labelled(values))
+        pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded(draft)}")
+        pg.wait_for_function("() => document.querySelectorAll('.dash-cell.is-copy').length === 4")
+        settled(pg)
+        assert {k: v for k, v in pg.evaluate(ys).items() if k in ("r2", "p3", "p4")} == {"r2": "36", "p3": "37", "p4": "37"}
+
+        def places(pg=pg):                                                # on the grid (the page scrolls as it shortens)
+            return pg.evaluate("""() => Object.fromEntries([...document.querySelectorAll('.dash-cell')]
+              .filter((c) => !c.dataset.panel.startsWith('p2')).map((c) => [c.dataset.panel,
+                ['--x', '--y', '--w', '--h'].map((k) => c.style.getPropertyValue(k))]))""")
+        outside = places()
+        assert pg.evaluate("() => DASH.room.get('p2')") == 28              # grid rows: two lines of copies 14 high
+        for step in steps:
+            if step == "drag":
+                x, y = head(pg, "p2")
+                drag(pg, (x, y), (x + 8 * units(pg)["col"], y), drop=False)  # one copy a line: the preview reaches far down
+                assert pg.evaluate("() => DASH.drag !== null") and int(pg.evaluate(ys)["r2"]) > 60
+                pg.keyboard.press("Escape")
+                pg.mouse.up()
+                settled(pg)
+                assert pg.evaluate("() => DASH.room.get('p2')") == 28
+            else:
+                pg.evaluate(f"() => {step}")
+                settled(pg)
+            assert places() == outside, (steps, step)
+            assert_sound(pg)
+        if steps[-1] == "dashRemove('p2')":
+            assert "p2" not in layouts(pg) and layouts(pg)["p3"]["y"] == 37   # kept in the draft where it was drawn
+        assert pg.errors == []
+        ctx.close()
 
 
 def test_a_tall_panel_leaves_no_hole_beside_it(browser, site):  # noqa: F811

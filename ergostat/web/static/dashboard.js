@@ -18,7 +18,7 @@ const DASH_WINDOW = "1d";                              // what a dashboard with 
 const DASH = { draft: null, kept: false, editing: false, cells: new Map(), undo: [], timer: null, wasHere: false,
                since: null, grid: null, head: null, live: null, said: null, page: 0, asked: 0, narrow: null, flight: null, retry: 0,
                drag: null, pending: null, lifted: null, slot: null, settle: 0,
-               values: new Map(), lines: new Map(), got: null };   // a repeated panel's values and the lines kept for them
+               values: new Map(), room: new Map(), got: null };   // a repeated panel's values and the grid rows kept for them
 
 /* ---- the layout engine: pure, no page. An item is {id, x, y, w, h} on 12 columns and rows of equal height; a row
    ({row: true}) is a full-width line one high, and the panels under it, down to the next row, are its own ---- */
@@ -49,7 +49,7 @@ const DashLayout = (() => {
     // each in its section's turn: what sits above the first row, the first row, what is under it, the next row...
     const rank = (x) => (x.row ? rows.indexOf(x.id) * 2 + 1 : of.has(x.id) ? (rows.indexOf(of.get(x.id)) + 1) * 2 : 0);
     const lower = (a, b) => (fixed.has(a.id) || fixed.has(b.id) ? (fixed.has(a.id) ? b : a) : rank(a) > rank(b) ? a : b);
-    const queue = start.filter((id) => at.has(id)), last = new Map();
+    const queue = start.filter((id) => at.has(id)), last = new Map(), was = new Map(from.map((x) => [x.id, x.y]));
     // a panel carried down a long way can leap a row (one line high) without landing on it: its path counts
     const leapt = (a, b) => b.row && !a.row && last.has(a.id) && rank(b) > rank(a) && b.y >= last.get(a.id) && b.y < a.y + a.h;
     for (let n = 0; queue.length && n < 50000; n++) {
@@ -60,7 +60,12 @@ const DashLayout = (() => {
         if (fixed.has(down.id)) continue;                                  // two the caller placed: theirs to keep apart
         const by = up.y + up.h - down.y;
         const carried = down.row ? [...at.values()].filter((x) => x !== up && !x.row && !fixed.has(x.id) && of.get(x.id) === down.id) : [];
-        for (const m of [down, ...carried]) { last.set(m.id, Math.min(last.get(m.id) ?? m.y, m.y)); m.y += by; queue.push(m.id); }
+        // what the row carries keeps its place under the row: one already pushed further goes no further
+        const under = (m) => (was.has(m.id) && was.has(down.id) ? down.y + by + was.get(m.id) - was.get(down.id) - m.y : by);
+        for (const [m, step] of [[down, by], ...carried.map((m) => [m, under(m)])]) {
+          if (step <= 0) continue;
+          last.set(m.id, Math.min(last.get(m.id) ?? m.y, m.y)); m.y += step; queue.push(m.id);
+        }
         if (down === a) break;
       }
     }
@@ -136,17 +141,18 @@ const DashLayout = (() => {
     const by = Math.max(span, 1, ...hidden.map((m) => m.y + m.h)) - 1;
     return [...items.map((x) => (x.y > r.y ? { ...x, y: x.y + by } : x)), ...hidden.map((m) => ({ ...m, y: r.y + m.y }))];
   }
-  /* a panel's ``copies`` laid out beside it, line after line in its own columns onward; ``least`` lines are kept for
-     them, so values that go away leave the room and nothing below moves back */
-  function spread(items, id, copies, least = 1) {
+  /* a panel's ``copies`` laid out beside it, line after line in its own columns onward; ``room`` grid rows down from
+     its top are kept for them, so values that go away leave the room and nothing below moves back. ``reach``: the grid
+     rows from its top that they and the room now take */
+  function spread(items, id, copies, room = 0) {
     const s = items.find((x) => x.id === id);
-    if (!s) return { items, lines: 0 };
-    const per = Math.max(1, Math.floor((COLS - s.x) / s.w)), used = Math.ceil((copies.length + 1) / per);
-    const lines = Math.max(used, least);
+    if (!s) return { items, reach: 0 };
+    const per = Math.max(1, Math.floor((COLS - s.x) / s.w));
     const made = copies.map((cid, i) => ({ id: cid, x: s.x + ((i + 1) % per) * s.w, y: s.y + Math.floor((i + 1) / per) * s.h, w: s.w, h: s.h }));
-    const room = lines > used ? [{ id: "\u0000room", x: s.x, y: s.y + used * s.h, w: per * s.w, h: (lines - used) * s.h }] : [];
-    const out = push([...items, ...made, ...room], new Set([id, ...copies, ...room.map((r) => r.id)]));
-    return { items: out.filter((x) => x.id !== "\u0000room"), lines };
+    const reach = Math.min(MAX_Y, Math.max(whole(room, 0), Math.ceil((copies.length + 1) / per) * s.h));
+    const kept = { id: "\u0000room", x: s.x, y: s.y, w: Math.min(COLS - s.x, per * s.w), h: reach };
+    const out = push([...items, ...made, kept], new Set([id, ...copies, kept.id]));
+    return { items: out.filter((x) => x.id !== kept.id), reach };
   }
   /* what a draft holds, made sound: laid-out items kept where they are (any overlap pushed down, in reading order),
      those with none (version 1, or just added) placed below them */
@@ -451,8 +457,9 @@ function dashSub(v, name, value) {
 /* the values a repeated panel shows one panel for: its variable's, or the series its query last answered with */
 const dashValues = (d, p) => (p.repeat?.var ? d.vars?.[p.repeat.var] || [] : DASH.values.get(p.id) || []).slice(0, DASH_REPEAT_MOST);
 /* what is drawn, and where: each repeated panel shows its first value and is followed by a copy for each other value,
-   laid out beside it in its row. The copies are not in the draft; only they lay themselves out */
-function dashView(d, items = dashItems(d)) {
+   laid out beside it in its row. The copies are not in the draft; only they lay themselves out. Only a drawing that is
+   ``kept`` (not a drag's or a lifted panel's preview) changes the room kept for them */
+function dashView(d, items = dashItems(d), kept = false) {
   const panels = [];
   let at = items, left = DASH_DRAWN_MOST - d.panels.length;
   for (const p of d.panels) {
@@ -463,11 +470,20 @@ function dashView(d, items = dashItems(d)) {
                                   ...(p.repeat.var ? { queries: dashSub(p.queries, p.repeat.var, value) } : {}) });
     const copies = values.slice(1).map((v) => `${p.id}~${v}`);
     panels.push(one(values[0], p.id), ...values.slice(1).map((v, i) => one(v, copies[i])));
-    const got = DashLayout.spread(at, p.id, copies, DASH.lines.get(p.id) || 1);
+    const got = DashLayout.spread(at, p.id, copies, DASH.room.get(p.id) || 0);
     at = got.items;
-    DASH.lines.set(p.id, got.lines);
+    if (kept) DASH.room.set(p.id, got.reach);
   }
   return { panels, items: at };
+}
+/* before the arrangement is changed by hand, the draft takes the places as drawn (what copies pushed down stays down)
+   and the rooms are let go: removing, shrinking, moving or no longer repeating a panel then moves nothing else */
+function dashSettle() {
+  const d = DASH.draft;
+  if (!d) return;
+  const at = new Map(dashView(d).items.map((x) => [x.id, x]));
+  for (const x of [...d.panels, ...(d.rows || [])]) if (at.has(x.id)) x.layout = { ...x.layout, y: at.get(x.id).y };
+  DASH.room.clear();
 }
 /* the series of a repeated panel's query for one value; a panel repeated by its query's label asks nothing of its own */
 const dashPick = (results, q, value) => (value == null ? results : (results || []).map((r) => (String(r.id) === q
@@ -564,7 +580,7 @@ function dashDraw() {
   if (DASH.drag) dashDragEnd(false);
   if (DASH.lifted) dashDrop(false);
   const focused = document.activeElement?.closest?.(".dash-cell")?.dataset.panel, act = document.activeElement?.dataset?.act;
-  const view = dashView(d), rows = d.rows || [];
+  const view = dashView(d, dashItems(d), true), rows = d.rows || [];
   const ids = new Set([...view.panels.map((p) => p.id), ...rows.map((r) => r.id)]);
   for (const [id, c] of DASH.cells) if (!ids.has(id)) { c.panel.destroy?.(); c.el.remove(); DASH.cells.delete(id); }
   for (const r of rows) {                              // a row has no chart: made again when it changes
@@ -722,6 +738,7 @@ function dashEvery() {
 function dashAnnounce(text) { if (DASH.live) DASH.live.textContent = text; }
 function dashRemember() { DASH.undo = [...DASH.undo, JSON.stringify(DASH.draft)].slice(-20); }
 function dashChange(fn, said) {
+  dashSettle();
   dashRemember();
   const d = dashboardDraft();
   fn(d);
@@ -732,6 +749,7 @@ const dashIndex = (id) => DASH.draft.panels.findIndex((p) => p.id === id);
 const dashTitle = (p) => p.title || "Panel";
 /* a column or a line over: what it then covers goes down, nothing else moves */
 function dashNudge(id, dx, dy) {
+  dashSettle();
   const p = DASH.draft.panels[dashIndex(id)];
   if (!p) return;
   const next = DashLayout.move(dashItems(DASH.draft), id, { x: p.layout.x + dx, y: p.layout.y + dy }), it = next.find((x) => x.id === id);
@@ -839,6 +857,7 @@ function dashCommit(id, items, order) {
 function dashLift(id) {
   const c = DASH.cells.get(id), p = DASH.draft.panels[dashIndex(id)];
   if (!c || !p) return;
+  dashSettle();
   const start = dashIsNarrow() ? dashShown(DASH.draft) : dashItems(DASH.draft);
   DASH.lifted = { id, start, now: start, order: start.map((x) => x.id) };
   c.el.classList.add("is-lifted");
@@ -971,6 +990,7 @@ function dashDragBegin(pend) {
   const { id, sides } = pend, c = DASH.cells.get(id);
   if (!c || !DASH.draft) return;
   if (DASH.lifted) dashDrop(true);
+  dashSettle();
   const narrow = dashIsNarrow(), start = narrow ? dashShown(DASH.draft) : dashItems(DASH.draft), me = start.find((x) => x.id === id), u = dashUnits();
   if (!me) return;
   const box = c.el.getBoundingClientRect();
@@ -1181,6 +1201,7 @@ function dashUndo() {
   const last = DASH.undo[DASH.undo.length - 1];
   if (!last) return;
   DASH.undo = DASH.undo.slice(0, -1);
+  DASH.room.clear();                                   // the rooms were the later arrangement's
   saveDashboardDraft(JSON.parse(last));
   dashAnnounce("Undone");
 }
@@ -1191,6 +1212,7 @@ async function dashReset() {
   replaceRoute(dashAddress(null, S.since));
   try {
     DASH.draft = dashClean(await dashBuildDefault());
+    DASH.room.clear();
     dashDraw();
     dashHead();
     dashAnnounce("Back to the default dashboard");
@@ -1254,7 +1276,7 @@ function dashLeave(n) {
 async function pageDashboard(main, q) {
   const stayed = DASH.wasHere, n = ++DASH.page;
   DASH.wasHere = false;
-  if (!stayed) { DASH.editing = false; DASH.undo = []; DASH.values.clear(); DASH.lines.clear(); }
+  if (!stayed) { DASH.editing = false; DASH.undo = []; DASH.values.clear(); DASH.room.clear(); }
   DASH.got = null;
   S.timer = dashLeave(n);
   const p = h("div", { class: "page dash" });
