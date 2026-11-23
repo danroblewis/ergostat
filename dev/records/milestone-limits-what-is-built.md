@@ -97,3 +97,23 @@ there to ask, so each open question went the more reversible way; each is listed
   gap (lesson 13): stamp the times the test compares, or compare with a tolerance. The bound is not to be loosened
   here, since the brief says not to touch the tests' bounds. I tried to print the real t1, t2 and t3 with a temporary
   print in the test, and this session refused the command, so the 9 s is worked out, not measured.
+- **Round 3: main (58471daf) merged; its conflicts resolved in 76b8fa54.** Main's milestone-every-gap-has-one adds a
+  placement step (`homes`) under the same `[milestones] enforce`. Both are kept. With enforcement on, the pass now
+  places homeless gaps first, then sets each gap's `waits_on_milestone` from where the gaps were placed. So with
+  enforcement on, `unassigned` or an old label is held only for a gap the pass could not place. The duplicate
+  `enforced()` that both sides added is now one function. The status line `enforced ...: N gaps wait` moved before
+  main's line about gaps with no milestone, because main's tests read that line as the last one. Fixed after the merge
+  (c2f0ac1a):
+  - Main's pass gives a sub-gap its split parent's milestone. With that, pulling the parent no longer reached the
+    sub-gap, and `home()` stopped at the sub-gap's own milestone. `home()` now carries a pull up through ancestors in
+    the same milestone (or in none). A pulled parent does not pull a sub-gap that was moved to another milestone. That
+    is the narrower, reversible reading. The test checks it, and it was seen to fail with the check removed.
+  - In this gap's `test_with_enforcement_an_inactive_milestones_gap_is_held_and_an_active_ones_is_taken`, gaps `u`
+    (no milestone) and `w` (old label) are now placed in active `a` and taken, so `a` completes once `x` and `w`
+    merge. The test says so.
+  - In main's `test_with_no_milestone_to_go_to_a_gap_is_left_and_counted` and
+    `test_a_placement_that_would_close_a_cycle_goes_to_upkeep_or_is_left`, `passes() == []` now also expects the
+    `gap.milestone-held` events this gap adds for gaps left in a completed or waiting milestone. Nothing else in those
+    tests changed.
+  tests/test_milestones.py passes 50 of 50 serially. The changed test in test_factory_knowledge.py passes. Ruff is
+  clean. The whole unit suite and the browser files were not run here (left to the factory).
