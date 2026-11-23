@@ -153,3 +153,33 @@ test_actions_say_per_class_asked_approved_denied_and_whether_held (bare `/items`
 test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (the project switcher). Neither was run on main
 here. Not run: tests/test_diagram_rendering.py and the other browser files. `node --check` on pages.js was refused, but
 the page tests load it.
+
+Round 4, 2026-11-23. Main (28ad5c4a) merged in. It conflicted in static/pages.js, where main's finished-items work
+(`itemsFinished`, `hiddenStates`, *Show finished*, the at-once `Loading…` and each kind's finished note) met the branch's
+`one`, `shut`, `lbox` and the kind's page layout. Both sides are kept. *Show finished* and `Loading…` sit in the
+kind's page's filters too.
+
+**The review's finding (the only one).** On the kind's page, folding the bar's disclosure rendered "Nothing matches."
+under the Items heading of a kind that has items (lesson-3). The same happened on `/items?view=list` when a search's
+matching kinds were all folded. The disclosure is kept: test_the_kind_bar_is_one_component holds that the two bars
+have the same markup apart from level and open state, and the disclosure is part of that markup. Instead, `tables` now
+marks a kind whose rows its own disclosure hides (`hid`), and `none` is not drawn when one is hidden. A folded list
+is folded, not a miss. On the kind's page a folded Graph or Timeline goes through the same path. New test:
+test_a_folded_kinds_list_is_not_said_empty (on `/items/ticket` and `/items/ticket?state=review`). It clicks the
+disclosure, waits past a poll, asserts no "Nothing matches", and opens the list again. It failed (2 of 2) with the
+`!hid` guard removed and passes with it.
+
+**Found by the merge's tests.** main's test_a_state_click_answers_at_once_and_asks_once opens `/items?kind=gap`,
+which now ends on the kind's page. Two changes were needed:
+- **A bug fixed.** `go` hid the rows outside the chosen state in `box`, but the kind's page's list is in `lbox`, so a
+  click there did not filter at once. It now uses `lbox`, which is `box` on `/items`.
+- **A test updated, with its reason in the test.** It clicked `.kind-flow a.stbox`, and the kind's page's chart draws
+  state groups by default. It now clicks the same states' chips in the kind's bar (`.kind-bar a.stbox`).
+
+**Tests run.** ruff is clean. tests/test_items_page.py as a whole, under the watchdog with Playwright: 78 passed and
+1 failed. The failure is test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart, which waits for a
+second project in the header's `#project` switcher. It is the same failure reported in rounds 1 to 3, on a path this
+branch does not touch. test_actions_say_per_class_asked_approved_denied_and_whether_held, reported as failing in rounds
+2 and 3, passes now. Not run: tests/test_diagram_rendering.py, the other browser files and the unit suite (the factory runs
+them). Commands refused in this session: a `python3 -` heredoc edit, a pytest run with output redirected to a file
+under /tmp, a run piped to `grep`, and `ps -A … | grep -cE …` to look for other suites.

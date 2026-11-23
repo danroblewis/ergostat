@@ -693,7 +693,7 @@ async function pageItems(main, q, only = false) {
                      if (finished !== "hide") u.set("finished", finished);
                      showFin.firstChild.checked = finished === "show";
                      loading.hidden = false;           // and the rows already drawn filtered, before the answer
-                     for (const tr of box.querySelectorAll("tr[data-kind]")) tr.hidden = !!kind && (tr.dataset.kind !== kind || (state != null && tr.dataset.state !== state));
+                     for (const tr of lbox.querySelectorAll("tr[data-kind]")) tr.hidden = !!kind && (tr.dataset.kind !== kind || (state != null && tr.dataset.state !== state));
                      if (sort && view === "list") u.set("sort", paged() ? `${kind}:${sort}` : sort);
                      if (paged() && view === "list" && pg > 1) u.set("page", `${kind}:${pg}`);
                      if (paged() && view === "list" && size !== 25) u.set("size", String(size));
@@ -808,6 +808,7 @@ async function pageItems(main, q, only = false) {
       d.set.says + setSpan(d.set.params), h("b", { class: "n" }, d.moves != null ? ` ${d.total} item${d.total === 1 ? "" : "s"}, ${d.moves} move${d.moves === 1 ? "" : "s"}` : ` ${d.total}`),
       h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: unpick }, "\u00d7"))] : []));
     used = new Set();
+    let hid = false;                                     // a kind's rows hidden by its bar's disclosure (tables)
     // a state chip (the bar's or the chart's): its items, a second click clears it; the same on both pages
     const pick = (k, st) => { [kind, state] = kind === k.name && state === st ? [one, null] : [k.name, st]; dropSet(); go(); };
     const bar = (k, level) => kindBar(k, { level, open: !shut.has(k.name), state: kind === k.name ? state : null, onState: (st) => pick(k, st),
@@ -880,7 +881,8 @@ async function pageItems(main, q, only = false) {
     const tables = async (names) => {                    // one table per kind, each with its own columns
       const parts = [];
       for (const name of names) {
-        if ((kind && name !== kind) || shut.has(name)) continue;
+        if (kind && name !== kind) continue;
+        if (shut.has(name)) { if (rows.some((i) => (i.kind || "") === name)) hid = true; continue; }   // folded, not empty
         const its = rows.filter((i) => (i.kind || "") === name), note = finNote(name, its);
         if (!its.length && !note) continue;
         const limit = paged() ? size : kind ? 300 : 25, many = paged() ? d.total : d.matched?.[name] ?? its.length;
@@ -915,7 +917,7 @@ async function pageItems(main, q, only = false) {
     let anyRows = false;
     if (only) {                                           // the kind's page: its sections in order (SPEC §5a), then its list
       const k = kindOf[one], g = systems.find((x) => x.kinds.includes(one)) || { name: k?.system || "" };
-      const t = shut.has(one) ? [] : view === "list" ? await tables([one]) : await relPart(g);
+      const t = view === "list" || shut.has(one) ? await tables([one]) : await relPart(g);
       anyRows = t.length > 0;
       if (!p.isConnected) return;
       // its chart as the overview's: its state groups by default, every state by the one switch (?states=all)
@@ -950,7 +952,8 @@ async function pageItems(main, q, only = false) {
     if (!p.isConnected) return;
     for (const key of Object.keys(drawn)) if (!used.has(key)) delete drawn[key];   // a folded kind's charts let go
     const listed = d.listed ?? d.items.length;          // what the server's list held, before the search and the cut per kind
-    const none = !anyRows && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
+    // a kind whose rows its own disclosure hides is folded, not a miss (lesson-3): no "Nothing matches." for it
+    const none = !anyRows && !hid && listed && (needle || state || kind) ? h("p", { class: "muted" }, folded.size ? "Nothing matches in the systems shown." : "Nothing matches.") : null;
     patch(lbox, ...groups, ...(none ? [none] : []));
     sweepPlots();                                         // the charts just replaced (or folded away) let go now, not at the next one drawn
   }

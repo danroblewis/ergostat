@@ -1904,7 +1904,8 @@ def test_a_state_click_answers_at_once_and_asks_once(browser, finished_site):
         got = pg.evaluate("""async () => {
             window.__delay = 2000;
             const before = window.__items.length;
-            const box = (st) => [...document.querySelectorAll('.kind-flow a.stbox')].find((a) => a.textContent.endsWith(st));
+            // (the kind's page, the-kind-page: its states are chips in its bar; its chart draws state groups)
+            const box = (st) => [...document.querySelectorAll('.kind-bar a.stbox')].find((a) => a.textContent.endsWith(st));
             const t0 = performance.now();
             box('parked').click();
             await new Promise((r) => setTimeout(r, 100));
@@ -2645,6 +2646,23 @@ def test_a_kinds_state_link_filters_without_reload(browser, roadmap, path, addre
     chip.click()
     pg.wait_for_function("(p) => location.pathname + location.search === p", arg=path)
     assert pg.evaluate("window.__same") == 1
+    assert not errors, errors
+    pg.close()
+
+
+@pytest.mark.parametrize("path", ["/items/ticket", "/items/ticket?state=review"])
+def test_a_folded_kinds_list_is_not_said_empty(browser, roadmap, path):
+    """The bar's disclosure on the kind's page folds its list away; a kind with items folded is not 'Nothing
+    matches.' (lesson-3), and opening it again shows its rows."""
+    pg, errors = kind_page(browser, roadmap, path)
+    pg.wait_for_selector("section.kind-items table.items tr.click", timeout=20000)
+    pg.locator(".kind-bar[data-kind=ticket] button.disclose").click()
+    pg.wait_for_selector(".kind-bar[data-kind=ticket] button.disclose[aria-expanded=false]")
+    pg.wait_for_function("() => !document.querySelector('section.kind-items table.items')", timeout=20000)
+    pg.wait_for_timeout(4500)                           # past a poll's redraw
+    assert "Nothing matches" not in pg.locator("#main").inner_text()
+    pg.locator(".kind-bar[data-kind=ticket] button.disclose").click()
+    pg.wait_for_selector("section.kind-items table.items tr.click", timeout=20000)
     assert not errors, errors
     pg.close()
 
