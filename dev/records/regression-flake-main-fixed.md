@@ -37,5 +37,13 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   tests/test_factory.py gave 204 passed, 2 skipped (both need Docker and the agent image); tests/test_changesets.py,
   tests/test_spec_items.py and tests/test_fac_items.py pass. Seen to fail: with the ancestor check in mend.py
   removed, `test_main_mend_writes_only_where_the_items_main_is_the_commit_run_on_or_an_ancestor` fails.
+- The build's failure, `test_an_approved_switch_drains_and_switches_through_the_engine` (a switcher run past its
+  120 s wait under the suite's load), is not this branch's, so no code changed for it (lesson-13). It passes alone
+  here in 118 s. Timed with temporary marks, since removed: each of its two switcher runs (dev/bin/drain.py, about ten
+  `ergostat item` calls) takes 27 s and 26 s with this branch's model, and 27 s and 26 s with the main-mend block,
+  stock, flow and parameter taken out of landing.yaml. With the items.py line off, it took 34 s and 48 s (machine
+  noise, not slower). Nothing in this branch runs on the switcher's path (drain.py reads upgrade, gap, research and
+  situation items, not flakes). Not run: main itself (a second worktree was refused here). Left: the queue's run on
+  clean main tells whether the 120 s wait is tight for main under load, which is a gap of its own (lesson-10).
 
 Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.
