@@ -7212,25 +7212,31 @@ uses:
 `ergostat.run.failed` about an item of the built-in kind **`ergostat.failure`** (it exists only in such a model), one
 item a **signature**: the block, its program (the first word of its `run:` that is a file under the model's folder), the
 exception's type and its innermost frame in the project, from the last trace in the run's output; without one, the
-block, its program and how it ended. Traces are read from the **tail** only: the last 8,000 characters of the run's own
-file, its first partial line dropped when it does not begin at the run's start. Four languages are read
+block, its program and how it ended. Traces are read from the **tail**: the last 8,000 characters of the run's own
+file, its first partial line dropped when it does not begin at the run's start. Five languages are read
 (`repair/traces.py`): **Python**'s `Traceback (most recent call last)` (its frame the innermost one outside
 `site-packages`, `/lib/python`, `<frozen` and `<string>`, as triage always signed it, so a Python failure keeps its id);
 **Node**'s `Name[ [CODE]]: message` directly followed by `    at` lines; **Java**'s outer exception line (with or
 without `Exception in thread "T"`) directly followed by `\tat` lines, then its `Caused by:` blocks (indented
 `Suppressed:` blocks ignored); **Go**'s `panic: message`, `goroutine N [running]:` and its function and file lines (its
-type `panic`). The trace whose header line comes last is taken, and **a trace needs its header**: one whose header the
-tail cut off is no trace, whatever frames or `Caused by:` lines are left, and the run is signed by how it ended (so a
-Python traceback more than 8,000 characters before the end of a failed run's output is too). A **project frame** is one
-whose file, a relative path taken against the model's folder, lies under that folder, in none of its `site-packages`,
-`node_modules`, `.venv`, `venv` or `vendor` folders, and is not the runtime's (`node:`, `<frozen`, `<string>`); for
-Node and Go the signature frame is the innermost project frame, else the innermost frame. **Java** signs by its **root
+type `panic`); **Ruby**'s `path:N:in 'meth': message (Type)` (or the older `` in `meth' ``) directly followed by zero
+or more `\tfrom path:N:in ...` lines, innermost first. The trace whose header line comes last is taken, and **a trace
+needs its header**: one whose header the tail cut off is no trace, whatever frames or `Caused by:` lines are left, and
+the run is signed by how it ended. The one exception is a **long Python traceback**: when the tail has no
+`Traceback (most recent call last)` header and its last line reads as a Python exception line (`pkg.Type: message`),
+triage reads at most the last **64,000 characters** of the run's own file (the file `log` names, never the block's log;
+not followed when it is a link) and signs the run from the last Python traceback there whose exception line is the
+file's last line. One that begins further back, one that does not run to the end, and a file that is gone or cannot be
+read leave the run signed by how it ended. A **project frame** is one whose file, a relative path taken against the
+model's folder, lies under that folder, in none of its `site-packages`, `node_modules`, `.venv`, `venv` or `vendor`
+folders (for Ruby, nor `gems`), and is not the runtime's (`node:`, `<frozen`, `<string>`, `<internal:`); for Node, Go
+and Ruby the signature frame is the innermost project frame, else the innermost frame. **Java** signs by its **root
 cause** (the last `Caused by:`, else the outer exception): its type and message, and the innermost project frame of
 its own frames, else of the nearest enclosing exception's, else its innermost frame. A Java frame's file is its class's
 package path (`com/acme/Store.java`), the project's when a file under the model's folder ends with it; the folder is
 walked for that once a trace, at most 5,000 entries (dot-folders and the library folders not entered), and a walk that
-reaches the cap finds no Java frame the project's (the trace says `walk: capped`). Ruby and other languages are not
-read. The item keeps the error, the traceback, the tail of standard error (8,000 characters), the
+reaches the cap finds no Java frame the project's (the trace says `walk: capped`). Other languages are not read. The
+item keeps the error, the traceback, the tail of standard error (8,000 characters), the
 program, the model's version and the input the run was given (`repair/NAME.input` in the state directory), all scrubbed
 of secrets and the owner's denylist (section 12m's rules); the same failure again adds to its `count`. The standard
 error is read only from the run's own file (`log`, `logs/runs/<block>/<seq>-<id>.log`, section 4b), never from the
@@ -7280,14 +7286,15 @@ message (at most 300 characters) and no traceback, and is never opened; an exist
 always wins over a log line, and a failed run is still signed by its trace or by how it ended, so no existing id moves
 and a log item is never opened by a failed run.
 
-**Superseding.** Node, Java and Go failures were signed by how they ended before triage read their traces, so their old
-items have other ids. When a failure is signed by such a trace, triage looks for the item at its old signature (block,
-program, how it ended); only if that item's kept `stderr` parses to the same new signature does it write
+**Superseding.** Node, Java, Go and Ruby failures, and Python ones signed by a long traceback, were signed by how they
+ended before triage read their traces, so their old items have other ids. When a failure is signed by such a trace,
+triage looks for the item at its old signature (block, program, how it ended); only if that item's kept `stderr`, read
+the same way (for a long Python traceback, the run file its `log` names), parses to the same new signature does it write
 `ergostat.failure.superseded` (`{"by": NEW}`) about it, which moves it to `superseded` from `noted` or `open` only. One
 being worked (leased, awaiting approval, applied) is not moved, the refusal listed, and a later failure tries again;
 one whose stderr is another bug that ended the same way is left alone. A failure at that old signature with no readable
-trace (one that ended the same way) opens the superseded item again, so it hides nothing. Python failures are never
-superseded: their signatures did not change.
+trace (one that ended the same way) opens the superseded item again, so it hides nothing. Python failures signed from
+the tail are never superseded: their signatures did not change.
 
 **Sealed.** A failure's fields are ergostat's alone: its kind is *sealed* (`ItemKind.sealed`), so the fold
 (`spec/items.py`) refuses every event about it whose type is not ergostat's own (`ergostat.*`, which no block line,
