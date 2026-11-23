@@ -261,7 +261,8 @@ programs already there.
   too). The flow `main-tests-broken` fills it (`flake.main-broken`). The flow `main-tests-fixed` drains it, counting
   `flake.main-fixed` by main-mend. The goal `main-green` (`<= 0`, tolerance 0, critical) is off while any test fails on
   main. Its `on-stale` is `off`, but an items sensor is never stale (SPEC §9.6), so today that changes nothing. Off, it
-  opens `remedy-when` (dev/model/interventions.yaml), and the coordinator (`remedy`) is asked to have the fix made.
+  asks the coordinator (`fix-main`, a person block in the system, so nothing outside reaches into its loop) to have
+  the fix made.
   Once main-mend sees the test pass twice alone on the pushed main, it holds again. The loop is named `main-repair`
   and is drawn balancing.
 

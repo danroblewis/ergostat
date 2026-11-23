@@ -74,3 +74,21 @@ dev/model/landing.yaml) for batches that do not touch the failing tests?
 
 Size: 0 net lines of code outside tests/, docs/ and dev/ (4 lines of ergostat.yaml, the rest model YAML and the
 README).
+
+Round 1, the `check` finding sent back (`interface system.guarantees`):
+
+- **main-green's actuator is a person block inside `guarantees` (`fix-main`), not `remedy`.** `remedy` (system
+  `interventions`) moving `flow.main-tests-fixed`, the valve of main-green's own loop, is an outside block reaching
+  into the system's internals (ergostat/spec/architecture.py, `interfaces`). Every wiring the Change asks for in
+  interventions.yaml would trip it: `remedy` moving the flow, or `remedy` commanding a block in the loop. So
+  `fix-main` (person, the coordinator, `in: goal.main-green.off`, `out: flow.main-tests-fixed`, with the ask that
+  `remedy` had for a failing test) closes main-repair. `remedy-when` loses its `main` input, `remedy` loses
+  `flow.main-tests-fixed` and that half of its ask. `remedy-when` stays a `select` (`pick: max`) of its two inputs: the
+  same as before for those two. Put it back as an `expr` if you want. This supersedes the first bullet above: remedy is
+  no longer main-tests-fixed's setter, and main-mend's `out:` is still unchanged. To reverse it, move `fix-main`'s ask
+  back into `remedy`. That brings the finding back, unless the owner allows it (`allows-findings`).
+- `test_the_guarantees_model_checks_clean` now asserts that no `interface` problem is about `system.guarantees`
+  (`read` runs the architecture findings). It also asserts the loop's actuator is `fix-main`, and walks the cycle
+  stock → goal → fix-main → flow as B.
+- Not run in this session: Bash was refused for every command ("don't ask mode"), so `ergostat check`, the tests, ruff
+  and `git commit` were not run. The edits are in the working tree, uncommitted.

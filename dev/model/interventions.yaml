@@ -52,16 +52,15 @@ blocks:
   remedy-when:
     type: select                       # the max of the three: a select, not an expr, so its loops are drawn signed
     pick: max
-    description: work the interventions while they rise or pile up, or while a test fails on main (main-green off)
+    description: work the interventions while they rise or pile up
     in:
       rising: goal.handled-interventions-falling.off
       many: goal.interventions-remedied-all.off
-      main: goal.main-green.off
     out: block.remedy
   remedy:
     type: person
     agent: coordinator
     description: the coordinator builds the loop an intervention showed missing (a gap, a goal, a block) and marks it remedied
-    ask: "Interventions are rising or piling up (ergostat item --kind intervention --state open): build the loop each shows missing, then record intervention.remedied with the remedy. Or a test fails on main (ergostat item --kind flake --state main-broken): request its fix; main-mend clears it once it passes twice alone on the pushed main."
+    ask: "Interventions are rising or piling up (ergostat item --kind intervention --state open): build the loop each shows missing, then record intervention.remedied with the remedy."
     in: block.remedy-when
-    out: [flow.interventions-remedied, flow.main-tests-fixed]
+    out: flow.interventions-remedied

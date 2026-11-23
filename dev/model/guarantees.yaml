@@ -1,6 +1,6 @@
 # The guarantees: what the factory promises of main, each a stock held at zero by a goal. The first is main's failing
 # tests (flake items in main-broken, dev/bin/onmain.py): main-green is off while any test fails on main, and its loop
-# closes through the coordinator (remedy, dev/model/interventions.yaml), who has the fix made; main-mend
+# closes through the coordinator (fix-main), who has the fix made; main-mend
 # (dev/model/landing.yaml) is what records each break cleared, once it passes twice alone on the pushed main, so
 # main-tests-fixed counts its flake.main-fixed. Nothing here acts on the world (dev/README.md, *Regression guarantees*).
 defaults:
@@ -40,7 +40,16 @@ goals:
                                       # (SPEC 9.6), so this holds for the day the stock is read some other way
     description: no test fails on main
 
+blocks:
+  fix-main:                           # inside the system: an outside block moving its valve is an `interface` finding
+    type: person
+    agent: coordinator
+    description: the coordinator has a test failing on main fixed; main-mend sees it pass and records it fixed
+    ask: "A test fails on main (ergostat item --kind flake --state main-broken): request its fix; main-mend clears it once it passes twice alone on the pushed main."
+    in: goal.main-green.off
+    out: flow.main-tests-fixed
+
 loops:
   main-repair:
     goal: main-green
-    description: a test failing on main asks the coordinator for its fix (remedy); main-mend sees it pass and clears it
+    description: a test failing on main asks the coordinator for its fix (fix-main); main-mend sees it pass and clears it

@@ -919,34 +919,28 @@ def test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed():
 
 def test_the_guarantees_model_checks_clean():
     """The system and its file; check finds no error and no missing feedback for main-green, whose loop closes through
-    the coordinator's remedy, and is drawn balancing under the name main-repair. remedy-when opens on main-green off
-    alone."""
+    the coordinator (fix-main, a block of its own), and is drawn balancing under the name main-repair. No block
+    outside the system moves what its loop uses: check finds no `interface` on it."""
     from ergostat.spec import causal
-    from ergostat.spec.blocks import make
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []
     assert [p for p in problems if p.code == "missing-feedback" and p.about == "goal.main-green"] == []
+    assert [p for p in problems if p.code == "interface" and p.about == "system.guarantees"] == []
     assert "guarantees" in spec.systems and spec.within["guarantees"] == "oversight"
     g = spec.goals["main-green"]
     assert (g.of.kind, g.of.name, g.hold.op, g.hold.value, g.critical, g.on_stale, g.system) == (
         "stock", "main-failing-tests", "<=", 0, True, "off", "guarantees")
+    assert spec.blocks["fix-main"].system == "guarantees"
     lp = spec.loop("main-green")
-    assert lp.closes and "remedy" in lp.actuators, lp.actuators
-    assert (lp.controllers, lp.actuators, lp.valves, lp.disturbances) == (
-        ["remedy-when"], ["remedy"], ["main-tests-fixed"], ["main-tests-broken"])
+    assert lp.closes, lp
+    assert (lp.actuators, lp.valves, lp.disturbances) == (["fix-main"], ["main-tests-fixed"], ["main-tests-broken"])
     # the cycle, by the links ergostat draws (their signs its own), named and signed as check names and signs loops
     # (causal.loops stops at its first 300, and in the factory's model this one was past them: it is walked here)
     drawn = {(x.source, x.target): x for x in causal.links(spec)}
-    parts = ["stock.main-failing-tests", "goal.main-green", "block.remedy-when", "block.remedy", "flow.main-tests-fixed"]
+    parts = ["stock.main-failing-tests", "goal.main-green", "block.fix-main", "flow.main-tests-fixed"]
     cycle = [drawn[(a, b)] for a, b in zip(parts, parts[1:] + parts[:1], strict=True)]
     (lp,) = causal._named(spec, [cycle])
     assert (lp.name, lp.polarity) == ("main-repair", "B"), [(x.source, x.target, x.sign) for x in cycle]
-    b = spec.blocks["remedy-when"]
-    when = make(b, spec)
-    quiet = {"rising": 0.0, "many": 0.0, "main": 0.0}
-    for given, want in ((quiet, 0.0), (quiet | {"main": 1.0}, 1.0), (quiet | {"many": 1.0}, 1.0)):
-        values = {str(b.inputs[k]): v for k, v in given.items()}
-        assert when.compute(lambda r, values=values: values[str(r)], 0.0) == want, given
 
 
 def guarantees_project(tmp_path, every: str):
