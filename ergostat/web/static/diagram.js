@@ -835,6 +835,7 @@ function drawGraph(svg, g, lay) {
   svg.classList.toggle("sd", sd);
   if (sd) sdPlaceSigns(svg);                          // each sign beside its own head (dynamics.js)
   applyView(svg);
+  if (sd) sdSparks(svg, g);                           // closed modules' sparklines, after the structure (dynamics.js)
   if (S.hl) highlightLoop(S.hl);
   if (sd && S.hlCausal) sdApply(S.hlCausal);
   if (S.hoverKey || S.selKey) trace(S.hoverKey || S.selKey);   // a redraw keeps the line being followed
@@ -861,6 +862,7 @@ function toggleSide() {
 function applyView(svg) {
   const vp = svg.querySelector("#viewport");
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
+  if (typeof sdSparksZoomed === "function") sdSparksZoomed(svg);   // a sparkline too small to read is not drawn
   // whether some of the diagram lies beyond the edge, after a drag or a zoom too
   const hint = document.getElementById("panhint"), lay = S.layout, r = svg.getBoundingClientRect();
   if (hint && lay && r.width) {
@@ -1589,8 +1591,8 @@ function renderSide(side, g, view) {
       a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null);   // its suggestion, once due
   };
   const one = (a) => (a.members ? a.members[0] : a);
-  const list = (xs, none, cls, key, answered = []) => {
-    const att = h("div", { class: `att ${cls}`, ...(key ? { key } : {}) }, ...answered);   // answered here: at the top
+  const list = (xs, none, cls, key, answered = [], more = {}) => {
+    const att = h("div", { class: `att ${cls}`, ...(key ? { key } : {}), ...more }, ...answered);   // answered here: at the top
     if (!xs.length && !answered.length) att.append(h("div", { class: "none" }, none));
     folded(xs).forEach((a, i, ys) => {
       if (i && one(a).modelling && !one(ys[i - 1]).modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
@@ -1604,11 +1606,13 @@ function renderSide(side, g, view) {
   let moved = null;
   if (waiting.length || ANSWERED.size) {               // what was answered here stays until the page is loaded again
     side.append(h("h3", { class: "att-head", key: "waiting-h", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)));
-    let rows = list(waiting, "", "needs", "waiting-rows", [...ANSWERED.values()].map(answeredRow));
+    // the one thing a person does here, said once with the group (its description, not announced on each poll)
+    let rows = list(waiting, "", "needs", "waiting-rows", [h("p", { id: "may-do", class: "may-do", key: "may-do" }, MAY_DO), ...[...ANSWERED.values()].map(answeredRow)],
+                    { role: "group", "aria-label": "Waiting for you", "aria-describedby": "may-do" });
     // folded or unfolded: the rows on the page are moved, not made again, so a reason typed in one stays with it
     if (inList && !rows.__ref && !!inList.closest("details.waiting-fold") !== fold) rows = live(moved = patchNode(inList, rows));
     side.append(fold ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);
-  }
+  } else side.append(h("p", { id: "may-do", class: "may-do", key: "may-do" }, "Nothing waits for you. Looking never changes the system."));
   side.append(legendBox(view));
   // (its count the header's, from the server: the system's goals off, the model's upkeep apart; never its rows counted)
   side.append(h("h3", { class: "att-head", key: "off-h" }, "Goals off", h("span", { class: "muted" }, ` ${goalsOffText()}`)),

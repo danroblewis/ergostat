@@ -411,10 +411,12 @@ def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_pa
 
 
 @contextlib.contextmanager
-def served(example: str, tmp_path: Path, edit=None):
-    """An example's page, served from a fresh copy (the model is not run; ``edit`` may change the copy first)."""
-    d = tmp_path / example
-    shutil.copytree(ROOT / "examples" / example, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+def served(example: str | Path, tmp_path: Path, edit=None):
+    """An example's page (or a model folder's), served from a fresh copy (the model is not run; ``edit`` may change
+    the copy first)."""
+    src = example if isinstance(example, Path) else ROOT / "examples" / example
+    d = tmp_path / src.name
+    shutil.copytree(src, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
     if edit:
         edit(d)
     port = free_port()
@@ -5942,6 +5944,73 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+MAY_DO ="You can look at everything. Approving or denying these is the only thing that changes the system."
+MAY_DO_NONE = "Nothing waits for you. Looking never changes the system."
+MAY_DO_SEEN = """() => {
+  const g = document.querySelector('[role="group"][aria-describedby="may-do"]'), may = document.getElementById("may-do");
+  const legend = document.querySelector("details.legend-box");
+  return { first: g?.firstElementChild === may, text: may?.textContent, lead: g?.innerText.trim().split("\\n")[0],
+           group: !!g, top: !!(may && legend && may.compareDocumentPosition(legend) & Node.DOCUMENT_POSITION_FOLLOWING),
+           live: !!may?.closest("[aria-live]"), right: may?.getBoundingClientRect().right, width: innerWidth,
+           over: may ? may.scrollWidth > may.clientWidth : null, shown: (may?.getBoundingClientRect().width || 0) > 0 };
+}"""
+
+
+def hold_an_action(d: Path) -> None:
+    from ergostat import model as mdl
+    from ergostat.actions import gate
+    from ergostat.store import Project
+    p = Project(mdl.load(d))
+    gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None})
+
+
+@pytest.mark.parametrize("waiting", [True, False], ids=["waiting", "none"])
+def test_the_requests_group_opens_by_saying_what_a_person_may_do(browser, tmp_path, waiting):
+    """Needs attention opens with the one sentence on what a person may do, its group described by it (a screen reader
+    reads it once on entering, and a redraw neither replaces nor changes it); with nothing waiting, its empty form;
+    the gated actions on the Items page say the same; at 390 px it wraps within the page."""
+    from .test_inbox import MODEL
+    src = tmp_path / "src" / "inbox"
+    src.mkdir(parents=True)
+    (src / "ergostat.yaml").write_text(MODEL)
+    said = MAY_DO if waiting else MAY_DO_NONE
+    with served(src, tmp_path, edit=hold_an_action if waiting else None) as url:
+        pg = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        if waiting:
+            pg.wait_for_selector('[data-inbox^="action/"]', timeout=30000)
+        pg.wait_for_selector("#may-do", timeout=30000)
+        got = pg.evaluate(MAY_DO_SEEN)
+        assert got["text"] == said and got["top"], got           # where the group is: above How to read it
+        if waiting:                                               # the first text of Waiting for you, which it describes
+            assert got["first"] and got["lead"] == said, got
+        else:                                                     # nothing waits: no group, only its empty form
+            assert not got["group"], got
+        assert not got["live"], "said with the group, not as a live region"
+        pg.evaluate("""() => { window.__may = document.getElementById("may-do"); window.__muts = 0;
+          new MutationObserver((rs) => { window.__muts += rs.length; })
+            .observe(window.__may, { childList: true, characterData: true, subtree: true, attributes: true }); }""")
+        pg.evaluate("() => { S.redrawSide(); S.redrawSide(); }")
+        assert pg.evaluate("() => document.getElementById('may-do') === window.__may && window.__muts === 0")
+        pg.set_viewport_size({"width": 390, "height": 844})
+        pg.reload()
+        pg.wait_for_selector("#may-do", timeout=30000)
+        got = pg.evaluate(MAY_DO_SEEN)
+        assert got["text"] == said and got["shown"] and not got["over"] and got["right"] <= got["width"], got
+        pg.set_viewport_size({"width": 1400, "height": 900})
+        for actions in ("items?kind=ergostat.action", "items/ergostat.action"):    # the Items tab's and their own page
+            pg.goto(f"{url}/{actions}")
+            pg.wait_for_selector("p.may-do:not([hidden])", timeout=30000)
+            assert pg.locator("p.may-do:not([hidden])").inner_text() == MAY_DO, actions
+        pg.goto(f"{url}/items")
+        pg.wait_for_selector(".filters", timeout=30000)
+        assert pg.locator("p.may-do:not([hidden])").count() == 0
+        pg.close()
+        assert not errors, errors
+
+
 SIDE_WORDS = """() => ({
   side: [...document.querySelectorAll('.side .att b, .side .suggest .hint b')].map((b) => b.textContent),
   says: [...document.querySelectorAll('.side .suggest .hint')].map((d) => d.textContent.replace(/^\\S+ \\S+ /, '')),
@@ -6684,7 +6753,7 @@ uses:
 """
 GROUPS = """() => [...document.querySelectorAll('.side h3.att-head')].map((hd) => {
   const det = hd.closest('details'), list = det ? det.querySelector('.att') : hd.nextElementSibling;
-  const rows = [...list.children].filter((x) => !x.classList.contains('none'));
+  const rows = [...list.children].filter((x) => !x.classList.contains('none') && !x.classList.contains('may-do'));
   return { head: hd.textContent.trim(), open: det ? det.open : true,
            rows: rows.map((x) => x.tagName === 'HR' ? '---' : x.textContent.trim()),
            words: rows.filter((x) => x.tagName === 'DIV')
@@ -6958,3 +7027,217 @@ def test_a_changed_count_of_what_waits_is_announced(browser, tmp_path, monkeypat
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+# ---- a closed module's sparklines (dev/records/module-box-sparklines.md)
+
+SPARKED = """
+name: sparked
+systems:
+  reception-and-triage:
+    description: the desk
+    show: [stock.backlog, auxiliary.pressure, flow.arriving, stock.spare]
+  archive:
+    description: what it serves
+    show: [stock.filed]
+stocks:
+  backlog: {unit: tickets, system: reception-and-triage, sensor: {manual: true}}
+  spare: {unit: things, system: reception-and-triage, sensor: {manual: true}}
+  filed: {unit: tickets, system: archive, sensor: {manual: true}}
+flows:
+  arriving: {to: backlog, system: reception-and-triage, sensor: {manual: true}}
+  finishing: {from: backlog, to: filed, system: reception-and-triage}
+auxiliaries:
+  pressure: {unit: share, driven-by: +stock.backlog, system: reception-and-triage, sensor: {manual: true}}
+  load: {driven-by: +stock.spare, system: archive}
+  heat: {driven-by: +auxiliary.pressure, system: archive}
+"""
+DESK = "system:reception-and-triage"
+# every spark row drawn: its box, whether that box is a closed module, its texts, its line, whether it is inside its box
+SPARKS = """() => [...document.querySelectorAll('svg.canvas .sd-spark')].map((r) => {
+  const g = r.closest('g.node'), a = r.getBoundingClientRect(), b = g.querySelector('.hit').getBoundingClientRect();
+  const line = r.querySelector('.sd-spark-line');
+  return { box: g.dataset.id, module: g.classList.contains('k-system'), ref: r.dataset.ref,
+           texts: [...r.querySelectorAll('text')].map((t) => t.textContent), d: line?.getAttribute('d') || '',
+           inside: a.left >= b.left - 0.5 && a.right <= b.right + 0.5 && a.top >= b.top - 0.5 && a.bottom <= b.bottom + 0.5,
+           stroke: line ? getComputedStyle(line).stroke : null,
+           paper: getComputedStyle(document.querySelector('svg.canvas')).backgroundColor };
+})"""
+# where every box is, and how big: its layout, its transform, its outline and all it draws, on the screen
+PLACES = """() => [...document.querySelectorAll('svg.canvas g.node')].map((g) => {
+  const c = S.layout.children.find((x) => x.id === g.dataset.id), r = g.getBoundingClientRect();
+  const h = g.querySelector('.hit')?.getBoundingClientRect();
+  const at = (b) => [b.x, b.y, b.width, b.height].map((v) => Math.round(v * 10) / 10);
+  return [g.dataset.id, g.getAttribute('transform'), c ? [c.x, c.y, c.width, c.height] : null, at(r), h ? at(h) : null];
+}).sort()"""
+
+
+@contextlib.contextmanager
+def sparked(tmp_path: Path):
+    """SPARKED's page, an hour and more of readings every 30s, backlog's missing from 30 to 10 minutes ago."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "sparked"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(SPARKED)
+    env = {**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}
+    old = os.environ.get("ERGOSTAT_HOME")
+    os.environ["ERGOSTAT_HOME"] = env["ERGOSTAT_HOME"]
+    try:
+        p = Project(mdl.load(d))
+        now = time.time()
+        for i in range(150):
+            t = now - 4500 + i * 30
+            if not now - 1800 <= t < now - 600:
+                p.measurements.add("sensor/backlog.main", 4 + 3 * math.sin(i / 9), at=t)
+            p.measurements.add("sensor/pressure.main", 0.5 + 0.3 * math.cos(i / 11), at=t)
+            p.measurements.add("sensor/arriving.main", 6 + i % 4, at=t)
+            p.measurements.add("sensor/spare.main", 2, at=t)
+            p.measurements.add("sensor/filed.main", i, at=t)
+    finally:
+        if old is None:
+            os.environ.pop("ERGOSTAT_HOME", None)
+        else:
+            os.environ["ERGOSTAT_HOME"] = old
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    raise AssertionError("the page never answered") from None
+                time.sleep(0.2)
+        yield url
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+def _asked_again(pg, asked: list, n: int) -> None:
+    for _ in range(100):
+        if len(asked) > n:
+            return
+        pg.wait_for_timeout(100)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_a_closed_module_draws_three_sparklines_after_its_structure_without_moving_a_box(browser, tmp_path, scheme):
+    """Done items 1 to 4: a closed module shows its first three headline measures (its show:), each its name, its value
+    now, its line and its scale, inside its box; the boxes are where they were and as big before the one batched answer
+    (held back here) and after it; the line has a gap where backlog was not read; too small to read when zoomed out,
+    none is drawn; a click on one opens the module's panel; an open module, a stock or a flow draws none."""
+    import urllib.parse
+    with sparked(tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        asked: list[str] = []
+        held: list = []
+        failing = [False]
+
+        def hold(route):                                 # the first answer held until the boxes are measured
+            asked.append(route.request.url)
+            if len(asked) == 1:
+                held.append(route)
+            elif failing[0]:
+                route.fulfill(status=500, body="no")
+            else:
+                route.continue_()
+        pg.route(re.compile(r"/api/series\?.*measured=1"), hold)
+        drawn(pg, url, "view=dynamics", 0)
+        _asked_again(pg, asked, 0)
+        assert len(held) == 1, asked
+        before = pg.evaluate(PLACES)
+        assert pg.evaluate(SPARKS) == [], "drawn before its answer"
+        refs = urllib.parse.parse_qs(urllib.parse.urlsplit(asked[0]).query)["refs"][0].split(",")
+        assert sorted(refs) == ["flow.arriving", "stock.backlog", "stock.filed", "stock.pressure"], refs   # every box's
+        assert len(asked) == 1, asked                                                                       # in one ask
+        held[0].continue_()
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length >= 4", timeout=30000)
+        assert pg.evaluate(PLACES) == before, "a box moved or changed its size when its sparklines came"
+        got = pg.evaluate(SPARKS)
+        mine = {x["ref"]: x for x in got if x["box"] == DESK}
+        assert sorted(mine) == ["auxiliary.pressure", "flow.arriving", "stock.backlog"], got      # three: the first three
+        assert [x["ref"] for x in got if x["box"] != DESK] == ["stock.filed"], got
+        assert all(x["module"] and x["inside"] for x in got), got
+        charted = pg.evaluate(f"() => S.graph.nodes.find((n) => n.id === '{DESK}').charted")
+        for x in mine.values():
+            m = next(c for c in charted if c["part"].split(":")[1] == x["ref"].split(".")[1])
+            assert x["texts"][0] == m["label"] and x["texts"][1].split(" ")[0] == m["value"].split(" ")[0], (x, m)   # now
+            assert re.fullmatch(r"\S+–\S+", x["texts"][2]), x                                          # its own scale
+            assert x["stroke"] and x["stroke"] != x["paper"], x
+        assert mine["stock.backlog"]["d"].count("M") == 2, mine["stock.backlog"]      # a gap where it was not read
+        assert mine["auxiliary.pressure"]["d"].count("M") == 1, mine["auxiliary.pressure"]
+        pg.evaluate("() => { S.view.k = 0.3; applyView(document.querySelector('svg.canvas')); }")
+        assert pg.evaluate(SPARKS) == [], "drawn too small to read"
+        pg.evaluate("() => { S.view.k = 1; applyView(document.querySelector('svg.canvas')); }")
+        assert len(pg.evaluate(SPARKS)) == 4
+        n = len(asked)
+        _asked_again(pg, asked, n)                       # asked again on the page's interval
+        assert len(asked) > n, asked
+        failing[0] = True                                # not answered: the last lines are not kept as if read now
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length === 0", timeout=30000)
+        failing[0] = False
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length === 4", timeout=30000)
+        row = pg.locator(f'svg.canvas g.node[data-id="{DESK}"] .sd-spark[data-ref="stock.backlog"]').bounding_box()
+        pg.mouse.click(row["x"] + row["width"] / 2, row["y"] + row["height"] / 2)
+        pg.wait_for_function(TITLED, arg="reception-and-triage", timeout=10000)   # its panel, with the full charts
+        drawn(pg, url, "view=dynamics&open=reception-and-triage", 1)
+        _asked_again(pg, asked, len(asked))
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length >= 1", timeout=30000)
+        got = pg.evaluate(SPARKS)
+        assert all(x["box"] == "system:archive" and x["module"] for x in got), got   # the open one draws none
+        drawn(pg, url, "view=dynamics&open=*", 2)
+        pg.wait_for_timeout(1500)
+        assert pg.evaluate(SPARKS) == [], "a stock, a flow or an auxiliary drew one"
+        pg.close()
+        assert not errors, errors
+
+
+def test_a_measure_the_answer_cut_past_its_ceiling_draws_nothing_never_no_readings(browser, tmp_path):
+    """The measured answer reads at most MEASURED_REFS parts and names the rest in ``cut``: a box whose measure was cut
+    (here archive's, the answer rewritten as the server's would be past its ceiling) draws nothing for it, never 'no
+    readings', while the parts answered draw as before."""
+    import json as _json
+    with sparked(tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+
+        def cut(route):
+            d = route.fetch().json()
+            d["series"] = [x for x in d["series"] if x["ref"] != "stock.filed"]
+            d["cut"] = ["stock.filed"]
+            route.fulfill(status=200, content_type="application/json", body=_json.dumps(d))
+        pg.route(re.compile(r"/api/series\?.*measured=1"), cut)
+        drawn(pg, url, "view=dynamics", 0)
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length >= 3", timeout=30000)
+        pg.wait_for_timeout(3000)                        # (and asked again on the interval: still nothing for it)
+        got = pg.evaluate(SPARKS)
+        assert sorted(x["ref"] for x in got) == ["auxiliary.pressure", "flow.arriving", "stock.backlog"], got
+        assert all(x["box"] == DESK for x in got), got
+        pg.close()
+        assert not errors, errors
+
+
+def test_an_examples_closed_modules_find_room_for_their_measures_and_nothing_read_is_no_line(browser, tmp_path):
+    """image-squeeze, served unrun (nothing read): every closed module with a show: draws at least one of its measures in
+    its box (room found in its own rows), each with no line and said as having no readings, and none outside its box."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=dynamics", 0)
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length > 0", timeout=30000)
+        got = pg.evaluate(SPARKS)
+        boxes = pg.evaluate("""() => S.graph.nodes.filter((n) => n.kind === 'system' && !n.upkeep && !n.remote &&
+          (n.charted || []).length && document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`)).map((n) => n.id)""")
+        drew = {b: len([x for x in got if x["box"] == b]) for b in boxes}
+        assert boxes and all(drew.values()), drew
+        assert all(x["inside"] and x["module"] and not x["d"] and x["texts"][2] == "no readings" for x in got), got
+        pg.close()
