@@ -173,3 +173,31 @@ waiting for the header's project picker (`#project`, main.js/util.js), which thi
 left alone as unrelated (lesson-13); the factory's rerun on clean main settles it. Not run by me: the unit suite and
 the other three browser files (left to the factory). There was nothing newer on `main` to merge (the clone's `main`
 is the branch's base).
+
+## Where it stopped (round 5, after merging main dc47a763)
+
+The only finding listed was the conflicts with main in `docs/SPEC.md` and `tests/test_items_page.py`. Both are
+resolved keeping both sides:
+- `docs/SPEC.md`: main's Timeline row (frame summary rows, the schedule's order, folding past 200 rows, the name
+  whole where it fits), plus the branch's "each segment named by its state where it fits".
+- `tests/test_items_page.py`: the branch's `desk` and `tickets` tests, and main's new stamp, caption and named-controls
+  tests, each closed by its own `assert not errors` / `pg.close()`. Main's named-controls test stays the last one on
+  `site`; the branch's tests use their own fixtures.
+
+The code still differs from main only in the branch's own lines: +15 −6 = +9 net (`pages.js`, `relations.js`,
+`snapshot.py`), within budget.
+
+Tests run after the merge: `uv run ruff check ergostat tests scripts` clean; `tests/test_items_page.py` with
+Playwright under the watchdog: 61 passed, 2 failed, rc 1. Both acceptance tests (`desk` and `tickets`) passed. These
+failed:
+- `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: the same header project-picker timeout as
+  in rounds 2 to 4. The branch does not change the header.
+- `test_actions_say_per_class_asked_approved_denied_and_whether_held` (new this round; failed again run by name, so
+  it is not load): a timeout waiting for `.action-classes li[data-class="jira-transition"]` on `/items`. That page
+  opens in List (`pages.js:569`), and in List the branch changes nothing: no `items-graph` is asked, each section's
+  order is still charts then tables, and every group ranks the same, so the stable sort keeps the server's order.
+  The line is drawn by `actionClasses` from the `actions` API (`pages.js:700`, `:804`), which the branch does not touch.
+  So it is unrelated (lesson-13) and left alone.
+Not proven on clean main: running these two tests with main's `pages.js` and `relations.js` copied in, then the
+branch's put back, was refused. The factory's rerun on clean main settles it. Not run by me: `tests/test_graph_cli_web.py`
+(unchanged by this merge), the unit suite and the other three browser files (left to the factory).
