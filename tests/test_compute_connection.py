@@ -141,6 +141,24 @@ def test_another_version_is_refused_with_its_error_kept(tmp_path):
     finally:
         m.close()
         m.thread.join(10)
+    home = "the root /home/alice/.local/state/ergostat-worker can't be made: [Errno 28] '/home/alice/x'"
+    for first, why in (({"v": 1, "seq": 1, "type": "error", "id": None, "why": home}, "the worker refused; its "
+                        "reason is not kept"), ({"v": "/home/alice", "seq": 1, "type": "hello"}, "line 1: its "
+                        "protocol is not v1"), ({"v": 1, "seq": 1, "type": "alice"}, "its first line is not hello")):
+        said = []
+        fake = f"import sys\nprint({json.dumps(first)!r}, flush=True)\nsys.stdin.read()\n"
+        pool = ComputePool("farm", [{"connect": [sys.executable, "-I", "-c", fake]}])
+        r = cx.Node(pool, 1, tmp_path / "home.log", lambda kind, data, s, said=said: said.append((kind, data, s)),
+                    first=60)
+        r.start()
+        try:
+            assert wait_for(lambda r=r: r.state == "refused", 15) and r.error == why, r.status()
+        finally:
+            r.close()
+            r.thread.join(10)
+        r._note("ended")                                                   # (the log exists, whatever was kept)
+        text = json.dumps(said) + json.dumps(r.status()) + (tmp_path / "home.log").read_text()
+        assert said and "alice" not in text                               # the record, what is said, the log
 
 
 def test_engine_starts_and_closes_every_session_and_never_names_a_host(tmp_path, monkeypatch):

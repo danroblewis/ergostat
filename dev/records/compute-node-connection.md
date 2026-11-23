@@ -70,3 +70,24 @@ dropped with ssh's because the two can't be told apart. Keeping a worker line wo
 (or the worker sending its diagnostics as frames), which can come later without changing anything here.
 
 Overrun reason: connection.py is now 307 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds 5 net lines (the ssh exit-status line in place of the alias regex).
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, continued round 3). Main (bf6dbebf) merged in; the one SPEC §12s conflict kept both
+sides (the keeper's run of 12s.3 and the engine's session of 12s.4 in one sentence). The review's one finding
+answered: a reason kept for a node (its `error`, compute.node.refused/lost `why`, what the engine says, the log) is
+now an allowlist of ergostat's own words. A worker's `error` hello reads `the worker refused; its reason is not kept`
+(its text can hold its root under the remote user's home); a first frame of another type reads `its first line is
+not hello` (the type is the worker's text); a bad frame's reason is kept only in the fixed forms frames.decode writes
+with whole numbers (`protocol v2 is not v1`, `seq 3 where 2 was next`), else `its protocol is not v1` or `its seq is
+out of order` (a `v` or `seq` string was echoed through repr). SPEC §12s.4's "or the worker's own `error`" is
+replaced by the fixed reason and the rule. test_another_version_is_refused_with_its_error_kept now also runs three
+fake workers (an `error` hello naming /home/alice, a hello with `v: "/home/alice"`, a first frame of type `alice`)
+and asserts each fixed reason and that `alice` is in neither the record, what is said, status() nor the log. Broken
+on purpose, it failed both ways: the worker's `why` kept verbatim, and `_bad` passing every reason through.
+
+Choice taken alone (the more reversible one): the worker's refusal text is dropped rather than matched against an
+allowlist of serve.py's Refused forms, since those forms are another gap's and change with it; an allowlist can be
+added later in `_hello` without changing anything else.
+
+Overrun reason: connection.py is now 318 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds 11 net lines (the allowlist of bad-frame reasons and the fixed refusal).

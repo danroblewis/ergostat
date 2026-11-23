@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import os
+import re
 import selectors
 import signal
 import subprocess
@@ -28,6 +29,7 @@ FIRST, MOST = 1.0, 600.0        # reconnects: from 1 s, doubling, to ten minutes
 TIMEOUT = 30.0                  # a request's answer, unless the caller says
 LOG_MOST, ERR_MOST = 8 << 20, 1 << 20   # a pool's log before it turns over to .1; a session's stderr kept (its tail)
 SOURCE = "ergostat"
+BAD = frozenset({"line over 1 MiB", "not JSON", "not a JSON object", "no type"})   # frames.Bad's fixed reasons
 
 
 class Lost(Exception):
@@ -168,7 +170,7 @@ class Node:
         try:
             f = frames.decode(line, want)
         except frames.Bad as e:
-            return f"line {want}: {e.why}"
+            return f"line {want}: {_bad(e.why)}"
         if want == 1:
             return self._hello(f)
         rid = f.get("id")
@@ -186,10 +188,10 @@ class Node:
         return None
 
     def _hello(self, f: dict) -> str | None:
-        if f["type"] == "error":
-            return f"the worker refused: {f.get('why')}"
+        if f["type"] == "error":                        # (its words can name the remote user's home: never kept)
+            return "the worker refused; its reason is not kept"
         if f["type"] != "hello":
-            return f"its first line is {f['type']}, not hello"
+            return "its first line is not hello"
         said = f.get("labels") if isinstance(f.get("labels"), dict) else {}
         lacks = sorted(k for k, v in self.want.items() if said.get(k) != v)
         if lacks:
@@ -246,6 +248,13 @@ class Node:
                 f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {self.name} {line}\n")
         except OSError:
             pass
+
+
+def _bad(why: str) -> str:
+    """A bad frame's reason as kept: only the forms frames.decode writes, with numbers; nothing the worker wrote."""
+    if why in BAD or re.fullmatch(r"protocol v\d{1,9} is not v\d{1,9}|seq \d{1,18} where \d{1,18} was next", why):
+        return why
+    return "its protocol is not v1" if why.startswith("protocol") else "its seq is out of order"
 
 
 def _signal(p: subprocess.Popen | None) -> None:

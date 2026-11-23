@@ -7097,8 +7097,10 @@ pool's list (from 1), and never by its host.
 - **In service** only after the first line is a `hello` of protocol 1 (the frame of §12s, checked as the worker
   checks the engine's, `seq` too) whose `labels` include each of the pool's `labels:` with the same text, and whose
   `slots` is a whole number from 0 to 64. Otherwise the node is **refused**: out of service with the reason kept
-  (`line 1: protocol v2 is not v1`, `its labels lack the pool's gpu`, or the worker's own `error`), and its session
-  ended.
+  (`line 1: protocol v2 is not v1`, `its labels lack the pool's gpu`, `the worker refused; its reason is not kept`),
+  and its session ended. A reason is ergostat's own words with numbers at most: nothing the worker wrote is kept (a
+  worker's `error` can name its root under the remote user's home; a `v` that is not a whole number reads `its
+  protocol is not v1`).
 - **Lost** at the session's end (`the session ended`), after three beats missed (30 s with nothing heard: `3 beats
   missed`; any line heard counts), or on a later line that is not a frame; its process group is then killed and
   reaped (a stopped worker too). Each lost or refused session is tried again after a wait of 1 s, doubling each try
