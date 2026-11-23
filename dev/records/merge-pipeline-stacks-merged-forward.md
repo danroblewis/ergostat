@@ -68,3 +68,18 @@ Extra test, not named in the definition: test_a_branch_moved_during_the_merge_fo
 (item 5). Each test was seen to fail when the code it guards was broken: sorting by id instead of depth
 (stack of three), update-ref with no old value (branch moved), merging forward leased, building and in-review gaps
 (leased).
+
+Fast suites, after the first build failed: the build log ends part way (113 of the 206 tests in tests/test_factory.py,
+one `F` among them) with no pytest summary, no FAILED line and no suite_watch line. The run was cut off, no failing
+test is named, and the factory found none to run alone. Run whole and serially on this branch (main merged in,
+e0019aaf), tests/test_factory.py gave 204 passed, 2 skipped (the two Docker tests), rc 0. Two things were refused
+here: running the build command itself under `-n 8 --dist worksteal` (to reproduce the failure), and measuring the
+sizes of the pytest temp folders. Checked in this gap's code and ruled out as a parallel-only cause:
+- stack.py's lock is the test's own `paths.queue_lock` (in tmp).
+- Its scratch clones are under the test's own `live/sessions`, and fac.MODEL is the test's own instance folder.
+- No test in the file asserts a wall-time bound that this gap moves.
+- In the tests that run the real engine on the factory's model, the block stack-forward never starts: with no
+  stale-stacks reading its gate gives 0 (Engine.due).
+No code was changed for it: with no failing test named, a change would be a guess. If the next build names a test, it
+is answered then. If it is cut off again with no summary, the cause may be the suite container (its 2 GB /tmp tmpfs
+or its 12 GB memory), which is outside this gap (lesson-13).
