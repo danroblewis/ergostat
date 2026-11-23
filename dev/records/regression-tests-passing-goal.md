@@ -42,3 +42,10 @@ finding more), and the sensor check in `test_fewer_tests_passed_turns_tests_not_
 only new finding is missing-feedback@tests-not-falling" is therefore not met as written: there is no new finding at all.
 Size: +7 lines of model YAML, about 74 net in all.
 Overrun reason: the seven-line restore-tests block, which check's send-back asked for, takes the model over the 70 budgeted.
+
+Round 2 (2026-11-23): the merge of main (2f08c24e) conflicted only in dev/README.md, where main's quarantine-small
+entry and this branch's tests-not-falling entry were in the same place. Both were kept, one after the other, and nothing
+else in the branch changed. After the merge, tests/test_factory_measure_runs.py had 22 passed, including
+test_the_passing_model_adds_no_finding, which reads the root model that now holds main's guarantees-quarantine.yaml.
+tests/test_code_health_measures.py had 5 passed, and ruff was clean. Not run here: the unit suite and the four browser
+files (no page is touched).
