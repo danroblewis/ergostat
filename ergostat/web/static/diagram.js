@@ -894,7 +894,8 @@ function fit(svg, lay, legible = false) {
    box, else a stock, else what comes first), kept from showing empty space beyond the drawing, and the hint says
    which way the rest lies */
 function fitNarrow(svg, lay, whole, legible, r) {
-  const k = legible ? Math.max(whole, NARROW_K) : Math.max(0.08, whole), ox = lay.ox || 0, oy = lay.oy || 0;
+  // the process map: its 11px text never drawn smaller, as in fit()
+  const k = Math.max(S.graph?.kind === "process" ? 1 : 0, legible ? Math.max(whole, NARROW_K) : Math.max(0.08, whole)), ox = lay.ox || 0, oy = lay.oy || 0;
   const at = (ext, size, o) => (ext * k <= size - 20 ? (size - ext * k) / 2 - o * k : null);   // it fits: centred
   let x = at(lay.width, r.width, ox), y = at(lay.height, r.height, oy);
   if (x == null || y == null) {

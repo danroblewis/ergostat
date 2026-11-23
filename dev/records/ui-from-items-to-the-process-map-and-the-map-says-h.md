@@ -217,3 +217,24 @@ markers in `ergostat/` or `tests/`. No source changed this round.
 Runs: ruff clean; tests/test_graph_cli_web.py 55 passed; the gap's browser test under suite_watch with Playwright,
 1 passed (rc 0). Not run: the unit suite, the four browser files in full, and tests/test_items_page.py (the merge
 queue runs them).
+
+### Round 8
+
+Both findings are answered.
+- The fit floor at phone width (diagram.js `fitNarrow`): at 700px or narrower the Process map now has the same floor
+  as `fit()` (scale at least 1), on the first view and with Fit, so its 11px node text is never drawn smaller at any
+  width, as SPEC and DESIGN say. DESIGN's phone-width sentence now says the Process map is the exception to the
+  7.7px fit. The browser test now also narrows to 390x800, reloads (so the first view goes through `fitNarrow`),
+  clicks Fit, and checks that every node's text is at least 11px and that the hint begins "More beyond the edge ".
+  Seen to fail with the `fitNarrow` floor removed (node text at 7.7px on the phone-width first view). It passes with
+  the floor put back. The other phone-width diagram tests
+  (`test_on_a_phone_the_diagram_opens_with_a_whole_system_box_in_view`, the split test) open the Dynamics and Blocks
+  views, which this change does not touch.
+- SPEC §5b's stale hint text now gives what the page shows: "More beyond the edge" and arrows (such as "→↓"). It also
+  says this holds at phone width.
+Net outside tests and docs: +2 lines this round (one comment line, one changed line).
+
+Runs: ruff clean; the gap's browser test under suite_watch with Playwright, 1 passed (rc 0). Not run: the unit suite,
+the four browser files in full, and tests/test_items_page.py (the merge queue runs them). Main has not moved in the
+clone since the round-7 merge. The first commit command for this round (a heredoc `cat >>` to this file chained with
+`git add -A && git commit`) was refused in this session, so this section was written with the editor.

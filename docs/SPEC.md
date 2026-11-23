@@ -2181,7 +2181,7 @@ each move it draws against the chain's flows, and who made each against the bloc
 first, its states in their declared order, its end last), in a frame named with its kind, how many items
 and by what; the frames are packed in rows to the screen's shape. Shown first, and by Fit, at no less than full size, so a
 node's smallest (11px) text is never drawn smaller; a map wider or taller than the screen is panned, and the view bar
-says which way more lies ("More to the right and below"). Each kind's card on the Items page links to its map in
+says which way more lies ("More beyond the edge" and arrows, such as "→↓"); at phone width too. Each kind's card on the Items page links to its map in
 States (`/diagram?view=process&kind=KIND&mode=states`; `kind` and `mode` read as `kinds` and `by`). The lines between kinds are routed by
 libavoid around every part, from the bottom or top of their ends. Plain ink: no colour carries meaning.
 A node dragged (or the nodes chosen), or a kind's frame dragged by its top, is pinned where it is put, as in
