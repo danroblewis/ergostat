@@ -10,6 +10,7 @@ It needs Playwright and a Chromium, so the usual run skips it:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -132,6 +133,66 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     for c in lab:
         if c["chart"] is not None:                                                 # the charts followed their cards
             assert abs(c["chart"] - c["width"]) < 4, lab
+    assert not errors, errors
+    pg.close()
+
+
+NAV = ["/diagram", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
+
+
+@pytest.fixture(scope="module")
+def nav_site(tmp_path_factory):
+    """A site of its own: opening every page records ergostat's first offered changes, which `site`'s tests count."""
+    d = tmp_path_factory.mktemp("nav") / EXAMPLE
+    shutil.copytree(ROOT / "examples" / EXAMPLE, d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(d.parent / "home")},
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+@pytest.mark.parametrize("size", [(390, 844), (720, 450)], ids=["phone", "zoom-200"])
+def test_the_navigation_shows_every_page_at_phone_width_and_at_200_percent_zoom(browser, nav_site, size):
+    """Below 760 px the tabs wrap onto rows of their own: all eight inside the viewport on every page, nothing
+    scrolled sideways, and the current page still underlined."""
+    site = nav_site
+    w, h = size
+    pg = browser.new_page(viewport={"width": w, "height": h})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    for route in NAV:
+        pg.goto(f"{site}{route}")
+        pg.wait_for_selector(f'#nav a.on[href="{route}"]')
+        pg.wait_for_timeout(300)
+        seen = pg.evaluate("""() => ({
+            links: [...document.querySelectorAll("#nav a")].map((a) => {
+                const r = a.getBoundingClientRect();
+                return { href: a.getAttribute("href"), left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+            }),
+            scroll: document.scrollingElement.scrollWidth, client: document.scrollingElement.clientWidth,
+            rows: new Set([...document.querySelectorAll("#nav a")].map((a) => Math.round(a.getBoundingClientRect().top))).size,
+            under: getComputedStyle(document.querySelector("#nav a.on")).borderBottomColor,
+            plain: getComputedStyle(document.querySelector("#nav a:not(.on)")).borderBottomColor,
+        })""")
+        assert [a["href"] for a in seen["links"]] == NAV, (route, seen)
+        out = [a for a in seen["links"] if a["left"] < 0 or a["top"] < 0 or a["right"] > w or a["bottom"] > h]
+        assert not out, (route, size, out)
+        assert seen["scroll"] == seen["client"], (route, size, seen)
+        assert seen["rows"] <= 2, (route, size, seen)                          # two rows at most
+        assert seen["under"] != seen["plain"], (route, seen)                    # the current page underlined
     assert not errors, errors
     pg.close()
 
@@ -354,6 +415,128 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     pg.close()
 
 
+def add_record(*events) -> None:
+    """Events with their source and time, (type, item, source, data, at), added to the running site's record."""
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+for t, item, source, data, at in {events!r}:
+    p.events.add(t, item=item, source=source, data=data, at=at)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+
+
+def record_rows(pg) -> list[dict]:
+    pg.wait_for_selector("main .page table tr td")
+    return pg.locator("main .page table tr:has(td)").evaluate_all("""trs => trs.map((tr) => {
+        const td = [...tr.children].map((c) => c.textContent.trim());
+        return { type: td[1], item: td[2], source: td[3], data: td[4] }; })""")
+
+
+def test_a_crossing_opens_the_record_narrowed_to_its_goal_and_time_and_the_filter_stays_in_the_address(browser, site):
+    """A crossing of a goal in its evidence panel links to the Record of that goal (it, its controller's and valves'
+    agents, its valves) from the crossing to the next one, and nothing else; the filter box matches an event's item
+    and source as well as its type; the filter and the window stay in the address, so a reload keeps them."""
+    t0 = float(int(time.time()) - 900)
+    add_record(("loop.off", "ideas-ready", None, {"value": 1, "error": 2, "mark": "mk-off"}, t0),
+               ("controller.decided", "ideas-ready", None, {"decision": "propose", "mark": "mk-inside"}, t0 + 100),
+               ("hypothesis.proposed", "hypothesis/99", None, {"title": "x", "mark": "mk-other-item"}, t0 + 150),
+               ("loop.on", "ideas-ready", None, {"value": 4, "mark": "mk-on"}, t0 + 300),
+               ("controller.decided", "ideas-ready", None, {"decision": "rest", "mark": "mk-after"}, t0 + 400),
+               ("repair.fixed", "repair/1", "fixer", {"mark": "mk-fixer-source"}, t0 + 500))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/diagram")
+    pg.wait_for_function("() => typeof openLoop === 'function' && S.status", timeout=60000)
+    link = pg.locator(f'#detail table.crossings a[href*="from={int(t0)}&"]')
+    for _ in range(40):                                  # the page's snapshot may be older than the events just added
+        pg.evaluate("() => openLoop('ideas-ready')")
+        try:
+            link.wait_for(timeout=1000)
+            break
+        except playwright.Error:
+            pass
+    link.click()
+    pg.wait_for_function("() => location.pathname === '/record' && location.search.includes('about=ideas-ready')")
+    assert f"from={int(t0)}" in pg.url and f"to={int(t0) + 300}" in pg.url, pg.url
+    lp = pg.evaluate("() => api('loops/ideas-ready')")
+    mine = {"ideas-ready", *(pt["name"] for pt in lp["parts"] if pt["kind"] != "sensor"),
+            *(pt["agent"]["name"] for pt in lp["parts"] if pt["kind"] != "sensor" and pt.get("agent"))}
+    for _ in range(2):                                   # as clicked, then reloaded
+        rows = record_rows(pg)
+        marks = {m for r in rows for m in ("off", "inside", "on", "other-item", "after", "fixer-source") if f"mk-{m}" in r["data"]}
+        assert marks == {"off", "inside", "on"}, rows
+        assert all(r["item"] in mine or r["source"] in mine for r in rows), (rows, mine)
+        pg.reload()
+        pg.wait_for_function("() => location.search.includes('about=ideas-ready')")
+    pg.goto(f"{site}/record")
+    pg.fill('input[aria-label="Event type, item or source"]', "fixer")
+    pg.press('input[aria-label="Event type, item or source"]', "Enter")
+    pg.wait_for_function("() => location.search.includes('match=fixer')")
+    for _ in range(2):
+        # the unfiltered Record holds mk-fixer-source too: wait for the filtered rows, not only for the text
+        pg.wait_for_function("""() => { const rs = [...document.querySelectorAll('main .page table tr:has(td)')]
+            .map((tr) => [...tr.children].map((c) => c.textContent.trim()));
+            return rs.length && rs.some((r) => r[4].includes('mk-fixer-source'))
+                && rs.every((r) => r[2] === 'fixer' || r[3] === 'fixer'); }""")
+        rows = record_rows(pg)
+        assert rows and all(r["source"] == "fixer" or r["item"] == "fixer" for r in rows), rows
+        pg.reload()
+        pg.wait_for_function("() => location.search.includes('match=fixer')")
+        assert pg.input_value('input[aria-label="Event type, item or source"]') == "fixer"
+    assert not errors, errors
+    pg.close()
+
+
+STRIP = """() => {
+  const t = document.querySelector('.track');
+  if (!t) return null;
+  const c = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const rgb = (css) => { c.clearRect(0, 0, 1, 1); c.fillStyle = css; c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data]; };
+  const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; })
+    .reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const bg = (el) => { for (; el; el = el.parentElement) { const x = rgb(getComputedStyle(el).backgroundColor);
+    if (x[3] === 255) return x; } return [255, 255, 255, 255]; };
+  const ratio = (el) => { const a = lum(rgb(getComputedStyle(el).color)), b = lum(bg(el));
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
+  const top = [...t.children];
+  return { path: top.filter((e) => !e.classList.contains('alt')).map((e) => e.classList.contains('arrow') ? '→' : e.textContent),
+           alt: [...t.querySelectorAll('.alt .stbox')].map((e) => e.textContent),
+           final: [...t.querySelectorAll('.stbox.final')].map((e) => e.textContent.trim()).sort(),
+           double: [...t.querySelectorAll('.stbox.final')].every((e) => getComputedStyle(e).borderTopStyle === 'double'),
+           worst: Math.min(...[...t.querySelectorAll('.stbox'), t.querySelector('.alt')].filter(Boolean).map(ratio)) };
+}"""
+
+
+def test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apart(browser, site):
+    """A done session's strip is 'open → done', ending at its present state; its other endings (failed, lost) sit apart
+    with no arrow element between 'done' and them, each ending double-bordered, and every state label is at least
+    4.5:1 against its background in light and dark. An open session draws only 'open', its other states apart."""
+    add_events(("session.started", "session/strip", {"role": "researcher"}), ("session.ran", "session/strip", {}))
+    errors: list[str] = []
+    for theme in ("light", "dark"):
+        pg = browser.new_page(viewport={"width": 1400, "height": 900}, color_scheme=theme)
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{site}/item/session/strip")
+        pg.wait_for_function("() => document.querySelector('.track .stbox.on')?.textContent === 'done'", timeout=20000)
+        got = pg.evaluate(STRIP)
+        assert got["path"] == ["open", "→", "done"], got
+        assert got["alt"] == ["failed", "lost"], got
+        assert not pg.locator(".track .alt .arrow").count()                  # nothing points from 'done' to another ending
+        assert got["final"] == ["done", "failed", "lost"] and got["double"], got
+        assert got["worst"] >= 4.5, (theme, got)
+        pg.goto(f"{site}/item/session/s1")
+        pg.wait_for_function("() => document.querySelector('.track .stbox.on')?.textContent === 'open'", timeout=20000)
+        got = pg.evaluate(STRIP)
+        assert got["path"] == ["open"] and got["alt"] == ["done", "failed", "lost"] and got["worst"] >= 4.5, (theme, got)
+        assert not errors, errors
+        pg.close()
+
+
 # ---- the Graph and the Timeline (relations: SPEC §5a; relations.js), on the roadmap example's record
 
 ROADMAP = "roadmap"
@@ -526,6 +709,42 @@ def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadm
     pg.close()
 
 
+RG_MODEL = """([d, o]) => { const m = rgModel(d, o);
+  return { nodes: m.nodes.map((n) => n.id), edges: m.edges.filter((e) => e.cls === 'dep' || e.cls === 'via').map((e) => [e.from, e.to]),
+           capped: m.capped, lost: m.lost }; }"""
+
+
+def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadmap):
+    """The page's own rgModel on an answer of the factory's shape (tests/test_graph_parts.py): every unfinished gap
+    and every line into one drawn, no review; past the bound (a chained record, one group bigger than the bound, an
+    epic over more than the bound), exactly what the unit tests' rule draws, and every line left out counted."""
+    from ergostat.web import graph_parts
+    from tests.test_graph_parts import drawn as rule
+    from tests.test_graph_parts import epic_answer, factory_answer, fan_answer, unreported
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    ans = graph_parts.mark(factory_answer())
+    by = {x["id"]: x for x in ans["items"]}
+    into = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["status"] != "done"}
+    unfinished = {a for a, x in by.items() if x["kind"] == "gap" and x["status"] != "done"}
+    o = {"frontier": True, "collapse": False, "group": "parent", "q": "", "status": None}
+    got = pg.evaluate(RG_MODEL, [ans, o])
+    assert not got["capped"] and got["lost"] == 0, got["capped"]
+    assert unfinished <= set(got["nodes"]) and not any(a.startswith("review/") for a in got["nodes"])
+    assert {tuple(e) for e in got["edges"]} == into and len(into) == 340
+    got = pg.evaluate(RG_MODEL, [ans, {**o, "collapse": True}])                  # the finished collapsed: theirs go
+    assert set(got["nodes"]) == unfinished
+    assert {tuple(e) for e in got["edges"]} == {(a, b) for a, b in into if a in unfinished}
+    for big in (factory_answer(n_open=1200, seed=11), fan_answer(), epic_answer()):   # past the bound
+        big = graph_parts.mark(big)
+        got = pg.evaluate(RG_MODEL, [big, o])
+        scope, keep, lost = rule(big)                                        # the rule, as the unit tests hold it
+        assert got["capped"] == len(scope) > 600 and set(got["nodes"]) == keep and got["lost"] == lost
+        assert unreported(big, scope, keep, got["lost"]) == 0                   # each line left out, counted
+        assert not any(a.startswith("gap/p") for a in keep)                     # never paused work before active
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap):
     pg, errors = open_view(browser, roadmap, "items?view=timeline", ".rg-timeline[data-drawn] .rg-row")
     rows = drawn(pg, ".rg-timeline .rg-row .rg-label")
@@ -551,14 +770,48 @@ def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap
     pg.locator(".rg-timeline .rg-tools button", has_text="+").click()
     pg.locator(".rg-timeline .rg-tools button", has_text="+").click()
     assert ticks() != before
-    pg.locator(".rg-check", has_text="Collapse done").locator("input").check()     # the finished rows go
-    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length < {len(rows)}")
-    assert not pg.locator(".rg-timeline .rg-row.rg-done").count()
-    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()        # every item in the window
-    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()
+    assert not pg.locator(".rg-timeline .rg-row.rg-done").count()                 # the finished collapsed, by default
+    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()   # the finished rows come back
     pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length > {len(rows)}")
+    kept = pg.locator(".rg-timeline .rg-row").count()
+    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()        # every item in the window
+    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length > {kept}")
     assert not errors, errors
     pg.close()
+
+
+def test_the_timeline_says_how_well_last_weeks_estimates_held(browser, roadmap):
+    """A clause per kind in the Timeline's note (eta.calibration, SPEC §5a), in the warning ink under 0.7 of 10 or more;
+    by item and by lanes."""
+    good = "last week's estimates: 8 in 10 tickets finished by their p90 (41 tickets)"
+    poor = "last week's estimates: 4 in 10 epics finished by their p90 (12 epics)"
+    cal = {"ticket": {"coverage": 0.83, "items": 41, "mae": 600.0, "since": 0, "said": good},
+           "epic": {"coverage": 0.42, "items": 12, "mae": 900.0, "since": 0, "said": poor},
+           "note": {"coverage": 0.0, "items": 3, "mae": None, "since": 0, "said": "notes: too few finished last week to check"}}
+
+    def fill(route):
+        r = route.fetch()
+        d = r.json()
+        if d.get("eta"):
+            d["eta"]["calibration"] = cal
+        route.fulfill(response=r, json=d)
+    def look(rows: str) -> None:
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/items-graph*", fill)
+        pg.goto(f"{roadmap}/items?view=timeline{rows}")
+        pg.wait_for_selector(".rg-timeline .rg-note .rg-calibration span", timeout=20000)
+        said = pg.locator(".rg-timeline .rg-note").inner_text()
+        assert good in said and poor in said and "too few finished last week to check" in said, said
+        warned = pg.locator(".rg-timeline .rg-calibration .lvl-warn").evaluate_all("els => els.map((e) => e.dataset.kind)")
+        assert warned == ["epic"], warned
+        ink = lambda k: pg.locator(f'.rg-timeline .rg-calibration [data-kind="{k}"]').evaluate("e => getComputedStyle(e).color")   # noqa: E731
+        assert ink("epic") != ink("ticket") and ink("note") == ink("ticket")
+        assert not errors, errors
+        pg.close()
+    look("")
+    look("&rows=lanes")
 
 
 def test_the_timeline_levels_lanes_per_block(browser, roadmap):
@@ -580,6 +833,77 @@ def test_the_timeline_levels_lanes_per_block(browser, roadmap):
     pg.wait_for_selector(".rg-timeline .rg-row .rg-whisker", timeout=20000)
     assert pg.locator(".rg-timeline .rg-p50").count() >= 5
     assert not errors, errors
+    pg.close()
+
+
+def shown_clock(said: str, now: float) -> float:
+    """A clock time the legend says ("04:02", or "Nov 23 04:02" on another day) as seconds since the epoch."""
+    import datetime as dt
+    *day, hm = said.split()
+    today = dt.datetime.fromtimestamp(now)
+    d = dt.datetime.strptime(f"{' '.join(day)} {today.year}", "%b %d %Y").date() if day else today.date()
+    t = dt.datetime.combine(d, dt.datetime.strptime(hm, "%H:%M").time())
+    return t.timestamp()
+
+
+def test_the_finish_is_a_clock_time_no_earlier_than_the_critical_paths_end(browser, roadmap):
+    """The legend says when the last open item is done in one sentence, on first paint ("being worked out" until the
+    estimates are): a clock time expected and one 'at worst', the expected no earlier than now plus the critical
+    path's remaining duration (the answer's ``end``), the worst no earlier than the expected."""
+    import re
+    answers: list[dict] = []
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 4;")
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("response", lambda r: answers.append(r) if "/api/items-graph" in r.url else None)
+    pg.goto(f"{roadmap}/items?view=graph")
+    pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
+    first = pg.locator(".rg-legend .rg-eta").all_inner_texts()                   # on first paint, one sentence
+    assert len(first) == 1 and ("being worked out" in first[0] or "at worst" in first[0]), first
+    assert "done in about" not in pg.locator(".rg-legend").first.inner_text()       # no duration beside it
+    pg.wait_for_function("() => document.querySelector('.rg-legend .rg-eta')?.textContent.includes('at worst')", timeout=30000)
+    said = pg.locator(".rg-legend .rg-eta").first.inner_text()
+    m = re.fullmatch(r"last (\w+) \((\S+)\) expected ((?:\w{3} \d+ )?\d\d:\d\d), by ((?:\w{3} \d+ )?\d\d:\d\d) at worst \(9 in 10\)", said)
+    assert m, said
+    d = next(a.json() for a in reversed(answers) if a.ok and (a.json().get("eta") or {}).get("kinds"))
+    expected, worst = shown_clock(m[3], d["now"]), shown_clock(m[4], d["now"])
+    assert d["critical"] and d["end"] > d["now"], d["end"] - d["now"]
+    assert expected >= d["end"], (said, d["end"] - d["now"])                       # not before the critical path's end
+    assert worst >= expected, said
+    # a simulation that ends before the critical path does: the sentence still says no earlier than its end
+    said, now, end = pg.evaluate("""() => { const now = Math.floor(Date.now() / 1000), end = now + 3600;
+      const e = { p50: now + 60, p90: now + 120, visits: {} };
+      const d = { now, end, critical: ['epic/e100'], eta_pending: false, eta: { runs: 50, kinds: { epic: e } },
+                  items: [{ id: 'epic/e100', kind: 'epic', status: 'active', eta: e }] };
+      return [rgFinish(d).textContent, now, end]; }""")
+    m = re.fullmatch(r"last epic \(e100\) expected ((?:\w{3} \d+ )?\d\d:\d\d), by ((?:\w{3} \d+ )?\d\d:\d\d) at worst \(9 in 10\)", said)
+    assert m and shown_clock(m[1], now) >= end and shown_clock(m[2], now) >= end, said
+    # an estimate not yet worked out (a what-if never asked): the answer says so, and so does the sentence
+    import json
+    with urllib.request.urlopen(f"{roadmap}/api/items-graph?whatif=block.developer.pool:7", timeout=10) as r:
+        fresh = json.load(r)
+    assert fresh["eta"] is None and fresh["eta_pending"] is True, fresh.get("eta_pending")
+    said = pg.evaluate("(d) => rgFinish(d).textContent", fresh)
+    assert said == "the last item's finish: being worked out", said
+    assert not errors, errors
+    pg.close()
+
+
+def test_the_timeline_opens_at_now(browser, roadmap):
+    """A short window: the Timeline opens with its now line in view, at the first unfinished row."""
+    pg = browser.new_page(viewport={"width": 1200, "height": 420})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 4;")
+    pg.goto(f"{roadmap}/items?view=timeline")
+    pg.wait_for_selector(".rg-timeline[data-drawn] .rg-now line", state="attached", timeout=20000)
+    pg.wait_for_timeout(500)
+    at = pg.evaluate("""() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
+      return { now: box(document.querySelector('.rg-timeline .rg-now line')),
+               row: box(document.querySelector('.rg-timeline .rg-row:not(.rg-done)')), w: innerWidth, h: innerHeight,
+               y: scrollY }; }""")
+    (x, t, _, b), (_, rt, _, rb) = at["now"], at["row"]
+    assert 0 <= x <= at["w"] and t < at["h"] and b > 0, at                     # the now line, inside the viewport
+    assert 0 <= rt and rb <= at["h"], at                                          # and the first unfinished row
     pg.close()
 
 
@@ -934,3 +1258,120 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+FINISHING = """
+items:
+  gap:
+    id: gap/*
+    states: [open, building, merged, parked, closed]
+    on: {gap.opened: open, gap.started: building, gap.merged: merged, gap.parked: parked, gap.closed: closed}
+  pool:
+    id: pool/*
+    states: [held]
+    on: {pool.measured: held}
+messages:
+  done: {gap: [merged, closed]}
+  paused: {gap: [parked]}
+"""
+
+
+def test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_on(browser, tmp_path):
+    """items-kinds-say-which-states-finish: under each kind's states, 'finished: ... (declared)' with its paused
+    states, or 'lives on' for a kind with one state."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    (tmp_path / "ergostat.yaml").write_text(FINISHING)
+    p = Project(mdl.load(tmp_path))
+    t = time.time() - 600
+    for i in range(1, 4):
+        p.events.add("gap.opened", item=f"gap/g{i}", at=t + i)
+        p.events.add("pool.measured", item=f"pool/p{i}", at=t + i)
+    p.events.add("gap.merged", item="gap/g1", at=t + 10)
+    p.events.add("gap.parked", item="gap/g2", at=t + 11)
+    server, url = web_serve(p, free_port())
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        pg.goto(f"{url}/items")
+        pg.wait_for_function("() => document.querySelectorAll('.kind-flow .finish-line').length >= 2")
+        lines = dict(pg.locator(".kind-flow").evaluate_all("""els => els.map((e) => [
+            e.querySelector('.kname').firstChild.textContent, e.querySelector('.finish-line')?.textContent])"""))
+        assert lines["gap"] == "finished: merged, closed (declared) · paused: parked", lines
+        assert lines["pool"] == "lives on", lines
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
+UPKEEP_SEED = """
+import sys, time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path(sys.argv[1])))
+for stock, value in (("inbox", 10), ("model-error", 0.5), ("unanswered-requests", 3)):   # inbox-short holds; the two
+    s = next(iter(p.model.spec.stocks[stock].sensors.values()))                         # modelling goals are off
+    p.measurements.add(s.series, value, at=time.time())
+"""
+
+
+def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser, tmp_path):
+    """Q14: with only requests-handled and model-fits off (the modelling use's own goals), the header's first figure is
+    0 and not red, 'model upkeep 2' is said apart, and the switcher's entry for a project, read from another one, has
+    the same first figure as that project's own header."""
+    home, urls, procs = tmp_path / "home", {}, []
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    try:
+        for name in ("first-loop", "second-loop"):
+            d = tmp_path / name
+            shutil.copytree(ROOT / "examples" / "first-loop", d)
+            y = d / "ergostat.yaml"
+            y.write_text(y.read_text().replace("name: first-loop", f"name: {name}"))
+            env = {**os.environ, "ERGOSTAT_HOME": str(home)}
+            subprocess.run([sys.executable, "-c", UPKEEP_SEED, str(d)], env=env, check=True, capture_output=True)
+            port = free_port()
+            procs.append(subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                                          env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            urls[name] = f"http://127.0.0.1:{port}"
+        for url in urls.values():
+            for _ in range(150):
+                try:
+                    urllib.request.urlopen(url + "/api/status", timeout=1)
+                    break
+                except Exception:
+                    time.sleep(0.2)
+            else:
+                pytest.fail("a page never came up")
+        heads, entries = {}, {}
+        for name, url in urls.items():
+            pg.goto(f"{url}/items")
+            st = pg.evaluate("() => fetch('/api/status').then((r) => r.json())")
+            assert sorted(n for n, lp in st["loops"].items() if lp["status"] == "off") == ["model-fits", "requests-handled"]
+            pg.wait_for_function("() => / off/.test(document.querySelector('#running').textContent)")
+            run = pg.locator("#running")
+            heads[name] = run.inner_text()
+            assert re.match(r"^0 goals off\b", heads[name]), heads[name]
+            red = pg.evaluate("""() => { const p = document.createElement('span'); p.className = 'runstate bad';
+                document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; }""")
+            assert run.evaluate("(e) => getComputedStyle(e).color") != red, "the first figure is red"
+            assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
+            assert pg.locator("#upkeep").evaluate("(e) => getComputedStyle(e).color") != red
+            assert "model upkeep 2" in pg.locator("header").inner_text()
+            other = next(n for n in urls if n != name)
+            find = f"[...document.querySelectorAll('#project option')].find((o) => o.text.startsWith('{other} ('))"
+            pg.wait_for_function(f"() => !!{find}")
+            entries[other] = pg.evaluate(f"() => {find}.text")
+        for name, head in heads.items():
+            entry = entries[name]
+            assert re.search(r"\((\d+) off", entry).group(1) == re.match(r"^(\d+)", head).group(1), (entry, head)
+            assert "model upkeep 2" in entry, entry
+    finally:
+        pg.close()
+        for proc in procs:
+            proc.terminate()
+            proc.wait(timeout=10)
