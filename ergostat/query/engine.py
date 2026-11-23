@@ -11,7 +11,7 @@ from collections import OrderedDict
 from dataclasses import replace
 
 from .. import datasources
-from . import frames, shaped, sources
+from . import frames, graphs, shaped, sources
 from . import transforms as tf
 from .buckets import Grid, grid
 from .parse import RATE_PER, Query, Refused, SourceQuery, decode, parse
@@ -293,7 +293,18 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     return {"id": q.id, **got}
 
 
-READER_REFUSED = "a data source is not asked for anyone under a public name (web: open: read); the owner or a login may ask"
+def _graph(p, q: Query, since: float, until: float, past: bool, work: Work) -> dict:
+    """One of ergostat's own graphs (graphs.py), failing alone."""
+    try:
+        return graphs.answer(p, q, since, until, past, work.gate)
+    except Unanswerable as e:
+        return {"id": q.id, "error": f"graph: {e}", "read_log": False}
+    except Exception as e:                            # one query's failure is its own: the others still answer
+        log.warning("ergostat: query %s (graph) failed: %s", q.id, e)
+        return {"id": q.id, "error": f"graph: could not be read ({type(e).__name__}: {e})", "read_log": False}
+
+
+READER_REFUSED ="a data source is not asked for anyone under a public name (web: open: read); the owner or a login may ask"
 
 
 def answer(live, p, raw: str | None, reader: bool = False) -> dict:
@@ -314,6 +325,7 @@ def answer(live, p, raw: str | None, reader: bool = False) -> dict:
                 else {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused",
                       "error_code": "reader", "read_log": False} if isinstance(q, SourceQuery) and reader
                 else _from_source(p, q, since, until, asked.points, work) if isinstance(q, SourceQuery)
+                else _graph(p, q, since, until, asked.until is not None, work) if q.source == "graph"
                 else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
                 else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work), q)
                         for q in asked.queries]}

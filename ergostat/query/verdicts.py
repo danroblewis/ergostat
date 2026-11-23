@@ -25,6 +25,9 @@ REASONS: dict[str, tuple[str, str]] = {
     "averaged-percentiles": ("warn", "add the buckets first and take one quantile: "
                                      "histogram_quantile(0.99, sum by (le) (rate(NAME_bucket[5m])))"),
     "quantile-in-bucket": ("warn", "draw the buckets themselves (a heatmap of NAME_bucket by le) to see the bounds"),
+    "graph-over-budget": ("warn", "draw it as a matrix (the Heatmap chart), or ask for one kind or a shorter window"),
+    "graph-truncated": ("warn", "ask for one kind or a shorter window, so the whole graph is read"),
+    "graph-cycle": ("warn", "change one of the relations that go round, so the cycle is broken"),
 }
 
 
