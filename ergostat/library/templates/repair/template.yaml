@@ -1,6 +1,6 @@
 template: repair
 once: true
-description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report, answered by a person or, with approver ai, by an AI behind a guard in code (SPEC §12r).
+description: A program that fails is triaged, fixed by an AI in a disposable clone, tested in the sandbox and proposed as a gated change with its impact report, answered by a person or, with approver ai, by an AI behind a guard in code.
 reading: |
   System dynamics: an aging chain of failures (the built-in kind ergostat.failure, one item a signature), filled as
   programs fail (failures-found) and drained through a fix, its test and its approval; a fix that fails its test flows
@@ -12,7 +12,8 @@ reading: |
   fixes waiting at 0 through their approver: the person (the ladder's first rung), or with approver: ai the second,
   an AI (the same model, no tools) asked only about a fix a guard in code reads as computing with plain values and
   printing; whatever the guard or the AI does not approve stays held for the person. repair-settle judges the applied
-  fixes, and asks the person for each regressed one's revert.
+  fixes, and asks the person for each regressed one's revert; fixes-hold, which it reads, holds the fixes regressed
+  over the last 14 days at 0 (a window: a denied revert leaves a failure regressed for good).
   It is used once a model, and its parts keep the names written here.
 example: |
   uses:
@@ -55,6 +56,11 @@ auxiliaries:
     driven-by: +flow.fixes-started
     description: what the loop's AI calls cost
     sensor: {builtin: ergostat.cost.usd@repair-fix, every: 1m}
+  fixes-regressed-recent:
+    unit: failures
+    driven-by: +flow.fixes-regressed
+    description: fixes regressed over the last 14 days (a denied revert leaves one regressed for good; this window passes)
+    sensor: {items: ergostat.failure, entering: regressed, over: 14d}
 flows:
   failures-found: {to: open-failures, description: "programs failing in a way not open already (new, or again after a fix)", sensor: {items: ergostat.failure, entering: open, over: 1h}}
   fixes-started: {from: open-failures, to: fixing, driven-by: +stock.open-failures, sensor: {items: ergostat.failure, entering: leased, over: 1h}}
@@ -68,6 +74,7 @@ flows:
 goals:
   no-open-failures: {stock: open-failures, hold: "<= 0", description: every failure is being fixed}
   fixes-answered: {stock: awaiting-approval, hold: "<= 0", description: every fix tested is answered by its approver}
+  fixes-hold: {auxiliary: fixes-regressed-recent, hold: "<= 0", tolerance: 0, on-stale: "off", description: no applied fix regressed in the last 14 days}
 blocks:
   repair-fix:
     type: ai
@@ -83,6 +90,7 @@ blocks:
   repair-settle:
     type: program
     goal: fixes-answered
+    in: goal.fixes-hold              # served by the revert it asks for each regressed fix
     every: 30s
     run: ${python} -m ergostat.repair settle --verify ${verify}
     actions: [revert-fix]

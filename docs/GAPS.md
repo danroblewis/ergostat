@@ -18,7 +18,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
     reading says the version moved; parts brought in as an external subsystem, blocks never run, sensors
     reading the remote, `systems:` to narrow); source type `ergostat` (one batched request per remote a
     period, stale readings refused); local references checked against the remote's current model
-    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`,
+    (`remote-reference-unresolved` with a stand-in, `remote-output`, `remote-unreachable`, `remote-stale`,
     `remote-insecure`); drawn in Dynamics, Blocks and Process, marked remote with version and age;
     `ergostat remote` (status, token, events, refresh); edits to remote parts refused; the demo
     `examples/remote-pair/` and its two-instance test; a parameter estimate or an equation for one remote's
@@ -72,12 +72,19 @@ review into *Done recently*). Newest decisions from the owner first within each 
   accepted in trusted text". **Built** (`library-provenance-join-1`, R3): a held chain's `ask`, `prompt`, sensor
   `query` and `sources` entries stand only when no piece of them is the library's (a piece whose writer can't be told
   counts as the library's, the instance's name and a part's renamed name included), else the use is refused as `untrusted-text`; `ai` and `person` blocks may say only that
-  text, `goal`, `until`, `every` and `cron`, every other key refused by name (SPEC §2a, R3).
+  text, `goal`, `until`, `every` and `cron`, every other key refused by name (SPEC §2a, R3). **Built**
+  (`library-sandbox-sensors-proven`): a sensor `run:` runs on the owner's shell only when compile proved it the owner's
+  or ergostat's (an allowlist: `Sensor.run_in`, `ergostat/library/runs.py`); any other, a library's own script
+  included, is no longer refused but runs only through `ergostat.sandbox` with no hosts, an empty environment, only its
+  template folder readable, a work folder `<state>/library-work/<instance>` cleared when the chain above it changes, at
+  most 120 s and 4 at once; with no sandbox nothing runs, and a library's sensor daemon is refused
+  `library-unsandboxed` (SPEC §2a, *Sandboxed sensor runs*). Proven on the captured `Policy`; enforcement is the
+  attack suite's. *Left*: library blocks in the sandbox (`library-sandbox-blocks`).
   *Still needed:* the text an untrusted template makes in the model marked too (its system's and parts'
   descriptions, prompts, commands, equations and names, wherever `check`, the diagrams and the MCP model views show
   them, and the `library-untrusted` refusal's folder path); `fetch` by git URL or package, refusing a lock entry
-  without a tree, symlinks hashed explicitly; then running untrusted library scripts through `ergostat.sandbox` and
-  the rebase onto main.
+  without a tree, symlinks hashed explicitly; then running untrusted library blocks' scripts through
+  `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
 - **External event logs** (open): systems that keep their own event log (Kafka, a ticket history, an incident
   log): copy in (works today through collectors), read in place, or mirror with a cursor that cites the
   original. Remote systems are the first case of reading in place.
@@ -131,10 +138,11 @@ review into *Done recently*). Newest decisions from the owner first within each 
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
   program). Triage reads Python, Node, Java and Go traces and notes an error a good run swallowed (M5) without moving
-  any failure. Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
+  any failure, and (`repair-log-events`) the last error-level log line of a good run with no project trace, in Python
+  logging's default form or JSON, noted the same way. Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
   regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
-  fails). Done since (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: log
-  events; the ladder's lower rungs (program, rule) and promoting a class automatically; a program with uncommitted
+  fails). Done since (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: the
+  ladder's lower rungs (program, rule) and promoting a class automatically; a program with uncommitted
   changes is fixed from its committed text; a Python traceback more than 8,000 characters before the end of a failed
   run's output is now signed by how the run ended; a daemon's run hands back little or no standard error, so what a
   daemon swallows is not seen; Ruby and other languages are not read.
@@ -240,7 +248,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
   the cap while it runs, so the reviewer and the redesigner running at once do not both start calls on one remainder.
   Open: the estimate is not a bound (`claude -p` is given no output limit), so a call that writes more than 16,000
   tokens can take the day a little past the cap.
-- **Craft notes in `check`** (done, `modelling-core`): a part with no description, a stock with no unit, a flow
+- **Craft notes in `check`** (done, `modelling-core`; a stock with no unit is a finding since
+  `missing-unit-is-a-check-finding`, raising no request): a part with no description, a flow
   between stocks with no equation, an undescribed collector, event types in mixed forms, a takes queue's goal with a
   tolerance (a step whose goal never goes off), a `process:` with no `identified:` (`spec/craft.py`, notes, not
   counted as findings).
@@ -346,10 +355,14 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `dev/records/ai-calls-ask-the-budget.md`). Done: every call through `decisions/ai.call` (decisions extract, the
   intent verdicts from `Engine.judge` and `ergostat intent judge`, `improve --architecture`) reserves its per-call cap
   under P3's lock (`costs/budget.ask`), is refused when the day's budget is gone, is closed with its reported cost
-  (unknown: its reserve), and is counted once inside a reserving run. Left: the calls through
-  `numbers/modeller.call` (the redesigner, the modelling reviewer, the ai tier: `modeller-calls-ask-the-budget`), and
-  models in `ergostat.toml` (`runner.run_agent`), which have no `budget:` (`toml-models-budget`). Their ends count in
-  spent when priced, but nothing refuses them when the day's budget is gone.
+  (unknown: its reserve), and is counted once inside a reserving run. So does every call through
+  `numbers/modeller` (the redesigner, the modelling reviewer, the ai tier, the architecture review:
+  `modeller-calls-ask-the-budget`, `dev/records/modeller-calls-ask-the-budget.md`), at its `unsaid` estimate. A
+  structural scan (`test_only_listed_ai_starts`) finds AI commands started only in `decisions/ai.py`,
+  `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`, `supervisor.chat`, `spec/engine.py`,
+  `repair/fix.py`). Left: models in `ergostat.toml` (`runner.run_agent`), which have no `budget:`
+  (`toml-models-budget`). Their ends count in spent when priced, but nothing refuses them when the day's budget is
+  gone.
 - **T1: a run stopped at its spend cap** (done; `run-budget-trip`, SPEC §9.9, `dev/records/run-budget-trip.md`):
   each run gets its reserve as its cap (`ERGOSTAT_MAX_COST`; `--max-budget-usd` on an `ai` block's own `claude`),
   `ergostat session` takes all that is left from a per-run ledger under `flock`, and the engine kills the run's
@@ -426,8 +439,7 @@ review into *Done recently*). Newest decisions from the owner first within each 
     180, 60 to 3600) and `no-stalls`, and the engine's watchdog and the outer watcher as `type: external` blocks;
     with `leases: true` lease expiry, with `pool: NAME` that pool's quarantined slots held at 0 by the owner. The
     engine writes `stale` into `heartbeat.json`; the watcher uses it within 60 to 3600 s, else 180. Left: the loops
-    are drawn, not closed by ergostat (their controllers are its code); the heartbeat the run writes as it starts has
-    no `stale`, so the watcher uses 180 until the watchdog's first beat (5 s); `restarts` has no goal.
+    are drawn, not closed by ergostat (their controllers are its code).
 - **Extreme-conditions tests and calibration per part of the model** (done on `extremes`,
   `docs/roadmap/overnight/extremes.md`): the extreme conditions run the closed-loop projection (inputs at 0 and 10×, a
   pool at 0, each setpoint at its limits, each parameter at its range's ends), kept on disk per condition and per
@@ -449,9 +461,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   unknown shard is a `ShardError` (`engine-runs-its-shard-join-1`). `ergostat run` still runs one engine for the
   whole model. Also done (`route-one-large-system-in-parts`): a line group of more than 100, one system's view
   included, routed in parts of at most 100 (`static/routeparts.js`; `docs/layout-rules.md`), the shared group past
-  100 lines routed free. Left: the wires carried between shards, and refused until then (`shard-wires`); a process
-  per shard (`shard-supervisor`); `daemons.json` per shard; a moving flow's sensors read wherever they are; the
-  measurements; for the lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's
+  100 lines routed free. Also done (`shard-moved-flow-read-by-owner`): a moved flow's stocks are read at once by the
+  shard engine that owns each, the others following the run's ended event by `seq`. Left: the wires carried between
+  shards, and refused until then (`shard-wires`); a process per shard (`shard-supervisor`); `daemons.json` per shard;
+  the measurements; for the lines, the quick first pass (`line-routing-for-large-diagrams`), and scale_model's
   one-system view measured again. A reshard on swap is not needed: a swap clears what moved out.
 - **The IR and a Rust runtime** (open; `docs/proposals/ir-and-runtime.md`, 12 questions for the owner).
 - **A run whose lease expired is killed** (done, 5fa37de, `leasekill-only`; the owner decided 2026-11-18; SPEC §9.5

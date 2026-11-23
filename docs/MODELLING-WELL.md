@@ -316,7 +316,8 @@ Every block has a **tier**: `program`, `ai`, `person`, `external`, or a built-in
 `expr`). Use the type that says who really does the work: a person's step is `type: person` with `ask:` (ergostat
 asks them while its goal is off), never a `program` that runs `true` in their place. Declare shared machines and
 people under `agents:` with their `kind:` (`ai`, `person`) and a description, and put each block on one
-(`agent: claude`, `agent: on-call`). The Blocks view writes each block's tier small in its corner; its panel, `explain` and the Agents page then say
+(`agent: claude`, `agent: on-call`). The Blocks view writes each block's tier small in its corner (a named block's name
+and tier, its function beneath: its law, or `f(·), law not stated`); its panel, `explain` and the Agents page then say
 which tier fills each loop and which loops one person or one AI pool carries, so a person is seen as the bottleneck
 they may be.
 
@@ -533,9 +534,10 @@ Ordered by what matters most. Go through each after `check` is clean.
 
 ## 6. What ergostat does not help with yet
 
-`check` says much of the craft above as **notes** (a part with no description, a stock with no unit, a flow between
+`check` says much of the craft above as **notes** (a part with no description, a flow between
 stocks with no equation, an undescribed collector, event types in mixed forms, a queue's goal with a tolerance, a
-process nobody identified), and `use: modelling` takes each up as a request: its rule tier answers the mechanical ones
+process nobody identified; a stock with no unit is a finding, `no-unit`, drawn `unit ?`, and raises no request), and
+`use: modelling` takes each up as a request: its rule tier answers the mechanical ones
 and, with `ai: true`, its AI tier the rest (SPEC §12e). [GAPS.md](GAPS.md) lists what is still harder than it should
 be: no built-in join, and no way for a scheduled block's events to name a cause.
 

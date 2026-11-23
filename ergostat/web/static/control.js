@@ -280,12 +280,13 @@ function robustText(rb) {
 function performanceRows(d) {
   const pf = d.performance || {};
   const hr = pf.harris || {}, os = pf.oscillation || {}, ex = pf.excursions || {};
-  const harris = hr.index != null ? `${fmt(hr.index)}; at 1 it leaves no more variance than the best controller could, given the dead time` : hr.why;
+  const harris = hr.index != null ? `${fmt(hr.index)}; at 1 it leaves no more variance than the best controller could, given the dead time`
+    : hr.needs_theta ? "needs the loop's dead time" : hr.why;          // what is missing, not where to write it
   const osc = os.oscillating ? `yes: every ${secs(os.period)}, ±${fmt(os.amplitude)} (regularity ${fmt(os.regularity)})`
     : os.crossings != null ? "no" : null;
   const cn = pf.constraint;
   const nl = d.predicted?.nonlinear?.length ? "; linear, the dead band and the setting's steps left out (the controller's panel says what they do)" : "";
-  return [["Harris index", harris], ["past its bound", cn ? `${Math.round(cn.share * 100)}% of the time (${Math.round(cn.share_off * 100)}% past its tolerance), by ${fmt(cn.mean)} typically, ${fmt(cn.worst)} at worst` : null],
+  return [["Harris index", harris], ["past its bound", cn ? ofRecorded(`${Math.round(cn.share * 100)}% of the time (${Math.round(cn.share_off * 100)}% past its tolerance), by ${fmt(cn.mean)} typically, ${fmt(cn.worst)} at worst`) : null],
     ["oscillating", osc],
     ["settles", ex.count ? `in ${secs(ex.settling)}, typically (slowest ${secs(ex.slowest)}, ${ex.count} times)` : null],
     ["overshoot", ex.overshoot != null ? `${Math.round(ex.overshoot * 100)}% past the setpoint, typically` : null],
