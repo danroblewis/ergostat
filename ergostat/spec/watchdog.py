@@ -49,6 +49,7 @@ HARD = 20.0                 # seconds the run loop is given to restart the proce
 EVERY = 1.0
 KEPT = 20                   # stack dumps kept
 BEAT = 5.0                  # seconds between writes of heartbeat.json
+POOLS = {"": "sensor", "alarm_": "alarms", "fast_": "fast"}   # the engine's reading pools (engine.LANES), by name
 STARTUP = float(os.environ.get("ERGOSTAT_STARTUP") or 120.0)   # seconds a start may take before it is restarted
 
 
@@ -57,7 +58,7 @@ class Watchdog:
         self.e = eng
         self.thread: threading.Thread | None = None
         self.looped_at: float | None = None       # when it last started the loop again (this stall)
-        self.pools: dict[str, list[float]] = {}   # when it replaced each pool (the sensors' "", the alarms' "alarm_")
+        self.pools: dict[str, list[float]] = {}   # when it replaced each pool (the sensors' "", the alarms' "alarm_", "fast_")
         self.asked_at: float | None = None        # when it asked for a restart
         self.stalls = 0
         self.beat_at = 0.0
@@ -121,19 +122,19 @@ class Watchdog:
                 e.restart_hard(e.wedged)
             return
         if self.held is not None:                  # a restart backed off: done when its turn comes, unless mended
-            if now - e.passed_at <= STALL and self.pool_wedged(now) is None and self.pool_wedged(now, "alarm_") is None:
+            if now - e.passed_at <= STALL and all(self.pool_wedged(now, w) is None for w in POOLS):
                 e.say("watchdog: the engine recovered while a restart waited its turn")
                 self.held = None
             elif now >= self.held[0]:
                 self.restart(self.held[1], self.held[2], force=True)
             return
-        for which in ("", "alarm_"):              # the sensors' pool, and the alarms' own
+        for which in POOLS:                       # the sensors' pool, the alarms' own, and the fast lane's
             wedged = self.pool_wedged(now, which)
             if wedged is not None:
                 pools = self.pools.setdefault(which, [])
                 pools[:] = [t for t in pools if now - t < WINDOW] + [now]
                 if len(pools) >= 3:
-                    return self.restart(f"the {'alarms' if which else 'sensor'} pool wedged {len(pools)} times in "
+                    return self.restart(f"the {POOLS[which]} pool wedged {len(pools)} times in "
                                         f"{WINDOW / 60:g} min", "pool")
                 self.new_pool(*wedged, which)
         quiet = now - e.passed_at
@@ -165,7 +166,7 @@ class Watchdog:
             finally:
                 e.lock.release()
         e.wake.set()
-        self.said("pool", quiet, f"a new {'alarms' if which else 'sensor'} pool; {n} reading{'s' if n != 1 else ''} "
+        self.said("pool", quiet, f"a new {POOLS[which]} pool; {n} reading{'s' if n != 1 else ''} "
                   f"asked again", dump)
 
     def new_loop(self, quiet: float) -> None:
