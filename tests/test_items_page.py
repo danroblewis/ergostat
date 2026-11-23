@@ -1111,12 +1111,12 @@ def test_an_item_page_shows_its_path(browser, roadmap):
     steps = pg.locator(".went .wv-step").evaluate_all("els => els.map((e) => [e.dataset.state, e.className])")
     assert [s for s, _ in steps] == ["todo", "doing", "review", "done"] and "final" in steps[-1][1], steps
     assert not pg.locator(".track").count()                                   # the path replaces the strip
-    assert "held" not in pg.locator(".went").inner_text()
+    assert "held" not in pg.locator("section.went").inner_text()
     pg.goto(f"{roadmap}/item/ticket%2Fe2-docs")                               # taken by developer 10 s before the fixture
     pg.wait_for_selector(".went .wv-step.on", timeout=20000)
     now = pg.locator(".went .wv-step.on").inner_text()
     assert re.search(r"being worked by developer for \d+(s|m)", now), now
-    text = pg.locator(".went").inner_text()
+    text = pg.locator("section.went").inner_text()
     assert "held" not in text.lower() and "run r1aaaaaa" in text, text
     run = pg.locator(".went a", has_text="run r1aaaaaa").get_attribute("href")
     assert re.fullmatch(r"/record\?item=ticket%2Fe2-docs&from=[\d.]+", run), run      # the Record, of it over the run

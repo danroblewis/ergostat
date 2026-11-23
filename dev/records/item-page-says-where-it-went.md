@@ -91,3 +91,28 @@ choice). SPEC §5a now says the same.
 - `uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_items_page.py::test_the_header_...` with
   no watchdog was refused. Run under `scripts/suite_watch.py`, it went through.
 - Size: about 45 net lines outside tests and docs (budget 110).
+
+Round 3: main (059ff718) merged in. It conflicted in docs/SPEC.md and pages.js, because main's
+diagram-draws-what-an-item-or-kind-touches added its own *Where it went*: a heading plus a `p.went` with *Draw its path
+in Dynamics*, *in Blocks* and *what every K touches*, or *Its moves are not counted anywhere in the model.*
+- Resolved as one section. For a counted item, main's links paragraph sits inside this branch's `section.went`,
+  under the path line. For an uncounted item, the heading *Where it went* comes first, then the lifecycle strip, then
+  main's sentence, which now also carries `.uncounted`. The branch's own sentence ("Its kind, K, is not counted
+  anywhere in the model.") is dropped, so the page does not say it twice. Main's new field grid is kept. The lease
+  stays the closed *Attempts (N)* details, with no "Lease" heading. SPEC §5a keeps both paragraphs. The uncounted
+  wording now matches main's sentence.
+- Tests changed to fit: test_an_uncounted_item_says_so no longer asserts the absence of `.went` and of "Where it
+  went", since main's design draws both for an uncounted item. It now asserts there is no `section.went`,
+  `.wv-path` or `.wv-step` and no link in `.uncounted`. In test_an_item_page_shows_its_path, `.went` became
+  `section.went` for the text reads, because two elements now carry `.went`.
+- tests/test_items_page.py, under the watchdog: 79 pass and 2 fail, the same two in two runs. Neither is touched by
+  this branch, whose diff against main is the record, SPEC, pages.js, style.css and two test files.
+  - test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart times out on the `#project` switcher, as in
+    rounds 1 and 2.
+  - test_every_surface_prints_the_servers_one_count_of_goals_off asserts the h1 reads `Loops · goals off ...`, but
+    the page says `Goals · ...`. Main has the same assertion (main's test file, line 2803). Main's
+    goals-page-replaces-loops-page renamed the page.
+- test_where_it_went_links_to_its_path_drawn_alone_or_says_nothing_counts_it (main's), both acceptance tests,
+  tests/test_footprint.py (10) and the diagram strip-arrow test pass. Ruff is clean.
+- Refused in this session: a Bash `cat >> ... <<EOF` append to this file (done with the editor instead), and an
+  opening `git status --short | grep ...; grep -n ...` for conflict markers (done with the search tool instead).
