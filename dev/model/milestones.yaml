@@ -3,7 +3,13 @@
 # completed once it has gaps and each is merged or closed, or, for an upkeep one, at the end of its cycle. The
 # coordinator adds them and assigns gaps (dev/bin/milestones.py); which gaps the implementor takes is not changed here.
 defaults:
-  system: planning
+  system: milestones
+
+systems:
+  milestones:
+    within: factory
+    description: the gaps grouped into milestones finished together - waiting on the milestones they depend on, a few active at once, completed when every gap is merged or closed
+    show: [stock.milestones-waiting, stock.milestones-active, stock.milestones-completed]
 
 stocks:
   milestones-waiting:
@@ -30,13 +36,36 @@ flows:
     to: milestones-active
     description: a waiting milestone whose dependencies are all completed, taken in rank order while fewer than active_max are active
     driven-by: [+stock.milestones-waiting, -stock.milestones-active]
+    equation: MIN(stock.milestones-waiting, MAX(active-max - stock.milestones-active, 0)) / activate-time
     sensor: {items: milestone, entering: active, over: 1d}
   milestones-completed:
     from: milestones-active
     to: milestones-completed
     description: an active milestone with gaps, every one merged or closed (a parked one holds it open), or an upkeep one at the end of its cycle
     driven-by: [+stock.milestones-active]
+    equation: stock.milestones-active / finish-time
     sensor: {items: milestone, entering: completed, over: 1d}
+
+parameters:
+  active-max:
+    value: 3
+    unit: milestones
+    description: the milestones active at once, upkeep aside ([milestones] active_max in dev/factory.toml, which the block reads; this is its default, for projecting)
+  activate-time:
+    value: 1d
+    estimate: true
+    description: how long a waiting milestone with room under the limit waits for the milestones it depends on to complete
+  finish-time:
+    value: 7d
+    estimate: true
+    description: how long an active milestone takes until every gap in it is merged or closed
+
+goals:
+  milestones-within-limit:
+    stock: milestones-active
+    hold: "<= 4"
+    tolerance: 0
+    description: at most [milestones] active_max milestones active at once (3 by default), and the upkeep one beside them
 
 blocks:
   milestones:

@@ -331,3 +331,14 @@ def test_the_commands_answer_a_refusal_with_exit_2(ms, capsys, monkeypatch):
     assert ms.mod.main(["add", "n", "--rank", "nan"]) == 2
     assert ms.mod.main(["frobnicate"]) == 2
     assert ms.mod.main(["status"]) == 0 and "milestone/m  waiting rank 2  M" in capsys.readouterr().out
+
+
+def test_the_milestone_model_raises_no_check_finding():
+    """The milestones' parts are a system of their own (within factory, not a loose cluster of planning), and both
+    flows between their stocks have equations, so check says nothing of them: no no-equation, no system-splits."""
+    spec, problems = read(ROOT / "ergostat.yaml", extremes=False)
+    assert [p for p in problems if p.level == "error"] == []
+    assert spec.stocks["milestones-active"].system == "milestones" and spec.chain("milestones")[-1] == "factory"
+    ours = ("flow.milestones-activated", "flow.milestones-completed", "system.planning", "system.milestones",
+            "system.factory")
+    assert [f"{p.code}@{p.about}" for p in problems if p.about in ours or "milestones-" in p.message] == []

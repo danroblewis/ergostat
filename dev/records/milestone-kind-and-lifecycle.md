@@ -108,3 +108,18 @@ clean. main had no commits past this branch's base, so there was nothing to merg
 
 Size: 32 net lines outside tests/, docs/ and dev/ (ergostat.yaml 18, compile.py 6, itemindex.py 1, the schema 7), and
 about 430 more in dev/ (milestones.py, its model file, the settings, the README section).
+
+## Where it stopped
+
+Answering `ergostat check`'s three new findings (implementor, 2026-11-23). The definition has no `allows-findings` line.
+- `system-splits system.planning`: the milestone parts linked to nothing else in planning, so they were a loose cluster
+  there. They are now a system of their own, `milestones`, within `factory` (dev/model/milestones.yaml). No part is in
+  `factory` directly, so no loose cluster is left there. Making it a system raised a `purpose` note (its block acted for
+  no goal inside it), answered by the goal `milestones-within-limit` (`milestones-active <= 4`: the default limit of
+  3 and the upkeep one). The 4 is fixed in the model and does not follow `[milestones] active_max`.
+- `no-equation` on both flows: `milestones-activated` is `MIN(waiting, MAX(active-max - active, 0)) / activate-time` and
+  `milestones-completed` is `active / finish-time`. The parameters `active-max` (3, the setting's default),
+  `activate-time` (1d, estimate) and `finish-time` (7d, estimate) are guesses, used only for projecting. The block does
+  not read them.
+- Pinned by tests/test_milestones.py::test_the_milestone_model_raises_no_check_finding. With one equation removed it
+  fails on no-equation. Before the goal was added it failed on purpose.
