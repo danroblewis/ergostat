@@ -74,16 +74,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
   template folder readable, a work folder `<state>/library-work/<instance>` cleared when the chain above it changes, at
   most 120 s and 4 at once; with no sandbox nothing runs, and a library's sensor daemon is refused
   `library-unsandboxed` (SPEC §2a, *Sandboxed sensor runs*). Proven on the captured `Policy`; enforcement is the
-  attack suite's. *Left*: library blocks in the sandbox (`library-sandbox-blocks`). **Built**
-  (`library-model-text-marked`): the descriptions, prompts, asks, runs and equations an untrusted instance makes,
-  and its system's description, are marked field by field where the MCP `explain` and `context` answers write them
-  (a cut keeps its mark); its parts' names, and the findings at or about its parts, in `ergostat check` (its lines
-  and `--json` messages) and the MCP `check`, `status`, `explain` and `context` answers, never inside the owner's own
-  text; with the markers' meaning once in any answer that carries a mark, through one helper (`untrusted.Shown`).
-  The `library-untrusted` and `untrusted-text` refusals mark the refused key's path, the template and its folder.
-  *Still needed:* the same text marked in the diagrams (`library-diagram-text-marked`); `fetch` by git URL or
-  package, refusing a lock entry without a tree, symlinks hashed explicitly; then running untrusted library blocks'
-  scripts through `ergostat.sandbox` (its sensors' runs are built, above) and the rebase onto main.
   attack suite's. *Left*: library blocks in the sandbox (`library-sandbox-blocks`). **Built** (`library-fetch`):
   `libraries:` (main file, at most 16) fetched by git URL (https or file, every field on an allowlist) by
   `ergostat library fetch` into `.libraries/NAME`, under one flock across read, clone, swap and lock write, pinned in

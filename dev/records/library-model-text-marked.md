@@ -150,3 +150,17 @@ again below under this heading of its own. No code changed, and the size is stil
 Overrun reason: the owner-field skip that round 2's finding 2 asked for (the owner's fields collected and kept whole, about 15 lines) and the SAYS rule for a message already marked take the code to 138 net lines, 18 over the 120 budget; the alternative, marking each name at each of explain's name sites, is larger and outside the files of this gap.
 
 Left: the diagrams (library-diagram-text-marked). Tests run this round: `tests/test_library_model_marks.py` (8 passed).
+
+## Where it stopped (round 6, GAPS.md put back)
+
+The factory refused the build because the branch edited docs/GAPS.md. That file is back to main's text (278f54a4).
+`git checkout 278f54a40373 -- docs/GAPS.md` was refused here, so the branch's ten added lines were removed by hand.
+The text this gap had written there is now the `## Entry` below, a sub-gap of the Shared libraries entry
+(`entry-of: shared-libraries`). No code changed. This round does not answer the round-5 review finding: `Shown.skip`
+and `Shown.names` skip owner text across the whole answer, not just where the owner's field is written. The factory's
+instruction for this round was to move the entry, commit and stop. The finding is still open and blocking.
+
+## Entry
+
+entry-of: shared-libraries
+done: 2026-11-23 The text an untrusted instance makes (descriptions, prompts, asks, runs, equations, its system's description) is marked where the MCP `explain` and `context` answers write it, its parts' names and the findings about them are marked in `ergostat check` and the MCP `check`, `status`, `explain` and `context` answers, with the markers' meaning once per answer, through one helper (`untrusted.Shown`), and the `library-untrusted`/`untrusted-text` refusals mark the refused key's path, template and folder (`library-model-text-marked`).
