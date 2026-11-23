@@ -89,3 +89,21 @@ Continued (round 1, 2026-11-22), again in a Linux container with no Docker Deskt
 Parked by the factory (review/suites-copy-their-checkout-into-the-container-2, 2026-11-22 12:28).
 
 Done: item 1 (agents.queued pipes a tar of the checkout, minus .venv and with its git directory when that is inside it, into docker run -i, unpacked at /work; run/coverage still mounted; tested with a stand-in docker that really unpacks) and item 4 (resources.py vm-open-files via pgrep and lsof on macOS, no reading elsewhere; auxiliary vm-open-files, goal vm-open-files-within <= 150000, and an external restart-docker block; tested). Left: item 2, on the coordinator's Mac with this branch's queued() in use, read `python3 dev/bin/resources.py vm-open-files`, let 10 queue runs go (prefix runs included), read it again, and record both numbers (must be within 1,000); item 3, the same count across session containers' runs, recorded with the follow-up gap sessions-copy-their-clone-into-the-container. It stops because only someone at the Mac with Docker Desktop can take these readings.
+
+## Where it stopped
+
+Continued (round 2, 2026-11-23), in a Linux container with no Docker Desktop. No code changed this round.
+
+- The review's direction: items 2 and 3 (the live readings on the Mac) now belong to the coordinator and are out of
+  this gap. They were not attempted and nothing waits on them. Items 1 and 4 are done on this branch as recorded above.
+- Main (fd6fff22) was already merged into the branch; there was nothing new to merge.
+- Suites run on this branch: `tests/test_agents.py` (21 passed), `tests/test_factory_resources.py` (12 passed),
+  `tests/test_factory.py` (185 passed, 2 skipped because they need Docker and the agent image, which this container
+  does not have). Ruff is clean on ergostat, tests and scripts. Running `tests/test_factory.py` under
+  `scripts/suite_watch.py` was refused in this session, so it ran through `scripts/named_tests.py` without the
+  watchdog. `tests/test_diagram_rendering.py` skipped because Playwright is not installed. The browser files were not
+  run.
+- For the coordinator, after this lands: on the Mac, read `python3 dev/bin/resources.py vm-open-files`, let 10 queue
+  runs go (prefix runs included), read it again, and check the two numbers are within 1,000 (item 2). Take the same
+  count across session containers' runs (item 3). If it grows, open the follow-up gap
+  `sessions-copy-their-clone-into-the-container` with that number.
