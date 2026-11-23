@@ -37,6 +37,25 @@ depends-on: []
 0 net lines (docs, the gap's record and tests only; no code outside `tests/` and `docs/`)
 size: S (confidence: high)
 
+## Where it stopped
+
+Built, round 1. Each Done sentence of a sub-gap names the test file that shows it, so the path check covers it
+(lesson-8). The five new tests were run against main's own `docs/GAPS.md` and `docs/proposals/remote-systems.md`
+(restored in the tree by hand, then put back): all five fail there (intake says `open`; two Left clauses, a Left
+item not about the IR, `remote-box-measures` and `remote-mtls` said twice, the mid-sentence resume; the IR entry
+lacks `format=ir`; the record has no Entry; no test path cited). Each test also asserts its check rejects a
+spliced copy of the current entry. What is left is the IR serving, which waits on *The IR and a Rust runtime*.
+
+Round 2 (gate 1: the record changed outside a Where it stopped section). The definition asks for an `## Entry`
+section in this file, but its own rule allows nothing after its first text except a Where it stopped section.
+Round 1 put the Entry straight after the definition's text, and gate 1 (`dev/bin/review.py`, which compares the
+text before the first `## Where it stopped`) counted that as an edit. This round keeps the most reversible reading
+that meets both: the definition's text is byte for byte as first committed, this section comes right after it,
+and the `## Entry` section the definition asks for follows this section, unchanged. `gapsdoc.parse` finds
+`## Entry` anywhere in the record and reads it up to the next `## ` heading, so the order does not change what it
+parses. Moving the Entry back under the definition, or into a file of its own, would need the owner to change the
+gate or the definition's rule.
+
 ## Entry
 
 section: Remote systems and libraries
@@ -77,16 +96,3 @@ section: Remote systems and libraries
     requests a remote a period, failing closed.
   - *Left*: only serving the IR beside `ergostat-model/1` (`?format=ir`), once the IR exists; it is an item
     of *The IR and a Rust runtime*.
-
-## Where it stopped
-
-Built, round 1. The definition asks for an `## Entry` section in this file, which its own rule ("never change it
-except to add a Where it stopped section") would forbid; the most reversible reading was taken: the Entry is
-appended after the definition's text, which is unchanged, and this section follows it (gapsdoc reads the Entry up
-to the next `## `). Each Done sentence of a sub-gap now names the test file that shows it, so the path check
-covers it (lesson-8). The five new tests were run against main's own `docs/GAPS.md` and
-`docs/proposals/remote-systems.md` (restored in the tree by hand, then put back): all five fail there (intake
-says `open`; two Left clauses, a Left item not about the IR, `remote-box-measures` and `remote-mtls` said twice,
-the mid-sentence resume; the IR entry lacks `format=ir`; the record has no Entry; no test path cited). Each test
-also asserts its check rejects a spliced copy of the current entry. What is left is the IR serving, which waits
-on *The IR and a Rust runtime*.
