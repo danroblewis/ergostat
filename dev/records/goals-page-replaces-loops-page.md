@@ -195,3 +195,26 @@ Not run: the unit suite and the other browser files (left to the factory).
 
 Overrun reason: tests are net +44 lines against a test budget of 20 (the acceptance tests check every point of DoD 1-3
 and four CLI commands); code is net +2 (budget 70), docs net +12 (budget 35).
+
+## Where it stopped
+
+Merge of main (dc8ad98db63c, 662e88ca), round 3. Conflicts kept both sides:
+- pages.js: main's `pageLoops(main, q)` with `?select=` (pick), the phone 'card' column and the table id 'loops', with
+  the branch's h1 'Goals', first column 'goal' and caption 'Goals'.
+- diagram.js: the Blocks side list takes main's 'Control loops' / 'No control loops in view.'. That heading belongs to
+  the gap ui-in-dynamics-a-goal-is-called-a-goal-loop-means-a (it says "in Blocks the list heading reads 'Control
+  loops'"), and this definition says to leave the heading to it once it has landed. The acceptance test
+  (test_the_goals_page_and_its_old_address) now reads 'Control loops' there; DoD 3 still holds.
+Integration fix (lesson 7): main's details.js shutDetail cleared `select=` only on path '/loops', which now always
+redirects to /goals, so closing a goal's panel by hand left `select=` in the address; it now checks '/goals'. Main's
+test_the_address_holds_what_is_chosen_and_the_window waits for pathname '/goals' and kind 'Goal'; it failed on that
+close before the fix (TimeoutError at the `select=` wait) and passed after it.
+
+Tests run after the merge: ruff clean; tests/test_graph_cli_web.py 55 passed; tests/test_page_polling.py 23 passed (in
+full, under suite_watch); test_diagram_rendering.py's address, Dynamics/Blocks-wording, phone-card and goals-word
+tests passed. tests/test_diagram_rendering.py was not run in full this round (the round-2 failures above stand,
+unrelated as said there); nor were the unit suite or the other browser files (left to the factory).
+Refused here: a `bash -c 'while ! [ -s … ]; do sleep 5; done'` wait on a background test's output.
+
+Overrun reason: tests are net +44 lines against a test budget of 20 (the acceptance tests check every point of DoD 1-3
+and four CLI commands); code is net +2 (budget 70), docs net +12 (budget 35).
