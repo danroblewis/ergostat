@@ -57,3 +57,8 @@ Tests beyond the three named: `test_the_template_has_fixes_hold_and_check_finds_
 `test_specs_parts_table_matches_the_template` (definition 3),
 `test_an_auxiliary_counts_moves_over_its_window_and_refuses_over_alone` (the engine change).
 tests/test_repair2.py skips every test in this container (no bwrap), so it was not run here.
+
+Round 2: the only finding was the conflict with main in docs/SPEC.md (section 6's sensor table). Resolved by keeping
+main's `manual` row (the `--read`/`--at` text) and the branch's `items` row (the auxiliary count). After the merge,
+tests/test_repair_verify.py (35) and tests/test_spec_items.py (7) pass and ruff is clean; tests/test_repair2.py still
+skips all 31 here (no bwrap).
