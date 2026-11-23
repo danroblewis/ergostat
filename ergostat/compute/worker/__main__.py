@@ -11,11 +11,13 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+import keeper  # noqa: E402
 import serve  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
-    return serve.main(argv)
+    argv = sys.argv[1:] if argv is None else argv
+    return keeper.main(argv) if argv[:1] == ["--keep"] else serve.main(argv)
 
 
 if __name__ == "__main__":

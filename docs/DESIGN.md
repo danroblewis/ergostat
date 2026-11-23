@@ -179,7 +179,11 @@ The control diagram is the product's main view. Conventions:
   regions holding what is in them. A part with no shape of its own in a view is stood for by the
   smallest region holding it, dashed, and its panel says so ("In the block diagram: inside P_service");
   a block, which the dynamics view does not draw, by what it moves. A click chooses what its shape is,
-  Shift or a box adds, a loop chooses its members, the background or Escape lets go.
+  Shift or a box adds, a loop chooses its members, the background or Escape lets go. A panel open on
+  what is chosen stays open when the view is switched (Dynamics ↔ Blocks), on what stands for it there
+  and titled in that discipline's words: a stock as "output y_quality of P_service", a flow a controller
+  moves as "actuating signal u_tuner", a reference as "reference r = 0.93 and its summing junction". A
+  part's panel opens at the click, its name first, and fills when its numbers come.
 - **Parts put by hand.** In the Dynamics and the Blocks view alike, a part dragged (a block, a summing
   junction, a sensor, a stock, anything drawn) moves, with the others chosen if it is one of them; an open
   system dragged by its top (its outline, or its frame in the block diagram) moves with everything in it.
