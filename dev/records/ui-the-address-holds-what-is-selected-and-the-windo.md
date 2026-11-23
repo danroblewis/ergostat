@@ -167,3 +167,47 @@ Its runs failed past their attempts (a dead letter):
 - attempt 22: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 23: nack exited 1
 - attempt 24: nack the run ended with gap/ui-the-address-holds-what-is-selected-and-the-windo still parked
+
+## Where it stopped
+
+Round 5 (the park was the Docker restart, not a finding). Main (52c675fe) was merged in (b4959886). It conflicted in
+five files. Each was resolved by keeping what main changed and what the branch adds:
+- main.js: main's window menu now also calls refreshHeader(). The menu still calls setWindow, and setWindow now
+  calls refreshHeader() too.
+- details.js: main added rolesText and a 'Loading…' panel (panelLoading) to openAgent. Both are kept, inside the
+  branch's openAgentNow, which askedAgain wraps. Because of main's panelLoading, an opener now shows its 'Loading…'
+  panel at once, and its own "Could not be read." if the request fails. So round 3's sentence "an opener whose
+  request fails shows nothing and leaves the panel already shown" no longer holds on main. An opener that throws
+  (openNode, openAgent) still never sets S.again. openLoop, which returns on failure, does set it, so its "Could not
+  be read." panel is asked again on a window change.
+- pages.js, Loops: main's 'Loading…' note and its name button are kept. The row and the button both call the branch's
+  pick (it writes select= and opens the loop). The branch's loadingNote helper is removed. Loops and Items use main's
+  note, and the Record's box now starts with one as well.
+- pages.js, Record: main now keeps the Record's filter and scope in the address itself, as `match=` (kept() and
+  replaceRoute in tick). The branch's separate setQuery({filter}) would have been overwritten by it at once, so it is
+  removed and main's `match=` is the name that gets written. A link's `?filter=` is still read on load (match, then
+  filter, then type). This is the most reversible choice: one name written, the definition's name still read.
+- tests: both sides' new tests are kept in both files. The branch's test now waits for main's Loops 'Loading…' note
+  (`p.muted`, not `.loading`). It checks that the Record writes `match=`, and that a `/record?filter=agent.*` link
+  fills the filter.
+
+Size: `git diff main --stat -- ergostat/` is 52 insertions and 18 deletions (about 34 net, within 60).
+
+Run here after the merge: ruff, clean. tests/test_graph_cli_web.py, 41 passed. The acceptance test
+tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen_and_the_window, with Playwright under the
+watchdog, passed (rc 0) twice. Break check: with the Record not reading `filter=`, the test failed (TimeoutError),
+and it passed again when restored.
+
+tests/test_items_page.py: 29 passed and 1 failed, the same result on two runs. The one failure,
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart, also fails run alone. It times out at
+tests/test_items_page.py:1331, waiting for the other project's entry in the header's #project list. That list comes
+from main's refreshProjects (util.js) and the server's lister (server.py list_projects, `/api/projects`). The page
+asks once on load and, if the lister has made no list yet (`ps.at == null`), asks again only on pointerenter or
+focus, which the test never does. The branch changes none of refreshHeader, refreshProjects or server.py. The test's
+pages are opened with no `window=` or `select=`, so withWindow and setQuery change nothing on them. It is reported here
+as not this branch's (lesson 13) and not fixed. To confirm it on main, I tried to run it with main's
+ergostat/web/static checked out for a moment (`git checkout main -- ergostat/web/static && ...; git checkout HEAD --
+ergostat/web/static`), but that command was refused, so whether it also fails on main is not shown here.
+
+Not run: the rest of tests/test_diagram_rendering.py, tests/test_page_polling.py, tests/test_page_refresh.py, and the
+unit suite (no Python changed outside tests). The merge queue runs them.
