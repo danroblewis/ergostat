@@ -1,0 +1,2 @@
+[{"goto":"http://127.0.0.1:8797/"},{"wait":5000},{"shot":"plan-notation-big-home-side.png"},{"text":"css=aside"},
+ {"goto":"http://127.0.0.1:8796/diagram?system=product"},{"dark":true},{"wait":6000},{"shot":"plan-notation-sf-product-dark.png"}]

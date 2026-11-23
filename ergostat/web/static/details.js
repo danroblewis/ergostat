@@ -188,8 +188,12 @@ async function openLoop(name, asController = false) {
   for (const hint of lp.hints || []) kids.push(h("p", {}, h("b", {}, "Suggestion: "), op(hint.says)));
   if (lp.crossings?.length) {
     kids.push(h("h3", {}, `Crossings${lp.crossings_total > lp.crossings.length ? `, the newest ${lp.crossings.length} of ${lp.crossings_total}` : ""}`));
-    kids.push(h("table", {}, lp.crossings.slice().reverse().map((e) => h("tr", {},
-      h("td", { class: "nowrap" }, new Date(e.time * 1000).toLocaleTimeString([], { hour12: false })),
+    // each to the Record: the goal's events (its controller, agents, valves) from it to the next crossing
+    const next = (i) => lp.crossings[i + 1]?.time ?? lp.until;
+    kids.push(h("table", { class: "crossings" }, lp.crossings.map((e, i) => [e, next(i)]).reverse().map(([e, to]) => h("tr", {},
+      h("td", { class: "nowrap" }, h("a", { href: `/record?about=${encodeURIComponent(name)}&from=${e.time}${to != null ? `&to=${to}` : ""}`,
+        title: "What the goal, its controller and its valves recorded from this crossing to the next" },
+        new Date(e.time * 1000).toLocaleTimeString([], { hour12: false }))),
       h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value)),
       h("td", { class: "muted" }, e.type === "loop.off" && e.data.error != null ? `by ${fmt(Math.abs(e.data.error))}` : "")))));
   }
@@ -201,7 +205,7 @@ async function openLoop(name, asController = false) {
   showDetail(...kids);
 }
 
-/* a goal ahead, with the loops running (closedloop.py's Monte Carlo): "work-waiting: off at +8h with p≈0.3", and a
+/* a goal ahead, with the loops running (closedloop.py's Monte Carlo, in words by forecast_words.py), and a
    setpoint to try (a what-if, drawn on every chart, never kept) */
 function goalAhead(name, lp) {
   const box = h("div", { class: "ahead whatif-redraw" });
@@ -212,10 +216,10 @@ function goalAhead(name, lp) {
                                      points: CHART_POINTS, ...whatifParams() }).then((d) => {
     const g = (d.risk || []).find((x) => x.goal === name);
     if (d.fan_pending && tries++ < 8) setTimeout(() => { if (box.isConnected) load(); }, 2500);
-    if (d.loops !== "closed") { box.replaceChildren(); return; }
+    if (d.loops !== "closed") { box.replaceChildren(h("h3", {}, "Ahead"), h("p", { class: "muted small" }, d.no_estimate || "No estimate")); return; }
     box.replaceChildren(h("h3", {}, "Ahead, with the loops running"),
-      g?.said ? h("p", { class: g.p_off_end >= 0.5 ? "s-open" : "" }, g.said)
-        : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "no risk to say"),
+      g?.sentence ? forecastEl(g)
+        : h("p", { class: "muted small" }, d.fan_pending ? "being worked out\u2026" : "No estimate: this goal's stock is not in the projection"),
       h("p", { class: "muted small" }, "What if it held at ", whatifField(`goal.${name}`, `what if ${name} held at`, now, "another setpoint"),
         " (the identified models and estimates by their errors, the inputs by how far their mean could move; a fixed seed)"));
   }).catch(() => box.replaceChildren());
