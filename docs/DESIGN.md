@@ -127,7 +127,7 @@ Over a window (default 1 hour), with every rate taken over the time actually rec
     by its schedule) is named. For a job emptying a stock under an upper setpoint, the longest
     period that can hold it is said (the room under the setpoint over the load), and when cron
     cannot run that often.
-- **Attention**: problems first (loops off, loops open or unknown past two minutes of record,
+- **Attention**: problems first (goals off, goals open or unknown past two minutes of record,
   agents failing, lines refused or unreadable, missing readings while running, unexplained
   residuals), then the hints. What a run by hand refused is not kept as a problem.
 
@@ -153,7 +153,11 @@ The control diagram is the product's main view. Conventions:
   join them (one loop per row, upstream first, the joining pipe routed by hand), by itself when it
   would be far wider than the window, or with "Wrap loops into rows" (the toolbar's ⋯ menu, beside "Open
   all systems", "Close all systems" and "Unpin all parts"). The first view keeps text legible (9px or
-  more) and says when more lies beyond the edge; "Fit" shows everything.
+  more) and says when more lies beyond the edge, and which way (arrows); "Fit" shows everything (the Process
+  view's map at no less than full size: its nodes' text never under 11px). At phone
+  width (700px or less) each view opens fitted to the canvas down to 7.7px text (the Process
+  view's map still at no less than 11px), and a drawing still too big
+  is centred on its first part (a system box, else a stock).
 - **The process view** (`process.py`, `process.js`; SPEC §5b) is process mining's process map: a
   directly-follows graph per item kind, from the record in the window (the states items entered, or
   the event types about them), each kind's map laid out left to right in time order in a frame of its
@@ -165,7 +169,9 @@ The control diagram is the product's main view. Conventions:
   loop: the setpoint r into a summing junction (Σ, + and −), the error e into the controller C, its
   output u into the actuator (the valve), a second junction where the disturbance d joins, the
   plant (the stock), its output y, and the sensor H on the feedback path carrying ym back to Σ.
-  Every block names the agent that fills it; the loop's lines take its status colour. An open
+  Every block names the agent that fills it. No status colour: each loop's error label, at its junction's
+  output, says e's value and, when its goal is not holding, the goal's word from the server (`e = −36 off`,
+  bold when off; a junction with no error line says its word beside it, `e open`). An open
   loop has `t: <schedule>` driving C with no Σ, and ym ends in "watched against r, not fed
   back". With several systems the rows are grouped by system and tagged. The command line prints
   the same in text (`ergostat system --blocks`).
@@ -179,7 +185,18 @@ The control diagram is the product's main view. Conventions:
   regions holding what is in them. A part with no shape of its own in a view is stood for by the
   smallest region holding it, dashed, and its panel says so ("In the block diagram: inside P_service");
   a block, which the dynamics view does not draw, by what it moves. A click chooses what its shape is,
-  Shift or a box adds, a loop chooses its members, the background or Escape lets go.
+  Shift or a box adds, a loop chooses its members, the background or Escape lets go. A panel open on
+  what is chosen stays open when the view is switched (Dynamics ↔ Blocks), on what stands for it there
+  and titled in that discipline's words: a stock as "output y_quality of P_service", a flow a controller
+  moves as "actuating signal u_tuner", a reference as "reference r = 0.93 and its summing junction". A
+  part's panel opens at the click, its name first, and fills when its numbers come.
+- **By keyboard.** The diagram is one tab stop: the part last on in that view (else the first of the first
+  chain) takes it. The arrows follow the structure: in Dynamics Right and Left along the pipe (stock, valve,
+  stock), Down and Up through the connectors into and out of the part (each named with its other end and its
+  sign); in Blocks Right and Left along the signal (Σ, C, the actuator, P, through P's own summing point),
+  Down along the return path. Down enters a closed box's goal rows; Shift and an arrow steps through every
+  part in drawing order; Home goes to the first part. Enter opens the panel with the focus in it and Escape
+  gives it back; I goes Into a system, Escape or Backspace back out onto it. The ring is the accent.
 - **Parts put by hand.** In the Dynamics and the Blocks view alike, a part dragged (a block, a summing
   junction, a sensor, a stock, anything drawn) moves, with the others chosen if it is one of them; an open
   system dragged by its top (its outline, or its frame in the block diagram) moves with everything in it.
@@ -197,6 +214,12 @@ The control diagram is the product's main view. Conventions:
   A pin is kept by the node's name (its kind and activity), not per States or Events: a node drawn in both
   stays where it was put in both, and the frames too; it holds through the map refreshed in place and laid
   out again as events come, and whichever kinds are drawn.
+- **The caption.** One line under the view switch, the page's only h1 and the diagram's accessible name
+  (`aria-labelledby`), names the drawing by its discipline, the model with its purpose (`purpose:`), the
+  number of top-level systems, and the verdict as that view counts it: "Stock-and-flow diagram (system
+  dynamics) · NAME: PURPOSE · 2 systems · 25 goals, 0 off" (every goal), "Block diagram (control) · … ·
+  16 control loops, 2 off" (the goals a controller holds). The Process view gives its type, the model and
+  its systems, and no goal count: a process map holds no goals.
 - **Two views at once.** A grip on each edge of the canvas, dragged inward, reveals a second pane
   behind a separator (left or right: side by side; top or bottom: stacked); the separator resizes it,
   a double-click halves it, dragged back to the edge it closes; the edge and size are remembered in the
@@ -217,7 +240,12 @@ The control diagram is the product's main view. Conventions:
 - **Export** (the zoom bar's Export menu): "SVG" and "PNG" write a standalone file with a header (project, system, view,
   when) and, for the control view, a one-line legend, every style resolved; "Design SVG" leaves out
   what changes minute to minute (values, rates, status, decisions, trends) for a design document; `ergostat snapshot` writes the whole page and its answers as one
-  HTML file that opens offline (agents' logs only with `--with-logs`).
+  HTML file that opens offline (agents' logs only with `--with-logs`). The model behind the picture, as Markdown, for
+  the system drawn: Dynamics' "Model (Markdown)" (a variable table: name, kind, unit, equation or sensor, now; the
+  flows per stock; the feedback loops of the side list, with the goal each closes) and Blocks' "Loops (Markdown)" (a
+  row per goal in the system drawn, the goal or the part it holds inside it at any depth: goal, reference, measured output, controller and its law in the panel's words, actuator,
+  process, sensor and period, status). The server writes them (`GET /api/export?view=dynamics|blocks&system=S`,
+  `format=md` by default, `json` for the page), so `curl` gets the same file; a snapshot file says it cannot.
 
 ## 7. The command line
 
@@ -246,7 +274,7 @@ The review rounds that shaped it are in `docs/cli-rounds.md`.
 ## 8. The web page
 
 Every page is a path, so its links are ordinary links (opened in a new tab, copied, reloaded):
-`/diagram?view=blocks`, `/loops`, `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
+`/diagram?view=blocks`, `/goals` (its old address `/loops` goes there, keeping its query), `/agents`, `/items?kind=K&state=S`, `/item/ID` (the id encoded, its `/` as
 `%2F`), `/record?type=T`, `/model`, `/check`, `/guide?frame=N`. The server answers each with the page
 (`UI_PAGES` in `web/server.py` and `util.js`, one list); `/api/*`, `/static/*` and `/file/PATH` are never
 shadowed. The page routes with the History API: a plain click on one of its links draws the page in
@@ -263,7 +291,7 @@ only when addressed to the server by its own name (the Host header is `127.0.0.1
 sends its own), and a write only from the page's own origin (Origin, Sec-Fetch-Site) carrying the
 token this run of the server wrote into the page it served (`X-Ergostat-Token`), which no other
 page can read; a snapshot offers none. Pages: Diagram (dynamics, blocks and process views; the side panel:
-attention, loops or the process map's kinds, model changes, legend), Loops, Agents (one list, by rung), Items (the
+attention, goals and their control loops, feedback loops or the process map's kinds, model changes, legend), Goals, Agents (one list, by rung), Items (the
 record folded by id, by kind and state), Record (events, with runs hidden by default), Model (`/model`;
 its old address `/fit` goes there; first **What's available**: each loop, whether its process is
 identified and what would identify it (loops identified alike said once, as a group: "12 loops: an
@@ -299,11 +327,11 @@ provenance, its calibrations side by side, and any proposal for it, with Accept 
 typed over: a what-if, drawn on every chart until put back, its fit shown beside it, saved only by
 Propose these and then Accept), a feedback loop's panel how much of the behaviour it drives over the
 window at each stock it runs through, beside the loops competing there (loop dominance), parts chosen with
-Shift chart in the side panel (and with none chosen, the parts charted last); a loop's panel, its
-comparator, controller or output in the blocks view, and its sparkline on the Loops page open its
-scope (y with r, u, e), and under it how the loop is doing (Harris index or, for a ceiling or a floor,
+Shift chart in the side panel (with none chosen, no chart); a goal's panel, its
+comparator, controller or output in the blocks view, and its sparkline on the Goals page open its
+scope (y with r, u, e), and under it how its control loop is doing (Harris index or, for a ceiling or a floor,
 how often and how far past it, oscillation, settling and overshoot, saturation, step tests and starts
-left out; the Loops page says it in a word, or what it lacks); in the blocks view, the process block a
+left out; the Goals page says it in a word, or what it lacks); in the blocks view, the process block a
 loop's y comes out of shows that loop's process identified (K, τ, θ, how sure, how tested, its step
 response and Bode plot, with Accept, or a step test to Approve, or why none is offered yet), and its
 controller's panel the closed loop with it (margins, at the worst the process could be too, its own
@@ -378,10 +406,14 @@ radius or a spacing, or use `!important` (`tests/test_style_tokens.py` fails it)
   Numbers right-aligned, headers too over numbers. A wide table scrolls inside its own box; the page
   never scrolls sideways.
 - **Numbers.** One formatter (`fmt` in `util.js`): integers as they are, with thousands separated;
-  others to three significant figures; a real minus (−). Raw data on the Record is rounded the same
-  way where it is summarised, and kept whole in the event's panel. Setpoints and conditions use the
+  others to three significant figures; a real minus (−). Raw data on the Record is shown whole,
+  never rounded. Setpoints and conditions use the
   real symbols: ≤, ≥, =, ≠, −, ×, and … for an ellipsis. Subscripts are subscripts (K<sub>p</sub>,
   not K_p).
+- **Times.** One formatter (`stamp` in `util.js`): `2026-11-22 04:03:55 PST`, the date, the time and
+  the browser's zone by its short name, on the Record, a goal's Crossings, the Items page and an item's
+  page. A field named `*_at`, `raised`, `since` or `started` holding epoch seconds or ISO text is
+  shown the same way.
 - **Copy.** No paragraph under a page's title: what a thing is belongs to the Guide. Labels are
   terse and specific; a panel opens with what the thing is now, not its definition. Sentence case
   everywhere. No " · " chains to fake structure: two lines, or a label and a value. No arrows on

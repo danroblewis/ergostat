@@ -13,10 +13,17 @@ into and resets: each version is its own worktree, detached at its commit, with 
     live.py init [SHA]        make the instance's folder, on SHA (after the first install)
     live.py start | stop      start or stop the engine of the current version, on [instance] port
     live.py switch SHA        stop, point current at SHA, start, check its health; back to the previous on failure
-    live.py switch SHA --detach   the same in a process of its own (the switcher's, dev/bin/drain.py, once the runs
-                              under way drained: the engine that runs it is the one it stops); a switch ends the
-                              drain (run/drain.json) whatever becomes of it
+    live.py switch SHA --detach   the same in a process of its own (the switcher's, dev/bin/drain.py: the engine
+                              that runs it is the one it stops); it removes the switcher's run/switch.json whatever
+                              becomes of it
     live.py revert            switch to the previous version
+
+A switch stops the engine only (`ergostat run --stop`, never `--runs`): with the model's `runs: outlive_engine` each
+run under way is held by a keeper of its own, so it carries on under the version it started with (its process, its
+$ERGOSTAT_CMD), its lease kept with its fence, and the new version's engine takes it up from its journal (SPEC section
+9.1, *Runs taken up again*); a revert, the same, back the other way. None is waited for, stopped or given back. The
+version switched from is touched as it stops running, so cleanup.py keeps it [resources] session_keep_hours on (past
+any run's timeout) for the runs that still use it.
     live.py health            the running engine's health: a pass, the sensors reading, the record read, the queue
     live.py status            which version runs, which is previous, and the versions installed
 
@@ -38,7 +45,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
-HEALTH_WAIT = 120            # seconds a new version has to show it is healthy
+HEALTH_WAIT = 300            # seconds a new version has to show it is healthy
+STOP_WAIT = 120              # seconds a stopping engine has to close before a start is tried
 PASS_FRESH = 30              # a pass at most this old
 DISPATCH_FAILING = 120       # seconds the dispatcher may meet an error in every look before it is a situation
 SENSOR = "suites-running.main"     # the load interlock's, read every 15 s
@@ -174,16 +182,23 @@ def engine(cfg: dict, sha: str, *args: str, timeout: int = 120) -> subprocess.Co
 
 def start(cfg: dict) -> str:
     sha = target(live(cfg) / "current")
-    r = engine(cfg, sha, "run", "--port", str(cfg["instance"]["port"]))
+    r = engine(cfg, sha, "run", "--no-web")          # the page is its own process (dev/bin/ui.py): it outlives this
     if r.returncode:
         raise RuntimeError(f"start {sha[:12]}: {(r.stderr or r.stdout)[-400:]}")
+    if cfg["ai"]["mode"] != "standin":               # (a test's stand-in factory starts no page of its own)
+        run([sys.executable, str(Path(__file__).with_name("ui.py")), "ensure"], timeout=30, cwd=instance(cfg))
     return sha
 
 
 def stop(cfg: dict) -> None:
+    """Stop the engine and wait until it has gone. `run --stop` gives up after 10 s while a busy engine is still closing,
+    and a start in that time sees it running, starts nothing, and leaves no engine once it exits."""
     sha = target(live(cfg) / "current")
-    if sha:
-        engine(cfg, sha, "run", "--stop")
+    if not sha:
+        return
+    deadline = time.monotonic() + STOP_WAIT
+    while engine(cfg, sha, "run", "--stop").returncode and time.monotonic() < deadline:
+        time.sleep(1)
 
 
 def state_dir(cfg: dict) -> Path:
@@ -278,7 +293,9 @@ def switch(cfg: dict, sha: str) -> dict:
     was, before = target(lv / "current"), target(lv / "previous")
     began = time.time()
     wait = float((cfg.get("instance") or {}).get("health_wait", HEALTH_WAIT))
-    stop(cfg)
+    stop(cfg)                                            # (the engine only: the runs under way carry on)
+    if was and (lv / was).is_dir():
+        os.utime(lv / was)                               # (its runs' version, kept by cleanup.py while they may run)
     h: dict = {"healthy": False}
     kept = None
     try:
@@ -296,8 +313,8 @@ def switch(cfg: dict, sha: str) -> dict:
             if h["healthy"]:
                 record(cfg, sha, "upgrade.kept", health=h, healthy_at=time.time())
                 forget_previous(cfg)
-                if kept:
-                    edits_as_gap(cfg, sha, kept)
+                if kept and (cfg.get("instance") or {}).get("edits_as_gaps", True):   # (false: an operator's live-only
+                    edits_as_gap(cfg, sha, kept)                                     # edits stay in run/model-edits/)
                 return h
         h["why"] = f"not healthy within {wait:g}s"
     except Exception as e:  # noqa: BLE001 - whatever failed, the instance goes back to what ran
@@ -308,6 +325,7 @@ def switch(cfg: dict, sha: str) -> dict:
         pass
     if not was or was == sha:
         return h                                         # nothing to go back to: left stopped, said by the caller
+    os.utime(lv / sha)                                   # (the runs it started carry on under it, as above)
     point(lv / "current", was)
     if before:
         point(lv / "previous", before)                  # previous is what it was: the failed one is never gone back to
@@ -333,7 +351,8 @@ def switch(cfg: dict, sha: str) -> dict:
 
 
 def detach(cfg: dict, sha: str) -> Path:
-    """The switch in a process of its own (it stops the engine that started it); its log."""
+    """The switch in a process of its own (it stops the engine that started it, and leaves the runs under way); its
+    log."""
     log = fac.run_dir(cfg, "logs") / f"switch-{sha[:12]}.log"
     subprocess.Popen([sys.executable, __file__, "switch", sha], stdout=log.open("a"), stderr=subprocess.STDOUT,
                      stdin=subprocess.DEVNULL, start_new_session=True, cwd=instance(cfg))
@@ -356,8 +375,8 @@ def main(argv: list[str]) -> int:
     elif what == "switch":
         try:
             h = switch(cfg, argv[1])
-        finally:                                        # the drain that waited for it ends, whatever became of it
-            (fac.run_dir(cfg) / "drain.json").unlink(missing_ok=True)
+        finally:                                        # the switcher's flag goes, whatever became of it
+            (fac.run_dir(cfg) / "switch.json").unlink(missing_ok=True)
         print(json.dumps(h))
         return 0 if h.get("healthy") else 1
     elif what == "revert":

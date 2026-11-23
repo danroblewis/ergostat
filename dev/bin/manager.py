@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import statistics
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -18,6 +19,8 @@ import agents  # noqa: E402
 import brief  # noqa: E402
 import fac  # noqa: E402
 import knowledge  # noqa: E402
+import live  # noqa: E402
+import load  # noqa: E402
 import manage  # noqa: E402
 import measure  # noqa: E402
 import watch  # noqa: E402
@@ -27,6 +30,7 @@ ANSWER = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 GOALS = (("queue-wait-hours", "queue-wait-short"), ("suite-minutes", "suites-in-time"),
          ("first-pass-yield", "first-pass-good"))      # the queue's goals and the review's, for the binding constraint
 DETAILED = 6                                            # gaps given in full; the rest by their trigger's line
+QUIET = 20 * 60                       # seconds with no merge while approved gaps wait: the brief names the queue's holder
 
 
 def tail(d: Path, pattern: str, n: int = 1500) -> str:
@@ -60,6 +64,64 @@ def about_gap(cfg: dict, gid: str) -> str:
             + tail(fac.run_dir(cfg, "queue"), f"{b}-*.txt"))
 
 
+def run_alive(cfg: dict, run: str) -> str:
+    """Whether a lease's run still runs, from the engine's run record (runs/RUN.json: its pid and that pid's start, as
+    ergostat/spec/runrecord.py writes them); a record or a start that cannot be read is unknown, never gone."""
+    try:
+        rec = json.loads((live.state_dir(cfg) / "runs" / f"{run}.json").read_text())
+    except FileNotFoundError:
+        return "no run record (the engine removes it when the run ends)"
+    except (OSError, ValueError, AttributeError) as e:
+        return f"unknown: its run record cannot be read ({type(e).__name__})"
+    pid = int(rec.get("pid") or 0)
+    try:
+        if sys.platform.startswith("linux"):
+            stat = Path(f"/proc/{pid}/stat")
+            text = stat.read_text() if stat.exists() else ""
+            rest = text[text.rfind(")") + 2:].split()               # (the name in brackets may hold spaces)
+            start = rest[19] if len(rest) > 19 and rest[0] not in ("Z", "X") else None
+        else:
+            start = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True,
+                                   timeout=10).stdout.strip() or None
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        return f"unknown: pid {pid} cannot be read ({type(e).__name__})"
+    if not rec.get("start"):
+        return f"unknown: its record has no start time for pid {pid}"
+    return f"alive (pid {pid})" if start == rec["start"] else f"not running (pid {pid} ended, or is another process now)"
+
+
+def queue_holder(cfg: dict, gaps: list[dict], now: float) -> str:
+    """While approved gaps wait and nothing merged for QUIET: each lease the merge-queue block holds (its run, when
+    taken, renewed and expiring, its item's state, whether its process lives) and the live readings of queue-when's
+    inputs. "" otherwise."""
+    approved = [g for g in gaps if g["state"] == "approved"]
+    last = max([float(g["fields"].get("merged_at") or 0) for g in gaps] or [0])
+    if not approved or now - last < QUIET:
+        return ""
+    rows = []
+    for g in gaps:
+        if (le := g["fields"].get("lease") or {}).get("holder") and le.get("block") == "merge-queue":
+            merged = f", merged {utc(g['fields']['merged_at'])}" if g["fields"].get("merged_at") else ""
+            rows.append(f"{g['id']} (state {g['state']}{merged}): run {le['holder']}, taken {utc(le.get('taken'))}, last "
+                        f"renewed {utc(le.get('renewed'))} ({(now - float(le.get('renewed') or 0)) / 60:.0f} min ago), "
+                        f"expires {utc(le.get('expires'))}; its process: {run_alive(cfg, le['holder'])}")
+    inputs = [f"approved-gaps-landed: {len(approved)} approved gaps wait (hold <= 0)"]
+    for w, goal in watch.INTERLOCK.items():
+        try:
+            inputs.append(f"{goal}: `load.py {w}` reads {load.reading(w):g} (hold <= {watch.hold('interlock.yaml', goal)})")
+        except Exception as e:  # noqa: BLE001 - said as unreadable, never as within its limit
+            inputs.append(f"{goal}: unreadable ({type(e).__name__}: {e})")
+    try:
+        got = subprocess.run([sys.executable, str(fac.HERE / "bin" / "queue.py"), "waiting"], capture_output=True,
+                             text=True, timeout=60)
+        inputs.append(f"push-waiting: `queue.py waiting` reads {got.stdout.strip()}" if got.returncode == 0 else
+                      f"push-waiting: unreadable (exit {got.returncode}: {got.stderr.strip()[-200:]})")
+    except (OSError, subprocess.SubprocessError) as e:
+        inputs.append(f"push-waiting: unreadable ({type(e).__name__})")
+    return (listed(f"What holds the merge queue (no merge for {(now - last) / 60:.0f} min while gaps wait)",
+                   rows or ["no lease held by merge-queue"]) + "\n\n#" + listed("queue-when's inputs, read now", inputs))
+
+
 def brief_text(cfg: dict, sit: dict, record: dict) -> str:
     f = sit["fields"]
     trig = list(f.get("triggers") or [])
@@ -75,7 +137,7 @@ def brief_text(cfg: dict, sit: dict, record: dict) -> str:
     parts += [f"## {i}\n\n```json\n{json.dumps(watch.detail(i)['fields'], indent=1, default=str)[:2000]}\n```"
               for i in dict.fromkeys(t["subject"] for t in trig if t["subject"].startswith("intervention/"))][:DETAILED]
     parts += [f"## The merge queue\n\n```json\n{json.dumps(watch.queue_state(cfg), indent=1, default=str)[:2000]}\n```"
-              + tail(fac.run_dir(cfg, "queue"), "*.txt", 1000),
+              + tail(fac.run_dir(cfg, "queue"), "*.txt", 1000), queue_holder(cfg, gaps, time.time()),
               "## Main's recent commits\n\n```\n" + fac.git(repo, "log", "--oneline", "-12", cfg["git"]["base"],
                                                                 check=False) + "\n```",
               listed("Open interventions", (f"{i['id']} ({i['fields'].get('class')}, by {i['fields'].get('by')}): "
@@ -84,7 +146,7 @@ def brief_text(cfg: dict, sit: dict, record: dict) -> str:
               listed("The pipeline (UTC)", (f"{g['id']} {g['state']} since {utc(g.get('entered'))}" for g in gaps
                                             if g["state"] not in ("merged", "parked", "closed", "open", "replan"))),
               f"## The velocity record\n\n```json\n{json.dumps(record, indent=1, default=str)}\n```"]
-    return "\n\n".join(parts)
+    return "\n\n".join(p for p in parts if p)
 
 
 def reading(name: str):
@@ -181,6 +243,7 @@ def handle(cfg: dict, sit: dict) -> int:
                for t in trig]
     told = [x["print"] for x in answers if x["print"] in a["answers"]]      # (a trigger left unanswered comes back)
     fac.say("situation.handled", handled_at=time.time(), summary=a["summary"][:2000], actions=done, answers=answers,
+            finding=a["summary"][:2000],                   # (the attention list's: ergostat.yaml `attention: finding`)
             prints=told + [x for x in sit["fields"].get("prints") or [] if x.startswith("broken-")],
             actions_n=sum(d["ok"] for d in done), velocity=record, context=context,
             ai_cost_usd=round(float(got.get("total_cost_usd") or 0), 4))
@@ -191,7 +254,7 @@ def main() -> int:
     fac.stop_on_term()
     cfg = fac.config()
     given = fac.read_input()
-    if fac.drain_holds(cfg):
+    if fac.ai_holds(cfg):
         return 0
     try:
         return handle(cfg, given["item"])

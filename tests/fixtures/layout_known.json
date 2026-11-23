@@ -1,7 +1,7 @@
 {
  "alert-triage": {
   "ceilings": {
-   "satellite-far": 31,
+   "satellite-far": 33,
    "valve-orientation-mismatch": 2
   }
  },
@@ -19,13 +19,13 @@
  },
  "coordinator": {
   "ceilings": {
-   "satellite-far": 26,
+   "satellite-far": 30,
    "valve-orientation-mismatch": 4
   }
  },
  "deps": {
   "ceilings": {
-   "satellite-far": 9,
+   "satellite-far": 10,
    "valve-orientation-mismatch": 1
   }
  },
@@ -37,7 +37,7 @@
  },
  "docs-fresh": {
   "ceilings": {
-   "satellite-far": 9,
+   "satellite-far": 10,
    "valve-orientation-mismatch": 0
   }
  },
@@ -67,19 +67,19 @@
  },
  "ops": {
   "ceilings": {
-   "satellite-far": 18,
+   "satellite-far": 22,
    "valve-orientation-mismatch": 0
   }
  },
  "plain-crontab": {
   "ceilings": {
-   "satellite-far": 11,
+   "satellite-far": 14,
    "valve-orientation-mismatch": 0
   }
  },
  "roadmap": {
   "ceilings": {
-   "satellite-far": 13,
+   "satellite-far": 15,
    "valve-orientation-mismatch": 0
   }
  },

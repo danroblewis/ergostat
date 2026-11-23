@@ -13,6 +13,7 @@ from ..numbers import closedloop as cl
 from ..numbers import dominance as dm
 from ..numbers import estimate as es
 from ..numbers import fit as ft
+from ..numbers import forecast_words as fw
 from ..numbers import observe as ob
 from ..numbers import proposals as pr
 from ..numbers import review as rv
@@ -21,6 +22,7 @@ from ..numbers import simulate as sim
 from ..numbers import version as ver
 from ..numbers.simulate import horizon_of  # noqa: F401  (the page's and the command line's horizon)
 from ..spec import equation as eq
+from ..spec.ir import MODELLING_REQUEST
 from ..webaccess import who
 
 ESTIMATING = threading.Lock()     # one estimate at a time: each is a few hundred replays
@@ -226,7 +228,11 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
     loops = loops_of(spec, loops)
     mr = model_run(live, p, snap, out["points"], inputs, loops=loops)
     if mr is None:
+        out["no_estimate"] = fw.said(None, "", 0.0, "the model cannot be read, so nothing is run forward")["sentence"]
         return out
+    if loops != "closed":
+        out["no_estimate"] = fw.said(None, "", 0.0, "the loops are held (open loop)" if cl.has_controllers(spec) else
+                                     "no controller in the model runs its goals forward")["sentence"]
     run, proj = mr["run"], mr["projection"]
     try:
         tried, other = split_whatif(spec, whatif)
@@ -285,8 +291,10 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
                              for r, x in sorted(mr["models"].items()) if r in near or f"stock.{x.source}" in mine]
             out["models_assumed"] = sorted({x.block for x in mr["models"].values() if x.assumed})
             if rk is not None:
-                out["risk"] = [{"goal": g.name, "said": cl.risk_said(rk, g.name), "p_off_end": rk["goals"][g.name]["p_off_end"]}
-                               for g in spec.goals.values() if str(g.of) in mine and g.name in rk["goals"]]
+                out["risk"] = [{"goal": g.name, "said": cl.risk_said(rk, g.name),
+                                "p_off_end": (rk["goals"].get(g.name) or {}).get("p_off_end"),
+                                **fw.said(rk, g.name, mr["data"].grid.until, "no run of the model could be made")}
+                               for g in spec.goals.values() if str(g.of) in mine]
         if tried or other:
             out["whatif"] = [{"name": k, "value": v, "was": spec.parameters[k].value, "unit": spec.parameters[k].unit,
                               "duration": spec.parameters[k].duration} for k, v in tried.items()]
@@ -310,6 +318,8 @@ def add_to_series(live, p, snap: dict, out: dict, inputs: str = "hold", whatif: 
                 out["replay_fan"] = {"samples": rf["samples"], "invalid": rf["invalid"], "tails": rf["samples"] >= sens.TAILS}
             out["fan"] = {"samples": fn["samples"], "invalid": fn["invalid"], "tails": fn["samples"] >= sens.TAILS,
                           "parameters": [{k: v for k, v in u.items() if k != "corr"} for u in sampled], "joint": sens.joint_said(sampled)}
+    elif "no_estimate" not in out:              # none of these parts is worked out by the model: say why
+        out["no_estimate"] = fw.said(None, "", 0.0, "nothing here is worked out by the model")["sentence"]
     return out
 
 
@@ -642,7 +652,9 @@ def queue(live, p, snap: dict) -> dict:
                   "code": "turned-away", "by": x["by"], "item": x["item"]}
                  for x in mem.turned(p, spec) if x["by"] == "ergostat"][:12]
     from ..numbers import redesign as rd
-    return {"queue": rv.entries(p, spec, control), "not_made": not_made,
+    from ..numbers import requests as rq
+    return {"queue": rv.entries(p, spec, control), "not_made": not_made,      # and the modelling requests held (the inbox's)
+            "held": sum(r["state"] == "held" for r in rq.stored(p).values()) if MODELLING_REQUEST in spec.items else 0,
             "redesigns": {"systems": ["model", *sorted(spec.systems)], "asked": rd.asked(p), "last": rd.last(p),
                           "settings": rd.settings(spec), "on": "redesigner" in spec.blocks},
             "loops_analysed": sum(1 for g in goals if (LOOPS_SEEN.get(g) or (None,))[0] == live.mtime), "loops": len(goals),

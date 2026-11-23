@@ -153,6 +153,18 @@ def test_the_engine_reads_item_counts_and_the_api_lists_them(tmp_path):
     assert one["kind_of"]["name"] == "pr" and len(one["moves"]) == 2 and len(one["record"]) == 2 and one["events"] == 2
 
 
+def test_an_items_kind_names_its_endings_as_the_process_map_counts_them(tmp_path):
+    """The item API's kind_of.final (what the lifecycle strip sets apart): the states after the first that no item
+    has left, in the kind's own order; a state an item has left is no ending."""
+    from ergostat.web.server import Live, api
+    p = project(tmp_path)
+    for n, ev in ((9, "pr.review-asked"), (9, "pr.merged"), (8, "pr.review-asked")):
+        p.events.add(ev, item=f"github/pull_request/{n}", data={"title": "x"})
+    one = api(Live(p), "items/github%2Fpull_request%2F9", {})
+    assert one["kind_of"]["states"] == ["open", "review", "merged", "closed"]
+    assert one["kind_of"]["final"] == ["merged", "closed"], one["kind_of"]
+
+
 def test_an_agent_records_events_and_reads_items_over_mcp(tmp_path):
     project(tmp_path)
     s = Server(tmp_path)
@@ -230,3 +242,28 @@ def test_a_loop_closes_the_long_way_through_queues_and_an_influence(tmp_path):
     assert m.loop("no-bugs").closes and m.flows["fixed"].driven_by == ["deployed"]
     from ergostat.spec.explain import explain
     assert "Closes the long way" in explain(spec, "no-bugs")
+
+
+def test_the_item_answer_sends_history_only_when_asked_and_sizes_its_files(tmp_path, monkeypatch):
+    """/api/items/ID: the counts always, ``history`` only with history=FIELD or all; ``file_sizes`` for a file in the
+    project, none for one in the state folder or outside the project."""
+    from urllib.parse import quote
+
+    from ergostat.web.server import Live, api
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    (tmp_path / "ergostat.yaml").write_text(MODEL)
+    (tmp_path / "b.md").write_text("12345")
+    p = Project(mdl.load(tmp_path))
+    (p.dir / "secret.md").write_text("in the state folder")
+    (tmp_path.parent / "outside.md").write_text("outside")
+    item = "github/pull_request/9"
+    assert p.dir.resolve().is_relative_to(tmp_path.resolve()), "the state folder is reachable from the project's root"
+    p.events.add("pull_request.opened", item=item, data={"title": "a", "brief": "file:b.md", "more": [
+        {"s": f"file:{p.dir.resolve().relative_to(tmp_path.resolve())}/secret.md"}, {"o": "file:../outside.md"}]})
+    p.events.add("pull_request.reviewed", item=item, data={"title": "b"})
+    live, at = Live(p), quote(item, safe="")
+    plain = api(live, f"items/{at}", {})
+    assert "history" not in plain and plain["changes"]["title"] == 2
+    assert plain["file_sizes"] == {"b.md": 5}
+    assert list(api(live, f"items/{at}", {"history": ["title"]})["history"]) == ["title"]
+    assert {"title", "brief"} <= set(api(live, f"items/{at}", {"history": ["all"]})["history"])

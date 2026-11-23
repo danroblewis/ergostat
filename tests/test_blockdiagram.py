@@ -1,9 +1,10 @@
 """The control view as a block diagram (ergostat/blockdiagram.py): every controller, actuator, process
 and sensor once, a function in every block, signs at every summing junction, no placeholder, cascades
-nested, MIMO where outputs share their inputs, and systems as subsystem blocks Q(s)."""
+nested, MIMO where outputs share their inputs, and systems as subsystem blocks: C, P or named, p × m."""
 
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 
@@ -112,7 +113,7 @@ def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     g = drawn(spec)
     assert {n["id"] for n in g["nodes"]} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling"}
     for n in g["nodes"]:
-        assert n["fn"]["sym"] == "Q"
+        assert n["fn"]["sym"] == (n["fn"]["letter"] or n["label"]) and n["fn"]["expr"] == f"{n['fn']['p']}×{n['fn']['m']}"
     assert any(e["signal"].get("n", 1) > 1 for e in g["edges"])
     one = drawn(spec, {"service"})
     ids = {n["id"] for n in one["nodes"]}
@@ -325,13 +326,20 @@ def test_a_reference_is_a_value_and_the_relay_says_its_threshold():
     g = drawn(spec, {"*"})
     n = {x["id"]: x for x in g["nodes"]}
     r = n["ref:backlog-clear"]
-    assert r["fn"]["value"] == "= 0" and "≤" not in r["fn"]["value"]
+    assert r["fn"]["value"] == "≤ 0" and "a limit" in r["says"] and "setpoint" not in r["says"]   # one-sided: a limit
+    assert dict(r["rows"])["limit"] == "y_backlog ≤ 0"
     relay = n["blk:keep-backlog-clear"]
     rows = dict(relay["rows"])
     assert rows["threshold"] == "backlog ≤ 0: on above it", rows
     assert "y_backlog > 0" in relay["says"]
+    assert relay["fn"]["sketch"] == "ideal-relay" and "ideal relay" in relay["says"]            # on and off at one threshold
+    assert "hysteresis" not in _text(relay) and "releases at" not in rows
+    fq = {x["id"]: x for x in drawn(load(ROOT / "examples" / "file-queue" / "ergostat.yaml"), {"*"})["nodes"]}
+    band = next(x for x in fq.values() if (x.get("fn") or {}).get("sketch") == "relay")      # until: "<= 10", a band
+    assert "with hysteresis" in band["says"] and "releases at" in dict(band["rows"])
     sq = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
-    assert {x["id"]: x for x in drawn(sq, {"*"})["nodes"]}["ref:quality-held"]["fn"]["value"] == "= 0.93"
+    held = {x["id"]: x for x in drawn(sq, {"*"})["nodes"]}["ref:quality-held"]
+    assert held["fn"]["value"] == "= 0.93" and "a setpoint" in held["says"] and "limit" not in held["says"]
     for ex in EXAMPLES:                                  # real ≤ ≥ everywhere: no ASCII comparison in a label or a panel
         spec = load(ROOT / "examples" / ex / "ergostat.yaml")
         for where, g in _all_views(spec):
@@ -432,7 +440,7 @@ def test_the_alerts_loop_reads_through_a_labelled_sensor_and_its_collector():
     g = drawn(spec, {"*"})
     n = {x["id"]: x for x in g["nodes"]}
     sen = n["sen:stock.alerts-to-draft"]
-    assert sen["role"] == "sensor" and sen["fn"]["expr"] == "1" and not sen["fn"].get("sampled")
+    assert sen["role"] == "sensor" and sen["fn"]["expr"] == "e^(−sT)" and sen["fn"]["sampled"]
     assert sen["fn"]["reads"] == "items: alert, fired, every 5 s"
     assert "every-alert-drafted" in sen["loops"]
     col = n["col:alerts-fired.main"]                     # watch.py alert: it records the alerts the count reads
@@ -473,8 +481,12 @@ def test_a_sensor_that_polls_slowly_against_its_loop_is_a_sampler_with_a_delay(t
     assert slow["reads"] == "Jira: FF tickets approved, every 5 min"
     assert (slow["expr"], slow["sampled"], slow["T"]) == ("e^(−sT)", True, "5 min")
     assert "5 min" in _text(n["sen:stock.approvals-waiting"]["math"]) and "up to T old" in n["sen:stock.approvals-waiting"]["says"]
-    quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: H = 1
-    assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s" and quick["expr"] == "1"
+    assert not slow["slight"]
+    quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: the same form, its sampler slight
+    assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s"
+    assert (quick["expr"], quick["sampled"], quick["T"], quick["slight"]) == ("e^(−sT)", True, "30 s", True)
+    assert ["T / loop", "30 s / 10 min = 0.05"] in n["sen:stock.inbox"]["rows"]
+    assert "drawn muted" in n["sen:stock.inbox"]["says"]
 
 
 def test_an_inflow_from_outside_names_its_source_in_the_dynamics_view(tmp_path):
@@ -595,3 +607,110 @@ def test_a_stock_with_no_flows_is_an_integrator_with_no_inputs_in_every_view(tmp
         assert "no inputs" in p["says"] and "seen only in its readings" in p["says"], where
         assert "∫" not in str(p["math"]) and "no flow modelled" in str(p["math"]), where
         assert not [e for e in g["edges"] if e["target"] == "proc:stock.backlog"], where
+
+
+# ---- subsystems classified C, P or named, the same letter and p × m closed and open (dev/records/blocks-subsystems-classified-c-p.md)
+
+CHAIN = """
+    systems:
+      a: {description: it controls}
+      b: {description: in the middle}
+      c: {description: it is controlled}
+    stocks:
+      work: {system: b, unit: x, sensor: {run: echo 1, every: 1m}}
+      load: {system: c, unit: x, sensor: {run: echo 1, every: 1m}}
+    flows:
+      fill: {system: b, to: work}
+      spill: {system: b, from: work}
+      fill-c: {system: c, to: load}
+    goals:
+      work-low: {system: b, stock: work, hold: "<= 5"}
+      load-low: {system: c, stock: load, hold: "<= 5"}
+    blocks:
+      pusher: {system: a, type: program, run: echo 1, every: 1m, in: stock.work, out: flow.fill}
+      relay: {system: b, type: program, run: echo 1, every: 1m, in: stock.load, out: flow.fill-c}
+    """
+
+
+def _letters(tmp_path, text: str) -> dict:
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text))
+    return {n["label"]: n["fn"]["letter"] for n in drawn(load(tmp_path / "ergostat.yaml"))["nodes"] if n["role"] == "subsystem"}
+
+
+def test_a_system_of_controllers_is_c_of_processes_p_and_mixed_or_neither_is_named(tmp_path):
+    two = CHAIN.replace("      relay:", "      #").replace("      c: {description: it is controlled}", "")
+    two = "\n".join(ln for ln in two.splitlines() if "load" not in ln and "fill-c" not in ln)
+    assert _letters(tmp_path, two) == {"a": "C", "b": "P"}            # only a controller; only a process acted on
+    assert _letters(tmp_path, CHAIN) == {"a": "C", "b": None, "c": "P"}  # b is acted on and acts: named
+    # a u wire that reaches no goal of its target is a y wire (bookkeeping): neither acts, both named
+    no_goal = two.replace('    goals:\n      work-low: {system: b, stock: work, hold: "<= 5"}\n', "")
+    assert _letters(tmp_path, no_goal) == {"a": None, "b": None}
+    n = {x["label"]: x for x in drawn(load(tmp_path / "ergostat.yaml"))["nodes"]}
+    assert (n["b"]["fn"]["sym"], n["b"]["fn"]["sub"], n["b"]["fn"]["named"]) == ("b", None, True)
+
+
+def _inside(g: dict, frame: str) -> set[str]:
+    up = {x["id"]: x.get("parent") for x in [*g["nodes"], *g["frames"]]}
+
+    def within(i):
+        while i:
+            if i == frame:
+                return True
+            i = up.get(i)
+        return False
+    return {n["id"] for n in g["nodes"] if within(n.get("parent"))}
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_every_system_has_the_same_letter_and_p_by_m_closed_and_open(example):
+    spec = load(ROOT / "examples" / example / "ergostat.yaml")
+    roles = {}
+    for s in spec.systems:
+        above = set(spec.chain(s)[1:])
+        box = next((n for n in drawn(spec, above)["nodes"] if n["id"] == f"sys:{s}"), None)
+        if box is None:                                   # nothing of it in the control system (autoscaler's rescales)
+            continue
+        frame = next(f for f in drawn(spec, above | {s})["frames"] if f["id"] == f"frame:{s}")
+        keys = ("sym", "sub", "letter", "p", "m", "expr", "arg")
+        assert {k: box["fn"][k] for k in keys} == {k: frame["fn"][k] for k in keys}, (example, s)
+        assert frame["ports"] == box["ports"] and [p["as"] for p in box["ports"]] == sorted(
+            (p["as"] for p in box["ports"]), key=["in", "out", "d"].index), (example, s)
+        # counted again from what is drawn: closed, its ports; open with all inside it open, the lines crossing its frame
+        # and the disturbances arising inside it
+        keys_of = lambda ps: {k for p in ps for k in (p.get("keys") or [p["key"]])}          # noqa: E731
+        assert keys_of(box["outs"]) == {p["key"] for p in box["ports"] if p["as"] == "out"}, (example, s)
+        assert keys_of(box["ins"]) <= {p["key"] for p in box["ports"] if p["as"] != "out"}, (example, s)
+        g = drawn(spec, above | {s} | {x for x in spec.systems if s in spec.chain(x)})
+        ins, nodes = _inside(g, f"frame:{s}"), {n["id"]: n for n in g["nodes"]}
+        out = {e["key"] for e in g["edges"] if e["source"] in ins and e["target"] not in ins}
+        into = {e["key"] for e in g["edges"] if e["target"] in ins and (e["source"] not in ins or
+                                                                         nodes[e["source"]].get("role") == "disturbance")}
+        assert (box["fn"]["p"], box["fn"]["m"]) == (len(out), len(into)), (example, s, out, into)
+        roles[s] = box["fn"]["letter"]
+        for x in (box, frame):
+            assert x["fn"]["sym"] != "Q" and not re.search(r"\bQ\b", _text([x.get("math"), x.get("says")])), (example, s)
+    if example == "software-factory":
+        assert (roles["factory"], roles["product"]) == ("C", "P")
+    if example in ("big", "the-job", "ticket-factory"):
+        assert all(v is None for k, v in roles.items() if spec.within.get(k) is None), (example, roles)
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_a_systems_letter_carries_its_name_once_closed_and_open(example):
+    """What blocks.js reads to print a system's name once: a C or P system's letter has the system's name as its
+    subscript (so the frame title drops the plain name after it), and a named one is its name alone, with no letter
+    and no subscript, on the closed block and on the open frame."""
+    spec = load(ROOT / "examples" / example / "ergostat.yaml")
+    for s in spec.systems:
+        above = set(spec.chain(s)[1:])
+        box = next((n for n in drawn(spec, above)["nodes"] if n["id"] == f"sys:{s}"), None)
+        if box is None:                                   # nothing of it in the control system
+            continue
+        frame = next(f for f in drawn(spec, above | {s})["frames"] if f["id"] == f"frame:{s}")
+        assert frame["label"] == box["label"] == s, (example, s)
+        for x in (box, frame):
+            fn = x["fn"]
+            if fn["letter"]:
+                assert (fn["sym"], fn["sub"], bool(fn.get("named"))) == (fn["letter"], s, False), (example, s, fn)
+            else:
+                assert (fn["sym"], fn["sub"], fn.get("named")) == (s, None, True), (example, s, fn)

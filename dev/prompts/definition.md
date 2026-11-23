@@ -21,3 +21,17 @@ One paragraph: what is true when this is done, said so a reviewer can check it.
 ## Size budget
 
 600 net lines of code outside `tests/` and `docs/` (an overrun needs a written reason here).
+
+(The section below is the gap's docs/GAPS.md entry in the form `dev/bin/gapsdoc.py` reads: `section:` (the GAPS.md
+section's heading), any `done: YYYY-MM-DD sentence` lines, then the bullet as GAPS.md shows it, its later lines
+indented two spaces, no blank line inside. A sub-gap of an umbrella entry has no bullet: only `entry-of: BRANCH` (the
+umbrella's record) and its `done:` lines, which are drawn under the umbrella's bullet in date order. The merge queue
+writes docs/GAPS.md from these sections as it lands; never edit docs/GAPS.md itself: a branch that does is refused.)
+
+## Entry
+
+section: Modelling
+done: 2026-11-22 What landed, in one sentence.
+
+- **The gap's title** (open; `BRANCH`, `dev/records/BRANCH.md`): what is known to be lacking, and why it matters.
+  *Left*: what stays open once this is done.

@@ -63,6 +63,22 @@ def controller(spec: Spec, sig: record.Signals) -> tuple[dict | None, str, str |
     return {"form": "I", "g": float(g), "T": T, **extra}, f"integral action, run every {T:g}s", b.name
 
 
+def external(p, spec: Spec, name: str, at: float | None) -> dict:
+    """An external controller (ergostat does not run it): its law as identified from the record on the reference window
+    (SPEC §12d), with its fit (skill one step ahead, R² run free, on the record held out), or why there is none."""
+    from ..numbers import external as ex
+    from ..numbers import observe as ob
+    if not spec.blocks[name].params.get("identify"):
+        return {"block": name, "says": f"{name} is external, and its law is not asked for (identify: on the block)",
+                "identified": None}
+    g = ob.reference(p, at)
+    got = ex.identify(p, spec, name, g.since, g.until)
+    w = got["law"]
+    return {"block": name, "identified": w.as_dict() if w else None,
+            "says": f"{name} is external: its law identified from the record, {w.said()}" if w else
+            f"{name} is external: its law is not identified: {got['why']}"}
+
+
 def key(spec: Spec, goal: str) -> str:
     """What this loop's analysis depends on in the model: its structure, its goal's process and the
     gains its blocks write. A decision (dismissed, accepted) holds until it changes."""
@@ -317,6 +333,9 @@ def analyse(p, goal: str, at: float | None = None) -> dict | None:
     if law is not None:
         law = {**law, **{k: v for k, v in own_delay(p, sig, law_block, until).items() if k != "runs"}}
     out["controller"] = {"law": law, "says": law_says, "block": law_block, "integral": integral}
+    ext = next((n for n in [*sig.blocks, *sig.controllers] if n in spec.blocks and spec.blocks[n].type == "external"), None)
+    if ext is not None:
+        out["controller"].update(external(p, spec, ext, at))
     r, d = identify(p, sig, at) if not sig.known else ({"found": False, "why": [sig.known]}, None)
     if d is None:
         since, until_, n = record.grid(p, sig, at, fine=True)

@@ -18,7 +18,7 @@ function pmLabel(e) {                                  // a line's words: how ma
   if (pmShow() === "times") return e.median != null ? dur(e.median) : "";
   return String(e.count);
 }
-function pmNodeSub(n) { return `${n.count}×` + (n.items !== n.count ? ` · ${n.items} item${n.items === 1 ? "" : "s"}` : ""); }
+function pmNodeSub(n) { return (n.now != null ? `now ${n.now} · ` : "") + `${n.count}×` + (n.items !== n.count ? ` · ${n.items} item${n.items === 1 ? "" : "s"}` : ""); }
 function pmNodeSize(n) {
   if (n.kind !== "activity") return [Math.max(76, textWidth(`${n.label} ${n.count}`) + 40), PM.PILL];
   return [Math.round(Math.max(96, textWidth(n.label) * 1.08 + 28, textWidth(pmNodeSub(n)) * 0.95 + 24)), PM.H];
@@ -378,7 +378,7 @@ function openProcessNode(n) {
       : `an event about a ${n.itemKind} item: each time one was recorded, in the window`;
   const lines = (es, other) => es.length ? h("table", {}, es.map((e) => h("tr", { class: "click", onclick: () => openProcessEdge(e) },
     h("td", {}, e.kind !== "follows" ? `${(other(e) || "").split(":")[1]} · ${pmAct(other(e).split(":").slice(2).join(":"))}` : pmAct(g.nodes.find((x) => x.id === other(e))?.activity ?? "")),
-    h("td", { class: "muted" }, e.kind === "caused" ? "caused" : e.kind === "related" ? e.relation : e.rework ? "rework" : ""),
+    h("td", { class: "muted" }, e.kind === "caused" ? "caused" : e.kind === "related" ? e.relation : e.rework ? `rework ×${e.returns}` : ""),
     h("td", { class: "num" }, String(e.count)), h("td", { class: "num muted" }, e.median != null ? dur(e.median) : ""))))
     : h("p", { class: "muted" }, "None in the window.");
   showDetail(h("div", { class: "kind" }, n.kind === "activity" ? (g.by === "states" ? "State" : "Activity") : n.kind === "start" ? "Start" : n.kind === "schedule" ? "Schedule" : "End"),
@@ -420,11 +420,12 @@ function openProcessEdge(e) {
       pmSet({ kind: [b.itemKind], caused: [`${a.itemKind}:${a.activity}>${b.activity}`] }, `${b.itemKind}, ${pmAct(b.activity)} caused by ${pmAct(a.activity)} on a ${a.itemKind}`,
             "the items on which the effect happened, in the window")];
   } else {
-    const word = e.source === e.target ? "again, on the same item (a loop)" : e.rework ? "back to an earlier step: rework" : "next";
+    const word = e.source === e.target ? "again, on the same item (a loop)" : "next";
     kids = [h("div", { class: "kind" }, e.rework ? "Directly follows: rework" : "Directly follows"),
       h("h2", {}, pmAct(a.activity), " → ", pmAct(b.activity), h("span", { class: "muted" }, ` (${e.itemKind})`)), whatIs("follows"),
       h("p", { class: "muted" }, `On one ${e.itemKind} item, ${pmAct(b.activity)} came ${word} after ${pmAct(a.activity)}, with nothing about the item between.`),
       dl([["from", link(a)], ["to", link(b)], ["times", `${e.count} in the window, on ${e.items} item${e.items === 1 ? "" : "s"}`],
+          ["returns", e.rework ? `${e.returns} of them took the item back to ${pmAct(b.activity)}, a step it had already done: rework` : null],
           ["median time between", e.median != null ? dur(e.median) : e.source.endsWith(":^") || e.target.endsWith(":$") ? null : "not known"]]),
       pmSet({ kind: [e.itemKind], followed: [`${a.activity}>${b.activity}`] }, `${e.itemKind}, ${pmAct(a.activity)} → ${pmAct(b.activity)}`,
             "the items that went along this line, in the window")];
@@ -435,15 +436,17 @@ function openProcessEdge(e) {
 }
 
 /* the side list: what was read, what was left out, and the kinds */
-function pmSide(side, g) {
-  side.append(h("h3", {}, "The process map"));
+function pmSide(panel, g) {
+  panel.append(h("h3", {}, "The process map"));
   const notes = [`${g.events} event${g.events === 1 ? "" : "s"} in the window; nodes are ${g.by === "states" ? "the states items entered" : "the event types about items"}.`];
   if (g.capped?.events) notes.push(`Only the newest ${g.most.events.toLocaleString()} events were read.`);
   if (g.capped?.items) notes.push("Only the latest moved items were read.");
   if (g.capped?.nodes || g.capped?.edges) notes.push(`Too many to draw: the ${g.most.nodes} most frequent nodes and ${g.most.edges} most frequent lines are drawn, of ${g.total.nodes} and ${g.total.edges}.`);
   if (g.paths > 0) notes.push(`Paths under ${Math.round(g.paths * 100)}% of their kind's most frequent hidden: ${g.hidden.edges} line${g.hidden.edges === 1 ? "" : "s"}, ${g.hidden.nodes} node${g.hidden.nodes === 1 ? "" : "s"}.`);
-  side.append(...notes.map((t) => h("p", { class: "muted small" }, t)));
-  side.append(h("h3", {}, "Kinds", h("span", { class: "muted" }, ` ${g.kinds.length}`)));
+  panel.append(...notes.map((t) => h("p", { class: "muted small" }, t)));
+  // the kinds, folded with their count (the legend comes first)
+  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Kinds", h("span", { class: "muted" }, ` ${g.kinds.length}`)));
+  panel.append(side);
   if (!g.kinds.length) side.append(h("div", { class: "muted" }, "No kinds of item here."));
   const said = new Set();                              // a remote's links not drawn, said once, on its first kind
   const unlinked = (k) => {
@@ -474,7 +477,7 @@ function processLegend() {
     row('<path d="M1 10 H22" stroke="var(--ink)" stroke-width="1.4"/><path d="M21 6 L28 10 L21 14 Z" fill="var(--ink)"/>',
         "directly follows: on one item, the second came next after the first; heavier, more often; its number is how many times (Counts) or the median time between (Times)"),
     row('<path d="M1 10 H22" stroke="var(--ink)" stroke-width="3.5"/><path d="M21 5 L29 10 L21 15 Z" fill="var(--ink)"/>', "a busy path"),
-    row('<text x="3" y="14" font-size="12" fill="var(--muted)">↺</text>', "a line back to an earlier step (right to left), or a loop on one activity: rework"),
+    row('<text x="3" y="14" font-size="12" fill="var(--muted)">↺</text>', "rework: a line along which an item came back to a step it had already done (how many times, in its panel)"),
     row('<path d="M1 10 H22" stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="5 4"/><path d="M21 6 L28 10 L21 14 Z" fill="var(--muted)"/>',
         "caused, across kinds: an event on an item of one kind caused one on another (fan-out, join)"),
     row('<rect x="2" y="4" width="26" height="12" rx="6" fill="var(--panel)" stroke="var(--ink)" stroke-width="1.2"/><circle cx="11" cy="10" r="4" fill="none" stroke="var(--ink)"/>',

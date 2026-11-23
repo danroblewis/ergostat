@@ -25,7 +25,7 @@ def as_map(x, where: Where):
 def library(doc) -> dict[str, tp.Template]:
     got = getattr(doc, "_templates", None)
     if got is None:
-        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()))
+        got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()), getattr(doc, "fetched", ()))
         doc._templates, doc._template_notes = got, notes
         for n in notes:
             doc.problems.append(Problem("finding", n, None, "template-library"))
@@ -73,7 +73,8 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         doc.problems.append(Problem(
             "error", f"use {inst}: refused, and nothing of it is in the model: it makes {path}, under template {u.name} "
             f"from {u.path.parent}, a library folder not marked trusted, and {why} (SPEC §2a). Only the owner can "
-            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-untrusted",
+            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-unsandboxed"
+            if path.endswith(".daemon") else "library-untrusted",
             f"system.{inst}"))
         return
     for step in chain.steps:
@@ -88,9 +89,10 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
 
 
 def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, depth: int, within: str | None,
-         under: tp.Template | None, writers: dict | None = None) -> None:
+         under: tp.Template | None, writers: dict | None = None, above: str | None = None) -> None:
     """One instance of the chain; ``under``: the first untrusted template above it (or it), from which all is untrusted.
-    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a)."""
+    ``writers``: who wrote each value of this entry's ``with:`` (None: the owner, at depth 0; SPEC §2a); ``above``: the
+    instance whose template uses this one."""
     def err(msg, where=None, code="bad-use"):
         chain.steps.append(("problem", Problem("error", f"use {inst}: {msg}", where or w, code, f"system.{inst}")))
 
@@ -111,8 +113,12 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
     t = lib.get(str(entry["use"]))
     if t is None:
         broken = [n for n in getattr(doc, "_template_notes", []) if f"{entry['use']}." in n or "/" + str(entry["use"]) in n]
+        broken += [f"library {n} refused: {code}, {why}" for n, (code, why) in getattr(doc, "refused", {}).items()]
         return err(f"no template {entry['use']!r} (there are: {', '.join(sorted(lib)) or 'none'}; the owner's own come "
-                   f"from library: in the main file)" + (f"; {broken[0]}" if broken else ""), at, "unknown-template")
+                   f"from library: in the main file)" + "".join(f"; {b}" for b in broken), at, "unknown-template")
+    if t.library and not tp.trusted(t):
+        return err(f"template {t.name} is from library {t.library}, not marked trust: owner: it is listed, never "
+                   f"expanded (SPEC §2a)", at, "library-untrusted")
     if t.once:
         uses = {**doc.uses, **{s[1]: s[2] for s in chain.steps if s[0] == "use"}}
         prior = next((n for n, u in uses.items() if u["template"] == t.name), None)
@@ -163,7 +169,9 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
             chain.steps.append(("put", section, name, as_map(got, via), via))
     chain.steps.append(("use", inst, {"template": t.name, "path": str(t.path), "owners": not t.builtin, "once": t.once,
                                       "values": made.values, "standins": made.standins, "where": via, "within": parent,
-                                      "depth": depth, "trust": t.trust, "untrusted": untrusted}))
+                                      "depth": depth, "trust": t.trust, "untrusted": untrusted, "above": above,
+                                      "owner_runs": trust.owner_runs(made.marked or {}, author(t)) if untrusted else [],
+                                      "library": t.library}))
     if made.standins:
         chain.steps.append(("problem", Problem("finding", f"use {inst}: runs on free stand-ins "
                                                f"({said('; '.join(made.standins))}); give them under with: to run it for "
@@ -172,4 +180,4 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
         given_on = made.writers.get(sub, {})
         if under is not None and named:                     # what it gives may hold the name: only the owner's known
             given_on = {k: w if w in trust.fine(trust.NAMED) else LIBRARY for k, w in given_on.items()}
-        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on)
+        plan(doc, chain, sub, as_map(e, via), via, {}, depth + 1, inst, under, given_on, inst)
