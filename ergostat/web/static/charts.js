@@ -519,7 +519,7 @@ function moduleCharts(n, group = chartGroup("module")) {
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
   return box;
 }
-/* a sparkline's path, ``w`` by ``hgt`` from 0,0, on its own scale (``lo``…``hi``: written beside it, so two never seem
+/* a sparkline's path, ``w`` by ``hgt`` from 0,0, on its own scale (from ``lo`` to ``hi``, written beside it, so two never seem
    to share an axis), its buckets spread evenly over the window: broken where a bucket has no reading (or one not a
    finite number), never drawn across it; a reading alone between gaps is a dot. ``d`` is "" when nothing was read */
 function sparkPath(values, w, hgt) {

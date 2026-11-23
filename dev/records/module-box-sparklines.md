@@ -121,3 +121,14 @@ tests/test_diagram_rendering.py, run with Playwright under suite_watch, gave 3 p
 tests/test_diagram_rendering.py was not run again in this round (57 min last time). Done item 5 stands as round 1
 left it: the failures listed above, which also failed with this branch's page hooks off. These failures
 are for the factory's rerun on clean main to confirm.
+
+Round 3, 2026-11-23. The finding: tests/test_graph_cli_web.py::test_the_side_panels_charts_say_being_worked_out_never_a_bare_ellipsis
+failed alone, and so did the batch of 3 that held it. This branch caused it. The test refuses any quoted text in
+charts.js that is or ends in "…". My `sparkPath` comment had ``lo``…``hi``, which the test reads as a quoted "…".
+The comment now says "from ``lo`` to ``hi``". No code changed. No other "…" is added anywhere in the branch's diff
+under ergostat/ (checked with a grep of `git diff main`).
+Tests run after the fix: tests/test_graph_cli_web.py 54 passed. tests/test_module_sparklines.py 3 passed. These four
+browser tests (Playwright, under suite_watch) gave 4 passed, rc 0: test_no_panel_shows_a_leftover_ellipsis (the
+browser half of the same check) and the two sparkline acceptance tests (3 cases). ruff is clean. main is already merged
+in (the local main is an ancestor of HEAD). The whole of tests/test_diagram_rendering.py was not run again. Done item 5
+stands as rounds 1 and 2 left it.
