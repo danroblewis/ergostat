@@ -72,8 +72,7 @@ def _step(eng, b, plan: dict, amount: float, to: float | None = None) -> float |
     finally:
         eng.testing.pop(b.name, None)
         with eng.lock:
-            for s in eng.after_acting(moved):
-                eng.read_soon(s)
+            eng._read_moved(moved, None)              # (its shard's; another's reads them itself)
             eng.running.discard(b.name)
             eng.finished[b.name] = time.time()
         if hasattr(eng, "poke"):
