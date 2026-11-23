@@ -37,6 +37,14 @@ def test_a_block_s_pool_is_a_number_or_a_stock_with_its_most(pool, ok):
     assert (not list(VALIDATOR.iter_errors(model))) == ok
 
 
+@pytest.mark.parametrize("starts_at, ok", [(["review"], True), ("review", True), ([3], False), ({"x": 1}, False)])
+def test_a_relation_may_say_the_states_its_targets_stop_blocking_at(starts_at, ok):
+    """SPEC §5a, *Relations*: ``starts_at``, a state or a list of them."""
+    model = yaml.safe_load((ROOT / "docs/spec-examples/relations.yaml").read_text())
+    model["items"]["ticket"]["relations"]["blocked_by"] = {"kind": "ticket", "starts_at": starts_at}
+    assert (not list(VALIDATOR.iter_errors(model))) == ok
+
+
 @pytest.mark.parametrize("path", sorted((ROOT / "tests/spec-invalid").glob("*.yaml")), ids=lambda p: p.stem)
 def test_each_broken_file_is_refused(path):
     assert list(VALIDATOR.iter_errors(yaml.safe_load(path.read_text())))

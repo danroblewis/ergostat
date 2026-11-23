@@ -11,6 +11,7 @@ import fcntl
 import importlib.util
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -2457,6 +2458,123 @@ def test_batch_keeps_rank_order_among_mergeable_gaps(tmp_path):
     assert r["state"] == "approved" and "failed_gates" not in r["fields"]
 
 
+def stacked_gaps(f: Factory, ranks: dict[str, int], bad: str = "", batch: int | None = None) -> dict[str, str]:
+    """A stack in the drop: each gap branched from the tip of the one before it (the first from main), adding
+    NAME.txt (``bad``: bad.txt too), approved with `stacked_on` naming the one below at its commit. {name: commit}."""
+    drop = f.tmp / "live" / "drop.git"
+    if not drop.exists():
+        subprocess.run(["git", "init", "-q", "--bare", str(drop)], check=True)
+    out, below = {}, None
+    git(f.checkout, "checkout", "-q", "-b", "stack", "main")
+    for name, rank in ranks.items():
+        (f.checkout / f"{name}.txt").write_text(name)
+        if name == bad:
+            (f.checkout / "bad.txt").write_text("breaks the suite")
+        git(f.checkout, "add", "-A")
+        git(f.checkout, "commit", "-q", "-m", name)
+        out[name] = git(f.checkout, "rev-parse", "HEAD")
+        git(f.checkout, "push", "-q", str(drop), f"stack:refs/heads/factory/{name}")
+        on = {"stacked_on": [{"gap": f"gap/{below}", "sha": out[below]}]} if below else {}
+        f.fold([{"event": "gap.approved", "item": f"gap/{name}", "data": {
+            "branch": name, "reviewed_head": out[name], "approved_at": time.time() - 3600, "rank": rank, **on}}], None)
+        below = name
+    git(f.checkout, "checkout", "-q", "main")
+    git(f.checkout, "branch", "-q", "-D", "stack")
+    if batch:
+        (f.model / "run").mkdir(exist_ok=True)
+        (f.model / "run" / "pools.json").write_text(json.dumps({"batch": batch}))
+    return out
+
+
+def test_a_stacked_gap_brings_its_base_into_its_batch_below_it(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 5, "b": 0}, batch=2)                    # b ranks first, but holds a's commit
+    said, _ = f.run("queue.py", "gap/b")
+    assert said == ["gap.queued"] + ["gap.merged"] * 2 + ["gap.push-asked"] * 2 and suite_runs(f) == 1
+    assert merges(f) == ["a", "b"]                                # a, then b, in one batch
+    assert f.item("gap/a")["state"] == f.item("gap/b")["state"] == "merged"
+    assert [f.item(f"gap/{g}")["fields"]["merged_lines"] for g in "ab"] == [1, 1]   # each its own commits only
+    assert json.loads((f.model / "run" / "queue.json").read_text())["pending"]["gaps"] == ["gap/a", "gap/b"]
+
+
+def test_a_stacked_gap_whose_base_is_in_fix_is_given_back_uncounted(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 1, "b": 0}, batch=2)
+    f.fold([{"event": "gap.sent-back", "item": "gap/a", "data": {"findings": ["x"]}}], None)
+    assert f.item("gap/a")["state"] == "fix"
+    said, lines = f.run("queue.py", "gap/b")
+    assert said == ["gap.queued"] and suite_runs(f) == 0 and merges(f) == []
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert nack["count"] is False and nack["after"] == "10m" and "gap/a" in nack["why"] and "stack" in nack["why"]
+    assert "empty_batches" not in f.item("gap/b")["fields"]      # never counted towards EMPTY_MOST
+    f.fold([{"event": "gap.approved", "item": "gap/b", "data": {}}], None)   # (its lease given back, as the engine)
+    approved_gaps(f, {"p": 9})                                    # b as a batch-mate: skipped, stays approved
+    assert f.item("gap/b")["state"] == "approved"
+    said, _ = f.run("queue.py", "gap/p")
+    assert merges(f) == ["p"] and f.item("gap/b")["state"] == "approved" and "gap.sent-back" not in said
+
+
+def test_a_failing_base_gives_its_descendants_back(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"p": 0})
+    stacked_gaps(f, {"a": 1, "b": 2}, bad="a", batch=3)
+    said, _ = f.run("queue.py", "gap/p")
+    assert said.count("gap.queue-failed") == 1 and said.count("gap.merged") == 1
+    assert f.item("gap/a")["state"] == "queue-failed" and f.item("gap/b")["state"] == "approved"
+    assert "failed_gates" not in f.item("gap/b")["fields"] and f.item("gap/p")["state"] == "merged"
+    assert suite_runs(f) == 3                                     # red, p green, p+a red: b never run again
+    pending = json.loads((f.model / "run" / "queue.json").read_text())["pending"]
+    assert pending["gaps"] == ["gap/p"] and merges(f) == ["p"]
+    tree = git(f.checkout, "ls-tree", "--name-only", pending["sha"]).split()
+    assert "p.txt" in tree and not {"a.txt", "b.txt", "bad.txt"} & set(tree)   # the pushed tree
+
+
+def test_a_base_whose_merge_again_conflicts_takes_its_descendants_out(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    approved_gaps(f, {"x": 0}, bad="x")
+    stacked_gaps(f, {"a": 1, "b": 2}, batch=3)
+    code = ("import sys, json, time; sys.path[:0] = [sys.argv[1]]; import fac, queue; cfg = fac.config(); "
+            "repo = fac.path(cfg, 'checkout'); pre = fac.git(repo, 'rev-parse', 'HEAD'); "
+            "own = next(g for g in fac.items('gap', 'approved') if g['id'] == 'gap/x'); "
+            "batch, dried, _ = queue.picks(cfg, repo, own, 3, pre); real, tries = queue.merge, []\n"
+            "def merge(cfg, repo, g, sha, began):\n"
+            " tries.append(g['id'])\n"
+            " if tries.count('gap/a') > 1:\n"                 # a's merge again onto the green prefix conflicts
+            "  queue.refuse(cfg, g, ['a.txt'], began); return False\n"
+            " return real(cfg, repo, g, sha, began)\n"
+            "queue.merge = merge\n"
+            "landed, head, back = queue.land(cfg, repo, batch, pre, time.time(), 0, dried)\n"
+            "print(json.dumps({'batch': [g['id'] for g, _ in batch], 'landed': [g['id'] for g, _ in landed], "
+            "'back': [[g['id'], why] for g, why in back], 'tries': tries, 'pre': head == pre, "
+            "'tree': fac.git(repo, 'ls-tree', '--name-only', head).split()}))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    said = [json.loads(x) for x in r.stdout.splitlines() if x.startswith("{")]
+    out = said[-1]
+    assert out["batch"] == ["gap/x", "gap/a", "gap/b"]
+    assert out["tries"] == ["gap/x", "gap/a", "gap/b", "gap/a"]          # b is never merged again without a
+    assert out["landed"] == [] and out["pre"] is True
+    assert out["back"] == [["gap/b", "its base gap/a could not be merged in the queue"]]
+    assert not {"a.txt", "b.txt", "bad.txt"} & set(out["tree"])
+    sent = [(x["event"], x.get("item")) for x in said if "event" in x]
+    assert ("gap.sent-back", "gap/a") in sent and ("gap.queue-failed", "gap/x") in sent
+    assert not any(e[1] == "gap/b" for e in sent)                       # b: back to approved, uncounted
+
+
+def test_a_stack_deeper_than_the_cap_gives_the_own_gap_back(tmp_path):
+    f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
+    stacked_gaps(f, {"a": 0, "b": 1, "c": 2}, batch=2)
+    said, lines = f.run("queue.py", "gap/c")
+    assert said == ["gap.queued"] and suite_runs(f) == 0 and merges(f) == []
+    nack = next(x["nack"] for x in lines if "nack" in x)
+    assert nack["count"] is False and nack["after"] == "10m" and "does not fit a batch of 2" in nack["why"]
+    assert "empty_batches" not in f.item("gap/c")["fields"]
+    f.fold([{"event": "gap.approved", "item": "gap/c", "data": {}}], None)   # (its lease given back, as the engine)
+    said, _ = f.run("queue.py", "gap/a")                       # the bottom base, in its own run
+    assert said[:2] == ["gap.queued", "gap.merged"] and merges(f)[0] == "a" and f.item("gap/a")["state"] == "merged"
+    assert merges(f) == ["a", "b"] and f.item("gap/c")["state"] == "approved"   # b fits on it; c waits
+
+
 def test_gaps_passed_over_for_the_own_gap_fill_its_slot_once_it_is_sent_back(tmp_path):
     f = Factory(tmp_path, unit=RED.format(runs=tmp_path / "runs"))
     approved_gaps(f, {"a": 1, "b": 2, "c": 3}, batch=2, edits={"c": "app.py"})
@@ -4736,6 +4854,99 @@ def test_a_full_machine_does_not_release_and_retake_in_a_loop(tmp_path, monkeypa
         assert s.lease_of("gap/r1")["attempts"] == 0                            # none of them counted
     finally:
         s.close()
+
+
+# ---- the suites' -r: pytest's -r replaces its default fE, so a -r without f and E prints no FAILED or ERROR line
+#      and fac.failed_tests finds none (lesson-3: a red run that names no test is never excused, bisected whole, and
+#      triaged as naming no test)
+
+READ_BY_FAILED_TESTS = ("unit", "host", "build", "browser", "rerun", "alone")
+
+
+def pytest_args(cmd: str) -> list[str]:
+    """The arguments after ``-m pytest`` in a suite's command (none found: the test fails, never passes empty)."""
+    words = shlex.split(cmd)
+    at = [i for i in range(len(words) - 1) if words[i:i + 2] == ["-m", "pytest"]]
+    assert len(at) == 1, f"no single `-m pytest` in {cmd!r}"
+    return words[at[0] + 2:]
+
+
+def report_chars(args: list[str]) -> str | None:
+    """The last -r's characters (pytest keeps the last), or None where there is no -r (pytest's default fE)."""
+    got = None
+    for i, w in enumerate(args):
+        if w == "-r" or w.startswith("--report-chars"):
+            got = args[i + 1] if "=" not in w else w.split("=", 1)[1]
+        elif w.startswith("-r"):
+            got = w[2:]
+    return got
+
+
+def prints_failed_lines(args: list[str]) -> bool:
+    chars = report_chars(args)
+    return chars is None or (("f" in chars and "E" in chars) or bool({"a", "A"} & set(chars))) and "N" not in chars
+
+
+def test_every_suite_fac_reads_prints_failed_lines():
+    suites = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
+    for name in READ_BY_FAILED_TESTS:
+        assert suites.get(name), f"[suites] {name} is gone: name the suites fac.failed_tests reads again"
+        assert prints_failed_lines(pytest_args(suites[name])), f"[suites] {name}: its -r drops f or E"
+    for bad in (["-q", "-rs"], ["-rfs"], ["-rEs"], ["-r", "s"], ["--report-chars=sE"], ["-rfEs", "-rs"], ["-rfEN"]):
+        assert not prints_failed_lines(bad), bad                               # (the check itself can fail)
+    for good in ([], ["-q"], ["-rfEs"], ["-rs", "-rfE"], ["-ra"], ["-r", "fE"]):
+        assert prints_failed_lines(good), good
+
+
+def test_a_failing_browser_test_is_named(tmp_path):
+    """The browser suite's own pytest options, on a failing, an erroring, a skipped and a passing test: the failures
+    are named by fac.failed_tests, and queue.suites's skip count and nowhere() read the same skip as under the old -rs."""
+    sys.path.insert(0, str(BIN))
+    try:
+        spec = importlib.util.spec_from_file_location("factory_queue", BIN / "queue.py")   # (not the stdlib's queue)
+        q = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(q)
+    finally:
+        sys.path.remove(str(BIN))
+    suites = tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["suites"]
+    (tmp_path / "test_b.py").write_text(textwrap.dedent("""\
+        import pytest
+
+        @pytest.fixture
+        def broken():
+            raise RuntimeError("no page")
+
+        def test_ok():
+            pass
+
+        def test_bad():
+            assert False
+
+        def test_broken(broken):
+            pass
+
+        def test_skipped():
+            pytest.skip("needs a thing")
+    """))
+    env = {k: v for k, v in os.environ.items() if k not in QUEUE_ENV}
+
+    def run(args: list[str]) -> str:
+        args = [a for a in args if not a.endswith(".py")]                       # the browser files: ours instead
+        r = subprocess.run([sys.executable, "-m", "pytest", *args, "-p", "no:cacheprovider", "test_b.py"],
+                           cwd=tmp_path, capture_output=True, text=True, env=env, timeout=120)
+        assert r.returncode == 1, r.stdout + r.stderr
+        return r.stdout
+
+    fac = module("fac")
+    now = run(pytest_args(suites["browser"]))
+    assert fac.failed_tests(now) == ["test_b.py::test_bad", "test_b.py::test_broken"]
+    old = run([("-rs" if a.startswith("-r") else a) for a in pytest_args(suites["browser"])])
+    assert fac.failed_tests(old) == []                                          # what -rs gave: no test named
+    unit = tmp_path / "unit.txt"
+    unit.write_text(now)
+    for text in (now, old):
+        assert len(re.findall(r"^SKIPPED", text, re.M)) == 1                   # queue.suites's browser skip count
+        assert q.nowhere(text, unit) == ["test_b.py:17: needs a thing"]
 
 
 # ---- one check on every prefix of a batch at once (dev/bin/prefixes.py)

@@ -14,10 +14,12 @@
    ctrl or cmd and the wheel zoom it, a drag moves it.
 
    Both are kept across refreshes: drawn again only when what they show changed, in place, with the reader's pan
-   and zoom kept. Bounded: RG.NODES cards, RG.BARS rows; a note says when that was reached. */
+   and zoom kept. Bounded: RG.NODES cards, RG.BARS rows; a note says when that was reached. The Graph draws the kinds
+   asked, what they wait on and their parents; past its bound it keeps whole connected groups, and cuts inside only the
+   first that does not fit (its items by status), counting the lines it leaves out. */
 "use strict";
 
-const RG = { W: 210, H: 46, HUB_W: 190, HUB_H: 40, NODES: 300, BARS: 200, ROW: 24, BAR: 12, LABEL: 250, AXIS: 26 };
+const RG = { W: 210, H: 46, HUB_W: 190, HUB_H: 40, NODES: 600, BARS: 200, ROW: 24, BAR: 12, LABEL: 250, AXIS: 26 };
 const RG_STATUS = ["active", "queued", "unblocked", "blocked", "paused", "dead", "done"];
 const RG_WORD = { active: "active", queued: "queued", unblocked: "unblocked", blocked: "waiting", paused: "paused", dead: "dead letter", done: "done" };
 
@@ -38,9 +40,12 @@ function rgModel(d, o) {
   const preds = {};
   for (const e of d.edges) if (e.kind === "precedence") (preds[e.to] ||= []).push(e.from);
   const done = (id) => byId[id]?.status === "done";
+  // from the kinds asked (graph_parts.py): another kind's item only when one waits on it, or as a parent; an item
+  // the answer holds because it names one (a review of a gap) is not drawn
+  const asked = new Set(d.kinds.filter((k) => k.asked).map((k) => k.name));
   const scope = new Set();
   const chain = (id) => { if (scope.has(id) || !byId[id]) return; scope.add(id); (preds[id] || []).forEach(chain); };
-  for (const x of d.items) if (!o.frontier || !done(x.id)) chain(x.id);
+  for (const x of d.items) if ((!asked.size || asked.has(x.kind)) && (!o.frontier || !done(x.id))) chain(x.id);
   for (const id of [...scope]) { const g = byId[id].group; if (g && byId[g]) scope.add(g); }
   const q = (o.q || "").trim().toLowerCase();
   if (q) for (const id of [...scope]) { const x = byId[id]; if (![x.id, x.title, x.state, x.kind, x.status].join(" ").toLowerCase().includes(q)) scope.delete(id); }
@@ -61,17 +66,35 @@ function rgModel(d, o) {
     }
     return (memo[id] = out);
   };
-  let ids = [...scope].filter((id) => !collapsed.has(id));
-  const rank = (id) => (hub(id) ? -1 : RG_STATUS.indexOf(byId[id].status));
-  const capped = ids.length > RG.NODES ? ids.length : 0;
-  if (capped) ids = ids.sort((a, b) => rank(a) - rank(b) || (byId[a].es || byId[a].first) - (byId[b].es || byId[b].first)).slice(0, RG.NODES);
+  const every = [...scope].filter((id) => !collapsed.has(id));
+  let ids = every;
+  const capped = every.length > RG.NODES ? every.length : 0;
+  if (capped) {   // past the bound: whole connected groups (each item's part, graph_parts.py) in their order, each with
+    // its parents; the first group that does not fit whole is cut inside, its items by status, and the rest left out
+    const part = (id) => byId[id].part ?? id, groups = new Map(), ev = new Set(every), keep = new Set();
+    for (const id of every) { const g = groups.get(part(id)); if (g) g.push(id); else groups.set(part(id), [id]); }    const up = (id) => { const out = []; for (let a = id; a && ev.has(a) && !keep.has(a) && !out.includes(a); a = byId[a].group) out.push(a); return out; };
+    const rank = (x) => [RG_STATUS.includes(x.status) ? RG_STATUS.indexOf(x.status) : RG_STATUS.length, x.es || x.first || 0];
+    const byStatus = (a, b) => { const p = rank(byId[a]), q = rank(byId[b]); return p[0] - q[0] || p[1] - q[1] || (a < b ? -1 : 1); };
+    const num = (p) => (typeof p === "number" ? p : Infinity);
+    let room = RG.NODES;
+    for (const p of [...groups.keys()].sort((a, b) => num(a) - num(b))) {
+      const need = new Set(groups.get(p).flatMap(up));
+      if (need.size <= room) { need.forEach((a) => keep.add(a)); room -= need.size; continue; }
+      for (const id of groups.get(p).sort(byStatus)) { const n = up(id); if (n.length <= room) { n.forEach((a) => keep.add(a)); room -= n.length; } }
+      break;
+    }
+    ids = every.filter((id) => keep.has(id));
+  }
   const drawn = new Set(ids);
   const crit = new Set(d.edges.filter((e) => e.critical).map((e) => e.from + "\n" + e.to));
   const nodes = ids.map((id) => ({ id, x: byId[id], hub: hub(id), w: hub(id) ? RG.HUB_W : RG.W, h: hub(id) ? RG.HUB_H : RG.H }));
   const edges = [];
-  for (const id of ids) {
+  let lost = 0;                                          // dependency lines the bound left out, for the note
+  for (const id of every) {
     const ps = o.collapse ? eff(id) : Object.fromEntries((preds[id] || []).filter((p) => scope.has(p)).map((p) => [p, 0]));
+    if (!drawn.has(id)) { lost += Object.keys(ps).length; continue; }
     const shown = Object.entries(ps).filter(([p]) => drawn.has(p));
+    lost += Object.keys(ps).length - shown.length;
     for (const [p, via] of shown)
       edges.push({ id: `p:${p}>${id}`, from: p, to: id, cls: via ? "via" : "dep", label: via ? `via ${via} done` : "", critical: !via && crit.has(p + "\n" + id) });
     const g = byId[id].group;
@@ -80,7 +103,7 @@ function rgModel(d, o) {
   for (const e of d.edges) if (e.kind === "other" && drawn.has(e.from) && drawn.has(e.to)) edges.push({ id: `o:${e.from}>${e.to}:${e.rel}`, from: e.from, to: e.to, cls: "other", label: e.rel.replace(/_/g, " ") });
   const counts = {};
   for (const x of d.items) counts[x.status] = (counts[x.status] || 0) + 1;
-  return { nodes, edges, kinds, counts, capped, byId, scope };
+  return { nodes, edges, kinds, counts, capped, lost, byId, scope };
 }
 
 /* laid out by ELK, left to right; by kind, each kind a frame of its own */
@@ -212,7 +235,9 @@ function relGraph(open) {
     if (stage.style.height !== `${hgt}px`) stage.style.height = `${hgt}px`;
     vp.replaceChildren(...parts);
     if (!view.moved) fit(); else apply();
-    setText(note, m.capped ? `${RG.NODES} of ${m.capped} items drawn: narrow it with the search, or choose a kind.` : "");
+    const left = m.capped - m.nodes.length;
+    setText(note, m.capped ? `${m.nodes.length} of ${m.capped} items drawn: ${left} item${left === 1 ? "" : "s"} and ${m.lost} dependency line${m.lost === 1 ? "" : "s"} not drawn `
+      + `(connected groups kept whole, those with active or unblocked work first; only the first that does not fit is cut, by status). Narrow it with the search, or choose a kind.` : "");
     el.dataset.drawn = String(mine);
   };
   return el;
@@ -226,8 +251,11 @@ function relTimeline(open) {
     h("button", { class: "ghost", title: "Zoom in", "aria-label": "Zoom in", onclick: () => zoom(0.7) }, "+"),
     h("button", { class: "ghost", title: "Zoom out", "aria-label": "Zoom out", onclick: () => zoom(1.4) }, "−"));
   const svg = s("svg", { class: "rg-svg rg-gantt", role: "img", "aria-label": "Items over time: what happened, and what is projected" });
-  const note = h("p", { class: "note rg-note" });
+  const said = h("span"), held = h("span", { class: "rg-calibration" });   // held: how well last week's estimates held
+  const note = h("p", { class: "note rg-note" }, said, held);
   el.append(tools, h("div", { class: "rg-stage rg-tstage" }, svg), note);
+  const calibrated = (d) => patchKids(held, Object.entries(d.eta?.calibration || {}).map(([k, c]) =>
+    h("span", { "data-kind": k, class: c.items >= 10 && c.coverage != null && c.coverage < 0.7 ? "lvl-warn" : "" }, ` ${c.said}.`)));
   let span = null, cur = null, width = 0;
   const domain = () => span || cur?.fit || [0, 1];
   function zoom(f, at = null) {
@@ -369,7 +397,8 @@ function relTimeline(open) {
     const p90s = shown.map((x) => x.eta?.p90).filter((t) => t != null);
     const top = Math.max(hi, ...p90s);
     cur = { rows: shown, kinds: m.kinds, d, edges, fit: [lo - pad, top + pad] };
-    setText(note, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
+    calibrated(d);
+    setText(said, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
       + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. Not modelled: a goal that switches a block off, a capacity no block declares.`
         + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
         : (d.eta_error ? `No estimates: the simulation failed: ${d.eta_error}. `
@@ -394,7 +423,8 @@ function relTimeline(open) {
     const ts = rows.flatMap((r) => r.bars.flatMap((b) => [b[3], b[4]]));
     const lo = d.now, hi = Math.max(d.now + 60, ...ts);
     cur = { rows, kinds: m.kinds, d, edges: [], fit: [lo - (hi - lo) * 0.02, hi + (hi - lo) * 0.03] };
-    setText(note, rows.length ? `Each block's lanes, at most its capacity at once (leases held over a lowered pool keep theirs until they end): one of ${d.eta.runs} runs of the simulation, levelled. A bar is an item's run; a click opens it. Not modelled: a goal that switches a block off, a capacity no block declares.` : "No block takes these items.");
+    calibrated(d);
+    setText(said, rows.length ? `Each block's lanes, at most its capacity at once (leases held over a lowered pool keep theirs until they end): one of ${d.eta.runs} runs of the simulation, levelled. A bar is an item's run; a click opens it. Not modelled: a goal that switches a block off, a capacity no block declares.` : "No block takes these items.");
     draw();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   }

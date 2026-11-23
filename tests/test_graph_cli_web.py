@@ -125,6 +125,80 @@ def test_the_record_page_filters_by_machine_and_type(repo):
     assert [e["type"] for e in p.events.query(n=None, type="invoice.sent,mail.*")] == ["invoice.sent", "mail.sent"]
 
 
+def test_the_record_narrows_to_a_goal_and_its_window_and_the_filter_matches_item_and_source(repo):
+    """A crossing's link (/record?about=<goal>&from=&to=) asks for the goal's events, its controller's, valves' and
+    their agents', within the window; the filter box (match=) takes a type, an item or a source."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    server, url = serve(p, free_port())
+    try:
+        def types(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [e["type"] for e in json.loads(r.read())]
+        assert types("about=disk-under-80") == ["loop.off", "cleanup.done", "cleanup.done"]   # the goal, its agents
+        assert types(f"about=disk-under-80&from={now - 595}&to={now - 200}") == ["cleanup.done"]   # its window
+        assert types("about=disk-under-80&match=loop.*") == ["loop.off"]                    # both: the goal's that match
+        assert types("about=no-such-goal") == []                                              # never everything
+        assert types("match=mailer") == ["mail.sent"]                                         # a source
+        assert types("match=invoice/7") == ["invoice.sent", "mail.sent"]                      # an item
+        assert types("match=invoice.*") == ["invoice.sent"]                                   # a type, as before
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_goals_filtered_rows_are_not_lost_behind_more_than_n_newer_events_of_one_name(repo):
+    """With about= and match= both, the match is asked with each name, so matching events older than the newest n
+    of that name still show (never 'Nothing recorded yet.' while they exist)."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    for i in range(5):                        # more than n newer events of the goal, and of its agent, none matching
+        p.events.add("loop.on", item="disk-under-80", source="ergostat", at=now - 50 + i)
+        p.events.add("scan.done", item="tmp", source="cleaner", at=now - 40 + i)
+    server, url = serve(p, free_port())
+    try:
+        def types(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [e["type"] for e in json.loads(r.read())]
+        assert types("about=disk-under-80&match=loop.off&n=3") == ["loop.off"]                  # by type
+        assert types("about=disk-under-80&match=disk&n=3") == ["cleanup.done", "cleanup.done"]   # by item
+        assert types("about=disk-under-80&match=disk-under-80&n=3") == ["loop.on"] * 3           # the goal itself
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_filter_box_keeps_the_addresss_item_and_machine(repo):
+    """match= with item= or machine= (a valve's link, itemsets.js; a machine's) holds to both, never wider."""
+    import time
+
+    from ergostat.web import serve
+    p = wired(repo)
+    now = time.time()
+    p.events.add("valve.opened", item="cleanup", source="ergostat", at=now - 20)
+    p.events.add("valve.opened", item="other-valve", source="ergostat", at=now - 10)
+    server, url = serve(p, free_port())
+    try:
+        def rows(query):
+            with urllib.request.urlopen(f"{url}/api/events?{query}", timeout=10) as r:
+                return [(e["type"], e["item"]) for e in json.loads(r.read())]
+        assert rows("match=valve.opened&item=cleanup") == [("valve.opened", "cleanup")]          # one valve's, not all
+        assert rows("match=invoice/7&machine=mailer") == [("mail.sent", "invoice/7")]             # the machine kept
+        assert rows("match=invoice/7&machine=billing") == [("invoice.sent", "invoice/7")]         # and its instances
+        assert rows("match=mail.*&machine=billing") == []
+        assert rows("match=mailer&item=invoice/8") == []
+        assert rows("about=disk-under-80&match=cleanup.done&machine=nobody") == []
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def run_cli(repo, *args, capsys=None):
     rc = main(["-C", str(repo.path), *args])
     out = capsys.readouterr().out if capsys else ""
@@ -194,6 +268,8 @@ def test_the_web_api_serves_what_the_cli_shows(project):
                 return r.status, r.read()
         st, body = get("/api/status")
         assert st == 200 and json.loads(body)["loops"]["disk-under-80"]["status"] == "holding"
+        s = json.loads(body)                                 # the header's window: how much of it is on record
+        assert isinstance(s["recorded"], (int, float)) and 0 <= s["recorded"] < s["window"]
         assert json.loads(get("/api/graph?view=control")[1])["kind"] == "control"
         assert json.loads(get("/api/graph?view=wiring")[1])["kind"] == "process"     # the wiring's address: the process map
         assert json.loads(get("/api/part/stock/disk-used")[1])["now"]["value"] == 70
@@ -306,6 +382,25 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_an_off_goal_reaches_the_side_list_as_a_named_goal_with_its_stock(project):
+    """What the side list's goal button reads (diagram.js goalButton/showGoal): an off goal's attention entry is
+    `loop NAME` and that loop names its stock. This is a stand-in without a browser, so the build collects a test.
+    The button's behaviour is checked in tests/test_diagram_rendering.py
+    (test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction)."""
+    import json as _json
+    import re as _re
+
+    from ergostat.web.snapshot import build
+    project.measurements.add("sensor/disk-usage", 95.0)
+    html = build(project)
+    data = _json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", html, _re.S).group(1).replace("<\\/", "</"))["data"]
+    st = data["status"]
+    assert st["loops"]["disk-under-80"]["status"] == "off" and st["loops"]["disk-under-80"]["stock"]
+    off = [a for a in st["attention"] if a["what"] == "loop disk-under-80" and a["level"] == "bad"]
+    assert off, st["attention"]
+    assert "function showGoal(" in html and "goalButton(goal, what)" in html
 
 
 def test_static_files_are_versioned_and_the_page_is_revalidated(project, tmp_path, monkeypatch):
