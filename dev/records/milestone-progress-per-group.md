@@ -151,3 +151,16 @@ watchdog: 67 passed, 1 failed, `test_the_header_counts_the_systems_goals_and_the
 actions test of rounds 3 and 4 passes now. Refused in this session: a background run of that browser file with
 its output sent to /tmp (`... > /tmp/items_page.log 2>&1`); it was run in the foreground instead. Not run: the other
 three browser files (test_dashboard_page.py among them: no page code changed this round), the unit suite.
+
+Round 6. The one finding (conflict with main in docs/SPEC.md) is fixed: main (8a27f9e3) is merged in, both sides
+kept. In §4e's bullets, the branch's **Groups** line (group relation fields and `state_group`) replaces main's
+shorter one, and main's new **Frequency responses** bullet follows it. No code changed this round.
+Refused in this session: a python heredoc that edited SPEC.md and committed (`python3 - <<'EOF' ...`); the
+conflict was resolved with the editor instead.
+Run here after the merge: tests/test_group_progress.py, tests/test_query_engine.py, tests/test_query_fixes.py (80
+passed), tests/test_query_axes.py, tests/test_query_spread.py, tests/test_items_overview.py (80), tests/test_milestones.py,
+tests/test_precedence.py, tests/test_relations.py (86), tests/test_milestone_frames.py, tests/test_spec_schema.py,
+tests/test_dashboards_doc.py (74), ruff clean. tests/test_items_page.py under the watchdog, twice: 67 passed, 1
+failed, `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` at line 2013 (the project switcher,
+as in rounds 1 to 5; this branch touches neither the header nor the switcher). Not run: the other three browser
+files, the unit suite.
