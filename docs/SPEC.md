@@ -6595,13 +6595,24 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   `--stats` (below).
 - The MCP tools `inbox` and `answer`, so the owner's Claude session can answer on their behalf when told to; its
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
-- The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
-  each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own. Every entry is
-  listed, however many come before it. While the pointer or the focus is in one of the side panel's lists (*Waiting
-  for you*, *Goals off*, *Model housekeeping*; and likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its
-  top how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or
-  gone meanwhile stays in its place and says so in its row until then.
+- The page: the entries are listed under *Waiting for you*, at the top of the Diagram's side panel (only when one
+  waits; more than 3 fold into one line, "N wait for you", that opens them, though never while the reader is in the
+  list), each with Approve / Deny, or a number and
+  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. The item pages keep
+  their own buttons. No page or panel of its own. Every entry is listed, however many come before it. While the
+  pointer or the focus is in one of the side panel's lists (*Waiting for you*, *Goals off*, *Model housekeeping*; and
+  likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its top
+  how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or gone
+  meanwhile stays in its place and says so in its row until then.
+
+**The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
+you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
+map; in Dynamics and Blocks it lists only the symbols the model drawn has), open unless the reader closed it in this browser (then it stays closed, until
+they open it again); then the rest of what needs attention: *Goals off* (the system's goals, then modelling's after a
+rule; as many as the header's "loops off") and *Model housekeeping* (folded unless a fault is in it; modelling's held
+requests go there), each with its count and each entry starting with its state or kind word; then Suggestions, the loop list (the Process view's kinds)
+and The model's edits, each folded with its count in its summary. No chart is shown until parts are chosen; a chosen
+part's panel is as before.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 

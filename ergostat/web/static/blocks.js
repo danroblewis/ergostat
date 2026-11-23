@@ -1127,30 +1127,35 @@ function bdRouteDraw(svg, lay) {
   });
 }
 
+/* only what is drawn, as sdLegend: each row when the model drawn has one */
 function blocksLegend() {
-  const row = (svgTxt, text) => [h("span", { html: `<svg width="30" height="20">${svgTxt}</svg>` }), h("span", {}, text)];
+  const g = S.graph || { nodes: [], edges: [] }, ns = g.nodes || [], es = g.edges || [], fr = g.frames || [];
+  const has = (f) => ns.some(f), kindOf = (n) => (n.role === "sensor" || n.role === "collector" ? n.role : n.kind);
+  const nets = {};
+  for (const e of es) nets[e.sourcePort] = (nets[e.sourcePort] || 0) + 1;
+  const row = (when, svgTxt, text) => when && [h("span", { html: `<svg width="30" height="20">${svgTxt}</svg>` }), h("span", {}, text)];
   const ink = 'stroke="currentColor" fill="none" stroke-width="1.3"';
   return h("div", { class: "legend bd-legend" },
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
+    row(has((n) => !["sensor", "collector", "sum", "mux", "demux", "input", "output", "sampler", "port"].includes(kindOf(n))),`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
         "a block, its function inside: C a controller, P a process, Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
-    row(`<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
+    row(has((n) => n.role === "sensor"), `<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
         "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, a period that matters against the loop's) and, beneath, what it reads and how often"),
-    row(`<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
+    row(has((n) => n.role === "collector"), `<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
         "a collector, in front of a sensor on the same path: the command or query that polls an outside system and records what it saw as items, which the sensor counts; a count is only as fresh as its collector"),
-    row(`<path d="M0,10 H8 M22,10 H30 M8,10 L20,3" ${ink}/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="22" cy="10" r="1.6" fill="currentColor"/>`,
+    row(has((n) => n.kind === "sampler"), `<path d="M0,10 H8 M22,10 H30 M8,10 L20,3" ${ink}/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="22" cy="10" r="1.6" fill="currentColor"/>`,
         "a sampler (T): where a continuous signal enters a discrete controller C(z)"),
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,15 H10 V12 H14 V9 H18 V6 H24" ${ink}/>`,
+    row(has((n) => n.id.startsWith("zoh:")), `<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,15 H10 V12 H14 V9 H18 V6 H24" ${ink}/>`,
         "a zero-order hold (ZOH): where C(z) drives the continuous process, each value held for one period"),
-    row(`<rect x="3" y="4" width="24" height="12" rx="6" ${ink}/>`, "an In or Out port: a signal crossing the edge of a system drawn alone"),
-    row(`<path d="M15,0 V20" stroke="currentColor" stroke-width="0.8"/><path d="M2,10 H28" ${ink}/><rect x="11" y="6" width="8" height="8" rx="2" ${ink} fill="var(--bg, #fff)"/>`,
+    row(has((n) => n.kind === "port"), `<rect x="3" y="4" width="24" height="12" rx="6" ${ink}/>`, "an In or Out port: a signal crossing the edge of a system drawn alone"),
+    row(fr.some((f) => f.frame === "system"), `<path d="M15,0 V20" stroke="currentColor" stroke-width="0.8"/><path d="M2,10 H28" ${ink}/><rect x="11" y="6" width="8" height="8" rx="2" ${ink} fill="var(--bg, #fff)"/>`,
         "a port mark: where a signal crosses the frame of an open system, named"),
-    row(`<rect x="1" y="1" width="28" height="18" ${ink}/><text x="3.5" y="8.5" font-size="7.5" fill="currentColor">AI</text>`,
+    row(has((n) => n.tier), `<rect x="1" y="1" width="28" height="18" ${ink}/><text x="3.5" y="8.5" font-size="7.5" fill="currentColor">AI</text>`,
         "a block's tier, written small in its top-left corner: who fills it, top of the ladder to bottom: person, AI agent, narrow AI, decision, program, rule (a law ergostat computes); none on an external block with no agent"),
-    row(`<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
-    row(`<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
-    row(`<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
-    row(`<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
-    row(`<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
-    h("span", { class: "sym" }, "r e u y d"), h("span", {}, "reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample"));
+    row(has((n) => n.fn?.name && n.fn.linear === false && n.role !== "collector"), `<rect x="2" y="3" width="26" height="14" ${ink}/><path d="M6,13 H12 V6 H18" ${ink}/>`, "not linear (an on-off controller: a relay; a program, an AI agent, a person): named, with a sketch where there is a standard one (relay, saturation, dead zone); no transfer function is claimed"),
+    row(has((n) => n.kind === "sum"), `<circle cx="15" cy="10" r="7" ${ink}/><text x="5" y="8" font-size="9" fill="currentColor">+</text><text x="19" y="21" font-size="9" fill="currentColor">−</text>`, "a summing junction, with the sign of each input"),
+    row(Object.values(nets).some((k) => k > 1), `<path d="M2,10 H26" ${ink}/><circle cx="12" cy="10" r="2.6" fill="currentColor"/>`, "a take-off point: one signal, to several places"),
+    row(es.some((e) => (e.signal?.n || 0) > 1) || has((n) => n.kind === "mux" || n.kind === "demux"), `<path d="M2,10 H26" stroke="currentColor" stroke-width="2.6"/><path d="M12,15 L18,5" ${ink}/>`, "a vector of signals (bold, a slash and how many); a thin bar gathers or splits one (mux, demux), or takes what a collector records to each of the counts that read it (a bus)"),
+    row(fr.some((f) => f.frame === "cascade"), `<rect x="2" y="2" width="26" height="16" ${ink} stroke-dasharray="3 2"/>`, "an inner loop: a cascade's, given its setpoint by the outer loop"),
+    es.some((e) => e.signal?.sym) && [h("span", { class: "sym" }, "r e u y d"), h("span", {},"reference (its value), error (r − y", h("sub", {}, "m"), "), control signal, output (y", h("sub", {}, "m"), " measured through H), disturbance; subscripts name the loop or the part; k a sample")]);
 }
 

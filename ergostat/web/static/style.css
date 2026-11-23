@@ -236,7 +236,8 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .att-word + .ask-first { display: inline; }
 .att hr.att-rule { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
 details.housekeeping > summary h3 { display: inline; }
-details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }
+details.suggest, details.changes, details.legend-box, details.loops { margin-top: var(--sp-3); }
+details.waiting-fold > .att { margin-top: var(--sp-3); }
 details > summary { cursor: pointer; color: var(--ink-2); }
 details > summary:hover { color: var(--ink); }
 details.suggest .hint { margin-top: var(--sp-3); }
