@@ -50,3 +50,36 @@ two runs: [coordinator] and [image-squeeze], each on the libavoid routing bound 
 colours and adds classes, not geometry, layout or routing. That is unproven: the same two cases were not run on main
 (the checkout of main's static files was refused). The merge queue's run on clean main must settle it. Not run: the unit
 suite and the other three browser files (left to the factory, as the rules say).
+
+Round 2: the merge of main (2f08c24e) is finished (commit 945d24a4). Each conflict keeps both sides:
+- blocks.js: the bd-<what> and bd-aside classes with main's hop crossings (bdEdgeContent(e, pts, cross)). Main made the
+  Blocks legend list only what is drawn, so the lighter-line row is listed when a record wire, a port or a disturbance
+  is drawn.
+- dynamics.js: sd-drive sits next to main's driven-by (dashed) class. sdDrives follows main's sdPlaceSigns. The legend's
+  new "dashed" and "?" connector samples are drawn in --sd-ink-2 and the polarity text stays in ink. The nounit row is
+  kept.
+- style.css: the tone-2 connector rules keep main's dashed driven-by rule. DESIGN.md takes main's text for the loop
+  state on Blocks' error label, which agrees with rule (ii).
+- tests: both sides' tests are kept. Three changes to the tests follow from main:
+  (a) A saved picture is now drawn light whatever the theme (export-light), so the line-tones test compares the file
+  with the light tokens.
+  (b) Main draws a loop of unknown polarity (.pol-unknown) in --sd-muted, which is outside this gap, so the full-ink and
+  tone-2 checks on loop markers leave those out.
+  (c) In main's PNG export test the "dark pixel" bound (r+g+b < 420) sat just above tone 2's own value (#84898e, 411).
+  The antialiased tone-2 loop names hardly counted, so the bound is now < 500 (the ink or its second tone).
+- The round-1 line "A Blocks export draws no legend" is stale: main's export now carries the Blocks legend, and that
+  legend includes the new row.
+
+Tests run after the merge: ruff is clean and tests/test_style_tokens.py passes (15). tests/test_guide.py and
+test_flows_only_export_legend_lists_only_what_is_shown pass. test_line_tones_information_lighter_than_the_material_path
+[light, dark] passes. The changed parts of that test were not broken on purpose to watch them fail this round.
+test_the_exported_png_shows_every_loop_name_the_values_and_its_legend_on_white_in_dark_mode passes its Dynamics half.
+Its Blocks half fails on `len(rows) > 10`: product's Blocks legend has 7 rows. That assertion came in with 5f4090ba,
+and the conditional legend came in with 6b822868. Those two commits are parallel on main, so I think the test fails
+on main too (about 6 rows, since this branch adds one). That is unproven: the scratch worktree of main
+(`git worktree add --detach /tmp/mainwt main`) was refused. The fix is outside this gap.
+Render audit: 40 passed, 6 failed, of which 5 were named in the output: [coordinator] and [image-squeeze] on the
+routing time bound (20121 and 22588 ms, bound 20000), and [autoscaler] satellite-far 6 (ceiling 0), [the-job]
+valve-orientation-mismatch 3 (ceiling 2), [ticket-factory] satellite-far 15 (ceiling 14). Before the merge every
+layout-fault check passed. The branch changes no geometry, so I think these come with main's layout changes. That is
+also unproven on clean main, which the queue must settle. Not run: the unit suite and the four browser files in full.

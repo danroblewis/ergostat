@@ -4469,19 +4469,20 @@ SD_TONES = """(tok) => {
     want(con, 'stroke', d ? ink : ink2, eg.dataset.id);
     want(eg.querySelector('.sd-head'), 'fill', d ? ink : ink2, eg.dataset.id + ' head');
   }
-  const full = { stroke: '.pipe-out, .sd-stock, .sd-valve, .sd-cloud, .loop-marker .marker-arc',
-                 fill: '.polarity, .node .sd-name, .marker-letter' };
+  const full = { stroke: '.pipe-out, .sd-stock, .sd-valve, .sd-cloud, .loop-marker:not(.pol-unknown) .marker-arc',
+                 fill: '.polarity, .node .sd-name, .loop-marker:not(.pol-unknown) .marker-letter' };
   const counts = {};
   for (const [prop, sel] of Object.entries(full))
     for (const el of svg.querySelectorAll(sel)) { counts[sel] = (counts[sel] || 0) + 1; want(el, prop, ink, el.getAttribute('class')); }
-  for (const el of svg.querySelectorAll('.loop-marker .marker-name, .k-terminal .sd-shadow')) want(el, 'fill', ink2, el.textContent);
+  for (const el of svg.querySelectorAll('.loop-marker:not(.pol-unknown) .marker-name, .k-terminal .sd-shadow')) want(el, 'fill', ink2, el.textContent);
   const file = standaloneSvg(svg, exportTitle()).text;           // the saved SVG (and the PNG drawn from it) keeps both
   const html = document.documentElement, tone = (v) => { const el = document.createElement('span'); el.style.color = `var(${v})`;
     document.body.append(el); const c = getComputedStyle(el).color; el.remove(); return c; };
   html.classList.add('export-light');                            // (a saved picture is drawn light whatever the theme)
   const [lk, lk2] = [tone('--sd-ink'), tone('--sd-ink-2')];
   html.classList.remove('export-light');
-  return { lines, driving, drives: drives.size, counts, bad, saved: [lk !== lk2 && file.includes(`stroke:${lk2}`), file.includes(`stroke:${lk}`)] };
+  return { lines, driving, drives: drives.size, counts, bad,
+           saved: [lk !== lk2 && file.includes(`stroke:${lk2}`), file.includes(`stroke:${lk}`)] };
 }"""
 BD_TONES = """(tok) => {
   const svg = document.querySelector('svg.canvas'), of = (sel, p) => [...svg.querySelectorAll(sel)].map((el) => getComputedStyle(el)[p]);
@@ -4507,8 +4508,7 @@ def test_line_tones_information_lighter_than_the_material_path(browser, tmp_path
         got = pg.evaluate(SD_TONES, tok)
         assert not got["bad"], got["bad"][:12]
         assert got["lines"] >= lines and got["driving"] == got["drives"], got
-        assert all(got["counts"].get(k) for k in (".pipe-out, .sd-stock, .sd-valve, .sd-cloud, .loop-marker .marker-arc",
-                                                  ".polarity, .node .sd-name, .marker-letter")), got["counts"]
+        assert len(got["counts"]) == 2, got["counts"]
         assert got["saved"] == [True, True], got["saved"]
         return got
 
@@ -4570,7 +4570,7 @@ EXPORTED_PNG = """async () => {
   const bare = new DOMParser().parseFromString(out.text, 'image/svg+xml');
   bare.querySelectorAll('text').forEach((t) => t.remove());
   const ctx = await raster(out.text), ctx0 = await raster(new XMLSerializer().serializeToString(bare));
-  const dark = (d, i) => d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] < 420;
+  const dark = (d, i) => d[i + 3] > 200 && d[i] + d[i + 1] + d[i + 2] < 500;   // (the ink or its second tone: loop names)
   const host = document.createElement('div'); host.style.cssText = 'position:fixed;left:0;top:0;z-index:99';
   host.innerHTML = out.text; document.body.append(host);
   const at = host.firstElementChild.getBoundingClientRect();
