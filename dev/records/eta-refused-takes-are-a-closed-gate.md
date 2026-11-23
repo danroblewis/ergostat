@@ -55,3 +55,24 @@ Built, round 1. 66 net lines outside tests and docs (etamodel.py +60, eta.py +6)
 Parked by the factory (review/eta-refused-takes-are-a-closed-gate-1, 2026-11-23 09:35).
 
 Done: (a) refusals (uncounted give-backs under 30 s) left out of attempts and the run curve, said in reasons; (b) measured concurrency (time-weighted p90 of runs while items queued) capping capacities, so the simulation and the levelled pass alike; (c) the gated synthetic record, backtest table and verdict (p50 MAE 847 to 409 min, p90 coverage 0.44 to 0.93, as the branch reports); SPEC §5a; all four acceptance tests present, with mutation checks reported. Left: done item 2 on a copy of the factory record (first paint and simulated Timeline: no more first-hour starts than the implementor's measured concurrency), and the ticket-factory demo record's backtest column showing no worsening. The implementor's container has neither record and cannot run the demo, so another fix round cannot close it.
+
+## Where it stopped
+
+Round 2: built; not parked. The coordinator checks two things after merge, because no session can: the half of done
+item 2 that runs on a copy of the factory record (first paint and simulated Timeline: no more gaps start in the first
+projected hour than the implementor's measured concurrency), and the ticket-factory demo record's backtest column
+(no worsening beyond its run-to-run spread). **Neither was run on this branch.** Done item 2 on the gated synthetic
+record is covered in CI by test_levelled_pass_uses_measured_concurrency and test_measured_concurrency_caps_a_gated_block.
+
+- Main (278f54a4) is merged into the branch (681cebd2) with no conflicts; nothing has landed on main since, so the
+  merge is current. No code changed this round.
+- Re-run on the merged branch, gated synthetic record (3 truths × 3 cuts, 60 runs): p50 MAE 50,804 s → 24,549 s
+  (847 → 409 min, ×0.48, past the third done item 3 asks for); p90 coverage 0.44 → 0.93; nothing unresolved. Per
+  truth, new model: MAE 489 / 294 / 444 min, coverage 0.80 / 1.00 / 1.00, share finished by their p50 0.04 / 0.11 /
+  0.11 (the cost noted in round 1, unchanged). These match round 1. The numbers came from a temporary
+  `assert False, table` in test_backtest_gated_record_improves, reverted before commit.
+- The round-1 scratch file `.scratch_gated.py` is gone from the worktree; it was never committed.
+- Tests run (named_tests, serially): the four acceptance tests; tests/test_eta.py + tests/test_precedence.py (38
+  passed); test_finished_states, test_lease_refused_cost, test_leased_workspaces (9 passed); test_pool_now,
+  test_take_order (29 passed). ruff is clean. No page changed, so no browser file was run. The unit suite was not run
+  here (the factory runs it).
