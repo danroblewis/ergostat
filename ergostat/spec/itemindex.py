@@ -59,7 +59,7 @@ from pathlib import Path
 from ..store import damaged
 from . import codec, itemnumbers
 from .about import parts_named
-from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, kind_of, text_of
+from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, kind_of, text_of
 from .relations import links_of
 
 VERSION = 6                 # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
@@ -472,7 +472,7 @@ class Index:
                 rid, arrived, newest, raw, raw_first = row[0], row[10], row[6], row[11], row[12]
             else:
                 it, rid, arrived, newest, raw, raw_first = None, None, None, None, 0, None
-            it, numbered, renumbered = itemnumbers.follow(id, evs, k, it, self.transcript)
+            it, numbered, renumbered = itemnumbers.follow(id, evs, k, it, self.transcript, fold)
             restored = False
             for e in evs:
                 if e["type"] == SNAPSHOT:
@@ -527,7 +527,7 @@ class Index:
         if restored:
             self.db.execute("delete from number_log where rid = ?", (rid,))
             self.db.execute("delete from numbers where rid = ?", (rid,))
-        if not rows:
+        if not rows or it.kind is None:              # an item of no kind has no field to chart
             return
         kn = self.nid(it.kind)
         self.db.executemany(
