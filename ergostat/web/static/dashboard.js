@@ -206,15 +206,27 @@ function dashNamed(config, results) {
 }
 /* a rate's last bucket is often empty or half over, so a number read from it says 0/h between bursts: a stat with
    ``display.recent`` reads the average of that many buckets up to each moment */
-function dashRecent(values, n) {
+function dashRecent(values, n, spans = null) {
   return values.map((_, i) => {
-    const known = values.slice(Math.max(0, i - n + 1), i + 1).filter((v) => v != null);
-    return known.length ? known.reduce((x, y) => x + y, 0) / known.length : null;
+    let sum = 0, weight = 0;
+    for (let k = Math.max(0, i - n + 1); k <= i; k++) {
+      if (values[k] == null) continue;
+      const span = spans?.[k] > 0 ? spans[k] : 1;      // the first and last buckets are cut to the window
+      sum += values[k] * span;
+      weight += span;
+    }
+    return weight ? sum / weight : null;
   });
 }
-function dashAnswer(config, results) {
+/* how many seconds of the window each bucket covers */
+function dashSpans(times, until) {
+  if (!Array.isArray(times) || !times.length) return null;
+  const step = times.length > 1 ? times[times.length - 1] - times[times.length - 2] : null;
+  return times.map((t, i) => (i + 1 < times.length ? times[i + 1] : until ?? (step == null ? t : t + step)) - t);
+}
+function dashAnswer(config, results, meta = null) {
   const n = config.form === "stat" ? config.display?.recent : null;
-  const read = n ? (results || []).map((r) => (r.series ? { ...r, series: r.series.map((x) => ({ ...x, values: dashRecent(x.values || [], n) })) } : r)) : results;
+  const read = n ? (results || []).map((r) => (r.series ? { ...r, series: r.series.map((x) => ({ ...x, values: dashRecent(x.values || [], n, dashSpans(r.times, meta?.until)) })) } : r)) : results;
   return dashNamed(config, read);
 }
 /* a change over the window means nothing from a start near zero ("5400%"): the panel then says none */
@@ -326,7 +338,7 @@ async function dashRefresh() {
       const a = got?.get?.(id);
       if (!a) continue;
       const p = d.panels.find((x) => x.id === id);
-      const answer = dashAnswer(p, a.results);
+      const answer = dashAnswer(p, a.results, a.meta);
       c.el.classList.toggle("dash-no-change", dashStartsNearZero(answer));
       c.panel.update(answer, a.meta);
       c.drawn = true;
