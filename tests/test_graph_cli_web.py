@@ -232,6 +232,8 @@ def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals
                     ignore=shutil.ignore_patterns("run", "__pycache__"))
     f = d / "ergostat.yaml"
     f.write_text(f.read_text().replace("name: the-job\n", "name: the-job\npurpose: keep my work moving\n", 1))
+    m = d / "job" / "messages.yaml"                    # one goal no controller holds: notes-reach-work, its block gone
+    m.write_text(m.read_text().split("\nblocks:\n")[0] + "\n")
     server, url = serve(Project(model.load(d)), free_port())
     try:
         with urllib.request.urlopen(url + "/api/status", timeout=30) as r:
