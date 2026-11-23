@@ -304,3 +304,22 @@ Run: the new test, `test_a_goals_behaviour_holds_across_reloads_and_flapping_is_
 `tests/test_graph_cli_web.py` (45 passed); ruff clean. Not run: the whole unit suite and the four browser files in
 full (left to the factory and the merge queue). `main` is still 1c790d38, already merged in, so there was nothing to
 merge.
+
+## Where it stopped (continued, round 8)
+
+The merge of main (dc47a763) conflicted in `pages.js`. Main draws each Loops row through the shared `goalRow`
+(goalrow.js, goal-row-one-renderer), not cell by cell in pages.js. Both sides are kept:
+- Main's `goalRow` and its columns draw the row. The branch's `word(n, lp)` (hysteresis and flapping, `steadyWord`)
+  is passed in as `behaviour`, and goalrow.js's behaviour cell shows it (`g.behaviour ?? goalPerf(g.perf)`). A
+  surface that passes no `behaviour` gets main's `goalPerf` as before. The cell's title is the branch's.
+- goalrow.js's time off goes through `shareText` ('<1%'), in place of its own `"0%"` rounding.
+About 1 more net line of code (about 36 in all).
+
+`tests/test_graph_cli_web.py`'s source check now looks for `shareText(g.off_share)` in goalrow.js and for the
+`behaviour` hand-over in both files.
+
+Run: `tests/test_graph_cli_web.py` (48 passed); the four behaviour tests and main's
+`test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks` (5 passed, rc 0, under the watchdog, in two
+runs). With goalrow.js's cell made to ignore `behaviour`, the reload test failed (`{'steady': 'past its bound',
+'flappy': 'past its bound'}`, no flapping). Ruff clean. Not run: the whole unit suite and the four browser files in full
+(left to the factory and the merge queue).
