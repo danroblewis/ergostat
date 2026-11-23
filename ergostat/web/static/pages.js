@@ -567,7 +567,9 @@ async function pageItems(main, q, only = false) {
   const shut = new Set();                              // the kinds whose bar's disclosure hides their list (this page only)
   // how the items are shown (relations.js): as lists, as a graph of their relations, or as a timeline; the graph's
   // and the timeline's choices, in the address too
-  let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
+  // (on the kind's page only: /items lists, the overview draws no view of its items)
+  let view = only && ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
+  let all = q.get("states") === "all";                // the kind's chart: its state groups, or every state (the overview's switch)
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
   let sort = q.get("sort") || "";
   // both show the frontier (the unfinished, and what they wait on) with the finished collapsed, so the timeline opens
@@ -625,7 +627,7 @@ async function pageItems(main, q, only = false) {
     try { await busy; } finally { busy = null; }
   }
   const ans = answers();
-  const go = () => { const u = new URLSearchParams(); if (state) u.set("state", state);
+  const go = () => { const u = new URLSearchParams(); if (state) u.set("state", state); if (one && all) u.set("states", "all");
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
                      if (sort && view === "list") u.set("sort", sort);
@@ -676,7 +678,8 @@ async function pageItems(main, q, only = false) {
     // a click on one shows its items; a kind without states, one line of its count. A flow over the window
     // hardly moves in seconds: each asked for every 30s, not on every refresh of the list, and only while shown
     const shownKinds = one ? [kindOf[one]].filter(Boolean) : systems.flatMap((g) => g.kinds.map((n) => kindOf[n]).filter(Boolean));   // folded or not: the charts stay
-    const fp = one ? await ans.api(`kinds/${encodeURIComponent(one)}`).catch(() => null) : null;   // where the model has it
+    const fp = one ? await ans.api(`kinds/${encodeURIComponent(one)}`)      // where the model has it (unread: kinds.js says why)
+      .catch((err) => ({ err: String(err.message || err), status: err.status })) : null;
     const due = shownKinds.filter((k) => k.states.length && !(Date.now() - (flowsAt[k.name] || 0) < 30000));
     await Promise.all(due.map(async (k) => {
       flowsAt[k.name] = Date.now();
@@ -702,7 +705,7 @@ async function pageItems(main, q, only = false) {
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
       h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
     const check = (on, text, title, fn) => h("label", { class: "rg-check", title }, h("input", { type: "checkbox", ...(on ? { checked: "" } : {}), onchange: fn }), text);
-    patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
+    if (one) patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
                                 [view === "graph", "Graph", "The items and their relations: what each waits on, the critical path", () => { view = "graph"; go(); }],
                                 [view === "timeline", "Timeline", "A Gantt chart: each item's states over time, and what is projected for the unfinished", () => { view = "timeline"; go(); }]]),
       ...(view === "list" ? [] : [
@@ -802,8 +805,16 @@ async function pageItems(main, q, only = false) {
       const t = shut.has(one) ? [] : view === "list" ? await tables([one]) : await relPart(g);
       anyRows = t.length > 0;
       if (!p.isConnected) return;
+      // its chart as the overview's: its state groups by default, every state by the one switch (?states=all)
+      const of = !fp?.err && fp?.group, fl = flows[one];
+      const grouped = k && fl && of && !all ? keep(`gcfd:${one}`, JSON.stringify([fl.times, fl.counts, fl.now]),
+        () => flowChart(groupedFlow(fl, of, fp.groups), group, { kind: k, onState: () => { all = true; go(); } })) : null;
+      const pickAll = (to) => () => { if (all !== to) { all = to; go(); } };
       patch(box, k ? keyed(bar(k, 1), "bar") : h("h1", { key: "bar" }, one),
-        h("section", { class: "kind-sect", key: "now" }, h("h2", {}, "Now"), k ? h("div", { class: "kind-flow" }, cfd(k)) : null, cycle(one)),
+        h("section", { class: "kind-sect", key: "now" }, h("h2", {}, "Now"), of && fl ? seg("States", [
+            [!all, "State groups", "Its states as waiting, working, stopped and done", pickAll(false)],
+            [all, "Every state", "Each of its own states", pickAll(true)]]) : null,
+          k ? h("div", { class: "kind-flow" }, grouped || cfd(k)) : null, cycle(one)),
         h("section", { class: "kind-sect", key: "model" }, h("h2", {}, "In the model"), ...kindModel(fp, fp?.now || k?.counts || {})),
         h("details", { class: "kind-sect", key: "def" }, h("summary", {}, "Definition"), kindDefinition(fp)));
       groups.push(h("section", { class: "sys-group kind-items", "data-system": g.name, key: "items" }, ...t));

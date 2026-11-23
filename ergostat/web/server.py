@@ -476,14 +476,19 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
     block has taken now (a lease holder, whatever state the run has moved it to), and each goal's word."""
     from ..leases.fold import held
     from ..spec import items as its
+    from ..spec.finished import finish_of
     from ..spec.footprint import kind_footprint
+    from .items_overview import GROUPS, state_groups
     fp = kind_footprint(spec, kind)
     if fp is None:
         return None
     page = its.listing(p.events, spec, kind=kind, state="\0", until=snap["at"], n=1)     # counted by the index
     fp["now"] = next((k["counts"] for k in page["kinds"] if k["name"] == kind), {})
+    f = its.finishes(p.events, spec, kind)
+    states = [s["state"] for s in fp["definition"]["states"]]
+    queue = finish_of(spec, kind, set())["queue"]                       # (where it waits: not read from the record)
+    fp["group"], fp["groups"] = state_groups(states, {**f, "queue": queue}), list(GROUPS)   # the overview's state groups
     if fp["definition"]["finished_by"] == "inferred":     # as the listing infers it, from the states left by now
-        f = its.finishes(p.events, spec, kind)
         fp["definition"]["finished_by"] = f["finished_from"]
         for s in fp["definition"]["states"]:
             s["finished"] = s["state"] in f["finished"]
@@ -491,7 +496,8 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
         _, _, got = its.in_states(p.events, spec, kind, None, {"lease.block": t["block"]}, until=snap["at"], items=True)
         t["taken"] = sum(1 for i in got if held(i.fields))
     for g in fp["goals"]:
-        g["status"] = (snap["loops"].get(g["goal"]) or {}).get("status")
+        lp = snap["loops"].get(g["goal"]) or {}
+        g["status"], g["word"] = lp.get("status"), lp.get("word")
     return fp
 
 

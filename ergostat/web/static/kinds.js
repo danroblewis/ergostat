@@ -30,10 +30,29 @@ const partHref = (part, view = "dynamics") => `/diagram?view=${view}&around=${en
 const listOf = (xs, none = "none") => (xs && xs.length ? xs.join(", ") : none);
 const termOf = (v) => (v == null ? "the block's" : typeof v === "object" ? JSON.stringify(v) : typeof v === "number" ? dur(v) : String(v));
 
+/* /api/kinds/K not read: a 404 is a kind the model does not declare; anything else (the server, the network, a snapshot
+   without it) an error, said as one, never as a fact about the model. ``fp.err``: the request's failure (pages.js) */
+function kindUnread(fp) {
+  if (fp && !fp.err) return null;
+  return fp?.status === 404 ? h("p", { class: "muted" }, "The model declares no such kind.")
+    : h("p", { class: "note bad kind-unread" }, `Could not read the kind from the model: ${fp?.err || "no answer"}.`);
+}
+
+/* a kind's flow (/api/items-flow) summed into its state groups (fp.group, the overview's: waiting, working, stopped,
+   done), the overview's default chart */
+function groupedFlow(fl, of, order) {
+  const gs = order.filter((g) => fl.states.some((s) => of[s] === g));
+  const sum = (f) => Object.fromEntries(gs.map((g) => [g, f(g)]));
+  return { times: fl.times, since: fl.since, until: fl.until, states: gs,
+           counts: sum((g) => fl.times.map((_, i) => fl.states.reduce((a, s) => a + (of[s] === g ? fl.counts[s][i] : 0), 0))),
+           now: sum((g) => fl.states.reduce((a, s) => a + (of[s] === g ? fl.now?.[s] || 0 : 0), 0)) };
+}
+
 /* In the model: a row a part that counts it, a flow that moves it, a block that takes it, a goal, a feedback loop; each
    name a link to the diagram drawn around it (a goal: its control loop and its evidence) */
 function kindModel(fp, now) {
-  if (!fp) return [h("p", { class: "muted" }, "The model has no such kind.")];
+  const err = kindUnread(fp);
+  if (err) return [err];
   const on = Object.entries(fp.definition.on || {});
   const link = (href, text) => h("a", { href }, text);
   const rows = [];
@@ -53,7 +72,7 @@ function kindModel(fp, now) {
       `${t.says}, to ${listOf(t.to)}; pool ${t.pool_now ? `${t.pool_now} now, at most ` : ""}${termOf(t.pool)}, ${t.attempts ?? "?"} attempts, TTL ${termOf(t.ttl)}`,
       `${t.taken} taken, ${waiting} waiting`]);
   }
-  for (const g of fp.goals) rows.push(["goal", link(`/diagram?around=loop/${encodeURIComponent(g.goal)}`, g.goal), `holds ${g.of.replace(".", " ")} ${g.hold} (${g.why})`, statusEl(g.status)]);
+  for (const g of fp.goals) rows.push(["goal", link(`/diagram?around=loop/${encodeURIComponent(g.goal)}`, g.goal), `holds ${g.of.replace(".", " ")} ${g.hold} (${g.why})`, statusEl(goalWord(g))]);
   for (const lp of fp.loops) rows.push([`feedback loop ${lp.polarity}`, link(partHref(lp.through[0] || lp.parts[0]), lp.name),
     `${lp.polarity === "R" ? "reinforcing" : "balancing"}, through ${listOf(lp.through)}`, ""]);
   return [
@@ -67,7 +86,8 @@ function kindModel(fp, now) {
 /* its definition as declared, read-only: events to states, the fields shown and how each folds, its relations both
    ways, its joins, the lease rule */
 function kindDefinition(fp) {
-  if (!fp) return h("p", { class: "muted" }, "Not declared.");
+  const err = kindUnread(fp);
+  if (err) return err;
   const d = fp.definition, pair = (k, v) => [h("dt", {}, k), h("dd", {}, v)];
   const marks = (s) => [s.first && "first", s.finished && "finished", s.paused && "paused", s.final && "final", s.ergostat && "ergostat's"].filter(Boolean);
   return h("dl", { class: "kind-def" },

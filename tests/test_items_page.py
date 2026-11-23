@@ -875,6 +875,7 @@ def drawn(pg, sel: str) -> list[dict]:
 
 
 def open_view(browser, roadmap, route: str, ready: str):
+    """A Graph or a Timeline: on a kind's page (the-kind-page: /items has neither), the tickets' and what they reach."""
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 4;")
     errors: list[str] = []
@@ -887,7 +888,7 @@ def open_view(browser, roadmap, route: str, ready: str):
 
 def test_the_graphs_status_counts_filter_it(browser, roadmap):
     """Each status's count in the legend is a filter: a click shows only that status, again shows them all."""
-    pg, errors = open_view(browser, roadmap, "items?view=graph&frontier=0&collapse=0", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph&frontier=0&collapse=0", ".rg-graph[data-drawn] .rg-node")
     keys = pg.locator(".rg-legend button.rg-key")
     assert keys.count() >= 2 and "ready" not in pg.locator(".rg-legend").inner_text().split()   # unblocked, not ready
     key = keys.filter(has_text="blocked").first if keys.filter(has_text="unblocked").count() == 0 else \
@@ -906,7 +907,7 @@ def test_the_graphs_status_counts_filter_it(browser, roadmap):
 
 
 def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadmap):
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph", ".rg-graph[data-drawn] .rg-node")
     nodes = drawn(pg, ".rg-graph .rg-node")
     ids = {n["id"] for n in nodes}
     assert not overlaps(nodes), overlaps(nodes)
@@ -959,7 +960,7 @@ def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadma
     from ergostat.web import graph_parts
     from tests.test_graph_parts import drawn as rule
     from tests.test_graph_parts import epic_answer, factory_answer, fan_answer, unreported
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph", ".rg-graph[data-drawn] .rg-node")
     ans = graph_parts.mark(factory_answer())
     by = {x["id"]: x for x in ans["items"]}
     into = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["status"] != "done"}
@@ -984,12 +985,13 @@ def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadma
 
 
 def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap):
-    pg, errors = open_view(browser, roadmap, "items?view=timeline", ".rg-timeline[data-drawn] .rg-row")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=timeline", ".rg-timeline[data-drawn] .rg-row")
     rows = drawn(pg, ".rg-timeline .rg-row .rg-label")
     assert len(rows) >= 12                                                            # the unfinished, and what they wait on
     assert not overlaps(rows), overlaps(rows)
     assert len({round(r["y"]) for r in rows}) == len(rows)                            # one row each
-    assert pg.locator(".rg-timeline .rg-seg").count() > 20                             # what happened, state by state
+    # what happened, state by state: on the tickets' page (the-kind-page), at least a segment a row and more in all
+    assert pg.locator(".rg-timeline .rg-seg").count() > len(rows)
     proj = pg.locator(".rg-timeline .rg-proj").count()
     assert proj >= 5, proj                                                            # and what is projected
     assert pg.locator(".rg-timeline .rg-now line").count() == 1
@@ -1038,7 +1040,7 @@ def test_the_timeline_says_how_well_last_weeks_estimates_held(browser, roadmap):
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.route("**/api/items-graph*", fill)
-        pg.goto(f"{roadmap}/items?view=timeline{rows}")
+        pg.goto(f"{roadmap}/items/ticket?view=timeline{rows}")
         pg.wait_for_selector(".rg-timeline .rg-note .rg-calibration span", timeout=20000)
         said = pg.locator(".rg-timeline .rg-note").inner_text()
         assert good in said and poor in said and "too few finished last week to check" in said, said
@@ -1055,7 +1057,7 @@ def test_the_timeline_says_how_well_last_weeks_estimates_held(browser, roadmap):
 def test_the_timeline_levels_lanes_per_block(browser, roadmap):
     """The projected bars are levelled (numbers/eta.py): by lanes, each block that takes items a row a lane, no more
     lanes than its capacity, one run at a time in each; by item, each open item's p50 tick and p90 whisker."""
-    pg, errors = open_view(browser, roadmap, "items?view=timeline&rows=lanes", ".rg-timeline[data-drawn] .rg-lane .rg-lanebar")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=timeline&rows=lanes", ".rg-timeline[data-drawn] .rg-lane .rg-lanebar")
     lanes = pg.evaluate("""() => [...document.querySelectorAll('.rg-timeline .rg-lane')].map((r) => ({
       block: r.dataset.block, lane: +r.dataset.lane,
       bars: [...r.querySelectorAll('.rg-lanebar')].map((b) => [+b.getAttribute('x'),
@@ -1098,7 +1100,7 @@ def test_the_finish_is_a_clock_time_no_earlier_than_the_critical_paths_end(brows
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.on("response", lambda r: answers.append(r) if "/api/items-graph" in r.url else None)
-    pg.goto(f"{roadmap}/items?view=graph")
+    pg.goto(f"{roadmap}/items/ticket?view=graph")
     pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
     first = pg.locator(".rg-legend .rg-eta").all_inner_texts()                   # on first paint, one sentence
     assert len(first) == 1 and ("levelled by each block's capacity" in first[0] or "at worst" in first[0]), first
@@ -1156,7 +1158,7 @@ def test_timeline_first_paint_is_levelled(browser, roadmap):
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.route("**/api/items-graph*", held)
-    pg.goto(f"{roadmap}/items?view=timeline&collapse=0&frontier=0")
+    pg.goto(f"{roadmap}/items/ticket?view=timeline&collapse=0&frontier=0")
     pg.wait_for_selector(".rg-timeline[data-drawn] .rg-proj[data-block]", timeout=20000)
     dev = sorted(pg.locator(".rg-timeline .rg-proj[data-block='developer']").evaluate_all(
         "els => els.map((e) => [+e.getAttribute('x'), +e.getAttribute('x') + +e.getAttribute('width')])"))
@@ -1180,7 +1182,7 @@ def test_the_timeline_opens_at_now(browser, roadmap):
     """A short window: the Timeline opens with its now line in view, at the first unfinished row."""
     pg = browser.new_page(viewport={"width": 1200, "height": 420})
     pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 4;")
-    pg.goto(f"{roadmap}/items?view=timeline")
+    pg.goto(f"{roadmap}/items/ticket?view=timeline")
     pg.wait_for_selector(".rg-timeline[data-drawn] .rg-now line", state="attached", timeout=20000)
     pg.wait_for_timeout(500)
     at = pg.evaluate("""() => { const box = (e) => { const r = e.getBoundingClientRect(); return [r.left, r.top, r.right, r.bottom]; };
@@ -1195,7 +1197,7 @@ def test_the_timeline_opens_at_now(browser, roadmap):
 
 @pytest.mark.parametrize("view", ["graph", "timeline"])
 def test_the_graph_and_the_timeline_left_open_change_nothing(browser, roadmap, view):
-    pg, errors = open_view(browser, roadmap, f"items?view={view}", f".rg-{view} [data-drawn], .rg-{view}[data-drawn]")
+    pg, errors = open_view(browser, roadmap, f"items/ticket?view={view}", f".rg-{view} [data-drawn], .rg-{view}[data-drawn]")
     asked: list[str] = []
     pg.on("requestfinished", lambda r: asked.append(r.url) if "/api/items-graph" in r.url else None)
     pg.wait_for_timeout(1500)
@@ -1218,7 +1220,7 @@ def test_the_graph_and_the_timeline_left_open_change_nothing(browser, roadmap, v
 
 def test_a_snapshot_draws_the_graph_and_timeline(browser, tmp_path):
     """A snapshot (``ergostat snapshot``) of a model with relations in two systems, opened from its file: the Graph
-    and the Timeline of each system drawn from the answers it holds, keyed as the page's ``snapKey`` asks."""
+    and the Timeline of a kind of each system drawn from the answers it holds, keyed as the page's ``snapKey`` asks."""
     from ergostat.web.snapshot import build
     from tests.test_graph_cli_web import related_project
     (tmp_path / "m").mkdir()
@@ -1227,17 +1229,17 @@ def test_a_snapshot_draws_the_graph_and_timeline(browser, tmp_path):
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f.as_uri() + "#/items?view=graph")
-    for system, ids in (("planning", {"epic/e1", "epic/e2", "goal/g"}), ("delivery", {"ticket/a", "ticket/b", "epic/e1"})):
-        sel = f'section.sys-group[data-system="{system}"] .rg-graph[data-drawn] .rg-node'
-        pg.wait_for_selector(sel, timeout=20000)
-        assert ids <= {n["id"] for n in drawn(pg, sel)}, (system, drawn(pg, sel))
-    assert "not in a snapshot" not in pg.locator(".page").inner_text()
+    # (each on its kind's page, the-kind-page: /items has no Graph or Timeline; one kind of each system)
+    for kind, ids in (("epic", {"epic/e1", "epic/e2"}), ("ticket", {"ticket/a", "ticket/b", "epic/e1"})):
+        pg.goto(f.as_uri() + f"#/items/{kind}?view=graph")
+        sel = ".rg-graph[data-drawn] .rg-node"
+        pg.wait_for_function(f"(n) => document.querySelectorAll('{sel}').length >= n", arg=len(ids), timeout=20000)
+        assert ids <= {n["id"] for n in drawn(pg, sel)}, (kind, drawn(pg, sel))
+        assert "not in a snapshot" not in pg.locator(".page").inner_text()
     pg.locator(".rg-viewbar button", has_text="Timeline").first.click()
-    for system in ("planning", "delivery"):
-        pg.wait_for_selector(f'section.sys-group[data-system="{system}"] .rg-timeline[data-drawn] .rg-row', timeout=20000)
+    pg.wait_for_selector(".rg-timeline[data-drawn] .rg-row", timeout=20000)
     rows = {r["id"] for r in drawn(pg, '.rg-timeline .rg-row')}
-    assert {"ticket/a", "ticket/b", "goal/g"} <= rows, rows
+    assert {"ticket/a", "ticket/b"} <= rows, rows
     assert pg.locator(".rg-timeline .rg-seg").count() >= 4                         # what happened, state by state
     assert "not in a snapshot" not in pg.locator(".page").inner_text()
     assert not errors, errors
@@ -1674,7 +1676,8 @@ def test_the_side_panels_and_item_tables_are_captioned(browser, site):
 @pytest.mark.parametrize("route, nav, view", [
     ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
     ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
-    ("/items", "/items", None), ("/items?view=list", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"),
+    # (/items?view=list: every kind's list, with no view switch: the views are a kind's page's, the-kind-page)
+    ("/items", "/items", None), ("/items?view=list", "/items", None), ("/items?kind=hypothesis", "/items", "List"),
     ("/record", "/record", None),
     ("/model", "/model", None)])
 def test_the_page_view_and_controls_are_named(browser, site, route, nav, view):
@@ -1985,7 +1988,7 @@ def test_the_graph_frames_each_gap_in_its_milestone(browser, roadmap):
     gaps = {a for a, x in by.items() if x["kind"] == "gap"}
     ms_of = {e["to"]: e["from"] for e in ans["edges"] if e["kind"] == "group" and e["rel"] == "milestone"}
     between = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["kind"] == "gap"}
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph", ".rg-graph[data-drawn] .rg-node")
     got = pg.evaluate(FRAMES, [ans, MS])
     nodes = {a: (f, fold, hub) for a, f, fold, hub in got["nodes"]}
     assert set(nodes) == gaps                                                  # every gap a card, no milestone one
@@ -2032,7 +2035,7 @@ def test_the_graph_draws_each_milestone_as_a_frame_holding_its_gaps(browser, roa
     milestone, and gap to gap across frames), no two cards overlapping; under Collapse done the completed one is one
     card, not a frame."""
     from tests.test_milestone_frames import milestone_answer
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph", ".rg-graph[data-drawn] .rg-node")
     got = pg.evaluate(MS_DRAW, [milestone_answer(), {**MS, "collapse": collapse}])
     inside = lambda c, f: f["x"] - 1 <= c["x"] and c["x"] + c["w"] <= f["x"] + f["w"] + 1 and \
         f["y"] - 1 <= c["y"] and c["y"] + c["h"] <= f["y"] + f["h"] + 1                  # noqa: E731
@@ -2071,7 +2074,7 @@ def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browse
     from tests.test_milestone_frames import milestone_answer
     ans = milestone_answer()
     by = {x["id"]: x for x in ans["items"]}
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph", ".rg-graph[data-drawn] .rg-node")
     got = pg.evaluate(MS_TIMELINE, [ans, MS, "milestone/m2"])
     rows = got["rows"]
     sums = [r for r in rows if r["sum"]]
@@ -2105,7 +2108,7 @@ def test_the_timeline_spans_each_milestone_over_all_its_gaps_under_frontier_and_
     milestone after it; an active one's bar spans its done gaps too (the same span as with nothing collapsed)."""
     from tests.test_milestone_frames import milestone_answer
     ans = milestone_answer()
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    pg, errors = open_view(browser, roadmap, "items/ticket?view=graph", ".rg-graph[data-drawn] .rg-node")
     full = {r["id"]: r for r in pg.evaluate(MS_TIMELINE, [ans, MS, None])["rows"] if r["sum"]}
     got = pg.evaluate(MS_TIMELINE, [ans, {**MS, "frontier": True, "collapse": True}, None])
     sums = {r["id"]: r for r in got["rows"] if r["sum"]}
@@ -2176,7 +2179,7 @@ def test_a_kinds_page_shows_its_definition_and_model_place(browser, roadmap):
 
 def test_a_kind_chosen_ends_at_its_page_and_its_links_go_there(browser, roadmap):
     """/items?kind=ticket&view=graph ends at /items/ticket?view=graph; the item page's kind link and the Items page's
-    bar title point there."""
+    card name (the overview's) point there."""
     pg, errors = kind_page(browser, roadmap, "/items?kind=ticket&view=graph")
     assert pg.evaluate("location.pathname + location.search") == "/items/ticket?view=graph"
     pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
@@ -2184,7 +2187,7 @@ def test_a_kind_chosen_ends_at_its_page_and_its_links_go_there(browser, roadmap)
     pg.goto(f"{roadmap}/item/ticket%2Fe1-design")
     pg.wait_for_selector("#main a[href='/items/ticket']", timeout=20000)
     pg.goto(f"{roadmap}/items")
-    title = pg.locator(".kind-bar[data-kind=ticket] .kname")
+    title = pg.locator(".kind-card[data-kind=ticket] .kname")
     title.wait_for()
     assert title.get_attribute("href") == "/items/ticket"
     title.click()
@@ -2200,11 +2203,12 @@ BAR_HTML = """() => document.querySelector('.kind-bar[data-kind=ticket]').outerH
 
 
 def test_the_kind_bar_is_one_component(browser, roadmap):
-    """The ticket bar on /items and on /items/ticket: the same markup but for the heading's level and the open state."""
+    """The ticket bar on the Items page's list (/items?view=list, where /items draws bars: its bare address is the
+    overview's cards) and on /items/ticket: the same markup but for the heading's level and the open state."""
     pg, errors = kind_page(browser, roadmap, "/items/ticket")
     on_page = pg.evaluate(BAR_HTML)
     level = pg.locator(".kind-bar[data-kind=ticket] > *").first.evaluate("e => e.tagName")
-    pg.goto(f"{roadmap}/items")
+    pg.goto(f"{roadmap}/items?view=list")
     pg.wait_for_selector(".kind-bar[data-kind=ticket] .stbox")
     on_items = pg.evaluate(BAR_HTML)
     assert level == "H1" and pg.locator(".kind-bar[data-kind=ticket] > *").first.evaluate("e => e.tagName") == "H3"
@@ -2215,7 +2219,7 @@ def test_the_kind_bar_is_one_component(browser, roadmap):
 
 
 @pytest.mark.parametrize("path, address", [("/items/ticket", "/items/ticket?state=review"),
-                                           ("/items", "/items?kind=ticket&state=review")])
+                                           ("/items?view=list", "/items/ticket?state=review")])
 def test_a_kinds_state_link_filters_without_reload(browser, roadmap, path, address):
     """A state chip in the kind's bar filters the list in place (no reload: window.__same survives), lands in the
     address, and a second click clears it, on the Items page and on the kind's page alike."""
@@ -2274,5 +2278,70 @@ def test_an_uncounted_kind_says_so(browser, site):
     pg.goto(f"{site}/items/ergostat.model-change")
     pg.wait_for_selector(".kind-page table.kind-model, .kind-page .kind-uncounted", timeout=20000)
     assert pg.locator("#main h1 .kname").inner_text().startswith("Model changes")
+    assert not errors, errors
+    pg.close()
+
+
+NOW_LEGEND = "() => document.querySelector('.kind-page .kind-sect .cfd-states')?.innerText || ''"
+
+
+def test_a_kinds_chart_is_the_overviews(browser, roadmap):
+    """The kind's chart as the overview draws it: its state groups by default, legend at its right; the one switch
+    (Every state) draws each state, lands in the address (?states=all) and is kept on a reload; back to groups."""
+    pg, errors = kind_page(browser, roadmap, "/items/ticket")
+    pg.wait_for_function(f"() => ({NOW_LEGEND})().includes('waiting')", timeout=20000)
+    said = pg.evaluate(NOW_LEGEND)
+    assert "done" in said and "doing" not in said, said                         # groups, not states
+    plot, legend = (pg.locator(f".kind-page .kind-sect {s}").first.bounding_box() for s in (".chart-plot", ".cfd-states"))
+    assert legend["x"] >= plot["x"] + plot["width"] - 1, (plot, legend)          # the legend at its right
+    pg.locator(".kind-page .seg[aria-label=States] button", has_text="Every state").click()
+    pg.wait_for_function("() => location.search === '?states=all'")
+    pg.wait_for_function(f"() => ({NOW_LEGEND})().includes('doing')", timeout=20000)
+    pg.reload()
+    pg.wait_for_function(f"() => ({NOW_LEGEND})().includes('doing')", timeout=20000)
+    assert pg.locator(".kind-page .seg[aria-label=States] button.on").inner_text() == "Every state"
+    pg.locator(".kind-page .seg[aria-label=States] button", has_text="State groups").click()
+    pg.wait_for_function("() => location.pathname + location.search === '/items/ticket'")
+    pg.wait_for_function(f"() => !({NOW_LEGEND})().includes('doing')", timeout=20000)
+    assert not errors, errors
+    pg.close()
+
+
+def test_items_has_no_graph_or_timeline(browser, roadmap):
+    """The List, Graph and Timeline views are a kind's page's (owner, 2026-11-22): the overview and every kind's list
+    have no view switch, and an old /items?view=graph asks for no graph; /items/ticket has all three."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    asked: list[str] = []
+    pg.on("request", lambda r: asked.append(r.url) if "/api/items-graph" in r.url else None)
+    pg.goto(f"{roadmap}/items")
+    pg.wait_for_selector(".kind-card")
+    for path in ("/items?view=list", "/items?view=graph", "/items?view=timeline"):
+        pg.goto(f"{roadmap}{path}")
+        pg.wait_for_selector("table.items tr.click")
+        pg.wait_for_timeout(300)
+        assert pg.locator(".rg-viewbar button", has_text="Graph").count() == 0, path
+        assert pg.locator(".rg-graph, .rg-timeline").count() == 0, path
+    assert asked == [], asked
+    pg.goto(f"{roadmap}/items/ticket")
+    pg.wait_for_selector(".rg-viewbar button:has-text('Graph')")
+    assert pg.locator(".rg-viewbar .seg[aria-label=Show] button").all_inner_texts() == ["List", "Graph", "Timeline"]
+    pg.close()
+
+
+@pytest.mark.parametrize("status, said", [(404, "The model declares no such kind."), (500, "Could not read the kind")])
+def test_a_kind_unread_is_said_as_an_error_not_as_the_model(browser, roadmap, status, said):
+    """/api/kinds/K failing: a 404 says the model declares no such kind; any other failure is said as an error, never
+    as 'no such kind' or 'not declared'; the list of its items still shows."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/api/kinds/ticket*", lambda route: route.fulfill(status=status, body="{}"))
+    pg.goto(f"{roadmap}/items/ticket")
+    pg.wait_for_function("(s) => document.querySelector('.kind-page')?.innerText.includes(s)", arg=said, timeout=20000)
+    text = pg.locator(".kind-page").inner_text()
+    if status != 404:
+        assert "no such kind" not in text and "Not declared" not in text, text
+        assert pg.locator(".kind-unread").count() == 2                            # In the model, and the definition
+    pg.wait_for_selector("section.kind-items table.items tr.click")
     assert not errors, errors
     pg.close()

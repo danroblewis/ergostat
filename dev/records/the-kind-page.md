@@ -77,3 +77,59 @@ static files were both refused in this session. So it is reported as unrelated, 
 without Playwright both skipped, so pytest collected no test. The kind page's server address (`/items/<kind>`, served as
 the page by `is_page_path`) is now in tests/test_graph_cli_web.py's page-address test. That is a unit test, so the build
 step runs it and it passes. No code changed.
+
+Round 2, 2026-11-23. Main (7a905955) merged in. The conflicts were resolved by keeping main's code and putting the
+branch's work on top of it.
+
+**Each finding of the review, and what changed.**
+- *Built beside main's kinds.js, redirect and pageItems.* There is now one kinds.js: main's `pageKinds` overview plus
+  the branch's `kindBar`, `kindModel` and `kindDefinition`, loaded once in index.html. There is one redirect, main's
+  (`/items?kind=K` to `/items/K`, util.js `route`), and one `pageItems(main, q, only = false)` signature, main's. The
+  kind comes from `q.get("kind")`, which the route sets. split.js keeps main's `/dashboard` and adds `/items/`, which
+  main lacked. Without it, `/items/K` counts as a diagram address in the split view.
+- *Done item 3's tests compare against a bar main's /items no longer draws.* Bare `/items` is main's overview of
+  cards, and a card's name links to `/items/K`. The test of the redirect and the links now clicks that card's name.
+  The Items page still draws `kindBar` in every kind's list (`/items?view=list`, a search). So
+  test_the_kind_bar_is_one_component compares the ticket bar there with the one on `/items/ticket`, and the chip test's
+  Items case runs there. A chip click there now writes `/items/ticket?state=review` (main's `go`), so a reload ends on
+  the kind's page. These old tests were checked against main's `/items`: test_a_chosen_kinds_folded_system_is_shown
+  passes, the model-changes test takes main's assertion, and the snapshot chip test passes.
+- *Owner addendum.* `/items` no longer has Graph or Timeline. The view switch is drawn only on a kind's page, and
+  `view=graph|timeline` is read only there. An old `/items?view=graph` draws every kind's list and asks for no graph
+  (test_items_has_no_graph_or_timeline). The kind's page draws its chart as the overview does. By default it shows the
+  state groups, from `/api/kinds/K`'s new `group` and `groups` (`items_overview.state_groups`, the overview's own
+  rule). The legend sits at the chart's right. The overview's one switch, *State groups* or *Every state*, is kept as
+  `?states=all` (test_a_kinds_chart_is_the_overviews). Ten Graph and Timeline tests that opened `/items?view=…` now
+  open `/items/ticket?view=…`. The ticket graph still draws the items the tickets' relations reach (epics), so their
+  assertions hold. Two were changed, each with its reason in the test: the snapshot test now checks the epic and
+  ticket pages, and the Timeline's segment count is now "more than one a row". test_the_page_view_and_controls_are_named
+  no longer expects a pressed List on `/items?view=list`. scripts/demo_check.py opens the Graph and the Timeline on the
+  first kind's page.
+- *goalWord.* A goal's word in In the model is `statusEl(goalWord(g))`. `/api/kinds/K` now carries each goal's
+  `word` (tests/test_footprint.py), and the goalrow grep test passes.
+- *An error shown as "no such kind" (lesson-3).* `apiText` now attaches the response status to its error. A 404 says
+  "The model declares no such kind." Any other failure says "Could not read the kind from the model: …", in both In
+  the model and the Definition (test_a_kind_unread_is_said_as_an_error_not_as_the_model, for 404 and 500).
+
+**Defaults taken.** Main keeps every kind's list on `/items` (`?view=list`, and the overview's search lands there),
+so the List itself stays there. Only its view switch is gone. Removing the cross-kind list would undo
+items-one-section-per-kind-closed's own design, and the overview's search would have nowhere to land. Clicking a
+state group on the kind's chart switches it to every state, because the list cannot filter by group. The snapshot
+still holds the per-system graph answers that no page asks for now. "The page's one finished parameter" (section 2's
+folding) still does not exist, and the grouped chart's *done* band is the folding there is.
+
+**Tests run.** ruff is clean. Unit tests: tests/test_footprint.py (9) and tests/test_graph_cli_web.py (47) passed.
+tests/test_items_page.py as a whole: 66 passed and 3 failed. The fix for the third then passed on its own:
+test_the_timeline_draws_what_happened_and_what_is_projected expected more than 20 segments, and the tickets alone
+draw 20. The other two are not this branch's:
+- test_actions_say_per_class_asked_approved_denied_and_whether_held opens bare `/items` and waits for
+  `.action-classes`. On main, bare `/items` is `pageKinds` (main's util.js:609), which draws no lists, and this branch
+  changes neither that route nor that test. So it fails on main too, read from the code (not run on main here).
+- test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart is the project-switcher failure reported in
+  round 1. This branch does not touch that path.
+tests/test_diagram_rendering.py as a whole was started under the watchdog and stopped at its 40-minute background
+limit before it reported, so the file as a whole was not run here. Three of its tests did pass: the old-address and
+new-tab test (whose merge conflict was resolved to main's side), the loading-heading test (both Items cases) and the
+split test (split.js's `OTHER_PAGES`).
+The three new tests were each seen to fail with the code they guard broken: the view switch drawn on `/items`, the
+grouped chart turned off, and every unread answer called "no such kind". The 404 case rightly passed under the last.

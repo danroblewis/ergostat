@@ -360,7 +360,7 @@ async function apiText(path, params = {}, kept = false) {
   const url = `/api/${path}?${q}`;
   const signal = kept ? undefined : pageSignal();
   const r = await fetch(url, { signal });
-  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(`${path}: ${r.status}`), { status: r.status });   // (a 404 told apart)
   return [url, await r.text()];
 }
 async function api(path, params = {}, kept = false) { return JSON.parse((await apiText(path, params, kept))[1]); }

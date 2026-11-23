@@ -1763,11 +1763,12 @@ catches up on the events recorded since it last read, as for every indexed answe
 the moment shown is folded again from its own events). Where the
 index cannot answer for a kind (no index, or a moment so long past that most of its items changed since), the card
 says so instead of its numbers. `/items?kind=KIND` goes to `/items/KIND`, which is the list, graph and timeline below
-for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, as before.
+for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, with no view switch:
+the Graph and the Timeline are a kind's page's alone (an old `/items?view=graph` is that list and asks for no graph).
 
-**The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
-group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
-(`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
+**The Items page's views.** Beside **List** (its items, newest first), a kind's page (`/items/K`) shows that kind
+and the items its relations reach, of any kind (`GET /api/items-graph?kinds=K`; `kinds=A,B` or `system=NAME` are
+still answered; worked out again only when the record changes). `/items` itself has neither:
 
 | View | What it shows |
 |---|---|
@@ -1976,10 +1977,13 @@ order:
 1. *The kind's bar*, drawn by the one `kindBar` (`static/kinds.js`) that draws each kind's bar on the Items page,
    with the same markup apart from its heading's level (the page's `h1` here) and its disclosure's open state: the
    title (its name small), id pattern, description, `finishes: S, …` or `lives on` (where that came from on hover),
-   the state chips with their counts, the total, and `in SYSTEM` (why on hover). A chip filters the list in place
-   (`state=` in the address, a second click clears it), the same on both pages; the title links to the kind's page;
-   on the Items page the disclosure hides or shows that kind's list in place.
-2. *Now*: the kind's cumulative flow chart and its cycle times.
+   the state chips with their counts, the total, and `in SYSTEM` (why on hover). The Items page draws these bars in
+   every kind's list (`/items?view=list`, a search); its bare overview draws cards, whose name links here too. A chip
+   filters the list in place (`/items/K?state=S` in the address, a second click clears it), the same on both pages;
+   the title links to the kind's page; in every kind's list the disclosure hides or shows that kind's list in place.
+2. *Now*: the kind's cumulative flow chart, drawn as the overview's: its state groups by default (from
+   `/api/kinds/K`'s `group`, the overview's rule), its legend at its right, and the overview's one switch, *State
+   groups* or *Every state*, kept in the address (`/items/K?states=all`); then its cycle times.
 3. *In the model*, from `GET /api/kinds/K`: a row each for the parts that count it (*counted in*: the stock or
    auxiliary, its states, how many are there now), the flows counted from its moves (*moved by*: the state entered or
    left and the events that move an item there), the blocks that take it (*taken by*: what it takes, to where, its
@@ -1987,10 +1991,13 @@ order:
    holds, and its status word) and its feedback loops (R or B, and through which of its parts). Each name links to
    the diagram drawn around it (`around=stock/NAME`, a block in Blocks, a goal its control loop, a feedback loop
    around its first part), and a last link opens its states as a process map (`view=process&kinds=K`). A kind
-   nothing counts and nothing takes says so here, and its other sections are drawn as for any kind.
+   nothing counts and nothing takes says so here, and its other sections are drawn as for any kind. A goal's word is
+   `goalWord`'s. When `/api/kinds/K` cannot be read, a 404 says the model declares no such kind; any other failure
+   is said as an error here and in the definition, never as a fact about the model.
 4. *Definition*, a closed disclosure: its states (first, finished, paused, final, ergostat's), where its finishing
    came from, events to states, the fields shown, how each folds, its relations both ways, its joins, its lease rule.
-5. *Items*: the search, the List, Graph and Timeline views and the set chip of the Items page, for this kind alone.
+5. *Items*: the search, the List, Graph and Timeline views and the set chip of the Items page, for this kind alone
+   (the Graph and the Timeline draw its items and the items their relations reach, as they do).
 
 At 390 px wide its sections stack, with no sideways scroll.
 
