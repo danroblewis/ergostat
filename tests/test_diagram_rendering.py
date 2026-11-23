@@ -4270,11 +4270,12 @@ def test_flows_only_is_remembered(browser, tmp_path):
 
 # software-factory with its systems closed (the view the page opens with): six lines cross between factory and product,
 # all drawn as connectors. Three carry a flow (the rate of deployed, driving fixes, regressions and shipped as a release
-# goes live); three carry information only (the stocks bugs-live, missing-ops and users, read by intake's flows)
+# goes live); three carry information only (the gaps of the product's goals on bugs-live, missing-ops and users, read
+# by intake's flows: dynamics.py draws a serving block's read of its goal's stock through the goal's gap)
 CLOSED_FLOW_LINKS = {"connector:flow:deployed->flow:fixes~", "connector:flow:deployed->flow:regressions~",
                      "connector:flow:deployed->flow:shipped~"}
-CLOSED_INFO_LINKS = {"connector:stock:bugs-live->flow:filed-bugs~", "connector:stock:missing-ops->flow:filed-features~",
-                     "connector:stock:users->flow:filed-features~"}
+CLOSED_INFO_LINKS = {"connector:gap:no-live-bugs->flow:filed-bugs~", "connector:gap:few-missing->flow:filed-features~",
+                     "connector:gap:users-growing->flow:filed-features~"}
 SEEN = "const seen = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 || r.height > 0; };"
 LINKS_SEEN = "() => { " + SEEN + """
   return Object.fromEntries([...document.querySelectorAll('svg.canvas g.edge')].map((g) => {
@@ -4379,7 +4380,7 @@ def test_flows_only_hides_ports_with_no_connection(browser, tmp_path):
         pg = browser.new_page(viewport={"width": 1400, "height": 1000})
         drawn(pg, url, "", 0)
         before = pg.evaluate(PORTS_SEEN)
-        assert set(before) >= {"stock:bugs-live", "stock:missing-ops", "stock:users", "flow:filed-bugs",
+        assert set(before) >= {"gap:no-live-bugs", "gap:few-missing", "gap:users-growing", "flow:filed-bugs",
                                "flow:filed-features", "flow:deployed", "flow:fixes", "flow:regressions", "flow:shipped"}, before
         flows_menu(pg)
         assert pg.evaluate(PORTS_SEEN) == ["flow:deployed", "flow:fixes", "flow:regressions", "flow:shipped"]
@@ -4448,6 +4449,61 @@ def test_flows_only_export_legend_lists_only_what_is_shown(browser, tmp_path):
                 assert row[-1] in signs, (row, signs)
         assert not {"auxiliary", "exogenous", "reinforcing", "balancing"} & set(on), on
         pg.close()
+
+
+PRODUCT_GOALS = {"no-live-bugs": "filed-bugs", "few-missing": "filed-features", "users-growing": "filed-features"}
+# each goal's desired level and gap as drawn: its canvas texts, and where the gap's drawn lines end
+GOALS_DRAWN = """(goals) => Object.fromEntries(goals.map((k) => {
+  const node = (id) => document.querySelector(`svg.canvas g.node[data-id="${id}"]`);
+  const out = S.graph.edges.filter((e) => e.source === `gap:${k}` && document.querySelector(`svg.canvas g.edge[data-id="${e.id}"]`));
+  return [k, { desired: !!node(`desired:${k}`), gap: node(`gap:${k}`)?.textContent || null,
+               to: out.map((e) => S.graph.nodes.find((n) => n.id === e.target)?.label) }]; }))"""
+PANEL_GOALS = "() => [...document.querySelectorAll('#detail dt')].filter((t) => t.textContent === 'desired level')" \
+              ".map((t) => t.nextElementSibling.textContent)"
+
+
+def test_every_product_goal_is_drawn_in_product_and_its_stock_panel_names_the_same(browser, tmp_path):
+    """software-factory, ?system=product: each of the three goals is drawn as its desired level and its gap, the gap's
+    line ending at the flow intake's block moves (named at product's edge); the users stock's panel names the goals the
+    drawing draws, each bound as the goal writes it. A goal nothing acts on keeps its gap, marked 'no feedback' with no
+    line, and the legend says what the mark means; no new critical layout fault either way."""
+    def unserved(d: Path) -> None:                         # support reads users instead: nothing serves no-live-bugs now
+        p = d / "factory" / "intake.yaml"
+        p.write_text(p.read_text().replace("in: stock.bugs-live", "in: stock.users"))
+    known = json.loads(KNOWN.read_text()).get("software-factory", {}) if KNOWN.exists() else {}
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        got = pg.evaluate(GOALS_DRAWN, list(PRODUCT_GOALS))
+        for k, flow in PRODUCT_GOALS.items():
+            assert got[k]["desired"] and got[k]["gap"] and got[k]["to"] == [flow], (k, got[k])
+            assert "no feedback" not in got[k]["gap"], got[k]
+        assert critical(pg, "system=product", dict(known)) == []
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:users'))")
+        pg.wait_for_function(f"() => ({PANEL_GOALS})().length > 0", timeout=DRAWN_S * 1000)
+        said = pg.evaluate(PANEL_GOALS)
+        named = [x.split("(")[1].split(")")[0] for x in said]
+        drawn_goals = pg.evaluate("() => S.graph.nodes.filter((n) => n.role === 'gap' && n.of === 'users').map((n) => n.goal)")
+        assert named == drawn_goals == ["users-growing"], (said, drawn_goals)
+        assert said[0].startswith("desired users ≥ 180 (users-growing), served by product-manager in factory"), said
+        assert "no feedback" not in pg.evaluate("() => sdLegend().textContent")
+        pg.close()
+    with served("software-factory", tmp_path / "unserved", unserved) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        got = pg.evaluate(GOALS_DRAWN, ["no-live-bugs"])["no-live-bugs"]
+        assert got["desired"] and "→ no feedback" in got["gap"] and got["to"] == [], got
+        assert "no feedback: nothing in the model acts on this gap" in pg.evaluate("() => sdLegend().textContent")
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:bugs-live'))")
+        pg.wait_for_function(f"() => ({PANEL_GOALS})().length > 0", timeout=DRAWN_S * 1000)
+        assert pg.evaluate(PANEL_GOALS) == ["desired bugs-live ≤ 0 (no-live-bugs) (nothing in the model acts on its gap: "
+                                            "no feedback closes it)"]
+        assert critical(pg, "system=product", dict(known)) == []
+        pg.close()
+    assert not errors, errors
 
 
 # Export PNG's picture: the standalone SVG rasterised as exportPng does (at 1x), and for each of its texts, how many
