@@ -476,10 +476,16 @@ function actionAnswer(a, done) {
 }
 function actionsAbout(as, done) {
   if (!as.length) return h("p", { class: "muted" }, "No gated actions asked for about it.");
+  // what was done and by whom: approved by … 03:24, ran 03:24; or denied by …: why
+  const hm = (t) => (t ? ` ${new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}` : "");
+  const at = (a, st) => hm((a.moves || []).findLast((m) => m.to === st)?.time);
+  // who answered is the record's own words (record.who: an approval a later denial overrode, the gate's own denial)
+  const said = (a) => (a.state === "denied" ? `${a["approved by"]}${at(a, "denied")}`
+    : `approved by ${a["approved by"]}${at(a, "approved")}` + (a.state === "approved" ? "" : `, ${a.state}${at(a, a.state)}`));
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), " ",
-      h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
-      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` + (a.state === "requested" ? "" : a.state === "denied" ? `, ${a["approved by"]}` : `, approved by ${a["approved by"]}`))),
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : `: asked by ${a.by}, `,
+      h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : said(a)),
+      a.state === "requested" ? h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}`) : null),
     commandBox(a.command),
     actionAnswer(a, done))));
 }
