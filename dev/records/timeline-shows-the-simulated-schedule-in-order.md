@@ -54,3 +54,20 @@ Timeline row now points to main's rule. 43 net lines in ergostat/ against main (
 tests/test_eta.py (20 passed), tests/test_items_page.py under Playwright and the watchdog (26 passed, rc 0).
 Not run: the break-to-fail check (the acceptance test run with the row reading `why` instead of `said`); the command
 using `sed -i` to make the break was refused. The live check on :8798 was not tried again.
+
+Round 3: main (a08e4b3e) merged in; it conflicted in SPEC, eta_api.py and relations.js. Main had swapped the forward
+pass for the levelled projection, added milestone frames (summary rows), put a time zone after any date in rgClock, and
+added calibration to the note. All kept. The branch's parts on top of them: the projected-start order (one `key` used
+for frames and loose rows too, the unscheduled taken out of frames and put under "Not scheduled (N)" at the end), the
+capacity and source note, and "Working out the schedule: ..." in place of main's "No estimates yet: the simulation is
+being worked out." while pending. The bars drawn before the estimates are titled "the levelled projection, median
+times, until the simulation is worked out". rgClock got a fourth argument, `day`, so the legend's expected time always
+gives its date (main's rule gives it only when not today). The acceptance test now checks the bar title's new words and
+allows the zone after a date. 44 net lines in ergostat/ against main (budget 90).
+Ran: ruff (clean); tests/test_eta.py (24 passed); tests/test_items_page.py under Playwright and the watchdog twice. Run
+1: 3 failed. The acceptance test failed on the zone after the date (regex fixed, then passed). The Timeline
+`left_open_change_nothing` test passed alone and in run 2, so it is a load flake: the test waits a fixed 1.5 s, and
+estimates that come later redraw the Timeline, as they do on main. Run 2: 68 passed, 1 failed.
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` fails alone too, waiting for the other project
+in the header's `#project` switcher. This branch does not touch the header or the project list, so it is left alone
+(not run on clean main here). Still not run: the break-to-fail check and the live check on :8798.

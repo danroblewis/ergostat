@@ -1314,7 +1314,7 @@ def test_the_timeline_shows_the_simulated_schedule_in_order(browser, backlog):
     the parked gap and the one after it last, under 'Not scheduled (2)', each with why and no bar ahead; the legend's
     finish a clock time with its date and the count not scheduled; the note each block's capacity and its source; no
     'held'. With the estimates not yet worked out (stubbed to none), the note says the schedule is being worked out
-    and the bars drawn meanwhile are the forward pass. The item page says why it is not scheduled."""
+    and the bars drawn meanwhile are the levelled projection. The item page says why it is not scheduled."""
     import re
     pg, errors = open_view(browser, backlog, "items?kind=gap&view=timeline", ".rg-timeline[data-drawn] .rg-row")
     pg.wait_for_function("() => document.querySelector('.rg-timeline .rg-note')?.textContent.includes('at once')", timeout=30000)
@@ -1334,7 +1334,7 @@ def test_the_timeline_shows_the_simulated_schedule_in_order(browser, backlog):
     first = [r["id"] for r in ahead[:3]]
     assert set(first) == {"gap/g27", "gap/g26", "gap/g25"}, first                  # ranked 1-3: the last filed
     said = pg.locator(".rg-legend .rg-eta").first.inner_text()
-    assert re.fullmatch(r"last gap \(\S+\) expected \w{3} \d+ \d\d:\d\d, by ((?:\w{3} \d+ )?\d\d:\d\d) at worst "
+    assert re.fullmatch(r"last gap \(\S+\) expected \w{3} \d+ \d\d:\d\d(?: \S+)?, by ((?:\w{3} \d+ )?\d\d:\d\d(?: \S+)?) at worst "
                         r"\(9 in 10\); 2 not scheduled", said), said
     note = pg.locator(".rg-timeline .rg-note").inner_text()
     assert "implementor 3 at once (pool)" in note, note
@@ -1344,7 +1344,7 @@ def test_the_timeline_shows_the_simulated_schedule_in_order(browser, backlog):
     pg.wait_for_selector("[data-eta]", timeout=20000)
     assert pg.locator("[data-eta]").first.inner_text() == "not scheduled: waits on gap/p1, which is parked"
     assert not errors, errors
-    # the estimates stubbed to none (still being worked out): said so, and the bars are the forward pass
+    # the estimates stubbed to none (still being worked out): said so, and the bars are the levelled projection
     import json
 
     def stub(route):
@@ -1358,7 +1358,7 @@ def test_the_timeline_shows_the_simulated_schedule_in_order(browser, backlog):
     note = pg.locator(".rg-timeline .rg-note").inner_text()
     assert "Working out the schedule: a simulation of 30 unfinished gaps at each block's capacity" in note, note
     title = pg.locator(".rg-timeline .rg-proj title").first.text_content()
-    assert "forward pass" in title, title
+    assert "the levelled projection, median times, until the simulation is worked out" in title, title
     assert not errors, errors
     pg.close()
 
