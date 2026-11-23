@@ -229,6 +229,39 @@ def test_one_request_answers_every_panel_as_the_separate_endpoints_do(live):
     assert api(live, "dashboard/nope", {}) is None
 
 
+OTHER = MODEL + """\
+  other:
+    title: Another desk
+    window: 2h
+    panels:
+      - {panel: timeline}
+      - {panel: chart, refs: [stock.queue, flow.closed], size: m}
+      - {panel: note, text: other words}
+      - {panel: items, kind: ticket}
+"""
+
+
+def test_two_dashboards_of_one_moment_each_answer_their_own_panels(tmp_path, monkeypatch):
+    """Panels at one index of two dashboards, with the same parameters, of one moment: each its own endpoint's."""
+    from ergostat.web import server
+    from ergostat.web.server import api
+    monkeypatch.setattr(server, "_estimates", lambda *a, **k: None)
+    live = server.Live(project(tmp_path, OTHER))
+    at = time.time() - 5
+    ops = api(live, "dashboard/ops", {"at": [str(at)]})
+    other = api(live, "dashboard/other", {"at": [str(at)]})
+    assert ops["moment"] == other["moment"]                # one moment: the window where they could be confused
+    assert [x["panel"]["panel"] for x in other["panels"]] == ["timeline", "chart", "note", "items"]
+    for got in (ops, other):
+        assert all("answer" in x for x in got["panels"]), got["panels"]
+        for x in got["panels"]:
+            if x["panel"]["panel"] != "note":
+                assert x["answer"] == _separate(live, x["panel"], at), x["panel"]
+    assert other["panels"][2]["answer"] == {"text": "other words"}
+    assert other["panels"][0]["answer"] != ops["panels"][0]["answer"]
+    assert other["panels"][3]["answer"] != ops["panels"][3]["answer"]
+
+
 def test_an_unchanged_panel_is_not_sent_again(live):
     from ergostat.web.server import api
     at = str(time.time() - 5)
@@ -315,6 +348,8 @@ def test_the_default_dashboard_is_each_top_system_s_measures_and_goals_and_answe
     spec = live.p.model.spec
     goals = next(x for x in got["panels"] if x["panel"]["title"] == "product: its goals")["panel"]["goals"]
     assert goals == sorted(g for g, x in spec.goals.items() if x.system == "product")
+    # answered, not merely returned: a pending (or busy) panel would meet the time by the batch's own limit
+    assert all("answer" in x and not x.get("pending") and "error" not in x for x in got["panels"]), got["panels"]
     assert took < 0.5, took
 
 

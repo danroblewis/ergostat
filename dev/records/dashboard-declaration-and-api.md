@@ -98,3 +98,18 @@ test_spec_structure, test_code_health_coverage. Not run: the whole unit suite, t
 demo_check (the commands to look for ~/ergostat-demos and run it were refused in this session).
 
 Overrun reason: the definition's 400 lines including tests did not foresee the batched API's bounded pool, moments and stamps that the proposal's load rules require (about 220 lines in dashboard_api.py), nor a check per parameter kind with errors at their line (about 215 in spec/dashboards.py); outside tests, docs and dev the change is about 590 net lines (code 505, schema and demos 87), within the factory's 600, and the tests are about 330.
+
+## Where it stopped
+
+Implementor, 2026-11-23 (continued, round 2). The two review findings, both answered:
+- dashboard_api.py's job key (lesson-5): a panel's job is now keyed `(moment, dashboard name, index, the panel's
+  whole declaration)`, so the panel kind is in it. New test
+  `test_two_dashboards_of_one_moment_each_answer_their_own_panels` asks `ops` and a second dashboard `other` at one
+  `at=`, asserts both got the same moment, and checks every panel of both against its own endpoint. Index 0 is
+  goals in one and timeline in the other, and index 3 is states and items of one kind. With the old key put back,
+  it failed (the timeline panel was given the goals answer).
+- The done-item-4 timing test (lesson-9, lesson-8) now also asserts that every panel has an answer, with none
+  pending, busy or failed. With BATCH set to 0 it failed, as every panel answered pending.
+Still as round 1 says: change 5 (the page) is not built, as dashboard-page-v1 is not on main. Done item 4 is not
+measured on :8796. Code lines changed this round: +2 net.
+Tests run: tests/test_dashboards.py (31 passed), ruff clean. Not run: the unit suite, the browser files, demo_check.

@@ -75,7 +75,7 @@ class Board:
     def __init__(self):
         self.lock = threading.Lock()
         self.moments: OrderedDict = OrderedDict()     # seq → (kept at, snapshot, window, at, model mtime)
-        self.jobs: dict = {}                          # (seq, index, parameters) → _Job
+        self.jobs: dict = {}                          # (seq, dashboard, index, declaration) → _Job
         self.waiting: list = []                       # keys, in turn
         self.threads = 0
 
@@ -193,7 +193,8 @@ def answer(live, p, name: str | None, q: dict, wait: bool = False) -> dict | Non
     jobs: list = []
     for i, panel in enumerate(d.panels):
         run = lambda panel=panel: _run(live, p, panel, base, snap)   # noqa: E731
-        jobs.append(run if wait else board.submit((seq, i, json.dumps(panel.params, sort_keys=True)), run))
+        key = (seq, d.name, i, json.dumps(plain_panel(panel), sort_keys=True, default=str))   # moments are shared
+        jobs.append(run if wait else board.submit(key, run))
     out = []
     for i, (panel, job) in enumerate(zip(d.panels, jobs, strict=True)):
         decl = plain_panel(panel)
