@@ -1423,8 +1423,33 @@ reads the event log.
   `semantics.paths_real` (is a route through two edges evidence?) must be said, with no default; `acyclic` is worked
   out by the server, and a frame that states it wrongly is refused; an `inferred` edge needs its `confidence`; a
   `wait_for` or `dependency` graph is never built from inferred edges; a graph of `events` needs each edge's `t`; and
-  `omitted` must say what was left out. An unknown `kind` is refused. Drawing a graph is `graph-result-and-panel`; until
-  then the table family lists its edges, a row each.
+  `omitted` must say what was left out. An unknown `kind` is refused. A node may say its `health` (`ok`, `unhealthy`).
+- **Ergostat's own graphs.** `{"source": "graph", "diagram": D, "kind"?: K}` (`ergostat/query/graphs.py`) answers with
+  one of the graphs ergostat already works out: `dependency`, the Items page's precedence network (an item a node, a
+  precedence relation an edge, `blocks`, or `met` once what it waits on is finished; routes real; each node's `slack`,
+  `duration` and `critical`; and the critical path's end said beside the end levelled by each block's capacity, since
+  the critical path alone is not the finish date: charts 74 and 75); `process`, the process map (routes not real); and
+  `service`, the wiring the event log proves between machines, each edge `observed`, `declared` (never seen in the
+  window, with no time it was seen) or `both` (the map from callers' and callees' labels in metrics is not this). A
+  maker's answer is kept 30 s for each graph asked, so the record is read at most that often however many ask.
+- **A graph on a panel.** Every graph, a data source's or ergostat's own, is fitted to a panel's budget of 40 nodes and
+  100 edges (`ergostat/query/graphfit.py`): over it, nodes are collapsed by their declared `group`, then by `type`,
+  then by weight into one `other`, each step only while too many are left, then the lightest edges are left out, and
+  `omitted` says how many and their share of the weight. An aggregated node or edge says how many it `holds`; counts
+  and rates are summed, and nothing else is: a latency, a wait, an age, a slack or a field with no role holds its worst
+  member's value, and `worst` names that member. One unhealthy member marks its group. A collapsed graph's
+  `paths_real` is false. `acyclic` is worked out on the whole graph first, and is `null` (not known) when the graph
+  was cut before it came (its maker's caps, or `omitted` not empty), with `graph-truncated`. Over the budget it is
+  warned (`graph-over-budget`), and the fix offers the matrix. A cycle is said by kind: a warning (`graph-cycle`) in a
+  `dependency`, `wait_for` or `lineage` graph, and otherwise a sentence under the drawing (a line back in a process map
+  is a return or concurrency). The answer also holds `matrix`, the graph fitted to 300 rows (a budget from the
+  network-diagrams report, not measured here) as an adjacency matrix in group order (chart 77).
+- **Drawing a graph.** The graph family draws one graph answer. Its layout is never in the answer: ELK lays it out in a
+  Web Worker (`graph-layout.js`; on the page's own thread only when no worker can start), layered for each kind but
+  `impact` (radial), and one layout is kept for each set of nodes and edges, so a refresh that changes only values
+  moves nothing. A `sequence` diagram's fixed axes are not drawn: the panel says so. The critical path is heavy, an
+  unhealthy node outlined, an edge only declared dashed, a met wait muted, and what each holds is said on hover; when
+  a route through two edges is not evidence, the legend says so. The heatmap draws the matrix; the table lists the edges.
 - **Verdicts.** `verdict` is `ok`, `warn` or `refuse`, the worst of its `reasons`, each `{code, says, fix}`. The codes
   are a closed list (`ergostat/query/verdicts.py`), each with its level and its fix: an error's kind (`limit`,
   `unreachable`, `refused`, `unknown`, `unanswerable`, `busy`, `reader`), `no-coherence`, `partial`, and the misuses
@@ -1439,8 +1464,8 @@ reads the event log.
   series, a table over one numeric dimension, and points; bar series, a one-dimension table and bins; stat plain series and a
   one-row table; table plain series, a one-dimension table and a graph's edges; scatter two signals, a table of two
   measures, and points; phase two signals and points in time order; histogram plain series, bins and samples; box
-  samples and quartiles; heatmap points and bins over time; candlestick candles; Bode and Nyquist a response with its
-  frequency; pole-zero a model's response.
+  samples and quartiles; heatmap points, bins over time and a graph (its matrix); candlestick candles; Bode and Nyquist
+  a response with its frequency; pole-zero a model's response; graph a graph.
   A chart that cannot show an answer is disabled in the panel editor, and a panel saved with it draws nothing and says
   in one sentence what it needs and how to reshape the data. Switching among the charts that apply asks the server
   nothing: the editor asks again only when what a chart would send differs.

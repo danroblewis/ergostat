@@ -11,9 +11,15 @@ the options, and Claude's opinions and preferences so the decision can be made t
 map, conformance view, precedence network (dependency), wait-for graph, blast-radius (impact) graph, service map,
 sequence diagram and lineage graph, each drawn as a Dashboard panel or on an existing page, never on a page of its own.
 The service map is built from caller and callee labels in metrics first. Each is a `kind` of the `graph` result shape,
-and a result of any other kind is refused (SPEC §4e, *A graph*). The shape and its checks are in place; none of these
-diagrams is drawn yet (that starts with `graph-result-and-panel`). Dynamics and Blocks stay as they are and never read
+and a result of any other kind is refused (SPEC §4e, *A graph*). Dynamics and Blocks stay as they are and never read
 this shape.
+
+**Update 2026-11-23, later.** A Dashboard panel now draws these kinds (`graph-result-and-panel`; SPEC §4e, *Drawing a
+graph*): the precedence network, the process map and the event log's wiring (as a service map) come from ergostat's
+own graphs; layered by ELK in a Web Worker, radial for an impact graph; within 40 nodes and 100 edges, collapsed
+honestly past that; and as an adjacency matrix on the heatmap. The sequence diagram's fixed axes are not drawn yet,
+and the wait-for, impact, conformance and lineage graphs have no maker yet (`wait-for-impact-and-sequence`,
+`variants-and-conformance`). No page was added.
 
 ## The rule the options were judged by
 
