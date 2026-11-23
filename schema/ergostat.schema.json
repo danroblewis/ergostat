@@ -1305,6 +1305,12 @@
           "required": ["input", "output"],
           "additionalProperties": false
         },
+        "law": {
+          "type": "object",
+          "description": "An external block's known law, declared with identify: (SPEC §12d, Known laws): kubernetes-hpa or alert-rule and its parameters",
+          "properties": {"kind": {"enum": ["kubernetes-hpa", "alert-rule"]}},
+          "required": ["kind"]
+        },
         "integral-time": {
           "$ref": "#/$defs/duration",
           "description": "A machine block's integral time, when its law is PI (passed in its params)"
@@ -2081,6 +2087,13 @@
         "about": {
           "type": "string",
           "description": "The field that names the parts of the model each item is about (goal.x, stock.y, flow.z, auxiliary.w, block.v), folded by replace (SPEC section 5a, About). explain, check and status point at the open items about a part"
+        },
+        "final": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "States no event moves an item out of: a later move is ignored and said (SPEC section 5a)"
         },
         "relations": {
           "type": "object",
