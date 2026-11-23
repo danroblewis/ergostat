@@ -60,3 +60,10 @@ After the build step failed (three tests):
 - test_an_approved_switch_drains_and_switches_through_the_engine: passes alone (149 s against a 120 s deadline for each
   step, under -n 8 in the build). Its path (drain.py, live.py) imports neither flakes nor queue, and nothing it runs
   reads `[suites]`. It is load-dependent timing outside this gap (lesson 13), so it is reported here and left alone.
+
+Merge of main 8a27f9e3 (main-mend, regression-flake-main-fixed): REMAKE_CLEARS keeps both sides' fields
+(`fixed_on` from here, `passed_on` from main). `[gates]` keeps flake_fixed_after and mend_most. test_factory.py keeps
+both test groups. test_agents.py takes main's fresh-module rerun test, which loads flakes itself, so the branch's
+stub line is gone. The README's remake sentence names all five fields. After the merge these pass: ruff, the three
+flake acceptance tests, the remake test, the build-setting test, three main-mend tests, tests/test_queue.py
+(19 passed) and tests/test_agents.py (22 passed).
