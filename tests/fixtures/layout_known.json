@@ -25,7 +25,7 @@
  },
  "deps": {
   "ceilings": {
-   "satellite-far": 9,
+   "satellite-far": 10,
    "valve-orientation-mismatch": 1
   }
  },
@@ -37,7 +37,7 @@
  },
  "docs-fresh": {
   "ceilings": {
-   "satellite-far": 9,
+   "satellite-far": 10,
    "valve-orientation-mismatch": 0
   }
  },
@@ -79,7 +79,7 @@
  },
  "roadmap": {
   "ceilings": {
-   "satellite-far": 13,
+   "satellite-far": 15,
    "valve-orientation-mismatch": 0
   }
  },

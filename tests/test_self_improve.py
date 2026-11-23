@@ -96,7 +96,10 @@ def codes(path: Path) -> dict[str, set[str]]:
 def test_check_notes_the_craft_and_never_the_parts_a_template_made(tmp_path):
     p = project(tmp_path, POOR + "uses:\n  modelling: {use: modelling}\n")
     got = codes(p.model.path)
-    assert got["no-unit"] == {"stock.new-alerts"}
+    assert "no-unit" not in got                                       # a finding, not a note: below
+    _, ps = read(p.model.path)
+    assert [(x.level, x.about, str(x.where)) for x in ps if x.code == "no-unit"] == \
+        [("finding", "stock.new-alerts", "ergostat.yaml:13")]         # once, with its file and line
     assert got["no-equation"] == {"flow.alerts-triaged"}            # between two stocks; the outflow to a cloud is not
     assert got["collector-undescribed"] == {"flow.alerts-fired"}
     assert got["event-names-mixed"] == {"items.alert"}
@@ -112,22 +115,25 @@ def test_every_finding_becomes_a_request_answered_when_check_no_longer_finds_it(
     p = project(tmp_path)
     got = rq.sync(p)
     have = {(r["code"], r["about"]): r for r in rq.current(p)}
-    assert got["raised"] == len(have) and ("no-unit", "stock.new-alerts") in have
-    assert have[("no-unit", "stock.new-alerts")]["tier"] == "rule" and have[("no-unit", "stock.new-alerts")]["says"]
+    key = ("collector-undescribed", "flow.alerts-fired")
+    assert got["raised"] == len(have) and key in have
+    assert have[key]["tier"] == "ai" and have[key]["says"]
     assert ("no-modelling-loop", "model") not in have                   # not a change to the model: the owner's
-    text = p.model.path.read_text().replace("    description: alerts not yet triaged\n",
-                                             "    description: alerts not yet triaged\n    unit: alerts\n")
+    assert ("no-unit", "stock.new-alerts") not in have                  # a check finding, not a request
+    text = p.model.path.read_text().replace("{run: python3 bin/watch.py, every: 2s}",
+                                             "{run: python3 bin/watch.py, every: 2s, description: the pager}")
     p.model.path.write_text(text)
     p.model = mdl.load(tmp_path)
     got = rq.sync(p)
-    assert got["answered"] == 1 and rq.stored(p)[have[("no-unit", "stock.new-alerts")]["id"]]["state"] == "answered"
+    assert got["answered"] == 1 and rq.stored(p)[have[key]["id"]]["state"] == "answered"
 
 
 def test_the_rule_tier_carries_units_and_control_waits_for_the_owner(tmp_path):
     p = project(tmp_path)
     rq.sync(p)
-    mine = [r for r in rq.current(p) if r["tier"] == "rule"]
-    assert {r["code"] for r in mine} <= {"no-unit"}
+    assert not [r for r in rq.current(p) if r["tier"] == "rule"]       # the unit is check's, read by the rule tier
+    mine = ru.unitless(p)
+    assert [(r["code"], r["about"]) for r in mine] == [("no-unit", "stock.new-alerts")]
     made, none = ru.propose(p, mine, most=20)
     by = {r["code"]: raw for r, raw in made}
     assert by["no-unit"]["edit"] and "unit: alerts" in json.dumps(by["no-unit"])             # from the stock it flows to
@@ -136,7 +142,8 @@ def test_the_rule_tier_carries_units_and_control_waits_for_the_owner(tmp_path):
         assert got["status"] == "proposed", (r["code"], got["why"])
     assert {x["kind"] for x in pr.stored(p).values()} == {"unit"}
     rq.sync(p)
-    assert "no-unit" in {r["code"] for r in rq.current(p, ("proposed",))}
+    assert not ru.unitless(p)                                          # its change waits: not proposed again
+    assert "no-unit" not in {r["code"] for r in rq.current(p)}
     goal = next(r for r in rq.current(p) if r["code"] == "queue-goal-tolerance")       # control: held for the owner
     assert goal["state"] == "held" and goal["owner"] and goal["tier"] == "owner"
     assert {r["tier"] for r in rq.current(p) if r["code"] in ("no-equation", "event-names-mixed")} <= {"ai"}
@@ -145,7 +152,7 @@ def test_the_rule_tier_carries_units_and_control_waits_for_the_owner(tmp_path):
 def test_the_judge_passes_words_by_check_and_writes_them_as_the_policy_allows(tmp_path):
     p = project(tmp_path)
     rq.sync(p)
-    made, _ = ru.propose(p, [r for r in rq.current(p) if r["code"] == "no-unit"], most=20)
+    made, _ = ru.propose(p, ru.unitless(p), most=20)
     for _, raw in made:
         assert im.submit(p, "fixer", raw)["status"] == "proposed"
     desc = {"kind": "description", "parts": ["goal.triaged-fast"], "title": "goal described",
@@ -195,7 +202,7 @@ def test_a_change_that_also_edits_a_program_is_refused(tmp_path):
 def test_the_ai_tier_gives_each_request_its_neighbourhood_and_proposes_only_what_would_be_proposed(tmp_path):
     p = project(tmp_path)
     rq.sync(p)
-    reqs = [r for r in rq.current(p) if r["code"] in ("collector-undescribed", "no-unit")]
+    reqs = [r for r in rq.current(p) if r["code"] in ("collector-undescribed", "event-names-mixed")]
     text = md.prompt(p, p.model.spec, reqs)
     assert "finding:collector-undescribed@flow.alerts-fired" in text and "alerts-fired:" in text and "bin/watch.py" in text
     answer = [json.dumps({"propose": {"kind": "description", "parts": ["flow.alerts-fired"], "title": "named",
@@ -284,7 +291,7 @@ def test_a_model_with_no_equations_wakes_modelling_whatever_the_fit_says_and_it_
     fit = have[("fit-unknown", "model")]                                # the fit cannot be read: that is work, said why
     assert "equation" in fit["says"] and fit["tier"] == "ai"
     assert ("no-equation", "flow.working") in have and got["open"] >= 5
-    made, _ = ru.propose(p, [r for r in rq.current(p) if r["tier"] == "rule"], most=20)
+    made, _ = ru.propose(p, [r for r in rq.current(p) if r["tier"] == "rule"] + ru.unitless(p), most=20)
     kinds = {raw["kind"] for _, raw in made}
     assert "unit" in kinds                                             # proposals, though model-fits says nothing
     for _, raw in made:

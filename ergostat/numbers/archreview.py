@@ -28,6 +28,7 @@ from . import modeller as md
 from . import proposals as pr
 from . import redesign as rd
 from . import redesign_due as due
+from .modeller_spend import Capped
 
 REVIEWED = "ergostat.model.architecture-reviewed"
 GUIDE = Path(__file__).resolve().parent.parent / "library" / "templates" / "modelling" / "architect.md"
@@ -201,10 +202,17 @@ def run(p, model: str, daily: float, timeout: float | None = None, now: float | 
                              data={"result": "capped", "model": model, "estimate": est, "left": left, "daily": daily})
                 return {"result": "capped", "said": f"architecture review ({model}): not called: ${left:.4f} left "
                         f"of the ${daily:.2f} cap (a quarter kept for the reviewer) and its estimated most is ${est:.4f}"}
+            try:
+                permit = md.ask(p, text, model)         # the day's budget, before the day's review is stamped
+            except Capped as e:
+                p.events.add(REVIEWED, item=p.model.name, source="architecture-review", at=now,
+                             data={"result": "capped", "model": model, "estimate": est, "why": str(e)})
+                return {"result": "capped", "said": f"architecture review ({model}): not called: {e}"}
             stamp = p.events.add(REVIEWED, item=p.model.name, source="architecture-review", at=now,
                                  data={"result": "started", "model": model, "estimate": est})["id"]   # the day's review
             _charge(p, est, now, model)                 # before the call: a run killed mid-call keeps it charged
-        got = call(text, model, timeout or 600.0)      # (the caller's per_call: it and the rounds fit the block's)
+        # (the caller's per_call: it and the rounds fit the block's)
+        got = md.asked(p, text, model, timeout or 600.0, call, permit)
         usd = got.get("usd")
         usd = float(usd) if isinstance(usd, int | float) and not isinstance(usd, bool) and math.isfinite(usd) \
             and usd >= 0 else est                       # a cost unsaid or not a number: its estimate stands
@@ -238,9 +246,10 @@ def mark(p, review: dict, out: dict) -> str:
                 return "the review's request left as it is: a newer review said it again, or it moved"
             if out.get("result") == "proposed":
                 rq.event(p, k, "proposed", {"change": out.get("id"), "why": None})
-            elif out.get("result") != "error":
+            elif out.get("result") not in ("error", "no budget"):
                 rq.event(p, k, "answered", {"why": f"its redesign: {out.get('result')}"
                                             + (f": {out['why_not']}" if out.get("why_not") else "")})
             else:
-                return "the review's request left open: the redesigner's call failed"
+                return "the review's request left open: the redesigner's call " + (
+                    "was refused" if out.get("result") == "no budget" else "failed")
     return f"the review's request {out.get('result')}"

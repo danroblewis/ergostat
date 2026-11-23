@@ -1,0 +1,38 @@
+# Compressed size (dev/records/cx-compress-tree.md): how much information the code holds, as the output length of one
+# fixed compressor (raw LZMA2, a 32 MiB window, every parameter written out in dev/bin/cx_compress.py), an upper bound
+# on its Kolmogorov complexity. Readings recorded per commit of main from complexity.py's commit files.
+defaults:
+  system: complexity
+
+stocks:
+  complexity-lzma-logic:
+    unit: bytes
+    description: packed bytes of the code's Python as one stream, docstrings and comments removed - the best single number for how much logic there is; its readings recorded per commit of main, at the commit's time, by complexity.py record, never by a person or a schedule
+    sensor: {manual: true}
+  complexity-lzma-prose:
+    unit: bytes
+    description: packed bytes of the comments and docstrings of the code's Python as one stream; its readings recorded per commit of main, at the commit's time, by complexity.py record
+    sensor: {manual: true}
+
+auxiliaries:
+  complexity-repeat-share:
+    unit: share
+    description: how much of the code's Python is said again farther than 64 KiB away (1 - packed with a 32 MiB window over packed with a 64 KiB one); splitting or joining modules does not move it
+    sensor: {manual: true}
+    # what code-duplicates, its line-based sibling in code-health, follows, too: a merge changes the code it reads
+    driven-by: [+stock.complexity-lzma-logic, +flow.gaps-merged, -flow.removals-merged]
+
+flows:
+  complexity-lzma-logic-grown:
+    to: complexity-lzma-logic
+    description: packed logic added to the code, each rise of the stock over a day
+    sensor: {changes: rises, over: 1d}
+  complexity-lzma-logic-distilled:
+    from: complexity-lzma-logic
+    description: packed logic taken out of the code, each fall of the stock over a day
+    sensor: {changes: falls, over: 1d}
+  complexity-lzma-prose-change:
+    to: complexity-lzma-prose
+    two-way: true
+    description: packed prose written into or taken out of the code, the stock's net change over a day
+    sensor: {changes: net, over: 1d}

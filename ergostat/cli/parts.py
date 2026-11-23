@@ -19,6 +19,9 @@ def record_by_a_person(args) -> int | None:
     said = {"valve": ("opened", "amount"), "sensor": ("read", "value"), "controller": ("decided", "decision")}.get(args.topic)
     if not said or getattr(args, said[0], None) is None:
         return None
+    if args.topic == "sensor" and getattr(args, "at", None) is not None:
+        print("--at views the past and records nothing", file=sys.stderr)
+        return 2
     import json
 
     from ..runner import Recorder
@@ -86,6 +89,9 @@ def cmd_part(args) -> int:
     done = record_by_a_person(args)
     if done is None:
         done = forget_readings(args)
+    if done is None:
+        from .spec_cmds import backfill
+        done = backfill(args)
     if done is not None:
         return done
     p = open_project(args)
