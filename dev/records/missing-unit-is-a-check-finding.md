@@ -120,3 +120,14 @@ regex and its "== 2" predate that change. I could not run the test on a clean ma
 `git worktree add`), so this conclusion comes from reading the code and from one debug run of the page on this branch.
 Not run: the full unit and browser suites and demo_check (left to the factory and the merge queue), and the :8797
 check by eye.
+
+## Where it stopped
+
+Continued, round 2: main (52c675fe) merged in. Its one conflict, tests/test_diagram_rendering.py, came from both sides
+adding tests at the same place. Both are kept: the branch's no-unit browser test first, then main's three Open all
+tests and their helpers (`open_all`, `OPENED`, `LEVEL_SAID`). No code outside tests changed in this round.
+Run after the merge: tests/test_missing_unit.py, tests/test_redesign.py and tests/test_self_improve.py (37 passed),
+the no-unit browser test and main's test_open_all_on_a_model_that_fits_opens_every_system_as_before (2 passed, under
+the watchdog), ruff clean.
+Not run: main's two serial Open all tests (the-job, big), the rest of the browser files, the unit suite and demo_check
+(left to the factory and the merge queue), and the :8797 check by eye.
