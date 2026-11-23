@@ -55,3 +55,10 @@ skipped" as collect-only, or the build running them with Playwright. With Playwr
 after the build failure: `scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
 tests/test_diagram_rendering.py::test_a_loops_state_is_printed_on_its_error_in_its_word_bold_when_off_and_never_by_colour`
 gave 1 passed, rc 0.
+
+Round 1, after the build's second rc 5: the change now has a test the build can run without a browser,
+`tests/test_style_tokens.py::test_a_blocks_loop_state_is_bold_when_off_and_never_a_colour`. It checks that
+blocks.js marks the server's `off` word with `.bd-off`, that the off rule is weight 600, and that no rule naming
+`.bd-state` or `.bd-off` sets a colour, fill, stroke, background or opacity. It is the stylesheet half of item 2; the
+computed stroke in the browser stays in the acceptance test. It was seen to fail with `fill: var(--accent)` added to
+the off rule. The selector now picks this file as well, so the build collects and runs it (12 passed here).
