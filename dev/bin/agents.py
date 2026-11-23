@@ -288,7 +288,8 @@ def clone(cfg: dict, branch: str, role: str, at: str | None = None) -> tuple[Pat
     work = home / "work"
     ref = fac.git_branch(branch)
     fac.git(home, "clone", "-q", "--no-hardlinks", str(d), str(work))
-    if at:
+    if at:                                             # (a stacked gap's base is on no branch: refs/stack/, implement.py)
+        fac.git(work, "fetch", "-q", "origin", "+refs/stack/*:refs/stack/*")
         fac.git(work, "checkout", "-q", "--detach", at)
     elif fac.git_ok(d, "rev-parse", "--verify", "-q", f"refs/heads/{ref}"):
         fac.git(work, "checkout", "-q", "-b", ref, f"origin/{ref}")
@@ -310,9 +311,9 @@ def publish(cfg: dict, work: Path, branch: str) -> str:
 def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *also: str, was: str) -> str:
     """After the implementor's session: what it left committed, and bundled, in a container with no network (git is
     never run here on a folder a session had); the bundle fetched into the drop, to a side ref of its run's own first:
-    the branch moves only when the new head holds the definition's commit and each of `also` (main, when it was merged
-    in), and only from `was`, the sha the session was given (update-ref's old value): a branch another writer moved
-    meanwhile is refused, not overwritten. The new head."""
+    the branch moves only when the new head holds the definition's commit and each of `also` (main, and each base of a
+    stacked gap, merged in before the session), and only from `was`, the sha the session was given (update-ref's old
+    value): a branch another writer moved meanwhile is refused, not overwritten. The new head."""
     ref = fac.git_branch(branch)
     out = home / "out"
     out.mkdir(exist_ok=True)
@@ -339,7 +340,7 @@ def finish(cfg: dict, home: Path, branch: str, base_sha: str, must_hold: str, *a
     fac.git(d, "fetch", "-q", str(out / "out.bundle"), f"+refs/heads/{ref}:{side}")
     head = fac.git(d, "rev-parse", side)
     try:
-        for sha, what in [(must_hold, "its definition's commit"), *((a, "main, merged in before it") for a in also)]:
+        for sha, what in [(must_hold, "its definition's commit"), *((a, "main or a base, merged in before it") for a in also)]:
             if not fac.git_ok(d, "merge-base", "--is-ancestor", sha, head):
                 raise RuntimeError(f"the branch no longer holds {what} {sha[:12]}: refused (the drop's branch kept)")
         if not fac.git_ok(d, "update-ref", f"refs/heads/{ref}", head, was):

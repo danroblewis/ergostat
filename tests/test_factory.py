@@ -4953,6 +4953,152 @@ def test_a_full_machine_does_not_release_and_retake_in_a_loop(tmp_path, monkeypa
         s.close()
 
 
+# ---- stacked gaps (merge-pipeline-stacked-gap-builds-on-its-base): built on their approved dependencies' heads
+
+def base_gap(f: Factory, name: str, files: dict[str, str], rank: int, state: str = "approved") -> str:
+    """A dependency's reviewed branch in the drop (factory/<name>: main and one commit of ``files``), its item in
+    ``state`` with that commit as its reviewed head; (the commit)."""
+    drop = f.tmp / "live" / "drop.git"
+    if not (drop / "HEAD").exists():
+        subprocess.run(["git", "init", "-q", "--bare", str(drop)], check=True)
+    git(f.checkout, "checkout", "-q", "-b", name, "main")
+    for p, text in files.items():
+        (f.checkout / p).parent.mkdir(parents=True, exist_ok=True)
+        (f.checkout / p).write_text(text)
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", f"{name}'s work")
+    sha = git(f.checkout, "rev-parse", "HEAD")
+    git(f.checkout, "push", "-q", str(drop), f"{name}:refs/heads/factory/{name}")
+    git(f.checkout, "checkout", "-q", "main")
+    db = f.db()
+    db["items"][f"gap/{name}"] = {"id": f"gap/{name}", "kind": "gap", "state": state,
+                                  "fields": {"branch": name, "rank": rank, "reviewed_head": sha}}
+    f.record.write_text(json.dumps(db))
+    return sha
+
+
+def stacked(f: Factory, *deps: str) -> str:
+    """gap/alpha-thing at ready, depending on ``deps``."""
+    gid = ready(f)
+    db = f.db()
+    db["items"][gid]["fields"]["depends_on"] = sorted(deps)
+    f.record.write_text(json.dumps(db))
+    return gid
+
+
+def holds(repo: Path, sha: str, head: str) -> bool:
+    return subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", sha, head]).returncode == 0
+
+
+def test_a_stacked_gap_starts_from_its_bases_reviewed_head(tmp_path):
+    f = Factory(tmp_path)
+    sha = base_gap(f, "beta-base", {"base.py": "print('base')\n"}, rank=1)
+    gid = stacked(f, "gap/beta-base")
+    said, lines = f.run("implement.py", gid)
+    assert said == ["gap.started", "gap.built"]
+    drop, gap = tmp_path / "live" / "drop.git", f.item(gid)
+    main, head = git(drop, "rev-parse", "main"), gap["fields"]["head"]
+    on = [x["data"]["stacked_on"] for x in lines if x.get("event") in ("gap.started", "gap.built")]
+    assert on == [[{"gap": "gap/beta-base", "sha": sha}]] * 2 and gap["fields"]["stacked_on"] == on[0]
+    stack = git(drop, "rev-parse", "refs/stack/factory/alpha-thing")
+    assert git(drop, "log", "-1", "--format=%P", stack).split() == [main, sha]       # main, then the base, --no-ff
+    line = git(drop, "log", "--first-parent", "--reverse", "--format=%P|%s", "main..factory/alpha-thing").splitlines()
+    assert [x.split("|")[1] for x in line[:2]] == ["alpha-thing: the definition of done",
+                                                    f"Merge main and its bases gap/beta-base ({stack[:12]}) into the branch"]
+    assert line[1].split("|")[0].split()[1] == stack                                # the definition first, then the stack
+    assert holds(drop, sha, head) and holds(drop, main, head)
+    assert git(drop, "show", f"{head}:base.py") == "print('base')"
+    assert gap["fields"]["built_main"] == main
+    said, _ = f.run("implement.py", gid)                                            # a round more: the same stack, so
+    assert said == ["gap.started", "gap.built"]                                     # no second merge of it
+    assert git(drop, "rev-parse", "refs/stack/factory/alpha-thing") == stack
+    assert git(drop, "log", "--format=%s", "factory/alpha-thing").count("Merge main and its bases") == 1
+    git(f.checkout, "checkout", "-q", "beta-base")                                  # the base moves past its review
+    git(f.checkout, "commit", "-q", "--allow-empty", "-m", "a fix round")
+    git(f.checkout, "push", "-q", str(drop), "beta-base:refs/heads/factory/beta-base")
+    git(f.checkout, "checkout", "-q", "main")
+    said, lines = f.run("implement.py", gid)
+    assert said == []                                                               # waits for the merge-forward
+    (n,) = [x["nack"] for x in lines if "nack" in x]
+    assert n["count"] is False and n["after"] == "30m" and "merge-forward" in n["why"] and "gap/beta-base" in n["why"]
+
+
+def test_a_stacked_gaps_net_lines_count_only_its_own_commits(tmp_path):
+    f = Factory(tmp_path)
+    base_gap(f, "beta-base", {"base.py": "".join(f"x{i} = {i}\n" for i in range(50)), "tmp_base.txt": "x\n"}, rank=1)
+    gid = stacked(f, "gap/beta-base")
+    said, _ = f.run("implement.py", gid, FACTORY_STANDIN_WRITES="own.py")
+    assert said == ["gap.started", "gap.built"]                     # (tmp_base.txt is the base's, not a stray of its own)
+    assert f.item(gid)["fields"]["net_lines"] == 2                  # standin/work.txt and own.py: not the base's 51
+
+
+def test_two_bases_that_conflict_give_the_gap_back_uncounted(tmp_path):
+    f = Factory(tmp_path)
+    first = base_gap(f, "beta-base", {"beta.py": "b\n"}, rank=2)
+    second = base_gap(f, "gamma-base", {"gamma.py": "g\n"}, rank=1)
+    gid = stacked(f, "gap/beta-base", "gap/gamma-base")
+    said, _ = f.run("implement.py", gid)                             # two that merge cleanly: both, in rank order
+    assert said == ["gap.started", "gap.built"]
+    drop = tmp_path / "live" / "drop.git"
+    assert [b["gap"] for b in f.item(gid)["fields"]["stacked_on"]] == ["gap/gamma-base", "gap/beta-base"]
+    stack = git(drop, "rev-parse", "refs/stack/factory/alpha-thing")
+    assert git(drop, "log", "-1", "--format=%P", stack).split()[1] == first
+    assert git(drop, "log", "-1", "--format=%P", f"{stack}^1").split()[1] == second
+    head = f.item(gid)["fields"]["head"]
+    assert holds(drop, first, head) and holds(drop, second, head)
+
+    g = Factory(tmp_path / "two")                                    # two that conflict with each other
+    base_gap(g, "beta-base", {"app.py": "print('beta')\n", "beta.py": "b\n"}, rank=1)
+    base_gap(g, "delta-base", {"app.py": "print('delta')\n"}, rank=2)
+    gid = stacked(g, "gap/beta-base", "gap/delta-base")
+    said, lines = g.run("implement.py", gid)
+    assert said == ["gap.started"]
+    (n,) = [x["nack"] for x in lines if "nack" in x]
+    assert n["count"] is False and n["after"] == "30m" and n["why"].endswith("conflict with each other (or with main "
+                                                                             f"{git(g.checkout, 'rev-parse', 'main')[:12]}) in: app.py")
+    drop = g.tmp / "live" / "drop.git"
+    assert git(drop, "for-each-ref", "refs/heads/factory/alpha-thing", "refs/stack/") == ""   # nothing published
+    assert g.item(gid)["fields"].get("build_failures") is None and g.item(gid)["state"] == "building"
+
+
+def test_an_unstacked_gap_builds_as_before(tmp_path):
+    for deps in ((), ("gap/beta-base",), ("gap/beta-base", "gap/gamma-base")):    # none; merged; one not reviewed
+        (tmp_path / str(len(deps))).mkdir()
+        f = Factory(tmp_path / str(len(deps)))
+        base_gap(f, "beta-base", {"base.py": "print('base')\n"}, rank=1, state="merged")
+        base_gap(f, "gamma-base", {"gamma.py": "g\n"}, rank=2, state="building")
+        gid = stacked(f, *deps)
+        said, lines = f.run("implement.py", gid)
+        assert said == ["gap.started", "gap.built"]
+        assert not [x for x in lines if "stacked_on" in (x.get("data") or {})]       # no stack said
+        drop = f.tmp / "live" / "drop.git"
+        assert git(drop, "for-each-ref", "refs/stack/") == ""
+        first = git(drop, "log", "--reverse", "--format=%s", "main..factory/alpha-thing").splitlines()
+        assert first == ["alpha-thing: the definition of done", "alpha-thing: work the session left uncommitted"]
+        gap = f.item(gid)
+        assert gap["fields"]["net_lines"] == 1 and gap["fields"]["built_main"] == git(drop, "rev-parse", "main")
+        assert not holds(drop, git(drop, "rev-parse", "factory/beta-base"), gap["fields"]["head"])
+
+
+def test_finish_refuses_a_head_that_no_longer_holds_a_base(tmp_path):
+    f = Factory(tmp_path)
+    sha = base_gap(f, "beta-base", {"base.py": "print('base')\n"}, rank=1)
+    code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, agents; cfg = fac.config(); "
+            "home, work = agents.clone(cfg, 'alpha-thing', 'implementor'); "
+            "main = fac.git(work, 'rev-parse', 'origin/main'); "
+            "fac.git(work, '-c', 'user.name=t', '-c', 'user.email=t@x', 'merge', '-q', '--no-ff', '-m', 'm', sys.argv[2]); "
+            "was = agents.publish(cfg, work, 'alpha-thing'); "
+            "fac.git(work, 'reset', '-q', '--hard', main); (work / 'own.txt').write_text('x')\n"   # (the base dropped)
+            "try:\n    out = agents.finish(cfg, home, 'alpha-thing', main, main, main, sys.argv[2], was=was)\n"
+            "except RuntimeError as e:\n    out = str(e)\n"
+            "print(json.dumps(out))")
+    r = subprocess.run([sys.executable, "-c", code, str(BIN), sha], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    said = json.loads(r.stdout.strip().splitlines()[-1])
+    assert said.startswith(f"the branch no longer holds main or a base, merged in before it {sha[:12]}: refused"), said
+
+
 # ---- the suites' -r: pytest's -r replaces its default fE, so a -r without f and E prints no FAILED or ERROR line
 #      and fac.failed_tests finds none (lesson-3: a red run that names no test is never excused, bisected whole, and
 #      triaged as naming no test)

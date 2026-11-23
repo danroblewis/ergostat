@@ -167,6 +167,22 @@ def items(kind: str, state: str | None = None) -> list[dict]:
     return out
 
 
+STACKABLE = ("approved", "queued", "push-pending")      # a dependency reviewed and not yet on main: one to build on
+
+
+def stack_base(cfg: dict, gap: dict) -> list[dict] | None:
+    """The bases a gap is built on: when every dependency not yet merged or closed is in STACKABLE, each one's reviewed
+    head ({gap, sha, branch}; sha "" when none is recorded, which no branch tip equals), in rank order. None for any
+    other gap (no unfinished dependency, or one not found or not reviewed): it builds on main, as before."""
+    deps = ids(gap["fields"].get("depends_on"))
+    gaps = {g["id"]: g for g in items("gap")} if deps else {}
+    left = [gaps.get(d) for d in deps if (gaps.get(d) or {}).get("state") not in ("merged", "closed")]
+    if not left or any(g is None or g["state"] not in STACKABLE for g in left):
+        return None
+    left.sort(key=lambda g: (g["fields"].get("rank") or 10**9, g["id"]))
+    return [{"gap": g["id"], "sha": str(g["fields"].get("reviewed_head") or ""), "branch": branch_of(g)} for g in left]
+
+
 def act(name: str, key: str, **args) -> tuple[int, str]:
     """Ask for a gated action ($ERGOSTAT_CMD act); (exit, what it said): 0 ran, 1 failed, 3 held, 4 denied, 2 refused."""
     a = ["act", name, "--key", key] + [x for k, v in args.items() for x in ("--arg", f"{k}={v}")]
