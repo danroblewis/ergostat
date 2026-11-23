@@ -22,7 +22,8 @@ SINGULAR = {"auxiliaries": "auxiliary", "variables": "auxiliary", "claims": "che
             "contexts": "context", "actions": "action", "workspaces": "workspace", "compute": "compute pool", "leases": "lease terms of",
             "daemons": "daemon"}
 TOP = {"name", "purpose", "include", "keep", "messages", "storage", "intake", "web", "notify",
-       "defaults", "uses", "library", "libraries", "remotes", "budget", "operating", "runs", "dashboards", *SECTIONS}
+       "defaults", "uses", "library", "libraries", "remotes", "budget", "operating", "runs", "dashboards",
+       *SECTIONS}
 
 
 TEXTS: contextvars.ContextVar[dict | None] = contextvars.ContextVar("ergostat_spec_texts", default=None)
@@ -148,7 +149,8 @@ class Document:
     problems: list[Problem] = field(default_factory=list)
     library: list[Path] = field(default_factory=list)   # the folders of templates (library:, main file only)
     untrusted: set[Path] = field(default_factory=set)   # of them, those not the owner's: {folder: PATH} (SPEC §2a)
-    libraries: object = None         # libraries: the fetched ones, loaded as locked (library/fetched.py; main file only)
+    fetched: list = field(default_factory=list)         # the templates of libraries: (fetched, checked), in its order
+    refused: dict[str, tuple[str, str]] = field(default_factory=dict)   # each library refused: its code and reason
     uses: dict[str, dict] = field(default_factory=dict)  # each template instance: its template, values, stand-ins, where
     remotes: dict[str, dict] = field(default_factory=dict)  # each remote system: its url, version, parts (SPEC §4c)
     soft: set[tuple[str, str]] = field(default_factory=set)  # what a once template made that a declaration may replace
@@ -284,7 +286,8 @@ def load(main: Path) -> Document:
                                             "library-in-include"))
         if "libraries" in data:
             if top:
-                doc.libraries = data["libraries"]
+                from ..library import fetched
+                fetched.take(doc, data)
             else:
                 doc.problems.append(Problem("error", "libraries: belongs in the main file only", data.at("libraries"),
                                             "libraries-in-include"))

@@ -33,9 +33,9 @@ class Reads:
         self.files: dict[str, bytes | str | None] = dict(kept.get("files") or {})    # (replay: the hashes)
         self.dirs: dict[str, bool] = dict(kept.get("dirs") or {})
         self.globs: dict[str, list[str]] = {k: list(v) for k, v in (kept.get("globs") or {}).items()}
-        self.trees: dict[str, dict] = dict(kept.get("trees") or {})   # each library copy walked: path -> [kind, hash]
-        self.blobs: dict[str, bytes] = {}                             # (noting: the walked files' bytes, by hash)
-        here = {str(Path(p).parent) for p in self.files} | set(self.dirs) | {k.split("\n")[0] for k in self.globs}
+        self.trees: dict[str, dict[str, list]] = dict(kept.get("trees") or {})    # root → rel → [kind, hash | target]
+        here = {str(Path(p).parent) for p in self.files} | set(self.dirs) | {k.split("\n")[0] for k in self.globs} | \
+            set(self.trees)
         self.guarded = tuple(sorted(here))
 
     def ask(self, table: str, key: str, live):
@@ -43,19 +43,17 @@ class Reads:
         if self.replay:
             if key not in t:
                 raise NotKept(f"{key}: not in the last good model's snapshot")
-            return self.kept(key, t[key]) if table == "files" and t[key] is not None else t[key]
+            if table == "files" and t[key] is not None:
+                self.fetching = True                    # (the store's own file: not the model's folders)
+                try:
+                    got = self.fetch(t[key])
+                finally:
+                    self.fetching = False
+                if got is None or hashlib.sha256(got).hexdigest() != t[key]:
+                    raise NotKept(f"{key}: its kept copy is missing or altered")
+                return got
+            return t[key]
         t[key] = got = live()
-        return got
-
-    def kept(self, key: str, h: str) -> bytes:
-        """The kept bytes of hash ``h``, checked against it."""
-        self.fetching = True                    # (the store's own file: not the model's folders)
-        try:
-            got = self.fetch(h)
-        finally:
-            self.fetching = False
-        if got is None or hashlib.sha256(got).hexdigest() != h:
-            raise NotKept(f"{key}: its kept copy is missing or altered")
         return got
 
     def blocks(self, path: str) -> bool:
@@ -165,13 +163,14 @@ def tree(root, max_entries: int = 2000, max_bytes: int = 20_000_000) -> dict[str
     """Every entry under ``root`` by its ``/``-joined path: (``dir``, None), (``file`` or ``exec``, its bytes) or
     (``link``, its target). Walked with lstat through folder handles opened O_NOFOLLOW; a FIFO, socket or device is
     refused unopened; a file is opened O_NOFOLLOW|O_NONBLOCK and refused unless its handle is S_ISREG. Past
-    ``max_entries``, ``max_bytes`` read or ``DEPTH`` folders is refused. While noting, the listing is noted (``trees``);
-    the last good model answers from that alone, never walking the disk (a copy it does not hold is NotKept)."""
-    r = _NOW.get()
+    ``max_entries``, ``max_bytes`` read or ``DEPTH`` folders is refused. Noted: the listing in ``Reads.trees``, each
+    file's bytes in ``Reads.files``; the last good model's replay answers both from its snapshot, never the disk."""
+    root, r = str(root), _NOW.get()
     if r is not None and r.replay:
-        if str(root) not in r.trees:
-            raise NotKept(f"{root}: a library copy not in the last good model's snapshot")
-        return {p: (k, r.kept(f"{root}/{p}", v) if k in ("file", "exec") else v) for p, (k, v) in r.trees[str(root)].items()}
+        if root not in r.trees:
+            raise NotKept(f"{root}: not in the last good model's snapshot")
+        return {rel: (k, r.ask("files", os.path.join(root, rel), None) if k in ("file", "exec") else v if k == "link"
+                      else None) for rel, (k, v) in r.trees[root].items()}
     out: dict = {}
     top = os.open(root, _DIR)
     try:
@@ -179,9 +178,9 @@ def tree(root, max_entries: int = 2000, max_bytes: int = 20_000_000) -> dict[str
     finally:
         os.close(top)
     if r is not None:
-        hashed = {p: (k, hashlib.sha256(b).hexdigest() if isinstance(b, bytes) else b) for p, (k, b) in out.items()}
-        r.blobs.update({hashed[p][1]: b for p, (_k, b) in out.items() if isinstance(b, bytes)})
-        r.trees[str(root)] = hashed
+        r.trees[root] = {rel: [k, hashlib.sha256(v).hexdigest() if k in ("file", "exec") else v if k == "link" else ""]
+                         for rel, (k, v) in out.items()}
+        r.files.update({os.path.join(root, rel): v for rel, (k, v) in out.items() if k in ("file", "exec")})
     return out
 
 

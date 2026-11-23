@@ -177,17 +177,6 @@ template is still at least 5 minutes (SPEC §2a, *Untrusted libraries*). A progr
 and the rest stay refused. Marks are made only by ergostat as it expands a template; a template or a value that holds
 a mark's control characters is refused whole.
 
-**Libraries fetched by git URL.** A library listed under `libraries:` (SPEC §2a, *Fetched libraries*) is fetched only
-by `ergostat library fetch`, which reads nothing of the model but `libraries:` and runs no git when the main file does
-not parse. It is pinned in `libraries.lock` by commit and by a digest of the copy (every path, its kind, its bytes or
-link target). The model loads a fetched library only as that lock pins it: no lock, no entry, an entry without a
-tree or commit, an entry for another `git:`, `version:` or `path:`, a lock that does not read, a missing copy, or a
-copy changed in a byte, a mode bit or a link, is refused by name (`library-unlocked`, `library-lock-unreadable`,
-`library-missing`, `library-altered`), and none of its templates load. The templates are parsed from the bytes that
-were hashed. A fetched library is untrusted, exactly as an untrusted folder is, unless you write `trust: owner` on
-it. What this covers is the copy at the moment the model loads: a script a template runs from `${here}` is read from
-`.libraries/NAME` again when it runs, so a change made between the load and the run is not caught by the lock.
-
 A template from your own folders is trusted, but its run still takes no value the library wrote, even quoted: `sh -c
 ${x:quote}` runs whatever lands in `x`, and nothing can vouch for that. An unquoted `${x}` of a `string` is refused
 too. Only your own command, passed wholly, reaches such a run. (This replaces the earlier plan to accept a quoted
@@ -234,6 +223,26 @@ What this does **not** stop:
   flow to your stock, and put its parts in your systems. If one of *your* machine blocks reads one of its blocks
   (`in: block.x`), that block commands yours, by your wiring. A raised `alarm` shows on the page and counts as an
   intervention, as any alarm does.
+
+**Fetching a library by git URL** (`libraries:`, SPEC §2a). The threat is a `libraries:` entry, a repository or a
+server that tries to make `ergostat library fetch` run a command, reach another host or protocol, fill the disk, hang,
+or write outside `.libraries/`, or a copy changed after it was locked. The URL, ref and path pass an allowlist matched
+whole before any git process starts (https and file only, no user, query or fragment, no ref starting `-`), and go
+after `--end-of-options`; git runs with no system or global config, no credential helper, no ssh, no redirects and
+`GIT_ALLOW_PROTOCOL=https:file`. Each git process runs in its own process group under a 100 MB cap on any file the
+kernel lets it write; the temporary folder (the clone, and the archive written to a file there) is summed every 0.05 s
+and the group killed past 100 MB or 120 s, so the total can overshoot by what arrives in one poll; an interrupted fetch
+kills the group it was waiting on. The archive is extracted with a positive list (folders, regular files, relative links whose target, walked step by step, never goes
+above the copy or onto another link, names compared case- and normalization-insensitively as APFS does, and which,
+once made, resolves inside the copy on disk; at most 2,000 entries and 20 MB) into a new folder, never over the old
+copy, through folder handles that do not follow links, and fetch refuses
+when `.libraries` or `.libraries/NAME` is a link. Every load checks the copy against `libraries.lock` (commit and tree
+hash, links hashed by their target, never followed, FIFOs and devices refused unopened) and parses the very bytes it
+hashed. What this does not cover: a library with `trust: owner` is trusted wholesale, as any folder you mark so; the
+lock pins what you fetched, not that it is safe; and a script a template runs from `${here}` is read again when it
+runs, so a change to it between load and run is not caught here. A library without `trust: owner` is untrusted exactly
+as an untrusted folder is: its uses are held, checked against the same allowlist and bounded, its text is marked, and
+a use that makes more than that is refused (`library-untrusted`).
 
 ## The page from elsewhere
 

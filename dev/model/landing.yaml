@@ -7,11 +7,12 @@ items:
   batch:
     id: batch/*
     description: one merge queue run's batch (batch/<run tag>) - its gaps tested together, each run of the suites (full, named, halves) with its outcome, the gaps isolated, what landed and was given back (dev/bin/batches.py)
-    states: [testing, isolating, pushing, landed, partial, failed, given-back]
+    states: [new, testing, isolating, pushing, landed, partial, failed, given-back]
+                                    # new: no event puts one there; it arrives testing, a working state the merge
+                                    # queue moves on (batch.run-finished), so why names it (AGENT-GUIDE 3m); the
+                                    # events into testing are written last, so a later state names its way on
     final: [landed, partial, failed, given-back]
     on:
-      batch.started: testing
-      batch.run-started: testing      # a run of the suites under way: one Timeline bar a run
       batch.run-finished: isolating   # between runs: a red run's tests checked alone and on main, the next run chosen
       batch.isolated: isolating       # a gap found failing: how, and its tests
       batch.landed: pushing           # merged on main, its push asked for
@@ -19,6 +20,8 @@ items:
       batch.ended-partial: partial    # some landed and pushed, the rest failed or given back
       batch.ended-failed: failed      # none landed and a gap failed, or its push was denied
       batch.ended-given-back: given-back   # none landed and none blamed: a stall, main red, out of time, an error
+      batch.started: testing
+      batch.run-started: testing      # a run of the suites under way: one Timeline bar a run
     show: [size, run, outcome, base, main_sha, runs_n, minutes, why]
     fold: {runs: append, isolated: append}
     relations:
@@ -56,12 +59,8 @@ stocks:
     sensor: {items: upgrade, state: installed, every: 1m}
   upgrades-approved:
     unit: upgrades
-    description: switches approved, waiting for a quiet moment ([upgrade] quiet_runs) or the daily window ([upgrade] daily_at)
+    description: switches approved, begun by the switcher's next minute (the runs under way carry on, taken up by the new engine)
     sensor: {items: upgrade, state: approved, every: 1m}
-  upgrades-draining:
-    unit: upgrades
-    description: switches draining - the AI blocks take no new item (run/drain.json) while the runs under way finish
-    sensor: {items: upgrade, state: draining, every: 1m}
   upgrades-switching:
     unit: upgrades
     description: versions switched to, their health not yet shown
@@ -78,16 +77,6 @@ auxiliaries:
     description: the tests failed so far in the merge queue's run under way, from its pytest logs' progress (0 when none runs)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/batches.py failures, every: 1m, timeout: 1m, description: the run's own logs}
-  drain-minutes:
-    unit: minutes
-    description: how long the drain under way has gone (0 when none, or once its switch began)
-    driven-by: [+stock.upgrades-draining]
-    sensor: {run: python3 dev/bin/drain.py minutes, every: 1m, timeout: 1m, description: the switcher}
-  drain-overrun:
-    unit: minutes
-    description: how far the drain under way has gone past its bound ([upgrade] drain_minutes; 0 within it)
-    driven-by: [+auxiliary.drain-minutes]
-    sensor: {run: python3 dev/bin/drain.py overrun, every: 1m, timeout: 1m, description: the switcher}
   push-waiting:
     unit: switch
     description: 1 while the merge queue can take no gap - its last batch's push waits for approval, or the queue is blocked (run/queue.json)
@@ -98,6 +87,11 @@ auxiliaries:
     description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
+  browser-main-green:
+    unit: switch
+    description: 1 when the last daily browser run on main passed (or failed only on flakes), 0 when a test failed there or it named none; no reading when run/browser-daily.json cannot be read
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/browserday.py green, every: 10m, timeout: 1m, description: the daily browser run's record}
 
 flows:
   gaps-approved:
@@ -183,7 +177,7 @@ flows:
   switches-approved:
     from: upgrades-installed
     to: upgrades-approved
-    description: the coordinator approved the switch (or approves them standing) - it waits for a quiet moment
+    description: the coordinator approved the switch (or approves them standing) - the switcher begins it within a minute
     driven-by: [+stock.upgrades-installed]
     equation: (1 - withdraw-share) * stock.upgrades-installed / approve-time
     sensor: {items: upgrade, entering: approved, over: 1d}
@@ -193,19 +187,12 @@ flows:
     driven-by: [+stock.upgrades-installed]
     equation: withdraw-share * stock.upgrades-installed / approve-time
     sensor: {items: upgrade, entering: withdrawn, over: 1d}
-  drains-begun:
-    from: upgrades-approved
-    to: upgrades-draining
-    description: a quiet moment, or the daily window - the AI blocks take no new item
-    driven-by: [+stock.upgrades-approved]
-    equation: stock.upgrades-approved / quiet-wait
-    sensor: {items: upgrade, entering: draining, over: 1d}
   upgrades-switched:
-    from: upgrades-draining
+    from: upgrades-approved
     to: upgrades-switching
-    description: drained, or the bound reached (the runs still going given back uncounted) - the engine stopped, current pointed at it, started
-    driven-by: [+stock.upgrades-draining]
-    equation: stock.upgrades-draining / drain-time
+    description: the engine stopped, current pointed at it, started - the runs under way left going, taken up by its engine
+    driven-by: [+stock.upgrades-approved]
+    equation: stock.upgrades-approved / switch-time
     sensor: {items: upgrade, entering: switched, over: 1d}
   upgrades-kept:
     from: upgrades-switching
@@ -285,14 +272,10 @@ parameters:
     range: [0, 1]
     estimate: true
     description: the share of switch requests withdrawn for a newer version
-  quiet-wait:
-    value: 6h
+  switch-time:
+    value: 2m
     estimate: true
-    description: how long an approved switch waits for a quiet moment (at most a day, the daily window)
-  drain-time:
-    value: 30m
-    estimate: true
-    description: how long the runs under way take to finish ([upgrade] drain_minutes at most)
+    description: from the approval to the new engine started - the switcher's next minute, the stop and the start
   health-time:
     value: 2m
     estimate: true
@@ -325,11 +308,11 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: the instance runs the newest installed version
-  drains-within-bound:
-    auxiliary: drain-overrun
-    hold: "<= 2"
+  browser-main-green:
+    auxiliary: browser-main-green
+    hold: ">= 1"
     tolerance: 0
-    description: a drain ends by its bound ([upgrade] drain_minutes) and the switcher's next minutes - past them the switch is stuck
+    description: the four browser files pass on main, run once a day whatever merged (browser-daily)
 
 actions:
   push-main:
@@ -348,7 +331,7 @@ actions:
     gate: approve                    # standing approval: gate auto (only the newest ever waits: drain.py)
     class: switch
     args: {sha: the installed version to switch the instance to}
-    description: Switch the instance to an installed version - at a quiet moment or the daily window, once the runs under way drained; it reverts on failure
+    description: Switch the instance to an installed version - at once, the runs under way left going and taken up by its engine; it reverts on failure
 
 blocks:
   queue-when:
@@ -399,6 +382,16 @@ blocks:
     timeout: 1h
     in: block.triage-when
     out: [flow.flakes-retried, flow.sent-back-by-triage, flow.parked-in-triage]
+  browser-daily:
+    type: program
+    description: once a day, under the queue's lock once the machine is quiet, the four browser files on origin/main in a worktree of its own - green, its sha recorded; a test failing twice alone, an intervention (class queue) naming it, main and the merges since the last green; passing alone, a flake seen
+    run: python3 dev/bin/browserday.py
+    every: 24h
+    timeout: 3h
+    # read, not commanded: a goal: here would take it off its schedule (schedule-removed); the last green it reads
+    # names the suspects, and each day's run measures main again
+    in: [goal.browser-main-green]
+    out: auxiliary.browser-main-green
   main-mend:
     type: program
     description: the way out of main-broken - on the pushed main, once the machine is quiet, the oldest main-broken tests ([gates] mend_most, at most 20) run alone twice in a suite container; each passing both is flake.main-fixed, a patch testing the item's main as read (dev/bin/mend.py)
@@ -412,7 +405,7 @@ blocks:
 
   main-watch:
     type: program
-    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one
+    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one; and of reverts pushed to main, each an escape (dev/bin/escapes.py)
     run: python3 dev/bin/upgrade.py watch
     every: 10m
     timeout: 2m
@@ -436,13 +429,13 @@ blocks:
     out: flow.switches-approved
   switcher:
     type: program
-    description: withdraws the older switch requests; the newest approved one waits for a quiet moment or the daily window, drains the runs under way (to its bound), then starts the switch
+    description: withdraws the older switch requests and starts the newest approved one at once - the runs under way are left going, never waited for or stopped
     run: python3 dev/bin/drain.py
     every: 1m
     timeout: 5m
-    in: goal.drains-within-bound     # read, not commanded: a goal: here would put a controller in front of it and take
-                                     # it off its schedule (only a drain sets the goal off, and only the switcher drains)
-    out: [flow.switches-withdrawn, flow.drains-begun, flow.upgrades-switched]
+    in: goal.upgrades-switched-to    # read, not commanded: a goal: here would put a controller in front of it and take
+                                     # it off its schedule
+    out: [flow.switches-withdrawn, flow.upgrades-switched]
   switch:
     type: external
     description: the switch's own process (dev/bin/live.py switch) - started by the approved action, it outlives the engine it stops; health-checked, kept or reverted

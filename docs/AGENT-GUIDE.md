@@ -100,6 +100,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    faults: {healthy: sensor.tracker-up}}` (or a `goal.` that holds, or a `block.` command). While it is down or
    unread, nothing new is taken and a run that fails spends no attempt, so the outage parks no ticket as a dead
    letter; the hold is the event `ergostat.queue.held`, ended by `ergostat.queue.resumed` (SPEC §9.5, *Faults*).
+   When only some items share it (those behind one VPN or bastion), record which in a field and say `faults:
+   {hold-by: [vpn]}`: a value whose items fail together is held alone, probed after a back-off, and released by a
+   success, while the other values keep flowing (`ergostat.group.held`, `.probed`, `.released`).
    **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
    of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
    {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the
@@ -159,7 +162,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    they say rather than proposing the same idea again. Do not hand-write these parts. When the person asks for an
    architecture review, `ergostat improve --architecture [SYSTEM]` (one haiku call a system, `--max-cost` $1 by
    default, at most $5) reads each system against the Viable System Model and its description; what it finds is held
-   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. The other built-in templates
+   for the person as requests (`vsm-s4`, `purpose-uncovered`, ...), for them to judge, not for you to write. When the
+   person asks for regression guarantees, `use: regressions` with only the parts they ask for (`every: 1h` for their
+   `claims: tests` command's failing count, `block: NAME` for that block's contradicted claims, `changes: true`,
+   `repair: NAME` when they use repair): nothing is made without its parameter. The other built-in templates
    used once a model are `use: interventions` (section 3d) and `use: upkeep`: ergostat's own upkeep drawn as loops,
    its item-index files held at `index-files` (6) by a rule-tier tidier, and the record's roll-up, forgetting past
    `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and
@@ -385,10 +391,12 @@ A `library:` entry written `{folder: PATH}` is untrusted (SPEC §2a): its templa
 that makes more is refused (`library-untrusted`), whole. **Never write `trust: owner`, and never turn a map entry
 into a plain path**, to get past that refusal or for any other reason: that is the owner's decision, made after
 reading the folder. Do not copy the refused part into the model, or its command into `with:`, either. Tell the owner
-which template and part were refused, and ask. The same holds for a fetched library (`libraries:`, SPEC §2a): it is
-untrusted unless the owner writes `trust: owner` on it. Never fetch one with `--update`, edit `libraries.lock`, or
-change a file under `.libraries/` to get past `library-unlocked`, `library-missing` or `library-altered`: say which
-library was refused and why, and ask.
+which template and part were refused, and ask.
+
+The same holds for a fetched library (`libraries:`, SPEC §2a): never add `trust: owner` to one. When `check` says a
+library is refused (`library-unlocked`, `library-missing`, `library-altered`, `library-lock-unreadable`), say so to
+the owner; do not edit `libraries.lock` or the copy in `.libraries/` to make it load. `ergostat library fetch` is the
+owner's to run, since it reaches the network.
 
 A held chain may run the owner's own commands: a value in the owner's `with:` for a `type: command` parameter
 (SPEC §2a, R1). That is why a value in `with:` counts as the owner's, whoever wrote it. **Never copy a command from a
@@ -408,6 +416,13 @@ it**: ask the owner what they want asked or read, and let them write it.
 When part of the person's work is run by **another ergostat** (another team's, another machine's), do
 not re-model it and do not copy its YAML: compose it as a **remote system** (SPEC §4c). Its own ergostat
 keeps running it; this model reads it.
+
+**Call the `remotes` MCP tool before you reference a remote's part, and before you propose a change near one.**
+It lists each remote: its version, whether it answers (`state`, and `why`), its parts by kind, the references it no
+longer serves (`missing`), and what its box shows. With `name`, it also lists each part here with its name there;
+add `proposals: true` for the open texts waiting for its owner. A part in that list is the remote's: never edit it
+here, and write a change to it as text for its owner. The tool is read only. It asks no remote, so a version can be
+old: `read` says how many seconds ago it was read. It still answers on the last good model while the YAML is broken.
 
 1. **On the remote**, its owner makes a token for this model: `ergostat remote token support` (printed
    once). The token goes in a file here, never in the YAML (`incidents.token`, git-ignored).
@@ -481,7 +496,10 @@ choose one of three ways.
 ergostat measures every run itself (SPEC §9.1): what its AI sessions cost (dollars as Claude Code reported them, or
 estimated from tokens), its tokens, the CPU time and peak memory of its processes, its wall time and exit. You do not
 write anything for this: an `ai` block's own `claude -p`, and `ergostat session` inside any block's `run:`, report
-through the run. The Agents page shows each agent's totals and history; `ergostat agent NAME` the same.
+through the run. The Agents page shows each agent's totals and history (a cost of none says why: a free stand-in for an
+AI agent whose runs had no session, "not known" when one of those failed or was stopped (a pool-full give-back is neither), no AI, no runs; the table ends in the window's total), and an item's header what the
+runs that took it cost (every take in its lease's history, a rolled-up one too; an AI agent's words if any block that took it is AI; not known counts only those blocks' runs);
+`ergostat agent NAME` the same.
 An agent whose last run failed, that never ran on its schedule, or that ran under half the runs its `every:` asks for
 over the window's record ("behind: 10 of ~120") is marked in red with its reason under the row, and counted on the
 page's top line.
@@ -645,6 +663,16 @@ The rules in brief:
   (it runs the program four times, for real: use a scratch copy when it acts) before you call it done;
 - done means: `check` passes, a pipe test by hand passes, a short run on a scratch copy records readings and
   moves items with no restarts, and replaced `run:` sensors read the same.
+
+**A daemon that is not ergostat's to start: a journal.** When the work is done by a process someone else runs (a
+service with its own supervisor, a build farm, another team's agent), do not wrap it in a `daemon:` and do not
+start it from a `run:`. If it writes JSON-lines files, point a sensor at their folder instead:
+`sensor: {journal: logs/agent}` (SPEC §6, *Journals*). The folder is relative to the model's folder and inside it
+(a link to a folder or file outside it is not read: have the process write its journals there). Each line is a `run:` sensor's
+observation line (`{"event": "case.met", "item": "case/3", "data": {...}}`) or `{"value": N}` for the reading;
+ergostat records each complete line once, across restarts and rewrites. A line ergostat refuses shows as
+`sensor.refused` with its `why`; read them before you call the sensor done. Rotate by renaming to a name that does
+not end in `.jsonl` (`x.jsonl.1`): a rotated file still named `*.jsonl` is read again under its new name.
 
 ## 3f. A controller that already runs: an autoscaler, an alert rule
 
@@ -851,6 +879,226 @@ or when the same question is asked of the page again and again (SPEC §4f):
 
 A dashboards-only change alters no version and no replay, but the judge does not yet know that (it would replay it
 as a parameter change): add a dashboard as a direct edit followed by `ergostat check`, not as a proposal.
+
+## 3m. Why isn't this done: a model that can say what holds the work up
+
+Sooner or later the person asks "why isn't this done?" or "what is holding everything up?". ergostat answers with
+`ergostat why ITEM` (one item, followed to its root) and `ergostat held-up` (every unfinished item, grouped by root
+and ranked; SPEC §5a). Both read **only what the model declares and the record holds**: nothing in ergostat knows
+your kinds, states or blocks. A model that runs can still leave them saying "nothing takes it" or `unknown` for
+work that is plainly waiting on someone. Build the model so that every wait has a cause the record can show.
+
+### What the question needs from a model
+
+- **Item kinds with honest states.** One state per real wait or piece of work (`proposed`, `in-review`), not one
+  `open` for all of them; the side exits (`dropped`); the finished states declared in `messages: {done: {KIND:
+  [...]}}`, so finished is never guessed from the record; and a state work is parked in by hand (`on-hold`) declared
+  in `messages: {paused: {KIND: [...]}}`, so what waits on it is said to wait on a parked item.
+- **Relations.** What an item waits on is a precedence relation (`depends_on`, `blocked_by`, `after`, or any other name
+  with `precedence: true`), recorded on the item as a field (`{"depends_on": "change/c2"}`). `why` follows them down,
+  item to item, to the root. A relation that only says something (an update that covers some changes) is not
+  precedence: give it another name. `starts_at: [STATE]` on a relation lets an item start once its target is there.
+- **Who or what takes each state.** For every state an item rests in unfinished, one of: a block's `takes:` (a
+  program or AI step), or, for work done outside ergostat (a person's review, a reviewer at a code host), a
+  **working state**: not the kind's first state, left by an event that records the work (`change.reviewed`). `why`
+  then names "whoever records change.reviewed" (the first event of its `on:` that moves it out, in the order
+  written, so write the way on before side exits) and lists the others. The kind's first state is where items wait to
+  be taken: when nothing in ergostat takes them, give the kind a first state no event moves an item into (`new`) and
+  let the arriving event put it straight into its working state (`todo.added: todo`). **Write the arriving events
+  last in `on:`.** Only a move back to the kind's first state is left out of the ways on, and with `new` first the
+  arriving event is no longer one, so written first it is named as the owner of every later working state: a batch
+  in `isolating` would name "whoever records batch.started", a move backwards. Written last, it is named only for a
+  state with no other way on.
+- **Owners and people as blocks.** A `person` block is asked while its goal is off but never takes an item, so a
+  person holds items in one of two ways `why` can name: the working state their event moves on (above), or a gate
+  whose input they read by hand (`sensor: {manual: true}`). Name events after what the person records, so "whoever
+  records todo.done" reads as them.
+- **Gates.** A step that must wait for something outside (a service up, a person's go-ahead) is gated by an `expr`
+  block over a sensor (`in: block.NAME`). When it reads 0, `why` names the gate, its factor that is 0, and what sets it.
+- **Pools.** `pool:` on each block that takes items: a full pool is named with what holds it, and a holder whose run
+  died is named as the root instead.
+- **Leases, and a budget.** Declare `budget:` (even a small one): under it each taking records the process that took
+  the item, so `why` can tell work going on from a lease whose process died. Without it that is said as not known.
+- **Sensors of the real external state.** Read what the work depends on from the world (the build service answering,
+  a pull request's state at the code host), on a schedule, never from what ergostat itself did. A gate whose input
+  has no reading is said as `unknown`, not as open.
+- **Timestamps.** An event's time is when ergostat records it (a line a program prints, an `event --add`), and every
+  "for how long" and "unusual" is read from those times. So record each move when it happens (a collector polling every few minutes, a webhook), never in a
+  batch at the end of the day; keep the outside's own time as a field (`opened_at`) for the reader.
+
+### Outside work: tickets, pull requests, alerts
+
+Bring outside work in so that its waiting is visible: an item kind of its own (`pr`, `ticket`, `alert`) whose
+states are the outside system's (`open`, `merged`), fed by a collector (`use: collect` with `declare-kind: false`
+and your kind, a program block printing event lines, or a webhook, SPEC §5c), and linked from your own items by a
+precedence relation (`pull_request: {kind: pr, precedence: true}`). Then `why` follows a change to its pull request
+and names whoever records `pr.merged`, the reviewer at the code host. **Read-only by default**: a collector only
+reads and records (`read-only: true` on a program block that only reads). Anything written back (a comment, a
+label, closing an alert) is a gated action with `gate: approve` (section 2, step 7), asked for only when the owner
+wants it. A state the outside system ends in without the work being done (a pull request closed unmerged) is paused,
+not finished, so what waits on it says so.
+
+### Personal to-dos, access-context batches and stakeholder updates
+
+The person's own to-dos are items too. For their hand work as a whole, use the `todo` template (*Work the person does
+by hand, on purpose*, above), which batches ready to-dos by place itself. When the to-dos must wait on items of this
+model (a sitting it plans, a change), declare the kind yourself, as the worked example below does:
+
+- **To-dos.** States `[new, todo, done, dropped]`, with `todo.added: todo`: a to-do arrives straight in `todo`, a
+  working state the person moves on, so `why` names whoever records `todo.done`.
+- **Access-context batches.** To-dos that need an access context the person opens now and then (a lab network, an
+  admin console, a machine in another room) wait on a **batch**, one sitting in that context: a `batch` kind with
+  states `[new, planned, open, closed]`, and on the to-do a relation `needs: {kind: batch, precedence: true,
+  starts_at: [open]}`. A to-do needing the lab names the next lab sitting (`{"needs": "batch/lab-1124"}`); until the
+  person records `batch.opened`, `why` says the to-do waits on the batch and names whoever records `batch.opened`.
+  Once it is open the to-dos are theirs to do, all at once. A to-do left over when the sitting closes is moved to
+  the next one (`{"needs": {"set": ["batch/lab-1201"]}}`).
+- **Stakeholder updates.** An update owed to someone is a to-do (`todo/u48`, `"for": "the sponsor"`) with a relation
+  that is not precedence, `covers: change`, naming what it reports on. Write it from `ergostat why ID`: its first
+  paragraph is written to be pasted, and says how long, why, and who acts next; `ergostat held-up`'s first line is
+  the whole in one sentence.
+
+### A worked example
+
+The person says: *"We ship changes. A change is proposed, and may depend on other changes. The build script builds
+one change at a time, but only while the build service is up. Then one of us reviews it, and the release script
+releases it, one at a time. A change can be put on hold by hand. Each change has a pull request on our code host,
+and it is not released before the pull request is merged. I also keep my own to-dos: some need the lab network, so
+I do those in one sitting when I am on it, and every week I owe the sponsor an update."*
+
+The model, item by item from what was said (scripts are the person's; `scaffold` them, or point `run:` at theirs):
+
+<!-- why: the worked example's model -->
+```yaml
+items:
+  change:
+    id: change/*
+    description: one change to the product, from proposal to release
+    states: [proposed, building, in-review, releasing, released, on-hold, dropped]
+    on:
+      change.proposed: proposed
+      change.built: in-review
+      change.reviewed: releasing
+      change.released: released
+      change.held: on-hold
+      change.dropped: dropped
+    relations:
+      depends_on: change                                # precedence: it waits for these to be released
+      pull_request: {kind: pr, precedence: true}        # and for its pull request to be merged
+  pr:
+    id: pr/*
+    description: a pull request on the code host, as the collector saw it
+    states: [new, open, merged, closed]
+    on: {pr.merged: merged, pr.closed: closed, pr.opened: open}          # the arriving event last
+  todo:
+    id: todo/*
+    description: one of the owner's own to-dos
+    states: [new, todo, done, dropped]
+    on: {todo.done: done, todo.dropped: dropped, todo.added: todo}
+    relations:
+      needs: {kind: batch, precedence: true, starts_at: [open]}   # a sitting in an access context
+      covers: change                                              # an update's subject: says, never waits
+  batch:
+    id: batch/*
+    description: one sitting in an access context (the lab network)
+    states: [new, planned, open, closed]
+    on: {batch.opened: open, batch.closed: closed, batch.planned: planned}   # open names batch.closed
+
+messages:
+  done: {change: [released, dropped], pr: [merged], todo: [done, dropped], batch: [closed]}
+  paused: {change: [on-hold], pr: [closed]}
+
+budget: {daily: 5, max-cost: 1}      # so each taking records its process: a dead run is told from a live one
+
+auxiliaries:
+  build-service-up:
+    unit: up
+    description: 1 while the build service answers, 0 while it does not
+    exogenous: true                  # the world's doing: nothing in the model moves it
+    sensor: {run: scripts/build-service-up, every: 1m}
+
+uses:
+  pull-requests:                     # read-only: records what the code host says, never writes to it
+    use: collect
+    with: {kind: pr, declare-kind: false, command: scripts/pull-requests, event-field: event, poll: 5m}
+
+blocks:
+  build-open:
+    type: expr
+    description: lets the builder take changes only while the build service is up
+    in: {up: auxiliary.build-service-up}
+    expr: up
+  builder:
+    type: program
+    description: builds one change at a time and opens its pull request
+    run: scripts/build
+    takes: {kind: change, at: proposed, to: [in-review], unblocked: true}
+    in: block.build-open
+    pool: 1
+  releaser:
+    type: program
+    description: releases one reviewed change at a time
+    run: scripts/release
+    takes: {kind: change, at: releasing, to: [released], unblocked: true}
+    pool: 1
+```
+
+A precedence relation says what an item waits on; it is never enforced (SPEC §5a). Every block that takes items of a
+kind with one takes `unblocked: true`, or it takes them anyway and `why` names a root the work went past: without it
+here, the releaser would release a reviewed change whose pull request is still open, while `why` on it names
+whoever records `pr.merged`. The review is nobody's block: `in-review` is a working state the reviewer moves on by recording `change.reviewed`.
+Three things then go wrong at once, as they do: change `c1` is put on hold, and `c3` depends on `c2`, which depends
+on `c1`; the build service goes down while `c5` is proposed; and the releaser's run on `c6` dies, leaving its lease,
+while `c7` waits to be released. Ask:
+
+```sh
+ergostat held-up
+ergostat why change/c3
+ergostat why change/c5
+ergostat why change/c7
+```
+
+`held-up` lists the three roots, stalls first; `why change/c3` names `c1`, parked on hold, through `c2`; `why
+change/c5` names the gate `build-open`, its input `build-service-up` at 0, and whatever sets it; `why change/c7`
+names the releaser's pool, full, held by `c6`, whose process is gone, and the give-back by hand. Each says who acts
+and the command. The to-dos, the same way:
+
+```sh
+ergostat event --add batch.planned --item batch/lab-1124
+ergostat event --add todo.added --item todo/t1 --data '{"title": "rotate the lab test keys", "needs": "batch/lab-1124"}'
+ergostat why todo/t1
+ergostat event --add batch.opened --item batch/lab-1124
+ergostat why todo/t1
+ergostat event --add todo.added --item todo/u48 --data '{"title": "update for the sponsor", "for": "the sponsor", "covers": {"set": ["change/c3", "change/c5"]}}'
+ergostat why change/c3 --json
+```
+
+The first `why todo/t1` says it waits on `batch/lab-1124` and names whoever records `batch.opened`; once the sitting
+is open, the second says it is the person's to do. The update's text is the `summary` of each change it covers.
+
+### The check: does the model answer?
+
+Do this before you call the model done, and again after every change, on a record that has items in it (the
+stand-ins' run, or a few events you record by hand):
+
+```sh
+ergostat check
+ergostat held-up --json
+ergostat item --kind change --state proposed -n 1
+ergostat why change/c5 --json
+```
+
+1. `ergostat check` has no `wait-unexplained` finding: a kind whose finished states `messages: done:` declares,
+   with a state an event moves its items into, unfinished, where no block takes them, the kind has no precedence
+   relation, and no one is named to move them on (the state is the kind's first, or no event moves an item out of
+   it). Fix each as it says. (A kind whose finished states are left to the record is not judged: declare them.)
+2. `ergostat held-up --json`: every root has a kind other than `unknown`, and its `unknown` count is 0.
+3. For each unfinished kind, and each state its items wait in, take one item (`ergostat item --kind K --state S
+   -n 1`) and ask `ergostat why ID --json`. Its `root` must be the true one, the one the person would name.
+4. **Treat "cannot tell" as a modelling gap to fix**, never as an answer: a root of kind `unknown`, anything under
+   `missing`, or `nothing` for a state someone does take. Each says what the record lacks: a sensor with no reading
+   (give it one), a taking with no process recorded (declare `budget:`), a state nothing takes (a block, a relation,
+   or a working state as above). Fix the model and ask again.
 
 ## 4. Common mistakes
 

@@ -222,3 +222,23 @@ Tests run (`scripts/named_tests.py`, serially): `tests/test_toml_models_budget.p
 `tests/test_agents.py` (73 passed); `tests/test_gapsdoc.py` (23 passed). ruff clean. `main` is still the clone's base,
 so there was nothing new to merge. Not run here: the whole unit suite and the four browser files (left to the
 factory). No page changed.
+
+## Entry
+
+section: Done recently
+
+- **ergostat's own AI calls under the budget** (done; `ai-calls-ask-the-budget`, `modeller-calls-ask-the-budget`
+  `toml-models-budget` and `ergostat-s-own-ai-calls-under`, SPEC §9.9, `dev/records/ai-calls-ask-the-budget.md`,
+  `dev/records/modeller-calls-ask-the-budget.md`, `dev/records/toml-models-budget.md`,
+  `dev/records/ergostat-s-own-ai-calls-under.md`). Every call through
+  `decisions/ai.call` (decisions extract, the intent verdicts from `Engine.judge` and `ergostat intent judge`,
+  `improve --architecture`) reserves its per-call cap under P3's lock (`costs/budget.ask`), is refused when the day's
+  budget is gone, is closed with its reported cost (unknown: its reserve), and is counted once inside a reserving
+  run. So does every call through `numbers/modeller` (the redesigner, the modelling reviewer, the ai tier, the
+  architecture review), at its `unsaid` estimate. A structural scan (`test_only_listed_ai_starts`) finds AI commands
+  started only in `decisions/ai.py`, `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`,
+  `supervisor.chat`, `spec/engine.py`, `repair/fix.py`). Models in `ergostat.toml` take `[budget]`: each
+  `runner.run_agent` run asks the same permit (an agent with no `kind` written is charged), and decisions extract
+  reads it. A command whose first word is `claude`, started by such a run, gets `--max-budget-usd` at its reserve
+  right after that word, replacing any in that claude call, whatever follows it in the shell line (no
+  `ERGOSTAT_MAX_COST` and no T1 kill for these runs; a `claude` later in the line is not capped). The modeller's calls need a YAML model's spec, so they cannot be made in a toml project.

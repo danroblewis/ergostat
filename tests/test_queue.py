@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-from tests.test_factory import BIN, ROOT, Factory, approved_gaps, main_moves, merges, module, set_action, suite_runs
+from tests.test_factory import BIN, ROOT, Factory, approved_gaps, main_moves, merges, module, set_action, settle, suite_runs
 
 RED = "echo run >> {runs}"
 
@@ -446,6 +446,53 @@ def test_a_suite_whose_log_cannot_say_records_unknown_never_zeros(tmp_path):
     got = g.item("gap/a")["fields"]["suites_queue"]
     assert got["browser"]["stopped_by"] == "unit" and got["browser"]["counts"] == "unknown"
     assert got["unit"]["counts"] == counted(f=1)
+
+
+# ---- a seen flake fixed after green queue runs (dev/records/regression-flake-fixed-after-green.md)
+
+FLAKY = "tests/test_x.py::test_y"
+
+
+def seen_flake(f: Factory) -> str:
+    iid = f"flake/{module('fac').slug(FLAKY, 80)}"
+    db = f.db()
+    db["items"][iid] = {"id": iid, "kind": "flake", "state": "seen", "fields": {"test": FLAKY, "times": 1,
+                                                                                 "green_passes": 0}}
+    f.record.write_text(json.dumps(db))
+    return iid
+
+
+def test_a_green_landing_counts_each_seen_flake_it_says_passed(tmp_path):
+    (tmp_path / "unit.sh").write_text(f"echo 'PASSED {FLAKY}'; echo '1 passed in 0.1s'\n")
+    f = Factory(tmp_path, unit=f"sh {tmp_path / 'unit.sh'}")
+    f.config.write_text(f.config.read_text().replace("[gates]\n", "[gates]\nflake_fixed_after = 2\n"))
+    iid = seen_flake(f)
+    for n, gap in ((1, "a"), (2, "b")):
+        approved_gaps(f, {gap: 1})
+        said, _ = f.run("queue.py", f"gap/{gap}")
+        assert said == ["gap.queued", "gap.merged", "gap.push-asked"]
+        assert f.item(f"gap/{gap}")["fields"]["suites_queue"]["unit"]["log"].endswith("-unit.txt")
+        assert f.item(iid)["fields"]["green_passes"] == n
+        db = f.db()                                                           # (its push lands: the next run goes)
+        db["actions"] = dict.fromkeys(db["actions"], "ran")
+        f.record.write_text(json.dumps(db))
+        assert settle(f)[0] == ["gap.pushed"]
+    fl = f.item(iid)
+    assert fl["state"] == "fixed" and fl["fields"]["fixed_by"] == "green-runs"
+    assert fl["fields"]["fixed_on"] == f.item("gap/b")["fields"]["main_sha"]
+    assert f"fixed after green runs: {iid}" in f.stderr
+
+
+def test_a_failure_counting_the_flakes_never_fails_the_landing(tmp_path):
+    (tmp_path / "unit.sh").write_text(f"echo 'PASSED {FLAKY}'; echo '1 passed in 0.1s'\n")
+    f = Factory(tmp_path, unit=f"sh {tmp_path / 'unit.sh'}")
+    f.config.write_text(f.config.read_text().replace("[gates]\n", "[gates]\nflake_fixed_after = 99\n"))   # (refused)
+    iid = seen_flake(f)
+    approved_gaps(f, {"a": 1})
+    said, _ = f.run("queue.py", "gap/a")
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"]
+    assert "the flakes' green runs not counted (ValueError: [gates] flake_fixed_after" in f.stderr
+    assert f.item(iid)["fields"]["green_passes"] == 0
 
 
 def test_a_runs_sum_is_over_the_suites_that_ran_unknown_if_any_is():

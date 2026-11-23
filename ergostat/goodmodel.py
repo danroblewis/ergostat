@@ -67,7 +67,7 @@ def keep(project) -> str | None:
     r = getattr(m, "reads", None)
     if r is None or r.replay:
         return None
-    blobs = {**r.blobs, **{hashlib.sha256(b).hexdigest(): b for b in r.files.values() if b is not None}}
+    blobs = {hashlib.sha256(b).hexdigest(): b for b in r.files.values() if b is not None}
     kept = {"main": str(m.path.resolve()), "taken": time.time(), "dirs": r.dirs, "globs": r.globs, "trees": r.trees,
             "library": os.environ.get("ERGOSTAT_LIBRARY") or "",
             "files": {p: (hashlib.sha256(b).hexdigest() if b is not None else None) for p, b in r.files.items()}}

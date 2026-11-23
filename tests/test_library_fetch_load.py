@@ -74,7 +74,7 @@ def _refused(root, code):
     got = [p for p in errs if p.code == code]
     assert got and "shared" in got[0].message, [str(p) for p in errs]
     unknown = [p for p in errs if p.code == "unknown-template"]          # the template is not there, and why is said
-    assert unknown and f"library shared ({code}:" in unknown[0].message, [str(p) for p in errs]
+    assert unknown and f"library shared refused: {code}," in unknown[0].message, [str(p) for p in errs]
 
 
 def test_unlocked_treeless_missing_refused(tmp_path):
@@ -93,7 +93,7 @@ def test_unlocked_treeless_missing_refused(tmp_path):
     for gone in ("tree", "commit"):
         (root / "libraries.lock").write_text(json.dumps({"shared": {k: v for k, v in lock["shared"].items() if k != gone}}))
         _refused(root, "library-unlocked")
-    for bad in ("{not json", "[1, 2]", json.dumps({"shared": "x"})):
+    for bad in ("{not json", "[1, 2]", json.dumps({"shared": "x"}), "[" * 100_000 + "]" * 100_000):
         (root / "libraries.lock").write_text(bad)
         _refused(root, "library-lock-unreadable")
     (root / "libraries.lock").write_text(json.dumps(lock))
@@ -109,8 +109,8 @@ def test_libraries_main_file_only_and_in_schema(tmp_path):
     entry = schema["properties"]["libraries"]["additionalProperties"]
     assert set(entry["properties"]) == {"git", "version", "path", "trust"} and entry["additionalProperties"] is False
     with pytest.raises(fetched.sources.SourceError):
-        fetched.split({"x": {"git": "file:///x", "version": "main", "trust": "yes"}})
-    assert fetched.split({"x": {"git": "file:///x", "version": "main", "trust": "owner"}})[1] == {"x": "owner"}
+        fetched.sources.check({"x": {"git": "file:///x", "version": "main", "trust": "yes"}})
+    assert fetched.sources.check({"x": {"git": "file:///x", "version": "main", "trust": "owner"}})["x"]["trust"] == "owner"
 
 
 def test_changed_git_alone_unlocked(tmp_path):

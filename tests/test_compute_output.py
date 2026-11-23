@@ -206,7 +206,7 @@ def test_ended_after_last_out(node):
     assert ended["how"] == "TERM" and node.heard.index(ended) > node.heard.index(_outs(node, killed, "out")[-1])
     node.tell("done", run=killed)                       # done: the keeper removes the folder and ends
     assert until(lambda: not node.dir(killed).exists()) and until(lambda: not alive(got["keeper"]))
-    node.hear("beat")
-    assert killed not in node.hear("beat")["runs"]
-    assert node.ask("done", run=killed)["why"] == "no such run"
+    assert node.ask("done", run=killed)["why"] == "no such run"     # (answered after the done: requests in order)
+    node.hear("beat")                                   # (beats sent before that answer may predate the done, and
+    assert killed not in node.hear("beat")["runs"]      # the first after it may have read its runs just before)
     assert node.ask("done", run="x" * 32)["why"] == "no such run"
