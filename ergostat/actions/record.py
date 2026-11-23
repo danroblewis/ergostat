@@ -42,6 +42,20 @@ def fold(aid: str, events: list[dict]) -> dict:
             "moves": it.moves, **({"ignored": ignored} if ignored else {})}
 
 
+def who(f: dict, state: str | None) -> dict:
+    """Who asked for it (the block, else the session) and who answered, decided by its folded state (the fold applies
+    the answers in the record's order): a denial is final, so it is the last answer and ``note`` is the denial's. A
+    gate's own denial (deny gate, risk, fence, the act's check) says so with its reason, after any approval it overrode."""
+    said = lambda by, note: "gate (auto)" if by == GATE else f"{by} ({note})" if note else by   # noqa: E731
+    if state == "denied":
+        no = (f"denied by its gate: {f.get('note')}" if f.get("denied_by") == GATE
+              else f"denied by {said(f.get('denied_by'), f.get('note'))}")
+        answer = f"{said(f['approved_by'], None)}, then {no}" if f.get("approved_by") else no
+    else:
+        answer = said(f["approved_by"], f.get("note")) if state != "requested" and f.get("approved_by") else "not yet answered"
+    return {"by": f.get("block") or f.get("session") or "a session", "approved by": answer}
+
+
 def get(p, aid: str) -> dict | None:
     evs = p.events.query(n=None, item=item_of(aid))
     if not evs:                                            # a short prefix of its id will do
@@ -95,6 +109,33 @@ def counts(p, now: float | None = None, cls: str | None = None, since: float | N
 def by_class(p, now: float | None = None) -> dict[str, dict[str, float]]:
     classes = sorted({a.get("class") or a.get("action") for a in stored(p).values()} - {None})
     return {c: counts(p, now, c) for c in classes}
+
+
+def asked(p, spec=None, now: float | None = None) -> dict[str, dict]:
+    """Per class, the actions asked for over the last week, each counted once by where it ended: approved (ran,
+    failed or waiting to run; how many by the gate), denied, or waiting (held now), so asked is their sum; and its
+    gate: its strictest (deny > approve > auto, as §12p reads a class), the model's, else the strictest asked."""
+    from ..inbox.interventions import STRICT
+    now = time.time() if now is None else now
+
+    def strictest(g, h):                                   # a gate not known counts as the strictest
+        return max(g, h, key=lambda x: -1 if x is None else STRICT.get(x, 3))
+    gates: dict[str, str] = {}
+    for n, a in (getattr(spec, "actions", None) or {}).items():
+        gates[a.cls or n] = strictest(gates.get(a.cls or n), a.gate)
+    out: dict[str, dict] = {}
+    for a in stored(p, since=now - WEEK, until=now).values():
+        c = out.setdefault(a.get("class") or a.get("action") or "?",
+                           {"asked": 0, "approved": 0, "by_gate": 0, "denied": 0, "waiting": 0, "gate": None, "actions": []})
+        c["asked"] += 1
+        c["actions"] += [a.get("action")] if a.get("action") not in c["actions"] else []
+        c["gate"] = strictest(c["gate"], a.get("gate"))
+        end = {"requested": "waiting", "denied": "denied"}.get(a["state"], "approved")
+        c[end] += 1
+        c["by_gate"] += end == "approved" and a.get("approved_by") == GATE
+    for c, x in out.items():
+        x["gate"] = gates.get(c, x["gate"])
+    return dict(sorted(out.items()))
 
 
 def measure(p, name: str, now: float | None = None) -> float:

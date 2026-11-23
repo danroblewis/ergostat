@@ -1,5 +1,5 @@
-"""docs/GAPS.md's entry for upkeep's fault injection: done, citing only files and commits main has
-(dev/records/from-upkeep-s-fault-injection.md)."""
+"""docs/GAPS.md's entries for upkeep's fault injection (dev/records/from-upkeep-s-fault-injection.md) and Remote
+systems (dev/records/remote-systems.md): done, said once, citing only files and commits main has."""
 
 import ast
 import json
@@ -95,3 +95,138 @@ def test_resilience_docstring_cites_no_missing_file():
     cited = re.findall(r"docs/[\w./-]*?\.(?:md|py|jsonl)\b", doc or "")
     assert "docs/roadmap/overnight-2026-11-19.md" in cited
     assert [p for p in cited if not (ROOT / p).exists()] == []
+
+
+# Remote systems: one entry, done, its sub-gaps each said once, its only Left the IR (handed to the IR's entry).
+REMOTE = "Remote systems"
+REMOTE_RECORD = ROOT / "dev" / "records" / "remote-systems.md"
+SUBGAPS = ("remote-box-measures", "remote-of-remotes", "remote-mtls", "remote-process-lines", "remote-items-record")
+FILE = re.compile(r"`([\w.-]+(?:/[\w.-]+)*(?:\.(?:md|py|jsonl|yaml)|/))`")     # a file or a folder/, not /remote/v1/
+
+
+def entry(text: str, title: str) -> list[str]:
+    """The first top-level entry titled exactly TITLE outside *Done recently*, with its indented lines; fails if none."""
+    section, out = "", None
+    for line in text.splitlines():
+        if out is not None:
+            if line.startswith("  "):
+                out.append(line)
+                continue
+            return out
+        if line.startswith("## "):
+            section = line[3:].strip()
+        elif section != "Done recently" and line.startswith(f"- **{title}**"):
+            out = [line]
+    if out is None:
+        pytest.fail(f"no entry titled {title!r} in {GAPS}")
+    return out
+
+
+def clauses(lines: list[str], name: str) -> list[str]:
+    """Each `  - *NAME*` clause of an entry, joined over its own indented lines."""
+    out, cur = [], None
+    for line in lines[1:]:
+        if line.startswith("  - "):
+            cur = [line] if line.startswith(f"  - *{name}*") else None
+            if cur is not None:
+                out.append(cur)
+        elif cur is not None:
+            cur.append(line)
+    return [" ".join(x.strip() for x in c) for c in out]
+
+
+def remote_problems(lines: list[str]) -> list[str]:
+    """What is wrong with a Remote systems entry: a splice's marks (two Done or Left, a sub-gap said twice, a line
+    resuming mid-sentence) and a Left naming anything but the IR. Empty when it is whole."""
+    text = "\n".join(lines)
+    problems = []
+    if len(clauses(lines, "Done")) != 1:
+        problems.append(f"{len(clauses(lines, 'Done'))} Done clauses")
+    lefts = clauses(lines, "Left")
+    if len(lefts) > 1:
+        problems.append(f"{len(lefts)} Left clauses")
+    for left in lefts:               # an allowlist: every item of a Left is about the IR
+        problems += [f"a Left item not about the IR: {part!r}" for part in left.split(":", 1)[1].split(";")
+                     if not re.search(r"\bIR\b", part)]
+    problems += [f"{s} said {text.count(f'`{s}`')} times" for s in SUBGAPS if text.count(f"`{s}`") != 1]
+    for a, b in zip(lines, lines[1:], strict=False):
+        if a.rstrip().endswith(".") and re.match(r"\s+[a-z]", b) and not b.lstrip().startswith("- "):
+            problems.append(f"a line resumes mid-sentence after a full stop: {b.strip()!r}")
+    if re.search(r"Items|Record|composed of remotes|imported", " ".join(lefts)):
+        problems.append("a Left says the Items/Record pages or a remote of remotes is left")
+    return problems
+
+
+def run_bin(code: str, data: str) -> object:
+    """CODE run with dev/bin on its path and DATA on stdin; its last line read as JSON."""
+    r = subprocess.run([sys.executable, "-c", "import sys, json; sys.path[:0] = [sys.argv[1]]; " + code,
+                        str(ROOT / "dev" / "bin")], input=data, cwd=ROOT, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def test_remote_systems_entry_is_found_done_by_intake():
+    text = GAPS.read_text()
+    first = entry(text, REMOTE)[0]
+    spliced = text.replace(first, "- **Remote systems** (first slice done, 72da4e1, merged from `remote`; what is "
+                                  "left below is open;", 1)
+    said = run_bin("import intake; print(json.dumps([[intake.gaps_md(t), intake.twice(t)] "
+                   "for t in json.load(sys.stdin)]))", json.dumps([text, spliced]))
+    (entries, twice), (spliced_entries, _) = said
+    mine = [e for e in entries if e["title"] == REMOTE]
+    assert [(e["section"], e["gaps_says"]) for e in mine] == [("Remote systems and libraries", "done")], mine
+    assert "gap/remote-systems" not in twice, twice
+    assert [e["gaps_says"] for e in spliced_entries if e["title"] == REMOTE] == ["open"]      # the check can fail
+
+
+def test_remote_systems_entry_has_one_done_and_no_stale_left():
+    lines = entry(GAPS.read_text(), REMOTE)
+    assert remote_problems(lines) == []
+    assert len(clauses(lines, "Left")) <= 1 and len(clauses(lines, "Done")) == 1
+    mtls = [n for n, ln in enumerate(lines) if "Mutual TLS" in ln]
+    assert mtls
+    for spliced in (lines + ["  - *Left*: the remote's events in the Items and Record pages; serving the IR."],
+                    lines + lines[mtls[0]:mtls[0] + 3],
+                    lines + ["    measures on its closed box (done on a branch)."],
+                    lines[:1] + [ln for ln in lines[1:] if not ln.startswith("  - *Done*")]):
+        assert remote_problems(spliced), spliced                                           # each splice is seen
+
+
+def test_ir_entry_holds_remote_ir_serving():
+    ir = "\n".join(entry(GAPS.read_text(), "The IR and a Rust runtime"))
+    assert "format=ir" in ir and "ergostat-model/1" in ir, ir
+    assert "docs/proposals/remote-systems.md" in ir
+    left = (ROOT / "docs" / "proposals" / "remote-systems.md").read_text().split("**Left for later**", 1)[1]
+    left, built = left.split("are built:", 1)        # what is still left, then the list of what was built
+    assert "format=ir" in left and "Items" not in left and "Record" not in left, left
+    assert "`remote-items-record`" in built.split("## ", 1)[0]
+
+
+def test_remote_systems_record_entry_matches_gaps_md():
+    record = REMOTE_RECORD.read_text()
+    said = run_bin("import gapsdoc\ntry: print(json.dumps(gapsdoc.parse(sys.stdin.read())))\n"
+                   "except ValueError as e: print(json.dumps({'problem': str(e)}))", record)
+    assert said and "problem" not in said, said
+    assert said["section"] == "Remote systems and libraries" and said["entry_of"] is None
+    assert said["bullet"] == entry(GAPS.read_text(), REMOTE)
+    assert "problem" in run_bin("import gapsdoc\ntry: print(json.dumps(gapsdoc.parse(sys.stdin.read())))\n"
+                                "except ValueError as e: print(json.dumps({'problem': str(e)}))",
+                                record.replace("\n  (Owner, 2026-11-18.)", "\n\n  (Owner, 2026-11-18.)", 1))
+
+
+def test_remote_systems_entry_cites_only_paths_and_commits_that_exist():
+    lines = entry(GAPS.read_text(), REMOTE)
+    text = "\n".join(lines)
+    paths = FILE.findall(text)
+    assert {"docs/proposals/remote-systems.md", "examples/remote-pair/", "tests/test_remote.py",
+            "tests/test_remote_items.py"} <= set(paths), paths
+    assert [p for p in paths if not (ROOT / p).exists()] == []
+    flat = " ".join(x.strip() for x in lines)
+    for s in SUBGAPS:                                 # each sub-gap said done names the tests that show it
+        assert re.search(rf"`{s}`, `tests/test_[\w]+\.py`", flat), s
+    hashes = HASH.findall(text)
+    assert "72da4e1" in hashes
+    ref = main_ref()
+    off = [h for h in hashes if subprocess.run(["git", "merge-base", "--is-ancestor", h, ref], cwd=ROOT,
+                                               capture_output=True).returncode != 0]
+    assert off == [], f"not on {ref}: {off}"

@@ -101,10 +101,20 @@ def test_library_every_refused(tmp_path):
     assert "flows.u-c-arriving.sensor.every" in refused_once(path)
 
 
-def test_library_literal_equal_to_owner_command_refused(tmp_path):
+SBX = "sandbox"
+
+
+def sandboxed(path: Path, flow: str = "u-c-arriving"):
+    """The chain went in (bounds.py's floor on the built-in's own timers aside), its sensor's run only sandboxed."""
+    s = next(iter(gate_allows(path).flows[flow].sensors.values()))
+    assert s.run_in == SBX, s
+    return s
+
+
+def test_library_literal_equal_to_owner_command_sandboxed(tmp_path):
     body = "blocks:\n  b: {type: program, run: '${cmd}'}\n" + COLLECT.replace("'${{cmd}}'", f"'{CMD}'").format(more="")
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body=body)})
-    assert "sensor.run" in refused_once(path)
+    assert CMD in sandboxed(path).run
 
 
 def test_library_default_for_command_param_refused(tmp_path):
@@ -112,11 +122,12 @@ def test_library_default_for_command_param_refused(tmp_path):
     assert "blocks.u-b.run" in refused_once(path)
 
 
-@pytest.mark.parametrize("body", ["blocks:\n  b: {type: program, run: '${cmd} | sh'}\n",
-                                  COLLECT.replace("'${{cmd}}'", "'${{cmd}}; x'").format(more="")])
-def test_library_text_around_owner_command_refused(tmp_path, body):
-    path = write(tmp_path, {"cmd": CMD}, {"l": L(body=body)})
+def test_library_text_around_owner_command_refused(tmp_path):
+    path = write(tmp_path, {"cmd": CMD}, {"l": L(body="blocks:\n  b: {type: program, run: '${cmd} | sh'}\n")})
     assert ".run," in refused_once(path)
+    # in a sensor's run: sandboxed
+    path = write(tmp_path, {"cmd": CMD}, {"l": L(body=COLLECT.replace("'${{cmd}}'", "'${{cmd}}; x'").format(more=""))})
+    sandboxed(path)
 
 
 def test_owner_string_param_in_run_refused(tmp_path):
@@ -127,21 +138,17 @@ def test_owner_string_param_in_run_refused(tmp_path):
 def test_command_mark_lost_through_non_command_param(tmp_path):
     body = "uses:\n  c:\n    use: collect\n    with: {command: '${s}'}\n"
     path = write(tmp_path, {"s": CMD}, {"l": L("s: {type: string}", body)})
-    assert "flows.u-c-arriving.sensor.run" in refused_once(path)
+    sandboxed(path)
     # the same through a list's field, and a field of the owner's map: whose words a field holds can't be told
     body = "uses:\n  c:\n    use: collect\n    with: {command: '${m.run}'}\n"
     path = write(tmp_path, {"m": {"run": CMD}}, {"l": L("m: {type: map}", body)})
-    assert "flows.u-c-arriving.sensor.run" in refused_once(path)
+    sandboxed(path)
 
 
-def test_nested_library_literal_refused(tmp_path):
+def test_nested_library_literal_sandboxed(tmp_path):
     l2 = "template: l2\nitems:\n  k: {id: k/*}\nuses:\n  c:\n    use: collect\n    with: {command: ./fetch.sh}\n"
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body="stocks:\n  s: {unit: u}\nuses:\n  in:\n    use: l2\n"), "l2": l2})
-    msg = refused_once(path)
-    assert "u-in-c-arriving.sensor.run" in msg and "template l from" in msg
-    spec, _ = read(path)
-    assert not spec.stocks and not spec.flows and not spec.blocks and not [k for k in spec.items if k[:9] != "ergostat."]
-    assert not [s for s in spec.systems if s.startswith("u")]
+    assert "./fetch.sh" in sandboxed(path, "u-in-c-arriving").run
 
 
 @pytest.mark.parametrize("own", ["params:\n  x: {type: name}\nstocks:\n  s: {unit: u}\nflows:\n  f:\n    to: s\n"
@@ -151,7 +158,10 @@ def test_library_value_into_owner_folder_template_run_refused(tmp_path, own):
     name = "x" if "x:" in own else "kind"
     body = f"uses:\n  o:\n    use: of\n    with: {{{name}: tickets}}\n"
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body=body)}, {"of": "template: of\n" + own})
-    assert ".run," in refused_once(path)
+    if "sensor" in own:                         # a sensor's: sandboxed
+        assert compiles(path).flows["u-o-f"].sensors["main"].run_in == SBX
+    else:
+        assert ".run," in refused_once(path)
 
 
 # ---- R2: library values as arguments to ergostat's programs
@@ -161,18 +171,21 @@ COLLECT_KV = "uses:\n  c:\n    use: collect\n    with: {{command: '${{cmd}}', {k
 
 
 @pytest.mark.parametrize("template, key, value, ok", [
-    ("collect", "kind", "rm\n", False), ("collect", "kind", "a" * 65, False), ("collect", "kind", "Tickets", False),
+    ("collect", "kind", "rm\n", SBX), ("collect", "kind", "a" * 65, SBX), ("collect", "kind", "Tickets", False),
     ("re-ping", "every", "5m\n", False), ("re-ping", "every", " 5m", False), ("re-ping", "every", "1e3s", False),
-    ("re-ping", "limit", "1e9", False), ("collect", "stand-in-rate", "nan", False),
-    ("re-ping", "every", "0ms", False), ("re-ping", "limit", 101, False), ("collect", "stand-in-rate", 100000, False),
+    ("re-ping", "limit", "1e9", False), ("collect", "stand-in-rate", "nan", SBX),
+    ("re-ping", "every", "0ms", False), ("re-ping", "limit", 101, False), ("collect", "stand-in-rate", 100000, SBX),
     ("collect", "kind", "tickets", True), ("re-ping", "every", "5m", True), ("re-ping", "every", "1.5h", True),
     ("re-ping", "limit", 3, True), ("collect", "kind", "a" * 64, True)])
 def test_narrow_value_patterns(tmp_path, template, key, value, ok):
+    """A value R2 refuses: a block refused at the use; a sensor's run sandboxed (SBX: library/runs.py)."""
     body = (COLLECT_KV if template == "collect" else REPING).format(k=key, v=json.dumps(value))
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body=body)})
     if ok:
         spec = gate_allows(path)
         assert spec.flows[next(f for f in spec.flows if f.endswith("-asked") or f.endswith("-arriving"))]
+        got = {s.run_in for f in spec.flows.values() for s in f.sensors.values() if s.run}
+        assert got == ({"sandbox"} if ok == SBX else {"owner"}) or template != "collect", got
         return
     errs = errors(path)                    # refused by the gate, or by the parameter's own type: either way at the use
     assert {e.code for e in errs} - {bounds.CODE}, errs            # not only bounds.py's floor
@@ -308,7 +321,7 @@ def test_builtin_run_slots_take_narrow_values_only_as_arguments(tmp_path):
 
 ARGVS = [["collect"], ["each"], ["ping"], ["due"], ["report"], ["modelling", "requests"], ["modelling", "rules"],
          ["modelling", "ai"], ["modelling", "redesign"], ["modelling", "review"], ["upkeep", "tidy"],
-         ["upkeep", "rollup"], ["standin", "act"], ["standin", "level"]]
+         ["upkeep", "rollup"], ["standin", "act"], ["standin", "level"], ["todo", "batches"]]
 
 
 def options(monkeypatch, extra: str | None = None) -> dict[str, set[str]]:
@@ -347,7 +360,7 @@ def test_refusal_never_suggests_with(tmp_path):
              ({}, L("cmd: {type: command, default: ./fetch.sh}", "blocks:\n  b: {type: program, run: '${cmd}'}\n")),
              ({"s": CMD}, L("s: {type: string}", "blocks:\n  b: {type: program, run: '${s}'}\n")),
              ({"cmd": CMD}, L(body=COLLECT.replace("'${{cmd}}'", "./fetch.sh").format(more=", poll: 1m"))),
-             ({"cmd": CMD}, L(body=COLLECT.format(more=", kind: \"rm\\n\""))),
+             ({"cmd": CMD}, L(body='blocks:\n  b: {type: program, run: "rm\\n", every: 10m}\n')),
              ({"cmd": CMD}, L(body='blocks:\n  b: {type: program, run: "\\0c,command,,0\\x02./fetch.sh\\x01"}\n'))]
     for i, (given, body) in enumerate(cases):
         (tmp_path / str(i)).mkdir()
@@ -478,8 +491,18 @@ def test_ai_person_other_keys_still_refused(tmp_path, key, value, ty, text):
     assert compiles(write(tmp_path, given, {"l": L(params, block % "")})).blocks["u-b"].type == ty
 
 
-@pytest.mark.parametrize("body", ["stocks:\n  s: {unit: u}\nflows:\n  f: {to: s, sensor: {run: 'touch %s'}}\n",
-                                  "blocks:\n  b: {type: program, run: 'touch %s', every: 10m}\n",
+def test_try_use_sandboxes_a_library_sensor(tmp_path):
+    """A library's sensor run is not refused, but run only sandboxed: the owner's folder is never written."""
+    from ergostat.mcp import Server
+    marker = tmp_path / "touched"
+    path = write(tmp_path, {"cmd": CMD}, {"l": L(body=f"stocks:\n  s: {{unit: u, sensor: {{run: 'touch {marker}'}}}}\n")})
+    assert compiles(path).stocks["u-s"].sensors["main"].run_in == SBX
+    got = json.loads(Server(tmp_path).call("try_use", {"system": "u", "seconds": 2})["content"][0]["text"])
+    assert got["check"]["ok"] is True, got
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("body", ["blocks:\n  b: {type: program, run: 'touch %s', every: 10m}\n",
                                   "blocks:\n  b: {type: person, ask: 'touch %s', every: 10m}\n"])
 def test_try_use_runs_nothing_when_refused(tmp_path, body):
     from ergostat.mcp import Server
@@ -500,7 +523,5 @@ def test_try_use_runs_nothing_when_refused(tmp_path, body):
 def test_safe_forms_in_trusted_text(tmp_path, ty, run, given, ok):
     of = f"template: of\nparams:\n  x: {{type: {ty}}}\nstocks:\n  s: {{unit: u}}\nflows:\n  f:\n    to: s\n    sensor: {{run: '{run}'}}\n"
     path = write(tmp_path, {"cmd": CMD}, {"l": L(body=f"uses:\n  o:\n    use: of\n    with: {given}\n")}, {"of": of})
-    if ok:
-        assert next(iter(compiles(path).flows["u-o-f"].sensors.values())).run == CMD
-    else:
-        assert "flows.u-o-f.sensor.run," in refused_once(path)
+    s = next(iter(compiles(path).flows["u-o-f"].sensors.values()))
+    assert (s.run == CMD) is ok and s.run_in == ("owner" if ok else SBX)

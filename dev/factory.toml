@@ -15,6 +15,7 @@ kill_after = 6                       # failed gates (reviews, queue conflicts, r
 build_failures = 6                   # the implementor's failed fast suites that park a gap (main's own failures
                                      # are not counted: dev/bin/onmain.py)
 build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
+mend_most = 5                        # main-broken tests main-mend runs again a run, oldest first (1-20; dev/bin/mend.py)
 plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
 scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej", "test_zz*",
                     "*_tmp.py", "*.tail", ".bench*", ".mut*"]
@@ -57,6 +58,18 @@ groomer_model = "opus"               # the groomer: the backlog's links, value, 
 groomer_session_usd = 3.0
 pipeline_manager_model = "opus"      # the pipeline manager (dev/bin/manager.py): one session sees the whole pipeline
 pipeline_manager_session_usd = 3.0
+designer_model = "opus"              # the designer: starts a demo and walks it (agents.py; read-only, pictures in run/shots/)
+designer_session_usd = 2.0
+
+[milestones]                         # groups of gaps finished together (dev/bin/milestones.py)
+active_max = 3                       # the most milestones active at once, an upkeep one not counted (1-20)
+upkeep_days = 7                      # an upkeep milestone's cycle: then it completes, its unfinished gaps carried to the
+                                     # next (1-90)
+enforce = false                      # true: the pass places every unfinished gap with no milestone, or a completed one
+                                     # (a split's or continued gap's parent's; the factory's own: upkeep; else the first
+                                     # active). Off until the owner turns it on: on, the first pass moves every old label.
+                                     # And the planner and the implementor take only the gaps of active milestones,
+                                     # and pulled ones (waits_on_milestone); review and the queue are never held
 
 [backlog]
 every_hours = 12                     # the groomer grooms again this long after the last, with no new gap before
@@ -65,6 +78,7 @@ every_hours = 12                     # the groomer grooms again this long after 
 chars = 24000                        # the whole knowledge section, in characters, unless the role has its own
 plan_reviewer_chars = 12000          # (the lessons alone)
 pipeline_manager_chars = 12000
+research_chars = 6000                # each answered research report a brief carries, cut at a line (within the above)
 librarian = true                     # true runs the librarian after each review (an AI step on haiku); the owner wants
                                      # review findings learned (operator, 2026-11-20)
 
@@ -77,6 +91,8 @@ token_file = "~/.config/ergostat/claude-token"   # the owner's, from `claude set
                                      # 2026-11-21); an empty cpuset pins nothing (agents.limits)
 session_cpus = 1.5                   # each AI session's (and its finish's) container's --cpus; the suite containers
                                      # keep their 4. Empty or absent: 4; above 4 or not a number refuses the session
+designer_cpus = 3                    # a designer's --cpus, and a web-touching implementor's (its brief names
+                                     # ergostat/web/): an engine and Chromium at once. Absent: 3; outside (0, 4] refused
 session_cpuset = "0-7"               # the sessions' (implementor, reviewer, ...) and their finish's CPUs
 suite_cpuset = "8-11"                # a gap's own suites' (the implementor's rounds, 4 CPUs each)
 queue_cpuset = "12-23"               # the merge queue's and flake triage's suites ([suites] queue_container): unit (8)
@@ -92,7 +108,7 @@ hold = true                          # operator (2026-11-20): the role pools sta
                                      # says what it would do (pool.measured, held). false: sized by risk
 batch = 1                            # approved gaps the merge queue tests together, to start (1: one a run)
 batch_max = 8                        # the most a batch may be (the tuner asks for more while the queue wait is off)
-batch_minutes = 120                  # a queue run's time allowance from its start: past it, no more bisecting (what is
+batch_minutes = 120                  # a queue run's time allowance from its start: past it, no more splitting (what is
                                      # proven lands, the rest back to approved uncounted); over 150 refused, so one suite
                                      # run after it stays inside the block's 3 h timeout
 
@@ -167,7 +183,9 @@ build = "uv run python scripts/suite_watch.py -- uv run python scripts/affected_
                                      # of the modules it changed (affected_tests.py). Comment it out or leave it ""
                                      # and the step runs the full unit suite, as before. The merge queue never reads
                                      # it: it always runs unit, browser and demo in full
-browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+browser = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rfEs -n 4 --dist worksteal tests/test_diagram_rendering.py tests/test_page_polling.py tests/test_items_page.py tests/test_page_refresh.py"
+                                     # (-rfEs, as unit: the SKIPPED lines queue.suites counts, and the FAILED and
+                                     # ERROR lines fac.failed_tests reads; -rs alone printed neither of those)
 browser_ready = "uv run --with playwright==1.63.0 python -c 'from playwright.sync_api import sync_playwright as s; p = s().start(); p.chromium.launch().close(); p.stop()'"
                                      # before an implementor round with build_browser (agents.browser_ready): no
                                      # browser stops it
@@ -177,7 +195,8 @@ build_browser = false                # true: each implementor round also runs th
 demo = "uv run --with playwright==1.63.0 python scripts/demo_check.py ticket-factory image-squeeze the-job roadmap"
 alone = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"   # the
                                      # implementor's failing tests again, on its branch and on main (onmain.py)
-rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rs -p no:randomly {tests}"
+rerun = "uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python -m pytest -q -rfEs -p no:randomly {tests}"
+                                     # (-rfEs, as browser: the FAILED and ERROR lines fac.failed_tests reads)
 measure = "uv run python scripts/suite_watch.py -- uv run python -m pytest -q -p no:randomly {tests}"  # one run of
                                      # a definition's named measurement (manage.py measure-runs, dev/bin/runs.py)
 load = '''python3 scripts/suite_watch.py -- python3 -c '

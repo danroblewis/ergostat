@@ -1,0 +1,3 @@
+[{"goto": "http://127.0.0.1:8796/diagram"}, {"wait": 4000}, {"text": "css=#running"}, {"shot": "plan-goalvocab-sf-home.png"},
+ {"goto": "http://127.0.0.1:8796/loops"}, {"wait": 4000}, {"shot": "plan-goalvocab-sf-loops.png"}, {"text": "css=main"},
+ {"goto": "http://127.0.0.1:8793/diagram?view=blocks"}, {"wait": 5000}, {"text": "css=#running"}, {"shot": "plan-goalvocab-is-blocks.png"}]

@@ -87,10 +87,11 @@ class _Run:
             for pr in x.preds:
                 self.after.setdefault(pr, []).append(x.id)
         self.parked: set[str] = set()
+        self.gone: set[str] = set()                     # tracked items counted out partway through (``out``)
         self.holds = {i: set(x.holds) for i, x in inp.items.items() if x.holds} if flags.queue else {}
         self.wsfree = {w: n - sum(1 for h in self.holds.values() if w in h) for w, n in inp.workspaces.items()}
         self.no_ws = [[] for _ in self.blocks]          # queued, waiting for a workspace: back in the queue when one frees
-        self.open = len(inp.items)
+        self.open = sum(1 for x in inp.items.values() if not x.unscheduled)   # (those that cannot move: not run)
         self.n_new = 0
 
     def push(self, t, *ev):
@@ -107,15 +108,19 @@ class _Run:
             self.done(i, t, state == DEAD)
             return
         if state in k.paused:
-            return                                     # paused: continued by hand, projected not to move
+            self.out(i)                                # paused: continued by hand, projected not to move
+            return
         if i not in self.start and state != k.states[0] and i in self.inp.items:
             self.start[i] = t
         bs = self.by_state.get((it[0], state))
         if self.left.get(i) and (state == k.states[0] or bs and any(self.blocks[b].unblocked for b in bs)):
             self.parked.add(i)                         # waits on what it names
+            if any(p in self.gone for p in self.inp.items[i].preds):
+                self.out(i)
             return
         if bs and all(self.blocks[b].off for b in bs):
-            return                                     # what would take it is commanded off: it stays where it is
+            self.out(i)                                # what would take it is commanded off: it stays where it is
+            return
         if bs:
             x = self.inp.items.get(i)
             for b in bs:
@@ -145,6 +150,17 @@ class _Run:
         rest = [s for s in k.states if s not in (DEAD, LEASED)]   # never seen to leave: the next in its kind's order
         j = rest.index(state) + 1 if state in rest else len(rest)
         return rest[j] if j < len(rest) else rest[-1]
+
+    def out(self, i: str) -> None:
+        """A tracked item that cannot move from here (paused, at blocks off, waiting on such an item): not finished
+        in this run and no longer waited for, as are those parked waiting on it (else the run goes to the horizon)."""
+        if i not in self.inp.items or i in self.gone:
+            return
+        self.gone.add(i)
+        self.open -= 1
+        for d in self.after.get(i, []):
+            if d in self.parked:
+                self.out(d)
 
     def done(self, i: str, t: float, dead: bool) -> None:
         for w in self.holds.pop(i, ()):                 # finished: its workspace cleaned, free for the next
@@ -257,6 +273,8 @@ class _Run:
         names = {b.name: j for j, b in enumerate(self.blocks)}
         for x in sorted(inp.items.values(), key=lambda x: (x.queued, x.id)):
             self.items[x.id] = [x.kind, x.state, x.entered, x.attempts, 0]
+            if x.unscheduled:
+                continue
             if x.lease and x.lease[0] in names and self.f.queue:
                 b = names[x.lease[0]]
                 self.start[x.id] = t0
@@ -305,8 +323,9 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     """Each open item's p50 and p90 finish and its expected start, per kind when its last open item finishes, and a
     levelled schedule (the run whose last finish is the median's) for the Timeline."""
     t_end = time.monotonic() + budget                   # (the runs within ``budget``, the levelled one within as much again)
-    fins, starts, deads, lasts = {i: [] for i in inp.items}, {i: [] for i in inp.items}, {i: 0 for i in inp.items}, []
-    n = 0
+    live = {i: x for i, x in inp.items.items() if not x.unscheduled}   # (the rest: not scheduled, said why)
+    fins, starts, deads, lasts = {i: [] for i in live}, {i: [] for i in live}, {i: 0 for i in live}, []
+    outs, n = {i: 0 for i in live}, 0
     for r in range(runs):
         if n and time.monotonic() > t_end:
             break
@@ -315,7 +334,10 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
             break
         n += 1
         last = {}
-        for i, x in inp.items.items():
+        for i, x in live.items():
+            if i in run.gone:                         # counted out: no finish, and not in its kind's last
+                outs[i] += 1
+                continue
             f = run.finish.get(i, float("inf"))
             fins[i].append(f)
             starts[i].append(run.start.get(i, f))
@@ -326,12 +348,21 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
     mean = lambda xs: sum(xs) / len(xs) if xs and max(xs) < float("inf") else None   # noqa: E731
     items = {i: {"p50": _q(fins[i], 0.5), "p90": None if few else _q(fins[i], 0.9), "mean": mean(fins[i]),
                  "start": _q(starts[i], 0.5),
-                 "dead": round(deads[i] / n, 3), "runs": n} for i in inp.items} if n else {}
+                 "dead": round(deads[i] / n, 3), "runs": n, "out": round(outs[i] / n, 3)} for i in live} if n else {}
+    for x in items.values():
+        if x["out"]:
+            x["why"] = (f"counted out in {round(x['out'] * 100)}% of runs, where it cannot move on (paused, at blocks"
+                        " off, or waiting on such an item); its p50 and p90 are of the other runs")
+    for i, x in inp.items.items() if n else ():
+        if x.unscheduled:
+            items[i] = {"unscheduled": True, "why": x.unscheduled, "p50": None, "p90": None, "mean": None,
+                        "start": None, "dead": 0.0, "runs": n}
     kinds = {}
     for k in {x.kind for x in inp.items.values()} if n else ():
-        xs = [la.get(k, 0.0) for la in lasts]
+        xs = [la[k] for la in lasts if k in la]         # (the items that can move only)
         kinds[k] = {"p50": _q(xs, 0.5), "p90": None if few else _q(xs, 0.9), "visits": inp.kinds[k].visits,
-                    "open": sum(1 for x in inp.items.values() if x.kind == k)}
+                    "open": sum(1 for x in live.values() if x.kind == k),
+                    "unscheduled": sum(1 for x in inp.items.values() if x.kind == k and x.unscheduled)}
     # the levelled schedule: the run whose last finish is nearest the median's, drawn again with its segments kept
     rep = None
     if n and time.monotonic() < t_end + budget:
@@ -340,7 +371,7 @@ def simulate(inp: Inputs, flags: Flags = Flags(), runs: int = RUNS, seed: int = 
         r = min(range(n), key=lambda j: (abs(ends[j] - med) if med != float("inf") else 0, j))
         run = _Run(inp, flags, random.Random(seed * 1_000_003 + r), pools or {}, failures or {}, True)
         run.go(horizon, t_end + budget)
-        rep = {i: s for i, s in run.segs.items() if i in inp.items}
+        rep = {i: s for i, s in run.segs.items() if i in live}
     held = {}                                           # (leases held over a lowered pool: their lanes drawn too)
     for x in inp.items.values():
         if x.lease and x.lease[0]:

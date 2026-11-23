@@ -83,5 +83,5 @@ def box(spec, system: str | None) -> dict | None:
     else:
         says, state = "not read yet", "unknown"
     v = r.get("version")
-    return {"name": name, "url": r["url"], "version": v, "state": state, "missing": len(r.get("missing") or []),
+    return {"name": name, "url": r["url"], "version": v, "state": state, "missing": len(r.get("missing") or []), "now": says,
             "says": f"remote · {r['url'].split('://', 1)[-1]}" + (f" · v{v[:7]}" if v else "") + f" · {says}"}
