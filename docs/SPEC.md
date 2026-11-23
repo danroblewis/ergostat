@@ -1459,10 +1459,12 @@ members at `points` moments (2 to 200), from their moves (membership and `done_w
 `GET /api/items-groups?kind=K&by=REL[&points=N]` answers it, as of now, as a table a chart reads as it is: `rows` the
 categories, `stacks` the series stacked in each, and each row's `done` over `times` (at most 20,000 items of the kind
 and of each group kind: past that it is refused, never cut). `ergostat item --kind K --groups REL [--json]` prints
-it. The Items listing names each kind's relations it is offered for (`progress`), and the kind's card on the Items page
-draws a compact row a group under its chart: its name and title, a bar (done, in progress, waiting, stopped), done of
+it. The Items listing and the overview name each kind's relations it is offered for (`progress`), and the kind's card,
+on the overview and on the kind's own page, draws a compact row a group under its chart (on the overview, the card
+two columns wide): its name and title, a bar (done, in progress, waiting, stopped), done of
 its total, its state and what it waits on. The active ones and the row for none are shown, the rest folded behind one
-button that says how many and in which states. A row's click opens its set: the list, and the Graph and the Timeline,
+button that says how many and in which states. A row's click opens its set (from the overview, on the kind's own
+page, `/items/KIND?where=REL:ID`): the list, and the Graph and the Timeline,
 which narrow to a set's `where` on a relation of the kinds asked (its items, and what they wait on).
 
 A relation is a field like any other: events add and take away links as they change fields (`"data": {"blocked_by":
@@ -1783,7 +1785,7 @@ chart shows the kind's **state groups**: *done* its finished states, *stopped* i
 the states its items wait in to be taken (its first state, and any a block takes from), *working* the rest (`leased`
 among them). One switch on the page shows every state instead; the choice is kept in the address
 (`/items?states=all`), and switching redraws every chart from the answer the page holds, with no request. The whole
-overview is one answer, `GET /api/items-overview?since=...` (`at=` for a moment travelled to; `web/items_overview.py`),
+overview is one answer (and, for a kind with a group relation, its progress per group: *Progress per group*, above), `GET /api/items-overview?since=...` (`at=` for a moment travelled to; `web/items_overview.py`),
 read from the item index: its counts, its moves and its arrivals, and no replay or scan of the event log (the index
 catches up on the events recorded since it last read, as for every indexed answer, and an item with an event after
 the moment shown is folded again from its own events). Where the

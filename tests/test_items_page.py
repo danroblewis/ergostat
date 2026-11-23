@@ -2223,7 +2223,10 @@ def test_twenty_five_milestones_fit_on_the_gap_card_without_pushing_the_kinds_be
     pg.wait_for_function("() => document.querySelectorAll('.gp-row').length === 26")
     unfolded = pg.evaluate(GP_READ)
     rows = unfolded["rows"]
-    assert any(t >= 1000 for n, t, _ in unfolded["cards"] if n.split("/")[0] in mine), unfolded["cards"]   # (the fold is why)
+    # (the fold is why: unfolded, the 22 rows more push the next row of cards down by at least twenty rows' height)
+    row_h = pg.evaluate("() => document.querySelector('.gp-row').getBoundingClientRect().height")
+    pushed = {n.split("/")[0]: t for n, t, _ in unfolded["cards"]}
+    assert any(pushed[n] - mine[n] >= 20 * row_h for n in mine), (got["cards"], unfolded["cards"], row_h)
     assert rows[3][0] == "milestone/m04" and rows[3][2] == "waiting · waits on m03" and rows[-1][0] == ""
     assert rows[-2] == ["milestone/m25", "2/2", "completed"]
     pg.click(".gp-more")
@@ -2246,9 +2249,10 @@ def test_a_milestones_row_opens_exactly_its_gaps_in_the_list_graph_and_timeline(
         pg.wait_for_function("() => location.search.includes('where=milestone')")
         pg.wait_for_function(f"(w) => JSON.stringify(({table})()) === JSON.stringify(w)", arg=want, timeout=20000)
         assert pg.locator(f'.gp-row.on[data-group="{group}"]').count() == 1
-        search = pg.evaluate("() => location.search")
+        here = pg.evaluate("() => location.pathname + location.search")     # the kind's own page, /items/gap?where=
+        assert here.startswith("/items/gap?"), here
         for view, sel in (("graph", ".rg-graph[data-drawn] .rg-node"), ("timeline", ".rg-row")):
-            pg.goto(f"{milestoned}/items{search}&view={view}&frontier=0&collapse=0")
+            pg.goto(f"{milestoned}{here}&view={view}&frontier=0&collapse=0")
             pg.wait_for_selector(sel, timeout=20000)
             pg.wait_for_timeout(500)
             ids = pg.evaluate(f"() => [...document.querySelectorAll('{sel}')].map((n) => n.dataset.id)"
