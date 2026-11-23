@@ -56,3 +56,9 @@ Round 2, answering both findings of the round-1 review (no plots.js, CSS or HTML
   paths: () => null on multiChart's series (end labels still drawn), "lines" was [0, 0]. With the code restored, both
   themes pass ([9, 9]).
 Overrun reason: the tests are 100 lines (74 in tests/test_diagram_rendering.py, 26 in tests/test_plots.py), not 60. The reason is the same as round 1's: the checks read the drawn canvas so that each one can fail, and the page script, the seed and the served fixture take about 50 of those lines.
+
+Round 3: the merge of main (76e1a9ab1945) conflicted only in tests/test_diagram_rendering.py. Both sides had added a test
+at the end of the file: the branch's test_the_three_chart_forms_draw_in_each_theme and main's
+test_what_waits_for_you_is_one_step_from_every_page. Both were kept unchanged, one after the other. Nothing else changed.
+After the merge, ruff is clean, and tests/test_plots.py and both of those browser tests pass (named, under the watchdog).
+The rest of that browser file and the unit suite were not run here; the merge queue runs them.
