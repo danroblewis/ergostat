@@ -5594,11 +5594,14 @@ def test_a_stacked_gap_is_reviewed_against_its_base(tmp_path):
     diff = text.split("```diff", 1)[1].split("```", 1)[0]
     assert "own.py" in diff and "base.py" not in diff and "x49 = 49" not in diff
     assert "# This gap is stacked" in text and "gap/beta-base at " in text
-    assert "`git diff refs/stack/factory/alpha-thing...HEAD`" in text
+    sb = f.item(gid)["fields"]["stack_base"]                       # its base, said with its head (implement.py)
+    assert sb == git(f.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
+    assert f"`git diff {sb}...HEAD`" in text
 
     g = Factory(tmp_path / "two")                                 # its base gone from the drop: never judged on main
     gid = built(g)                                                # as if it were the gap's own
     git(g.tmp / "live" / "drop.git", "update-ref", "-d", "refs/stack/factory/alpha-thing")
+    g.fold([{"event": "gap.measured", "item": gid, "data": {"stack_base": ""}}], None)    # (built before stack_base)
     said, _ = g.run("review.py", gid)
     assert said[-1] == "gap.sent-back"
     found = g.item(gid)["fields"]["findings"]
@@ -5611,11 +5614,19 @@ def test_a_stacked_gap_is_reviewed_against_its_base(tmp_path):
     gid = built(h)                                  # base it is judged against moves with it, so its diff stays its own
     drop, before = h.tmp / "live" / "drop.git", git(h.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
     new = commit_on(h, "beta-base", {"base2.py": "".join(f"y{i} = {i}\n" for i in range(30))})
+    taken = h.record.read_text()                    # the record as a reviewer that took the gap just before read it
     said, _ = h.run("stack.py")
     assert said == ["gap.measured"] and h.item(gid)["state"] == "built" and holds(drop, new, h.item(gid)["fields"]["head"])
     ref = git(drop, "rev-parse", "refs/stack/factory/alpha-thing")
-    assert ref != before and parents(h, ref) == [before, new]              # its base moved first, by the base's head
+    assert ref != before and parents(h, ref) == [before, new]              # its base made again, by the base's head
     assert parents(h, h.item(gid)["fields"]["head"])[1] == ref             # and merged into it in the base's place
+    assert h.item(gid)["fields"]["stack_base"] == ref                      # said with the new head, in one event
+    moved = h.record.read_text()
+    h.record.write_text(taken)                      # lesson-1: the review taken in the window (its head and fields read
+    said, _ = h.run("review.py", gid)               # before the merge forward, its clone made after the ref moved)
+    assert said[-1] == "gap.approved", h.item(gid)["fields"].get("findings")
+    assert [h.item(i)["fields"]["net_lines"] for i in h.db()["items"] if i.startswith("review/alpha-thing-")] == [2]
+    h.record.write_text(moved)
     said, _ = h.run("review.py", gid)
     assert said[-1] == "gap.approved", h.item(gid)["fields"].get("findings")
     (rid,) = [i for i in h.db()["items"] if i.startswith("review/alpha-thing-")]
@@ -5624,12 +5635,12 @@ def test_a_stacked_gap_is_reviewed_against_its_base(tmp_path):
     diff = text.split("```diff", 1)[1].split("```", 1)[0]
     assert "own.py" in diff and "base2.py" not in diff and "y29 = 29" not in diff
 
-    k = Factory(tmp_path / "four")                  # merged forward but its base not moved with it: fails closed
+    k = Factory(tmp_path / "four")                  # merged forward but its base not made again with it: fails closed
     gid = built(k)
     stale = git(k.tmp / "live" / "drop.git", "rev-parse", "refs/stack/factory/alpha-thing")
     commit_on(k, "beta-base", {"base2.py": "".join(f"y{i} = {i}\n" for i in range(30))})
     said, _ = k.run("stack.py")
-    git(k.tmp / "live" / "drop.git", "update-ref", "refs/stack/factory/alpha-thing", stale)
+    k.fold([{"event": "gap.measured", "item": gid, "data": {"stack_base": stale}}], None)
     said, _ = k.run("review.py", gid)
     assert said[-1] == "gap.sent-back"
     found = k.item(gid)["fields"]["findings"]

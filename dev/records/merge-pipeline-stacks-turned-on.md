@@ -70,3 +70,36 @@ the reviewer write to the drop.
 Size: still 0 net lines of core code. Counting dev/bin, dev/model and ergostat.yaml, 62 net lines (deps.py 11,
 review.py 26, stack.py 18, building.yaml 5, ergostat.yaml 2).
 Overrun reason: counted with dev/bin, the round-2 fix for the review's blocking finding (stack.py restack and the fail-closed check in review.py, 22 lines) brings 40 to 62, 2 over 60; the size gate's own count (outside tests/, docs/ and dev/) is 0.
+
+### Round 3
+
+Round 2 left a lesson-1 race, the one blocking finding: restack wrote refs/stack/factory/<branch> before the branch
+moved and before `gap.measured` was said. A reviewer that took the gap in that window read the old head against the
+new ref, and was sent back spuriously. The fix:
+
+- The gap's base is now a field, `stack_base`. It is said in the same event as the head: by implement.py in
+  `gap.built` (the stack commit, or "" when not stacked), and by stack-forward in its `gap.measured` (with `head` and
+  `stacked_on`). review.py `stacked_base` judges the head against the `stack_base` from the snapshot it took, so what
+  it reads is always one consistent event. It reads the ref only for a gap built before the field existed.
+- restack makes the new base commit without writing any ref (`implement.stack(..., write=False)`). Its old base is
+  read by `stack.base_of`, the field first and then the ref. refs/stack/factory/<branch> moves only after
+  `gap.measured` is said, as a compare-and-swap from the old value (`update-ref ref new old`, theirs kept on a
+  mismatch). A refused merge leaves both as they were, so the restore in the except is gone.
+- Test: in test_a_stacked_gap_is_reviewed_against_its_base, the record is kept as a reviewer read it just before
+  stack.py ran. stack.py then runs, moving the branch and the ref. The old record is put back and review.py runs on
+  it: approved, net lines 2. This was seen to fail with the reviewer reading only the ref (sent back, "the head does
+  not hold its base refs/stack/factory/alpha-thing", the finding's symptom). Case two is now the legacy path (no
+  `stack_base`, ref deleted: fails closed). Case four sets a stale `stack_base`: "does not hold them all".
+
+Limit left: a gap built *before* `stack_base` existed, restacked while a reviewer holds its old snapshot, still reads
+the ref, which may by then have moved. That fails closed (sent back), never open. After one restack or one build, the
+gap carries the field.
+
+dev/bin/implement.py is not in Files to touch (3 net lines: the `write` flag and `stack_base` in `gap.built`). It is the
+program that says the head of a built gap, so it is where the base must be said with it.
+
+There were no non-blocking findings in round 2's review to answer.
+
+Size: still 0 net lines of core code. Counting dev/bin, dev/model and ergostat.yaml, 74 net lines (deps.py 11,
+implement.py 3, review.py 28, stack.py 25, building.yaml 5, ergostat.yaml 2).
+Overrun reason: counted with dev/bin, the round-3 fix for the review's lesson-1 race (the stack_base field said with the head, the ref moved after it by compare-and-swap) brings 62 to 74, 14 over 60; the size gate's own count (outside tests/, docs/ and dev/) is 0.

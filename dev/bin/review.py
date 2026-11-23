@@ -1,8 +1,9 @@
 """reviewer: takes a gap at built, under a lease, and judges its branch: a fresh session that is given the definition
 of done, the GAPS entry, the rules, the earlier findings and the diff, and never the implementor's reasoning. It runs
 in a read-only worktree of its own (<worktrees>/.review/<branch>, detached at the branch's head), with read tools only.
-A stacked gap (`stacked_on`) is judged against the base it was built on (refs/stack/factory/<branch>: stacked_base),
-never main (stack.py moves that base with each base it merges forward): its diff, net lines and gate 1 are its own,
+A stacked gap (`stacked_on`) is judged against the base it was built on (its `stack_base`, said with its head; else
+refs/stack/factory/<branch>: stacked_base), never main (stack.py makes that base again with each base it merges
+forward, said with the new head): its diff, net lines and gate 1 are its own,
 and the brief names its bases. A base that does not hold every `stacked_on` sha fails closed: judged against main.
 
 Before the session, the mechanical gates: the definition file on the branch and unchanged since its first commit (but
@@ -161,17 +162,18 @@ def next_review(branch: str) -> int:
     return max([int(m[1]) for m in got if m] or [0]) + 1
 
 
-def stacked_base(wt: Path, branch: str, on, main: str) -> tuple[str, str, list[str]]:
+def stacked_base(wt: Path, branch: str, on, main: str, at: str = "") -> tuple[str, str, list[str]]:
     """What a gap is judged against: (main, "", []) for a gap built on main; for one built stacked (`stacked_on` not
-    empty), the merged base its implementor built on (refs/stack/factory/<branch>: main and its bases, implement.py),
-    a paragraph for the brief naming its bases, and a blocking finding when the head does not hold that base (then
-    judged against main: its bases' lines counted, the worst case), as when that base does not hold every sha in
-    `stacked_on` (a base merged forward that stack.py could not move it with)."""
+    empty), the merged base of its head (main and its bases, implement.py): ``at``, its `stack_base`, said in the
+    event that said the head (so the two are read as one, whatever stack.py does meanwhile), else
+    refs/stack/factory/<branch>; a paragraph for the brief naming its bases, and a blocking finding when the head does
+    not hold that base (then judged against main: its bases' lines counted, the worst case), as when that base does not
+    hold every sha in `stacked_on` (a base merged forward that stack.py could not move it with)."""
     if not on:
         return main, "", []
     on = on if isinstance(on, list) else [on]
     names = ", ".join(f"{b.get('gap')} at {str(b.get('sha'))[:12]}" if isinstance(b, dict) else str(b) for b in on)
-    ref = f"refs/stack/{fac.git_branch(branch)}"
+    ref = at if re.fullmatch(r"[0-9a-f]{40}", str(at or "")) else f"refs/stack/{fac.git_branch(branch)}"
     if not fac.git_ok(wt, "merge-base", "--is-ancestor", ref, "HEAD"):
         return main, "", [f"gate 1: stacked on {names}, but the head does not hold its base {ref}: judged against main"]
     if not all(isinstance(b, dict) and fac.git_ok(wt, "merge-base", "--is-ancestor", str(b.get("sha")), ref) for b in on):
@@ -201,7 +203,7 @@ def judge(cfg: dict, gap: dict, began: float) -> int:
         raise RuntimeError(f"{gap['id']} has no built head to review")
     home, wt = agents.clone(cfg, branch, "reviewer", at=head)
     rel = fac.definition_file(gap, wt)
-    base, said, missing = stacked_base(wt, branch, f.get("stacked_on"), base)
+    base, said, missing = stacked_base(wt, branch, f.get("stacked_on"), base, f.get("stack_base"))
     blocking, definition = gates(cfg, wt, branch, base, continued=bool(f.get("continues")),
                                  built_main=str(f.get("built_main") or ""), rel=rel)
     blocking += missing

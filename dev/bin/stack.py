@@ -4,7 +4,8 @@ A gap with `stacked_on` (implement.py), approved or built, is stale when a base 
 reviewed head or has landed; `stack.py stale` counts them (the sensor stale-stacks). `stack.py` is one pass under the
 queue's lock (only if free), the stale gaps bottom-up: leased, building, in-review and fix ones never touched, each moved
 base's head merged in `--no-ff` in a scratch clone of the drop, the drop's branch moved from the tip read only; a
-conflict aborted and the gap sent back to fix, uncounted; its refs/stack/ base moved with it (restack). A
+conflict aborted and the gap sent back to fix, uncounted; its base made again with it (restack), said as `stack_base`
+in the event that says its new head, and refs/stack/ moved only after that. A
 `stacked_on` that cannot be read counts as stale and is never moved (lesson-3). dev/README.md, Stacked gaps, says the rest."""
 
 from __future__ import annotations
@@ -83,15 +84,23 @@ def merged(cfg: dict, g: dict, tip: str, bases: list[dict]) -> tuple[str, list[s
         shutil.rmtree(home, ignore_errors=True)
 
 
-def restack(cfg: dict, g: dict, new: list[dict]) -> tuple[list[dict], str]:
-    """For a built ``g`` (its review to come), the base its reviewer judges it against (refs/stack/factory/<branch>,
-    implement.stack) moved first: the moved bases merged into it, and that base merged into ``g`` in their place, so it
-    stays below the head and the review diff and net lines stay its own: (what to merge into ``g``, the old base).
-    Missing, or in conflict: the bases merged as they are, and the reviewer fails closed (review.stacked_base)."""
-    at = fac.git(agents.drop(cfg), "rev-parse", "--verify", "-q", f"refs/stack/{fac.git_branch(fac.branch_of(g))}",
-                 check=False)
-    to = implement.stack(cfg, fac.branch_of(g), at, new)[0] if g["state"] == "built" and SHA.fullmatch(at) else ""
-    return ([{"gap": ", ".join(e["gap"] for e in new), "sha": to}] if to else new), at if to else ""
+def base_of(repo, g: dict) -> str:
+    """The base ``g``'s head was built or merged forward on: its `stack_base`, said with that head (one event, so a
+    reviewer reads the two as one), else refs/stack/factory/<branch> (a gap built before `stack_base` was said)."""
+    at = str(g["fields"].get("stack_base") or "")
+    return at if SHA.fullmatch(at) else fac.git(repo, "rev-parse", "--verify", "-q",
+                                                f"refs/stack/{fac.git_branch(fac.branch_of(g))}", check=False)
+
+
+def restack(cfg: dict, g: dict, new: list[dict]) -> tuple[list[dict], str, str]:
+    """For a built ``g`` (its review to come), the base its reviewer judges it against (base_of) made again: the moved
+    bases merged into it (implement.stack, as a commit only: no ref written), to merge into ``g`` in their place, so it
+    stays below the head and the review diff and net lines stay its own: (what to merge into ``g``, the new base, the
+    old). No base, or in conflict: the bases merged as they are, and the reviewer fails closed (review.stacked_base)."""
+    at = base_of(agents.drop(cfg), g)
+    to = implement.stack(cfg, fac.branch_of(g), at, new, write=False)[0] if g["state"] == "built" and SHA.fullmatch(
+        at) else ""
+    return ([{"gap": ", ".join(e["gap"] for e in new), "sha": to}] if to else new), to, at
 
 
 def one(cfg: dict, gaps: dict, g: dict) -> str:
@@ -104,13 +113,8 @@ def one(cfg: dict, gaps: dict, g: dict) -> str:
     if not SHA.fullmatch(tip) or g["state"] == "approved" and tip != f.get("reviewed_head"):
         return f"its branch ({tip[:12] or 'none'}) is not its reviewed head: left"
     new = [e for e in want if not fac.git_ok(d, "merge-base", "--is-ancestor", e["sha"], tip)]
-    into, was = restack(cfg, g, new) if new else ([], "")
-    try:
-        head, clash = merged(cfg, g, tip, into) if new else (tip, [])
-    except RuntimeError:                             # (the branch left as it was: so is its base)
-        if was:
-            fac.git(d, "update-ref", f"refs/stack/{ref}", was)
-        raise
+    into, to, was = restack(cfg, g, new) if new else ([], "", "")
+    head, clash = merged(cfg, g, tip, into) if new else (tip, [])   # (refused: the branch and its base left as they were)
     if clash:
         fac.say("gap.sent-back", g["id"], sent_back_by="stack-forward", stack_conflict=clash, findings=[
             f"merging its base {', '.join(e['gap'] for e in new)} forward conflicts in: {', '.join(clash)}"])
@@ -118,8 +122,11 @@ def one(cfg: dict, gaps: dict, g: dict) -> str:
         g["state"] = "fix"
         return f"conflict in {', '.join(clash)}: sent back to fix"
     data = {"stacked_on": want, **({"reviewed_head": head, "reviewed_by": "stack-forward"} if g["state"] == "approved"
-                                    else {"head": head} if g["state"] == "built" else {})}
-    fac.say("gap.measured", g["id"], **data)
+                                    else {"head": head, **({"stack_base": to} if to else {})} if g["state"] == "built"
+                                    else {})}
+    fac.say("gap.measured", g["id"], **data)         # (head, stacked_on and stack_base in one event: lesson-1)
+    if to:                                           # then the ref, only from the base it was read at (theirs kept)
+        fac.git(d, "update-ref", f"refs/stack/{ref}", to, was, check=False)
     f.update(data)                                   # (read by the gaps stacked on it, later in this pass)
     return f"merged forward to {head[:12]}" if new else "stacked_on updated"
 
