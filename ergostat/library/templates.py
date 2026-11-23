@@ -57,6 +57,7 @@ class Template:
     params: dict[str, Param] = field(default_factory=dict)
     body: dict = field(default_factory=dict)
     trust: str = "untrusted"            # ergostat, owner or untrusted (SPEC §2a): anything not known counts as untrusted
+    library: str | None = None          # the fetched library it came from (libraries:, library/fetched.py), if any
 
     @property
     def untrusted(self) -> bool:
@@ -89,9 +90,10 @@ def trusted(t: Template) -> bool:
     return getattr(t, "trust", None) in ("ergostat", "owner")
 
 
-def read(path: Path, builtin: bool, trust: str = "untrusted") -> Template:
+def read(path: Path, builtin: bool, trust: str = "untrusted", text: str | None = None) -> Template:
+    """The template at ``path``, or parsed from ``text`` (a fetched copy's bytes, as hashed) when given."""
     try:
-        data = yaml.load(files.read_text(path), Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
+        data = yaml.load(files.read_text(path) if text is None else text, Loader=_Loader)  # noqa: S506 (a SafeLoader subclass)
     except (OSError, yaml.YAMLError) as e:
         raise TemplateError(f"template {path}: {e}") from e
     if not isinstance(data, dict) or not isinstance(data.get("template"), str):

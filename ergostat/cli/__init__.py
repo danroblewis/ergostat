@@ -37,6 +37,7 @@ the model (ergostat.yaml: stocks, flows, auxiliaries, goals, blocks)
   block          The blocks: what each computes or runs, what it reads and commands
                  (block NAME --now runs one at once; --done N is a person's report)
   convert        Write an old ergostat.toml as ergostat.yaml
+  library        library fetch [NAME...] [--update]: fetch the libraries: into .libraries/, pinned in libraries.lock
 
 what waits on you
   inbox          Everything waiting on a person: held actions, requests, advised commands, step tests, model
@@ -386,6 +387,8 @@ def build() -> argparse.ArgumentParser:
     remote_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
+    from .library import register as library_topic
+    library_topic(sub, common)
     from .worker import register as worker_topic
     worker_topic(sub, common)
     return ap

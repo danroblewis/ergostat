@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from ..spec.ir import NAME
 from ..spec.load import SECTIONS, Map, Problem, Where
+from . import fetched, trust
 from . import templates as tp
-from . import trust
 from .expand import LIBRARY, MAX_DEPTH, USE_KEYS, ExpandError, Via, author, expand
 from .untrusted import FILE, LABEL, mark
 
@@ -26,6 +26,7 @@ def library(doc) -> dict[str, tp.Template]:
     got = getattr(doc, "_templates", None)
     if got is None:
         got, notes = tp.find_all(doc.library, getattr(doc, "untrusted", ()))
+        doc._library_refused = fetched.add(doc, got, notes)          # libraries:, each only as its lock pins it
         doc._templates, doc._template_notes = got, notes
         for n in notes:
             doc.problems.append(Problem("finding", n, None, "template-library"))
@@ -70,10 +71,13 @@ def one(doc, inst: str, entry, w: Where | None, defaults: dict, put, depth: int,
         why = ("its ask, prompt, query and sources may hold only text the owner or a trusted template wrote, and this "
                "holds text the library wrote (R3)" if text else "a use of such a folder may make only structure, and "
                "run only the owner's own commands and ergostat's programs with checked arguments")
+        lib = getattr(u, "library", None)
+        src, fix = ((f"from the fetched library {lib}, not marked trust: owner in libraries:", "mark it trust: owner")
+                    if lib else (f"from {u.path.parent}, a library folder not marked trusted", "mark a folder trusted"))
         doc.problems.append(Problem(
             "error", f"use {inst}: refused, and nothing of it is in the model: it makes {path}, under template {u.name} "
-            f"from {u.path.parent}, a library folder not marked trusted, and {why} (SPEC §2a). Only the owner can "
-            f"mark a folder trusted, after reading it.", at, "untrusted-text" if text else "library-unsandboxed"
+            f"{src}, and {why} (SPEC §2a). Only the owner can {fix}, after reading it.", at,
+            "untrusted-text" if text else "library-unsandboxed"
             if path.endswith(".daemon") else "library-untrusted",
             f"system.{inst}"))
         return
@@ -114,7 +118,8 @@ def plan(doc, chain: Chain, inst: str, entry, w: Where | None, defaults: dict, d
     if t is None:
         broken = [n for n in getattr(doc, "_template_notes", []) if f"{entry['use']}." in n or "/" + str(entry["use"]) in n]
         return err(f"no template {entry['use']!r} (there are: {', '.join(sorted(lib)) or 'none'}; the owner's own come "
-                   f"from library: in the main file)" + (f"; {broken[0]}" if broken else ""), at, "unknown-template")
+                   f"from library: in the main file)" + (f"; {broken[0]}" if broken else "")
+                   + "".join(f"; refused: {r}" for r in getattr(doc, "_library_refused", [])), at, "unknown-template")
     if t.once:
         uses = {**doc.uses, **{s[1]: s[2] for s in chain.steps if s[0] == "use"}}
         prior = next((n for n, u in uses.items() if u["template"] == t.name), None)

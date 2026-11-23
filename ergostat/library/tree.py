@@ -23,7 +23,12 @@ _NEW = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
 def digest(root, max_entries: int = ENTRIES, max_bytes: int = BYTES) -> str:
     """The sha256 of the copy at ``root`` (``files.tree``): for each path in byte order, the path, its kind (``dir``,
     ``file``, ``exec``, ``link``), then its bytes or link target, each length-prefixed."""
-    h, walked = hashlib.sha256(), files.tree(root, max_entries, max_bytes)
+    return of(files.tree(root, max_entries, max_bytes))
+
+
+def of(walked: dict) -> str:
+    """``digest`` of a listing already walked (``files.tree``), so what is parsed is what was hashed."""
+    h = hashlib.sha256()
     for p in sorted(walked, key=os.fsencode):
         kind, body = walked[p]
         for b in (os.fsencode(p), kind.encode(), body if isinstance(body, bytes) else os.fsencode(body or "")):
