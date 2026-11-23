@@ -59,3 +59,18 @@ Built, round 1. About 20 net lines outside tests and docs (pages.js +26/-21, rel
   - `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` times out
     waiting for the header's project switcher (`/api/projects`, server.py `_LISTED`; util.js), which this branch
     does not touch. It fails alone too. Not run on main here: extracting main into /tmp was refused.
+
+Round 2: main (059ff718) merged. Its one conflict, docs/SPEC.md §5a, was resolved like this. The Graph row is the
+branch's (main's text with Frontier and Collapse done replaced). The Timeline row is main's newer text (the
+simulated schedule's order, Not scheduled, the capacity note), with only its last sentence swapped for the branch's
+Finished items default. No code conflicted. After the merge, ruff is clean and the four acceptance tests pass.
+The full `tests/test_items_page.py` run (twice): 78 passed, 3 failed, none caused by this branch (lesson 13):
+  - `test_the_graph_and_the_timeline_left_open_change_nothing[graph]` passes alone and fails in the full file. A
+    scratch observer (not committed) showed that the one change is the window menu button going from
+    "Last 1h (50m recorded)" to "(51m recorded)": a wall-clock minute crossing during the test's watch (lesson 10),
+    in code this branch does not touch.
+  - `test_every_surface_prints_the_servers_one_count_of_goals_off` expects an h1 "Loops · ..." where main's
+    goals-page-replaces-loops-page now draws "Goals · ...". The test is the same as on main.
+  - `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: as in round 1.
+  - `tests/test_queue_batch_item.py::test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run` still fails
+    at line 306, as in round 1; the other 15 tests in that file pass.
