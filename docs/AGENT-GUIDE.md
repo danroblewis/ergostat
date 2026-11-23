@@ -100,6 +100,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    faults: {healthy: sensor.tracker-up}}` (or a `goal.` that holds, or a `block.` command). While it is down or
    unread, nothing new is taken and a run that fails spends no attempt, so the outage parks no ticket as a dead
    letter; the hold is the event `ergostat.queue.held`, ended by `ergostat.queue.resumed` (SPEC §9.5, *Faults*).
+   When only some items share it (those behind one VPN or bastion), record which in a field and say `faults:
+   {hold-by: [vpn]}`: a value whose items fail together is held alone, probed after a back-off, and released by a
+   success, while the other values keep flowing (`ergostat.group.held`, `.probed`, `.released`).
    **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
    of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
    {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the

@@ -3492,7 +3492,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`), `faults` (`{healthy: R}`: a sensor, goal or command that says the queue's shared environment is up; while it does not, nothing is taken and a failing run spends no attempt: *Faults* below) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`), `faults` (`{healthy: R}`: a sensor, goal or command that says the queue's shared environment is up; while it does not, nothing is taken and a failing run spends no attempt; `{hold-by: [FIELD]}`: item fields whose values fail together, each value's group held on its own: *Faults* below; either or both) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -3574,6 +3574,36 @@ block the model lacks, a `sensor.NAME` no sensor reads, or the block's own comma
 - The looks are once a second: an outage that begins and ends between two looks is not seen. `ergostat block NAME
   --now` runs whatever `healthy` reads (its failure is still not counted through an outage). Under engine shards
   (section 9.8) a `healthy` the block's shard does not read has no reading, so it holds.
+
+**Faults that cluster on a field: only that group is held.** Some items share an access the others do not (a bastion,
+a VPN): when it is down, those fail together and the rest should carry on. `faults: {hold-by: [vpn]}` (a field's
+name, or a list of 1 to 8; with or without `healthy:`) names item fields; each value of each one is a circuit breaker
+of its own, per block (`leases/groups.py`):
+
+- **Closed** while its items succeed. The ends counted are this engine's runs of the block: an ack is a success; a
+  counted nack or a counted expiry is a failure; an end given back uncounted (stopped, gone, or through an outage of
+  `healthy:`) is neither.
+- **Open: held.** The rule, conservative, with these defaults (fixed in this version, not set in the model): at least
+  **3 failures in a row** on one value (no success of an item with that value between), **of at least 2 items**, all
+  **within the last 10 minutes**. A single failure, or one item failing again and again, holds nothing. Its items
+  are then not taken, and a run of one that fails (one already going as the hold began, or a probe) is given back
+  uncounted, its `fault` `held: FIELD=VALUE (...)` and its `why` ending `(not counted: ...)`, so held items spend no
+  attempts and none becomes a dead letter for it. Items with other values, and items with no value for the field
+  (absent, null, `""`, `[]`, `{}`), keep flowing: an item with no value is never held by this rule. A value that is
+  not text is compared as its JSON.
+- **Half-open: a probe.** After a back-off (60 s from the hold) one item of the group is taken, the next in the
+  block's order, and none while any item of the group is leased by the block, so one probe runs at a time. Its
+  success releases the group (any success of an item of the group does). Its failure (or its expiry) doubles the
+  back-off, at most 30 minutes, and the group stays held.
+- **The hold is events** about the block: `ergostat.group.held` (`block`, `field`, `value`; the evidence: `failed`,
+  `items`, `since`, the first failure's time; `began`, `waiting`: its items waiting then, `backoff`, `probe_at`, and
+  `why`, for example `12 items held: vpn=prod, 5 of 5 failed since 14:02`); `ergostat.group.probed` for each failed
+  probe (`item`, `ok: false`, the new `backoff` and `probe_at`); and `ergostat.group.released` (`item`: the success,
+  `why`, `since`, `until`, `held` seconds); the last two caused by the hold. An engine that starts takes up the holds
+  the record leaves open, with their latest back-off and next probe (an unreadable one: the longest back-off); the
+  failures seen before it started are not taken up (a new hold needs new evidence). A field taken out of `hold-by:`
+  releases its holds at the next look.
+- `ergostat block NAME --now` takes the next item whatever is held.
 
 **A lease** is a run's hold on one item. Its events, about the item, are ergostat's own:
 
