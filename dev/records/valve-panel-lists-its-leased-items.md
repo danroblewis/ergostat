@@ -65,3 +65,14 @@ passed; tests/test_items_page.py whole under the watchdog: 70 passed, 1 failed. 
 test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (the header's project switcher never lists the
 other project; it failed three times, once alone). This branch changes nothing it reads (item_sets.py, itemsets.js, the
 Items page's set address, style.css). Running it on clean main was refused here, so it is reported, not fixed.
+
+Round 3: main (dc8ad98d) merged in (b8bf0e53). The only finding was the conflicts in itemsets.js and style.css; in
+each, both sides had added separate code at the same spot. All of it is kept: main's `groupRows` (progress per group)
+next to the branch's `takenList`, and main's `table.kind-items` rules next to the branch's `.taken-list` rules. The
+merged `.item-set ... td.cell` rule is the branch's, which adds the `.taken-list` selector to main's unchanged
+declarations. After the merge: tests/test_item_sets.py 17 passed; ruff clean; tests/test_items_page.py whole under the
+watchdog: 73 passed, 1 failed, rc 1. The failure is
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart again (it times out waiting for the project
+switcher to list the other project, tests/test_items_page.py:2391). Round 2 hit the same failure, and this branch
+changes nothing it reads. It was not rerun on clean main. The three valve-panel browser tests pass. Not run here: the
+unit suite, test_diagram_rendering.py, test_page_polling.py, test_page_refresh.py.
