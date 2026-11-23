@@ -264,11 +264,30 @@ def test_the_default_has_a_panel_of_every_chart_family(browser, site):
     got = pg.evaluate("""([f, items]) => {
       const rich = JSON.parse(JSON.stringify(f));
       rich.sources.items.kinds.widget.fields = [{ name: "cost_usd", unit: "usd" }, { name: "net_lines", unit: "lines" }];
+      rich.sources.frequency = { goals: ["widgets-held"] };
       const made = dashDefault(rich, items.kinds).panels;
       return { made: made.map((p) => normalizeForm(p).form), all: Object.keys(plotForms()), n: made.length, most: DASH_MOST };
     }""", [FIELDS, ITEMS])
     assert set(got["all"]) <= set(got["made"])
     assert got["n"] <= got["most"]
+    ctx.close()
+
+
+def test_the_default_draws_no_response_from_arrivals_against_completions(browser, site):
+    """dev/records/frequency-refuses-noise.md: arrivals and completions are not shown as a working Bode or Nyquist
+    example; a goal's declared process is, when there is one."""
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    got = pg.evaluate("""([f, items]) => {
+      const freq = (made) => made.filter((p) => ["bode", "nyquist", "pole-zero"].includes(normalizeForm(p).form))
+        .map((p) => ({ form: normalizeForm(p).form, q: p.queries[0] }));
+      const withGoal = JSON.parse(JSON.stringify(f));
+      withGoal.sources.frequency = { goals: ["widgets-held"] };
+      return { bare: freq(dashDefault(f, items.kinds).panels), goal: freq(dashDefault(withGoal, items.kinds).panels) };
+    }""", [FIELDS, ITEMS])
+    assert got["bare"] == []
+    assert sorted(p["form"] for p in got["goal"]) == ["bode", "nyquist", "pole-zero"]
+    assert all(p["q"] == {"id": "a", "source": "frequency", "model": {"goal": "widgets-held"}} for p in got["goal"])
     ctx.close()
 
 

@@ -1237,6 +1237,13 @@ reads the event log.
   last` it is a counter's rate, a fall being a reset; `delta`; `cumulative`; `moving_avg` (`window` in buckets).
 - **Groups.** `group_by` is `state`, `kind` or a low-cardinality field, at most 12 groups, the rest added up as `other`
   (`capped` says how many).
+- **Frequency responses.** `frequency` with an `input` and an `output` estimates the response from the record (Welch's
+  method, `segments` averages, 4 by default). With `model: {goal}` it gives the goal's declared process instead. A
+  response from the record is drawn only where the record supports one. The coherence floor (`coherence_floor`) is
+  corrected for the number of frequencies looked at (Bonferroni over the per-frequency floor, `coherence_floor_each`).
+  When no frequency reaches the corrected floor, the answer is `supported: false` with `refused` saying why, and it
+  carries no curve. Unrelated signals are refused this way in at least 95% of records. The page marks the points under
+  the server's floor as unreliable, and when the server refuses it says that this data cannot support a response.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
