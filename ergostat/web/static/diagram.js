@@ -1426,17 +1426,6 @@ function renderSide(side, g, view) {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
-<<<<<<< HEAD
-  for (const a of problems.slice(0, MAX)) {
-    const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null);
-    att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, href ? h("a", { href, class: "plain" }, what) : what, " ",
-      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
-      a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null));   // its suggestion, once due
-  }
-  if (problems.length > MAX) att.append(h("div", { class: "more" }, `${problems.length - MAX} more on `, h("a", { href: "/loops" }, "Loops"), " and ", h("a", { href: "/model" }, "Model"), "."));
-  side.append(att);
-=======
   // the reader in a list: it holds still, and a request gone meanwhile says so in its row, until they leave
   const hold = (att, cls) => {
     const held = out.querySelector(`.att.${cls}`);
@@ -1472,7 +1461,6 @@ function renderSide(side, g, view) {
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
       h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy.", "house"));
   side.append(house);
->>>>>>> fd6fff2236113e6b5aeb6fec53532e7c11864a23
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside
     // (the moment drawn, not now; and once the reader opens or closes them, as they left them)

@@ -106,6 +106,13 @@ Continued (gap/ui-a-suggestion-appears-when-it-has-a-continued, round 1): main f
   (each with its own `finally`). The acceptance test's Needs attention matcher now allows main's state word
   ("off · loop short-backlog"). test_dynamics_view takes main's "off by 4" and keeps the branch's suggestion check.
 - Run: ruff (clean); tests/test_item_about.py, test_dynamics_view.py::test_the_attention_cards_speak_system_dynamics,
-  test_runner_and_state.py::test_a_suggestion_waits_for_its_verdict_and_names_its_goal_once (all pass). The two
-  browser tests by name (the acceptance test and main's goal-name test) went past the 600s foreground limit and were
-  moved to the background; their result is not in this note. The merge queue must run the full suites.
+  test_runner_and_state.py::test_a_suggestion_waits_for_its_verdict_and_names_its_goal_once (all pass).
+- The merge commit (78f11ae5) wrongly kept two conflict markers in diagram.js, so no diagram page drew: the
+  browser tests by name all timed out waiting for the drawing (test_the_loop_markers… as well). The fix commit after
+  it removes them (there are no markers left in the tree). Main also reworded the verdict to "off N% of the 20m
+  recorded: CAUSE", so the acceptance test's cause pattern now reads the cause after "off N% of …:".
+- After the fix, under the watchdog with rc 0: the acceptance test; main's
+  test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction (both cases);
+  test_the_loop_markers_can_be_hidden_and_it_is_remembered; tests/test_dynamics_view.py. When I broke the
+  "diagnosis in" note, the acceptance test failed at that check, and it passed again once I put it back. Not run here:
+  the whole of tests/test_diagram_rendering.py, the unit suite and the other browser files (the merge queue's).

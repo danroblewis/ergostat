@@ -3048,7 +3048,7 @@ HINTS =("() => [...document.querySelectorAll('details.suggest .hint')].map((e) =
          ".filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim())")
 LOOP_ENTRY = ("() => [...document.querySelectorAll('.att > div')].map((e) => e.textContent)"
               ".filter((t) => /^[a-z]+ · loop short-backlog/.test(t))")   # (after its state word)
-CAUSE = re.compile(r"of the time: ([^.;]+)")
+CAUSE = re.compile(r"off \d+% of [^:]+: ([^.;]+)")
 
 
 def test_a_suggestion_appears_when_it_has_a_verdict(browser, tmp_path, monkeypatch):
@@ -3076,6 +3076,7 @@ def test_a_suggestion_appears_when_it_has_a_verdict(browser, tmp_path, monkeypat
                 assert "is said after" not in t and "diagnosis in" not in t, t
                 assert t.count("short-backlog") <= 1, t
             (mine,) = [t for t in hints if "short-backlog" in t]
+            assert CAUSE.search(mine), (view, hints)
             causes.append(CAUSE.search(mine).group(1))
             assert not any("diagnosis in" in t for t in pg.evaluate(LOOP_ENTRY)), view
         pg.goto(f"{url}/agents")
