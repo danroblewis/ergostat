@@ -114,3 +114,13 @@ Its runs failed past their attempts (a dead letter):
 - attempt 15: nack exited 1
 - attempt 16: nack the run ended with gap/ui-open-frames-what-was-opened-fit-includes-every-w still parked
 - attempt 17: nack given back
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 19:06).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 15: nack exited 1
+- attempt 16: nack the run ended with gap/ui-open-frames-what-was-opened-fit-includes-every-w still parked
+- attempt 17: nack given back
+- attempt 18: nack given back
