@@ -2178,6 +2178,20 @@
                     ],
                     "description": "A precedence relation's target states (neither finished nor paused) at which it no longer blocks: the item is unblocked, and takes: {unblocked: true} may take it. The critical path and the schedule stay finish-to-start"
                   },
+                  "done_when": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "minProperties": 1,
+                      "additionalProperties": {
+                        "oneOf": [
+                          {"type": ["string", "number", "boolean", "null"]},
+                          {"type": "array", "items": {"type": ["string", "number", "boolean", "null"]}}
+                        ]
+                      }
+                    },
+                    "description": "A group's: for a finished state of the item's, the fields it counts as done work in ({closed: {end: done}}); an item in that state not matching them leaves its group's total in the progress per group"
+                  },
                   "description": {
                     "type": "string"
                   }

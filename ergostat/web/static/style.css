@@ -426,10 +426,25 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
 .kind-card .kname { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kind-card .kind-counts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kind-card .cfd-states { max-height: 4.25rem; line-height: 1.25; }
+.kind-card-groups { grid-column: span 2; }        /* a card with its groups' rows (kinds.js): room for them */
 .kinds-quiet { font-size: var(--text-sm); }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
 .kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }
+/* a kind's progress per group, on its card (itemsets.js groupRows): a compact row a group, its bar */
+.gp-rows { display: flex; flex-direction: column; gap: var(--sp-0); margin: var(--sp-2) 0 0; font-size: var(--text-sm); }
+.gp-row { display: grid; grid-template-columns: minmax(6rem, 12rem) minmax(4rem, 1fr) 3.5em minmax(0, 10rem);
+  gap: var(--sp-2); align-items: center; color: var(--ink); padding: 0 var(--sp-1); border-radius: var(--radius); }
+.gp-row:hover, .gp-row.on { background: var(--accent-wash); }
+.gp-name, .gp-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gp-state { color: var(--muted); }
+.gp-n { text-align: right; font-variant-numeric: tabular-nums; }
+.gp-bar { display: flex; height: 0.6rem; background: var(--line); border-radius: var(--radius); overflow: hidden; }
+.gp-done { background: var(--ink-2); }
+.gp-in-progress { background: var(--accent); }
+.gp-waiting { background: var(--line-strong); }
+.gp-stopped { background: var(--warn); }
+.gp-more { align-self: flex-start; font-size: var(--text-sm); min-height: 0; padding: 0 var(--sp-1); }
 
 /* the drawings' own text and lines (shapes are in the renderers; only their type and ink are here) */
 .node text { fill: var(--ink); font-size: var(--canvas); }
