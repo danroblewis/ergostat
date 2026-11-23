@@ -2426,10 +2426,21 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
             from ..remote.readings import read
             return read(spec, src, s)
         return None, f"source type {src.type} cannot be queried"
+    from ..library import runs
+    from ..store import state_dir
+    if env is None:
+        env = callback_env(spec, state_dir(spec.name, spec.root))
+    if runs.sandboxed(s):                                # not proven the owner's or ergostat's (library/runs.py)
+        out, why = runs.read(spec, s, env.get("ERGOSTAT_STATE_DIR") or state_dir(spec.name, spec.root))
+        if out is None:
+            return None, why
+        if observe is not None:
+            seen, refused = observations(out)
+            said = [o for o in seen if "message" in o]
+            observe([o for o in seen if "message" not in o],
+                    refused + ["message: a sandboxed run cannot relay a message"] * bool(said))
+        return number_in(out, s.parse)
     try:
-        if env is None:
-            from ..store import state_dir
-            env = callback_env(spec, state_dir(spec.name, spec.root))
         env = {**env, "ERGOSTAT_SENSOR": sensor_name(s.of.name, s.name)}      # who a mirror cites as (mirror.py)
         p = subprocess.run(s.run, shell=True, cwd=spec.root, capture_output=True, text=True, timeout=s.timeout,
                            start_new_session=True, env=env)
