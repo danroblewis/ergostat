@@ -49,3 +49,31 @@ test that needs no browser now checks the sentence at its source:
 That test is outside the Files list, but it is the reversible choice: it changes no factory script and no ergostat
 code, so the build has a real test to run. tests/test_graph_cli_web.py passes in full, run serially: 33 passed. Ruff
 is clean. `suite_watch.py` around named_tests was refused, so the file was run without the watchdog.
+
+Round 2: the merge of main (7a905955) is done. Main now has Q42's groups and a page of each kind's own, so:
+- The sentence `p#may-do` is the first child of the *Waiting for you* list (`.att.needs`, now `role="group"`,
+  `aria-describedby="may-do"`), above the answered rows. Main draws that group only when something waits, and the
+  more reversible choice was to keep that rule: with nothing waiting no group is drawn, and the short sentence stands
+  in its place, above *How to read it*. If the owner wants the group always drawn, only that `else` changes.
+- The SPEC entry is main's text with the sentence added to it.
+- The gated actions' own page (`/items/ergostat.action`) shows the sentence too. The acceptance test now checks
+  that page and the Items tab's `?kind=` form.
+- `GROUPS`, the row reader of main's `test_needs_attention_is_three_headed_groups_in_a_fixed_order`, now skips
+  `p.may-do`, since the sentence is not an entry. The unit test now looks for the sentence in the waiting group.
+Breaks seen to fail the acceptance test this round: no aria-describedby on the group (fails `waiting`), and the empty
+form placed below *How to read it* (fails `none`).
+Net lines outside tests and docs against main: 6.
+Suites, each run serially under suite_watch with Playwright: the acceptance test (2 passed);
+tests/test_inbox_page.py, 12 passed; tests/test_graph_cli_web.py (no browser), 48 passed; and by name from
+tests/test_diagram_rendering.py, the side-panel tests (nothing waiting, waiting first, more than three fold,
+one step from every page, changed count announced) all passed. Ruff is clean. Not passing, and not caused by this
+gap (each failed the same way with the gap's lines undone by hand):
+- `tests/test_diagram_rendering.py::test_needs_attention_is_three_headed_groups_in_a_fixed_order`: its first wait (3
+  headed groups and "loops off" in the header) times out at 30 s. It also failed with main's renderSide code.
+- `tests/test_items_page.py::test_actions_say_per_class_asked_approved_denied_and_whether_held` (the `.action-classes`
+  line never shows on /items) and `::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (wait
+  timeout). Both failed with main's pages.js lines. The rest of that file passed: 56.
+All three start `ergostat web` as a subprocess. Why they fail here was not found.
+The whole of tests/test_diagram_rendering.py did not finish: its first run hit the tool's time limit and was stopped,
+and a second run in the background, as `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0
+python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/dr.log 2>&1`, was refused.
