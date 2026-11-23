@@ -613,6 +613,49 @@ def test_a_box_given_its_statistics_draws_them_as_given(site):
     assert "as given" in site.page.locator(".panel-legend").inner_text()
 
 
+def test_a_box_from_the_answers_statistics_follows_the_whisker_rule(site):
+    given = {"n": 5, "min": 1, "max": 100, "p5": 1.2, "q1": 2, "median": 3, "q3": 4, "p95": 80.8,
+             "lo": 1, "hi": 4, "outliers": [100], "outliers_more": 0}
+    result = {"id": "a", "x": {"type": "category", "label": "state", "unit": "", "scale": "category", "distribution": True}, "unit": "usd",
+              "series": [{"name": "doing", "xs": ["doing"] * 5, "values": [1, 2, 3, 4, 100], "box": given}]}
+    for n, (rule, lo, hi, out) in enumerate([("tukey", 1, 4, [100]), ("min-max", 1, 100, []), ("p5-p95", 1.2, 80.8, [1, 100])]):
+        site.mount(config("box", {"whiskers": rule}, pid=f"w{n}"), result)
+        b = site.model()["boxes"][0]
+        assert (b["q1"], b["median"], b["q3"], b["lo"], b["hi"], b["outliers"]) == (2, 3, 4, lo, hi, out), rule
+        site.clear()
+
+
+@pytest.mark.parametrize("asked", [{}, {"group_by": "size"},
+                                   {"x": {"type": "category", "by": "risk"}, "agg": "sum", "transform": "rate", "rate_per": "hour"}])
+def test_box_asks_for_each_items_value_by_category(site, asked):
+    q = {"id": "a", "source": "items", "kind": "k", "field": "cost", **asked}
+    site.page.evaluate("(q) => queryPanels([{ id: 'p', form: 'box', queries: [q] }], {})", q)
+    sent = site.asked[-1]["queries"][0]
+    by = asked.get("x", {}).get("by") or asked.get("group_by") or "state"
+    assert sent["agg"] == "none" and sent["x"] == {"type": "category", "by": by}
+    assert not {"group_by", "transform", "rate_per"} & set(sent)
+
+
+def test_choosing_box_in_the_editor_asks_for_each_items_value(site):
+    site.page.add_script_tag(url="/static/panel-editor.js")
+    site.page.evaluate("""() => { window.ed = openPanelEditor({ id: 'e', title: 'Box', form: 'line', display: {},
+      queries: [{ id: 'a', source: 'items', kind: 'k', field: 'cost', agg: 'sum', transform: 'none' }] }, {}); }""")
+    site.page.wait_for_function("document.querySelector('input[type=radio][value=box]')")
+    site.page.wait_for_timeout(500)
+    site.page.evaluate("document.querySelector('input[type=radio][value=box]').click()")
+    site.page.wait_for_timeout(700)
+    sent = site.asked[-1]["queries"][0]
+    assert sent["agg"] == "none" and sent["x"] == {"type": "category", "by": "state"}
+
+
+def test_a_spread_on_another_chart_says_so(site):
+    result = {"id": "a", "x": {"type": "category", "label": "state", "scale": "category", "distribution": True}, "unit": "",
+              "series": [{"name": "s", "xs": ["s"], "values": [1]}]}
+    site.mount(config("bar"), result)
+    assert site.page.locator(".panel").get_attribute("data-state") == "empty"
+    assert "box plot" in site.page.locator(".panel-message").inner_text()
+
+
 def test_histogram_normalizes_truly(site):
     edges = [0.0, 1.0, 2.0, 4.0]
     result = {

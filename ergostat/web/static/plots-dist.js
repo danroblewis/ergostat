@@ -79,8 +79,8 @@
     const o = opts.options, d = config.display || {};
     return F.view(target, first, opts, (result, off) => {
       const rows = result.series.filter((x) => !off.has(x.key)).map((one) => {
-        const stats = one.box ? { outliers: [], ...one.box } : M.boxStats(one.values, o.whiskers);
-        return { one, stats, shape: o.violin === "on" && !one.box ? M.density(one.values) : null };
+        const stats = one.box ? M.boxFrom(one.box, o.whiskers, one.values) : M.boxStats(one.values, o.whiskers);
+        return { one, stats, shape: o.violin === "on" ? M.density(one.values) : null };
       }).filter((r) => r.stats);
       const horizontal = o.orientation === "horizontal";
       const all = rows.flatMap(({ stats: b }) => [b.lo, b.hi, b.q1, b.q3, ...(o.outliers === "off" ? [] : b.outliers)]);
@@ -143,10 +143,13 @@
         return { marks: [{ x: hit.px, y: hit.py, colour: hit.r.one.colour }],
                  text: `${hit.r.one.name}  median ${value(b.median)}, Q1 ${value(b.q1)}, Q3 ${value(b.q3)}${b.n ? `, n ${b.n}` : ""}` };
       };
-      const anyGiven = rows.some((r) => r.one.box);
+      const anyGiven = rows.some((r) => r.one.box && r.one.box.p5 == null);
+      const unsent = rows.reduce((a, r) => a + (o.outliers === "off" ? 0 : r.stats.outliers_more || 0), 0);
       const notes = [{ mark: F.svgLine({ "stroke-width": 3 }), text: "median" }, { mark: (m) => m.append(s("rect", { x: 2, y: 1, width: 12, height: 8, fill: "none", stroke: "currentColor" })), text: "box: Q1 to Q3" },
                      { mark: F.svgLine({}), text: anyGiven ? "whiskers as given" : WHISKER_WORD[o.whiskers] }];
       if (o.outliers !== "off" && o.whiskers !== "min-max") notes.push({ mark: F.svgDot({ fill: "none", r: 2.75 }), text: "beyond the whiskers" });
+      if (unsent) notes.push({ text: `${unsent} nearer outliers not drawn` });
+      if (o.outliers !== "off" && rows.some((r) => r.stats.sampled)) notes.push({ text: "outliers from a sample of the values" });
       if (o.violin === "on") notes.push({ text: "shape: kernel density, cut at the data's range" });
       return { paint, pick, notes, entries: result.series.map((x) => ({ key: x.key, name: x.name, colour: x.colour, off: off.has(x.key) })),
                model: { boxes: rows.map((r) => ({ name: r.one.name, ...r.stats })) } };
@@ -161,7 +164,16 @@
     { key: "normalize", label: "Height shows", type: "choice", choices: ["count", "percent", "density"], default: "count" },
     { key: "stack", label: "Several series", type: "choice", choices: ["none", "stacked"], default: "none" },
   ] });
-  registerPlotForm("box", { label: "Box plot", group: "distribution", needs: { x: ["time", "field", "query"], text: "a measure with many values" }, draw: drawBox, options: [
+  registerPlotForm("box", { label: "Box plot", group: "distribution", needs: { x: ["category", "time", "field", "query"], text: "a numeric field of items by category, or a measure over time" }, draw: drawBox,
+    /* a numeric field of items is drawn item by item, one box per category: the answer's spread, never an aggregate of it */
+    ask: (q) => {
+      const type = q.x?.type || "time";
+      if (q.source !== "items" || !q.field || (type !== "time" && type !== "category")) return q;
+      const { transform, rate_per, window: w, group_by, ...rest } = q;
+      return { ...rest, x: { type: "category", by: type === "category" ? q.x.by : group_by || "state" }, agg: "none" };
+    },
+    check: (r) => (r.shape === "category" && !r.x?.distribution ? "A box plot needs many values per category: choose a numeric field of items." : ""),
+    options: [
     { key: "whiskers", label: "Whiskers", type: "choice", choices: ["tukey", "min-max", "p5-p95"], default: "tukey" },
     onOff("outliers", "Outliers", "on"),
     { key: "orientation", label: "Orientation", type: "choice", choices: ["vertical", "horizontal"], default: "vertical" },

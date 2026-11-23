@@ -7,7 +7,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from . import axes, candles, labels, points, sources
+from . import axes, candles, labels, points, sources, spread
 from . import frequency as fr
 from . import transforms as tf
 from .buckets import Grid, aggregate, grid
@@ -194,6 +194,8 @@ def category(a: Asking, q: Query) -> dict:
         raise Unanswerable("a series has no labels to take categories from")
     if q.group_by and q.group_by != by:
         raise Unanswerable(f"this query groups by {q.group_by} and takes its X from {by}: use one of them")
+    if q.agg == NO_AGG:
+        return category_spread(a, q)
     g = grid(a.since, a.until, a.points)
     wanted = replace(q, x=None, group_by=by)
     read = a.read(wanted, g)
@@ -232,6 +234,31 @@ def category(a: Asking, q: Query) -> dict:
     if read.truncated:
         got["truncated"] = True
     return got
+
+
+def category_spread(a: Asking, q: Query) -> dict:
+    """Each category's items' values of a numeric field, as a box plot reads them: exact statistics and a bounded sample,
+    from the index of numbers and never the event log."""
+    from ..spec.itemnumbers import unit_of
+    by = q.x.by
+    if q.source != "items" or not q.field:
+        raise Unanswerable("agg none on a category is for a numeric field of items")
+    groups, left = _item_points(a, replace(q, group_by=by), q.field, None, points.MOST_BINNED)
+    groups, folded = _capped(groups)
+    states = [s for k in sources.kinds(a.spec, q) for s in k.states] if by == "state" else []
+    at = {s: i for i, s in reversed(list(enumerate(states)))}
+    series = []
+    for name in sorted(groups, key=lambda n: (n == OTHER, at.get(n, len(at)), n)):
+        ordered = sorted(r.x for r in groups[name] if axes.finite(r.x))
+        if ordered:
+            sent = spread.sample(ordered)
+            series.append({"name": name, "xs": [name] * len(sent), "values": sent, "ids": None, "box": spread.box(ordered)})
+    notes = _ignored(q, True)
+    if left:
+        notes.append(f"only the {points.MOST_BINNED} items changed latest are counted")
+    if folded:
+        notes.append(f"{folded} categories are added up as {OTHER}")
+    return _base(q, _x_meta("category", by, "", "category", distribution=True), series, unit_of(q.field), left + folded, False, notes)
 
 
 def _binned(q: Query, name_rows: list[tuple[str, list, list]], bins: int, x_meta: dict, unit: str, left: int, read_log: bool,
