@@ -1,0 +1,4 @@
+[{"goto":"http://127.0.0.1:8796/diagram?view=blocks&open=product,factory"},{"wait":9000},{"shot":"plan-notation-sf-blocks-open.png"},
+ {"goto":"http://127.0.0.1:8796/diagram?view=dynamics&open=product,factory"},{"wait":9000},{"shot":"plan-notation-sf-dyn-open.png"},
+ {"goto":"http://127.0.0.1:8793/diagram?view=dynamics&open=service"},{"wait":6000},{"shot":"plan-notation-is-dyn-open.png"},
+ {"goto":"http://127.0.0.1:8791/"},{"wait":5000},{"shot":"plan-notation-tf-home.png"},{"text":"css=aside"}]

@@ -12,7 +12,7 @@ extra to write. ✅ drawn today · ⏳ being built · ◻ possible from data alr
 | System dynamics | Stock-and-flow diagram: stocks, valves, clouds, connectors with polarity, R/B loop markers, goal-seeking structure | ✅ Dynamics view |
 | System dynamics | Causal loop diagram: causes and signs without the stock/flow plumbing | ◻ |
 | System dynamics | Loop list with polarity (reinforcing, balancing) | ✅ side panel |
-| Control engineering | Block diagram: controllers, actuators, processes, sensors, summing junctions, samplers and holds, MIMO processes, nested cascades | ✅ Blocks view |
+| Control engineering | Block diagram: controllers, actuators, processes, sensors, summing junctions, samplers and holds, MIMO processes, nested cascades | ✅ Blocks view · ⏳ above the leaf ([proposals/blocks-levels.md](proposals/blocks-levels.md)) |
 | Control engineering | Signal-flow graph (Mason's rule form) | ◻ |
 | Systems engineering | Hierarchy and decomposition: systems within systems, modules with ports | ✅ both views |
 | Systems engineering | SysML-style block definition and internal block diagrams | ◻ |
