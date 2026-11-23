@@ -59,3 +59,13 @@ there were no others):
 - Not run: scripts/demo_check.py. The session refused it again, as given:
   `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/demo_check.py small-requests`.
   It is left to the merge queue, with test_no_example_reads_an_internal_part standing in, as in round 1.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-23 11:28).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 12: nack queue: the push of af4bc34a9e4c (gap/dashboard-new-chart-forms) is requested
+- attempt 13: nack queue: the push of f2f65f066ded (gap/milestone-every-gap-has-one) is requested
+- attempt 14: nack queue: the push of 58471dafb951 (gap/compute-runs-on-config-continued-continued) is requested
+- attempt 15: nack the implementor pool is full (run/pools.json): waits its turn
