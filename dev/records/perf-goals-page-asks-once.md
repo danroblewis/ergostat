@@ -169,3 +169,20 @@ Its runs failed past their attempts (a dead letter):
 - attempt 1: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 2: nack exited 1
 - attempt 3: nack the run ended with gap/perf-goals-page-asks-once-continued still parked
+
+## Where it stopped
+
+Continued (gap/perf-goals-page-asks-once-continued, round 1) after the park for Docker's restart. Nothing in the
+gap's code changed. The factory's merge of main (2a97eafb) conflicted in `ergostat/web/static/pages.js` (pageLoops'
+first lines). Resolved: main's "Loading…" placeholder in the table's box is kept. Main's side still declared the old
+`perf` and `pts` holders, which this branch removed along with the graph fetch and the per-goal loop-control
+fan-out, so those are dropped. Main brings no `after_snapshot` hook (perf-answers-never-wait-for-a-snapshot has not
+landed), so goal_work keeps its own thread. Main's changes to control.js (performanceRows) and server.py do not
+touch performanceWord, `Live.keep` or the loops answer.
+Run after the merge: ruff clean; `tests/test_goal_work.py` 8 passed; `tests/test_web_access.py` 26 passed;
+`tests/test_page_polling.py` under the watchdog, rc 0 each time. It ran in five named runs because the session's
+foreground limit is 10 minutes and a background run was refused: the loops acceptance test (1), leaving a page /
+hidden tab / diagram left open (6), page left open (10), the two dynamics tests (2), the released-pages test (1).
+20 of 20 passed, none skipped. The watchdog counted 1 process left behind after the dynamics run (peak 2.9 GB, 127
+threads).
+Still not run: the factory-state acceptance (no copy of the factory's state here) and the merge queue's full suites.
