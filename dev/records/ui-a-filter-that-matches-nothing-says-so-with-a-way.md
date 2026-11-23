@@ -108,3 +108,19 @@ changed this round.
 - Refused here: `mkdir -p /tmp/mainsrc && git archive main | tar -x -C /tmp/mainsrc`, which was meant to run that
   header test on clean main. So it was not shown to fail on main too. The factory's rerun on clean main will settle
   it. Not run: the unit suite, the other three browser files and demo_check (no example was touched).
+
+Round 4: the factory's merge of main (ead497d1) conflicted in pages.js and tests/test_graph_cli_web.py. In pages.js,
+main had added a third argument to the Record's two `eventsTable(…, false, true)` calls (fold runs of identical events),
+and the branch had replaced the empty answer with `empty()`. Both are kept: `eventsTable(…, false, true)` on a hit,
+`empty()` (`Nothing matches “x” · clear`, or "Nothing recorded yet." with no filter) on a miss, for local and remote
+records alike. In the test file both sides added tests at the same place; all of them are kept (the branch's two and
+main's `test_every_page_header_links_to_the_diagrams_waiting_for_you_heading`). No other change.
+
+- Run: ruff clean; tests/test_graph_cli_web.py 44 passed. tests/test_items_page.py with Playwright under the watchdog:
+  33 passed, 2 failed. The gap's two browser tests pass.
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` fails again, alone too, at the `#project`
+  switcher wait (now tests/test_items_page.py:1502), as in round 3: header and switcher are untouched by this branch.
+  `test_the_graph_and_the_timeline_left_open_change_nothing[graph]` failed once in the full file (one mutation on a
+  BUTTON across refreshes) and passed when its two cases were rerun alone; the branch's diff touches no button and
+  not the graph view, so it is reported as a load-dependent flake not of this change (lessons 10, 13), not fixed here.
+  Not run: the unit suite, the other three browser files, demo_check (no example touched).
