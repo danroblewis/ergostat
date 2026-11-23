@@ -14,3 +14,33 @@ Acceptance tests: a browser test for 1-2 on the fixture.
 Budget: 40 net lines.
 
 Milestone: r4-blocks-textbook. Owner items: R4 piece 7. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, 32 net lines (blocks.js +43 −13, style.css +2). Acceptance test:
+`tests/test_diagram_rendering.py::test_a_loops_state_is_printed_on_its_error_in_its_word_bold_when_off_and_never_by_colour`
+(FOUR_GOALS, one goal of each word, `?view=blocks&open=*`): items 1 to 4, for every loop. Seen to fail with the bold
+rule removed (weight 400 on the off loop) and with the off loop's wires stroked red (item 2).
+
+Choices made without an answer (each reversible):
+- Only the value and the word are bold (`.bd-state.bd-off`), not the italic e: a bold e is the vector notation. The
+  weight is 600, DESIGN's second weight, not 700.
+- When e's subscript, value and word do not fit the stretch the label sits on (ELK puts the controller 46 px after
+  the junction, so a long loop name never fit), the label drops the subscript (`e = −20 off`, as the definition
+  writes it) and, if that still does not fit, goes above or below the junction. Nothing in the layout changes.
+- An open loop with no error line out of its junction (its return broken: FOUR_GOALS' disk-cleaned-nightly) gets
+  its label by the junction anyway, `e open`. An open loop with no junction at all has nowhere to say it.
+- A state that changes while the diagram does not draws it again (no new layout), compared through `lay.states`.
+- docs/DESIGN.md's block-view sentence "the loop's lines take its status colour" was stale against decision 2 and
+  now says what is drawn.
+
+Not run here: the whole browser file, which does not finish inside one 10-minute command here. Of the files I ran,
+two failures are not this gap's (lesson 13), and both are in parts this change leaves alone:
+- `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram[autoscaler]`: `view=blocks&system=rescales`
+  is never drawn because the server's graph for it has 0 nodes ("No control system here"). The graph is built on
+  the server, and this change touches no Python.
+- `test_blocks_crossings_hop_dots_only_at_takeoffs_slashes_clear_and_a_drag_and_the_export_keep_them`:
+  `get_by_role("button", name="fit")` is not exact, so it also matches software-factory's model-fits parts by their
+  aria-labels (strict mode violation). This change does not set aria-labels.
+- `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip`, 21 of 22 examples: a `title` tooltip
+  ("Drawn alike here with B27 …") in `view=dynamics`. That is the Dynamics view, which this change does not draw.
