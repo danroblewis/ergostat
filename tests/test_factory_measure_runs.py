@@ -498,7 +498,8 @@ def test_a_run_excused_in_the_queue_moves_flake_rate(tmp_path):
     f = flaky_stand_ins(tmp_path, ["tests/test_b.py::test_b"])
     approved_gaps(f, {"a": 1}, bad="a")
     said, _ = f.run("queue.py", "gap/a")
-    assert said == ["gap.queued", "flake.seen", "gap.merged", "gap.push-asked"]       # red, excused, landed
+    assert said == ["gap.queued", "gap.merged", "gap.push-asked"]                     # red, excused, landed
+    assert f.flakes_said() == ["flake.seen"]                                          # (said by event --add)
     assert f.item("gap/a")["fields"]["suites_queue"]["excused"]
     r = flake_rate(f)
     assert r.returncode == 0 and float(r.stdout) == 1.0, r.stderr                     # one run, one flake
@@ -512,7 +513,7 @@ def test_an_excused_batch_counts_once(tmp_path):
     f = flaky_stand_ins(tmp_path, ["tests/test_b.py::test_b"])
     approved_gaps(f, {"p": 1, "q": 2, "r": 3}, bad="q", batch=3)
     said, _ = f.run("queue.py", "gap/p")
-    assert said.count("gap.merged") == 3 and said.count("flake.seen") == 1
+    assert said.count("gap.merged") == 3 and f.flakes_said() == ["flake.seen"]        # (said by event --add)
     landed = [f.item(f"gap/{g}")["fields"] for g in "pqr"]
     assert all(g["suites_queue"].get("excused") for g in landed)                    # each of the three carries it
     assert len({g["batch_id"] for g in landed}) == 1
