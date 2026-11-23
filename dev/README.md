@@ -724,6 +724,19 @@ of every queue run, each run's whole length once) measures what it buys. If the 
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
 
+Each run's batch is an item, `batch/<run tag>` (`dev/bin/batches.py`; `ergostat item --kind batch`, the Items page, its
+graph and Timeline), so what the queue is doing is read in ergostat, not in `run/queue.json` and the logs: `testing`
+while a run of the suites is under way, `isolating` between the runs of a red batch, `pushing` once something landed
+and its push waits, then `landed`, `partial`, `failed` (nothing landed and a gap failed, or the push was denied) or
+`given-back` (nothing landed and nothing blamed: a stall, main red, out of time, an error). Its `runs` list each run:
+its kind (`full`, `named`: the failing tests on each prefix, `halves`: a round of two halves, one run), the gaps it
+covered, `outcome` (passed, failed, crashed, stalled), `failed` and `passed` summed over the pytest suites that said
+counts (`counted` names them; none said: neither is known), the first ten failing tests, minutes and a crash's cause.
+`isolated` says each gap found failing, how and on which tests; `given_back` and `why`, how it ended. It links to its
+gaps, and each gap's page lists its `batches`; the events carry no logs. While a run is under way, `batch-run-percent`
+and `batch-run-failures` read its progress from its own pytest logs (the least advanced; the F and E so far), never
+from the record. Saying any of this never fails or delays a merge: a failure to write is dropped.
+
 A gap is never left a dead letter: a run that fails on its last attempt parks the gap with where it stopped, and the
 `dead-letters` block parks any that a killed run left behind. Every container the factory starts is named
 `ergostat-factory-*`, killed when its run ends or is stopped, and swept by `main-watch` once past its time.

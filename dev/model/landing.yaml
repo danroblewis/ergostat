@@ -3,6 +3,27 @@
 defaults:
   system: landing
 
+items:
+  batch:
+    id: batch/*
+    description: one merge queue run's batch (batch/<run tag>) - its gaps tested together, each run of the suites (full, named, halves) with its outcome, the gaps isolated, what landed and was given back (dev/bin/batches.py)
+    states: [testing, isolating, pushing, landed, partial, failed, given-back]
+    final: [landed, partial, failed, given-back]
+    on:
+      batch.started: testing
+      batch.run-started: testing      # a run of the suites under way: one Timeline bar a run
+      batch.run-finished: isolating   # between runs: a red run's tests checked alone and on main, the next run chosen
+      batch.isolated: isolating       # a gap found failing: how, and its tests
+      batch.landed: pushing           # merged on main, its push asked for
+      batch.ended.landed: landed      # every gap landed and pushed
+      batch.ended.partial: partial    # some landed and pushed, the rest failed or given back
+      batch.ended.failed: failed      # none landed and a gap failed, or its push was denied
+      batch.ended.given-back: given-back   # none landed and none blamed: a stall, main red, out of time, an error
+    show: [size, run, outcome, base, main_sha, runs_n, minutes, why]
+    fold: {runs: append, isolated: append}
+    relations:
+      gaps: {kind: gap, precedence: false, inverse: batches}   # each gap's page lists the batches it was in
+
 stocks:
   gaps-approved:
     unit: gaps
@@ -43,6 +64,16 @@ stocks:
     sensor: {items: upgrade, state: switched, every: 1m}
 
 auxiliaries:
+  batch-run-percent:
+    unit: percent
+    description: how far the merge queue's run under way is through its tests - the least advanced of its pytest logs (0 when none runs; run/batch.json)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/batches.py percent, every: 1m, timeout: 1m, description: the run's own logs}
+  batch-run-failures:
+    unit: tests
+    description: the tests failed so far in the merge queue's run under way, from its pytest logs' progress (0 when none runs)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/batches.py failures, every: 1m, timeout: 1m, description: the run's own logs}
   drain-minutes:
     unit: minutes
     description: how long the drain under way has gone (0 when none, or once its switch began)

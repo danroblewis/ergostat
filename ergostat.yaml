@@ -317,7 +317,7 @@ items:
     show: [kind, title, file, areas, about, carried, text]
 
 messages:
-  done: {gap: [merged, closed], milestone: [completed], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], milestone: [completed], batch: [landed, partial, failed, given-back], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, applied, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)
