@@ -540,6 +540,11 @@ def _answer_with(live: Live, path: str, q: dict, model):
     return _answer(live, path, q2, p)
 
 
+def _held_up(p) -> dict:
+    from ..why.held import headline
+    return headline(p)
+
+
 def _answer(live: Live, path: str, q: dict, project=None):
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
         got = _LISTED
@@ -571,6 +576,11 @@ def _answer(live: Live, path: str, q: dict, project=None):
             raise BadSet("why: item=ID, as the record is now (never at=)")
         from ..why import answer
         return answer(p, one("item"))
+    if head == "held-up":                         # what holds the work up, ranked (SPEC §5a), as the record is now
+        if one("at"):
+            raise BadSet("held-up: as the record is now (never at=)")
+        from ..why import held
+        return held.answer(p)
     at = None
     if one("at"):
         try:
@@ -590,6 +600,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 **({"edited": edited} if edited else {}),
+                **({"held_up": _held_up(p)} if at is None and spec is not None else {}),   # the header's first line
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),
                            "agents": len(m.agents), "events": p.events.count(), "measurements": p.measurements.count()},
                 "systems": m.system_names(), "check": [{"level": lv, "message": msg} for lv, msg in mdl.check(m)],

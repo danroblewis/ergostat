@@ -1484,6 +1484,28 @@ time and durations differ at every poll. The engine is read from its run lock an
 watcher's limit). An item's own state is never folded from its events; only the evidence is looked up, a few events
 at most per item. On a record of 3,000 items it answers in under 100 ms (`tests/test_why.py`).
 
+**What holds the work up.** `ergostat held-up [--json]`, `GET /api/held-up` and MCP's `held_up` answer for the whole
+system, as the record is now (`ergostat/why/held.py`). Every unfinished item of the model's own kinds (not in a
+finished state, of a kind that does not live on; the `ergostat.*` kinds are left out) is followed to its roots as
+`why` follows one, each item's roots worked out once (an item that waits on another takes that one's roots; a link
+back to an item still being followed is a `cycle`). Items with the same root are grouped: a root about one item (a
+lease, work going on, a parked or missing item, an action asked of the owner) is that item's; a block's, a gate's or
+the budget's is the same root for every item it holds. Each root is a **stall** (something that should be moving and
+is not: a dead or stale lease, the budget refusing runs, a block failing or no engine running, a cycle, a missing
+item, a dead letter, a state nothing takes, a parked item others wait on), **held** on purpose (a gate reading 0, a
+closed goal or intake, a person to answer, a parked item nothing waits on), **queue** (ordinary queueing: work going
+on, a full pool of live runs, a give-back's wait) or **unknown** (the record cannot tell). The roots are ranked stalls
+first, then unknown, held and queue, and within each by the items waiting on it, the items it holds and their hours
+of waiting (in their state); each names its first 5 items in the order its block would take them (`takes: order:`,
+then the longest waiting). A goal is off by its last recorded crossing (`loop.off`); one whose stock or auxiliary
+counts items (`items:` sensor) is folded under the root holding most of the unfinished items it counts, and one that
+counts none is said as *not traced to an unfinished item*. The answer's `line`, also the header's line on every
+page (`/api/status`'s `held_up`, red for a stall, worked out again when the record moves or after 30 s, a failure
+said in it rather than failing the status), is the first stall in words with how much waits on it and its next
+step, or else *No stall found, but what holds N items is not known*, and *Nothing is stuck* only when no root is a
+stall or unknown. At most 20 roots are listed (`more` counts the rest). On a record of 3,000 items (about 2,400
+unfinished) it answers in under 200 ms (`tests/test_held_up.py`).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:

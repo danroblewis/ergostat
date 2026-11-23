@@ -372,6 +372,26 @@ def test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top(browser, si
     pg.close()
 
 
+def test_the_header_says_what_holds_the_work_up_in_one_line(browser, site):
+    """What holds the work up (SPEC §5a, /api/held-up): its first line in the page's header, red for a stall, the whole
+    line as its title; here a lease no running engine renews (the page is served alone), as /api/held-up says."""
+    import json
+    got = json.loads(urllib.request.urlopen(f"{site}/api/held-up", timeout=30).read())
+    assert got["stall"] is True and got["line"].startswith("Stalled: "), got["line"]
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/items")
+    pg.wait_for_selector("header #heldup:not([hidden])")
+    line = pg.locator("#heldup")
+    assert line.inner_text() == got["line"] and line.get_attribute("title") == got["line"]
+    assert "bad" in line.get_attribute("class").split(), "a stall is said in red"
+    assert pg.evaluate("() => { const b = document.querySelector('#heldup').getBoundingClientRect(); "
+                       "return b.height < 40 && b.top < 60; }"), "one line, at the top"
+    assert not errors, errors
+    pg.close()
+
+
 def test_an_idle_unfinished_items_page_is_left_untouched_and_a_finished_one_never_asks_why(browser, site):
     """The why answer differs at every poll (its time, its durations); the page redraws only when what it says
     changes, so an idle page is patched by no poll (util.js: unchanged answers, nothing touched). A finished item's

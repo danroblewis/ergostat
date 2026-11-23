@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import time
 
-from ..precedence import _prec, held, starts, status
+from ..precedence import _prec, starts, status
+from ..precedence import held as _held  # (the name ``held`` is this package's module, held.py)
 from ..spec.finished import finish_of
 from ..spec.ir import DEAD
 
@@ -46,6 +47,9 @@ class Ctx:
         self.kinds: dict = {}
         self._engine = engine
         self.seen = 0
+        self.cache: dict | None = None      # (held-up, held.py) every item read once, its links read up front,
+        self.links: dict | None = None      # and each block's answer worked out once for all its items
+        self.memo: dict | None = None
 
     def info(self, kind: str | None) -> dict:
         if kind not in self.kinds:
@@ -61,6 +65,13 @@ class Ctx:
     def items(self, ids) -> dict:
         ids = [i for i in ids if isinstance(i, str)]
         self.seen += len(ids)
+        if self.cache is not None:
+            want = [i for i in dict.fromkeys(ids) if i not in self.cache]
+            if want:
+                with self.ix.lock:
+                    got = {i.id: i for i in self.ix.items(None, ids=want, moves=False)}
+                self.cache.update({i: got.get(i) for i in want})
+            return {i: self.cache[i] for i in ids if self.cache[i] is not None}
         with self.ix.lock:
             return {i.id: i for i in self.ix.items(None, ids=ids, moves=False)} if ids else {}
 
@@ -77,8 +88,11 @@ def waits(ctx: Ctx, it) -> list[tuple[str, str, object]]:
     prec = _prec(ctx.spec, it.kind)
     if not prec:
         return []
-    with ctx.ix.lock:
-        links = sorted((r, d) for _, r, d in ctx.ix.links_from([it.id]) if r in prec)
+    if ctx.links is not None:
+        links = sorted((r, d) for r, d in ctx.links.get(it.id, ()) if r in prec)
+    else:
+        with ctx.ix.lock:
+            links = sorted((r, d) for _, r, d in ctx.ix.links_from([it.id]) if r in prec)
     got = ctx.items([d for _, d in links])
     out = []
     for r, d in links:
@@ -133,7 +147,7 @@ def here(ctx: Ctx, it, iid: str) -> tuple[list, dict | None]:
         return [], _parked(it, "a dead letter: its attempts ran out", f"ergostat lease {iid} --redrive")
     if it.state in info["paused"]:
         return [], _parked(it, f"paused in {it.state}: continued by hand", None)
-    if held(it.fields):
+    if _held(it.fields):
         from .blocks import holder
         return [], holder(ctx, it)
     if not isinstance(it.fields.get("lease", {}), dict):
@@ -150,7 +164,8 @@ def _parked(it, says: str, command: str | None) -> dict:
     last = it.latest or "its latest event"
     return root("parked", it.id, f"{it.id} is {says}", "the owner",
                 "continue it, or remove what waits on it" if command is None else "redrive it, or remove what waits on it",
-                command, since=it.entered, evidence=[ev(f"moved to {it.state} by {last}", item_link(it.id), at=it.entered)])
+                command, since=it.entered, dead=it.state == DEAD,
+                evidence=[ev(f"moved to {it.state} by {last}", item_link(it.id), at=it.entered)])
 
 
 def walk(ctx: Ctx, first, iid: str) -> tuple[list[dict], list[str]]:
