@@ -109,13 +109,14 @@ class Journals:
         if os.path.dirname(real) != str(folder):
             self.once(name, n, "link", f"{n}: a link that leaves the folder, not read")
             return 0
-        try:
-            f = open(real, "rb")
+        try:                                 # never blocks: a FIFO named *.jsonl is opened, seen and not read
+            f = os.fdopen(os.open(real, os.O_RDONLY | os.O_NONBLOCK), "rb")
         except OSError:
             return 0                         # (not marked read: read when it can be)
         with f:
             st = os.fstat(f.fileno())
             if not stat.S_ISREG(st.st_mode):
+                self.once(name, n, "not-file", f"{n}: not a regular file, not read")
                 return 0
             key, ino = f"{name}/{n}", [st.st_dev, st.st_ino]
             was = self.state.get(key) or {}
@@ -165,8 +166,9 @@ class Journals:
             v = _value(obj["value"])
             if v is None:
                 refused.append(f"{n}: a value line's value is a finite number ({{\"value\": 3}})")
-            else:
-                self.pending[name] = v
+            elif self.p.events.add("sensor.value", item=name, source=SOURCE, id=lid,
+                                   data={"value": v, "file": n, "offset": at}).get("seq") is not None:
+                self.pending[name] = v       # a reading only the first time its line is read (by the line's id)
         else:
             seen, refused = observations(raw.decode("utf-8", "replace"))
         for o in seen:

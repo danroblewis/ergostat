@@ -98,3 +98,25 @@ Decided alone (no one to ask), each reversible:
 
 Not run here: the whole unit suite and the browser files (the factory runs them; no page changed). Local `main` has
 not moved since the clone, so there was nothing to merge.
+
+Round 2: the review's two findings, both fixed.
+- A FIFO named `*.jsonl` (finding 1): `Journals.file` opens with `O_NONBLOCK` and refuses anything that `fstat` says is
+  not a regular file, said once as `sensor.refused` ("not a regular file, not read"). The open cannot block, and
+  `fstat` comes after the open, so a regular file swapped for a FIFO in between is caught too. New test
+  `test_fifo_in_folder_not_read_and_never_blocks`: a FIFO sorted before a real journal, two passes on a thread joined
+  within 5 s, the real journal's line recorded and the notice said once. With the old blocking open, the test fails
+  (the thread is still alive after 5 s).
+- A value line read again (finding 2): each `{"value": N}` line is now recorded as a `sensor.value` about the sensor,
+  under the line's id. It becomes a reading only when that record is new. A value line read again (no state file,
+  state cleared as when a file goes back) is never a new reading. The round-1 "Decided alone" note that narrowed
+  point 3 is withdrawn: point 3 now holds for value lines too, and SPEC §6 says so. New test
+  `test_value_line_read_again_is_no_new_reading`: one reading, re-read twice with no new measurement, then a new
+  value line taken. With the dedupe check removed, the test fails.
+- Left, said in SPEC: if the newest value line comes within a second of the last reading, it waits in memory for the
+  next pass. A stop in that second loses it as a reading, though its `sensor.value` is kept. A first start on a
+  journal ergostat never read takes its newest value line as a reading at that time (that line had never been read).
+
+Overrun reason: 255 net lines against 190. The round-1 reason stands for 253 of them. Round 2 adds 2 net lines: the non-blocking open and its once-said notice, and recording each value line under its id so it is a reading only once.
+
+Not run here, round 2: the whole unit suite and the browser files (no page changed). Ran: tests/test_journal_source.py
+(10 passed) and ruff (clean). Local `main` has not moved since the clone, so there was nothing to merge.

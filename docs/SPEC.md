@@ -2529,11 +2529,15 @@ observation rules above: an event about an item is recorded with `source` the se
 line that breaks them is recorded as `sensor.refused` about the sensor, with its `why`. A line's own
 `cite:` id is checked and kept as a `run` sensor's is (section 2a, *Mirroring an outside log*); a message line is refused (a
 journal relays no message). A line that is not JSON, or JSON with no `event`, is passed over. A line
-`{"value": N}` (a finite number, not a boolean) is the sensor's reading: the latest one each pass, at
-most one a second. A partial last line waits until it is complete. A line over 65,536 bytes is
+`{"value": N}` (a finite number, not a boolean) is recorded as a `sensor.value` about the sensor (its
+`value`, `file` and `offset`), under the line's id below, and is the sensor's reading only when that
+record is new: the latest new one each pass, at most one a second. So a value line read again (a lost
+state file, a file gone back, a first start on an old journal read before) is never a new reading; a
+value line ergostat had never read is taken at the time it is read. A partial last line waits until it is complete. A line over 65,536 bytes is
 refused (its `why` says so) and skipped; at most 500 lines per sensor are taken each pass, and the
 rest wait for the next. A file reached through a link that leaves the folder (or a folder that, through
-a link, leaves the model's folder) is not read, and this is said once.
+a link, leaves the model's folder) is not read, and this is said once; so is a `*.jsonl` that is not a
+regular file (a FIFO, a device), which is opened without waiting and never read.
 
 Each line is recorded under an id made from the sensor, the file's name, the line's byte offset and
 the line's bytes, and each refusal of it under an id made from those and its reason; a once-said
@@ -2548,8 +2552,9 @@ lines are recorded. The limits of this: a line identical to the old one at the s
 file name counts as the same entry, and is not recorded again; a journal rotated by renaming it to
 another `*.jsonl` name (`x.jsonl` to `x.1.jsonl`) has its lines recorded again under the new name;
 if the record forgets them (`keep`, `prune`) and the state file is also lost, those lines are recorded
-again; and a `{"value": N}` line read again (a lost state file, a file gone back) is taken as a
-reading again, at the time it is read. An untrusted library's journal sensor is refused (section 2a,
+again (a `{"value": N}` line then too is a reading again); and a newest value line read within a
+second of the last reading waits in memory for the next pass, so a stop in that second loses it as a
+reading (its `sensor.value` is kept). An untrusted library's journal sensor is refused (section 2a,
 held uses): it would read files in the owner's folder into the record.
 
 ## 7. Flows

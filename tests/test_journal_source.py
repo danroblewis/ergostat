@@ -3,6 +3,7 @@ line recorded once, as that sensor's observations."""
 
 import json
 import os
+import threading
 import time
 
 from ergostat import journal_source as js
@@ -186,6 +187,35 @@ def test_symlink_leaving_folder_not_read(tmp_path):
     reader(p, tmp_path / "state.json").look()
     assert mets(p) == []
     assert len([w for w in refused(p) if "leaves the folder" in w]) == 1
+
+
+def test_fifo_in_folder_not_read_and_never_blocks(tmp_path):
+    p = setup(tmp_path)
+    os.mkfifo(tmp_path / "logs/a.jsonl")                           # sorted first: a blocking open would stop the pass
+    append(tmp_path / "logs/b.jsonl", met("b1"))
+    j = reader(p, tmp_path / "state.json")
+    t = threading.Thread(target=lambda: (j.look(), j.look()), daemon=True)
+    t.start()
+    t.join(5)
+    assert not t.is_alive()
+    assert mets(p) == ["case/b1"]
+    assert len([w for w in refused(p) if "not a regular file" in w]) == 1
+
+
+def test_value_line_read_again_is_no_new_reading(tmp_path):
+    p = setup(tmp_path)
+    series = p.model.spec.stocks["q"].sensors["main"].series
+    append(tmp_path / "logs/a.jsonl", '{"value": 3}\n')
+    reader(p, tmp_path / "state.json").look()
+    assert p.measurements.count(series) == 1
+    reader(p, tmp_path / "no-state.json").look()                   # read again from the start: no new reading
+    j = reader(p, tmp_path / "state.json")
+    j.state.clear()                                                # (as a file gone back is)
+    j.look()
+    assert p.measurements.count(series) == 1
+    append(tmp_path / "logs/a.jsonl", '{"value": 4}\n')
+    j.look()
+    assert p.measurements.count(series) == 2 and p.measurements.latest(series)[1] == 4.0
 
 
 def test_value_line_reading_and_stop_on_reload(tmp_path, monkeypatch):
