@@ -139,3 +139,14 @@ the timing).
 Still as round 1 says: change 5 (the page) is not built, because dashboard-page-v1 is not on main, and done item 4
 is not measured on :8796. Code lines changed this round: +3 net.
 Tests run: tests/test_dashboards.py (32 passed), ruff clean. Not run: the unit suite, the browser files, demo_check.
+
+## Where it stopped
+
+Implementor, 2026-11-23 (continued, round 5). The one finding was a conflict with main in ergostat/web/server.py. It
+is resolved in the merge of main (e43046dc): `_answer` keeps main's new `items-overview` head (answered from the item
+index with no snapshot) ahead of the snapshot line, and the branch's `pinned` snapshot for a dashboard's panels. No
+other code changed this round. Still as round 1 says: change 5 (the page) is not built, because dashboard-page-v1 is
+not on main, and done item 4 is not measured on :8796.
+Tests run after the merge: tests/test_dashboards.py (32 passed), tests/test_why.py and tests/test_graph_cli_web.py
+(77 passed), tests/test_items_overview.py (7 passed), ruff clean. Not run: the unit suite, the browser files,
+demo_check.
