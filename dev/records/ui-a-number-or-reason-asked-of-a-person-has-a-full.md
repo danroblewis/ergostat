@@ -125,3 +125,13 @@ since round 3.
   `tests/test_inbox.py`: 37 passed. `tests/test_gated_actions.py`: 13 passed. ruff is clean. Not run here: the
   unit suite and the other three browser files. The definition's third sentence (Yes/No buttons) is still left
   for a gap of its own, as round 3 says.
+
+Round 5: the queue's one finding answered. Code is otherwise unchanged since round 3.
+
+- The finding: `tests/test_style_tokens.py::test_no_literal_colour_size_radius_or_spacing_outside_the_tokens`
+  failed on the branch's `.ask-in { gap: 2px }` (a literal spacing). It is now `gap: var(--sp-0)`, the 2px token,
+  so the page looks the same. It was the branch's own line, not a main failure.
+- Run here: `tests/test_style_tokens.py`: 13 passed (it failed before the change). `tests/test_inbox_page.py` under
+  the watchdog with Playwright: 13 passed, rc 0, none skipped. ruff is clean. Not run here: the unit suite and the
+  other three browser files. Main has not moved (no origin/main in the clone). The Yes/No buttons stay left for a
+  gap of its own, as round 3 says.
