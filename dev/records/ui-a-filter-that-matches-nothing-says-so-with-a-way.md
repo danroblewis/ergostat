@@ -197,3 +197,18 @@ resolved in 7975c25b.
 - Refused here: redirecting the browser run's output to /tmp/items.log (it was run without the redirect instead), and
   a python one-off that resolved the conflicts (Edit was used instead). Not run: the unit suite, the other three
   browser files, demo_check (no example touched).
+
+Round 8: the queue's finding ("not merged: the fetched branch is not the reviewed commit") is about which commit the
+queue fetched, not about the code, so nothing in the code changed for it. The factory's merge of main (b6d7a1db)
+conflicted only in tests/test_graph_cli_web.py, where both sides added tests at the same place. Resolved in e3cc386e,
+keeping all of them: the branch's two and main's
+`test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page`. pages.js merged cleanly and is
+still +19/-8 against main.
+
+- Run: ruff clean; tests/test_graph_cli_web.py 56 passed. tests/test_items_page.py with Playwright under the
+  watchdog: 70 passed, 1 failed, nothing skipped, so the gap's three browser tests pass. The failure is
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out at the `#project` switcher wait
+  (tests/test_items_page.py:2260), the same as in rounds 3 to 7. This branch does not touch the header or the switcher
+  (lesson 13).
+- Refused here: the same browser run piped through `tail` (it was run without the pipe instead). Not run: the unit
+  suite, the other three browser files, demo_check (no example touched).
