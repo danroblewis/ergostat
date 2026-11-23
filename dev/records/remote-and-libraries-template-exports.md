@@ -69,3 +69,14 @@ Its runs failed past their attempts (a dead letter):
 - attempt 13: nack queue: the push of f2f65f066ded (gap/milestone-every-gap-has-one) is requested
 - attempt 14: nack queue: the push of 58471dafb951 (gap/compute-runs-on-config-continued-continued) is requested
 - attempt 15: nack the implementor pool is full (run/pools.json): waits its turn
+
+## Where it stopped
+
+Continued, round 1 (2026-11-23). The park was the queue's (nacks and a full pool), not a review's, so no finding
+was open. Main (059ff718f2d1) was merged in. It conflicted in ergostat/library/uses.py, where main had added `above`
+and `owner_runs` to each use record and passed the outer instance as `above` in the inner plan() call. Both sides are
+kept: the record holds `outer`, `above`, `owner_runs` and the exports fields, and the inner call passes `inst` as
+`above`, with `unmade` still run after the inner uses. Ran after the merge: tests/test_template_exports.py (10 passed),
+tests/test_templates.py (37 passed), tests/test_library_sandbox_sensors.py (9 passed, 4 skipped because bwrap cannot
+make namespaces in this container), and ruff (clean). scripts/demo_check.py was not run here. As in rounds 1 and 2 it
+is left to the merge queue.
