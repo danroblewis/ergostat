@@ -11,7 +11,7 @@ from contextlib import contextmanager
 
 import fac
 
-REMAKE_CLEARS = ("main_fixed_at", "fixed_by", "green_passes")   # a fixed flake seen again: its old life's fields
+REMAKE_CLEARS = ("main_fixed_at", "fixed_by", "green_passes", "passed_on")   # a fixed flake seen again: its old life's fields
 
 
 @contextmanager

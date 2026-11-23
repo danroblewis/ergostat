@@ -4,6 +4,8 @@ the project's state directory, ``$ERGOSTAT_HOME/<project>/`` (default ``~/.ergos
 
 from __future__ import annotations
 
+import contextvars
+import hashlib
 import json
 import math
 import os
@@ -221,6 +223,20 @@ def _skipping(skip: tuple[str, ...], where: list[str], args: list) -> None:
             args += [lo, lo[:-1] + chr(ord(lo[-1]) + 1)]
 
 
+LINE: contextvars.ContextVar[list | None] = contextvars.ContextVar("ergostat_journal_line", default=None)
+
+
+def line_id() -> str | None:
+    """The next id of an event made by the journal line being taken (SPEC §9.1, *Runs taken up again*): from the run,
+    the line's place in its journal and the count of events it made so far, so a line taken again (an engine killed
+    between its events and its saved offset) makes the same ids, which the record keeps once. None outside a line."""
+    got = LINE.get()
+    if got is None or got[0] is None:
+        return None
+    got[1] += 1
+    return hashlib.sha256(f"{got[0]}:{got[1]}".encode()).hexdigest()[:32]
+
+
 class ChangesetError(ValueError):
     pass
 
@@ -310,8 +326,8 @@ class Events:
         change = changeset(data, patch, set)
         if change and (not isinstance(item, str) or "/" not in item):
             raise ChangesetError("a patch or a set changes an item: name it (an id with a /, ticket/12)")
-        ev = {"id": id or uuid.uuid4().hex, "time": at if at is not None else time.time(), "type": type, "item": item,
-              "source": source, "causedby": causedby, "data": data or {}}
+        ev = {"id": id or line_id() or uuid.uuid4().hex, "time": at if at is not None else time.time(), "type": type,
+              "item": item, "source": source, "causedby": causedby, "data": data or {}}
         if patch is not None:
             ev["patch"] = patch
         if set is not None:

@@ -556,6 +556,8 @@ svg.bd { color: var(--ink); }
 .bd .bd-head { fill: var(--ink); }
 .bd .bd-hit { fill: none; stroke: transparent; stroke-width: 9; cursor: pointer; }
 .bd .bd-dot { fill: var(--ink); }
+.bd .bd-slight .bd-line { stroke: var(--muted); }   /* a sensor's sampler whose T is slight against its loop's */
+.bd .bd-slight .bd-dot { fill: var(--muted); }
 .bd .bd-portmark { fill: var(--bg); stroke: var(--ink); stroke-width: 1.1; }
 .bd .bd-portname { fill: var(--muted); }
 .bd .sys-hull.bd-frame rect { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: none; }
