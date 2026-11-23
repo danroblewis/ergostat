@@ -31,3 +31,18 @@ This takes over `factory/library-fetch`'s `ergostat/library/fetch.py`, trimmed t
 ## Size budget
 240 net lines
 size: L (confidence: medium)
+
+## Where it stopped
+
+Round 1: built. `ergostat/library/fetch.py` is 217 lines. All six acceptance tests pass: 13 cases, because the kill test is parametrized over clone/archive × stall/size × with/without `os.waitid`. ruff is clean. `main` has not moved since the clone, so there was nothing to merge.
+
+The parked branch `factory/library-fetch` is not in this clone, so the module was written fresh to this definition. The choices made, each the more reversible one:
+- `fetch.fetch(root, libraries, update=False, say=print)` returns name → `fetched` or `kept`. It raises `FetchError(code, name)` with code `bad-lock`, `linked-library-folder`, `bad-version`, `git-failed`, `git-limit` or `lock-mismatch`. `TreeError` and `SourceError` from library-fetch-tree pass through. The first refusal stops the fetch. Libraries fetched before it keep their copy and lock entry. The acceptance tests' `--update` is the `update=True` argument. The CLI flag belongs to library-fetch-load.
+- `libraries.lock` sits beside `.libraries` in `root`. It is JSON: name → `{git, version, path?, commit, tree}`, where `tree` is `tree.digest` of the copy. It is written whole after each library's swap, by `os.replace` from a `mkstemp` file. `.flock` is never replaced. The lock is read again for each library inside the flock. Entries for libraries no longer listed are kept, not pruned.
+- Each library is a bare `git clone` of the whole repository. Then `rev-parse --verify VERSION^{commit}` resolves the version, so a branch, a tag or a commit all work. Then `git archive COMMIT[:PATH]` writes to a file in the temporary folder, which `tree.extract` reads into `copy`. So the size poll and `RLIMIT_FSIZE` cover the archive too, and the extract needs no thread. `check-ref-format --allow-onelevel` runs through the same limited runner. `GIT_ALLOW_PROTOCOL=https:file` overrides any `protocol.*` config. `http.followRedirects=false`, an empty `credential.helper`, `core.sshCommand=false` and `--template=` are added to `SAFE`.
+- Without `update`, an entry whose source matches the lock and whose copy exists is kept with no git run, and its copy is not hashed again. If the copy is missing, it is fetched again, and a commit or tree other than the locked one is `lock-mismatch`. A non-hex locked commit is `bad-lock` before any git runs. With `update`, the version is resolved again and the entry moves.
+- The group kill happens while the leader is not yet reaped. A `waitid(WNOWAIT)` peek keeps the group id from being reused (lesson-11). Where `os.waitid` is missing, `poll()` reaps the leader, and the group is killed only while the leader is still alive. In that case a child left running after a normal exit of the leader is not killed. That is the one gap in the fallback.
+- Checked by breaking the code (lesson-9). Each break was seen to fail its test: killing only the leader (all 8 kill cases fail), no flock (lock test), no restore on a failed lock write, no link check on `.libraries/NAME`, and no hex check on the locked commit.
+- SPEC and the agent guide are unchanged: a user can reach none of this until library-fetch-load adds the CLI and the load step.
+
+Left: nothing in this definition. library-fetch-load builds on it.
