@@ -1193,7 +1193,10 @@ web:
 | any other `Host` | 403 |
 
 `open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
-login: anyone who reaches the name reads everything the page shows, and nothing is changed there. The tunnel must
+login: anyone who reaches the name reads everything the page shows, and nothing is changed there. Such a reader may
+not ask a data source (section 4e, *Data sources*): each of their `{source, text}` queries is refused with
+`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists no `datasources` to them; the
+owner, and a login under a name with `access:`, may ask. The tunnel must
 keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
@@ -1252,6 +1255,21 @@ reads the event log.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+- **Data sources.** A query `{"id": "a", "source": "prom", "text": "sum by (job) (rate(http_requests_total[5m]))"}` names
+  a source under the model's `sources:` (section 11) and is text in that source's own language (PromQL for `prometheus`);
+  it takes no other key and cannot be an X, an input or an output. The server asks the source (the browser never holds
+  its address or credentials) over the request's window, one value per bucket, and answers in the same shape as the rest
+  (`times`, `step`, `series`). It is bounded whatever the source's type: at most 4,000 characters of text, 50 series, 1,000
+  points, a 400-day window and 10 s (less what the request has used); past one it is refused with `error` naming the bound
+  and `error_kind: limit`. The time bound is the whole request's: connecting, the TLS handshake of an `https` source,
+  waiting for the answer and reading it, over http or https, however slowly the source sends (the connection, or its
+  TLS socket, is cut at the bound). Only looking up the source's host name is left
+  to the system's resolver, which ergostat cannot interrupt. An unreachable source is `error_kind: unreachable` (never with its address), a query the source
+  refuses `refused` with the source's own words. It is asked again each time, nothing kept. `/api/query/fields` lists these
+  sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
+  Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
+  `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
+  is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
 
 ## 4f. Dashboards: shared, named, and checked
 
@@ -1953,13 +1971,17 @@ filters) is listed as before, its newest 300.
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
-(`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
+(`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes). A system none of
+whose kinds has relations: the Timeline draws its kinds' items all the same, and the Graph says its items do not wait
+on one another, so there is no dependency graph. In both, the view comes first, above the kinds' charts, and the
+systems it draws come before those it has nothing to draw for, the project's before ergostat's own (List keeps the
+systems' order):
 
 | View | What it shows |
 |---|---|
 | **Graph** | The items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an epic) is a stadium its children hang off when nothing else they wait on is drawn; **By kind**, each kind is a frame instead. A group other than `parent`, of a kind not asked (a gap's `milestone`, with kind `gap` chosen), is a frame its members are drawn inside, titled with its id, title and state, and its members' tally: how many done of all, working (active or queued), ready (unblocked), and blocked and on what (each item they wait on, by its own frame when that is another; in full in the frame's tooltip); a frame that waits on another (a milestone's `depends_on`) has an arrow from it, and lines between members stay drawn across frames. The asked items in no such group are in a plain, dashed frame ("no milestone"). A frame with nothing drawn in it (a completed milestone under **Collapse done**, or one only waited on) is one card with the same title, and a line from a member collapsed in it is drawn from that card. A card's left bar is its state, in the shade its kind's chart gives it; its border its status (active: the accent, breathing; queued: dotted; unblocked: ink; blocked: dashed, with how many it waits on; paused: dotted on a fill; done: faint, ticked; a dead letter: bad), and the run's block when one holds it. The critical path is drawn heavier, in the bad hue; other relations (a duplicate) dashed and named. **Frontier**: only the unfinished and what they wait on, however far back; **Collapse done**: the finished vanish, and a chain through them is one dashed line, "via N done". The search narrows it; a legend counts each status (a count clicked shows only that status, again shows all:
 `status=` in the address) and, in one sentence on first paint, when the last open item is done as clock times: "last epic (e100) expected 04:02, by 04:03 at worst (9 in 10)", the p50 and the p90 of its kind's last finish, never before the levelled projection's end, rounded up to the minute; until the completion estimates are worked out, and at a moment travelled to, the levelled projection's end, the last levelled bar's ("done about 04:02, levelled by each block's capacity, median times"). Every time the Timeline and the legend print (the axis ticks aside) is a clock time with its date and zone when not today. A click opens the item |
-| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
+| **Timeline** | A Gantt chart: a row an item (a parent, then its children under it; when the Graph has frames, a summary row a frame instead: its members' span, the part done filled, its tally as in the Graph, and its members under it, open for an active one, the triangle opening or folding it; frames and the rest in the order they start, the schedule's, not the tree's; past 200 rows the frames that start last are folded, and the note says how many), its name whole where the label column fits it, its bar its states over time, from its moves (what happened), each segment named by its state where it fits, and for the unfinished, faint bars ahead (what is projected: the completion estimates' levelled run, a wait in a block's queue a dotted line, a tick at the item's p50 and a whisker to its p90; before they are worked out, the levelled projection), a parent's a bracket over its children's span. **Lanes** instead: a row a lane of each block that takes items, no more than its capacity, its projected runs in them. Arrows from each item to what waits on it; the critical path and its arrows in the bad hue; a now line; the legend is the Graph's. Ctrl or cmd and the wheel zoom it about the pointer, a drag moves it, **Fit** shows it whole. The frontier with the finished collapsed by default, and at load the page scrolled to the first unfinished row, so the now line is in view |
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
@@ -4175,7 +4197,15 @@ sources:
 | `command` | none | (the same as `run`) |
 | `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
-More types (Datadog, CloudWatch, SQL) can follow the same shape.
+A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
+(`GET /api/v1/query_range`, the only request it makes) through the server (section 4e, *Data sources*).
+
+More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
+`ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
+`sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points; a
+type offering any other public function or class is refused, so the one operation ergostat can call on a source is
+`query` (a type's `query` must itself only read; the `prometheus` one sends only that GET). Panels need no change for a new type (the
+model's JSON schema lists the types by name, so a new one is added there too).
 
 ## 12. What ergostat derives and checks
 

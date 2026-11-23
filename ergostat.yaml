@@ -222,7 +222,10 @@ items:
     states: [seen, main-broken, fixed]
     # written only by dev/bin/flakes.py, on the item as it stands, under its lock: seen on a main-broken item is
     # flake.measured (counted, still main's); a second main-broken keeps main_broken_at; either on a fixed item makes
-    # it again (times 1, main_fixed_at, fixed_by, green_passes and passed_on removed)
+    # it again (times 1, main_fixed_at, fixed_by, green_passes and passed_on removed); flake.fixed by hand is
+    # manage.py flake-fixed's (fixed_by: the person, why), read and written under the same lock
+    # flake.released (no state): the quarantine's release, its test off main's list (quarantined: false,
+    # released_at; fac.beside); quarantined folds from it and from flake.measured as before
     on:
       flake.seen: seen
       flake.main-broken: main-broken   # failed on a branch and on clean main: main's, not the gap's
