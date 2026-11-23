@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 250" width="760" height="250" font-family="Helvetica, Arial, sans-serif" font-size="12">
+  <style>
+    .ink { stroke: #1a1a1a; fill: none; } .fillink { fill: #1a1a1a; } .paper { fill: #ffffff; } .txt { fill: #1a1a1a; }
+    .sub { fill: #666666; font-size: 11px; } .halo { stroke: #ffffff; stroke-width: 3px; paint-order: stroke; }
+    @media (prefers-color-scheme: dark) {
+      .ink { stroke: #e6e6e6; } .fillink { fill: #e6e6e6; } .paper { fill: #161616; } .txt { fill: #e6e6e6; }
+      .sub { fill: #9a9a9a; } .halo { stroke: #161616; }
+    }
+  </style>
+  <rect class="paper" x="0" y="0" width="760" height="250"/>
+  <!-- before: three far tails, three lines, three heads crowding the valve -->
+  <text class="sub" x="20" y="22">before: each link its own line</text>
+  <text class="txt" x="20" y="70">tail a</text>
+  <text class="txt" x="20" y="125">tail b</text>
+  <text class="txt" x="20" y="180">tail c</text>
+  <path class="ink" stroke-width="1.1" d="M85,66 C200,66 250,110 318,121"/>
+  <path class="ink" stroke-width="1.1" d="M100,121 C200,121 260,124 318,125"/>
+  <path class="ink" stroke-width="1.1" d="M100,176 C200,176 250,140 318,129"/>
+  <path class="fillink" d="M318,121 l-8,-4 l1,7 z M318,125 l-8,-3 l0,7 z M318,129 l-7,-6 l-1,7 z"/>
+  <text class="txt halo" x="300" y="112" font-weight="700">+</text>
+  <text class="txt halo" x="300" y="141" font-weight="700">+</text>
+  <text class="txt halo" x="292" y="128" font-weight="700">+</text>
+  <path class="ink" stroke-width="1.4" d="M320,113 L340,137 L340,113 L320,137 Z"/>
+  <text class="txt" x="316" y="158">part</text>
+  <!-- after: one trunk from where they meet, each branch its own head and sign -->
+  <text class="sub" x="400" y="22">after (rule (d), second gap): a trunk, each branch its own head and sign</text>
+  <text class="txt" x="400" y="70">tail a</text>
+  <text class="txt" x="400" y="125">tail b</text>
+  <text class="txt" x="400" y="180">tail c</text>
+  <path class="ink" stroke-width="1.1" d="M465,66 C500,66 520,120 545,125"/>
+  <path class="ink" stroke-width="1.1" d="M480,121 C500,121 525,125 545,125"/>
+  <path class="ink" stroke-width="1.1" d="M480,176 C500,176 520,130 545,125"/>
+  <path class="ink" stroke-width="2.4" d="M545,125 L655,125"/>
+  <path class="ink" stroke-width="1.1" d="M655,125 C668,125 672,116 686,115"/>
+  <path class="ink" stroke-width="1.1" d="M655,125 L686,125"/>
+  <path class="ink" stroke-width="1.1" d="M655,125 C668,125 672,134 686,135"/>
+  <path class="fillink" d="M694,115 l-8,-4 l0,8 z M694,125 l-8,-4 l0,8 z M694,135 l-8,-4 l0,8 z"/>
+  <text class="txt halo" x="672" y="108" font-weight="700">+</text>
+  <text class="txt halo" x="672" y="148" font-weight="700">+</text>
+  <text class="txt halo" x="662" y="121" font-weight="700">+</text>
+  <text class="txt halo" x="560" y="114">3 links: +3</text>
+  <path class="ink" stroke-width="1.4" d="M696,113 L716,137 L716,113 L696,137 Z"/>
+  <text class="txt" x="692" y="158">part</text>
+  <text class="sub" x="400" y="225">a sketch of rule (d): any part that three far tails reach</text>
+</svg>

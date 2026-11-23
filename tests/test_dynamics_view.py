@@ -195,16 +195,27 @@ def test_the_attention_cards_speak_system_dynamics():
     snap = {"loops": {"backlog-clear": {"status": "off", "stock": "backlog", "value": 4.0, "setpoint": "<= 0", "error": -4.0,
                                        "off_by_words": "off by 4"}}}
     att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
-           {"level": "hint", "what": "controller backlog-clear", "says": "loop backlog-clear was off 60% of the time; why (a valve "
-            "too small, or acting too seldom) is said after 10m of record"},
-           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill controller x"},
-           {"level": "hint", "what": "controller a", "says": "loop a keeps feeding x: Hold a back (its controller can read x)"}]
+           {"level": "hint", "what": "loop backlog-clear", "says": "was off 60% of the time: saturated, moving its most "
+            "each run. Its valve moved 2/h out while 3/h came in"},
+           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill it"},
+           {"level": "hint", "what": "loop a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
     out = attention(att, snap)
     assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"
+    assert out[1]["says"].startswith("was off 60% of the time: saturated, moving its most each run. Its flow moved")
     import re
     for a in out:
         text = a["what"] + " " + a["says"]
         assert not re.search(r"controller|setpoint|\brule|\bgoal|valve|<=|>=", text), text
+
+
+def test_the_dynamics_wording_keeps_codes_ids_and_tiers_as_they_are():
+    from ergostat.dynamics import words
+    said = words("modelling holds queue-goal-tolerance on goal.ci-upgrade-planned, waiting 3h (why: a goal's setpoint "
+                 "and tolerance are what decides: the owner's to change). ergostat inbox request/80fe1e93e1 --deny")
+    assert said == ("modelling holds queue-goal-tolerance on goal.ci-upgrade-planned, waiting 3h (why: a desired level "
+                    "and tolerance are what decides: the owner's to change). ergostat inbox request/80fe1e93e1 --deny")
+    assert words("the rule tier has no certain change for it: a rule reads goal.x") == \
+        "the rule tier has no certain change for it: a fixed decision reads goal.x"
 
 
 def test_each_valve_says_its_equation_or_what_is_not_known_yet(factory):
