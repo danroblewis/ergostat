@@ -626,13 +626,13 @@ function useChart({ group, name, unit = "", times, values, since, until, text = 
 /* a kind's states stacked over the window in state order, the first on top and where they finish at
    the bottom: bands are stocks, their edges' slopes flows. Each state named at the right with its count
    (at the cursor, or now): a click filters the table, as the counts did */
-/* one line under a kind's states: which are finished and where that came from (spec/finished.py), or 'lives on';
-   paused states marked 'paused' */
+/* which of a kind's states are finished and where that came from (spec/finished.py), or 'lives on'; paused states named:
+   the legend's tooltip, so it takes no line of its own */
 function finishSaid(k) {
   if (!k || !k.finished) return null;
   const fin = k.lives_on ? "lives on" : `finished: ${k.finished.join(", ")} (${k.finished_from === "declared" ? "declared"
     : `inferred: no item has left ${k.finished.length > 1 ? "them" : "it"} yet`})`;
-  return h("div", { class: "finish-line muted small" }, fin + (k.paused?.length ? ` · paused: ${k.paused.join(", ")}` : ""));
+  return fin + (k.paused?.length ? ` · paused: ${k.paused.join(", ")}` : "");
 }
 const finishOf = (k, st) => (k?.finished?.includes(st) ? "finished" : k?.paused?.includes(st) ? "paused" : null);
 
@@ -653,7 +653,7 @@ function flowChart(d, group, { chosen = null, onState = null, kind = null } = {}
     return a;
   });
   const plotEl = h("div", { class: "chart-plot" });
-  const el = h("div", { class: "cfd" }, plotEl, h("div", { class: "cfd-states" }, ...labels.slice()), finishSaid(kind));
+  const el = h("div", { class: "cfd" }, plotEl, h("div", { class: "cfd-states", title: finishSaid(kind) }, ...labels.slice()));
   mountPlot(plotEl, (width) => {
     const o = baseOpts({ width, height: 120, group, since: cur.since, until: cur.until, xAxis: true,
       yRange: (_, lo, hi) => [0, Math.max(1, hi || 1) * 1.05],
