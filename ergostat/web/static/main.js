@@ -12,7 +12,10 @@ function sliderSpan() {
   return [lo, now];
 }
 const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
-function whenLabel() { return S.at ? `${S.since} to ${clock(S.at)}` : `Last ${S.since}`; }
+function whenLabel() {                                 // and how much is recorded, when less than the window
+  const r = S.status?.window === WINDOWS[S.since] ? recordedShort() : null;
+  return (S.at ? `${S.since} to ${clock(S.at)}` : `Last ${S.since}`) + (r != null ? ` (${dur(r)} recorded)` : "");
+}
 const whenMenu = menu(whenLabel(), () => {
   const [lo, hi] = sliderSpan();
   const readout = h("span", { class: "muted small", id: "atlabel" }, S.at ? `${clock(S.at)}, ${ago(S.at)}` : "Live");
@@ -38,10 +41,10 @@ $("#when").append(whenMenu);
 function setWindow(k) {
   S.since = k; S.graphSig = ""; showAt();
   if (parseRoute().q.get("window") !== "1") setQuery({ window: k === "1h" ? null : k });
-  return route(true).then(() => S.again?.());
+  const done = route(true).then(() => S.again?.()); refreshHeader(); return done;
 }
 function showAt() {
-  whenMenu.button.textContent = whenLabel();
+  if (whenMenu.button.textContent !== whenLabel()) whenMenu.button.textContent = whenLabel();
   whenMenu.button.classList.toggle("past", !!S.at);
 }
 window.addEventListener("popstate", route);                  // back and forward

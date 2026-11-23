@@ -160,7 +160,7 @@ function follow(svg, d, list) {
     const answer = avoidMoveMany(now);
     if (!answer) return;
     d.busy = true;
-    answer.then((ids) => { d.busy = false; if (!d.done) { for (const id of ids) lineCame(svg, id); send(); } });
+    answer.then((ids) => { d.busy = false; if (!d.done) { for (const id of ids) lineCame(svg, id); if (S.graph?.kind === "dynamics") sdPlaceSigns(svg); send(); } });
   };
   send();
 }

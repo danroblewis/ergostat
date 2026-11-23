@@ -1,0 +1,4 @@
+[{"goto":"http://127.0.0.1:8792/"},{"wait":4000},{"click":"text=⋯"},{"wait":400},{"shot":"plan-notation-job-menu.png"},{"click":"text=Open all systems"},{"wait":7000},{"click":"text=Fit"},{"wait":3000},{"shot":"plan-notation-job-openall-fit.png"},
+ {"click":"text=Blocks"},{"wait":7000},{"click":"text=Fit"},{"wait":3000},{"shot":"plan-notation-job-openall-blocks-fit.png"},
+ {"goto":"http://127.0.0.1:8796/"},{"wait":4000},{"click":"text=⋯"},{"wait":400},{"click":"text=Open all systems"},{"wait":7000},{"click":"text=Fit"},{"wait":3000},{"shot":"plan-notation-sf-openall-fit.png"},
+ {"click":"text=Blocks"},{"wait":7000},{"click":"text=Fit"},{"wait":3000},{"shot":"plan-notation-sf-openall-blocks-fit.png"}]

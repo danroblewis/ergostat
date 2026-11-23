@@ -121,6 +121,18 @@ function exportSvg(svg, name, design = false) {
   if (out) download(new Blob([out.text], { type: "image/svg+xml" }), name);
 }
 
+/* the model behind the picture, as Markdown (export_api.py): the server writes it for the system drawn, so a
+   snapshot file, which has no server, says it cannot */
+async function exportMarkdown(view) {
+  if (SNAP) { alert("A snapshot file cannot export the model: it has no server. Export it from ergostat web, where the model is."); return; }
+  const q = new URLSearchParams({ view, format: "json", since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
+  for (const [k, v] of Object.entries(S.graphQ || {})) if (v) q.set(k, v);
+  const r = await fetch(`/api/export?${q}`);
+  if (!r.ok) { alert(`The export failed: ${r.status}`); return; }
+  const d = await r.json();
+  download(new Blob([d.markdown], { type: "text/markdown" }), d.file);
+}
+
 /* the same picture as a PNG at twice the size, for slides and chat */
 function exportPng(svg, name) {
   const out = standaloneSvg(svg, exportTitle());
