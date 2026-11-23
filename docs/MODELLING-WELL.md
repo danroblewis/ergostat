@@ -254,8 +254,9 @@ flows:
 
 A collector **measures and never acts**; ergostat's check says so ("moves flow.arriving on its own schedule; nothing
 commands it": an open loop on purpose, since arrivals are the world's doing). If a loop's sensor polls slowly
-against the loop (a tenth of its period or more), the Blocks view draws the delay e^(−sT): poll faster, or accept
-and say why.
+against the loop (a tenth of its period or more), the Blocks view draws its sampler and the delay e^(−sT) in full
+ink: poll faster, or accept and say why. (Every polling sensor has the sampler; under a tenth it is muted, and the
+sensor's panel gives T over the loop's period.)
 
 ### Steps are actuators, each with `out:`
 
@@ -315,7 +316,8 @@ Every block has a **tier**: `program`, `ai`, `person`, `external`, or a built-in
 `expr`). Use the type that says who really does the work: a person's step is `type: person` with `ask:` (ergostat
 asks them while its goal is off), never a `program` that runs `true` in their place. Declare shared machines and
 people under `agents:` with their `kind:` (`ai`, `person`) and a description, and put each block on one
-(`agent: claude`, `agent: on-call`). The Blocks view writes each block's tier small in its corner; its panel, `explain` and the Agents page then say
+(`agent: claude`, `agent: on-call`). The Blocks view writes each block's tier small in its corner (a named block's name
+and tier, its function beneath: its law, or `f(·), law not stated`); its panel, `explain` and the Agents page then say
 which tier fills each loop and which loops one person or one AI pool carries, so a person is seen as the bottleneck
 they may be.
 
@@ -439,7 +441,8 @@ where the diagrams of the model cannot.
 
 ### Rework, visible
 
-A move back to an earlier state is drawn running back and marked ↺. Rework that is real (a review asking for
+A move that takes an item back to a state it has already been in (a repeated step) is marked ↺, with how many
+returns in the line's panel; one back to an earlier state is drawn running back. Rework that is real (a review asking for
 changes, the on-call sending an alert back) should be a declared state change (`alert.reopened: triaged`) with a
 flow for it in the chain (`alerts-reopened`), so the map, the stock-and-flow view and coherence agree. Rework that is
 not real, a lease handed back again and again, is a failing step: its median time says how long each try took.

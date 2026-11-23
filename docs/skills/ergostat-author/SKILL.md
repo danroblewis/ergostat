@@ -9,8 +9,9 @@ description: Use whenever an ergostat project (ergostat.yaml) gets a request for
 for turning a described workflow into a model of the right shape, the check-look-fix loop, common mistakes), and
 `ergostat help modelling-well` (the craft that makes each of the three diagrams look as a professional would draw
 it; section "Modelling well" below is its summary). Then, as needed: `ergostat help adding` (the templates and a worked example), `ergostat help modelling`
-(improving a model from its record), `ergostat help spec` (the whole format). An installed ergostat carries all
-of these; nothing else needs copying.
+(improving a model from its record), `ergostat help spec` (the whole format), and `ergostat help dashboards` (docs/DASHBOARDS.md: sensible Dashboard
+panels, from the question each answers and the decision it supports, when the owner asks for a dashboard of what you
+built). An installed ergostat carries all of these; nothing else needs copying.
 
 **Read first, before writing or changing a daemon** (a long-lived program that serves many sensors or many items
 instead of a `run:` process each; `daemon:` in the YAML): [daemons.md](daemons.md), beside this file. Its rules,
@@ -220,7 +221,7 @@ to read each:
 | Mismatch | Pair | What it means | What to change |
 |---|---|---|---|
 | `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
-| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (↺ on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
+| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (drawn running back on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
 | `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
 | `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
 | `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |

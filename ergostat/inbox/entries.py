@@ -104,9 +104,18 @@ def _blocks(p, spec, now: float) -> list[dict]:
         out.append({"id": f"{kind}/{b.name}@{x['seq']}", "kind": kind, "block": b.name, "seq": x["seq"],
                     "time": x["time"], "link": f"/diagram?view=blocks&around=block/{b.name}",
                     "verbs": ["done"] if person else ["approve", "deny"], "class": f"{kind}:{b.name}", "why": "",
+                    **(_done_in(spec, b) if person else {}),
                     "summary": f"{b.name} asks: {ask or cmd}" if person else f"{b.name} advises its {cmd}"})
     return out
 
+
+def _done_in(spec, b) -> dict:
+    """What a person's number means: the flow it moves (its first, as ``person_done`` records) and its unit (the
+    flow's, else its stock's)."""
+    f = next((spec.flows.get(t.name) for t in b.targets() if t.kind == "flow"), None)
+    ends = [spec.stocks.get(s) for s in ((f.target, f.source) if f else ()) if s]
+    unit = (f.unit if f else "") or next((s.unit for s in ends if s and s.unit), "")
+    return {"flow": f.name if f else "", "unit": unit}
 
 def _breakers(p, spec, now: float) -> list[dict]:
     """Blocks started by events whose breaker tripped (SPEC §9.3), each waiting for the owner to reset it."""
@@ -163,8 +172,10 @@ def _requests(p, spec, now: float) -> list[dict]:
     on its item's page. Approved, it goes back to the modelling loop; denied (with why), it is dismissed until its part
     changes; and answered of itself when check no longer finds it."""
     from ..numbers import requests as rq
+    from ..spec.ir import Ref
     if MODELLING_REQUEST not in spec.items:
         return []
+    # ``fold``: alike requests (one code, one asker) answered together on the page; ``system``: their part's
     return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now,
              "verbs": ["approve", "deny"] if rq.approvable(spec, r) else ["deny"],
              "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
@@ -172,7 +183,9 @@ def _requests(p, spec, now: float) -> list[dict]:
                         + (f": {r['why']}" if r.get("why") else "") + "."
                         + (" Approve hands it back to modelling's AI tier." if rq.approvable(spec, r) else "")
                         + f" Deny tells it to stop asking until {r.get('about')} changes; the change is yours to make"
-                          " through the Supervisor.", "why": ""}
+                          " through the Supervisor.", "why": "",
+             "fold": f"{r.get('code')}|{r.get('source')}", "about": r.get("about"),
+             "system": spec.owner(ref) if (ref := Ref.parse(r.get("about"))) else None}
             for r in rq.stored(p).values() if r["state"] == "held"]
 
 

@@ -1,0 +1,38 @@
+# dynamics-bundled-connectors-proposal: Proposal: bundled (many-to-one, one-to-many) connectors in the Dynamics diagram, true to system dynamics at both ends
+
+depends-on: []
+
+Problem: the owner wants Blocks' MIMO vector connectors in Dynamics. Blocks bundles in three places (collector bus, ergostat/blockdiagram.py:672-688; mux/demux around MIMO processes, :943-962; a vector between subsystems, :1325-1341), drawn bold with a slash and count (blocks.js:932-950). Dynamics gives every part crossing a closed module its own port (ergostat/fold.py:112-137), never merges lines (dynamics.py:320-432) and draws each with its own sign (dynamics.js:186-214). On ticket-factory with factory and modelling open 21 of 37 connectors run between two closed modules in 7 pairs, up to 6 parallel lines (shots/plan-notation-tf-dyn-open-dark.png); on :8796 top level seven curves cross between product and factory with stacked signs (plan-notation-sf-home.png); inside product five or six connectors converge on churn. Decision 2 forbids mixing notations, so Blocks' mux/demux glyphs cannot be copied.
+Change: write docs/proposals/dynamics-bundled-connectors.md with a throwaway prototype (a branch or an off flag). It settles: (a) the basis in SD practice (Stella's bundled connectors and flows between modules; Vensim has none; confluent drawing and edge bundling as the technique) and the glyph: a trunk in the connector tone with smooth joins, no bars, each branch keeping its own arrowhead and polarity sign on its unshared segment; the trunk's mark (default, no owner question: words, '3 links: +2 −1', since a slash and count is Blocks' vector notation and decision 2 keeps the notations apart); (b) polarity on a bundle and how filed Q25's acceptance changes; (c) flows against information and what Flows only (sdFlowLinks, dynamics.js:499) keeps; (d) thresholds (2 lines between modules, 3 for fan-in from far away) and no toggle; (e) unbundling at a closed module (member port rows adjacent, diagram.js:45-46); (f) the one representation both build gaps share: the edge kind 'bundle' with members, its panel and its member model, defined here and built first by dynamics-module-bundled-connectors; trunks inside open sectors and along frames (R8 piece 8), staged after the layout decision; (g) loop tracing and selection through a bundle, correspond.py; (h) how it sits with R1's goal rows on a closed box; (i) legend, the Guide's frame, export, keyboard (R9). It ends with the build gaps: confirm or amend dynamics-module-bundled-connectors and dynamics-trunk-bundling-in-open-systems.
+Definition of done:
+1. The proposal answers (a)-(i), each with a decision and reason.
+2. Before/after sketches or prototype screenshots on ticket-factory factory and on :8796 top level and product, light and dark.
+3. Corpus counts (tests/layout_corpus.py) on the prototype against main: connector crossings down, no rise in sign collisions or line-through-part.
+4. docs/proposals/diagram-options.md and docs/DISCIPLINES.md link to it.
+Files: docs/proposals/dynamics-bundled-connectors.md, docs/proposals/diagram-options.md, docs/DISCIPLINES.md; prototype not merged.
+Acceptance tests: review: every point has a decision; the counts are in an Evidence section.
+Budget: about 200 lines of prose, no merged code.
+
+Milestone: diagram-notation. Owner items: 6. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Done: docs/proposals/dynamics-bundled-connectors.md answers (a)-(i), has before/after screenshots light and dark (and
+a sketch for product, which the prototype does not change), an Evidence section with the counts, and the build gaps
+confirmed with amendments; diagram-options.md and DISCIPLINES.md link to it. The branch's net diff is docs only.
+
+Choices taken alone, the most reversible each:
+- The prototype is an off flag (`?bundle=1`) committed at f903a477 and reverted by the next commit, not a branch of
+  its own: `git branch prototype-dynamics-bundled-connectors` was refused here.
+- The corpus counts were run from a test in f903a477 (tests/test_bundle_prototype.py, over layout_corpus's
+  `views_of` and layout_rules), because running `python -m tests.layout_corpus` was refused here. Connector crossings
+  are counted by that test: layout_rules has no such rule yet (the first build gap is to add one).
+- Definition 3 holds over the corpus (183 Dynamics views: crossings 2385 to 2195, sign collisions 875 to 861, lines
+  through parts 0 to 0). It does not hold on every view: ticket-factory with factory and modelling open goes 26 to 29,
+  software-factory's top level 0 to 1, and word collisions rise 1220 to 1278. All of this is stated in the Evidence
+  section, with the amendments it leads to.
+
+Round 2: the review's one finding is answered by removing the 17 unreferenced PNGs in docs/proposals/img (the 15
+variant shots bundled-{tf-factory,sf-top,sf-product}-after-{j16,j20,j50,mid,last}-light.png, and
+bundled-sf-product-after-light.png and -dark.png, which duplicated the before shots). The variants' numbers stay in the
+proposal's Evidence section; every image left in docs/proposals/img/bundled-* is referenced by the proposal.

@@ -8,6 +8,7 @@ import json
 import shutil
 import sys
 import time
+from pathlib import Path
 
 from ergostat import model as mdl
 from ergostat import precedence as pr
@@ -450,3 +451,79 @@ def test_a_split_of_an_unbuilt_gap_still_applies(tmp_path):
     assert f.item("gap/one-continued")["state"] == "open" and f.item("gap/four")["state"] == "split"
     assert f.item("gap/four-1")["fields"]["parent"] == ["gap/four"] and f.item("gap/four-2")["state"] == "open"
     assert f.item("gap/three")["fields"]["groomed_why"] == "the rest applies"
+
+
+def test_the_halves_of_a_split_never_share_a_branch():
+    """A long name cut to fit lost its -1 and -2, and both halves built on one branch from one definition."""
+    text = (Path(__file__).resolve().parent.parent / "dev" / "bin" / "backlog.py").read_text()
+    assert 'fac.slug(s["gap"].split("/", 1)[1], 29) + f"-{len(kids) + 1}"' in text
+
+
+# ---- a split keeps what its parent waited on (dev/records/split-children-keep-parent-deps.md)
+
+
+def split_four(f: Instance, *parts: dict):
+    """gap/four split in two (``parts``: more for each part), applied as the approved action."""
+    p = f.model / "run" / "backlog" / "split.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    into = [{"title": "A", "why": "x"}, {"title": "B", "why": "y"}]
+    more = [*parts, {}, {}][:2]
+    p.write_text(json.dumps({"splits": [{"gap": "gap/four", "into": [{**a, **b} for a, b in zip(into, more, strict=True)]}]}))
+    r = f.tool("backlog.py", "apply", str(p))
+    f.drain()
+    return r
+
+
+def waits(f: Instance, *gids: str) -> list[list[str]]:
+    return [f.item(g)["fields"].get("depends_on") for g in gids]
+
+
+def waiting_four(tmp_path) -> Instance:
+    f = seeded(tmp_path)
+    f.tool("backlog.py", "dep", "add", "four", "one")
+    f.drain()
+    return f
+
+
+def test_a_split_first_part_waits_on_the_parents_unfinished_dependency(tmp_path):
+    f = waiting_four(tmp_path)
+    split_four(f)
+    assert f.item("gap/four")["state"] == "split"
+    assert waits(f, "gap/four-1", "gap/four-2") == [["gap/one"], ["gap/four-1"]]
+
+
+def test_a_split_of_a_parent_whose_dependency_is_finished_gives_none(tmp_path):
+    f = waiting_four(tmp_path)
+    f.fold([{"event": "gap.merged", "item": "gap/one", "data": {}}], None)   # finished, still named by four
+    assert f.item("gap/one")["state"] == "merged" and waits(f, "gap/four") == [["gap/one"]]
+    split_four(f)
+    assert waits(f, "gap/four-1", "gap/four-2") == [[], ["gap/four-1"]]
+
+
+def test_a_split_parts_dependency_survives_intake_reading_its_definition(tmp_path):
+    f = waiting_four(tmp_path)
+    split_four(f)
+    d = f.model / "run" / "defs"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "four-1.md").write_text("# four-1: A\n\ndepends-on: [two]\n\n## Definition of done\n\nA.\n")
+    f.run("intake.py")
+    kid = f.item("gap/four-1")
+    assert kid["state"] == "ready" and kid["fields"]["definition"] == "run/defs/four-1.md"
+    assert kid["fields"]["depends_on"] == ["gap/one", "gap/two"]              # its definition's, and still the parent's
+    assert "gap/one" in kid["fields"]["blocked_reason"]
+
+
+def test_a_split_keeps_the_parts_named_dependencies_and_the_parents(tmp_path):
+    f = waiting_four(tmp_path)
+    split_four(f, {"depends_on": ["two"]}, {"depends_on": ["gap/three", "gap/four-1"]})
+    assert waits(f, "gap/four-1", "gap/four-2") == [["gap/one", "gap/two"], ["gap/four-1", "gap/three"]]
+
+
+def test_a_split_naming_a_dependency_it_cannot_keep_is_refused_whole(tmp_path):
+    f = waiting_four(tmp_path)
+    f.tool("backlog.py", "dep", "add", "three", "four")
+    f.drain()
+    for bad in ("nope", "four", "three", "gap/four-2"):           # no gap, the parent, one waiting on it, a later part
+        r = split_four(f, {"depends_on": [bad]})
+        assert f"refused: split gap/four: part 1 depends on {bad!r}" in r.stdout, r.stdout
+        assert f.item("gap/four")["state"] == "open" and "gap/four-1" not in f.db()["items"]

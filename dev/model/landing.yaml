@@ -3,6 +3,27 @@
 defaults:
   system: landing
 
+items:
+  batch:
+    id: batch/*
+    description: one merge queue run's batch (batch/<run tag>) - its gaps tested together, each run of the suites (full, named, halves) with its outcome, the gaps isolated, what landed and was given back (dev/bin/batches.py)
+    states: [testing, isolating, pushing, landed, partial, failed, given-back]
+    final: [landed, partial, failed, given-back]
+    on:
+      batch.started: testing
+      batch.run-started: testing      # a run of the suites under way: one Timeline bar a run
+      batch.run-finished: isolating   # between runs: a red run's tests checked alone and on main, the next run chosen
+      batch.isolated: isolating       # a gap found failing: how, and its tests
+      batch.landed: pushing           # merged on main, its push asked for
+      batch.ended-landed: landed      # every gap landed and pushed
+      batch.ended-partial: partial    # some landed and pushed, the rest failed or given back
+      batch.ended-failed: failed      # none landed and a gap failed, or its push was denied
+      batch.ended-given-back: given-back   # none landed and none blamed: a stall, main red, out of time, an error
+    show: [size, run, outcome, base, main_sha, runs_n, minutes, why]
+    fold: {runs: append, isolated: append}
+    relations:
+      gaps: {kind: gap, precedence: false, inverse: batches}   # each gap's page lists the batches it was in
+
 stocks:
   gaps-approved:
     unit: gaps
@@ -21,6 +42,10 @@ stocks:
     description: the gaps merged on main - a running total, never work waiting (the queue's merges and the joins found covered)
     cumulative: true
     sensor: {items: gap, state: merged, every: 1m}
+  flakes-main-broken:
+    unit: tests
+    description: tests failing on main too (dev/bin/onmain.py), waiting for main-mend to see them pass twice alone
+    sensor: {items: flake, state: main-broken, every: 1m}
   upgrades-available:
     unit: upgrades
     description: new commits on origin/main the instance does not run yet
@@ -43,6 +68,16 @@ stocks:
     sensor: {items: upgrade, state: switched, every: 1m}
 
 auxiliaries:
+  batch-run-percent:
+    unit: percent
+    description: how far the merge queue's run under way is through its tests - the least advanced of its pytest logs (0 when none runs; run/batch.json)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/batches.py percent, every: 1m, timeout: 1m, description: the run's own logs}
+  batch-run-failures:
+    unit: tests
+    description: the tests failed so far in the merge queue's run under way, from its pytest logs' progress (0 when none runs)
+    driven-by: [+stock.gaps-queued]
+    sensor: {run: python3 dev/bin/batches.py failures, every: 1m, timeout: 1m, description: the run's own logs}
   drain-minutes:
     unit: minutes
     description: how long the drain under way has gone (0 when none, or once its switch began)
@@ -63,6 +98,11 @@ auxiliaries:
     description: 1 while the last batch's push ran, was denied, failed or cannot be read, or a block was remedied, and nothing settled it yet - push-settler's work (run/queue.json)
     driven-by: [+stock.gaps-queued]
     sensor: {run: python3 dev/bin/queue.py settleable, every: 1m, timeout: 1m, description: the merge queue's state}
+  browser-main-green:
+    unit: switch
+    description: 1 when the last daily browser run on main passed (or failed only on flakes), 0 when a test failed there or it named none; no reading when run/browser-daily.json cannot be read
+    driven-by: [+flow.gaps-merged]
+    sensor: {run: python3 dev/bin/browserday.py green, every: 10m, timeout: 1m, description: the daily browser run's record}
 
 flows:
   gaps-approved:
@@ -120,6 +160,12 @@ flows:
     driven-by: [+stock.gaps-queue-failed]
     equation: triage-park-share * stock.gaps-queue-failed / triage-time
     sensor: {items: gap, entering: parked, where: {parked_in: triage}, over: 1d}
+  flakes-mended:
+    from: flakes-main-broken
+    description: a main-broken test passed twice alone on the pushed main (main-mend) - main's break mended
+    driven-by: [+stock.flakes-main-broken]
+    equation: stock.flakes-main-broken / mend-time
+    sensor: {items: flake, entering: fixed, where: {fixed_by: main-mend}, over: 1d}
   upgrades-opened:
     to: upgrades-available
     description: a new commit on the remote's pushed main (the push follows each green merge, once approved)
@@ -216,6 +262,10 @@ parameters:
     range: [0, 1]
     estimate: true
     description: the share of queue failures that are a branch's last failed gate ([gates] kill_after)
+  mend-time:
+    value: 1h
+    estimate: true
+    description: how long a main-broken test waits for main-mend's run (every 30m, [gates] mend_most at a time) once main is fixed
   upgrades-per-merge:
     value: 1
     unit: upgrades/gaps
@@ -285,6 +335,11 @@ goals:
     hold: "<= 2"
     tolerance: 0
     description: a drain ends by its bound ([upgrade] drain_minutes) and the switcher's next minutes - past them the switch is stuck
+  browser-main-green:
+    auxiliary: browser-main-green
+    hold: ">= 1"
+    tolerance: 0
+    description: the four browser files pass on main, run once a day whatever merged (browser-daily)
 
 actions:
   push-main:
@@ -354,10 +409,30 @@ blocks:
     timeout: 1h
     in: block.triage-when
     out: [flow.flakes-retried, flow.sent-back-by-triage, flow.parked-in-triage]
+  browser-daily:
+    type: program
+    description: once a day, under the queue's lock once the machine is quiet, the four browser files on origin/main in a worktree of its own - green, its sha recorded; a test failing twice alone, an intervention (class queue) naming it, main and the merges since the last green; passing alone, a flake seen
+    run: python3 dev/bin/browserday.py
+    every: 24h
+    timeout: 3h
+    # read, not commanded: a goal: here would take it off its schedule (schedule-removed); the last green it reads
+    # names the suspects, and each day's run measures main again
+    in: [goal.browser-main-green]
+    out: auxiliary.browser-main-green
+  main-mend:
+    type: program
+    description: the way out of main-broken - on the pushed main, once the machine is quiet, the oldest main-broken tests ([gates] mend_most, at most 20) run alone twice in a suite container; each passing both is flake.main-fixed, a patch testing the item's main as read (dev/bin/mend.py)
+    run: python3 dev/bin/mend.py
+    every: 30m
+    pool: 1
+    lease: {ttl: 30m, attempts: 1}
+    timeout: 30m
+    in: +stock.flakes-main-broken
+    out: flow.flakes-mended
 
   main-watch:
     type: program
-    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one
+    description: the collector of upgrades - a new commit on origin/main (pushed, never only merged) opens one; and of reverts pushed to main, each an escape (dev/bin/escapes.py)
     run: python3 dev/bin/upgrade.py watch
     every: 10m
     timeout: 2m

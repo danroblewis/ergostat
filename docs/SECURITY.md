@@ -130,22 +130,23 @@ expanded, with every parameter's value put in. If any part is not on it, the who
   `timer`, `counter`, `alarm`: computed by ergostat from their inputs. Also `program`, `ai` and `person` blocks, only
   as below.
 - **Sensor keys:** `items`, `state`, `entering`, `leaving`, `where`, `over`, `measure`, `sum`, `changes`, `unit`,
-  `description`: sensors that count items or read a stock's changes from the record ergostat keeps; and `run`,
-  `query`, `every`, `cron`, `timeout`, `averages`, only as below.
+  `description`: sensors that count items or read a stock's changes from the record ergostat keeps; `run`, on
+  your shell only as below and otherwise sandboxed; and `query`, `every`, `cron`, `timeout`, `averages`, only as below.
 
 Each section's keys are listed in trust.py, each with its reason; any other section, key, block type or shape of value
-is refused, including daemons on sensors, `external` and `judge` blocks, `on-stale`, an item kind's `lease`, a goal's
+is refused, including daemons on sensors (`library-unsandboxed`), `external` and `judge` blocks, `on-stale`, an item kind's `lease`, a goal's
 `owner`, and `inferred` or `formerly` anywhere. A test holds this list to trust.py's tables
 (`tests/test_library_trust.py`).
 
 **What runs.** Every value carries who wrote it: you (in your own file's `with:`), a trusted template (ergostat's or
-one from your folders), or the library. Only two kinds of `run` (a sensor's, or a `program` block's) are let through:
+one from your folders), or the library. Only two kinds of `run` (a sensor's, or a `program` block's) run on your
+shell:
 
 - **Your own commands.** A value you wrote for a `type: command` parameter, which reached the run whole (each nested
   use passing it wholly as `${p}`, to a `type: command` parameter again), as the whole `run`, or quoted (`:quote`,
   `:arg`) into one of ergostat's own templates' runs. Any library words around it (`${cmd} | sh`), a library default
   for a command, a library's literal that equals a command of yours, or your value for a parameter of another type
-  (a `string`) is refused.
+  (a `string`) is refused in a block's run, and makes a sensor's run sandboxed (below).
 - **Ergostat's programs with checked arguments.** In a built-in template's run that starts `${lib} ` (the programs
   `python -m ergostat.library.run` runs), a value the library wrote may stand only directly after a flag listed in
   trust.py's `LIB_DATA_FLAGS` (data such as `--kind`, `--state`, `--every`, `--limit`; never `--run`, `--render`,
@@ -157,6 +158,17 @@ one from your folders), or the library. Only two kinds of `run` (a sensor's, or 
   100, `--stand-in` at most 3600 an hour (`LIB_BOUNDS`). A library's value of any other type never reaches a run, nor does any value of one in the run of
   a template from your own folders (no test can vouch for `sh -c ${x:quote}`), nor a run holding an element's or a
   list's field (`${it.run}`, whose writer can't be told).
+
+**A library's own sensor run goes into the sandbox.** A sensor's `run` that is neither of these (the library's own
+script, a command with library words around it) is not refused but runs only through the sandbox above, never on your
+shell: no network, no environment (so it cannot call ergostat back or relay a message to you), nothing of yours
+readable, only its template's folder and a work folder of its own (`<state>/library-work/<instance>`, or a digest of a
+name too long to be a folder's; emptied when the templates above it change), at most 120 seconds and at most 4 such runs at once. Where no sandbox can start, it does
+not run and records nothing. A library sensor's `daemon` stays refused (`library-unsandboxed`): a process kept
+running is not sandboxed. Anything ergostat cannot prove is yours (an unknown origin, a check that fails) goes to the
+sandbox too. What ergostat's own tests prove here is what the sandbox is asked to enforce (the policy handed to it);
+that it enforces it is the attack suite's (`tests/test_sandbox_attacks.py`), with the limits in *What it does not
+stop* above.
 
 A sensor's or a program block's `every`, `cron`, `timeout` and `averages` stand only as you or a trusted template wrote
 them; a library's (its own `poll: 1m`) is refused. Whoever wrote it, the period of a part made under an untrusted
