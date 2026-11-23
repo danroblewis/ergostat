@@ -265,3 +265,21 @@ Run here: ruff clean. Under the watchdog with Playwright:
 tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen_and_the_window passed 3 times after the change
 to the test (rc 0), and test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back passed (rc 0).
 Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs them.
+
+## Where it stopped
+
+Round 8, answering the queue's one finding (a conflict with main in util.js; the factory's merge of main e43046dc
+also conflicted in pages.js and tests/test_graph_cli_web.py). Merged (8c2457a7), each resolved by keeping both sides:
+- util.js route(): main's nav loop that also sets `aria-current="page"` is kept, after the branch's two lines that
+  read `?window=` into S.since.
+- pages.js, Loops: main's quiet-systems box (`qbox`, appended before the table) is kept, after the branch's `pick`
+  and its opening of the address's `select=` loop.
+- tests/test_graph_cli_web.py: both sides' new tests at the same place, both kept.
+No code outside tests/ changed in this round beyond the merge. `git diff main --shortstat -- ergostat/` is 55
+insertions and 19 deletions (about 36 net, within 60).
+
+Run here after the merge: ruff clean. tests/test_graph_cli_web.py, 45 passed. Under the watchdog with Playwright:
+tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen_and_the_window and
+test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back, 2 passed, rc 0.
+A first try of that browser command with `| tail -5; echo rc=$?` appended was refused; run again without them, it ran.
+Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs them.
