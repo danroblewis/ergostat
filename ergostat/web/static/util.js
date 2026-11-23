@@ -75,6 +75,22 @@ function live(node) {
   stub.__ref = node;
   return stub;
 }
+/* a list the reader is in (the pointer over it, or focus in it) holds still: a refresh is built aside and only how many
+   of its rows ([data-row]) it would add, take away, move or change is said at its top; ``release`` applies it once they
+   have left */
+const heldStill = (el) => !!el?.isConnected && (el.matches(":hover") || (el.contains(document.activeElement) && !document.activeElement.disabled));
+function holdStill(el, built, release) {
+  const rows = (x) => { let prev = ""; return new Map([...x.querySelectorAll("[data-row]")].map((r) => { const k = r.dataset.row, v = [k, `${prev}\n${r.textContent}`]; prev = k; return v; })); };
+  const a = rows(el), b = rows(built), n = [...new Set([...a.keys(), ...b.keys()])].filter((k) => a.get(k) !== b.get(k)).length;
+  let note = el.querySelector(":scope > .waiting");
+  if (!note) el.prepend(note = h("div", { class: "waiting", role: "status" }));
+  setText(note, n ? `${n} update${n === 1 ? "" : "s"} waiting` : "");
+  const leave = () => setTimeout(() => {
+    if (el.__release && !heldStill(el)) { const f = el.__release; el.__release = null; el.querySelector(":scope > .waiting")?.remove(); f(); }
+  });
+  if (!el.__holds) { el.__holds = true; el.addEventListener("pointerleave", leave); el.addEventListener("focusout", leave); }
+  el.__release = release;
+}
 /* the text of an element, set only when it differs */
 function setText(el, t) {
   t = t == null ? "" : String(t);

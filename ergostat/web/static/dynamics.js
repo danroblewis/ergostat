@@ -434,14 +434,18 @@ function sdLoopGroups(g, box = null, all = false) {
     return { rep: loops[0], loops };
   });
 }
+/* a loop's links that have no sign (all of them when the graph does not give its links); its polarity only when
+   every link has one and their signs agree with it */
+const sdUnsigned = (c) => (c.around ? c.around.filter((r) => !r.sign) : [{ fromName: "?", toName: "?" }]);
+const sdPol = (c) => (sdUnsigned(c).length || (c.around.filter((r) => r.sign === "-").length % 2 ? "B" : "R") !== c.polarity ? null : c.polarity);
 function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
-  const label = c.label || (c.polarity || "?");
+  const label = sdPol(c) ? c.label : "?";
   const r = sdMarkerRadius(label), start = clockwise ? -60 : -120, end = clockwise ? 240 : -60;   // a gap at the top, the head at its end
   const P = (deg) => [r * Math.cos((deg * Math.PI) / 180), r * Math.sin((deg * Math.PI) / 180)];
   const [x0, y0] = P(start), [x1, y1] = P(end), rad = (end * Math.PI) / 180;
   const dx = clockwise ? -Math.sin(rad) : Math.sin(rad), dy = clockwise ? Math.cos(rad) : -Math.cos(rad);   // the way it turns, at the end
   const tip = [x1 + dx * 6, y1 + dy * 6], base = [x1 - dx * 2, y1 - dy * 2], px = -dy * 5, py = dx * 5;   // a clear arrowhead
-  const g = s("g", { class: `loop-marker pol-${c.polarity || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
+  const g = s("g", { class: `loop-marker pol-${sdPol(c) || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
                      "data-act": "loop", "data-x": x, "data-y": y, transform: `translate(${x},${y})`,
                      onclick: (ev) => { ev.stopPropagation(); sdToggle(c.name, loops); },
                      onpointerenter: () => { if (!S.dragging) sdHover(c.name); }, onpointerleave: () => sdHover(null) },
@@ -449,7 +453,8 @@ function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
     s("path", { class: "marker-arc", d: `M${x0},${y0} A${r},${r} 0 1 ${clockwise ? 1 : 0} ${x1},${y1}` }),
     s("path", { class: "marker-head", d: `M${tip[0]},${tip[1]} L${base[0] + px},${base[1] + py} L${base[0] - px},${base[1] - py} Z` }),
     s("text", { class: "marker-letter", y: 4, "text-anchor": "middle" }, label),
-    loops.length > 1 ? s("text", { class: "marker-more", x: r + 4, y: 4, "text-anchor": "start" }, `+${loops.length - 1}`) : null,
+    loops.length > 1 ? s("text", { class: "marker-more", x: r + 4, y: 4, "text-anchor": "start" }, `${loops.length} alike`,
+      s("title", {}, `Drawn alike here with ${loops.slice(1).map((x2) => `${x2.label} ${x2.name}`).join(", ")}`)) : null,
     ...lines.map((t, i) => s("text", { class: "marker-name", y: r + 14 + i * 13, "text-anchor": "middle" }, t)));
   return g;
 }
@@ -495,10 +500,10 @@ function sdLoopList(side, g) {
   side.append(h("h3", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
   const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
-    h("div", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), h("span", {}, c.name)),
-    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[c.polarity] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
+    h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
+    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
   if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));
-  const counts = ["R", "B"].map((p) => [p, known.filter((c) => c.polarity === p).length]).filter(([, n]) => n);
+  const counts = ["R", "B"].map((p) => [p, known.filter((c) => sdPol(c) === p).length]).filter(([, n]) => n);
   if (counts.length) side.append(h("div", { class: "note" }, counts.map(([p, n], i) => `${n} ${{ R: i ? "reinforcing" : "Reinforcing", B: i ? "balancing" : "Balancing" }[p]}`).join(", ")));
   for (const c of known) side.append(row(c));
   if (unknown.length) {                                 // not on the canvas: a sign along each is not known
@@ -784,38 +789,23 @@ async function openEdgeSD(e) {
   trace(S.selKey);
 }
 
-/* a feedback loop: its label and name, its polarity, its parts in order as drawn here, and the sign of each
-   line between them as drawn (a module where it runs inside a closed system, a shadow where it leaves) */
+/* a feedback loop: its label and name, its polarity (only when every link has a sign), and every link around it
+   by plain names (a link to each part drawn here), each with the sign its connector has wherever it is drawn */
 function openCausal(name) {
   const c = (S.graph?.causalLoops || []).find((x) => x.name === name);
   if (!c) return;
   const { link, byId } = sdGraphLinks();
-  const word = { R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known";
-  const g = S.graph;
-  const part = (id) => {
-    const n = byId[id];
-    if (n?.kind === "system") return h("span", {}, "module ", link(id));
-    if (n?.kind === "terminal") return h("span", { class: "muted" }, `<${n.label}>`);
-    return n ? link(id) : h("span", { class: "muted" }, id.split(":").slice(1).join(":"));
-  };
-  const sign = (a, b) => {                              // the drawn line from a to b: a connector's sign, a pipe's way
-    const e = g.edges.find((x) => (x.from ?? x.source) === a && (x.to ?? x.target) === b);
-    if (e && e.kind === "connector") return sdSign(e.polarity) || "?";
-    if (e && e.kind === "pipe") return "+";                // a flow fills the stock it runs into
-    const back = g.edges.find((x) => x.kind === "pipe" && (x.from ?? x.source) === b && (x.to ?? x.target) === a);
-    return back ? MINUS : "";                               // a stock drains by its outflow
-  };
-  const ns = c.nodes, rows = ns.map((a, i) => [a, ns[(i + 1) % ns.length]]).filter(([a, b]) => a !== b);
-  const signs = rows.map(([a, b]) => sign(a, b));
-  const minus = signs.filter((x) => x === MINUS).length, unknown = signs.filter((x) => x === "?").length;
+  const pol = sdPol(c), word = { R: "reinforcing", B: "balancing" }[pol] || "polarity not known";
+  const part = (id, plain) => (byId[id] && !["system", "terminal", "cloud"].includes(byId[id].kind) ? link(id) : h("span", { class: "muted" }, plain));
+  const rows = c.around || [], minus = rows.filter((r) => r.sign === "-").length, unsigned = sdUnsigned(c);
   showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
-    h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label)), h("div", { class: "subtitle" }, c.name),
-    h("p", {}, c.polarity && (!rows.length || signs.some((x) => x === "")) ? `${word[0].toUpperCase()}${word.slice(1)} by the signs of its links in the model; not all of them are drawn in this view (open its system to see them).`
-      : c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
-                          : `${unknown || "a"} link${unknown === 1 ? "" : "s"} along it ${unknown === 1 ? "has" : "have"} no known sign, so whether it reinforces or balances is not known.`),
+    h("h2", {}, h("span", { class: `loop-tag pol-${pol || "unknown"}` }, pol ? c.label : "?")), h("div", { class: "subtitle" }, c.name),
+    h("p", {}, pol ? `${minus} negative link${minus === 1 ? "" : "s"} around it: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
+      : unsigned.length ? `No sign on ${unsigned.map((r) => `${r.fromName} → ${r.toName}`).join(", ")}, so whether it reinforces or balances is not known.`
+      : `Its links' signs (${minus} negative) and the model's ${c.polarity ? `${c.polarity === "R" ? "reinforcing" : "balancing"} disagree` : "not knowing differ"}, so it is not called either.`),
     h("h3", {}, "Around the loop"),
-    h("table", { class: "parts" }, rows.map(([a, b], i) => h("tr", {}, h("td", {}, part(a)), h("td", { class: "muted" }, "→"), h("td", {}, part(b)),
-      h("td", { class: "num" }, signs[i])))),
+    h("table", { class: "parts" }, rows.map((r) => h("tr", {}, h("td", {}, part(r.from, r.fromName)), h("td", { class: "muted" }, "→"),
+      h("td", {}, part(r.to, r.toName)), h("td", { class: "num" }, r.sign ? sdSign(r.sign) : "?")))),
     h("h3", {}, "When it drives the behaviour"), loopDominance(c.name),
     (() => {                                            // the loops drawn alike here share its marker
       const grp = sdLoopGroups(S.graph, null, true).find((x) => x.loops.includes(c));

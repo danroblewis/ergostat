@@ -416,6 +416,83 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     pg.close()
 
 
+def add_record(*events) -> None:
+    """Events with their source and time, (type, item, source, data, at), added to the running site's record."""
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+for t, item, source, data, at in {events!r}:
+    p.events.add(t, item=item, source=source, data=data, at=at)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+
+
+def record_rows(pg) -> list[dict]:
+    pg.wait_for_selector("main .page table tr td")
+    return pg.locator("main .page table tr:has(td)").evaluate_all("""trs => trs.map((tr) => {
+        const td = [...tr.children].map((c) => c.textContent.trim());
+        return { type: td[1], item: td[2], source: td[3], data: td[4] }; })""")
+
+
+def test_a_crossing_opens_the_record_narrowed_to_its_goal_and_time_and_the_filter_stays_in_the_address(browser, site):
+    """A crossing of a goal in its evidence panel links to the Record of that goal (it, its controller's and valves'
+    agents, its valves) from the crossing to the next one, and nothing else; the filter box matches an event's item
+    and source as well as its type; the filter and the window stay in the address, so a reload keeps them."""
+    t0 = float(int(time.time()) - 900)
+    add_record(("loop.off", "ideas-ready", None, {"value": 1, "error": 2, "mark": "mk-off"}, t0),
+               ("controller.decided", "ideas-ready", None, {"decision": "propose", "mark": "mk-inside"}, t0 + 100),
+               ("hypothesis.proposed", "hypothesis/99", None, {"title": "x", "mark": "mk-other-item"}, t0 + 150),
+               ("loop.on", "ideas-ready", None, {"value": 4, "mark": "mk-on"}, t0 + 300),
+               ("controller.decided", "ideas-ready", None, {"decision": "rest", "mark": "mk-after"}, t0 + 400),
+               ("repair.fixed", "repair/1", "fixer", {"mark": "mk-fixer-source"}, t0 + 500))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/diagram")
+    pg.wait_for_function("() => typeof openLoop === 'function' && S.status", timeout=60000)
+    link = pg.locator(f'#detail table.crossings a[href*="from={int(t0)}&"]')
+    for _ in range(40):                                  # the page's snapshot may be older than the events just added
+        pg.evaluate("() => openLoop('ideas-ready')")
+        try:
+            link.wait_for(timeout=1000)
+            break
+        except playwright.Error:
+            pass
+    link.click()
+    pg.wait_for_function("() => location.pathname === '/record' && location.search.includes('about=ideas-ready')")
+    assert f"from={int(t0)}" in pg.url and f"to={int(t0) + 300}" in pg.url, pg.url
+    lp = pg.evaluate("() => api('loops/ideas-ready')")
+    mine = {"ideas-ready", *(pt["name"] for pt in lp["parts"] if pt["kind"] != "sensor"),
+            *(pt["agent"]["name"] for pt in lp["parts"] if pt["kind"] != "sensor" and pt.get("agent"))}
+    for _ in range(2):                                   # as clicked, then reloaded
+        rows = record_rows(pg)
+        marks = {m for r in rows for m in ("off", "inside", "on", "other-item", "after", "fixer-source") if f"mk-{m}" in r["data"]}
+        assert marks == {"off", "inside", "on"}, rows
+        assert all(r["item"] in mine or r["source"] in mine for r in rows), (rows, mine)
+        pg.reload()
+        pg.wait_for_function("() => location.search.includes('about=ideas-ready')")
+    pg.goto(f"{site}/record")
+    pg.fill('input[aria-label="Event type, item or source"]', "fixer")
+    pg.press('input[aria-label="Event type, item or source"]', "Enter")
+    pg.wait_for_function("() => location.search.includes('match=fixer')")
+    for _ in range(2):
+        # the unfiltered Record holds mk-fixer-source too: wait for the filtered rows, not only for the text
+        pg.wait_for_function("""() => { const rs = [...document.querySelectorAll('main .page table tr:has(td)')]
+            .map((tr) => [...tr.children].map((c) => c.textContent.trim()));
+            return rs.length && rs.some((r) => r[4].includes('mk-fixer-source'))
+                && rs.every((r) => r[2] === 'fixer' || r[3] === 'fixer'); }""")
+        rows = record_rows(pg)
+        assert rows and all(r["source"] == "fixer" or r["item"] == "fixer" for r in rows), rows
+        pg.reload()
+        pg.wait_for_function("() => location.search.includes('match=fixer')")
+        assert pg.input_value('input[aria-label="Event type, item or source"]') == "fixer"
+    assert not errors, errors
+    pg.close()
+
+
 STRIP = """() => {
   const t = document.querySelector('.track');
   if (!t) return null;
