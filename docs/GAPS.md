@@ -130,15 +130,17 @@ review into *Done recently*). Newest decisions from the owner first within each 
   in `ergostat.sandbox` (X2, M2, M3; a read-only re-run's hosts GET-only, M6), proposed as `apply-fix` with its impact
   report, the ladder's first rung (a person; a denial final), a daily cap that fails closed
   (M7), and applying by `--ff-only` onto the commit it was made on (M8). M4 is designed away (a fix changes only the
-  program). Triage reads Python, Node, Java and Go traces and notes an error a good run swallowed (M5) without moving
-  any failure, and (`repair-log-events`) the last error-level log line of a good run with no project trace, in Python
-  logging's default form or JSON, noted the same way. Done since (`repair-verify`): an applied fix verified by `verify` runs of its block begun after it, or
-  regressed by a failed one, and a regressed fix's gated `revert-fix` (one `git revert`, aborted and checked when git
-  fails). Done since (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: the
-  ladder's lower rungs (program, rule) and promoting a class automatically; a program with uncommitted
-  changes is fixed from its committed text; a Python traceback more than 8,000 characters before the end of a failed
-  run's output is now signed by how the run ended; a daemon's run hands back little or no standard error, so what a
-  daemon swallows is not seen; Ruby and other languages are not read.
+  program). Triage reads Python, Node, Java, Go and Ruby traces and notes an error a good run swallowed (M5) without
+  moving any failure, and (`repair-log-events`) the last error-level log line of a good run with no project trace, in
+  Python logging's default form or JSON, noted the same way; a Python traceback the tail cut is read from the run's
+  own file, its last 64,000 characters (`repair-traces-more`). Done since (`repair-verify`): an applied fix verified
+  by `verify` runs of its block begun after it, or regressed by a failed one, and a regressed fix's gated
+  `revert-fix` (one `git revert`, aborted and checked when git fails). Done since
+  (`ai-approver-for-repairs-needs-a`): the second rung, `approver: ai` (below). *Left*: the ladder's lower rungs
+  (program, rule) and promoting a class automatically; a daemon's standard error is one stream for all its runs, so
+  what a daemon swallows is still not seen; a program with uncommitted changes stays refused and is left to a person;
+  a Python traceback that begins more than 64,000 characters before the end of the run's own file, and the traces of
+  languages not read, still leave a failed run signed by how it ended.
 - **What the AI approver's guard does not see** (SPEC §12r, `approver: ai`; the guard is an allowlist of shaped
   values and statements, `ergostat/repair/allow.py`). Its five residuals, each pinned by a test: implicit raises (a
   fix may stop the program earlier; process-wide hooks are not followed); where standard output points (a module the
@@ -352,18 +354,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
   id, an unknown cost charged as the reserve; `ergostat.budget.left`. P3 itself covers those two start paths only:
   ergostat's own AI calls are the next entry's (`ai-calls-ask-the-budget`), and models in `ergostat.toml` are left to
   `toml-models-budget`.
-- **ergostat's own AI calls under the budget** (in part; `factory/ai-calls-ask-the-budget`, SPEC §9.9,
-  `dev/records/ai-calls-ask-the-budget.md`). Done: every call through `decisions/ai.call` (decisions extract, the
-  intent verdicts from `Engine.judge` and `ergostat intent judge`, `improve --architecture`) reserves its per-call cap
-  under P3's lock (`costs/budget.ask`), is refused when the day's budget is gone, is closed with its reported cost
-  (unknown: its reserve), and is counted once inside a reserving run. So does every call through
-  `numbers/modeller` (the redesigner, the modelling reviewer, the ai tier, the architecture review:
-  `modeller-calls-ask-the-budget`, `dev/records/modeller-calls-ask-the-budget.md`), at its `unsaid` estimate. A
-  structural scan (`test_only_listed_ai_starts`) finds AI commands started only in `decisions/ai.py`,
-  `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`, `supervisor.chat`, `spec/engine.py`,
-  `repair/fix.py`). Left: models in `ergostat.toml` (`runner.run_agent`), which have no `budget:`
-  (`toml-models-budget`). Their ends count in spent when priced, but nothing refuses them when the day's budget is
-  gone.
 - **T1: a run stopped at its spend cap** (done; `run-budget-trip`, SPEC §9.9, `dev/records/run-budget-trip.md`):
   each run gets its reserve as its cap (`ERGOSTAT_MAX_COST`; `--max-budget-usd` on an `ai` block's own `claude`),
   `ergostat session` takes all that is left from a per-run ledger under `flock`, and the engine kills the run's
@@ -555,8 +545,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
 ## Done recently
 
 - **ergostat's own AI calls under the budget** (done; `ai-calls-ask-the-budget`, `modeller-calls-ask-the-budget`
-  and `toml-models-budget`, SPEC §9.9, `dev/records/ai-calls-ask-the-budget.md`,
-  `dev/records/modeller-calls-ask-the-budget.md`, `dev/records/toml-models-budget.md`). Every call through
+  `toml-models-budget` and `ergostat-s-own-ai-calls-under`, SPEC §9.9, `dev/records/ai-calls-ask-the-budget.md`,
+  `dev/records/modeller-calls-ask-the-budget.md`, `dev/records/toml-models-budget.md`,
+  `dev/records/ergostat-s-own-ai-calls-under.md`). Every call through
   `decisions/ai.call` (decisions extract, the intent verdicts from `Engine.judge` and `ergostat intent judge`,
   `improve --architecture`) reserves its per-call cap under P3's lock (`costs/budget.ask`), is refused when the day's
   budget is gone, is closed with its reported cost (unknown: its reserve), and is counted once inside a reserving
@@ -565,7 +556,9 @@ review into *Done recently*). Newest decisions from the owner first within each 
   started only in `decisions/ai.py`, `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`,
   `supervisor.chat`, `spec/engine.py`, `repair/fix.py`). Models in `ergostat.toml` take `[budget]`: each
   `runner.run_agent` run asks the same permit (an agent with no `kind` written is charged), and decisions extract
-  reads it. The modeller's calls need a YAML model's spec, so they cannot be made in a toml project.
+  reads it. A command whose first word is `claude`, started by such a run, gets `--max-budget-usd` at its reserve
+  right after that word, replacing any in that claude call, whatever follows it in the shell line (no
+  `ERGOSTAT_MAX_COST` and no T1 kill for these runs; a `claude` later in the line is not capped). The modeller's calls need a YAML model's spec, so they cannot be made in a toml project.
 
 - **From upkeep's fault injection** (done on main; found by upkeep's fault injection,
   `docs/roadmap/overnight-2026-11-19.md` at 01:30, whose proposal was not merged to main): the first four problems

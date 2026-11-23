@@ -221,8 +221,8 @@ class Factory:
             if "event" not in line:
                 continue
             fold_line(db, self.kinds, line, about)
-            if not line["event"].startswith("session."):          # (each AI session's own item: sessions.py)
-                said.append(line["event"])
+            if not line["event"].startswith(("session.", "batch.")):   # (each AI session's own item: sessions.py; each
+                said.append(line["event"])                              # queue batch's: batches.py)
         self.record.write_text(json.dumps(db))
         return said
 
@@ -256,7 +256,7 @@ def fold_line(db: dict, kinds: dict, line: dict, about: str | None = None) -> No
     kind = next(k for k in kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
     assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
                                                                 ".dependencies", ".push-settled", ".groomed",
-                                                                ".resumed", ".need-met")), line
+                                                                ".resumed", ".need-met", ".released")), line
     it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
     for op in line.get("patch") or []:                             # (RFC 6902, as flakes.py writes it: top level)
         k = op["path"][1:].replace("~1", "/").replace("~0", "~")
@@ -317,6 +317,13 @@ def without_landed(text: str) -> str:
     import re
     return re.sub(r"(?m)^  gaps-landed:\n(?:    .*\n)*", "", text).replace("    to: gaps-landed\n", "").replace(
         "entering: merged, where: {merged_by: null}, over: 1d", "entering: merged, over: 1d")
+
+
+def without_stack_forward(text: str) -> str:
+    """A model file as main had it before merge-pipeline-stacks-merged-forward: no block stack-forward, nor its
+    sensor stale-stacks, its gate stack-forward-when or its flow sent-back-by-stack-forward."""
+    return re.sub(r"(?m)^  (?:stack-forward|stale-stacks|stack-forward-when|sent-back-by-stack-forward):\n(?:    .*\n)*",
+                  "", text)
 
 
 def factory_copy(where: Path, edit=lambda text: text) -> Path:
@@ -388,7 +395,8 @@ def test_a_joined_gap_that_lands_enters_the_landed_stock_once(tmp_path):
 @pytest.mark.slow
 def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, capsys, monkeypatch):
     """gaps-landed-stock: `ergostat check` on the model with gaps-landed says nothing it did not say without it, and
-    the Dynamics diagram draws the stock with the pipes into it."""
+    the Dynamics diagram draws the stock with the pipes into it. merge-pipeline-stacks-merged-forward: nor with the
+    block stack-forward and its sensor, goal and flow (removed from the model checked before, too)."""
     from ergostat import model as mdl
     from ergostat.cli import main, spec_cmds
     from ergostat.numbers import extremes_cache
@@ -403,9 +411,10 @@ def test_ergostat_check_on_the_factory_model_reports_no_new_finding(tmp_path, ca
         got = json.loads(capsys.readouterr().out)
         assert got["ok"], [x for x in got["found"] if x["level"] == "error"]
         return {x["id"] for x in got["found"] if x["level"] != "error"}
-    before = factory_copy(tmp_path / "before", without_landed)
+    before = factory_copy(tmp_path / "before", lambda t: without_stack_forward(without_landed(t)))
     old = "".join(x.read_text() for x in (before / "dev" / "model").iterdir())
     assert "\n  gaps-landed:" not in old and "to: gaps-landed" not in old and "merged_by: null" not in old
+    assert "stack-forward" not in old and "stale-stacks" not in old
     now = found(factory_copy(tmp_path / "now"))
     assert not [x for x in now if x.startswith(("extremes-running", "extremes-skipped"))]
     assert sorted(now - found(before)) == []
@@ -636,7 +645,7 @@ def flake_record(tmp_path, monkeypatch):
     dev/bin/flakes.py as the writers call it."""
     text = (ROOT / "ergostat.yaml").read_text()
     (tmp_path / "ergostat.yaml").write_text("name: flakes\nitems:" + text[text.index("\n  flake:\n"):
-                                                                         text.index("\n  intervention:\n")] + "\n")
+                                                                         text.index("\n  situation:\n")] + "\n")
     (tmp_path / "factory.toml").write_text(f'[paths]\nrun = "{tmp_path / "run"}"\n')
     monkeypatch.setenv("FACTORY_CONFIG", str(tmp_path / "factory.toml"))
     monkeypatch.setenv("ERGOSTAT_CMD", f"{sys.executable} -m ergostat -C {tmp_path}")
@@ -723,6 +732,390 @@ def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
     other[0].join(timeout=60)
     d = flake_now(flakes)
     assert d["state"] == "main-broken" and d["fields"]["main_broken_at"] == 10.0 and d["fields"]["times"] == 2
+
+
+# ---- a flake said fixed by hand, and the quarantine's release (dev/records/regression-flake-fixed-by-hand.md)
+
+def manage_record(tmp_path, monkeypatch):
+    """flake_record's project, and dev/bin/manage.py on it: (manage, its flakes module)."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    monkeypatch.syspath_prepend(str(BIN))
+    monkeypatch.setitem(sys.modules, "fac", flakes.fac)            # (manage's imports: its own for this test, the
+    monkeypatch.setitem(sys.modules, "flakes", flakes)             # ones earlier tests left in sys.modules unused,
+    for name in ("agents", "onmain", "runs"):                      # and none left behind for the tests after it)
+        monkeypatch.setitem(sys.modules, name, module(name))
+    manage = module("manage")
+    assert manage.fac is flakes.fac and manage.flakes is flakes and manage.onmain.flakes is flakes
+    return manage, flakes
+
+
+def fixes(flakes) -> list[dict]:
+    return [i for i in flakes.fac.items("intervention") if i["fields"].get("action") == "flake-fixed"]
+
+
+def test_flake_fixed_moves_a_seen_or_main_broken_flake_to_fixed_with_one_intervention(tmp_path, monkeypatch):
+    manage, flakes = manage_record(tmp_path, monkeypatch)
+    broken = "tests/test_x.py::test_z"
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    flakes.say("flake.main-broken", broken, main="m1", gaps=["gap/b"], main_broken_at=10.0)
+    for n, test in enumerate((FLAKY, broken), 1):
+        got = manage.run({}, ["flake-fixed", test, "--why", "the test was renamed"])
+        assert got["ok"] and got["said"] == f"{test} fixed", got
+        d = flake_now(flakes, test)
+        assert d["state"] == "fixed" and d["fields"]["fixed_by"] == "coordinator", d
+        assert d["fields"]["why"] == "the test was renamed"
+        assert sorted(i["fields"]["subject"] for i in fixes(flakes)) == sorted((FLAKY, broken)[:n])   # one each
+    assert {i["fields"]["class"] for i in fixes(flakes)} == {"flake"}
+
+
+def test_flake_fixed_refuses_an_unknown_test_or_one_already_fixed(tmp_path, monkeypatch):
+    """lesson-1: a second flake-fixed in the gap between the first's read and its write waits for the flakes lock,
+    reads the fixed item and is refused, so one fix is one intervention."""
+    import threading
+    manage, flakes = manage_record(tmp_path, monkeypatch)
+    got = manage.run({}, ["flake-fixed", FLAKY, "--why", "gone"])
+    assert not got["ok"] and "no flake recorded" in got["said"] and fixes(flakes) == []
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    real, other = flakes.read, []
+
+    def read_then_competitor(iid):
+        got = real(iid)
+        if not other:                                              # (the first read only)
+            other.append(threading.Thread(target=lambda: other.append(
+                manage.run({}, ["flake-fixed", FLAKY, "--why", "me too"]))))
+            other[0].start()
+            other[0].join(timeout=5)                               # (held by the lock: it cannot finish here)
+        return got
+    monkeypatch.setattr(flakes, "read", read_then_competitor)
+    assert manage.run({}, ["flake-fixed", FLAKY, "--why", "deleted"])["ok"]
+    other[0].join(timeout=60)
+    assert not other[1]["ok"] and "is fixed" in other[1]["said"], other[1]
+    assert len(fixes(flakes)) == 1 and flake_now(flakes)["fields"]["why"] == "deleted"
+    monkeypatch.setattr(flakes, "read", real)
+    got = manage.run({}, ["flake-fixed", FLAKY, "--why", "again"])
+    assert not got["ok"] and "is fixed" in got["said"] and len(fixes(flakes)) == 1
+    monkeypatch.setattr(flakes, "read", lambda iid: None)          # an unreadable item: refused, nothing written
+    assert not manage.run({}, ["flake-fixed", FLAKY, "--why", "x"])["ok"] and len(fixes(flakes)) == 1
+    monkeypatch.setattr(flakes, "read", real)                      # the pipeline manager's call: refused, unlisted
+    other_test = FLAKY + "_two"
+    flakes.say("flake.seen", other_test, gaps=["gap/a"], times=1, seen_at=1.0)
+    monkeypatch.setattr(manage, "BY", ["pipeline-manager"])       # (as watch.py sets it for the manager's run)
+    got = manage.run({}, ["flake-fixed", other_test, "--why", "looks gone"])
+    assert not got["ok"] and "by a person" in got["said"] and len(fixes(flakes)) == 1, got
+    assert flake_now(flakes, other_test)["state"] == "seen"
+    assert "flake-fixed" not in manage.__doc__
+
+
+def test_a_quarantine_release_is_one_flake_released(tmp_path, monkeypatch):
+    flakes = flake_record(tmp_path, monkeypatch)
+    fac, iid, said = flakes.fac, f"flake/{flakes.fac.slug(FLAKY, 80)}", []
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    fac.add("flake.measured", iid, test=FLAKY, quarantined=True, last_run="fail")
+    monkeypatch.setattr(fac, "say", lambda event, it, **data: (said.append((event, it)), fac.add(event, it, **data)))
+    assert fac.beside([], tmp_path / "none.txt", lambda _: None) == {}             # FLAKY is no longer listed
+    assert said == [("flake.released", iid)]
+    d = flake_now(flakes)
+    assert d["fields"]["quarantined"] is False and d["fields"]["released_at"] > 0 and d["state"] == "seen"
+    fac.beside([], tmp_path / "none.txt", lambda _: None)                           # released once, not again
+    assert said == [("flake.released", iid)]
+
+
+# ---- main-mend: out of main-broken after two passes alone on the pushed main (dev/records/regression-flake-main-fixed.md)
+
+BROWSER_TEST = "tests/test_items_page.py::test_b"
+
+
+def mend_record(tmp_path, monkeypatch, says: dict, most=5, quarantined=()):
+    """flake_record, and dev/bin/mend.py on it: a repository whose main is c1 then c2 (c3 off c1, never on main), main
+    as pushed c2, and each suite run played by ``says`` ({test: [what run 1 prints, run 2]}: PASSED, FAILED or None,
+    no line). The suite runs made, as (command, tests, box), in the list returned."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    shas = {}
+    for n in ("c1", "c2"):
+        (repo / n).write_text(n)
+        git(repo, "add", n)
+        git(repo, "commit", "-q", "-m", n)
+        shas[n] = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-b", "side", shas["c1"])
+    (repo / "c3").write_text("c3")
+    git(repo, "add", "c3")
+    git(repo, "commit", "-q", "-m", "c3")
+    shas["c3"] = git(repo, "rev-parse", "HEAD")
+    (tmp_path / "factory.toml").write_text(textwrap.dedent(f"""\
+        [paths]
+        run = "{tmp_path / 'run'}"
+        checkout = "{repo}"
+        worktrees = "{tmp_path / 'wt'}"
+        [gates]
+        mend_most = {json.dumps(most)}
+        [suites]
+        browser = "uv run pytest -q tests/test_items_page.py tests/test_page_refresh.py"
+        """))
+    monkeypatch.setitem(sys.modules, "flakes", flakes)
+    mend = module("mend")
+    ran: list[tuple] = []
+
+    def suite(cfg, name, cwd, log, box="", tests=(), **_):
+        tests = [t for t in tests if t != "-rA"]
+        n = sum(1 for r in ran if r[0] == name)
+        ran.append((name, tuple(tests), box))
+        log.write_text("".join(f"{says[t][n]} {t}\n" for t in tests if says[t][n]) + "1 passed in 0.1s\n")
+        return 0, 0.1
+    monkeypatch.setattr(mend.fac, "suite", suite)
+    monkeypatch.setattr(mend.fac, "wait_quiet", lambda cfg, why="": 0.0)
+    monkeypatch.setattr(mend.fac, "stop_on_term", lambda: None)    # (no SIGTERM handler left in the pytest worker)
+    monkeypatch.setattr(mend.fac, "quarantine", lambda repo, ref: list(quarantined) if ref == shas["c2"] else [])
+    monkeypatch.setattr(mend, "pushed", lambda cfg: shas["c2"])
+    monkeypatch.setattr(mend, "tree", lambda cfg, sha: repo)
+    return flakes, mend, shas, ran
+
+
+def test_main_mend_clears_only_a_test_passing_twice_on_the_pushed_main(tmp_path, monkeypatch):
+    """Two PASSED lines on main as pushed clear it (fixed, with passed_on, main_fixed_at, fixed_by); a failure, a run
+    with no line for it (skipped, not collected), or a quarantine at that commit leaves it main-broken. A browser
+    file's test runs with `rerun` (Playwright), the rest with `alone`, each with -rA, in a suite container."""
+    says = {"tests/test_a.py::test_ok": ["PASSED", "PASSED"], "tests/test_a.py::test_once": ["PASSED", "FAILED"],
+            "tests/test_a.py::test_skip": ["PASSED", None], "tests/test_a.py::test_held": ["PASSED", "PASSED"],
+            BROWSER_TEST: ["PASSED", "PASSED"]}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, quarantined=["tests/test_a.py::test_held"])
+    for n, t in enumerate(says):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0 + n)
+    assert mend.main() == 0
+    state = {t: flake_now(flakes, t) for t in says}
+    assert {t: d["state"] for t, d in state.items()} == {
+        "tests/test_a.py::test_ok": "fixed", "tests/test_a.py::test_once": "main-broken",
+        "tests/test_a.py::test_skip": "main-broken", "tests/test_a.py::test_held": "main-broken", BROWSER_TEST: "fixed"}
+    f = state["tests/test_a.py::test_ok"]["fields"]
+    assert f["passed_on"] == shas["c2"] and f["fixed_by"] == "main-mend" and f["main_fixed_at"] > 10.0
+    alone = ("tests/test_a.py::test_ok", "tests/test_a.py::test_once", "tests/test_a.py::test_skip")
+    assert sorted(ran) == sorted([("alone", alone, "mend")] * 2 + [("rerun", (BROWSER_TEST,), "mend")] * 2)
+
+
+def test_main_mend_writes_only_where_the_items_main_is_the_commit_run_on_or_an_ancestor(tmp_path, monkeypatch):
+    """A main-broken written on a commit main as pushed does not hold (c3, off main) is not cleared by passes on c2."""
+    says = {"tests/test_a.py::test_old": ["PASSED", "PASSED"], "tests/test_a.py::test_off": ["PASSED", "PASSED"],
+            "tests/test_a.py::test_now": ["PASSED", "PASSED"]}
+    flakes, mend, shas, _ = mend_record(tmp_path, monkeypatch, says)
+    for t, at in zip(says, ("c1", "c3", "c2"), strict=True):
+        flakes.say("flake.main-broken", t, main=shas[at], gaps=["gap/a"], main_broken_at=10.0)
+    assert mend.main() == 0
+    assert [flake_now(flakes, t)["state"] for t in says] == ["fixed", "main-broken", "fixed"]
+
+
+def test_a_newer_break_written_in_between_refuses_main_fixed_and_its_move(tmp_path, monkeypatch):
+    """lesson-1: a newer main written on the item after main-mend read it (by a writer outside flakes.py's lock) fails
+    the patch's first op, a test of /main as read: the whole event is refused, its move to fixed too."""
+    t = "tests/test_a.py::test_ok"
+    flakes, mend, shas, _ = mend_record(tmp_path, monkeypatch, {t: ["PASSED", "PASSED"]})
+    flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0)
+    iid, real = f"flake/{flakes.fac.slug(t, 80)}", flakes.read
+
+    def read_then_break(i):
+        got = real(i)
+        flakes.fac.add("flake.measured", iid, main=shas["c2"])     # (broken again on c2, between the read and the write)
+        return got
+    monkeypatch.setattr(flakes, "read", read_then_break)
+    assert mend.main() == 0
+    d = flake_now(flakes, t)
+    assert d["state"] == "main-broken" and d["fields"]["main"] == shas["c2"] and "passed_on" not in d["fields"]
+    assert d["refused"] and d["refused"][-1]["type"] == "flake.main-fixed" and "test /main" in d["refused"][-1]["why"]
+
+
+def test_main_mend_takes_at_most_mend_most_a_run_oldest_first(tmp_path, monkeypatch):
+    """lesson-4: [gates] mend_most tests a run, the oldest main-broken first; held to 1..20, 5 when not a number."""
+    says = {f"tests/test_a.py::test_{n}": ["PASSED", "PASSED"] for n in range(7)}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, most=3)
+    for n, t in enumerate(says):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=100.0 - n)
+    assert mend.main() == 0
+    oldest = ("tests/test_a.py::test_6", "tests/test_a.py::test_5", "tests/test_a.py::test_4")
+    assert ran == [("alone", oldest, "mend")] * 2
+    assert sorted(t for t in says if flake_now(flakes, t)["state"] == "fixed") == sorted(oldest)
+    assert [mend.most({"gates": {"mend_most": v}}) for v in (500, 0, "9", True, 7)] == [20, 1, 5, 5, 7]
+    assert mend.most({}) == 5
+
+
+def test_main_mend_items_left_unknown_give_up_their_place(tmp_path, monkeypatch):
+    """mend_most items that stay unknown run after run (still failing) do not hold the front: the next run takes the
+    untried item behind them first and clears it, and a try counts only for the break it was made on."""
+    bad, new = ["tests/test_a.py::test_0", "tests/test_a.py::test_1"], "tests/test_a.py::test_2"
+    says = {**{t: ["FAILED"] * 6 for t in bad}, new: ["PASSED"] * 6}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, most=2)
+    for n, t in enumerate([*bad, new]):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0 + n)
+    assert mend.main() == 0 and ran[-1] == ("alone", tuple(bad), "mend")
+    assert mend.main() == 0 and new in ran[-1][1] and flake_now(flakes, new)["state"] == "fixed"
+    assert set(json.loads((tmp_path / "run" / "mend" / "tried.json").read_text())) <= {
+        f"flake/{flakes.fac.slug(t, 80)}" for t in bad}
+    flakes.say("flake.main-broken", bad[0], main=shas["c2"], gaps=["gap/a"], main_broken_at=50.0)   # (again, on c2)
+    assert mend.main() == 0 and ran[-1][1] == (bad[0], bad[1])     # (tried last run, but untried since this break)
+
+
+def test_a_main_mend_run_killed_after_the_pick_still_counts_its_items_tried(tmp_path, monkeypatch):
+    """lesson-3: a run stopped in its suite (a hanging test past the block's timeout or lease: SIGTERM is
+    sys.exit(143)) has tried what it picked, so the next run takes the untried item behind them and clears it."""
+    hang, new = ["tests/test_a.py::test_0", "tests/test_a.py::test_1"], "tests/test_a.py::test_2"
+    says = {**{t: ["FAILED"] * 4 for t in hang}, new: ["PASSED"] * 4}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, most=2)
+    for n, t in enumerate([*hang, new]):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0 + n)
+    played = mend.fac.suite
+
+    def killed(cfg, name, cwd, log, box="", tests=(), **_):
+        ran.append((name, tuple(t for t in tests if t != "-rA"), box))
+        raise SystemExit(143)
+    monkeypatch.setattr(mend.fac, "suite", killed)
+    with pytest.raises(SystemExit):
+        mend.main()
+    assert ran == [("alone", tuple(hang), "mend")]
+    monkeypatch.setattr(mend.fac, "suite", played)
+    assert mend.main() == 0 and ran[1][1][0] == new and flake_now(flakes, new)["state"] == "fixed"
+
+
+def test_a_hanging_test_that_kills_every_run_does_not_hold_back_its_batch_mates(tmp_path, monkeypatch):
+    """lesson-3, lesson-6: a stock within mend_most is picked whole every run; one test that hangs past the block's
+    timeout kills each run it is in (SIGTERM: sys.exit(143)). After a run that died, its items run one at a time,
+    each stamped tried as it starts, so the hanging test goes behind the others and they are cleared."""
+    hang, ok = "tests/test_a.py::test_hang", ["tests/test_a.py::test_0", "tests/test_a.py::test_1"]
+    says = {hang: ["FAILED"] * 9, **{t: ["PASSED"] * 9 for t in ok}}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, most=5)
+    for n, t in enumerate([hang, *ok]):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0 + n)
+    played = mend.fac.suite
+
+    def hangs(cfg, name, cwd, log, box="", tests=(), **kw):
+        if hang in tests:
+            ran.append((name, tuple(t for t in tests if t != "-rA"), box))
+            raise SystemExit(143)
+        return played(cfg, name, cwd, log, box=box, tests=tests, **kw)
+    monkeypatch.setattr(mend.fac, "suite", hangs)
+    for _ in range(3):
+        with pytest.raises(SystemExit):
+            mend.main()
+    assert ran[0] == ("alone", (hang, *ok), "mend") and ran[1] == ("alone", (hang,), "mend")
+    assert [flake_now(flakes, t)["state"] for t in [hang, *ok]] == ["main-broken", "fixed", "fixed"]
+
+
+def test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed():
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert not [p for p in problems if p.level == "error"]
+    b = spec.blocks["main-mend"]
+    assert (b.every, b.pool, b.timeout, b.lease.ttl) == (1800.0, 1, 1800.0, 1800.0) and b.takes is None
+    assert "dev/bin/mend.py" in json.dumps(b.params, default=str)
+    assert spec.items["flake"].on["flake.main-fixed"] == "fixed"
+    assert "main-mend" in (ROOT / "dev" / "README.md").read_text()
+    assert tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["gates"]["mend_most"] == 5
+
+
+# ---- the guarantees: main's failing tests a stock, held at zero by main-green (dev/records/regression-guarantees-model.md)
+
+def test_the_guarantees_model_checks_clean():
+    """The system and its file; check finds no error and no missing feedback for main-green, whose loop closes through
+    the coordinator (fix-main, a block of its own), and is drawn balancing under the name main-repair. No block
+    outside the system moves what its loop uses: check finds no `interface` on it."""
+    from ergostat.spec import causal
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    assert [p for p in problems if p.code == "missing-feedback" and p.about == "goal.main-green"] == []
+    assert [p for p in problems if p.code == "interface" and p.about == "system.guarantees"] == []
+    assert "guarantees" in spec.systems and spec.within["guarantees"] == "oversight"
+    g = spec.goals["main-green"]
+    assert (g.of.kind, g.of.name, g.hold.op, g.hold.value, g.critical, g.on_stale, g.system) == (
+        "stock", "main-failing-tests", "<=", 0, True, "off", "guarantees")
+    assert spec.blocks["fix-main"].system == "guarantees"
+    lp = spec.loop("main-green")
+    assert lp.closes, lp
+    assert (lp.actuators, lp.valves, lp.disturbances) == (["fix-main"], ["main-tests-fixed"], ["main-tests-broken"])
+    # the cycle, by the links ergostat draws (their signs its own), named and signed as check names and signs loops
+    # (causal.loops stops at its first 300, and in the factory's model this one was past them: it is walked here)
+    drawn = {(x.source, x.target): x for x in causal.links(spec)}
+    parts = ["stock.main-failing-tests", "goal.main-green", "block.fix-main", "flow.main-tests-fixed"]
+    cycle = [drawn[(a, b)] for a, b in zip(parts, parts[1:] + parts[:1], strict=True)]
+    (lp,) = causal._named(spec, [cycle])
+    assert (lp.name, lp.polarity) == ("main-repair", "B"), [(x.source, x.target, x.sign) for x in cycle]
+
+
+def guarantees_project(tmp_path, every: str):
+    """The flake fixture's project (the root model's flake kind) with dev/model/guarantees.yaml's stock, flows,
+    parameter and goal added as written, its sensors every ``every``: a project ergostat runs on."""
+    import yaml
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    parts = yaml.safe_load((ROOT / "dev" / "model" / "guarantees.yaml").read_text())
+    for table in ("stocks", "flows"):
+        for p in parts[table].values():
+            p["sensor"]["every"] = every
+    extra = {k: parts[k] for k in ("stocks", "flows", "parameters", "goals")}
+    with (tmp_path / "ergostat.yaml").open("a") as out:
+        out.write(yaml.safe_dump(extra, sort_keys=False))
+    p = Project(mdl.load(tmp_path))
+    assert not [x for x in p.model.problems if x.level == "error"], p.model.problems
+    return p
+
+
+def main_green_off(p, want: float, within: float = 20.0) -> None:
+    """The real engine on the project, its sensors running, till main-green's .off is ``want``."""
+    from ergostat.spec.engine import Engine
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    deadline = time.monotonic() + within
+    try:
+        while e.signals.get("goal.main-green.off") != want and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert e.signals.get("goal.main-green.off") == want, e.signals.get("stock.main-failing-tests")
+        assert e.signals.get("stock.main-failing-tests") == (1 if want else 0)
+    finally:
+        e.close()
+
+
+def test_main_green_goes_off_and_holds_again(tmp_path, monkeypatch):
+    """A test found failing on main (flake.main-broken, by flakes.say) turns main-green off; main-mend seeing it pass
+    twice alone on the pushed main (flake.main-fixed) turns it holding again."""
+    t = "tests/test_a.py::test_ok"
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, {t: ["PASSED", "PASSED"]})
+    p = guarantees_project(tmp_path, "0.2s")
+    main_green_off(p, 0.0)                                                     # nothing failing: holding
+    flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0)
+    main_green_off(p, 1.0)
+    assert p.events.query(n=None, type="loop.off", item="main-green")
+    assert mend.main() == 0
+    assert flake_now(flakes, t)["state"] == "fixed" and flake_now(flakes, t)["fields"]["fixed_by"] == "main-mend"
+    main_green_off(p, 0.0)
+    assert p.events.query(n=None, type="loop.holding", item="main-green")
+
+
+def test_main_green_stale_is_off(tmp_path, monkeypatch):
+    """main-green's policy is off: a stale reading of main-failing-tests counts as off (its .off 1 at a value of 0), and
+    reading again makes it hold. An items sensor is never stale (SPEC §9.6: the engine reads the item index itself), so
+    the reading here is made stale as a periodic sensor's would be: what main-green does then is its own on-stale."""
+    from ergostat.spec import observer
+    from ergostat.spec.engine import Engine
+    flake_record(tmp_path, monkeypatch)
+    p = guarantees_project(tmp_path, "1m")
+    assert observer.stale_by(next(iter(p.model.spec.stocks["main-failing-tests"].sensors.values())), 0.0) is None
+    monkeypatch.setattr(observer, "stale_by", lambda s, last: last + observer.STALE_AFTER * s.every)
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    e = Engine(p, say=lambda s: None)
+    e.start = lambda b, why: None                                              # (nothing runs)
+    series = next(iter(p.model.spec.stocks["main-failing-tests"].sensors.values())).series
+    p.measurements.add(series, 0, clock[0])
+    e.evaluate(tick=True)
+    assert e.signals["goal.main-green.off"] == 0 and not e.stale
+    clock[0] += 600                                                            # 10 min unread, its sensor every 1m
+    e.evaluate(tick=True)
+    assert "main-green" in e.stale and e.signals["goal.main-green.off"] == 1
+    went = p.events.query(n=None, type="ergostat.goal.stale", item="main-green")
+    assert len(went) == 1 and went[0]["data"]["on_stale"] == "off"
+    clock[0] += 1
+    p.measurements.add(series, 0, clock[0])
+    e.evaluate(tick=True)
+    assert not e.stale and e.signals["goal.main-green.off"] == 0
 
 
 def pools_module():
@@ -2549,7 +2942,9 @@ def test_batch_of_one_is_todays_queue(tmp_path):
     assert f.item("gap/b")["state"] == "approved"                              # b ranks higher, but is not this run's
     said, _ = f.run("queue.py", "gap/b")
     assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and merges(f) == ["b"]
-    assert {x.get("item") for x in lines if "event" in x} <= {None, "gap/a"}
+    assert {x.get("item") for x in lines if "event" in x and not x["event"].startswith("batch.")} <= {None, "gap/a"}
+    (own,) = {x["item"] for x in lines if x.get("event", "").startswith("batch.")}    # and its own batch item, a's
+    assert own.startswith("batch/a-")
 
 
 def main_moves(f: Factory, path: str) -> None:
@@ -4354,7 +4749,7 @@ def test_a_paced_block_raises_no_modelling_request(tmp_path):
     assert [r for r in got if r["code"] == "schedule-removed"] == []
 
 
-@pytest.mark.slow
+@pytest.mark.serial            # (each switcher run is ~43 CPU-s against its 120 s bound: it holds on a quiet machine)
 def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, monkeypatch):
     from ergostat.actions import gate
     f = Factory(tmp_path)
@@ -5124,6 +5519,132 @@ def test_finish_refuses_a_head_that_no_longer_holds_a_base(tmp_path):
     assert r.returncode == 0, r.stderr[-800:]
     said = json.loads(r.stdout.strip().splitlines()[-1])
     assert said.startswith(f"the branch no longer holds main or a base, merged in before it {sha[:12]}: refused"), said
+
+
+# ---- merge-pipeline-stacks-merged-forward: a moved base merged forward into the gaps stacked on it (dev/bin/stack.py)
+
+def commit_on(f: Factory, name: str, files: dict[str, str], approve: bool = True) -> str:
+    """A commit of ``files`` on factory/<name> in the drop; ``approve``: its gap approved again at it. (the commit)"""
+    drop = f.tmp / "live" / "drop.git"
+    git(f.checkout, "fetch", "-q", str(drop), f"refs/heads/factory/{name}")
+    git(f.checkout, "checkout", "-q", "--detach", "FETCH_HEAD")
+    for p, text in files.items():
+        (f.checkout / p).write_text(text)
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", f"{name} again")
+    sha = git(f.checkout, "rev-parse", "HEAD")
+    git(f.checkout, "push", "-q", str(drop), f"HEAD:refs/heads/factory/{name}")
+    git(f.checkout, "checkout", "-q", "main")
+    if approve:
+        f.fold([{"event": "gap.approved", "item": f"gap/{name}", "data": {"reviewed_head": sha}}], None)
+    return sha
+
+
+def tip(f: Factory, name: str) -> str:
+    return git(f.tmp / "live" / "drop.git", "rev-parse", f"refs/heads/factory/{name}")
+
+
+def parents(f: Factory, sha: str) -> list[str]:
+    return git(f.tmp / "live" / "drop.git", "log", "-1", "--format=%P", sha).split()
+
+
+def stale_stacks(f: Factory) -> str:
+    """The sensor stale-stacks' reading (`stack.py stale`)."""
+    r = subprocess.run([sys.executable, str(BIN / "stack.py"), "stale"], cwd=f.model, env=f.env, capture_output=True,
+                       text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+def test_a_moved_base_is_merged_forward_into_an_approved_descendant(tmp_path):
+    f = Factory(tmp_path)
+    old = stacked_gaps(f, {"a": 1, "b": 2})
+    assert stale_stacks(f) == "0"
+    new = commit_on(f, "a", {"a2.txt": "a's fix round"})                  # a re-approved at a new head
+    assert stale_stacks(f) == "1"
+    said, _ = f.run("stack.py")
+    assert said == ["gap.measured"]
+    b, head = f.item("gap/b"), tip(f, "b")
+    assert parents(f, head) == [old["b"], new]                            # a merge of a's new head, --no-ff
+    assert git(tmp_path / "live" / "drop.git", "log", "-1", "--format=%s", head) == \
+        f"Merge gap/a ({new[:12]}) forward into the branch"
+    assert b["state"] == "approved" and b["fields"]["reviewed_head"] == head
+    assert b["fields"]["reviewed_by"] == "stack-forward" and b["fields"]["stacked_on"] == [{"gap": "gap/a", "sha": new}]
+    assert stale_stacks(f) == "0"
+    said, _ = f.run("stack.py")                                           # done: a pass more does nothing
+    assert said == [] and tip(f, "b") == head
+    f.fold([{"event": "gap.merged", "item": "gap/a", "data": {}}], None)  # a lands: nothing to do but stacked_on
+    said, _ = f.run("stack.py")
+    assert said == ["gap.measured"] and tip(f, "b") == head and f.item("gap/b")["fields"]["stacked_on"] == []
+    assert f.item("gap/b")["fields"]["reviewed_head"] == head
+
+
+def test_a_conflicting_merge_forward_sends_the_descendant_to_fix(tmp_path):
+    f = Factory(tmp_path)
+    stacked_gaps(f, {"a": 1, "b": 2})
+    mine = commit_on(f, "b", {"a.txt": "b's own a"}, approve=False)
+    f.fold([{"event": "gap.measured", "item": "gap/b", "data": {"reviewed_head": mine}}], None)
+    new = commit_on(f, "a", {"a.txt": "a's fix round"})
+    said, _ = f.run("stack.py")
+    assert said == ["gap.sent-back"]
+    b = f.item("gap/b")["fields"]
+    assert f.item("gap/b")["state"] == "fix" and b["stack_conflict"] == ["a.txt"] and b["sent_back_by"] == "stack-forward"
+    assert "failed_gates" not in b and "gap/a" in b["findings"][0] and "a.txt" in b["findings"][0]   # uncounted
+    assert tip(f, "b") == mine and not holds(tmp_path / "live" / "drop.git", new, mine)              # aborted
+    assert stale_stacks(f) == "0"                     # in fix: its next round merges the bases itself (implement.py)
+    said, _ = f.run("stack.py")                       # a pass more: no clone, no second sent-back
+    assert said == [] and f.item("gap/b")["fields"] == b
+    review = ["a blocking finding of its review"]     # a fix gap with a review's findings, its base moved again
+    f.fold([{"event": "gap.measured", "item": "gap/b", "data": {"findings": review}}], None)
+    commit_on(f, "a", {"a3.txt": "a's next fix round"})
+    said, _ = f.run("stack.py")
+    assert said == [] and f.item("gap/b")["fields"]["findings"] == review and tip(f, "b") == mine
+
+
+def test_a_leased_descendant_is_not_merged_forward(tmp_path):
+    for state in ("leased", "building", "in-review"):
+        (tmp_path / state).mkdir()
+        f = Factory(tmp_path / state)
+        old = stacked_gaps(f, {"a": 1, "b": 2})
+        db = f.db()
+        db["items"]["gap/b"]["state"] = state
+        f.record.write_text(json.dumps(db))
+        before = f.item("gap/b")
+        commit_on(f, "a", {"a2.txt": "a's fix round"})
+        said, _ = f.run("stack.py")
+        assert said == [] and tip(f, "b") == old["b"] and f.item("gap/b") == before, state
+        assert stale_stacks(f) == "0"
+
+
+def test_a_stack_of_three_moves_forward_in_one_pass(tmp_path):
+    f = Factory(tmp_path)
+    old = stacked_gaps(f, {"c": 1, "b": 2, "a": 3})                       # c on b on a... named so the ids sort top-down
+    new = commit_on(f, "c", {"c2.txt": "c's fix round"})                  # the bottom moves
+    said, _ = f.run("stack.py")
+    assert said == ["gap.measured"] * 2                                   # b, then a, in the one pass
+    b, a = tip(f, "b"), tip(f, "a")
+    assert parents(f, b) == [old["b"], new] and parents(f, a) == [old["a"], b]
+    assert f.item("gap/a")["fields"]["stacked_on"] == [{"gap": "gap/b", "sha": b}]
+    assert f.item("gap/a")["fields"]["reviewed_head"] == a and f.item("gap/a")["state"] == "approved"
+    assert holds(tmp_path / "live" / "drop.git", new, a)
+
+
+def test_a_branch_moved_during_the_merge_forward_is_refused_and_theirs_kept(tmp_path):
+    f = Factory(tmp_path)
+    stacked_gaps(f, {"a": 1, "b": 2})
+    commit_on(f, "a", {"a2.txt": "a's fix round"})
+    theirs = commit_on(f, "b", {"theirs.txt": "x"}, approve=False)        # made now, pushed during the merge
+    git(tmp_path / "live" / "drop.git", "update-ref", "refs/heads/factory/b", f"{theirs}^")
+    code = (f"import sys, subprocess; sys.path[:0] = [{str(BIN)!r}]; import agents, stack\n"
+            "clone = agents.clone\n"
+            "def moved(*a, **k):\n    got = clone(*a, **k)\n"
+            f"    subprocess.run(['git', '-C', {str(tmp_path / 'live' / 'drop.git')!r}, 'update-ref', "
+            f"'refs/heads/factory/b', {theirs!r}], check=True)\n    return got\n"
+            "agents.clone = moved\nsys.exit(stack.main([]))")
+    r = subprocess.run([sys.executable, "-c", code], cwd=f.model, env=f.env, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert '"event"' not in r.stdout and "moved from" in r.stderr and "refused (theirs kept)" in r.stderr
+    assert tip(f, "b") == theirs and "reviewed_by" not in f.item("gap/b")["fields"]
 
 
 # ---- the suites' -r: pytest's -r replaces its default fE, so a -r without f and E prints no FAILED or ERROR line

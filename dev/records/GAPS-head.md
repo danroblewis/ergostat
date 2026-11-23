@@ -46,7 +46,6 @@ review into *Done recently*). Newest decisions from the owner first within each 
 ## Runtime, scale and latency
 
 @entry the-day-s-ai-budget-p3-runs
-@entry ergostat-s-own-ai-calls-under
 @entry t1-a-run-stopped-at-its-spend
 @entry linux-two-bugs-the-dev
 @entry warm-workers-instead-of-a
@@ -75,6 +74,8 @@ review into *Done recently*). Newest decisions from the owner first within each 
 @entry a-gap-continues-an-existing
 
 ## Done recently
+
+@entry ergostat-s-own-ai-calls-under
 
 @entry from-upkeep-s-fault-injection
 @entry a-lease-taken-while-the-engine

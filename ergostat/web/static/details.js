@@ -2,14 +2,23 @@
 "use strict";
 /* ------------------------------------------------------------------ details */
 
-function closeDetail() { if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+/* closed by hand (its ×, Escape): the loop chosen on the Loops page leaves the address too */
+function shutDetail() { closeDetail(); if (parseRoute().path === "/loops" && parseRoute().q.has("select")) setQuery({ select: null }); }
+function closeDetail() { S.again = null; if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
+/* the panel the window asks again: an opener's own, kept only while its panel is the last shown (any other clears it) */
+async function askedAgain(again, open) {
+  const t = S.opens = (S.opens || 0) + 1, s = S.shown;
+  await open();
+  if (S.opens === t && S.shown !== s) S.again = again;
+}
 function showDetail(...kids) {
+  S.again = null; S.shown = (S.shown || 0) + 1;
   if (S.selKey) { S.selKey = null; trace(S.hoverKey); }  // another detail: the line chosen before lets go
   const d = $("#detail");
   kids = kids.filter((k) => k != null && k !== false);
   // what it is now first; what a thing of its kind is (a definition) last, one click away
   const defs = kids.filter((k) => k.nodeType && k.matches?.("details.what")), rest = kids.filter((k) => !defs.includes(k));
-  const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: closeDetail }, "\u00d7");
+  const close = h("button", { class: "close ghost", title: "Close (Esc)", "aria-label": "Close", onclick: shutDetail }, "\u00d7");
   const head = rest[0]?.classList?.contains("kind") ? h("div", { class: "head" }, rest.shift(), close) : h("div", { class: "head" }, h("span"), close);
   d.replaceChildren(head, ...rest, ...defs);
   d.hidden = false;
@@ -41,7 +50,7 @@ const WHAT = {
   action: ["Information link: control action", "a controller commanding a valve: the control signal, u. How hard it pushes is the loop's gain; how long until the stock shows it is the loop's delay."],
   influence: ["Information link: influence", "a cause, declared with driven-by: what is at the arrow's end changes when what is at its start changes (a release fixing what was broken, more users asking for more, the code kept so far deciding a benchmark score). No formula: the value at the end is measured, and nothing moves or is computed along it. It is how a loop closes through another system."],
   activity: ["Activity (the process map)", "a step the work takes, read from the record: a state its items entered, or an event type about them. The map is process mining's directly-follows graph: what the items actually did, in the order they did it, rework and all."],
-  follows: ["Directly follows", "on one item, the second step came next after the first, with nothing about that item between. Its weight is how often; a line back to an earlier step, or round to the same one, is rework."],
+  follows: ["Directly follows", "on one item, the second step came next after the first, with nothing about that item between. Its weight is how often; a passage that takes an item back to a step it had already done is a return, and a line with returns is rework (how many, in its panel)."],
   related: ["Related", "an item names another in a relation its kind declares (parent, blocked_by): drawn from the step the naming item was last at in the window to the step the named one was last at, as the links stand now."],
   caused: ["Caused, across kinds", "an event on an item of one kind caused an event on an item of another (the second's causedby names the first, directly or through a block's run): one piece of work fanning out into others, or others joining back into it."],
 };
@@ -98,7 +107,8 @@ function openSystem(n) {                            // a system as one part: wha
     h("p", { class: "note" }, h("code", {}, `ergostat explain system.${n.label}`), " says the same in sentences."));
 }
 
-async function openNode(n) {
+function openNode(n) { return askedAgain(() => openNode(S.graph?.nodes?.find((x) => x.id === n.id) || n), () => openNodeNow(n)); }
+async function openNodeNow(n) {
   for (const x of document.querySelectorAll(".node.sel")) x.classList.remove("sel");
   document.querySelector(`.node[data-id="${CSS.escape(n.id)}"]`)?.classList.add("sel");
   if (S.graph?.kind === "process") return openProcessNode(n);   // process.js
@@ -151,7 +161,8 @@ async function openNode(n) {
   showDetail(...kids);
 }
 
-async function openLoop(name, asController = false) {
+function openLoop(name, asController = false) { return askedAgain(() => openLoop(name, asController), () => openLoopNow(name, asController)); }
+async function openLoopNow(name, asController) {
   let lp;
   const note = panelLoading(asController ? "Controller" : "Loop", name);
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; return; }
@@ -166,7 +177,8 @@ async function openLoop(name, asController = false) {
   kids.push(dl([["status", statusEl(goalWord(lp))], ["holds", `${lp.stock}, ${holdText(lp.setpoint, lp.band)}${lp.per ? `, each ${lp.per}` : ""}`],
     ["now", lp.per ? `${fmt(lp.value)}, the worst ${lp.per}'s` : fmt(lp.value)],
     ["stale", lp.stale != null ? `read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}` : null],
-    ["how far", lp.off_by_words || null], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
+    ["how far", lp.off_by_words || null], ["time off", `${shareText(lp.off_share)} ${windowWords}` +
+      (lp.times_off >= FLAP_AT ? `; flapping: ${lp.times_off} crossings, off and back` : "")],
     ["typically", lp.answers_in != null || lp.back_in != null ? [
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
       lp.back_in != null ? `it holds again ${dur(lp.back_in)} after (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times)` : null,
@@ -246,7 +258,8 @@ function goalAhead(name, lp) {
 /* an agent's roles, each valve with the goal it serves: "valve work → goal located-worked" */
 const rolesText = (roles) => (roles || []).map((r) => `${r.kind} ${r.name}` + (r.goal ? ` → goal ${r.goal}` : "")).join(", ");
 
-async function openAgent(name) {
+function openAgent(name) { return askedAgain(() => openAgent(name), () => openAgentNow(name)); }
+async function openAgentNow(name) {
   const note = panelLoading("Agent", name);
   let a;
   try { a = await api(`agents/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; throw e; }
