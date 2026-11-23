@@ -61,3 +61,26 @@ file skips entirely, so pytest collected nothing. No code was wrong. The new uni
 `_done_in` adds and that `attention` passes them on. It also puts `tests/test_inbox.py` in the build's selection.
 It passes, and it was seen to fail with `yes_no` forced to False. `tests/test_inbox.py` passes (31), and ruff is clean.
 The browser file was not run again in this session.
+
+Round 2: main (ead497d1) merged in, its six conflicts resolved, and built again. About 19 net lines of code outside
+`tests/` and `docs/` against main.
+
+- Main had rewritten the answer row (`inboxAnswer`): buttons that name what they answer, Deny off until a reason is
+  typed, the handlers reading the row on the page. The branch's labels and Yes/No are rebuilt on top of main's row.
+  The branch's `sig: a.what` is dropped: main reads the inputs from the row on the page, which fixes the
+  stale-handler problem the sig was there for. Main's placeholders ("how many", "why (to deny)") are removed, since
+  each box now has its label. Main's aria-label on the reason ("Why deny ...") is kept, because main's tests find the
+  box by it. The number box takes its name from its label.
+- Main's Deny now always waits for a reason, so the reason's label says "(required)" for every entry, not only
+  for a modelling request. SPEC §12o says the same.
+- Yes and No carry aria-labels in main's form ("Yes to decider's ask (person/decider@N)"), so every button's name
+  stays unique and more than one word.
+- `entries.py` keeps main's new summary ("X asks: ...", `_cut` gone) and adds the branch's keys. `state.py` keeps
+  main's new attention fields and passes on `flow`, `unit` and `yes_no`.
+- Test: the yes-or-no person is added only by a new `decided` fixture. Main's fixtures are left as they were, so
+  main's position-based tests (`nth(2)`) do not move. The acceptance test now leaves the list after answering,
+  because main keeps an answered row until the reader leaves.
+- Run here: `tests/test_inbox_page.py` under the watchdog with Playwright: 10 passed, rc 0, none skipped (the slow
+  one included). `tests/test_inbox.py`: 34 passed. `tests/test_gated_actions.py`: 11 passed. ruff is clean. Breaks
+  seen to fail the acceptance test: a placeholder put back on the reason box, and Yes/No switched off (3 inputs, not
+  2). Not run here: the unit suite and the other three browser files (the merge queue runs them).
