@@ -2081,6 +2081,20 @@
                     "type": "boolean",
                     "description": "A parent: the Graph view hangs its children off it"
                   },
+                  "starts_at": {
+                    "oneOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ],
+                    "description": "A precedence relation's target states (neither finished nor paused) at which it no longer blocks: the item is unblocked, and takes: {unblocked: true} may take it. The critical path and the schedule stay finish-to-start"
+                  },
                   "description": {
                     "type": "string"
                   }
