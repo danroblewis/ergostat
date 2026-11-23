@@ -82,3 +82,33 @@ along with the skipped browser file. The earlier decision "a snapshot says not i
 
 Tests run: `tests/test_graph_cli_web.py` whole: 32 passed. `uv run ruff check ergostat tests scripts`: clean. Not run
 again this session: `tests/test_items_page.py` with Playwright (no page code changed since its 22 passed).
+
+## Where it stopped (round 2, after merging main bf6dbebf)
+
+Merged main; the three conflicts are resolved keeping both sides:
+- `pages.js`: main had replaced the old "relations: (blocked_by: ticket)" instruction with "These items do not wait on
+  one another, so there is no critical path." in both modes. The branch's line is kept: the Graph says "...so there is
+  no dependency graph." (the wording this definition names) and the Timeline draws instead of saying anything. Main's
+  point, no configuration instruction on the page, still holds. No test on main checks main's wording.
+- `docs/SPEC.md`: main's Graph and Timeline rows (the finish sentence, the legend is the Graph's, the finished
+  collapsed by default, opening at now), plus this branch's "each segment named by its state where it fits".
+- `tests/test_items_page.py`: both sides' new tests kept (this branch's `desk` test, main's `FINISHING` and header
+  tests).
+
+After the merge the code differs from main only in the branch's own +12 −6 lines (`pages.js`, `relations.js`,
+`snapshot.py`). The net code size is unchanged.
+
+Tests run after the merge: `uv run ruff check ergostat tests scripts` clean; `tests/test_graph_cli_web.py` 41 passed;
+`tests/test_items_page.py` with Playwright under the watchdog: 26 passed, 6 failed, rc 1. This gap's acceptance test
+`test_the_timeline_draws_each_items_states_without_relations_and_the_graph_says_there_is_none` passed. These failed:
+`test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set`,
+`test_the_model_changes_are_found_by_heading_search_and_panel`, `test_a_valves_leased_items_are_listed_live`,
+`test_a_snapshot_lists_a_parts_items_and_opens_its_set`, `test_a_set_left_out_of_a_snapshot_says_so`,
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. Three of them, rerun by name, failed again
+the same way (not load). Their tests time out waiting for the diagram's side panel (`#detail .item-set`,
+itemsets.js/main.js), the List view's search, or the header's project picker (`#project` options, main.js/util.js).
+None of that code is changed by this branch, whose diff touches only the Graph/Timeline paths, the order of a
+section's content outside List, Timeline bar labels and snapshot `_graphs`. So they look unrelated (lesson-13) and
+are left alone. Not proven: running them on main's code here was refused (`git worktree add --detach /tmp/mainck
+bf6dbebf` and `git checkout bf6dbebf -- <the three files>` were both refused), so the factory's rerun on clean main
+is what settles it.
