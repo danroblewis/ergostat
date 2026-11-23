@@ -31,25 +31,34 @@ SHOTS = os.environ.get("DASHBOARD_SHOTS")
 FIELDS = {
     "sources": {
         "items": {"kinds": {
-            "quiet": {"fields": [], "states": ["new", "closed"], "group_by": ["state"]},
-            "widget": {"fields": [{"name": "spend_usd", "unit": "usd"}, {"name": "lines", "unit": "lines"},
-                                  {"name": "rank", "unit": ""}],
-                       "states": ["ready", "building", "checking", "shipped", "dropped"], "group_by": ["state"]},
-            "part": {"fields": [{"name": "weight", "unit": "g"}], "states": ["queued", "cut", "done"], "group_by": ["state"]},
-            "ergostat.note": {"fields": [], "states": ["open", "shut"], "group_by": ["state"]},
+            "log": {"fields": [{"name": "cost", "unit": "count"}], "states": ["started", "ended", "failed"], "group_by": ["state"]},
+            "widget": {"fields": [{"name": "spend_usd", "unit": "usd"}, {"name": "net_lines", "unit": "lines"},
+                                  {"name": "tries_attempts", "unit": "count"}, {"name": "loop_hours", "unit": "hours"},
+                                  {"name": "rank", "unit": "count"}],
+                       "states": ["new", "ready", "redo", "building", "checked", "shipped", "dropped", "held", "dead"],
+                       "group_by": ["state"]},
+            "part": {"fields": [{"name": "weight", "unit": "g"}], "states": ["queued", "cut", "ground", "done"], "group_by": ["state"]},
+            "ergostat.note": {"fields": [], "states": ["open", "doing", "more", "shut"], "group_by": ["state"]},
         }},
-        "moves": {"kinds": {}}, "counts": {"kinds": ["quiet", "widget", "part"]},
+        "moves": {"kinds": {}}, "counts": {"kinds": ["log", "widget", "part"]},
         "series": {"series": [{"name": "stock.x", "unit": "items"}]}, "events": {"types": []},
     },
     "aggregations": ["count", "sum"], "transforms": ["none", "rate"],
 }
-FLOWS = {
-    "quiet": {"now": {"new": 0, "closed": 900}, "finished_states": ["closed"]},
-    "widget": {"now": {"ready": 12, "building": 30, "checking": 4, "shipped": 200, "dropped": 9},
-               "finished_states": ["shipped", "dropped"]},
-    "part": {"now": {"queued": 3, "cut": 1, "done": 40}, "finished_states": ["done"]},
-    "ergostat.note": {"now": {"open": 500, "shut": 0}, "finished_states": ["shut"]},
-}
+ITEMS = {"kinds": [
+    {"name": "log", "counts": {"started": 40, "ended": 3000, "failed": 50}, "finished": ["ended", "failed"], "paused": [],
+     "dead": False, "finished_from": "inferred", "relations": {"about": ["widget"]}},
+    {"name": "widget", "counts": {"new": 4, "ready": 90, "redo": 60, "building": 9, "checked": 20, "shipped": 200, "dropped": 30,
+                                  "held": 11},
+     "finished": ["shipped", "dropped"], "paused": ["held"], "dead": True, "finished_from": "declared",
+     "relations": {"depends_on": ["widget"]}},
+    {"name": "part", "counts": {"queued": 3, "cut": 1, "ground": 2, "done": 40}, "finished": ["done"], "paused": [], "dead": False,
+     "finished_from": "declared", "relations": {}},
+    {"name": "ergostat.note", "counts": {"open": 500}, "finished": ["shut"], "paused": [], "dead": False,
+     "finished_from": "inferred", "relations": {}},
+], "items": []}
+GRAPH = {"kinds": [{"name": "widget", "queue": ["new", "ready", "redo", "checked"]}, {"name": "part", "queue": ["queued"]},
+                   {"name": "log", "queue": ["started"]}]}
 
 # chartPanel and friends as the contract gives them: the panel builder's real ones replace these
 STUB = """
@@ -118,10 +127,8 @@ def context(browser, width=1440, height=1000, fields=FIELDS):
     ctx.route("**/api/query/fields", lambda r: r.fulfill(json=fields))
     ctx.route("**/api/query?*", lambda r: r.fulfill(json={"results": []}))
 
-    def flow(r):
-        kind = r.request.url.split("kind=")[1].split("&")[0]
-        r.fulfill(json=FLOWS.get(kind, {"now": {}, "finished_states": []}))
-    ctx.route("**/api/items-flow*", flow)
+    ctx.route("**/api/items?*", lambda r: r.fulfill(json=ITEMS))
+    ctx.route("**/api/items-graph*", lambda r: r.fulfill(json=GRAPH))
     return ctx
 
 
@@ -163,36 +170,90 @@ def test_the_route_and_the_nav_entry_after_diagram(browser, site):
     ctx.close()
 
 
-def test_the_default_is_made_from_the_fields_ranked_by_what_kinds_hold(browser, site):
+def default(pg):
+    return {p["title"]: p for p in pg.evaluate("() => dashboardDraft().panels")}
+
+
+def test_the_default_leads_with_the_kind_that_is_work_moving_to_a_finish(browser, site):
     ctx = context(browser)
     pg = opened(ctx, f"{site}/dashboard")
     d = pg.evaluate("() => dashboardDraft()")
     forms = [p["form"] for p in d["panels"]]
     assert forms[:6] == ["stat"] * 6 and "stat" not in forms[6:]                 # the opening row, cost included
-    assert "Work in progress (widget)" == d["panels"][0]["title"]                # widget has the most work open
-    assert any("spend_usd per hour" in p["title"] for p in d["panels"][:6])
+    assert d["panels"][0]["title"] == "widget: work in progress"                 # not the log, which holds the most
     said = " ".join(p["title"] for p in d["panels"])
-    assert "part:" in said and "ergostat.note" not in said and "quiet" not in said     # its own notes and idle kinds wait
-    work = next(p for p in d["panels"] if p["title"] == "widget: open work by state")
-    assert work["queries"][0]["where"] == {"state": ["ready", "building", "checking"]}   # the server's finished states are left out
-    assert work["form"] == "stacked"
-    stay = next(p for p in d["panels"] if "time in" in p["title"] and p["form"] == "line")
-    assert "building" in stay["title"] and [q["agg"] for q in stay["queries"]] == ["p50", "p90"]    # the state holding the most
-    assert not any(":" in p["title"] and "rank" in p["title"] for p in d["panels"])   # an ordinal is not worth a chart
+    assert "part:" in said and "ergostat.note" not in said and "log:" not in said
     assert len(d["panels"]) <= 24
+    ctx.close()
+
+
+def test_arrivals_enter_the_first_state_and_completions_the_finished_ones(browser, site):
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    a, b = default(pg)["widget: arrivals and completions per hour"]["queries"]
+    assert (a["label"], a["state"]) == ("arrivals", ["new"])
+    assert (b["label"], b["state"]) == ("completions", ["shipped", "dropped"])
+    named = pg.evaluate("""() => dashNamed({ queries: [{ id: "a", label: "arrivals" }, { id: "b" }] },
+      [{ id: "a", series: [{ name: "entries", values: [1] }] }, { id: "b", series: [{ name: "x", values: [1] }] }])
+      .map((r) => r.series[0].name)""")
+    assert named == ["", "x"]                                                     # so the legend reads "arrivals" alone
+    ctx.close()
+
+
+def test_time_in_state_is_for_the_main_states_and_work_is_grouped(browser, site):
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    got = default(pg)
+    stay = got["widget: median time in ready, building, checked"]                 # the rework state is passed over
+    assert [q["state"] for q in stay["queries"]] == [["ready"], ["building"], ["checked"]]
+    work = got["widget: work by state"]
+    assert work["form"] == "stacked"
+    assert {q["label"]: q["state"] for q in work["queries"]} == {
+        "waiting": ["new", "ready", "redo", "checked"], "working": ["building"], "stopped": ["held", "dead"]}   # none finished
+    ctx.close()
+
+
+def test_money_is_read_from_the_field_and_the_asked_numbers_are_charted(browser, site):
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    got = default(pg)
+    assert got["widget: cost per hour"]["display"]["unit"] == "usd/h"
+    assert pg.evaluate("() => dashCostUnit({ name: 'cost', unit: 'count' })") == "usd"
+    assert {"widget: attempts, average", "widget: net lines per hour", "widget: loop hours, average"} <= set(got)
+    assert not any("rank" in t for t in got)
+    ctx.close()
+
+
+def test_a_change_from_near_zero_is_not_said(browser, site):
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    assert pg.evaluate("() => dashStartsNearZero([{ series: [{ values: [0.1, 5, 55] }] }])") is True
+    assert pg.evaluate("() => dashStartsNearZero([{ series: [{ values: [40, 45, 50] }] }])") is False
+    ctx.close()
+
+
+def test_a_rate_stat_reads_a_recent_average_not_its_last_bucket(browser, site):
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    assert default(pg)["widget: completions per hour"]["display"]["recent"] == 10
+    got = pg.evaluate("""() => dashAnswer({ form: "stat", display: { recent: 2 }, queries: [{ id: "a" }] },
+      [{ id: "a", series: [{ name: "x", values: [4, null, 2, 0] }] }])[0].series[0].values""")
+    assert got == [4, 4, 2, 1]
     ctx.close()
 
 
 def test_a_default_with_no_cost_has_three_stats_and_with_no_kinds_charts_series(browser, site):
     ctx = context(browser)
     pg = opened(ctx, f"{site}/dashboard")
-    got = pg.evaluate("""([f, fl]) => {
+    got = pg.evaluate("""([f, items]) => {
       const bare = JSON.parse(JSON.stringify(f));
       bare.sources.items.kinds.widget.fields = [];
-      const stats = dashDefault(bare, fl).panels.filter((p) => p.form === "stat").length;
+      bare.sources.items.kinds.log.fields = [];
+      bare.sources.items.kinds.part.fields = [];
+      const stats = dashDefault(bare, items.kinds).panels.filter((p) => p.form === "stat").length;
       bare.sources.items.kinds = {};
-      return { stats, series: dashDefault(bare, {}).panels.map((p) => p.queries[0].series) };
-    }""", [FIELDS, FLOWS])
+      return { stats, series: dashDefault(bare, []).panels.map((p) => p.queries[0].series) };
+    }""", [FIELDS, ITEMS])
     assert got == {"stats": 3, "series": ["stock.x"]}
     ctx.close()
 

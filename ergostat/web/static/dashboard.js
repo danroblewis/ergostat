@@ -61,77 +61,113 @@ function saveDashboardDraft(d) {
 
 /* ---- the default, from what the record holds ---- */
 
-const DASH_COST = /cost|spend/i, DASH_MONEY = /^(usd|eur|gbp|\$)/i;
+const DASH_MONEY = /^(usd|eur|gbp|\$)/i, DASH_COST = /(^|[._-])(cost|spend|usd)([._-]|$)/i;
+const DASH_REWORK = /fix|redo|rework|retry|replan/i;        // a state work comes back to, not one it passes through
 const DASH_NOT_CHARTED = /(^|[._-])(id|ids|rank|seq|index|order|priority|number|at|ts|time|timestamp|epoch)$/i;
+/* the numbers worth a chart of their own on the lead kind, where it has them: how each is read */
+const DASH_WANTED = [
+  { match: /attempt/i, word: "attempts", agg: "avg" },
+  { match: /(^|[._-])net[._-]?lines?$/i, word: "net lines", agg: "sum", rate: true },
+  { match: /loop.*(hour|minute|second)/i, word: "loop hours", agg: "avg" },
+];
 const dashIsCost = (f) => DASH_COST.test(f.name) || DASH_MONEY.test(f.unit || "");
+const dashCostUnit = (f) => (DASH_MONEY.test(f.unit || "") ? f.unit : "usd");   // a cost recorded as a bare count is money
 
-/* the kinds, those holding the most first: a kind with work open before one that only holds finished work, and
-   ergostat's own bookkeeping last. ``flows`` is /api/items-flow's answer for each kind, or nothing */
-function dashKinds(fields, flows = {}) {
-  const kinds = Object.entries(fields?.sources?.items?.kinds || {}).map(([name, k]) => {
-    const states = k.states || [], fl = flows[name] || null, now = fl?.now || {};
-    const done = (fl?.finished_states || states.slice(-1)).filter((x) => states.includes(x));
-    const open = states.filter((x) => !done.includes(x));
-    const most = (list) => [...list].sort((a, b) => (now[b] || 0) - (now[a] || 0))[0] || null;
-    const held = states.reduce((n, x) => n + (now[x] || 0), 0), inWork = open.reduce((n, x) => n + (now[x] || 0), 0);
-    return { name, states, open, done, held, inWork, busiest: most(open), finish: most(done), fields: k.fields || [] };
-  }).filter((k) => k.states.length);
+/* a kind as the default reads it. ``info`` is its row in /api/items (finished, paused, counts, relations);
+   ``queue`` the states work waits in (/api/items-graph), when asked */
+function dashKind(name, k, info, queue) {
+  const states = k.states || [], now = info?.counts || {};
+  const done = (info?.finished || states.slice(-1)).filter((x) => states.includes(x));
+  const stopped = states.filter((x) => (info?.paused || []).includes(x) || (x === "dead" && info?.dead !== false && !done.includes(x)));
+  const open = states.filter((x) => !done.includes(x) && !stopped.includes(x));
+  const waits = new Set(queue || states.slice(0, 1));
+  const waiting = open.filter((x) => waits.has(x)), working = open.filter((x) => !waits.has(x));
+  const sum = (list) => list.reduce((n, x) => n + (now[x] || 0), 0);
+  const self = Object.values(info?.relations || {}).some((to) => Array.isArray(to) && to.includes(name));
+  const midway = states.slice(1).filter((x) => open.includes(x)).length;      // the states between arriving and finishing
+  // work that moves through several states to a declared finish, and depends on its own kind, before any log of events
+  const score = (info?.finished_from === "declared" ? 4 : 0) + (self ? 3 : 0) + (stopped.length ? 1 : 0) +
+                Math.min(midway, 6) + (sum(open) ? 1 : 0) - (midway < 2 ? 6 : 0);
+  return { name, states, open, done, stopped, waiting, working, midway, score, held: sum(states), inWork: sum(open), now, fields: k.fields || [] };
+}
+/* the kinds, the work first; ergostat's own bookkeeping last */
+function dashKinds(fields, infos = [], queues = {}) {
+  const by = new Map(infos.map((x) => [x.name, x]));
+  const kinds = Object.entries(fields?.sources?.items?.kinds || {}).map(([name, k]) => dashKind(name, k, by.get(name), queues[name]))
+    .filter((k) => k.states.length);
   const own = (k) => (k.name.startsWith("ergostat.") ? 1 : 0);
-  kinds.sort((a, b) => own(a) - own(b) || (b.inWork > 0) - (a.inWork > 0) || b.held - a.held || a.name.localeCompare(b.name));
+  kinds.sort((a, b) => own(a) - own(b) || b.score - a.score || b.inWork - a.inWork || b.held - a.held || a.name.localeCompare(b.name));
   return kinds.some((k) => k.held) ? kinds.filter((k) => k.held) : kinds;
 }
+/* the states whose time is worth showing: the two holding the most of those work waits in, and the one of those it
+   is worked in, in the order work passes through them */
+function dashStayStates(k) {
+  const most = (list, n) => list.filter((x) => !DASH_REWORK.test(x)).sort((a, b) => (k.now[b] || 0) - (k.now[a] || 0)).slice(0, n);
+  const picked = new Set([...most(k.waiting, 2), ...most(k.working, 1)]);
+  return k.states.filter((x) => picked.has(x));
+}
 const dashRate = { agg: "count", transform: "rate", rate_per: "hour" };
-const dashFlowQueries = (k) => [
-  { id: "a", source: "moves", kind: k.name, measure: "entries", state: k.states[0], ...dashRate, label: "arrivals" },
-  ...(k.finish ? [{ id: "b", source: "moves", kind: k.name, measure: "entries", state: k.finish, ...dashRate, label: "completions" }] : []),
-];
-const dashWorkQuery = (k) => ({ id: "a", source: "counts", kind: k.name, where: { state: k.open }, agg: "last", transform: "none" });
-const dashStayQuery = (k, id, agg) => ({ id, source: "moves", kind: k.name, measure: "time_in_state", state: k.busiest, agg, transform: "none", label: agg });
-const dashCostQuery = (k, f) => ({ id: "a", source: "items", kind: k.name, field: f.name, agg: "sum", transform: "rate", rate_per: "hour" });
+const dashArrivals = (k) => ({ id: "a", source: "moves", kind: k.name, measure: "entries", state: k.states.slice(0, 1), ...dashRate, label: "arrivals" });
+const dashCompletions = (k) => ({ id: "b", source: "moves", kind: k.name, measure: "entries", state: k.done, ...dashRate, label: "completions" });
+const dashCount = (k, id, state, label) => ({ id, source: "counts", kind: k.name, state, group_by: "kind", agg: "last", transform: "none", label });
+const dashStay = (k, id, state, agg = "p50") => ({ id, source: "moves", kind: k.name, measure: "time_in_state", state: [state], agg, transform: "none", label: state });
+const dashCostQuery = (k, f) => ({ id: "a", source: "items", kind: k.name, field: f.name, agg: "sum", transform: "rate", rate_per: "hour", label: "cost" });
+const dashLegend = (values = ["last", "max"]) => ({ legend: "right", legend_values: values });
 
-/* the panels a kind is charted by: arrivals against completions, its open work by state, and how long the state
-   holding the most keeps it */
+/* a kind's charts: arrivals against completions, its open work as waiting, working and stopped (a kind may have many
+   states; the finished are left out so the open work can be read), and how long the main states hold it */
 function dashKindPanels(k) {
   const out = [];
-  if (k.states.length > 1) out.push({ title: `${k.name}: arrivals and completions per hour`, form: "line", queries: dashFlowQueries(k),
-                                      display: { unit: "/h", decimals: 1, legend: "right", legend_values: ["last", "max"], y: { min: 0 } } });
-  if (k.open.length) out.push({ title: `${k.name}: open work by state`, form: "stacked",
-                                queries: [{ ...dashWorkQuery(k), group_by: "state" }],
-                                display: { unit: "items", decimals: 0, legend: "right", legend_values: ["last"], y: { min: 0 } } });
-  if (k.busiest && k.states.length > 1) out.push({ title: `${k.name}: time in ${k.busiest}, p50 and p90`, form: "line",
-                                                   queries: [dashStayQuery(k, "a", "p50"), dashStayQuery(k, "b", "p90")],
-                                                   display: { unit: "s", legend: "right", legend_values: ["last", "max"], y: { min: 0 } } });
+  if (k.done.length) out.push({ title: `${k.name}: arrivals and completions per hour`, form: "line", queries: [dashArrivals(k), dashCompletions(k)],
+                                display: { unit: "/h", decimals: 1, ...dashLegend(), y: { min: 0 } } });
+  const groups = [["waiting", k.waiting], ["working", k.working], ["stopped", k.stopped]].filter(([, s]) => s.length);
+  if (groups.length) out.push({ title: `${k.name}: work by state`, form: "stacked",
+                                queries: groups.map(([word, s], i) => dashCount(k, "abc"[i], s, word)),
+                                display: { unit: "items", decimals: 0, ...dashLegend(["last"]), y: { min: 0 } } });
+  const stays = dashStayStates(k);
+  if (stays.length) out.push({ title: `${k.name}: median time in ${stays.join(", ")}`, form: "line",
+                               queries: stays.map((x, i) => dashStay(k, "abc"[i], x)),
+                               display: { unit: "s", ...dashLegend(), y: { min: 0 } } });
   return out;
 }
-const dashStat = (title, query, unit, decimals) => ({ title, form: "stat", size: "s", queries: [query], display: { unit, decimals } });
+const DASH_RECENT = 10;                                // buckets a rate's number is averaged over
+const dashStat = (title, query, unit, decimals) => ({ title, form: "stat", size: "s", queries: [query], ...(query.transform === "rate"
+  ? { note: "recent average", display: { unit, decimals, recent: DASH_RECENT } } : { display: { unit, decimals } }) });
+function dashFieldPanel(k, f, want) {
+  const unit = f.unit && f.unit !== "count" ? f.unit : "";
+  const rate = want?.rate ? { transform: "rate", rate_per: "hour" } : { transform: "none" };
+  const word = want?.word || f.name;
+  return { title: `${k.name}: ${word}${want?.rate ? " per hour" : want?.agg === "avg" ? ", average" : ""}`, form: "line", size: "m",
+           queries: [{ id: "a", source: "items", kind: k.name, field: f.name, agg: want?.agg || "avg", ...rate, label: word }],
+           display: { unit: want?.rate ? `${unit || "items"}/h` : unit, ...dashLegend() } };
+}
 
-/* the dashboard a project opens on: its main kind's numbers in a row, then its charts, then the next kinds' */
-function dashDefault(fields, flows = {}) {
-  const kinds = dashKinds(fields, flows), panels = [];
-  const main = kinds[0];
-  if (main) {
-    const costKind = kinds.find((k) => k.fields.some(dashIsCost));
-    const cost = costKind?.fields.find(dashIsCost);
-    const costUnit = cost ? `${cost.unit || "usd"}/h` : null;
-    panels.push(dashStat(`Work in progress (${main.name})`, dashWorkQuery(main), "items", 0));
-    if (main.finish) panels.push(dashStat(`Completions per hour (${main.name})`, dashFlowQueries(main)[1], "/h", 1));
-    if (main.busiest) panels.push(dashStat(`Median time in ${main.busiest}`, dashStayQuery(main, "a", "p50"), "s"));
+/* the dashboard a project opens on: the lead kind's numbers in a row, its charts, then the next kinds' */
+function dashDefault(fields, infos = [], queues = {}) {
+  const kinds = dashKinds(fields, infos, queues), panels = [], lead = kinds[0];
+  if (lead) {
+    const costKind = lead.fields.some(dashIsCost) ? lead : kinds.find((k) => k.fields.some(dashIsCost));
+    const cost = costKind && (costKind.fields.find((f) => DASH_MONEY.test(f.unit || "")) || costKind.fields.find(dashIsCost));
+    const costUnit = cost ? `${dashCostUnit(cost)}/h` : null;
+    const stays = dashStayStates(lead);
+    if (lead.open.length) panels.push(dashStat(`${lead.name}: work in progress`, dashCount(lead, "a", lead.open, "in progress"), "items", 0));
+    if (lead.done.length) panels.push(dashStat(`${lead.name}: completions per hour`, dashCompletions(lead), "/h", 1));
+    if (stays[0]) panels.push(dashStat(`${lead.name}: median time in ${stays[0]}`, dashStay(lead, "a", stays[0]), "s"));
     if (cost) {                                        // two rows of three, so the row has no hole
-      panels.push(dashStat(`Arrivals per hour (${main.name})`, dashFlowQueries(main)[0], "/h", 1));
-      if (main.busiest) panels.push(dashStat(`p90 time in ${main.busiest}`, dashStayQuery(main, "a", "p90"), "s"));
-      panels.push(dashStat(`${cost.name} per hour (${costKind.name})`, dashCostQuery(costKind, cost), costUnit, 2));
+      panels.push(dashStat(`${lead.name}: arrivals per hour`, dashArrivals(lead), "/h", 1));
+      if (stays[1]) panels.push(dashStat(`${lead.name}: median time in ${stays[1]}`, dashStay(lead, "a", stays[1]), "s"));
+      panels.push(dashStat(`${costKind.name}: cost per hour`, dashCostQuery(costKind, cost), costUnit, 2));
     }
-    const first = dashKindPanels(main).map((p) => ({ ...p, size: "m" }));
-    if (cost) first.push({ title: `${costKind.name}: ${cost.name} per hour`, form: "area", size: "m", queries: [dashCostQuery(costKind, cost)],
-                           display: { unit: costUnit, decimals: 2, legend: "right", legend_values: ["last", "max"], y: { min: 0 } } });
-    const worth = kinds.slice(0, 3).flatMap((k) => k.fields.filter((f) => !dashIsCost(f) && !DASH_NOT_CHARTED.test(f.name)).map((f) => ({ k, f })))
-      .sort((a, b) => !!b.f.unit - !!a.f.unit).slice(0, 2);
-    for (const { k, f } of worth) first.push({ title: `${k.name}: ${f.name}, average`, form: "line", size: "m",
-                                               queries: [{ id: "a", source: "items", kind: k.name, field: f.name, agg: "avg", transform: "none" }],
-                                               display: { unit: f.unit || "", legend: "right", legend_values: ["last", "max"] } });
+    const first = dashKindPanels(lead).map((p) => ({ ...p, size: "m" }));
+    if (cost) first.push({ title: `${costKind.name}: cost per hour`, form: "area", size: "m", queries: [dashCostQuery(costKind, cost)],
+                           display: { unit: costUnit, decimals: 2, ...dashLegend(), y: { min: 0 } } });
+    const asked = DASH_WANTED.map((want) => ({ want, f: lead.fields.find((f) => want.match.test(f.name)) })).filter((x) => x.f);
+    const worth = asked.length ? asked : lead.fields.filter((f) => !dashIsCost(f) && !DASH_NOT_CHARTED.test(f.name) && f.unit && f.unit !== "count")
+      .slice(0, 2).map((f) => ({ f }));
+    for (const { want, f } of worth) first.push(dashFieldPanel(lead, f, want));
     if (first.length % 2) first[first.length - 1].size = "full";
     panels.push(...first);
-    for (const k of kinds.slice(1).filter((x) => x.inWork && !x.name.startsWith("ergostat.")).slice(0, 2)) {   // those with work open
+    for (const k of kinds.slice(1).filter((x) => x.inWork && x.midway >= 2 && !x.name.startsWith("ergostat.")).slice(0, 2)) {
       const row = dashKindPanels(k);
       const size = { 1: "full", 2: "m", 3: "s" }[row.length];
       panels.push(...row.map((p) => ({ ...p, size })));
@@ -139,15 +175,48 @@ function dashDefault(fields, flows = {}) {
   } else {
     for (const x of (fields?.sources?.series?.series || []).slice(0, 6))
       panels.push({ title: x.name, form: "line", size: "m", queries: [{ id: "a", source: "series", series: x.name, agg: "last", transform: "none" }],
-                    display: { unit: x.unit || "", legend: "right", legend_values: ["last", "max"] } });
+                    display: { unit: x.unit || "", ...dashLegend() } });
   }
   return { title: "Overview", since: null, panels: panels.slice(0, DASH_MOST).map((p, i) => ({ note: "", tall: false, ...p, id: `p${i + 1}` })) };
 }
 async function dashBuildDefault() {
   const fields = await queryFields();
-  const names = Object.keys(fields?.sources?.items?.kinds || {}).slice(0, 12), flows = {};
-  await Promise.all(names.map(async (k) => { flows[k] = await api("items-flow", { kind: k, points: 2 }).catch(() => null); }));
-  return dashDefault(fields, flows);
+  const infos = (await api("items", { n: 1 }).catch(() => null))?.kinds || [];
+  const top = dashKinds(fields, infos).filter((k) => !k.name.startsWith("ergostat.")).slice(0, 3).map((k) => k.name), queues = {};
+  if (top.length) {
+    const graph = await api("items-graph", { kinds: top.join(",") }).catch(() => null);
+    for (const k of graph?.kinds || []) if (k.queue?.length) queues[k.name] = k.queue;
+  }
+  return dashDefault(fields, infos, queues);
+}
+
+/* what a panel is told of an answer: a labelled query's one series goes by the label alone ("completions", not
+   "completions: entries") */
+function dashNamed(config, results) {
+  const label = new Map((config.queries || []).filter((q) => q.label).map((q) => [String(q.id), q.label]));
+  return (results || []).map((r) => (label.has(String(r.id)) && r.series?.length === 1 ? { ...r, series: [{ ...r.series[0], name: "" }] } : r));
+}
+/* a rate's last bucket is often empty or half over, so a number read from it says 0/h between bursts: a stat with
+   ``display.recent`` reads the average of that many buckets up to each moment */
+function dashRecent(values, n) {
+  return values.map((_, i) => {
+    const known = values.slice(Math.max(0, i - n + 1), i + 1).filter((v) => v != null);
+    return known.length ? known.reduce((x, y) => x + y, 0) / known.length : null;
+  });
+}
+function dashAnswer(config, results) {
+  const n = config.form === "stat" ? config.display?.recent : null;
+  const read = n ? (results || []).map((r) => (r.series ? { ...r, series: r.series.map((x) => ({ ...x, values: dashRecent(x.values || [], n) })) } : r)) : results;
+  return dashNamed(config, read);
+}
+/* a change over the window means nothing from a start near zero ("5400%"): the panel then says none */
+function dashStartsNearZero(results) {
+  return (results || []).some((r) => (r.series || []).some((x) => {
+    const known = (x.values || []).filter((v) => v != null);
+    if (known.length < 2) return false;
+    const most = Math.max(...known.map(Math.abs));
+    return most > 0 && Math.abs(known[0]) < most * 0.05;
+  }));
 }
 
 /* ---- the grid ---- */
@@ -230,7 +299,12 @@ async function dashRefresh() {
     if (n !== DASH.asked) return;
     for (const [id, c] of DASH.cells) {
       const a = got?.get?.(id);
-      if (a) { c.panel.update(a.results, a.meta); c.drawn = true; }
+      if (!a) continue;
+      const p = d.panels.find((x) => x.id === id);
+      const answer = dashAnswer(p, a.results);
+      c.el.classList.toggle("dash-no-change", dashStartsNearZero(answer));
+      c.panel.update(answer, a.meta);
+      c.drawn = true;
     }
     if (DASH.said) DASH.said.textContent = `Updated ${clock(nowS())}`;
   } catch (e) {
