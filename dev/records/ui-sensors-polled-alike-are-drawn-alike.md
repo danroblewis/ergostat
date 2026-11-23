@@ -25,3 +25,13 @@ The page's template, script and style under `ergostat/web/`, and the test.
 
 ## Size budget
 60 net lines of code outside `tests/` and `docs/`.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 17:07).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 8: ack
+- attempt 9: nack exited 1
+- attempt 10: nack exited 1
+- attempt 11: nack exited 1
