@@ -325,13 +325,20 @@ def test_a_reference_is_a_value_and_the_relay_says_its_threshold():
     g = drawn(spec, {"*"})
     n = {x["id"]: x for x in g["nodes"]}
     r = n["ref:backlog-clear"]
-    assert r["fn"]["value"] == "= 0" and "≤" not in r["fn"]["value"]
+    assert r["fn"]["value"] == "≤ 0" and "a limit" in r["says"] and "setpoint" not in r["says"]   # one-sided: a limit
+    assert dict(r["rows"])["limit"] == "y_backlog ≤ 0"
     relay = n["blk:keep-backlog-clear"]
     rows = dict(relay["rows"])
     assert rows["threshold"] == "backlog ≤ 0: on above it", rows
     assert "y_backlog > 0" in relay["says"]
+    assert relay["fn"]["sketch"] == "ideal-relay" and "ideal relay" in relay["says"]            # on and off at one threshold
+    assert "hysteresis" not in _text(relay) and "releases at" not in rows
+    fq = {x["id"]: x for x in drawn(load(ROOT / "examples" / "file-queue" / "ergostat.yaml"), {"*"})["nodes"]}
+    band = next(x for x in fq.values() if (x.get("fn") or {}).get("sketch") == "relay")      # until: "<= 10", a band
+    assert "with hysteresis" in band["says"] and "releases at" in dict(band["rows"])
     sq = load(ROOT / "examples" / "image-squeeze" / "ergostat.yaml")
-    assert {x["id"]: x for x in drawn(sq, {"*"})["nodes"]}["ref:quality-held"]["fn"]["value"] == "= 0.93"
+    held = {x["id"]: x for x in drawn(sq, {"*"})["nodes"]}["ref:quality-held"]
+    assert held["fn"]["value"] == "= 0.93" and "a setpoint" in held["says"] and "limit" not in held["says"]
     for ex in EXAMPLES:                                  # real ≤ ≥ everywhere: no ASCII comparison in a label or a panel
         spec = load(ROOT / "examples" / ex / "ergostat.yaml")
         for where, g in _all_views(spec):
