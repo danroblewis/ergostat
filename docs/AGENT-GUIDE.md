@@ -92,6 +92,11 @@ Work through these steps in order. Ask the person only what you cannot infer.
    **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
    `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
    the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.
+   **When a queue's items share something that can be down** (a tracker, a build service), give the stock that
+   checks it a sensor reading 1 while up and 0 while down, and say so on the block: `takes: {kind: ticket, at: todo,
+   faults: {healthy: sensor.tracker-up}}` (or a `goal.` that holds, or a `block.` command). While it is down or
+   unread, nothing new is taken and a run that fails spends no attempt, so the outage parks no ticket as a dead
+   letter; the hold is the event `ergostat.queue.held`, ended by `ergostat.queue.resumed` (SPEC §9.5, *Faults*).
    **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
    of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
    {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the
@@ -262,7 +267,9 @@ engine took, with one line on stderr naming the first error; anything that acts 
    checklist below. An agent that looked at its diagrams fixed a disconnected model on its own; one
    that did not, did not notice.
 4. **Run it briefly with stand-ins** (scripts that print plausible events) before connecting real
-   systems, and watch items move through the chain on the Items page.
+   systems, and watch items move through the chain on the Items page: `/items` is an overview, a card per kind with
+   its unfinished count, its states over the window (grouped as waiting, working, stopped and done, or every state)
+   and its rate in and out; a kind's name opens its own page, `/items/KIND`, with its list, graph and timeline.
 5. **Check that the work moves as modelled, in the Process view.** The Diagram page's Process view
    (SPEC §5b) is the process map the record draws: for each kind, the states its items really
    entered and the moves between them, how often, and the median time each took. Hold it against
@@ -530,7 +537,10 @@ budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charge
   a verdict is left due for the next pass, a system is listed as not reviewed. So do the modeller's calls (the
   redesigner, the modelling reviewer, the `modelling ai` tier, the architecture review). Each reserves its
   estimated cost. A refusal is said `budget: …`: the redesign's result is `no budget`, not `nothing proposed`, and
-  its request stays open. Not yet covered: models in `ergostat.toml` (SPEC §9.9).
+  its request stays open.
+- In `ergostat.toml`, write `[budget]` with `daily = 5` and `max-cost = 0.5` (same bounds). Each `[[agent]]` run
+  then asks first, and `ergostat agent NAME --now` says `refused: budget: …`. Write each agent's `kind`: one
+  without it is charged, even though it shows as a program. `decisions extract` reads this budget too (SPEC §9.9).
 - A new place that starts `claude` or `$ERGOSTAT_AI` fails
   `tests/test_modeller_budget.py::test_only_listed_ai_starts`. Route the call through `decisions/ai.call` or `numbers/modeller.asked`; don't add the place to the allowlist.
 
