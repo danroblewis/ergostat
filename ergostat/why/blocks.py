@@ -110,8 +110,12 @@ def _actions(ctx, iid: str) -> list:
     from ..actions.record import ACTION
     if not getattr(ctx.spec, "actions", None):
         return []
-    with ctx.ix.lock:
-        got = ctx.ix.items(ACTION, ["requested"], moves=False)
+    got = None if ctx.memo is None else ctx.memo.get("actions")
+    if got is None:
+        with ctx.ix.lock:
+            got = ctx.ix.items(ACTION, ["requested"], moves=False)
+        if ctx.memo is not None:
+            ctx.memo["actions"] = got
     return [{"id": a.id, "fields": a.fields, "first": a.first} for a in got if a.fields.get("item") == iid]
 
 
@@ -191,7 +195,7 @@ def _asked(spec, it):
 
 
 def _block(ctx, b, it) -> dict | None:
-    now, p = ctx.now, ctx.p
+    now = ctx.now
     where = b.takes.where or {}
     off = {k: v for k, v in where.items() if not its.matches(it, {k: v})}
     if off:
@@ -206,7 +210,19 @@ def _block(ctx, b, it) -> dict | None:
         return root("lease", it.id, f"given back by its last run ({last.get('how') or 'ended'}"
                     + (f": {last['why']}" if last.get("why") else "") + f"), not taken again for {_ago(nb, now)[:-4]}"
                     + (" or until news of it" if lease.get("news") else ""), b.name, "wait, or redrive it by hand",
-                    None, [ev("its lease's history", item_link(it.id), at=last.get("ended"))], since=last.get("ended"))
+                    None, [ev("its lease's history", item_link(it.id), at=last.get("ended"))], since=last.get("ended"),
+                    backoff=nb)
+    if ctx.memo is None:
+        return _held_by(ctx, b, it)
+    if ("block", b.name) not in ctx.memo:          # (held-up: what holds a block's items is the same for each)
+        ctx.memo["block", b.name] = _held_by(ctx, b, it)
+    r = ctx.memo["block", b.name]
+    return r if r is None or r.get("via") else {**r, "item": it.id}
+
+
+def _held_by(ctx, b, it) -> dict | None:
+    """What holds every item the block may take: the engine, the budget, its gate, its pool, its runs failing."""
+    now, p = ctx.now, ctx.p
     eng = ctx.engine
     if not eng["running"]:
         return root("block", it.id, f"{b.name} takes it from {it.state}, but no engine is running ({eng['said']})",
