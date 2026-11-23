@@ -47,3 +47,13 @@ Traceback (most recent call last):
 RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
 
 ```
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 17:04).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 1: ack
+- attempt 2: nack exited 1
+- attempt 3: nack the implementor pool is full (run/pools.json): waits its turn
+- attempt 4: nack the run ended with gap/milestone-kind-and-lifecycle still parked
