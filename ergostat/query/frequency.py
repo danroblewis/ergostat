@@ -2,7 +2,12 @@
 Data*, ch. 9): the record resampled to a uniform grid, cut into half-overlapping stretches that cross no gap, each
 detrended and Hann-windowed; H = Pxy / Pxx (the H1 estimate, for noise on the output) and the coherence
 |Pxy|^2 / (Pxx Pyy). Pure arithmetic in the standard library. Frequencies the input holds no power at are left out:
-nothing can be said about them."""
+nothing can be said about them.
+
+Whether the record supports a response at all is decided here, not on the page. Unrelated signals pass a per-frequency
+floor at one frequency in twenty, so among hundreds of frequencies they nearly always pass it somewhere. The floor is
+therefore corrected for the number of frequencies looked at (Bonferroni). A record where no frequency reaches the
+corrected floor is answered with ``supported: false``, the reason in words, and no curve."""
 
 from __future__ import annotations
 
@@ -133,6 +138,26 @@ def floor(windows: int) -> float:
     return 1 - ALPHA ** (1 / (effective - 1)) if effective > 1.5 else 1.0
 
 
+def family_floor(windows: int, frequencies: int) -> float:
+    """The coherence unrelated signals stay under at all ``frequencies`` frequencies at once, 95% of the time: the
+    per-frequency floor at ALPHA / frequencies (Bonferroni; neighbouring frequencies are not independent, so it errs
+    toward refusing)."""
+    effective = max(1.0 + 1e-9, windows * 9 / 11)
+    share = ALPHA / max(1, frequencies)
+    return 1 - share ** (1 / (effective - 1)) if effective > 1.5 else 1.0
+
+
+def _unsupported(out: dict, coherence: list[float]) -> dict:
+    """The record answered with why it supports no response, and no curve to draw as if it were one."""
+    best = max(range(len(coherence)), key=coherence.__getitem__)
+    why = (f"no frequency is coherent past chance: the highest coherence is {coherence[best]:.2f}, at "
+           f"{out['frequency']['hz'][best]:.3g} Hz, and unrelated signals reach {out['coherence_floor']:.2f} somewhere "
+           f"among these {len(coherence)} frequencies one record in twenty ({out['segments']} averages of "
+           f"{out['segment_samples']} samples); the input may not move the output, or was not varied enough to show how")
+    return {**out, "supported": False, "refused": why, "coherence_peak": coherence[best],
+            "frequency": {k: [] for k in out["frequency"]}}
+
+
 def _unwrapped(phases: list[float], coherent: list[bool]) -> list[float]:
     """Degrees, continuous; only a frequency that is coherent moves the reference, so noise cannot add a false turn."""
     out, ref = [], None
@@ -181,14 +206,17 @@ def estimate(xs: list, ys: list, dt: float, segments: int = SEGMENTS) -> dict:
         raise Refused("the input and output share no frequency with any power")
     gain = [pxy[k] / pxx[k] for k in keep]
     coherence = [min(1.0, abs(pxy[k]) ** 2 / (pxx[k] * pyy[k])) if pyy[k] > 0 else 0.0 for k in keep]
-    bar = floor(len(starts))
+    each = floor(len(starts))
+    bar = family_floor(len(starts), len(keep))
     left = top - 1 - len(keep)
     out = {"frequency": {"hz": [k / (length * dt) for k in keep],
                          "magnitude_db": [20 * math.log10(abs(h)) for h in gain],
                          "phase_deg": _unwrapped([math.degrees(cmath.phase(h)) for h in gain], [c >= bar for c in coherence]),
                          "re": [h.real for h in gain], "im": [h.imag for h in gain], "coherence": coherence},
            "samples": samples, "segments": len(starts), "segment_samples": length, "sample_seconds": dt,
-           "coherence_floor": bar}
+           "coherence_floor": bar, "coherence_floor_each": each, "supported": True}
     if left:
         out["note"] = f"{left} of {top - 1} frequencies are left out: the input holds no power at them"
+    if not max(coherence) >= bar:                  # a NaN coherence is no evidence either
+        return _unsupported(out, coherence)
     return out

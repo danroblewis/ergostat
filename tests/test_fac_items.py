@@ -34,6 +34,15 @@ def test_every_state_is_listed_past_the_cap(monkeypatch):
     assert len(got) == 700 and len({x["id"] for x in got}) == 700
 
 
+def test_a_kind_within_the_cap_is_one_listing_of_every_item(monkeypatch):
+    record(monkeypatch, {"merged": 3, "in-review": 0, "ready": 2})
+    plain, calls = fac.ergostat, []
+    monkeypatch.setattr(fac, "ergostat", lambda *a: calls.append(a) or plain(*a))
+    got = fac.items("gap")
+    assert {x["id"] for x in got} == {f"gap/merged-{i}" for i in range(3)} | {"gap/ready-0", "gap/ready-1"}
+    assert len(calls) == 1 and "--state" not in calls[0]
+
+
 def test_one_state_is_one_listing(monkeypatch):
     record(monkeypatch, {"merged": 3, "ready": 2})
     assert {x["id"] for x in fac.items("gap", "ready")} == {"gap/ready-0", "gap/ready-1"}

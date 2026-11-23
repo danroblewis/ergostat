@@ -259,12 +259,17 @@ def test_the_api_pages_searches_and_sorts_one_kind(tmp_path):
     _many(p, 120)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), handler(p))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    url = f"http://127.0.0.1:{srv.server_address[1]}/api/items?kind=ticket"
+    url = f"http://127.0.0.1:{srv.server_address[1]}/api/items?kind=ticket&finished=show"   # every item, the finished too
 
-    def get(q):
-        with urllib.request.urlopen(url + q, timeout=10) as r:
+    def get(q, base=url):
+        with urllib.request.urlopen(base + q, timeout=10) as r:
             return json.loads(r.read())
     try:
+        plain = get("&n=200", url.replace("&finished=show", ""))               # by default the finished are left out
+        ticket = next(k for k in plain["kinds"] if k["name"] == "ticket")
+        assert plain["total"] == 80 and len(plain["items"]) == 80 and ticket["hidden"] == {"done": 40}
+        assert all(i["state"] != "done" for i in plain["items"])
+        assert get("&n=25&q=ticket/3", url.replace("&finished=show", ""))["total"] == 11   # 3, 30-39: a search hides nothing
         got = get("&n=25&offset=100")
         assert got["total"] == 120 and got["offset"] == 100 and [i["id"] for i in got["items"]][-1] == "ticket/0"
         assert len(got["items"]) == 20 and {"ticket", "note"} <= {k["name"] for k in got["kinds"]}
