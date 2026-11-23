@@ -126,3 +126,16 @@ beside the switch test. Its bound, the test itself, drain.py and conftest are un
 in the build, while they run alone (about 3 minutes). To undo it, drop `@QUEUE`. Not proven: that the build is green
 now, because the build cannot be run here. If the switch test still goes red, the load comes from main's own tests,
 and the fix (drain.py's many `ergostat` calls, or `serial` on that test) belongs to a gap of its own (lesson 13).
+
+Fast suites, round 3 (`build` red a third time on `test_an_approved_switch_drains_and_switches_through_the_engine`,
+with the seven queue tests already serial). Found why this branch's build meets it: `[suites] build` is
+`scripts/affected_tests.py`, which runs only the test files a branch changed, and this branch changes
+tests/test_factory.py (the fixture's `batch.*` filter). So its build runs all of test_factory's ~195 tests under
+`-n 8`, the switch test among them, which most branches' builds never do. The test's switcher runs are about 43 CPU-s
+each, nearly all CPU, the same with main's model (round 2). That is neither a race nor a fixed sleep (lesson 10). It is
+a CPU-bound run whose 120 s bound holds only on a quiet machine. The fix is CLAUDE.md's rule for that case: the test is
+marked `@pytest.mark.serial` instead of `slow`. Its bound and its body are unchanged, and so are drain.py and conftest.
+Left `slow`, it would start first and then idle its worker waiting for the lock. To undo it, put `slow` back. This is a
+one-line change outside the Files list, in a file the branch already edits. This replaces round 2's "belongs to a gap
+of its own": the branch's own diff is what puts the test in its build. Run here: the test alone (passed, 154 s) and
+ruff (clean). Not proven: that the build is green now, because the build cannot be run here.
