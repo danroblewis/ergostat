@@ -560,6 +560,7 @@ STARTED = "(n.flow || n.label) === 'started' && ['valve', 'disturbance'].include
 TAKEN_ROWS = "#detail .taken-list table tr td:first-child a"
 NO_HELD = """() => [...document.querySelectorAll('#detail .leases-line, #detail .taken-list')]
     .every((e) => !/\\bheld\\b|\\bholds\\b/i.test(e.innerText))"""        # its words: the model's own names may say held
+CLOCKED = "(r.type === 'characterData' && [4, 5].includes(r.target.parentElement?.cellIndex))"  # taken for, expires in
 
 
 def until_taken(pg, n: int) -> None:
@@ -696,9 +697,9 @@ def test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel(browser, site
     pg.on("pageerror", lambda e: errors.append(str(e)))
     open_part(pg, site, STARTED, "flow/started")
     pg.wait_for_selector(TAKEN_ROWS)
-    pg.evaluate("""() => { window.__same = true; window.__moved = 0;
-        new MutationObserver((m) => { window.__moved += m.length; })
-          .observe(document.querySelector('#detail .taken-list'), { childList: true, subtree: true, characterData: true }); }""")
+    pg.evaluate(f"""() => {{ window.__same = true; window.__moved = 0;      // all but the clocks' text, which moves
+        new MutationObserver((m) => {{ window.__moved += m.filter((r) => !{CLOCKED}).length; }})
+          .observe(document.querySelector('#detail .taken-list'), {{ childList: true, subtree: true, characterData: true }}); }}""")
     pg.wait_for_timeout(5000)                                      # one read again at least, the same answer
     assert pg.evaluate("() => window.__moved") == 0
     shown = f"() => [...document.querySelectorAll('{TAKEN_ROWS}')].map((a) => a.textContent)"
@@ -710,6 +711,31 @@ def test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel(browser, site
     add_events(("ergostat.lease.ended", "hypothesis/4", {"run": "run4aaaaaaaa", "fence": 1, "how": "nack", "count": False}))
     pg.wait_for_function(f"() => !({shown})().includes('hypothesis/4')", timeout=8000)
     assert pg.evaluate(shown) == ["hypothesis/1"] and pg.evaluate("() => window.__same")
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_taken_items_clocks_move_and_go_overdue_while_the_panel_is_open(browser, site):
+    """The list's clocks move on each read: a lease taken with a short time to live reads 'expires in' first, then,
+    with the panel still open and nothing else changed, 'overdue' in the bad colour, and its 'taken for' grows."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    add_events(("ergostat.lease.taken", "hypothesis/5", {"run": "run5aaaaaaaa", "fence": 1, "block": "developer", "ttl": 6,
+                                                          "max": 2, "back": "proposed", "tier": "ai"}))
+    try:
+        open_part(pg, site, STARTED, "flow/started")
+        row = "#detail .taken-list table tr:has(a[href='/item/hypothesis%2F5'])"
+        pg.wait_for_selector(row, timeout=20000)
+        cells = lambda: pg.locator(f"{row} td").evaluate_all("tds => tds.map((td) => [td.textContent, td.className])")  # noqa: E731
+        first = cells()
+        assert not first[5][0].startswith("overdue") and "bad" not in first[5][1], first
+        pg.wait_for_function(f"""() => {{ const td = document.querySelector("{row} td:nth-child(6)");
+            return td && td.textContent.startsWith('overdue ') && td.classList.contains('bad'); }}""", timeout=20000)
+        assert cells()[4][0] != first[4][0], (first, cells())                 # taken for: seconds, moved too
+    finally:
+        add_events(("ergostat.lease.ended", "hypothesis/5", {"run": "run5aaaaaaaa", "fence": 1, "how": "nack", "count": False}))
+    until_taken(pg, 1)
     assert not errors, errors
     pg.close()
 

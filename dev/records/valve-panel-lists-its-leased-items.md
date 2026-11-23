@@ -76,3 +76,17 @@ test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart again (it t
 switcher to list the other project, tests/test_items_page.py:2391). Round 2 hit the same failure, and this branch
 changes nothing it reads. It was not rerun on clean main. The three valve-panel browser tests pass. Not run here: the
 unit suite, test_diagram_rendering.py, test_page_polling.py, test_page_refresh.py.
+
+Round 4: the one finding (blocking): takenList compared answers only by their data, so the 'taken for' and 'expires
+in' cells kept their first values while the panel was open, and a lease past its expiry never read 'overdue' in the
+bad colour. The rows are now built on each read and compared by what they draw (their HTML). The clocks move on each
+4 s read. A read that draws the same as the last still leaves the DOM alone, and patch() changes only the clocks' text
+nodes. New browser test test_a_taken_items_clocks_move_and_go_overdue_while_the_panel_is_open: a lease with a 6 s TTL
+is taken, and with no reload the panel shows 'expires in' first, then 'overdue' with the bad class and a longer
+'taken for'. With the old answer-only key put back, it fails (timeout waiting for 'overdue'). The come-and-go test's
+MutationObserver now ignores text changes in the two clock cells (columns 5 and 6) and still counts every other
+change. SPEC §9.5 says the clocks move. Main had no new commits since round 3 (main is b7302db6, already merged).
+Tests: tests/test_item_sets.py 17 passed; ruff clean; tests/test_items_page.py whole under the watchdog: 74 passed,
+1 failed, rc 1. The failure is again test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (it times
+out waiting for the project switcher, tests/test_items_page.py:2417, and fails alone too). This branch changes nothing
+it reads. Not run here: the unit suite, test_diagram_rendering.py, test_page_polling.py, test_page_refresh.py.

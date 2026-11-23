@@ -3733,7 +3733,8 @@ items**: up to ten (`being worked by BLOCK (N)`), each with its id (a link to it
 (the first 8 characters, a link to the item's events in the Record), how long it has been taken, when its lease expires
 (`overdue 1m`, in the bad colour, past it) and its attempt (`attempt 2 of 3`); more than ten, `all N taken` links to
 the set; none, `BLOCK is working nothing now`. The list is read again every 4 s while the panel is open, so a lease
-taken or ended comes or goes without a reload; an answer unchanged leaves the panel alone. Its words are taken and
+taken or ended comes or goes without a reload, and its clocks (taken for, expires in, overdue) move on each read; a
+read that draws the same as the last leaves the panel alone. Its words are taken and
 being worked, never held (docs/vocabulary.md).
 
 ### 9.6 The observer: stale readings and estimated stocks

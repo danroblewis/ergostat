@@ -100,18 +100,14 @@ function countsLines(d) {
 
 /* the items a block has taken now, under its line: up to ten, each with its state, its run and its lease (pages.js
    leaseTail). Read again every 4 s while the panel shows it (a lease taken or ended comes or goes without a reload);
-   an answer the same as the last leaves the page alone */
+   compared by what it would draw, so the clocks (taken for, expires in or overdue) move on each read, and an answer
+   that draws the same as the last leaves the page alone */
 function takenList(l, count) {
   const box = h("div", { class: "taken-list" });
   const none = () => h("p", { class: "muted small" }, `${l.block} is working nothing now`);
   if (!l.taken) box.append(none());
   let sig = null;
   const draw = (d) => {
-    const s = JSON.stringify([d.total, d.items.map((i) => [i.id, i.state, itemTitle(i), i.fields?.lease])]);
-    if (s === sig) return;
-    sig = s;
-    count.textContent = String(d.total);
-    if (!d.total) return patch(box, none());
     const rows = d.items.map((i) => {
       const x = i.fields?.lease || {};
       return h("tr", { key: i.id }, h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}` }, i.id)),
@@ -120,6 +116,11 @@ function takenList(l, count) {
           String(x.holder || "").slice(0, 8))),
         h("td", { class: "num nowrap" }, x.taken ? dur(nowS() - x.taken) : ""), ...leaseTail(x, true));
     });
+    const s = JSON.stringify([d.total, rows.map((r) => r.outerHTML)]);
+    if (s === sig) return;
+    sig = s;
+    count.textContent = String(d.total);
+    if (!d.total) return patch(box, none());
     patch(box, h("p", { class: "taken-head" }, h("b", {}, `being worked by ${l.block} (${d.total})`)),
       h("div", { class: "table-wrap" }, h("table", { class: "item-list taken" },
         h("tr", {}, ["item", "", "state", "run", "taken for", "expires in", ""].map((t) => h("th", {}, t))), rows)),
