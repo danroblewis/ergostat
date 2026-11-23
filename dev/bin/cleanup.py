@@ -24,8 +24,8 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
-SESSION = re.compile(r"^[a-z0-9][a-z0-9-]*-(\d{14})-[0-9a-f]{6}$")
-CLAUDE = re.compile(r"^[a-z0-9][a-z0-9-]*-\d+-claude-[0-9a-f]{8}$")      # Claude Code's folder for one (sessions.py)
+SESSION = re.compile(r"^[a-z0-9][a-z0-9_-]*-(\d{14})-[0-9a-f]{6}$")
+CLAUDE = re.compile(r"^[a-z0-9][a-z0-9_-]*-\d+-claude-[0-9a-f]{8}$")      # Claude Code's folder for one (sessions.py)
 SHA = re.compile(r"^[0-9a-f]{40}$")
 WAITING = ("installed", "approved", "draining")                         # an upgrade whose switch waits (drain.py's)
 
