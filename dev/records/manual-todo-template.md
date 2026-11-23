@@ -143,3 +143,13 @@ only the state):
   test_library_trust (49), test_library_untrusted (22), test_scale_caches (37); ruff clean. demo_check, the whole
   unit suite and the browser files were not run (no page changed). Main has not moved. 545 net lines outside tests,
   docs and dev (budget 600).
+
+Round 6 (the queue's one finding: conflicts with main in `ergostat/spec/compile.py` and `ergostat/spec/ir.py`):
+
+- Main (8a27f9e3) merged in. Both conflicts were main's new item-kind key `attention:` sitting next to this branch's
+  `finished:`, `moves-from:` and `if-unchanged:`. Both sides were kept: in `ITEM_KEYS`, in the kind's checks (the
+  branch's three, then main's `attention`), in the `ItemKind(...)` call and in the `ItemKind` dataclass fields. No
+  code changed besides the merge.
+- Run one file at a time after the merge: test_todo_template, test_templates, test_library_trust (103 passed),
+  test_finding_attention, test_changesets, test_why (96 passed), test_finished_states, test_rollup,
+  test_item_systems (64 passed); ruff clean. demo_check, the whole unit suite and the browser files were not run.
