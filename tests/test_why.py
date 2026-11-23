@@ -280,6 +280,24 @@ def test_nothing_takes_its_state(tmp_path):
     assert r["kind"] == "nothing" and "nothing takes note items from open" in r["says"] and r["owner"] == "the owner"
 
 
+def test_a_where_that_does_not_match_its_fields(tmp_path):
+    p = project(tmp_path, MODEL.replace("takes: {kind: ticket, at: todo, to: [review]}",
+                                        "takes: {kind: ticket, at: todo, to: [review], where: {team: a}}"))
+    p.events.add("ticket.opened", item="ticket/1", at=NOW - 100, data={"team": "b"})
+    r = why(p, "ticket/1")["root"]
+    assert r["kind"] == "nothing" and "team is 'b' (it takes 'a')" in r["says"] and r["owner"] == "whatever sets team"
+
+
+def test_given_back_and_put_off(tmp_path):
+    p = project(tmp_path)
+    p.events.add("ticket.opened", item="ticket/1", at=NOW - 300)
+    take(p, "ticket/1", "worker", at=NOW - 200)
+    p.events.add("ergostat.lease.ended", item="ticket/1", source="ergostat", at=NOW - 100,
+                 data={"run": "r1", "fence": 1, "how": "nack", "why": "tests failed", "after": 3600})
+    r = why(p, "ticket/1")["root"]
+    assert r["kind"] == "lease" and "given back by its last run (nack: tests failed)" in r["says"], r["says"]
+
+
 def test_unfinished_work_outside_ergostat(tmp_path):
     p = project(tmp_path)
     p.events.add("ticket.opened", item="ticket/1", at=NOW - 100)

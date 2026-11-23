@@ -1398,6 +1398,37 @@ with no `to=`, more than one of `near=`, `path=` and `about=` (the CLI's flags l
 (`at=`) is refused (exit 2, 400), never answered with a default (only
 no depth at all is 1; the API reads an empty `depth=` as none).
 
+**Why it is not done.** `ergostat why ID [--json]`, `GET /api/why?item=ID` and MCP's `why` answer one question for
+any item, as the record is now (`--at`, `at=` are refused), from the item index and the model only (`ergostat/why/`;
+nothing in it names a kind, state or block of any model). The item's page shows it first, as *Why isn't this done?*,
+while the item is unfinished. The answer:
+
+- **now**: its state, since when and for how long, against the stays its kind's latest 2,000 items made in that state:
+  longer than which share of them, and *unusual* past nine in ten; with fewer than 5 stays it says so and calls
+  nothing unusual.
+- **the cause**, followed to its end: the precedence targets it waits on (as *Relations* reads them: unfinished, not in
+  a `starts_at` state), what each of those waits on, depth first in link order, to each **root**: `work` (held by a
+  live lease, or in a working state no block takes from: in progress outside ergostat), `person` (the owner asked to
+  answer a gated action about it, or a gate whose input a person reads by hand: a manual sensor), `pool-full` (the
+  block's runs at once are its pool now, the holders named; a holder whose lease is dead is the root instead, `via`
+  the block), `gate` (a `budget.refused` for the block in the last 5 minutes with no run started since, `gate:
+  budget`; or a gate commanding the block reads 0, a factor of its product being 0 for an input that is not 0: a
+  limit reached), `lease` (held, but the process that took it is gone or no engine is running; past its expiry and
+  not ended; or given back and put off), `block` (no engine running, or its last 3 runs failed), `closed` (a gate's
+  zero factor whose every input reads 0: a goal holding, an intake shut), `parked` (paused in a state
+  `messages: paused:` names, or a dead letter), `nothing` (no block takes its kind from its state, or a block's
+  `where:` does not match its fields), `cycle` (it waits on itself: the loop named), `missing` (it waits on an id
+  never recorded), and `unknown` (what holds it is not in the record: a gate with no reading, a factor whose input
+  has none, a field that cannot be read, or nothing found holding it). Each root says who or what must act (`owner`),
+  the action and the command. Up to 200 items are looked at and 8 roots kept; the first is the answer's.
+- **evidence**: each claim's event or reading, with a link (the item's page, `/api/events/ID`, the block in the
+  Blocks view); **missing**: what the record cannot tell, never guessed.
+- **summary**: one paragraph to paste to someone else.
+
+The engine is read from its run lock and `heartbeat.json` (running: the lock held and the last pass within the
+watcher's limit). An item's own state is never folded from its events; only the evidence is looked up, a few events
+at most per item. On a record of 3,000 items it answers in under 100 ms (`tests/test_why.py`).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:

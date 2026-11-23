@@ -70,8 +70,8 @@ def cmd_event(args) -> int:
 def cmd_why(args) -> int:
     """``ergostat why ITEM``: why it is not done (SPEC §5a, *Why it is not done*)."""
     if not args.name:
-        print("name the item: ergostat why ITEM", file=sys.stderr)
-        return 2
+        print("name the item: ergostat why ITEM (ergostat item lists them)", file=sys.stderr)
+        return 1
     if getattr(args, "at", None):
         print("ergostat why answers as of now: leave out --at", file=sys.stderr)
         return 2

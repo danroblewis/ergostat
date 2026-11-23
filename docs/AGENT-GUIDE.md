@@ -807,6 +807,10 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
   those whose fields' string values contain every word (1 to 8 words; a plain substring, case ignored, no ranking and
   no fuzzy match; only the first 65,536 characters of an item's text are read; as of now, never with `--at`).
   `--json` on each; `/api/items?search=WORDS` is the same list.
+- **Why an item is not done**: `ergostat why ID [--json]` (MCP `why`, `/api/why?item=ID`) follows what it waits on to
+  the root (a lease, a full pool, the budget, a gate and which of its inputs is 0, a parked or missing dependency, a
+  cycle, nothing taking its state, ...), names who must act and the command, and links the evidence. Ask it before
+  guessing why work has stalled; when it says `unknown`, the record lacks what it needs (SPEC §5a).
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.

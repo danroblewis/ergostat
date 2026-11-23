@@ -291,6 +291,28 @@ def test_leases_are_shown_on_the_items_page_and_the_items(browser, site):
     pg.close()
 
 
+def test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top(browser, site):
+    """The "Why isn't this done?" block (SPEC §5a, /api/why): first on an unfinished item's page, its cause and next
+    step as /api/why gives them; hypothesis/1 is held by a lease no running engine renews (the page is served alone)."""
+    import json
+    got = json.loads(urllib.request.urlopen(f"{site}/api/why?item=hypothesis%2F1", timeout=30).read())
+    assert got["root"]["kind"] == "lease" and got["root"]["command"] == "ergostat run", got["root"]
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/item/hypothesis/1")
+    pg.wait_for_selector(".why")
+    assert pg.evaluate("() => { const w = document.querySelector('.why'); return !w.previousElementSibling"
+                       " && !!w.nextElementSibling?.matches('.meta'); }"), "it is at the top, above the item's facts"
+    box = pg.locator(".why")
+    assert box.get_attribute("data-why") == "lease"
+    text = box.inner_text()
+    assert text.startswith("Why isn't this done?") and "no engine is running" in text and "ergostat run" in text, text
+    assert box.locator('a[href="/item/hypothesis/1"]').count() >= 1, "its evidence linked"
+    assert not errors, errors
+    pg.close()
+
+
 def test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set(browser, site):
     """What is going through the wires (item_sets.py): the stock ideas lists the hypotheses proposed now, the flow
     proposed those that arrived in the window; each links to the Items page filtered to that set, shown as a chip
