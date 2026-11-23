@@ -116,3 +116,10 @@ Its runs failed past their attempts (a dead letter):
 - attempt 1: nack exited 1
 - attempt 2: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 3: nack the run ended with gap/merge-pipeline-stacked-gap-builds-on-continued still parked
+
+## Where it stopped
+
+Resumed 2026-11-23 after the two factory parks (the reviewer's weekly limit, then Docker restarting): neither was
+this gap's fault, and nothing in the code changed. main (2a97eafb) is already merged in. The four acceptance tests
+and test_finish_refuses_a_head_that_no_longer_holds_a_base pass again. `ruff check ergostat tests scripts` is clean.
+Built, waiting for review.
