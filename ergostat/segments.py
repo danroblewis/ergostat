@@ -544,8 +544,9 @@ class Segments:
     def add(self, type: str, *, item: str | None = None, source: str | None = None, data: dict | None = None,
             causedby: str | None = None, at: float | None = None, id: str | None = None, patch: list | None = None,
             set: dict | None = None) -> dict:
-        from .store import ChangesetError, changeset
+        from .store import ChangesetError, changeset, line_id
         change = changeset(data, patch, set)
+        id = id or line_id()                              # (a journal line's: kept once, SPEC §9.1)
         if change and (not isinstance(item, str) or "/" not in item):
             raise ChangesetError("a patch or a set changes an item: name it (an id with a /, ticket/12)")
         ev = {"id": id or uuid.uuid4().hex, "time": at if at is not None else time.time(), "type": type, "item": item,
