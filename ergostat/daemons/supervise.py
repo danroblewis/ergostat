@@ -3,12 +3,14 @@ that exits, goes silent past its heartbeat, or stops reading its standard input 
 back-off; one that holds a cancelled run past the grace too. More than ``restart: max`` restarts within ``within`` and
 it is given up (``ergostat.daemon.failed``, an intervention) until the owner revives it (``block NAME --restart``,
 recorded as ``daemon.restart.requested``, or any model change). Every process it ends, its whole process group goes
-with it. What it hands out (runs, readings) is ``work.py``'s. Its state goes to ``<state>/daemons.json``."""
+with it. What it hands out (runs, readings) is ``work.py``'s. Its state goes to ``<state>/daemons.json``, a shard
+engine's to ``<state>/daemons.SHARD.json`` (SPEC §9.8); ``read_status`` merges them."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import threading
 import time
@@ -397,7 +399,8 @@ class Supervisor(Hands):
         if final:
             for x in got.values():
                 x["state"], x["pid"] = "stopped", None
-        f = self.e.p.dir / "daemons.json"
+        shard = getattr(self.e, "shard", None)       # (a shard's own file and temporary file: SPEC §9.8)
+        f = self.e.p.dir / ("daemons.json" if shard is None else f"daemons.{shard}.json")
         tmp = f.with_suffix(".tmp")
         tmp.write_text(json.dumps({"at": time.time(), "pid": os.getpid(), "daemons": got}))
         os.replace(tmp, f)
@@ -442,9 +445,42 @@ def of_daemon(daemons: dict, name: str) -> dict:
             "why": next((v["why"] for v in subs.values() if v.get("why")), ""), "processes": subs}
 
 
-def read_status(state_dir) -> dict:
-    """``<state>/daemons.json``, as the engine last wrote it (none: {})."""
+SHARD_FILE = re.compile(r"daemons\.([a-z0-9][a-z0-9-]{0,63})\.json")
+
+
+def _alive(pid) -> bool:
+    """Whether the writer ``pid`` is a live process (EPERM: alive, not ours); not an int, or none such: not alive."""
+    if type(pid) is not int or pid <= 0:
+        return False
     try:
-        return json.loads((state_dir / "daemons.json").read_text()).get("daemons") or {}
-    except (OSError, ValueError):
-        return {}
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except (OSError, OverflowError):
+        return False
+    return True
+
+
+def _stopped(x) -> bool:
+    return not isinstance(x, dict) or x.get("state") == "stopped"
+
+
+def read_status(state_dir) -> dict:
+    """``<state>/daemons.json`` and each shard's ``daemons.SHARD.json``, as their engines last wrote them, merged
+    (none: {}). A file that cannot be read adds nothing; a shard file whose writer is dead gives its daemons stopped,
+    pid null. A daemon in two files is given once: the entry not stopped, else the first file by name."""
+    out: dict = {}
+    for f in sorted(state_dir.glob("daemons*.json")):
+        m = SHARD_FILE.fullmatch(f.name)
+        try:
+            got = json.loads(f.read_text()) if m or f.name == "daemons.json" else None
+        except (OSError, ValueError, RecursionError):
+            continue
+        got = got if isinstance(got, dict) else {}
+        daemons, dead = got.get("daemons") or {}, m is not None and not _alive(got.get("pid"))
+        for n, x in daemons.items() if isinstance(daemons, dict) else ():
+            if dead and isinstance(x, dict):
+                x = {**x, "state": "stopped", "pid": None}
+            if n not in out or _stopped(out[n]) and not _stopped(x):
+                out[n] = x
+    return out
