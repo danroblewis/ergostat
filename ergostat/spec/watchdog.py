@@ -49,7 +49,7 @@ HARD = 20.0                 # seconds the run loop is given to restart the proce
 EVERY = 1.0
 KEPT = 20                   # stack dumps kept
 BEAT = 5.0                  # seconds between writes of heartbeat.json
-POOLS = {"": "sensor", "alarm_": "alarms", "fast_": "fast"}   # the engine's reading pools (engine.LANES), by name
+POOLS = {"": "sensor pool", "alarm_": "alarms pool", "fast_": "sensor pool (the fast lane)"}   # engine.LANES, by name
 STARTUP = float(os.environ.get("ERGOSTAT_STARTUP") or 120.0)   # seconds a start may take before it is restarted
 
 
@@ -134,7 +134,7 @@ class Watchdog:
                 pools = self.pools.setdefault(which, [])
                 pools[:] = [t for t in pools if now - t < WINDOW] + [now]
                 if len(pools) >= 3:
-                    return self.restart(f"the {POOLS[which]} pool wedged {len(pools)} times in "
+                    return self.restart(f"the {POOLS[which]} wedged {len(pools)} times in "
                                         f"{WINDOW / 60:g} min", "pool")
                 self.new_pool(*wedged, which)
         quiet = now - e.passed_at
@@ -166,7 +166,7 @@ class Watchdog:
             finally:
                 e.lock.release()
         e.wake.set()
-        self.said("pool", quiet, f"a new {POOLS[which]} pool; {n} reading{'s' if n != 1 else ''} "
+        self.said("pool", quiet, f"a new {POOLS[which]}; {n} reading{'s' if n != 1 else ''} "
                   f"asked again", dump)
 
     def new_loop(self, quiet: float) -> None:
