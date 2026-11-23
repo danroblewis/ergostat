@@ -2933,9 +2933,16 @@
         "faults": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["healthy"],
-          "description": "The queue's shared environment (SPEC section 9.5): while healthy reads unhealthy or unknown the block takes nothing new, and a run failing through the outage is given back uncounted",
+          "minProperties": 1,
+          "description": "The queue's shared environment (SPEC section 9.5): while healthy reads unhealthy or unknown the block takes nothing new, and a run failing through the outage is given back uncounted; hold-by: item fields whose values, failing together, are held each on its own",
           "properties": {
+            "hold-by": {
+              "oneOf": [
+                {"type": "string", "minLength": 1},
+                {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "maxItems": 8}
+              ],
+              "description": "An item field, or a list of 1 to 8: a value whose items fail together (3 in a row, of 2 items or more, within 10 minutes) is held, probed after a back-off, and released by a success"
+            },
             "healthy": {
               "type": "string",
               "pattern": "^(sensor|stock|flow|auxiliary|variable|goal|block)\\.[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)?$",
