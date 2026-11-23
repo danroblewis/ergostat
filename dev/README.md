@@ -233,6 +233,27 @@ nothing and says so in the proposal.
 A GAPS.md entry whose head (its opening parenthetical, or the clause after its colon) begins with "done" or
 "superseded by" is never found as open, and one the record holds not yet started is closed.
 
+## Milestones: groups of gaps finished together
+
+A `milestone` item (ergostat.yaml) is `waiting`, `active` or `completed`, and `completed` is final (`final:`: no event
+moves it out). It may depend on other milestones (`depends_on`); a gap names its milestone in `milestone` (a group
+relation: the Items page's Graph hangs a milestone's gaps off it). The block `milestones` (`milestones.py pass`, every
+minute, no AI) completes an active milestone with at least one gap once every one is merged or closed (a parked one
+holds it open; an empty one never completes), then activates waiting ones whose dependencies all completed, by rank,
+while fewer than `[milestones] active_max` (3; at most 20) are active. An `upkeep` milestone, for the factory's own
+repairs, is always active and outside the limit; after `[milestones] upkeep_days` (7; at most 90) it completes, its
+unfinished gaps move to a new upkeep milestone (`follows` it), which is active at once. Which gaps the implementor takes
+is not decided here: `pull` only marks a gap `pulled`. The old free-text labels in some gaps' `milestone` stay as
+written; `status` lists them until they are assigned.
+
+```sh
+python3 dev/bin/milestones.py add NAME --title "..." --rank 1 [--depends A,B] [--upkeep]   # refuses a name in use
+python3 dev/bin/milestones.py depends NAME ON [ON ...]     # refuses a cycle, or a completed NAME
+python3 dev/bin/milestones.py assign GAP NAME              # refuses a completed milestone
+python3 dev/bin/milestones.py pull GAP                     # or: unpull GAP
+python3 dev/bin/milestones.py status                       # each one, its state, what it waits on, its gaps by state
+```
+
 ## Plans, research and what the factory knows
 
 A gap with no definition is **planned** (`dev/bin/plan.py`), once you open planning

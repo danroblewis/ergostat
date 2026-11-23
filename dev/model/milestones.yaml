@@ -1,0 +1,49 @@
+# Milestones (the owner, 2026-11-22): groups of gaps finished together. A milestone waits on the milestones it depends
+# on, is active (at most [milestones] active_max at once, by rank; an upkeep one always, outside the limit), and is
+# completed once it has gaps and each is merged or closed, or, for an upkeep one, at the end of its cycle. The
+# coordinator adds them and assigns gaps (dev/bin/milestones.py); which gaps the implementor takes is not changed here.
+defaults:
+  system: planning
+
+stocks:
+  milestones-waiting:
+    unit: milestones
+    description: milestones waiting on the milestones they depend on, or for room under [milestones] active_max
+    sensor: {items: milestone, state: waiting, every: 1m}
+  milestones-active:
+    unit: milestones
+    description: milestones being finished (an upkeep one among them, outside the limit)
+    sensor: {items: milestone, state: active, every: 1m}
+  milestones-completed:
+    unit: milestones
+    description: milestones whose gaps were all merged or closed, or upkeep ones whose cycle ended - final
+    cumulative: true
+    sensor: {items: milestone, state: completed, every: 1m}
+
+flows:
+  milestones-added:
+    to: milestones-waiting
+    description: milestones the coordinator added (milestones.py add)
+    sensor: {items: milestone, entering: waiting, over: 1d}
+  milestones-activated:
+    from: milestones-waiting
+    to: milestones-active
+    description: a waiting milestone whose dependencies are all completed, taken in rank order while fewer than active_max are active
+    driven-by: [+stock.milestones-waiting, -stock.milestones-active]
+    sensor: {items: milestone, entering: active, over: 1d}
+  milestones-completed:
+    from: milestones-active
+    to: milestones-completed
+    description: an active milestone with gaps, every one merged or closed (a parked one holds it open), or an upkeep one at the end of its cycle
+    driven-by: [+stock.milestones-active]
+    sensor: {items: milestone, entering: completed, over: 1d}
+
+blocks:
+  milestones:
+    type: program
+    description: every minute - activates waiting milestones whose dependencies completed, in rank order under the limit; completes those whose gaps are all merged or closed; ends an upkeep cycle, carrying its unfinished gaps to a new upkeep milestone (no AI)
+    run: python3 dev/bin/milestones.py pass
+    every: 1m
+    timeout: 50s
+    in: {waiting: +stock.milestones-waiting, active: -stock.milestones-active}   # (it reads the record itself, each pass)
+    out: [flow.milestones-activated, flow.milestones-completed]
