@@ -197,7 +197,7 @@ def test_the_attention_cards_speak_system_dynamics():
     att = [{"level": "bad", "what": "loop backlog-clear", "says": "backlog is 4, setpoint <= 0 (off by 4)"},
            {"level": "hint", "what": "loop backlog-clear", "says": "was off 60% of the time: saturated, moving its most "
             "each run. Its valve moved 2/h out while 3/h came in"},
-           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill controller x"},
+           {"level": "hint", "what": "controller x", "says": "dev (ai) decided \"go\" 9 of 10 times: a rule could fill it"},
            {"level": "hint", "what": "loop a", "says": "keeps feeding x: Hold it back (its controller can read x)"}]
     out = attention(att, snap)
     assert out[0]["says"] == "backlog is 4, desired backlog = 0: off by 4"

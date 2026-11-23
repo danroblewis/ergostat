@@ -116,3 +116,20 @@ Continued (gap/ui-a-suggestion-appears-when-it-has-a-continued, round 1): main f
   test_the_loop_markers_can_be_hidden_and_it_is_remembered; tests/test_dynamics_view.py. When I broke the
   "diagnosis in" note, the acceptance test failed at that check, and it passed again once I put it back. Not run here:
   the whole of tests/test_diagram_rendering.py, the unit suite and the other browser files (the merge queue's).
+
+## Where it stopped
+
+Continued, round 2 (net 0 lines of code: one line of ergostat/state.py changed).
+
+- Review finding (blocking), state.py:609-610: fixed. The ladder suggestion now ends "… could fill it", so its goal
+  is named only by its heading (`controller NAME` on Blocks, `loop NAME` on Dynamics). Pinned by the unit test
+  `test_a_controller_deciding_the_same_thing_is_a_hint_to_move_down_the_ladder`: it now checks that the attention
+  entry (heading and text) names the goal once, both as `state.attention` gives it and after `dynamics.attention`.
+  I put the old text back and watched the test fail on it, then restored the fix. I added the ladder case to the unit
+  test, not to the browser test: the browser fixture has no AI or person controller deciding the same thing again
+  and again, and making one would add a fixture outside what the change touches (the more reversible choice).
+  test_dynamics_view's card fixture now uses the new wording.
+- Run: ruff (clean); tests/test_dynamics_view.py and tests/test_item_about.py (whole files) and the ladder unit test
+  (33 passed); the acceptance browser test by name under the watchdog (passed, rc 0). Not run here: the whole of
+  tests/test_diagram_rendering.py, the unit suite and the other browser files (the merge queue's). main is the clone's
+  base and is already merged (2e3e2b0f).

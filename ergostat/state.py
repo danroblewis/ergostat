@@ -607,7 +607,7 @@ def ladder_hints(project, snap: dict) -> list[dict]:
             word = word.replace("#", "N")
             out.append({"controller": c.name, "agent": a.name, "kind": a.kind, "share": n / d["count"], "count": d["count"],
                         "decision": word, "about": "ladder", "says": f"{a.name} ({a.kind}) decided \"{word}\" {n} of {d['count']} times: "
-                                                  f"{lower} could fill controller {c.name}"})
+                                                  f"{lower} could fill it"})
     return out
 
 

@@ -136,8 +136,11 @@ def test_a_controller_deciding_the_same_thing_is_a_hint_to_move_down_the_ladder(
     assert d["count"] == 12 and d["kinds"][0] == ("under # (#%): nothing to do", 11)
     snap = state.snapshot(p)
     (hint,) = snap["hints"]
-    assert hint["controller"] == "disk-under-80" and "a decision or a rule could fill controller disk-under-80" in hint["says"]
-    assert any(a["level"] == "hint" for a in state.attention(snap))
+    assert hint["controller"] == "disk-under-80" and hint["says"].endswith("a decision or a rule could fill it")
+    (entry,) = [a for a in state.attention(snap) if a["level"] == "hint"]
+    from ergostat.dynamics import attention
+    for a in (entry, *attention([entry], snap)):                          # Blocks, and Dynamics' words: the goal once
+        assert (a["what"] + " " + a["says"]).count("disk-under-80") == 1, a
     assert state.ladder_hints(project, state.snapshot(project)) == []      # a program is low enough already
 
 
