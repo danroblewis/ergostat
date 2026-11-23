@@ -68,3 +68,20 @@ Its runs failed past their attempts (a dead letter):
 - attempt 18: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 19: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 20: nack the run ended with gap/headline-one-function-everywhere still parked
+
+## Where it stopped
+
+Round 1, continued: main (52c675fe) merged in. The conflicts in projects.py, diagram.js, pages.js and util.js are resolved
+keeping both sides: main's third value from `_row`, its row classes and the Loops page's "Loading…", plus this branch's
+`goals` field and its headings that print the server's count.
+
+Main's switcher (`projects.running()`) now lists only projects whose engine holds `run.pid`, and `ergostat web` never
+takes it, so a project served only by `ergostat web` is counted as stopped and never offered. The acceptance test's
+switcher step therefore had nothing to find. The test now holds the observed project's `run.pid` itself, as an engine
+would, before the second server makes its first list. It does not start a real engine, because the engine's sensors
+move the fixture (a run showed system 0, modelling 1). Seen to fail with the switcher's number broken (10 against 9).
+
+Left, on main and not this gap's to fix: tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart
+times out at line 1331 for the same reason (it serves both projects with `ergostat web`). The branch does not change
+that test, the lister, `projects.running` or `refreshProjects`. Running it on a clean worktree of main was refused here
+(`git worktree add --detach /tmp/main-check main`), so the claim that it fails on main rests on reading the code.

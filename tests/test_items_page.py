@@ -1345,9 +1345,11 @@ def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_pa
     """A system goal off, the modelling goals off (upkeep) and a goal open, at one moment: the header, the side list's
     'Goals off' heading, the Loops page's heading and this project's entry in another project's switcher all say
     /api/status's goals_off (the system's, and model upkeep apart); a snapshot file says the counts it was saved with."""
+    import fcntl
     import json
 
     from ergostat import model as mdl
+    from ergostat import runner
     from ergostat.store import Project
     from ergostat.web.snapshot import build
     from tests.test_goal_upkeep import MODEL, seeded
@@ -1362,13 +1364,18 @@ def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_pa
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
+    held = None
     try:
         for name, d in (("small", tmp_path / "repo"), ("other", other)):
             port = free_port()
             procs.append(subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                                           env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-            urls[name] = f"http://127.0.0.1:{port}"
-        for url in urls.values():
+            url = urls[name] = f"http://127.0.0.1:{port}"
+            if name == "small":    # the switcher lists only a project whose engine holds run.pid: held as an engine
+                held = open(runner.pid_file(Project(mdl.load(d))), "a+")   # holds it (no engine: nothing moves),
+                fcntl.flock(held, fcntl.LOCK_EX)                           # before other's server makes its first list
+                held.write(str(procs[-1].pid))
+                held.flush()
             for _ in range(150):
                 try:
                     urllib.request.urlopen(url + "/api/status", timeout=1)
@@ -1407,6 +1414,8 @@ def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_pa
         assert not errors, errors
     finally:
         pg.close()
+        if held:
+            held.close()
         for proc in procs:
             proc.terminate()
             proc.wait(timeout=10)
