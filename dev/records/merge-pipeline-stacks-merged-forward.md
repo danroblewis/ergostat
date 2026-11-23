@@ -101,3 +101,13 @@ that stops with no pytest summary means the process died. The likely cause is an
 suite container (suite_memory_gb), with every Factory test's pytest temp folder kept for the whole session on a tmpfs
 /tmp, which counts against that memory. That is outside this gap (lesson-13). If it is cut off again, the next round
 needs the build log or permission to run the build command.
+
+Next build failure: the tail ends at `affected_tests: 5 changed, running tests/test_factory.py` with no test result at
+all and no suite_watch line. The run was stopped from outside before pytest printed anything, so no test is named.
+This round the file was run whole and serially here (scripts/named_tests.py, no time limit): 205 passed, 2 skipped
+(the Docker tests) in 1069 s, rc 0. An earlier run in this round under `timeout 900` had one failure, a SystemExit 143
+in fac.py's SIGTERM handler. That came from the `timeout`'s own SIGTERM at 900 s (that run took 987 s), not from
+the branch. The cut-offs happened at different points (113 results, 36, then none), and the file passes whole on its
+own. Both point to the build step's container (4 CPUs, 4 GB, -n 8), which is outside this gap (lesson-13). No code
+was changed on a guess. Refused here: writing the run's output to a /tmp log, and reading the running tests' processes
+with ps.
