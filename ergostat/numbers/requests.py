@@ -54,7 +54,7 @@ def as_note(x) -> bool:
     return x.level == "note" or x.code in CHECK_ONLY
 
 
-OPEN =("open", "proposed", "held")
+OPEN = ("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
 ENDED = ("refused", "failed", "dismissed", "inconclusive")
 DISMISSAL = ("note", "dismissed_by", "dismissed", "part", "approved_by")   # cleared when it is raised again

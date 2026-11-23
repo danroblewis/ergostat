@@ -102,3 +102,21 @@ Its runs failed past their attempts (a dead letter):
 - attempt 10: nack given back
 - attempt 11: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 12: nack the run ended with gap/missing-unit-is-a-check-finding still parked
+
+## Where it stopped
+
+Continued (gap/missing-unit-is-a-check-finding-continued, round 1): main (2a97eafb) merged in. Both conflicts were
+resolved keeping both sides. The template's description is main's (without "SPEC §12e", which main took out of reader
+text) plus the branch's no-unit clause. In tests/test_diagram_rendering.py, the branch's no-unit browser test and main's
+new tests (the readers' pages, the Harris row, the caption, the three attention groups) are all kept, each with its own
+server tail. Also fixed a missing space the branch had added in `OPEN = (...)` (numbers/requests.py).
+Run after the merge: tests/test_missing_unit.py (5 passed), tests/test_redesign.py (22 passed),
+tests/test_self_improve.py (10 passed), the no-unit browser test (passed), ruff clean.
+Fails, and not because of this gap (lesson 13): main's
+tests/test_diagram_rendering.py::test_needs_attention_is_three_headed_groups_in_a_fixed_order times out waiting for
+/loops? off/ in #running. The page draws the three groups the test expects. But main's util.js:398, which this branch
+does not touch, writes the header as "1 goal off, not running", counting modelling's goal apart as upkeep. The test's
+regex and its "== 2" predate that change. I could not run the test on a clean main here (the shell refused
+`git worktree add`), so this conclusion comes from reading the code and from one debug run of the page on this branch.
+Not run: the full unit and browser suites and demo_check (left to the factory and the merge queue), and the :8797
+check by eye.
