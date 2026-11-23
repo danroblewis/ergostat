@@ -13,3 +13,9 @@ depends-on: []
 
 ## Size budget
 30 net lines outside tests and docs (expected near 0).
+
+## Where it stopped
+- Built. The cause, found by running the test alone on main: it fails there with `ModuleNotFoundError: No module named 'flakes'` (dev/bin/onmain.py:25). onmain imports `flakes` as well as fac and agents (since 95d1b53c), and the test supplied only fac and agents, with setdefault. So it passed only when an earlier test in the same worker had put dev/bin on sys.path (tests/test_agents_drop.py:14 at import, tests/test_backlog.py:24) or left a `flakes` module behind, and it kept any stub or patched fac/agents left there. Under -n, the worker's earlier tests decide the result. room() is not the cause and is unchanged; nothing outside tests changed (0 net lines).
+- Fix: the test sets fresh fac, agents and flakes with monkeypatch.setitem on sys.modules (undone after it), loads onmain on them, and asserts onmain is bound to those fresh modules.
+- New test test_room_holds_after_another_test_left_a_stub_fac: stub fac and agents, no flakes, dev/bin off sys.path, then the rerun test runs, and the stubs are back after. Seen failing with main's old body (ModuleNotFoundError: flakes), passing with the fix.
+- Not run here: the full unit suite and the -n run inside the queue's suite container (the factory and queue run those). Run here: tests/test_agents.py whole (22 passed), ruff clean. main has no commits beyond the branch base, so there was nothing to merge.
