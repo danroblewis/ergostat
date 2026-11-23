@@ -190,8 +190,9 @@ them. A held chain's `ask`, `prompt`, `query` and `sources` are gated by who wro
 (an instance gone, or an entry without the flag, counts as untrusted); a part the model wrote is the owner's. After
 the leases are checked, each limit below that an untrusted part passes is an error, **untrusted-limit**, at its
 `use:` line. The limits are constants (`ergostat/library/bounds.py`), never config. They are a second line behind
-the allowlist below: a held chain makes a program, ai or person block, or a sensor's `run`, `query`, `every` or
-`cron`, only as R1 to R3 below allow, and no judge block or `daemon` at all; the limits bound whatever it admits:
+the allowlist below: a held chain makes a program, ai or person block, or a sensor's `query`, `every` or `cron`,
+only as R1 to R3 below allow, a sensor's `run` only sandboxed where R1 and R2 do not allow it, and no judge block or
+`daemon` at all; the limits bound whatever it admits:
 
 | Limit | Value | Applies to |
 |---|---|---|
@@ -330,12 +331,14 @@ value with its writer, its type and whether its own text is its type's narrow fo
 has judged the chain, then strips them. Only expand makes marks: a template or a value holding a mark's control
 characters is refused, whole.
 
-**R1, what a held chain may run.** A sensor's or a `program` block's `run` stands when every character of it is: (a)
+**R1, what a held chain may run.** A `program` block's `run` stands, and a sensor's `run` runs on the owner's shell,
+only when every character of it is: (a)
 an owner command, as the whole value; or, inside a built-in template's run, (b) the template's own text, ergostat's
 names (`${lib}`, `${python}`, `${name}`), a value ergostat's template wrote, or an owner command through `:quote` or
 `:arg`; or (c) a value allowed by R2. A library's text (an untrusted template's words around `${cmd}`, its
 `${here}`, a library default for a command), an owner value of another type (a `string`), and a run holding a field
-(`${it.run}`) refuse the chain. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
+(`${it.run}`) refuse the chain when in a block's run; in a sensor's run they make it a *sandboxed run* (below), never
+the owner's. `every`, `cron`, `timeout` and `averages` stand only as the owner or a trusted
 template wrote them. A `program` block may say only `goal`, `run`, `every`, `cron`, `timeout` and the common block
 keys; `parse`, `max`, `pool`, `lease`, `agent`, `workspace`, `actions`, `network` and the rest stay refused, each by
 name in trust.py's `MACHINE_TYPES`.
@@ -376,6 +379,27 @@ text, `goal`, `until`, `every` and `cron` (these two as R1's rule above), and th
 `parse`, `context`, `review`, `agent`, `workspace`, `tools`, `timeout` and the rest are refused by name
 (`library-untrusted`). A template cannot write `sources:` today (it is not a template section); the gate judges one
 by R3 all the same. R3 says only who wrote the text; the library still decides that the part asking it exists.
+
+**Sandboxed sensor runs.** Compile says where each sensor's `run` runs (`Sensor.run_in`,
+`ergostat/library/runs.py`), by allowlist: on the owner's shell, with `callback_env` as before, only a run in the
+model's own files (its `where` exactly the loader's), one an instance of a trusted chain made (`untrusted: false` in
+its `uses` entry), one R1 or R2 passed (the use's `owner_runs`), or ergostat's built-in measures. Anything else, an
+unknown `where`, a remote's, a missing use or a check that raised included, and a sensor compile never judged
+(`run_in` None), runs only through `ergostat.sandbox`: `/bin/sh -c RUN`, with `hosts={}` (no network), `env={}` (no
+`ERGOSTAT_*`, so no calling ergostat back), only its template's folder readable besides the toolchain, a work folder
+`<state>/library-work/<instance>` (the name checked, `[a-z0-9][a-z0-9-]{0,63}`; a longer instance name, as nested
+ones grow, is `0-` and 40 hex of its SHA-256, which no instance name can be; a run with no instance gets a fresh
+`0-unknown-*` folder, removed after it) as its only writable place and its working directory, a timeout of at most 120 s (a longer, zero or non-number one reads as 120), and at most 4 such
+runs at once in the process, checked and taken under one lock; a run whose processes escaped the kill keeps its slot.
+The work folder is emptied when the chain of instances that made it changes: which template each instance above it
+uses, and each template file's digest, are kept in a marker beside the folder (`<folder>.made`), never inside it.
+Where no sandbox can start (no `bwrap` or `sandbox-exec`), nothing runs: the reading fails (`sensor.failed`, "not
+run: ...") and no measurement is made. Its output's event lines are recorded as any sensor's; a relayed message is
+refused (`sensor.refused`, "a sandboxed run cannot relay a message"). The sensing view adds `, sandboxed` to it.
+A library sensor's `daemon` is refused **library-unsandboxed**: a daemon is a process nothing sandboxes. What this
+proves without a live sandbox is what is asked of it, the `Policy` and argv captured
+(`tests/test_library_sandbox_sensors.py`); that the sandbox enforces a `Policy` is proven only by
+`tests/test_sandbox_attacks.py`, which needs a backend that can start.
 
 What R1 and R2 let through is still an untrusted part, under the limits of *Untrusted libraries* above: one floor on
 how often, `UNTRUSTED_EVERY`, whoever wrote the `every`. So a held chain's program block needs the owner's `every:`
@@ -741,6 +765,28 @@ missing, when its layout changes, or when the record went back (a fresh record),
 folded to), and a prune takes out the items whose events are all gone. `tests/test_item_index.py`
 holds it equal to a fresh fold for every example's kinds, as events arrive, after roll-ups, read
 cold and built again.
+
+The same file holds, as indexed tables, what the status answer reads from the record
+(`spec/projections.py`), followed in the same transactions as the items and built again with them:
+`records`, ergostat's own items (gated actions, messages, reports, model changes, modelling requests
+and model requests), each folded by its built-in kind as its module's `stored()` folds it, with its
+state and its class (an action's class, a change's kind, a request's code) as indexed columns;
+`marks`, each event of the types read by type and time (loop crossings, breakers, step tests, daemons
+given up, leases expired, the events of model changes and modelling requests, and what
+`ergostat.forgotten` set aside, so a read that leaves voided crossings out reads one table); and
+`asks`, each time a person block was asked or an advised block advised and how it was answered. What
+also depends on the model's blocks, goals or files (which inbox entries wait, a class's record over
+the week, an alarm's readings) is worked out from these when read, since one index serves every model
+with the same item kinds. The record stays the truth: when events are taken out (a roll-up, a prune)
+the records and marks are folded again from what the record still holds and an ask whose event is
+gone is dropped, and a fresh record or a new layout builds the whole file again (an index of an
+older layout is another file, never read). `tests/test_index_projections.py` holds each table equal
+to a fresh read of the record (the modules' `stored()`, `events.query`, the inbox's asks) for random
+records on both event stores, followed a chunk at a time, read cold, built again, after a roll-up, a
+prune and a fresh record, after a crash part way (each chunk is one transaction: the next process
+resumes from the last committed), and read by another process while one follows (it reads what was
+committed, unblocked). The answers are as of what the index has folded, not of an earlier `until`:
+the status reads them only when it asks about now.
 
 **Items rolled up.** An item's events older than its horizon (`rollup.after`, or its kind's) are
 replaced by one event, `ergostat.item.snapshot`, the item as it stood after them:
@@ -3458,6 +3504,16 @@ runs as a process of its own.
   given again (the new owner judged it not its own). Only the lead does what is done once: the `ergostat.started`
   event, `history.note` (at start and on a swap), the sweep of the messages, workspace leases, actions and notices,
   the roll-up, and the transcript ingester; each engine keeps its watchdog and calls socket.
+- **A moved flow's stocks, read by their owner.** With `shard=None` a run that moves a flow (any amount but 0) has
+  the sensors of both of the flow's stocks read at once, caused by that run, as before. A shard engine reads at once,
+  after its own run (a block's, a leased item's or a step test's), only those of the stocks in its own shard
+  (`Plan.of` of the sensor), never another shard's. Every other shard engine follows the run's ended event
+  (`agent.ran` or `agent.failed` with `data.moved`) the way it follows the owner's asks: by `seq`, under the one model
+  it read for the event. It skips the runs of a block it follows itself (already read after acting), and reads each
+  of its own measured sensors of the moved flows' stocks once, its reading caused by the run (the event's
+  `causedby`). A `moved` that is not a mapping, an amount of 0, NaN or not a number, or a flow or stock the model
+  lacks makes no read and does not stop the following. A swap that moves the block between its run and the follow:
+  its new owner skips the run as its own, so the new owner's stocks are not read at once but at their schedule.
 - **A shard engine's own files, events and stop.** With `shard=None` each is as it was. A shard engine listens on a
   socket of its own: `engine.SHARD.sock` in the state directory, or, when that path is too long for a socket, the
   short folder's file named by a hash of the state directory and the shard (`calls/server.py`'s `path_for(state,
@@ -3477,8 +3533,7 @@ runs as a process of its own.
   engine starts no agent runs of its own (the older runner does), and a sensor's command is bounded by its timeout
   and is not killed at close, the same with or without a shard.
 - **Not yet by shard.** The wires are not carried, and nothing refuses them yet: that is `shard-wires`, and the
-  shard tests read an estimate across shards on purpose. A run a block's moving a flow asks for reads that flow's
-  stocks' sensors wherever they are. `daemons.json` is still one file per state directory, written by each engine
+  shard tests read an estimate across shards on purpose. `daemons.json` is still one file per state directory, written by each engine
   in turn. A swap does not reshard. It clears what moved out, which is what a reshard was to do.
 
 ### 9.9 The day's AI budget: runs reserve before they start
@@ -3723,6 +3778,8 @@ where the error is 0.
 - **library-untrusted**: a use whose chain holds a template from a folder not marked trusted, and makes something
   `ergostat/library/trust.py` does not allow: at the owner's `use:` line, and nothing of the chain is in the model
   (section 2a);
+- **library-unsandboxed**: the same refusal, when a held chain's sensor names a `daemon`, which cannot be run in the
+  sandbox (section 2a, *Sandboxed sensor runs*);
 - **untrusted-text**: the same refusal, when a held chain's `ask`, `prompt`, sensor `query` or `sources` entry holds a
   piece the library wrote, or whose writer can't be told (section 2a, R3).
 
