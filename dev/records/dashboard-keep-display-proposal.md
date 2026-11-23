@@ -86,6 +86,22 @@ recursively, 2^n on a chain, and did not match the page) is answered:
 
 Overrun reason: as in round 1 (a `query` panel kind with its check, the page drawing a declared dashboard, and `numbers/display.py`), plus about 30 lines in round 2 to send the queries exactly as the page does with a ceiling; 293 net lines against 150.
 
+Implementor, 2026-11-23, round 3. The queue's finding (the batch of 10 failed, and alone
+`tests/test_web_lanes.py::test_a_post_read_is_never_dropped`) came from this branch: `server.py` passed the request
+body to `numbers_api.post` as a fifth argument, and that test stands in for `post` with a four-argument function, so
+the POST got a 500 (TypeError). Reproduced here: with the fifth argument put back, the test fails with that TypeError;
+with the fix, it passes.
+- Fix: `post` keeps its four-argument signature, as on main. Keep has its own entry point `numbers_api.keep(live,
+  body)`, which `server.py` routes `POST /api/propose?keep=dashboard` to (after the same token and origin check as
+  every POST). A body that is not JSON gets 400; a refused Keep gets 409, as before. Other tests that call `post`
+  are not changed.
+- Ran: tests/test_web_lanes.py (11 passed), tests/test_dashboard_keep.py with tests/test_web_access.py and
+  tests/test_improve.py (63 passed), tests/test_dashboard_keep_page.py under the watchdog (1 passed, rc 0; it goes
+  through the new route on a real `ergostat web`), ruff clean; `git merge main`: already up to date. Not run: the whole
+  unit suite and the four browser files.
+
+Overrun reason: as in rounds 1 and 2 (a `query` panel kind with its check, the page drawing a declared dashboard, `numbers/display.py`, and sending queries the way the page does), plus about 8 lines in round 3 for Keep's own entry point; about 300 net lines against 150.
+
 ## Entry
 
 section: Interface
