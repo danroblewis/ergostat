@@ -24,6 +24,7 @@ TICK = 0.25
 DAY = 86400.0
 MOST_PIDS = 32768
 MOST_GRACE = 600
+MOST_LOG = 1 << 30          # (bytes a stream of the run's output may hold: output.py stops the run past them)
 
 
 def put(path: str, text: str) -> None:
@@ -41,7 +42,7 @@ def _num(v, most) -> bool:
 def over(limits, said: dict) -> bool:
     """Whether the run's limits are over what the node has: an unknown limit, a non-number, or one the node can't
     say (its CPUs or memory unknown) counts as over (an allowlist; ``network`` is never pretended on this backend)."""
-    top = {"cpus": said["cpus"], "memory": said["memory"], "pids": MOST_PIDS, "wall": DAY}
+    top = {"cpus": said["cpus"], "memory": said["memory"], "pids": MOST_PIDS, "wall": DAY, "log": MOST_LOG}
     return not isinstance(limits, dict) or any(k not in top or not _num(v, top[k]) for k, v in limits.items())
 
 

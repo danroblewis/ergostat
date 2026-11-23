@@ -75,13 +75,14 @@ def rules(argv: list[str]) -> int:
     from ...numbers import requests as rq
     from ...numbers import rules as ru
     p = project()
-    mine = [r for r in rq.waiting(p, ("open",)) if r.get("tier") == "rule"]
+    mine = [r for r in rq.waiting(p, ("open",)) if r.get("tier") == "rule"] + ru.unitless(p)   # (check's, no request)
     if not mine:
         note("rules: no open request the rule tier answers")
         return 0
     made, none = ru.propose(p, mine, most=a.most)
     for r, why in none:
-        rq.mark(p, r, "held", f"the rule tier has no certain change for it: {why}", tier="ai")
+        if not r.get("check"):                           # a check finding with no change sure: check goes on saying it
+            rq.mark(p, r, "held", f"the rule tier has no certain change for it: {why}", tier="ai")
     got = submitted(p, [raw for _, raw in made], "fixer")
     note(f"rules: {got} proposed, {len(none)} handed on (of {len(mine)} open)")
     return 0

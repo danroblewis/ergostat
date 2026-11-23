@@ -14,6 +14,7 @@ import traceback
 
 import frames
 import keeper
+import output
 import sampler
 
 WORKER = "1"
@@ -118,10 +119,10 @@ def hello(root: str) -> dict:
             "labels": labels(root), "slots": min(n or 0, MOST_SLOTS), "runs": []}
 
 
-def beats(w: frames.Writer, root: str, slots: int, every: float, stop: threading.Event, readings) -> None:
+def beats(w: frames.Writer, root: str, slots: int, every: float, stop: threading.Event, runs=dict) -> None:
     while not stop.wait(every):
         try:
-            w.send("beat", free=slots, disk={"root": disk_free(root)}, runs=readings.latest())
+            w.send("beat", free=slots, disk={"root": disk_free(root)}, runs=runs())
         except (OSError, ValueError):
             stop.set()
 
@@ -141,10 +142,19 @@ def serve(root: str, inp, w: frames.Writer, every: float) -> int:
     said = hello(root)
     w.send("hello", **said)
     HANDLERS.update(keeper.handlers(root, said))
+    out = output.Output(root, w)
+    HANDLERS.update(out.handlers(HANDLERS["start"]))
     stop = threading.Event()
     readings = sampler.Readings(root, w)
     threading.Thread(target=readings.loop, args=(stop,), name="ergostat-worker-sampler", daemon=True).start()
-    threading.Thread(target=beats, args=(w, root, said["slots"], every, stop, readings), daemon=True).start()
+
+    def runs() -> dict:
+        got = {n: dict(r) for n, r in readings.latest().items()}
+        for n, at in out.offsets().items():
+            got.setdefault(n, {}).update(at)
+        return got
+    threading.Thread(target=beats, args=(w, root, said["slots"], every, stop, runs), daemon=True).start()
+    threading.Thread(target=out.follow, args=(stop,), daemon=True).start()
     want = 1
     try:
         while not stop.is_set():
