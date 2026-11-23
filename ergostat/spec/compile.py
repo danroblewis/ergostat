@@ -68,7 +68,8 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "
                "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
+                      "attention"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -702,10 +703,16 @@ class Compiler:
             self.err(f"{what}.final: a list of its states that no event moves an item out of ([completed])",
                      m.at("final") or m.where, "bad-final")
             final = []
+        attention = m.get("attention")               # the field whose latest item's words need the owner (SPEC §5a)
+        if attention is not None and (not isinstance(attention, str) or not attention or attention in relations):
+            self.err(f"{what}.attention: the name of a field (not a relation) whose words, on the latest item that has "
+                     f"them, are shown on the attention list", m.at("attention"), "bad-attention")
+            attention = None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final})
+                        join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
+                        attention=attention)
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -1622,6 +1629,8 @@ class Compiler:
             for r in refs:
                 if (why := exists(r)) is not None:
                     self.err(f"system {name}.show: {why}", self.doc.defined.get(("systems", name)), "unknown-ref", str(r))
+        from .dashboards import check as dashboards
+        dashboards(self, spec, exists)                       # dashboards:, checked as show: is (SPEC §4f)
         for lp in spec.named_loops.values():
             for r in lp.through:
                 if (why := exists(r)) is not None:

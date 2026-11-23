@@ -221,7 +221,7 @@ to read each:
 | Mismatch | Pair | What it means | What to change |
 |---|---|---|---|
 | `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
-| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (↺ on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
+| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (drawn running back on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
 | `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
 | `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
 | `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |

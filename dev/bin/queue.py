@@ -1202,6 +1202,11 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             except MainRed as e:                           # (main undone below; no gap blamed for it)
                 held_by_main(cfg, e.args[0])
                 return 0
+            except Exception as e:                         # Docker or the AI service unreachable: an outage, no
+                if not (why := fac._outage().of(e)):       # gap blamed, nothing counted (outage.py); main undone
+                    raise
+                fac.nack(f"queue: outage: {why}", after=fac._outage().AFTER, count=False)
+                return 0
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
                 HELD["said"] = []

@@ -27,14 +27,18 @@ CHUNK = 65536
 
 
 def follow(proc: subprocess.Popen, path, timeout: float | None, take: Callable[[list[str]], None],
-           leave: threading.Event | None = None) -> bool | None:
+           leave: threading.Event | None = None, start: int | None = None) -> bool | None:
     """Take ``proc``'s output lines from the file ``path`` as they are written, until it ends. Returns whether its
     timeout stopped it; None when ``leave`` was set while it still went (the engine stopping, its run kept going by
-    its keeper): what it printed by then is taken, all but a last half line, and the rest is left in its file."""
+    its keeper): what it printed by then is taken, all but a last half line, and the rest is left in its file.
+    ``start``: read from that byte on, each batch handed with where each of its lines ends in the file
+    (``take(lines, ends)``: a kept run's journal, SPEC §9.1)."""
     deadline = time.monotonic() + timeout if timeout else None
     killed, wait, partial, ended_at, left = False, FIRST, b"", None, False
+    base = start or 0                                    # (where ``partial`` begins in the file)
     try:
         with open(path, "rb") as f:
+            f.seek(base)
             while True:
                 if deadline is not None and not killed and time.monotonic() >= deadline:
                     killed = True
@@ -49,13 +53,17 @@ def follow(proc: subprocess.Popen, path, timeout: float | None, take: Callable[[
                     if b"\n" in partial:
                         *whole, partial = partial.split(b"\n")
                         lines = [x.decode("utf-8", "replace") + "\n" for x in whole]
+                        ends = []
+                        for x in whole:
+                            base += len(x) + 1
+                            ends.append(base)
                         for i in range(0, len(lines), BATCH):
-                            take(lines[i:i + BATCH])
+                            take(lines[i:i + BATCH], *(() if start is None else (ends[i:i + BATCH],)))
                     wait = FIRST
                     continue
                 if ended:
                     if partial:
-                        take([partial.decode("utf-8", "replace")])
+                        take([partial.decode("utf-8", "replace")], *(() if start is None else ([base + len(partial)],)))
                     break
                 if leave is not None and leave.is_set() and ended_at is None:
                     left = True
@@ -69,7 +77,9 @@ def follow(proc: subprocess.Popen, path, timeout: float | None, take: Callable[[
     return killed
 
 
-def _group_lives(pgid: int) -> bool:
+def _group_lives(pgid: int | None) -> bool:
+    if not pgid or pgid < 0:                             # (a run taken up with no pid known: never our own group)
+        return False
     try:
         os.killpg(pgid, 0)
     except ProcessLookupError:
