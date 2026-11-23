@@ -515,7 +515,11 @@ def risk(spec: Spec, data: ob.Data, run: sim.Run, horizon: float, points: int, m
     for g, ends in off_end.items():
         if ends:
             p_off = [sum(e[i] for e in ends) / len(ends) for i in range(len(ends[0]))]
-            goals[g] = {"p_off": p_off, "p_off_end": p_off[-1], "expected_off": fmean(hours[g])}
+            first_off = [next((i for i, v in enumerate(e) if v), len(e)) for e in ends]   # per run, not per moment
+            first_on = [next((i for i, v in enumerate(e) if not v), len(e)) for e in ends]
+            goals[g] = {"p_off": p_off, "p_off_end": p_off[-1], "expected_off": fmean(hours[g]),
+                        "p_ever_off": [sum(f <= i for f in first_off) / len(ends) for i in range(len(p_off))],
+                        "p_ever_on": [sum(f <= i for f in first_on) / len(ends) for i in range(len(p_off))]}
     sampled = [{k: v for k, v in u.items() if k != "corr"} for u in unc] + ins
     sampled += [{"name": f"{m.block}.{k}", "how": "identified model", "value": getattr(m, k), "sd": se,
                  "low": max(0.0, getattr(m, k) - 2 * se), "high": getattr(m, k) + 2 * se}
