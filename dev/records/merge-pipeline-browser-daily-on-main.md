@@ -189,3 +189,29 @@ test_ergostat_check_on_the_factory_model_reports_no_new_finding. The unit suite 
 run here (the factory's and the queue's steps). Done item 6's "no new finding" against main is still unverified by a
 full `ergostat check`. Two shell commands were refused this round: a git status piped through grep, used to list
 the conflicts, and a short python script to cut the conflict block. I did both with the file tools instead.
+
+## Where it stopped
+
+The factory's `build` step failed on test_an_approved_switch_drains_and_switches_through_the_engine again: the
+switcher was still running after the test's 120 s wait (1 failed, 194 passed, 2 skipped, 913 s). The merge of main
+(5411f137) was already committed (d112704c), so there was nothing left to resolve. This time I measured whether this
+branch's model parts are the cause, since a model load is the one thing this branch adds to that test's path. I ran
+the test alone twice: once on the branch as it is, and once with the branch's three parts (the auxiliary and goal
+browser-main-green and the block browser-daily) taken out of dev/model/landing.yaml with the file editor, so the file
+matched main's. I then put them back, and `git status` was clean afterwards.
+- Branch's model: 1 passed in 143.59 s. Main's landing.yaml: 1 passed in 142.82 s. The difference is 0.8 s across
+  the whole test, so the branch's additions do not measurably slow the switcher's CLI loads.
+- The test starts only the switcher (`python3 dev/bin/drain.py`). Each of its steps makes about 15 ergostat calls,
+  and each call loads the whole model: fac.items("upgrade") lists once plus once per state, action_state makes one
+  call, under_way() lists three kinds with the same per-state calls, and each fac.say makes one more. Each step has to
+  finish inside the test's 120 s, and the test alone takes about 143 s in all. So the margin is thin when 8 workers
+  share the machine. That is a load-dependent wait in main's drain.py and its test (lesson-10). It passes alone, the
+  same way, with or without this branch.
+- I changed no code. The fix is to cut drain.py's CLI calls, for example one listing for under_way() instead of one
+  per kind and state, or to change how the test waits. Both are outside this gap's files (lesson-13), and the test's
+  bound must not be raised. I leave it for a gap of its own: the switcher test is slow under `-n 8` on main's
+  drain.py.
+- Refused this round, and not worked around: `git diff main -- dev/model/landing.yaml; nproc; cat /proc/loadavg`, a
+  `uv run python -c` timing of `model.load`, `cp` of landing.yaml to /tmp followed by `git show main:...` into it, and
+  `git checkout HEAD -- dev/model/landing.yaml`. In their place I ran the plain `git diff`, edited the file with the
+  editor, and timed the test with named_tests.py.
