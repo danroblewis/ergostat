@@ -1,6 +1,6 @@
 template: interventions
 once: true
-description: Interventions as a stock under control (SPEC §12p) - every approval, request, alarm and notification is evidence of a missing loop; their trend is held falling, and each recurring class becomes a modelling request.
+description: Interventions as a stock under control - every approval, request, alarm and notification is evidence of a missing loop; their trend is held falling, and each recurring class becomes a modelling request.
 reading: |
   System dynamics: the interventions waiting are a stock (interventions-waiting, read by ergostat's built-in measure
   ergostat.interventions.waiting: the inbox's entries and the alarms raised), filled as they are asked

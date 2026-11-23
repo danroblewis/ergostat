@@ -98,7 +98,7 @@ def cmd_run(args) -> int:
     stopping = []
     signal.signal(signal.SIGTERM, lambda *_: stopping.append(1))
     from ..spec.watchdog import heartbeat, startup
-    heartbeat(p.dir, time.time())                       # this process's, before its slow start
+    heartbeat(p.dir, time.time(), start=True)         # this process's, before its slow start (the last stale kept)
     eng: list = []                                      # the engine, once made: its dispatch closed by a hard restart
     hard = lambda why: _restart_hard(p, args, why, *eng)                  # noqa: E731
     started = startup(p.dir, lambda s: print(time.strftime("%H:%M:%S"), s, flush=True),
