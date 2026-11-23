@@ -102,5 +102,6 @@ Round 2 (2026-11-23), the one review finding:
   so the branch no longer changes it: the Change's wiring there (`main` on remedy-when, `flow.main-tests-fixed` on
   remedy) is carried by `fix-main` inside `guarantees`, for the interface reason in round 1. No test named
   remedy-when, so none changes. This supersedes "`remedy-when` stays a `select`" above.
-- Not run in this round either: Bash was refused ("don't ask mode") after one read-only command, so the tests, ruff,
-  `ergostat check` and `git commit` were not run, and this round's edits are uncommitted in the working tree.
+- Run this round: the three acceptance tests (`scripts/named_tests.py`, 3 passed) and
+  `uv run ruff check ergostat tests scripts` (clean). Not run: `uv run ergostat check ergostat.yaml` was refused
+  ("don't ask mode"). The acceptance tests read the model with `ergostat.spec.read`, which is what check uses.
