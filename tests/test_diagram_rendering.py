@@ -2378,12 +2378,13 @@ def side_site(tmp_path: Path, asks: int):
         proc.wait(10)
 
 
-# the side panel with nothing chosen: its headings in order (a fold's summary is one), each on screen or not, the
+# the side panel with nothing chosen: its own headings in order (a fold's summary is one; an entry's own folds are
+# not), each on screen or not, the
 # legend open or not, each fold's state and summary, and any chart drawn in it (a legend's symbols are not charts)
 SIDE = """() => {
   const side = document.querySelector('.side'), legend = side.querySelector('details.legend-box');
   const on = (el) => { const r = el.getBoundingClientRect(); return r.height > 0 && r.top >= 0 && r.bottom <= innerHeight; };
-  const heads = [...side.querySelectorAll('h3, details > summary')].map((x) => ({ text: x.textContent.trim(), on: on(x),
+  const heads = [...side.querySelectorAll(':scope > h3, :scope > details > summary')].map((x) => ({ text: x.textContent.trim(), on: on(x),
     legend: x.parentElement === legend }));
   const fold = (sel) => { const d = side.querySelector(sel);
     return d && { open: d.open, sum: d.querySelector(':scope > summary').textContent }; };

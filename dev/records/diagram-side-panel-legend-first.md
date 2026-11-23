@@ -114,3 +114,34 @@ Its runs failed past their attempts (a dead letter):
 - attempt 16: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 17: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 18: nack the run ended with gap/diagram-side-panel-legend-first still parked
+
+## Where it stopped
+
+Continued, round 1 (2026-11-23): the merge of main (2a97eafb) finished, and what the merge broke fixed.
+
+- Conflicts resolved. diagram.js: main's inboxAnswer (the row found from the button, focus to the reply) and main's
+  list rows (inboxBody, goalButton, `key: a.what`, data-row) and hold-still (hold(att, cls)) kept; this gap's order
+  kept over them (Waiting for you only when something waits, then the legend, then Goals off, Model housekeeping, the
+  folds). list() takes main's class plus a key. SPEC: main's hold-still sentences kept in the inbox paragraph, this
+  gap's side-panel paragraph after it.
+- What the merge broke: main added a `const DIAGRAM_TYPE` (the caption) beside this branch's, so diagram.js failed to
+  load ("Identifier 'DIAGRAM_TYPE' has already been declared") and no page drew. The legend's is now LEGEND_TYPE.
+  The fold of more than 3 was `details.waiting`, a class main now uses for its "N updates waiting" note (absolutely
+  placed); it is `details.waiting-fold`.
+- Merging the two rules: main's "a list the reader is in holds still" and this gap's fold of more than 3 clashed. A
+  4th entry arriving while the pointer or focus was in a list of 3 moved the held list into a closed fold, hidden
+  under the reader. Now, while the list is held, it stays folded or unfolded as it was, and it folds once the reader
+  leaves. New test: tests/test_inbox_page.py::test_a_list_the_reader_is_in_is_not_folded_away_when_a_fourth_comes.
+  Seen to fail with the guard taken out.
+- Main's inbox tests changed to follow the fold. Their `three` fixture has 4 waiting, and in the keyboard test
+  alarms push the list past 3, so the reader now opens "N wait for you" first (helper unfold()). The side-panel
+  test reads only the panel's own headings (`:scope > h3, :scope > details > summary`), as main's entries now carry
+  folds of their own ("the command").
+- Run, under the watchdog: tests/test_inbox_page.py whole, 8 passed. The four acceptance tests (11 cases) passed,
+  as did the SD-words test and tests/test_legend_memory.py. ruff is clean.
+- Fails, not this gap: test_needs_attention_is_three_headed_groups_in_a_fixed_order (main's test). It waits for
+  /loops? off/ in #running, but main's header (util.js:398, not touched by this branch) now says "1 goal off, not
+  running". The panel's three groups are right ('Waiting for you 1', 'Goals off 2', 'Model housekeeping 2'). The
+  header's wording and count differ from the test's, on main's side.
+- Not run: the unit suite, the rest of tests/test_diagram_rendering.py and the other browser files. A first try at
+  the acceptance tests before the DIAGRAM_TYPE fix hung on the broken page and was stopped at its time limit.

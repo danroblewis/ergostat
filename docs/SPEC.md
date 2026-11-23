@@ -6398,7 +6398,8 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
 - The MCP tools `inbox` and `answer`, so the owner's Claude session can answer on their behalf when told to; its
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
 - The page: the entries are listed under *Waiting for you*, at the top of the Diagram's side panel (only when one
-  waits; more than 3 fold into one line, "N wait for you", that opens them), each with Approve / Deny, or a number and
+  waits; more than 3 fold into one line, "N wait for you", that opens them, though never while the reader is in the
+  list), each with Approve / Deny, or a number and
   Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. The item pages keep
   their own buttons. No page or panel of its own. Every entry is listed, however many come before it. While the
   pointer or the focus is in one of the side panel's lists (*Waiting for you*, *Goals off*, *Model housekeeping*; and

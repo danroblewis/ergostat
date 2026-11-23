@@ -1345,10 +1345,10 @@ function withValues(base, v) {
 
 /* the legend, named by the diagram's type: open unless the reader closed it in this browser (it then stays closed) */
 function legendOpen() { try { return localStorage.getItem("ergostat.legend") !== "closed"; } catch (e) { return true; } }
-const DIAGRAM_TYPE = { dynamics: "stock and flow diagram", blocks: "block diagram", process: "process map" };
+const LEGEND_TYPE = { dynamics: "stock and flow diagram", blocks: "block diagram", process: "process map" };   // (the caption's: DIAGRAM_TYPE)
 function legendBox(view) {
   const d = h("details", { class: "legend-box", key: "legend", open: legendOpen() ? "" : null },
-    h("summary", {}, "How to read it", h("span", { class: "muted" }, ` · the ${DIAGRAM_TYPE[view] || "control diagram"}`)), legend(view));
+    h("summary", {}, "How to read it", h("span", { class: "muted" }, ` · the ${LEGEND_TYPE[view] || "control diagram"}`)), legend(view));
   d.addEventListener("toggle", () => { if (d.isConnected) try { localStorage.setItem("ergostat.legend", d.open ? "open" : "closed"); } catch (e) { /* not remembered */ } });
   return d;
 }
@@ -1456,10 +1456,12 @@ function renderSide(side, g, view) {
     return hold(att, cls);
   };
   // what waits for the owner first (the one thing a person does here), only when something waits; more than 3: one line
+  // (while the reader is in the list it holds still: folded or not, as it was)
+  const inList = out.querySelector(".att.needs"), fold = heldStill(inList) ? !!inList.closest("details.waiting-fold") : waiting.length > 3;
   if (waiting.length) {
     side.append(h("h3", { class: "att-head", key: "waiting-h" }, "Waiting for you", count(waiting)));
     const rows = list(waiting, "", "needs", "waiting-rows");
-    side.append(waiting.length > 3 ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);
+    side.append(fold ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);
   }
   side.append(legendBox(view));
   side.append(h("h3", { class: "att-head", key: "off-h" }, "Goals off", count(off)), list(off, "No goal is off.", "goals-off", "off-rows"));
