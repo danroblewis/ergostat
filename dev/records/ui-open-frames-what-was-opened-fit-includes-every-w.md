@@ -163,3 +163,24 @@ Round 2 (continued), after the factory merged main (7a905955):
   - `test_every_part_opens_its_panel_…`, `test_parts_chosen_with_a_box_…`, `test_an_equation_…` ("Nothing waiting." missing on /model) and `test_needs_attention_…` (a 30 s timeout). These match round 1's failures that I checked alone.
   - New since round 1, and not looked at one by one: `test_blocks_crossings_hop_dots_…` (a 5 s wait timeout), `test_the_exported_png_shows_every_loop_name_…` (6 legend lines, wants more than 10) and `test_a_panel_open_on_what_is_chosen_stays_open_…` (a 120 s timeout waiting for a response).
   - None of these touch Fit, Open framing or the hint, as far as their messages show. But I have not shown that they fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes or they are shown to pass there. Not run here: the other three browser files and the unit suite.
+
+## Where it stopped
+
+Round 3, after the factory merged main (8a27f9e3):
+- The merge conflicted in `docs/DESIGN.md`, `ergostat/web/static/diagram.js` and `tests/test_graph_cli_web.py`. I resolved it and kept both sides (7fa7c386):
+  - `diagram.js`: main added a phone layout (`NARROW`, `fitNarrow`) and arrows in the edge hint ("More beyond the edge →↓"). I kept main's phone path in `fit`, before the branch's line. On wider screens, Fit still uses the drawn bounds and the toolbars as drawn. The hint is still the branch's clickable button with words, and main's arrow now follows each word: "More to the right → and below ↓". That keeps main's phone test (`test_on_a_phone_…`), which looks for an arrow in the hint. Choice made without asking, easy to undo: words and arrows both, not one or the other.
+  - `tests/test_graph_cli_web.py`: I kept both sides' tests. The branch's text check now skips `fit`'s phone line (that line reads the layout's box, as main wrote it), and also checks that the hint holds all four arrows.
+  - `tests/test_diagram_rendering.py`: the branch's two hint patterns now expect the arrows.
+  - `docs/DESIGN.md`: I joined the branch's sentence about the hint and framing with main's sentence about phones.
+- The code is 36 net lines in `ergostat/web/static/diagram.js` against main (+51, -15), within the 60-line budget.
+- Ruff: clean. `tests/test_graph_cli_web.py`: 53 passed.
+- With Playwright, under the watchdog: the Fit cases, the Open cases and `test_on_a_phone_the_diagram_opens_with_a_whole_system_box_in_view` passed (8 passed, rc 0). `test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins` and `tests/test_style_tokens.py` passed (14 passed, rc 0).
+- Breaking the code: with the arrows taken out of the hint, `test_on_a_phone_…[software-factory]` failed (hint "More to the left", no arrow) and so did an Open case. With the arrows put back, both pass.
+- `tests/test_diagram_rendering.py` run whole, with Playwright, under the watchdog: 293 passed, 34 failed (rc 1, 59 min). All the Fit, Open and phone cases passed. The failures, from the pytest cache, are the same tests as round 2's:
+  - `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip` for 24 examples.
+  - `test_every_view_draws_cleanly_and_in_time` for autoscaler, image-squeeze, the-job and ticket-factory.
+  - `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram[autoscaler]`.
+  - `test_every_part_opens_its_panel_…`, `test_parts_chosen_with_a_box_…`, `test_blocks_crossings_hop_dots_…`, `test_everything_clickable_…_by_keyboard`, `test_a_goal_name_opens_its_evidence_…[False]`, `test_the_exported_png_shows_every_loop_name_…`, `test_a_panel_open_on_what_is_chosen_stays_open_…` and `test_an_equation_…`. The last fails at tests/test_diagram_rendering.py:5413: there is no "Nothing waiting." on /model, as in every round. That text is from the Model page's proposal list, which this branch does not touch.
+  - The run printed only the last failure's message, and I could not read the others: a Bash call that would list the pytest cache was refused (`uv run python -c "import json;..."`). I read the cache file with the editor instead. As far as rounds 1 and 2 showed, none of these is about Fit, Open framing or the hint. I have not shown that they fail on clean main (lesson-13). Left: the factory should run them again on main and hold this gap until main passes them, or they are shown to pass there.
+- Also refused: `mb=$(git merge-base ...); git diff $mb 8a27f9e3 -- ...; grep ...`, and a `cat >> ... <<'EOF'` heredoc to append this section, which I wrote with the editor instead.
+- Not run here: the other three browser files and the unit suite.
