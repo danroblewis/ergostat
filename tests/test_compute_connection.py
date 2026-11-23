@@ -69,7 +69,7 @@ def test_node_in_service(tmp_path):
     assert pools.nodes == {} and said == ["compute big: not connected: past 64 nodes, counting those closing"]
 
 
-def test_lost_on_eof(tmp_path):
+def test_lost_on_eof(tmp_path, monkeypatch):
     n, seen = node(tmp_path, worker(tmp_path / "r"), first=60)     # (beats of 10 s: lost by the end, never by beats)
     try:
         pid = up(n)
@@ -79,6 +79,32 @@ def test_lost_on_eof(tmp_path):
         assert ("compute.node.lost", {"node": "farm/1", "why": "the session ended"}) in seen
         with pytest.raises(cx.Lost):
             n.request({"type": "ping"})
+    finally:
+        n.close()
+        n.thread.join(10)
+    tries = tmp_path / "tries"                      # a later line nested past the parser's depth: lost, tried again
+    hello = {"v": 1, "seq": 1, "type": "hello", "slots": 4, "labels": {}}
+    script = (f"import sys, time\nopen({str(tries)!r}, 'a').write('x\\n')\n"
+              f"sys.stdout.write({json.dumps(hello)!r} + '\\n' + '[' * 200000 + '\\n')\n"
+              "sys.stdout.flush()\ntime.sleep(60)\n")
+    n, seen = node(tmp_path, [sys.executable, "-I", "-c", script], first=0.2)
+    try:
+        assert wait_for(lambda: tries.exists() and len(tries.read_text().split()) >= 2, 15), n.status()
+        assert wait_for(lambda: seen.count(("compute.node.lost", {"node": "farm/1", "why": "line 2: not JSON"})) >= 2,
+                        15), seen                  # (each try: in service on its hello, then lost on line 2)
+        assert n.thread.is_alive()
+    finally:
+        n.close()
+        n.thread.join(10)
+
+    def full(*a, **k):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(cx.tempfile, "TemporaryFile", full)        # no temp file for stderr: lost, tried again
+    n, seen = node(tmp_path, worker(tmp_path / "r"), first=0.2)
+    try:
+        assert wait_for(lambda: n.tries >= 2, 15), n.status()
+        assert n.state == "lost" and n.error == "the session failed: OSError" and n.thread.is_alive()
+        assert seen == [("compute.node.lost", {"node": "farm/1", "why": "the session failed: OSError"})]
     finally:
         n.close()
         n.thread.join(10)

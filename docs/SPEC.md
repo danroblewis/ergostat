@@ -7102,7 +7102,9 @@ pool's list (from 1), and never by its host.
   worker's `error` can name its root under the remote user's home; a `v` that is not a whole number reads `its
   protocol is not v1`).
 - **Lost** at the session's end (`the session ended`), after three beats missed (30 s with nothing heard: `3 beats
-  missed`; any line heard counts), or on a later line that is not a frame; its process group is then killed and
+  missed`; any line heard counts), on a later line that is not a frame (JSON nested too deep for the parser reads
+  `line N: not JSON`), or on any other fault of the session, a temporary file for its standard error that cannot be
+  made included (`the session failed: OSError`, the fault's kind alone); its process group is then killed and
   reaped (a stopped worker too). Each lost or refused session is tried again after a wait of 1 s, doubling each try
   to ten minutes; a hello taken starts the wait at 1 s again. A refused node is tried again the same way, and stays
   refused with its reason until a hello is taken.

@@ -91,3 +91,21 @@ allowlist of serve.py's Refused forms, since those forms are another gap's and c
 added later in `_hello` without changing anything else.
 
 Overrun reason: connection.py is now 316 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds 9 net lines (the allowlist of bad-frame reasons and the fixed refusal).
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, continued round 4). The review's one finding answered (lessons 3 and 8). In `_line`,
+any exception from frames.decode other than `Bad` (the RecursionError of JSON nested deep enough) is a bad frame with
+the fixed reason `line N: not JSON`. Each pass of `_run` is now wrapped, so any other fault of a session (a
+TemporaryFile that can't be made before the try, among others) marks the node lost with `the session failed: KIND`
+(the exception's class name, never its text), records compute.node.lost and tries again with the backoff. SPEC §12s.4's
+Lost sentence now names both. test_lost_on_eof (still six tests) also runs a fake worker that sends a good hello and
+then 200,000 `[`, and asserts compute.node.lost `line 2: not JSON` is recorded on at least two tries with the thread
+alive. A third node, with tempfile.TemporaryFile monkeypatched to raise ENOSPC, must go lost with `the session failed:
+OSError` and be tried again. I broke each fix on purpose and the test failed: without the `_line` catch the reason
+read `the session failed: RecursionError`, and without the `_run` catch the node stayed `connecting` with nothing said.
+
+Choice taken alone (the more reversible one): a node whose good hello is followed by a bad line goes in service and is
+said up and lost again on each try, as a session that keeps ending would be. The backoff bounds how often.
+
+Overrun reason: connection.py is now 321 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds 5 net lines (the two catches).

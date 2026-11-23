@@ -112,7 +112,10 @@ class Node:
 
     def _run(self) -> None:
         while not self.closed.is_set():
-            state, why = self._session()
+            try:
+                state, why = self._session()
+            except Exception as e:                      # (any fault, a temp file's too: lost, said, tried again)
+                state, why = "lost", f"the session failed: {type(e).__name__}"
             self._out(state, why)
             if self.closed.wait(backoff(self.tries, self.first)):
                 break
@@ -171,6 +174,8 @@ class Node:
             f = frames.decode(line, want)
         except frames.Bad as e:
             return f"line {want}: {_bad(e.why)}"
+        except Exception:                               # (RecursionError on JSON nested deep enough)
+            return f"line {want}: not JSON"
         if want == 1:
             return self._hello(f)
         rid = f.get("id")
