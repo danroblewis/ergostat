@@ -61,7 +61,7 @@ def progress(events, spec, kind: str, by: str, now: float, since: float, points:
     if rel is None or not offered(k, rel):
         said = ", ".join(r for r, x in k.relations.items() if offered(k, x)) or "none"
         raise BadSet(f"by={by}: not a group relation of {kind} holding one id per item (folded by replace); "
-                     f"its are: {said}")
+                     f"offered for: {said}")
     points = int(points) if str(points).isascii() and str(points).isdigit() else -1
     if not POINTS[0] <= points <= POINTS[1]:
         raise BadSet(f"points={points}: from {POINTS[0]} to {POINTS[1]}")
