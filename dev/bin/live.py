@@ -38,7 +38,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 import fac  # noqa: E402
 
-HEALTH_WAIT = 120            # seconds a new version has to show it is healthy
+HEALTH_WAIT = 300            # seconds a new version has to show it is healthy
 STOP_WAIT = 120              # seconds a stopping engine has to close before a start is tried
 PASS_FRESH = 30              # a pass at most this old
 DISPATCH_FAILING = 120       # seconds the dispatcher may meet an error in every look before it is a situation
