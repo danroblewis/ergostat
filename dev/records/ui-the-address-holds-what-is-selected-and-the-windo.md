@@ -319,3 +319,21 @@ unit suite (no Python changed). The merge queue runs them.
 Parked by the factory (merge-queue, 2026-11-23 04:26).
 
 Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: tests/test_diagram_rendering.py
+
+## Where it stopped
+
+Round 10 (continued gap, round 1), answering the queue's one finding: the conflict with main in
+tests/test_diagram_rendering.py. The factory's merge of main (dc47a763) was finished here (44a4b3f1). As before, both
+sides had added tests at the same place, sharing the closing lines. Resolved by keeping both: the branch's
+test_the_address_holds_what_is_chosen_and_the_window with its own `assert not errors` / `finally` closing, then
+main's leave_list, FOLD_SYSTEMS, FOLD_ROW and IN_VIEW and its two fold tests, unchanged. No code outside tests/
+changed in this round. `git diff main --shortstat -- ergostat/` is 57 insertions and 21 deletions (about 36 net,
+within 60).
+
+Run here after the merge: ruff, clean. tests/test_graph_cli_web.py, 48 passed. With Playwright under the watchdog:
+test_the_address_holds_what_is_chosen_and_the_window,
+test_alike_modelling_requests_fold_into_one_entry_with_a_count_and_one_answer and
+test_two_folds_each_keep_their_own_reason_across_a_refresh, 3 passed, rc 0.
+A refused command: a python3 heredoc that would have resolved the conflict markers in place (done with the editor
+instead). Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs
+them.
