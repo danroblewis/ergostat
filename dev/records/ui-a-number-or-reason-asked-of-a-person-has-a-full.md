@@ -111,3 +111,17 @@ Round 3: the review's one finding answered. About 16 net lines of code outside `
   `tests/test_inbox.py`: 35 passed. `tests/test_gated_actions.py`: 11 passed. ruff is clean. Not run here: the
   unit suite and the other three browser files (the merge queue runs them). Main has not moved since the round 2
   merge (no origin/main in the clone).
+
+Round 4: main (dc47a763) merged in. Its two conflicts are resolved and nothing else changed. Code is unchanged
+since round 3.
+
+- `docs/SPEC.md` §12o: main's page paragraph is kept as main wrote it (*Waiting for you* at the top of the side
+  panel, the fold past 3, folded modelling requests, and the side panel's order). The branch's sentences on labels,
+  units and the number every person ask gets are added after its endpoints.
+- `tests/test_inbox_page.py`: main's new
+  `test_a_list_the_reader_is_in_is_not_folded_away_when_a_fourth_comes` and the branch's acceptance test had been
+  spliced into one body. Both are now whole functions, each unchanged.
+- Run here: `tests/test_inbox_page.py` under the watchdog with Playwright: 13 passed, rc 0, none skipped.
+  `tests/test_inbox.py`: 37 passed. `tests/test_gated_actions.py`: 13 passed. ruff is clean. Not run here: the
+  unit suite and the other three browser files. The definition's third sentence (Yes/No buttons) is still left
+  for a gap of its own, as round 3 says.
