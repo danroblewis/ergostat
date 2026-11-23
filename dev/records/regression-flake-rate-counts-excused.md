@@ -31,3 +31,14 @@ dev/bin/measure.py, dev/model/measures.yaml, tests/test_factory_measure_runs.py.
 30 net lines outside tests/.
 
 Area: regression. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Round 2. Built; nothing left. The queue's finding: `test_a_run_excused_in_the_queue_moves_flake_rate` and
+`test_an_excused_batch_counts_once` failed alone after main changed `flakes.say` so it writes `flake.seen` through
+`event --add` and no longer to queue.py's stdout. The tests asserted it on stdout. 211b7ffd now reads it with
+`Factory.flakes_said()`. main (ead497d1) is merged in. All 17 tests of tests/test_factory_measure_runs.py pass, and
+ruff is clean. Each acceptance test was seen to fail when the code it guards was broken: with excused runs not
+counted, both queue tests fail; with each landed gap counted rather than each `batch_id`, the batch test fails; with
+0.0 returned for no runs, the no-runs test fails. Its second half also covers triage retries counting as before.
+The measure changes by 4 net lines, within the 30-line budget.
