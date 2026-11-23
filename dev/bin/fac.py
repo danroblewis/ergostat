@@ -588,6 +588,26 @@ def outcomes(text: str, tests: list[str]) -> dict[str, str]:
     return {t: said.get(t, "unknown") for t in tests}
 
 
+# pytest's summary line, -q or not, xdist's too: `1 failed, 3 passed, 2 warnings in 2.10s (0:00:02)`, `no tests ran in`
+SUMMARY = re.compile(r"^=*\s*((?:\d+ [a-z]+, )*\d+ [a-z]+|no tests ran) in \d+(?:\.\d+)?s(?: \([\d:]+\))?\s*=*\s*$", re.M)
+COUNTS = ("passed", "failed", "skipped", "deselected", "errors")
+COUNTED_AS = {**{k: k for k in COUNTS}, "error": "errors"}
+
+
+def counts(text: str) -> dict[str, int] | None:
+    """A pytest log's counts (passed, failed, skipped, deselected, errors) from its last summary line, anywhere in the
+    whole log; None without one (killed, stopped, not pytest): unknown, never zeros. Other words (warnings, xfailed)
+    are not counted."""
+    found = SUMMARY.findall(re.sub(r"\x1b\[[0-9;]*m", "", text))
+    if not found:
+        return None
+    got = dict.fromkeys(COUNTS, 0)
+    for n, word in re.findall(r"(\d+) ([a-z]+)", found[-1]):
+        if word in COUNTED_AS:
+            got[COUNTED_AS[word]] += int(n)
+    return got
+
+
 def beside(tests: list[str], log: Path, run) -> dict[str, str]:
     """The quarantined ``tests`` run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each
     result said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown. A
