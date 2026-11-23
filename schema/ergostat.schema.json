@@ -39,6 +39,12 @@
         "max-cost": {"type": "number", "exclusiveMinimum": 0, "maximum": 10000, "description": "dollars a charged run reserves before it starts (at most daily); not a cap on what it spends"}
       }
     },
+    "operating": {
+      "description": "The operating state's settings (SPEC 12k): away-after, how long with no event from the owner before they read as away (default 2h, from 5m to 7d). Main file only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"away-after": {"$ref": "#/$defs/duration"}}
+    },
     "dashboards": {
       "description": "Shared, named dashboards (SPEC section 4f); in a file whose defaults: set a system, each is named SYSTEM.NAME.",
       "type": "object",
@@ -2177,6 +2183,20 @@
                       }
                     ],
                     "description": "A precedence relation's target states (neither finished nor paused) at which it no longer blocks: the item is unblocked, and takes: {unblocked: true} may take it. The critical path and the schedule stay finish-to-start"
+                  },
+                  "done_when": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "object",
+                      "minProperties": 1,
+                      "additionalProperties": {
+                        "oneOf": [
+                          {"type": ["string", "number", "boolean", "null"]},
+                          {"type": "array", "items": {"type": ["string", "number", "boolean", "null"]}}
+                        ]
+                      }
+                    },
+                    "description": "A group's: for a finished state of the item's, the fields it counts as done work in ({closed: {end: done}}); an item in that state not matching them leaves its group's total in the progress per group"
                   },
                   "description": {
                     "type": "string"

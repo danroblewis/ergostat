@@ -125,9 +125,11 @@ items:
                                      # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
       duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
-      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps}
+      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps, done_when: {closed: {end: done}}}
                                      # the milestone it is finished with (milestones.py assign); folded by replace, so a
                                      # gap is in one, and the old free-text labels (not ids) stay as they were written;
+                                     # in its progress a closed gap is done work only when closed as done on main (end:
+                                     # done), else (a duplicate, abandoned, no end said) it leaves the total;
                                      # with [milestones] enforce, one not active holds the gap by its field
                                      # waits_on_milestone (gap.milestone-held, no state), unless it is pulled
     fold:
@@ -164,7 +166,8 @@ items:
       - {children: parent, all: merged, to: joined}   # a split gap waits for the join judge once every sub-gap is
                                                        # merged (plan.py join: merged, split again, or parked)
     lease: {attempts: 2}
-    # gap.reverted (no state): the coordinator says a merge was reverted on main - an escape, evidence against the
+    # gap.reverted (no state): a merge reverted on main (found by main-watch, dev/bin/escapes.py, or said by the
+    # coordinator) - an escape, evidence against the
     # pools (dev/bin/risk.py); so is broke_main, or a later gap or intervention naming it as its caused_by
     # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
     # gap.need-met (no state): the coordinator or owner records a needs park's action done (need_met: what was done)

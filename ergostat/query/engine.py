@@ -285,7 +285,8 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
         got = datasources.query(getattr(p.model, "spec", None), q.source, q.text, grid(since, until, points),
                                 work.deadline - time.monotonic())
     except datasources.SourceError as e:
-        return {"id": q.id, "error": f"{q.source}: {e}", "error_kind": e.kind, "read_log": False}
+        return {"id": q.id, "error": f"{q.source}: {e}", "error_kind": e.kind, "read_log": False,
+                **({"error_at": list(e.at)} if e.at else {})}
     except Exception as e:                            # (its type only: the words may hold the source's address)
         log.warning("ergostat: query %s (source %s) failed: %s", q.id, q.source, type(e).__name__)
         return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__})", "read_log": False}
