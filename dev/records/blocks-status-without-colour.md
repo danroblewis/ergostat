@@ -44,3 +44,14 @@ two failures are not this gap's (lesson 13), and both are in parts this change l
   aria-labels (strict mode violation). This change does not set aria-labels.
 - `test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip`, 21 of 22 examples: a `title` tooltip
   ("Drawn alike here with B27 …") in `view=dynamics`. That is the Dynamics view, which this change does not draw.
+
+The factory's build step (`[suites] build`, round 1) came back rc 5. That is the selector, not this change: of the
+five changed files, `scripts/affected_tests.py` picks only `tests/test_diagram_rendering.py`, a Playwright file whose
+module-level `importorskip` skips the whole file when Playwright is absent. The build runs without Playwright, so
+pytest collects no tests and exits 5 ("1 skipped"). Any gap whose only changed test file is a browser file gets the
+same result. No code here can change that without editing a test or the factory's selector, both outside this gap
+(lesson 13). The fix belongs in its own gap: for example, affected_tests.py treating "only browser files, all
+skipped" as collect-only, or the build running them with Playwright. With Playwright, the acceptance test passed
+after the build failure: `scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+tests/test_diagram_rendering.py::test_a_loops_state_is_printed_on_its_error_in_its_word_bold_when_off_and_never_by_colour`
+gave 1 passed, rc 0.
