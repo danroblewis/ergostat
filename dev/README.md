@@ -785,6 +785,26 @@ of every queue run, each run's whole length once) measures what it buys. If the 
 (`ergostat item --kind intervention --state open`); it goes on once you record that intervention remedied:
 `ergostat event --add intervention.remedied --item intervention/queue-... --data '{"remedy": "..."}'`.
 
+**The daily browser run on main.** Once a day (`browser-daily`, every 24h; `dev/bin/browserday.py`) the four browser
+files run on the remote's main, whether or not anything merged since: it tests main, not changes, so a change that
+breaks a page from outside the browser files' paths is still found. It takes the queue's lock, so it never runs
+beside a batch (a batch waiting for the lock starts after it), then waits for a quiet machine. It runs in a detached
+worktree of its own at `origin/main` (`<worktrees>/browser-daily`, made and removed by that name), in the queue's
+suite container with main's quarantine deselected; the worktree, the suite's processes and its container go on every
+way out (a stop, a timeout, an error; a SIGKILLed run's are removed by the next run, or by the queue's sweep). Green:
+`run/browser-daily.json` keeps `{sha, at, green: true}` and that sha as `last_green`. Red, naming tests: each (the
+first 8; the rest count as real) runs alone twice (`[suites] rerun`, `-rA`). One passing both times is a flake seen
+(`flake.seen`, suite `browser`, the run and its log), and raises nothing; when every one is a flake the day counts as
+green. The others raise one intervention of class `queue` (which pipeline-watch raises as a situation) naming them,
+main's sha, and the first-parent commits since the last green sha as `suspects` (the latest 50 when no green is known
+or it is no ancestor of main). A red run that names no test (a skip, a stall) raises one with the log's tail, and so
+does a crashed run (the queue's `crashed()`: exit 3, `INTERNALERROR>`, a full disk, a lost worker), whose FAILED lines
+are not read, since they name whatever was running; neither is ever green. It holds no batch back: the queue's own check on main (`main_red`) is unchanged. The auxiliary
+`browser-main-green` reads the file (1 green, 0 red; no reading when it is missing or cannot be read), and the goal
+of that name shows it on the Dynamics diagram. The daily run reads the goal (read, not commanded, so it keeps its
+schedule) and sets the auxiliary, so the goal's loop closes inside landing. What makes main green again is a fix
+merged, by way of the intervention.
+
 Each run's batch is an item, `batch/<run tag>` (`dev/bin/batches.py`; `ergostat item --kind batch`, the Items page, its
 graph and Timeline), so what the queue is doing is read in ergostat, not in `run/queue.json` and the logs: `testing`
 while a run of the suites is under way, `isolating` between the runs of a red batch, `pushing` once something landed
