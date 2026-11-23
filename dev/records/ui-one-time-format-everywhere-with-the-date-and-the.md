@@ -92,3 +92,15 @@ start-up and then every 60 s (`ergostat/web/server.py`, `LIST_EVERY`). A project
 60 s without listing it, and the test waits only 30 s. It is left for main, per lesson 13. The command that would have
 written this section, a `cat >> … <<'EOF'` followed by `git add` and `git commit`, was refused, so it was written with
 the editor.
+
+Round 3: the merge of main (2a97eafb) conflicted only in `ergostat/web/static/details.js`, at a goal's Crossings. Main
+made each crossing a link to the Record for that span (`table.crossings`, `/record?about=…&from=…&to=…`), and the
+branch had put the time through `stamp`. Both are kept: main's link, with `stamp(e.time)` as its text. Main also added
+a "from … to …" line to the Record when it is opened from a crossing, with its own `toLocaleString` format. It is on
+/record, a page this gap covers, so its `at` is now `stamp` (pages.js, 0 net lines). Net code is still +11 lines.
+ruff is clean; `tests/test_time_stamp.py` passes (3 passed). With Playwright under the watchdog,
+`tests/test_items_page.py` gave 28 passed and 1 failed (rc 1), twice. The failure is the same test as in round 2,
+main's `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, now at `tests/test_items_page.py:1325`,
+the 30 s wait for the other project in `#project`. The branch's stamp test passed in both runs. As in round 2 it is
+left for main (lesson 13). A command that printed the test's lines with `grep`/`sed` was refused, so I read the file
+with the editor's reader instead.
