@@ -215,6 +215,8 @@ def build() -> argparse.ArgumentParser:
     i.add_argument("--search", metavar="WORDS", help="only items whose fields' text contains every word (1 to 8; case "
                                                      "ignored; a plain substring, no ranking; the first 65,536 "
                                                      "characters of each item's text)")
+    i.add_argument("--groups", metavar="RELATION", help="with --kind: how far along each group its group relation names "
+                                                       "is (done, in progress, waiting, stopped, of its total)")
     i.add_argument("--history", nargs="?", const="", metavar="FIELD",
                    help="with an item: each field's changes (or one field's), with the events that made them")
     i.add_argument("--near", nargs="?", const="1", metavar="N", help="with an item: the items within N hops (1-4, default 1)")

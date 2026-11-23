@@ -543,8 +543,9 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
         if (i.id in lines or i.rolled) and not any(f in i.fields for f in FIELDS):
             n_, last = lines.get(i.id, (0, i.last))
             i.n, i.last = i.n + n_ + i.rolled, max(i.last, last)
+    from .grouptally import offered
     from .item_systems import OTHER, TITLES, groups, kind_systems
-    where = kind_systems(spec)               # each kind's system (item_systems.py): the page groups by it
+    where = kind_systems(spec)              # each kind's system (item_systems.py): the page groups by it
     unkinded = sum(counts.get("", {}).values())
     systems = groups(spec, {**where, **({"": {"system": OTHER}} if unkinded else {})})
     for g in systems:
@@ -552,6 +553,7 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
     return {"kinds": [{"name": k.name, "title": TITLES.get(k.name), "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "relations": {r: x.kinds for r, x in k.relations.items()},
+                       "progress": [r for r, x in k.relations.items() if offered(k, x)],   # (grouptally.py)
                        "counts": counts.get(k.name, {}), **finishes(events, spec, k.name)} for k in kinds.values()],
             "systems": systems, "unkinded": unkinded,
             "total": total, "offset": offset,

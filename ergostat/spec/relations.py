@@ -31,7 +31,7 @@ INVERSES = {"blocked_by": "blocks", "after": "before", "depends_on": "dependents
             "duplicates": "duplicated_by", "relates_to": "related_from"}
 GROUPS = ("parent",)
 REL_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
-REL_KEYS = {"kind", "precedence", "inverse", "group", "starts_at", "description"}
+REL_KEYS = {"kind", "precedence", "inverse", "group", "starts_at", "done_when", "description"}
 REL_FOLDS = ("relation", "union", "replace")                # how a relation's field may fold: a set of ids
 
 
@@ -98,14 +98,28 @@ def compile_relations(c, m, what: str, rules: dict) -> dict[str, Relation]:
             c.err(f"{what}.relations.{name}.starts_at: only a precedence relation's targets block, so only it may say "
                   f"where they stop blocking", at, "starts-at-not-precedence")
             continue
+        done_when = opts.get("done_when", {})
+        states = m.get("states") or []
+        if done_when and (not group or not isinstance(done_when, dict) or not all(
+                s in states and isinstance(w, dict) and w and all(isinstance(f, str) and _plain(x) for f, x in w.items())
+                for s, w in done_when.items())):
+            c.err(f"{what}.relations.{name}.done_when: a group's, a map of the item's state to the fields it counts as "
+                  f"done work in ({{closed: {{end: done}}}}: each a value, or a list of them)", at, "bad-relation")
+            continue
         rule = rules.get(name)
         if rule is None:
             rules[name] = "relation"
         elif rule not in REL_FOLDS:
             c.err(f"{what}.fold.{name}: a relation folds as a set of ids ({', '.join(REL_FOLDS)}), not {rule}", at,
                   "bad-fold")
-        out[name] = Relation(name, [str(k) for k in kinds], prec, inv, group, remote, there, list(starts))
+        out[name] = Relation(name, [str(k) for k in kinds], prec, inv, group, remote, there, list(starts),
+                             {s: dict(w) for s, w in done_when.items()})
     return out
+
+
+def _plain(x) -> bool:
+    """A value a field is matched to: a string, number, boolean or null, or a list of them."""
+    return all(x is None or isinstance(x, str | int | float | bool) for x in (x if isinstance(x, list) else [x]))
 
 
 def remote_of(remotes, local, kind: str) -> tuple[str, str]:

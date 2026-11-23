@@ -889,6 +889,9 @@ class Relation:
     there: str = ""                 # the kind's name at that remote (incident)
     # precedence: the target's states (not finished) in which it no longer blocks; the CPM stays finish-to-start
     starts_at: list[str] = field(default_factory=list)
+    # a group's: a finished state of the item's: the fields it counts as done work in, for each group's progress
+    # (spec/grouptally.py); an item in that state that does not match leaves its group's total
+    done_when: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass

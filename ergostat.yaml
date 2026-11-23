@@ -121,9 +121,11 @@ items:
                                      # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
       duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
-      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps}
+      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps, done_when: {closed: {end: done}}}
                                      # the milestone it is finished with (milestones.py assign); folded by replace, so a
-                                     # gap is in one, and the old free-text labels (not ids) stay as they were written
+                                     # gap is in one, and the old free-text labels (not ids) stay as they were written;
+                                     # in its progress a closed gap is done work only when closed as done on main (end:
+                                     # done), else (a duplicate, abandoned, no end said) it leaves the total
     fold:
       milestone: replace
       rounds: sum
