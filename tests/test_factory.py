@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import textwrap
@@ -256,7 +257,8 @@ def fold_line(db: dict, kinds: dict, line: dict, about: str | None = None) -> No
     kind = next(k for k in kinds.values() if Path(iid).match(k.id) or iid.startswith(k.id[:-1]))
     assert line["event"] in kind.on or line["event"].endswith((".measured", ".push-asked", ".switch-asked", ".pushed",
                                                                 ".dependencies", ".push-settled", ".groomed",
-                                                                ".resumed", ".need-met", ".released")), line
+                                                                ".resumed", ".need-met", ".released",
+                                                                ".reverted")), line
     it = db["items"].setdefault(iid, {"id": iid, "kind": kind.name, "state": kind.states[0], "fields": {}})
     for op in line.get("patch") or []:                             # (RFC 6902, as flakes.py writes it: top level)
         k = op["path"][1:].replace("~1", "/").replace("~0", "~")
@@ -1957,6 +1959,130 @@ def test_upgrades_follow_the_pushed_main(tmp_path):
     git(f.checkout, "push", "-q", "origin", "main")
     said, lines = f.run("upgrade.py", argv=["watch"])
     assert said == ["upgrade.opened"] and lines[0]["data"]["sha"] == git(f.origin, "rev-parse", "main")
+
+
+def land(f: Factory, *names: str) -> dict[str, tuple[str, str]]:
+    """Each branch (a commit of its own off main) merged onto main --no-ff, as the queue merges, then pushed together
+    as one batch: {name: (its merge, its head)}; each gap's record carries its reviewed head and the batch's head."""
+    got = {}
+    for n in names:
+        git(f.checkout, "checkout", "-q", "-b", n, "main")
+        (f.checkout / f"{n}.txt").write_text(f"{n}\n")
+        git(f.checkout, "add", "-A")
+        git(f.checkout, "commit", "-q", "-m", n)
+        head = git(f.checkout, "rev-parse", "HEAD")
+        git(f.checkout, "checkout", "-q", "main")
+        git(f.checkout, "merge", "-q", "--no-ff", n, "-m", f"merge {n}")
+        got[n] = (git(f.checkout, "rev-parse", "HEAD"), head)
+    git(f.checkout, "push", "-q", "origin", "main")
+    db, top = f.db(), got[names[-1]][0]
+    for n, (_, head) in got.items():
+        db["items"][f"gap/{n}"] = {"id": f"gap/{n}", "kind": "gap", "state": "merged",
+                                   "fields": {"merged_at": 100.0, "reviewed_head": head, "main_sha": top}}
+    f.record.write_text(json.dumps(db))
+    return got
+
+
+def revert(f: Factory, sha: str, merge: bool = True) -> str:
+    git(f.checkout, "revert", "--no-edit", *(["-m", "1"] if merge else []), sha)
+    git(f.checkout, "push", "-q", "origin", "main")
+    return git(f.checkout, "rev-parse", "HEAD")
+
+
+def test_a_revert_on_main_is_recorded_once_however_often_main_watch_runs(tmp_path):
+    f = Factory(tmp_path)
+    merge, _ = land(f, "alpha")["alpha"]
+    rv = revert(f, merge)
+    said, lines = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened", "gap.reverted"]
+    g = f.item("gap/alpha")["fields"]
+    assert g["reverted"] is True and g["revert_sha"] == rv and g["reverted_at"] > 0
+    assert f.run("upgrade.py", argv=["watch"])[0] == []                       # nothing new on main: nothing said
+    (f.model / "run" / "escapes.json").unlink()                                # main read again from its start
+    assert f.run("upgrade.py", argv=["watch"])[0] == []                       # the gap is reverted already
+    assert json.loads((f.model / "run" / "escapes.json").read_text())["last"] == rv
+    risk = module("risk")
+    assert risk.evidence(list(f.db()["items"].values()), [], [], [])[1][2] == 1
+    readme = (ROOT / "dev" / "README.md").read_text()
+    assert "reverts are found by `main-watch`" in readme
+
+
+def test_a_revert_of_one_merge_of_a_batch_of_three_blames_only_that_gap(tmp_path):
+    f = Factory(tmp_path)
+    got = land(f, "one", "two", "three")                 # one batch: the three gaps share its head as main_sha
+    revert(f, got["two"][0])                             # the middle merge: its main_sha is no gap's own
+    said, _ = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened", "gap.reverted"]
+    assert [g for g in ("one", "two", "three") if f.item(f"gap/{g}")["fields"].get("reverted")] == ["two"]
+    revert(f, got["three"][0])                           # the batch's head: its reviewed head names three, not all
+    assert f.run("upgrade.py", argv=["watch"])[0] == ["upgrade.opened", "gap.reverted"]
+    assert [g for g in ("one", "two", "three") if f.item(f"gap/{g}")["fields"].get("reverted")] == ["two", "three"]
+
+
+def test_an_unmatched_revert_still_counts_as_an_escape(tmp_path):
+    f = Factory(tmp_path)
+    land(f, "alpha")
+    (f.checkout / "loose.txt").write_text("a commit straight on main, no gap's merge\n")
+    git(f.checkout, "add", "-A")
+    git(f.checkout, "commit", "-q", "-m", "loose")
+    loose = git(f.checkout, "rev-parse", "HEAD")
+    revert(f, loose, merge=False)
+    said, _ = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened", "intervention.recorded"]
+    iv = f.item(f"intervention/reverted-{loose[:12]}")
+    assert iv["fields"]["class"] == "reverted-unmatched" and not f.item("gap/alpha")["fields"].get("reverted")
+    (f.model / "run" / "escapes.json").unlink()
+    assert f.run("upgrade.py", argv=["watch"])[0] == []                       # its id: a second read says nothing
+    risk = module("risk")
+    items = list(f.db()["items"].values())
+    gaps, ivs = [i for i in items if i["kind"] == "gap"], [i for i in items if i["kind"] == "intervention"]
+    assert risk.evidence(gaps, ivs, [], []) == {1: [0, 0, 1, 1]}               # an escape, no gap blamed
+    assert risk.found_since(gaps, ivs, time.time() - 86400) == 1
+    assert risk.found_since(gaps, ivs, time.time() + 60) == 0
+
+
+def test_a_git_error_stops_only_the_escapes_step(tmp_path):
+    f = Factory(tmp_path)
+    (f.model / "run").mkdir()
+    (f.model / "run" / "escapes.json").write_text("{not json")                 # the step cannot read where it was
+    said, lines = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened"] and "escapes:" in f.stderr               # the upgrade still opened
+    (f.model / "run" / "escapes.json").unlink()
+    git(f.checkout, "commit", "-q", "--allow-empty", "-m", "more")
+    git(f.checkout, "push", "-q", "origin", "main")
+    root = git(f.checkout, "rev-list", "--max-parents=0", "main")
+    (f.checkout / ".git" / "objects" / root[:2] / root[2:]).unlink()          # git cannot read main's history
+    said, _ = f.run("upgrade.py", argv=["watch"])
+    assert said == ["upgrade.opened"] and "escapes:" in f.stderr and "git" in f.stderr
+    assert not (f.model / "run" / "escapes.json").exists()                     # nothing taken as read
+
+
+def test_check_reports_no_flow_without_a_sensor_in_pools_yaml(tmp_path, capsys, monkeypatch):
+    """escapes-found is measured (pools.py read escapes-day): of pools.yaml's flows, only factory-harm is still neither
+    measured nor moved by a block (outside this gap); `ergostat check` says nothing of escapes-found (it says nothing
+    of a flow without a sensor either: the first assertion is the one that fails without it); its sensor reads."""
+    from ergostat.cli import main, spec_cmds
+    from ergostat.numbers import extremes_cache
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(spec_cmds, "CHECK_WAIT", None)
+    monkeypatch.setattr(extremes_cache, "BOUND", 900.0)
+    spec, _ = read(ROOT / "ergostat.yaml")
+    moved = {r.name for b in spec.blocks.values() for refs in b.outputs.values() for r in refs if r.kind == "flow"}
+    mine = [x for x in spec.flows.values() if x.where and x.where.file.name == "pools.yaml"]
+    assert "escapes-found" in {x.name for x in mine}
+    assert {x.name for x in mine if not x.sensors and not x.equation and x.name not in moved} == {"factory-harm"}
+    assert [s.run for s in spec.flows["escapes-found"].sensors.values()] == ["python3 dev/bin/pools.py read escapes-day"]
+    main(["-C", str(factory_copy(tmp_path / "now")), "check", "--json"])
+    got = json.loads(capsys.readouterr().out)
+    assert [x for x in got["found"] if "escapes-found" in json.dumps(x)] == []
+    f = Factory(tmp_path)
+    db = f.db()
+    db["items"]["gap/alpha"] = {"id": "gap/alpha", "kind": "gap", "state": "merged",
+                                "fields": {"merged_at": 100.0, "reverted": True, "reverted_at": time.time()}}
+    f.record.write_text(json.dumps(db))
+    r = subprocess.run([sys.executable, str(BIN / "pools.py"), "read", "escapes-day"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0 and float(r.stdout.strip()) == round(1 / 24, 4), r.stderr     # one a day, per hour
 
 
 def fake_version(live: Path, sha: str, starts: bool) -> None:
@@ -5738,3 +5864,224 @@ def test_a_failing_browser_test_is_named(tmp_path):
     for text in (now, old):
         assert len(re.findall(r"^SKIPPED", text, re.M)) == 1                   # queue.suites's browser skip count
         assert q.nowhere(text, unit) == ["test_b.py:17: needs a thing"]
+
+
+# ---- the daily browser run on main (dev/records/merge-pipeline-browser-daily-on-main.md, dev/bin/browserday.py)
+
+# the browser suite played: the commit it runs on, then red's text (exit 1), a skip, or a pass; with `hold`, it waits
+# for `go` (its pid in browser-pid)
+DAILY_BROWSER = r"""T=$(dirname "$0")
+git rev-parse HEAD >> "$T/browser-heads"
+if [ -e "$T/hold" ]; then
+  echo $$ > "$T/browser-pid"; touch "$T/in-browser"; i=0
+  while [ ! -e "$T/go" ] && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done
+fi
+if [ -e "$T/skip" ]; then echo "SKIPPED [1] tests/test_page_polling.py:9: no 3 free ports in range"; fi
+if [ -e "$T/red" ]; then cat "$T/red"; exit 1; fi
+echo "3 passed in 0.10s"
+"""
+# one test alone (`rerun`): PASSED when listed in `flaky`, or in `once` on its first rerun; else FAILED
+DAILY_RERUN = r"""T=$(dirname "$0")
+echo "$1 $2" >> "$T/reruns"
+c="$T/count-$(printf %s "$1" | tr '/:.' '___')"; n=$(( $(cat "$c" 2>/dev/null || echo 0) + 1 )); echo $n > "$c"
+if grep -qxF "$1" "$T/flaky" 2>/dev/null || { [ $n = 1 ] && grep -qxF "$1" "$T/once" 2>/dev/null; }; then
+  echo "PASSED $1"; echo "1 passed in 0.01s"; exit 0
+fi
+echo "FAILED $1 - boom"; exit 1
+"""
+DAILY_A, DAILY_B, DAILY_C = (f"tests/test_items_page.py::test_{x}" for x in "abc")
+
+
+def browser_daily(tmp_path) -> Factory:
+    f = Factory(tmp_path)
+    (tmp_path / "browser.sh").write_text(DAILY_BROWSER)
+    (tmp_path / "rerun.sh").write_text(DAILY_RERUN)
+    text = f.config.read_text().replace('\nbrowser = "true"', f'\nbrowser = "sh {tmp_path / "browser.sh"}"')
+    f.config.write_text(text.replace('rerun = "echo again {tests}"', f'rerun = "sh {tmp_path / "rerun.sh"} {{tests}}"'))
+    return f
+
+
+def merged_on_origin(tmp_path, name: str) -> str:
+    """A branch merged (--no-ff) into origin's main from a clone of its own, so the checkout's main never has it."""
+    other = tmp_path / "other"
+    if not other.exists():
+        subprocess.run(["git", "clone", "-q", str(tmp_path / "origin.git"), str(other)], check=True, capture_output=True)
+    git(other, "checkout", "-q", "-b", name)
+    (other / f"{name}.txt").write_text(name)
+    git(other, "add", f"{name}.txt")
+    git(other, "commit", "-q", "-m", f"side {name}")
+    git(other, "checkout", "-q", "main")
+    git(other, "merge", "-q", "--no-ff", name, "-m", f"Merge {name}")
+    git(other, "push", "-q", "origin", "main")
+    return git(other, "rev-parse", "HEAD")
+
+
+def daily_record(f: Factory) -> dict:
+    return json.loads((f.model / "run" / "browser-daily.json").read_text())
+
+
+def daily_green(f: Factory) -> tuple[int, str]:
+    """The sensor browser-main-green: (exit, what it printed)."""
+    r = subprocess.run([sys.executable, str(BIN / "browserday.py"), "green"], cwd=f.model, env=f.env,
+                       capture_output=True, text=True, timeout=60)
+    return r.returncode, r.stdout.strip()
+
+
+def daily_clean(f: Factory) -> bool:
+    """Its worktree gone, by name, and the checkout's the only one left."""
+    return not (f.tmp / "wt" / "browser-daily").exists() and len(git(f.checkout, "worktree", "list").splitlines()) == 1
+
+
+def daily_gone(pid: int, wait: float = 10) -> bool:
+    """The suite's shell killed: gone, or a zombie (dead, its parent killed too, not yet reaped by init). Its own
+    parent (`sh -c`) is the one suite() waits for, so a killed grandchild can still be listed for a moment under load."""
+    until = time.time() + wait
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        try:                                                           # (no /proc, or unreadable: still alive)
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            state = "?"
+        if state == "Z":
+            return True
+        if time.time() > until:
+            return False
+        time.sleep(0.05)
+
+
+def test_browser_daily_green_records_main(tmp_path):
+    f = browser_daily(tmp_path)
+    assert daily_green(f)[0] == 1                                       # never run: no reading, not green (lesson-3)
+    sha = merged_on_origin(tmp_path, "one")                            # on origin's main, not the checkout's
+    said, _ = f.run("browserday.py")
+    assert said == [] and f.flakes_said() == []
+    rec = daily_record(f)
+    assert rec["sha"] == sha and rec["green"] is True and rec["last_green"]["sha"] == sha and rec["at"] > 0
+    assert (tmp_path / "browser-heads").read_text().split() == [sha]   # run on origin/main itself
+    assert git(f.checkout, "log", "-1", "--format=%s", "main") == "start" and daily_clean(f)
+    assert daily_green(f) == (0, "1")
+    said, _ = f.run("browserday.py")                                   # the next day, nothing merged: it runs again
+    assert said == [] and (tmp_path / "browser-heads").read_text().split() == [sha, sha] and daily_clean(f)
+    (f.model / "run" / "browser-daily.json").write_text("{not json")
+    assert daily_green(f)[0] == 1                                       # unreadable: no reading
+    (f.model / "run" / "browser-daily.json").write_text("{}")
+    assert daily_green(f)[0] == 1
+
+
+def test_browser_daily_goal_closes_in_landing():
+    """check's missing-feedback says nothing of goal.browser-main-green: the daily run reads it (read, not commanded)
+    and sets its auxiliary, so the loop closes inside landing with no link across a boundary; it keeps its own
+    schedule (nothing commands it), and no other block reads the goal."""
+    spec, problems = read(ROOT / "ergostat.yaml", extremes=False)
+    assert [p for p in problems if p.level == "error"] == []
+    assert [f"{p.code}@{p.about}" for p in problems if p.about in ("goal.browser-main-green", "block.browser-daily",
+                                                                    "auxiliary.browser-main-green")] == []
+    assert spec.loop("browser-main-green").actuators == ["browser-daily"]
+    readers = [b.name for b in spec.blocks.values() if any(r.kind == "goal" and r.name == "browser-main-green"
+                                                            for r in b.reads())]
+    assert readers == ["browser-daily"]
+    assert spec.blocks["browser-daily"].every and not spec.commanders_of("browser-daily")
+
+
+def test_browser_daily_flake_is_recorded_not_raised(tmp_path):
+    f = browser_daily(tmp_path)
+    (tmp_path / "red").write_text(f"FAILED {DAILY_A} - boom\n1 failed, 2 passed in 1.00s\n")
+    (tmp_path / "flaky").write_text(DAILY_A + "\n")
+    said, _ = f.run("browserday.py")
+    assert said == [] and f.flakes_said() == ["flake.seen"]            # no intervention
+    assert (tmp_path / "reruns").read_text().splitlines() == [f"{DAILY_A} -rA"] * 2   # alone, twice, -rA
+    fl = f.item("flake/" + re.sub(r"[^a-z0-9]+", "-", DAILY_A.lower()).strip("-"))["fields"]
+    assert fl["suite"] == "browser" and fl["run"].startswith("browser-daily-") and fl["log"].endswith(".txt")
+    assert not [i for i in f.db()["items"] if i.startswith("intervention/")]
+    rec = daily_record(f)
+    assert rec["green"] is True and rec["flakes"] == [DAILY_A] and daily_clean(f)
+
+
+def test_browser_daily_failure_names_tests_and_suspects(tmp_path):
+    f = browser_daily(tmp_path)
+    green_sha = merged_on_origin(tmp_path, "one")
+    f.run("browserday.py")                                             # the last green
+    two, sha = merged_on_origin(tmp_path, "two"), merged_on_origin(tmp_path, "three")
+    (tmp_path / "red").write_text("".join(f"FAILED {t} - boom\n" for t in (DAILY_A, DAILY_B, DAILY_C)) +
+                                  "3 failed in 1.00s\n")
+    (tmp_path / "flaky").write_text(DAILY_C + "\n")                    # passes alone both times: a flake
+    (tmp_path / "once").write_text(DAILY_B + "\n")                     # passes alone once, then fails: real
+    said, _ = f.run("browserday.py")
+    assert said == ["intervention.recorded"] and f.flakes_said() == ["flake.seen"]
+    (iid,) = [i for i in f.db()["items"] if i.startswith("intervention/")]
+    iv = f.item(iid)["fields"]
+    assert iv["class"] == "queue" and iv["main"] == sha and iv["tests"] == [DAILY_A, DAILY_B]
+    assert iv["suspects"] == [f"{sha} Merge three", f"{two} Merge two"] and iv["suspects_since"] == green_sha
+    assert iv["suspects_more"] is False and iv["flakes"] == [DAILY_C] and sha[:12] in iv["reason"]
+    reruns = (tmp_path / "reruns").read_text().splitlines()
+    assert [r.split()[0] for r in reruns].count(DAILY_A) == 1 and [r.split()[0] for r in reruns].count(DAILY_B) == 2
+    rec = daily_record(f)
+    assert rec["green"] is False and rec["last_green"]["sha"] == green_sha and rec["intervention"] == iid
+    assert daily_green(f) == (0, "0") and daily_clean(f)
+    for crash, skip, said_why in ((f"FAILED {DAILY_C} - boom\nINTERNALERROR> the suite crashed\n", False,
+                                   "crashed (INTERNALERROR>)"),                 # (a crash naming a flaky test)
+                                  ("Traceback: the suite crashed\n", False, "exited 1"), (None, True, "skipped 1"),
+                                  (f"FAILED {DAILY_C} - boom\n", True, "skipped 1")):    # (a flake beside a skip)
+        (tmp_path / "red").unlink(missing_ok=True)                     # named no test: an intervention with the tail
+        if crash:
+            (tmp_path / "red").write_text(crash)
+        if skip:
+            (tmp_path / "skip").touch()
+        before = {i for i in f.db()["items"] if i.startswith("intervention/")}
+        flaked, reran = f.flakes_said(), (tmp_path / "reruns").read_text()
+        said, _ = f.run("browserday.py")
+        assert said == ["intervention.recorded"]
+        if "INTERNALERROR" in (crash or ""):                           # its FAILED line not read: not rerun, no flake
+            assert f.flakes_said() == flaked and (tmp_path / "reruns").read_text() == reran
+        (new,) = {i for i in f.db()["items"] if i.startswith("intervention/")} - before
+        iv = f.item(new)["fields"]
+        assert iv["tests"] == [] and said_why in iv["reason"] and "named no failing test" in iv["reason"]
+        assert ("SKIPPED" if skip else "the suite crashed") in iv["tail"] and iv["suspects_since"] == green_sha
+        assert daily_green(f) == (0, "0") and daily_clean(f)
+
+
+def test_browser_daily_holds_the_queue_lock(tmp_path):
+    f = browser_daily(tmp_path)
+    (tmp_path / "hold").touch()
+    lock = tmp_path / "queue.lock"
+
+    def started() -> subprocess.Popen:
+        p = subprocess.Popen([sys.executable, str(BIN / "browserday.py")], cwd=f.model, env=f.env, text=True,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        until = time.time() + 60
+        while not (tmp_path / "in-browser").exists() and p.poll() is None and time.time() < until:
+            time.sleep(0.05)
+        assert (tmp_path / "in-browser").exists(), p.stderr.read() if p.poll() is not None else "not started"
+        return p
+    p = started()
+    with open(lock, "a") as lk, pytest.raises(BlockingIOError):        # held while its suite runs
+        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    got = []
+
+    def batch():                                                       # a batch waiting for the lock
+        with open(lock, "a") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            got.append((f.model / "run" / "browser-daily.json").exists())
+            fcntl.flock(lk, fcntl.LOCK_UN)
+    t = threading.Thread(target=batch, daemon=True)
+    t.start()
+    time.sleep(0.5)
+    assert got == []                                                   # still waiting
+    (tmp_path / "go").touch()
+    assert p.wait(timeout=60) == 0, p.stderr.read()
+    t.join(timeout=60)
+    assert got == [True] and daily_clean(f)                            # it started after the daily run had ended
+    (tmp_path / "go").unlink()
+    (tmp_path / "in-browser").unlink()
+    (f.model / "run" / "browser-daily.json").unlink()
+    p = started()                                                      # stopped part way (a lease lost, a timeout)
+    pid = int((tmp_path / "browser-pid").read_text())
+    p.send_signal(signal.SIGTERM)
+    assert p.wait(timeout=60) == 143
+    assert daily_gone(pid)                                             # its suite went with it
+    assert daily_clean(f) and not (f.model / "run" / "browser-daily.json").exists()
+    with open(lock, "a") as lk:                                        # and so did the lock
+        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
