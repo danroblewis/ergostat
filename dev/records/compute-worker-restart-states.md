@@ -116,3 +116,14 @@ in another reads as another process, and a live run is written gone. Answered bo
   test_runs_outlive_engine.py with test_runs_adopted.py (32), all passing; ruff clean. Not tested: a real macOS.
 
 Overrun reason: about 315 net lines against 200 (round 3's reasons, plus the pinned ps environment and the start-time form check on both the reading and the record that round 4's finding needs).
+
+Round 5: main (2f08c24e05a8) merged. The only conflict was SPEC §12s.3's "Built so far". Main added the node's side
+of the lease's renewals (`leaseclock.py`, §12s.5) and still listed "the runs listed in `hello`" as to come. The
+resolution keeps main's lease-clock text and points to §12s.6 for the runs in `hello`, which this branch builds
+(`backends` stays `[]`). `keeper.py` and `serve.py` merged cleanly: `serve` installs `leaseclock`'s handlers beside
+the states, the sweep after hello and the hourly sweep. There was no review finding to answer this round besides the
+conflict. Ran after the merge: tests/test_compute_restart_states.py (6), test_compute_lease_clock.py with the keeper
+and keeper-deadline tests (17), the worker protocol, output and readings tests (20), test_runs_outlive_engine.py with
+test_runs_adopted.py (32), all passing; ruff clean. Not tested: a real macOS, the hourly sweep's timer.
+
+Overrun reason: about 315 net lines against 200 (round 4's reasons; the merge adds none).
