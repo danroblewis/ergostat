@@ -139,3 +139,18 @@ in the switcher test is not this branch's. Every browser_daily test runs browser
 in-process SIGTERM handler in tests/test_factory.py (the prefix stop test, from main's 34a8a225) puts the old handler
 back in its finally. `uv run ergostat check` (as `timeout 300 uv run ergostat check`) was refused again, so done item
 6's "no new finding" against main is still unverified.
+
+## Where it stopped
+
+The factory's `build` step failed again (`-n 8 --dist worksteal`). The tail it sent shows one `F` near the start of
+the run and stops at 34%, so it does not name the test. Under worksteal, that early position can belong to any
+worker's chunk, so I cannot tell from it which test failed. .pytest_cache's lastfailed was empty. Run serially here
+(`uv run python scripts/named_tests.py tests/test_factory.py`): 204 passed, 2 skipped (Docker), 0 failed in 922 s. That
+includes the five browser_daily tests, the switcher test and the merge test that failed in earlier builds. Ruff is
+clean. I changed no code. Nothing here fails, and nothing points at this branch's files. Three builds have now failed
+on three different tests or unnamed ones, each passing serially. That fits a load-dependent flake in
+tests/test_factory.py under `-n 8` (lesson-10), not a fault in browserday.py. Fixing it is outside this gap
+(lesson-13). It cannot be found here until a build's output names the failing test, for example with `-rf` or a
+tail that covers the summary. Running test_factory.py under `-n 8` myself is outside the allowed runner (named_tests.py
+runs serially, no options). A background run of the same serial command was refused (`run_in_background`); the
+foreground one ran.
