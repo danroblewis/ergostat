@@ -109,3 +109,13 @@ Choice taken alone (the more reversible one): a node whose good hello is followe
 said up and lost again on each try, as a session that keeps ending would be. The backoff bounds how often.
 
 Overrun reason: connection.py is now 321 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds 5 net lines (the two catches).
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, continued round 5). Main (ead497d1) merged in. The one docs/SPEC.md conflict, the
+opening of §12s, keeps both sides in one sentence: main's keeper run "with its output sent by offset (12s.3)" and the
+branch's engine session (12s.4). Main's "Nothing in the engine speaks to it yet" is dropped because this branch makes
+it false. Main's "a model is unchanged by any of this" now reads "a model without `compute:` is unchanged", because
+§12k's `compute:` opens sessions. No code changed this round, and no review findings were open apart from the conflict.
+
+Overrun reason: connection.py is 321 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds no lines.
