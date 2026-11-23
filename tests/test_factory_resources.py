@@ -240,7 +240,7 @@ def test_cleanup_deletes_only_the_factorys_folders(tmp_path, monkeypatch):
     keep = [sessions / f"warm3-reviewer-{young_stamp}-0a1b2c",          # young
             sessions / "warm3-reviewer-1-claude-0a1b2c3d",              # young
             sessions / "warm3-reviewer-1-claude-0a1b2c3",               # seven hex
-            sessions / f"warm_3-implementor-{stamp}-0a1b2c",            # not lowercase words and dashes
+            sessions / f"Warm3-implementor-{stamp}-0a1b2c",             # not lowercase words, dashes and underscores
             sessions / f"warm3-implementor-{stamp}-0a1b2",              # five hex
             sessions / f"warm3-implementor-{stamp}-0a1b2c.bak",         # a suffix
             sessions / "notes"]
@@ -279,3 +279,29 @@ def test_cleanup_deletes_only_the_factorys_folders(tmp_path, monkeypatch):
     assert s["factory-disk"] == round(s["sessions-disk"] + s["installs-disk"], 2)
     monkeypatch.setitem(sys.modules, "live", module("live"))
     assert cleanup.WAITING == module("drain").WAITING
+
+
+def test_cleanup_removes_session_folders_of_every_role(tmp_path, monkeypatch):
+    """Every role in agents.TIMEOUTS (pipeline_manager, plan_reviewer, join_judge have underscores), both shapes, past
+    the keep: removed; a young one of each: kept."""
+    monkeypatch.setitem(sys.modules, "fac", module("fac"))
+    cleanup, roles = module("cleanup"), sorted(module("agents").TIMEOUTS)
+    assert {"pipeline_manager", "plan_reviewer", "join_judge"} <= set(roles)
+    sessions = tmp_path / "live" / "sessions"
+    sessions.mkdir(parents=True)
+    old, now = time.time() - 3 * 86400, time.time()
+    stamp, young_stamp = (time.strftime("%Y%m%d%H%M%S", time.localtime(t)) for t in (old, now))
+    gone, keep = [], []
+    for role in roles:
+        gone += [sessions / f"gap-x-{role}-{stamp}-0a1b2c", sessions / f"gap-x-{role}-2-claude-0a1b2c3d"]
+        keep += [sessions / f"gap-x-{role}-{young_stamp}-0a1b2c", sessions / f"gap-x-{role}-1-claude-0a1b2c3d"]
+    for d in gone + keep:
+        d.mkdir()
+    for d in gone:
+        os.utime(d, (old, old))
+    cfg = {"paths": {"live": str(tmp_path / "live"), "checkout": str(tmp_path / "checkout"), "run": str(tmp_path)},
+           "resources": {"session_keep_hours": 24}}
+    assert sorted(cleanup.sessions(cfg)) == sorted(gone)
+    monkeypatch.setattr(cleanup.fac, "config", lambda: cfg)
+    assert cleanup.main([]) == 0
+    assert not any(d.exists() for d in gone) and all(d.exists() for d in keep)
