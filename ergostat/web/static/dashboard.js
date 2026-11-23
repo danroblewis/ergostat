@@ -13,7 +13,7 @@ const DASH_QUERIES = 12;                               // queries on one panel
 const dashOwn = (table, key) => typeof key === "string" && Object.hasOwn(table, key);   // never a name every object inherits
 const DASH_WINDOW = "1d";                              // what a dashboard with no window of its own opens on
 const DASH = { draft: null, kept: false, editing: false, cells: new Map(), undo: [], timer: null, wasHere: false,
-               since: null, grid: null, head: null, live: null, said: null, page: 0, asked: 0, narrow: null };
+               since: null, grid: null, head: null, live: null, said: null, page: 0, asked: 0, narrow: null, flight: null, retry: 0 };
 
 /* ---- the draft, in the address and in localStorage ---- */
 
@@ -301,11 +301,26 @@ function dashDraw() {
   if (focused && DASH.cells.has(focused) && DASH.editing) DASH.cells.get(focused).el.focus({ preventScroll: true });
   if (fresh) dashRefresh();
 }
+/* an answer that does not come: the panels say late after a while and keep what they show; the request is then given
+   up and asked again (by the poll, or once more when the page does not poll) */
+const DASH_LATE = 8000, DASH_GIVE_UP = 25000, DASH_RETRY = 10000;
+function dashAsk(panels, ctrl) {
+  const gaveUp = new Promise((_, no) => ctrl.signal.addEventListener("abort", () => no(new DOMException("gave up", "AbortError")), { once: true }));
+  return Promise.race([queryPanels(panels, { since: WINDOWS[S.since], until: S.at || null, signal: ctrl.signal }), gaveUp]);
+}
+function dashSayLate(words) {
+  for (const c of DASH.cells.values()) c.panel.setState?.(c.drawn ? "late" : "error", words);
+}
 async function dashRefresh() {
   const d = DASH.draft, n = ++DASH.asked;
+  DASH.flight?.abort();
+  clearTimeout(DASH.retry);
   if (!d?.panels.length) return;
+  const ctrl = DASH.flight = new AbortController();
+  const late = setTimeout(() => { if (n === DASH.asked) dashSayLate(`waiting ${dur(DASH_LATE / 1000)} for the answer`); }, DASH_LATE);
+  const giveUp = setTimeout(() => ctrl.abort(), DASH_GIVE_UP);
   try {
-    const got = await queryPanels(d.panels, { since: WINDOWS[S.since], until: S.at || null });
+    const got = await dashAsk(d.panels, ctrl);
     if (n !== DASH.asked) return;
     for (const [id, c] of DASH.cells) {
       const a = got?.get?.(id);
@@ -319,8 +334,14 @@ async function dashRefresh() {
     if (DASH.said) DASH.said.textContent = `Updated ${clock(nowS())}`;
   } catch (e) {
     if (n !== DASH.asked) return;
-    for (const c of DASH.cells.values()) if (!c.drawn) c.panel.setState?.("error", "The server did not answer");
-    if (DASH.said) DASH.said.textContent = "Could not refresh; asking again";
+    const timedOut = e?.name === "AbortError";
+    dashSayLate(timedOut ? `no answer in ${dur(DASH_GIVE_UP / 1000)}; asking again` : "The server did not answer");
+    if (DASH.said) DASH.said.textContent = timedOut ? "No answer; asking again" : "Could not refresh; asking again";
+    if (!DASH.timer) DASH.retry = setTimeout(() => { if (DASH.grid?.isConnected && !document.hidden) dashRefresh(); }, DASH_RETRY);
+  } finally {
+    clearTimeout(late);
+    clearTimeout(giveUp);
+    if (DASH.flight === ctrl) DASH.flight = null;
   }
 }
 function dashPoll() {
@@ -541,6 +562,8 @@ function dashLeave(n) {
     DASH.timer?.stop();
     DASH.timer = null;
     DASH.asked++;
+    DASH.flight?.abort();
+    clearTimeout(DASH.retry);
     for (const c of DASH.cells.values()) c.panel.destroy?.();
     DASH.cells.clear();
     DASH.narrow?.removeEventListener("change", dashDraw);
