@@ -1512,7 +1512,7 @@ function renderSide(side, g, view) {
   const loops = Object.entries(g.loops || {});
   if (view === "dynamics") sdLoopList(side, g);
   else if (view === "control" || view === "blocks") {
-    side.append(h("h3", {}, "Control loops",h("span", { class: "muted" }, ` ${loops.length}`)));
+    side.append(h("h3", {}, "Control loops", h("span", { class: "muted" }, ` ${loops.length}`)));
     if (!loops.length) side.append(h("div", { class: "muted" }, "No control loops in view."));
     const rank = { off: 0, open: 1, unknown: 2, holding: 3 };       // the ones that need someone first
     for (const [name, lp] of loops.sort((a, b) => (rank[a[1].status] ?? 2) - (rank[b[1].status] ?? 2))) {

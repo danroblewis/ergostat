@@ -73,3 +73,16 @@ Round 2: main (bf6dbebf) merged in; the queue's conflicts resolved, keeping both
   before any word this gap changes is read. That wait expects the header `#running` to match `/loops? off/`, but
   main's `util.js` writes `N off`, and this branch leaves `util.js`, `index.html` and `state.py` identical to main.
   So it fails on main too; left for main (lesson 13).
+
+Round 3: the queue's conflicts (`diagram.js`, `dynamics.js`, `test_diagram_rendering.py`) were already resolved in
+round 2, and main (63998238) was merged in at c8cdab2d with no conflict (it touched only `dev/bin/` and
+`tests/test_ui_front.py`). `main` is an ancestor of HEAD and there is nothing newer to merge. No conflict markers are
+left in the tree.
+
+- Change: one missing space after the "Control loops" heading text in `diagram.js` (formatting, no net lines).
+- Runs: ruff clean; `tests/test_dynamics_view.py` 16 passed; under the watchdog, the acceptance test and both
+  parametrizations of `test_a_goal_name_opens_its_evidence…` passed (3 passed, rc 1 because of the next test).
+  `test_needs_attention_is_three_headed_groups_in_a_fixed_order` still times out in its first wait (`/loops? off/` on
+  `#running`, which main's unchanged `util.js` writes as `N off`). It fails on main too, so it is left for main
+  (lesson 13). The whole of `tests/test_diagram_rendering.py`, the other browser files and the unit suite were not run
+  here; the merge queue runs them.
