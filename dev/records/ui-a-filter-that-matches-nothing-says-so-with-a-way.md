@@ -212,3 +212,14 @@ still +19/-8 against main.
   (lesson 13).
 - Refused here: the same browser run piped through `tail` (it was run without the pipe instead). Not run: the unit
   suite, the other three browser files, demo_check (no example touched).
+
+Round 9: the factory's merge of main (dc8ad98d) conflicted in pages.js, resolved in 332bc516. Main changed
+`flowsWere` to `JSON.stringify([flows, gps])` (a kind's group progress counts as a change too), and the branch had
+renamed main's `hits = d.total` to `total`, since the branch's own `hits` comes later in the same function. Both are
+kept: `total` for `found`, and main's `[flows, gps]`. pages.js is still +19/-8 against main. Nothing else changed.
+
+- Run: ruff clean; tests/test_graph_cli_web.py 56 passed. tests/test_items_page.py with Playwright under the
+  watchdog: 73 passed, 1 failed, nothing skipped, so the gap's three browser tests pass. Run alone, the failure is
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out at the `#project` switcher wait
+  (tests/test_items_page.py:2342), as in rounds 3 to 8. This branch does not touch the header or the switcher
+  (lesson 13). Not run: the unit suite, the other three browser files, demo_check (no example touched).
