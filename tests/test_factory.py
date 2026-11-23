@@ -785,6 +785,14 @@ def test_flake_fixed_refuses_an_unknown_test_or_one_already_fixed(tmp_path, monk
     assert not got["ok"] and "is fixed" in got["said"] and len(fixes(flakes)) == 1
     monkeypatch.setattr(flakes, "read", lambda iid: None)          # an unreadable item: refused, nothing written
     assert not manage.run({}, ["flake-fixed", FLAKY, "--why", "x"])["ok"] and len(fixes(flakes)) == 1
+    monkeypatch.setattr(flakes, "read", real)                      # the pipeline manager's call: refused, unlisted
+    other_test = FLAKY + "_two"
+    flakes.say("flake.seen", other_test, gaps=["gap/a"], times=1, seen_at=1.0)
+    monkeypatch.setattr(manage, "BY", ["pipeline-manager"])       # (as watch.py sets it for the manager's run)
+    got = manage.run({}, ["flake-fixed", other_test, "--why", "looks gone"])
+    assert not got["ok"] and "by a person" in got["said"] and len(fixes(flakes)) == 1, got
+    assert flake_now(flakes, other_test)["state"] == "seen"
+    assert "flake-fixed" not in manage.__doc__
 
 
 def test_a_quarantine_release_is_one_flake_released(tmp_path, monkeypatch):

@@ -22,3 +22,12 @@ back as flake.measured. Choices made without asking (the most reversible ones):
   REMAKE_CLEARS, which would also drop the `why` that `manage.py flake` writes, so it is left alone.
 - tests/test_factory.py: the flake fixture's model now includes the intervention kind. `.released` is added to the
   fixture fold's no-state suffixes, which test_a_branch_cannot_quarantine_its_own_failing_test needs.
+
+Round 2. The review's one finding: the pipeline manager could call flake-fixed itself. That is now refused unless
+the caller is the coordinator (BY[0], which is `pipeline-manager` in the manager's run as watch.py sets it). The
+command is removed from manage.__doc__, the tool list manager.py hands the manager, and from dev/README.md's list of
+its direct tools. dev/README.md 'Record an intervention' says the manager's call is refused. The refusal test now
+also calls flake-fixed as `pipeline-manager` on a seen flake: refused, no intervention, the flake still seen, and
+flake-fixed absent from manage.__doc__. With the guard broken, that test failed. Choice made without asking (the
+most reversible one): refused outright rather than routed through the inbox. The definition says a person says it,
+and refusing adds no inbox action or approved-command path. Kept at three tests, as the definition names three.

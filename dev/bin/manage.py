@@ -9,7 +9,6 @@ intervention by whoever asked (the coordinator by hand, `pipeline-manager` from 
                                         busy processes (1-8); all passed: back to review, else to fix with the tail;
                                         from the block's run, asked in the inbox (manager-measure, run outside it)
   flake TEST --why W                    the test recorded as a flake
-  flake-fixed TEST --why W              a seen or main-broken flake said fixed (a test deleted or renamed, say)
   file-gap --title T --definition-text D [--depends-on a,b] [--branch B]
   remedy INTERVENTION --why W           an open intervention remedied (a queue one: main clean and pushed)
   propose --title T --definition-text D --why W   the review's change to the merge pipeline, a gap (one open at a time)
@@ -237,6 +236,9 @@ def do_flake(cfg: dict, a) -> str:
 
 
 def do_flake_fixed(cfg: dict, a) -> str:
+    """A person's word, by hand (not in __doc__, the manager's tool list): refused from the pipeline manager's run."""
+    if BY[0] != "coordinator":
+        raise Refused(f"flake-fixed is said by a person, by hand, not by {BY[0]}")
     iid = f"flake/{fac.slug(a.test, 80)}"
     with flakes.held():                              # (read, decided and written under the flake writers' one lock)
         f = flakes.read(iid)
