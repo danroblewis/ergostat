@@ -89,3 +89,17 @@ Round 4 (the merge of main 58471daf conflicted in `util.js`):
   and 1 failed, the same `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` as in rounds 1-3
   (it times out waiting for the project switcher). Still not run on clean main here; the factory's rerun decides it.
   ruff is clean.
+
+Round 5 (the merge of main 1c790d38 conflicted in `pages.js`):
+- Kept both sides: main's `pageItems(main, q, only)` (a kind's own page `/items/KIND`) and its per-class line above the
+  actions (`actionClasses`), with this branch's `itemsFinished`, the finished note and the click's AbortSignal. The
+  per-class ask goes out with the trust table's (both started before the items-graph asks and awaited after them).
+- Two interactions of the merge, fixed: main's per-class line and the trust table were asked only when a listed row
+  was of their kind, so with the finished left out (every action answered) they were never asked. They are now asked
+  when the kind has any item in its counts. And main made a bare `/items` the kinds' overview, so this branch's two
+  list tests open `/items?view=list`, and main's `test_actions_say_per_class_asked_approved_denied_and_whether_held`
+  opens `/items?finished=show` (it counts the answered actions' rows; and a bare `/items` is the overview on main too).
+- Ran after the merge: `test_items_page.py` 60 passed and 1 failed, the same
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` as in rounds 1-4 (the wait for the project
+  switcher, on a path this branch does not change); `test_item_sets.py` 16 passed; `test_graph_cli_web.py` +
+  `test_snapshot_sets.py` 48 passed. ruff is clean.

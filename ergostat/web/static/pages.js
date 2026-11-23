@@ -705,9 +705,11 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       flows[k.name] = fl && Object.values(fl.counts).some((c) => c.some((x) => x)) ? fl : null;   // none yet: its counts
     }));
     // how far each block's claims held, under the ergostat.claim table
-    const trustAsked = d.items.some((i) => i.kind === CLAIM_KIND) && (!kind || kind === CLAIM_KIND) ? ans.api("trust", {}, signal).catch(() => null) : null;
+    // (of a kind with any item, listed or not: its finished may all be left out)
+    const any = (n) => (!kind || kind === n) && d.kinds.some((k) => k.name === n && Object.values(k.counts || {}).some((c) => c));
+    const trustAsked = any(CLAIM_KIND) ? ans.api("trust", {}, signal).catch(() => null) : null;
     // above the gated actions' rows, a line per class: asked this week, and how each ended (with the trust table's)
-    const classesAsked = d.items.some((i) => i.kind === ACTION_KIND) && (!kind || kind === ACTION_KIND) ? ans.api("actions", { classes: 1 }, signal).catch(() => null) : null;
+    const classesAsked = any(ACTION_KIND) ? ans.api("actions", { classes: 1 }, signal).catch(() => null) : null;
     // the Graph's and the Timeline's answers (relations.js), asked on every refresh: a relation can change on an item
     // the list does not show. Of the kinds with relations (or named by one) in each open system; the chosen kind alone.
     // Every system's at once, with the trust table's

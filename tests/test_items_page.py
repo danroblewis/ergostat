@@ -588,7 +588,7 @@ def test_actions_say_per_class_asked_approved_denied_and_whether_held(browser, a
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{acted}/items")
+    pg.goto(f"{acted}/items?finished=show")                           # every action, the answered ones too
     line = pg.locator('.action-classes li[data-class="jira-transition"]')
     line.wait_for(timeout=20000)
     got = re.fullmatch(r"jira-transition: (\d+) asked, (\d+) approved \(by the gate\), (\d+) denied, (\d+) waiting this week"
@@ -1822,7 +1822,7 @@ def test_the_list_leaves_out_the_finished_and_one_parameter_shows_them(browser, 
     pg.on("pageerror", lambda e: errors.append(str(e)))
     unfinished = {"gap/g3": "parked", "gap/g5": "open", "gap/g6": "open"}
     try:
-        pg.goto(f"{finished_site}/items")
+        pg.goto(f"{finished_site}/items?view=list")                  # (bare, /items is the kinds' overview)
         pg.wait_for_selector(".finished-note")
         assert gap_rows(pg) == unfinished
         assert pg.locator(".finished-note").all_inner_texts() == ["3 finished (merged, closed, dead) not shown · show"]
@@ -1849,7 +1849,7 @@ def test_searching_a_finished_items_id_finds_it_and_says_so(browser, finished_si
     """Story F1: a finished item is never hidden from a search; it is counted apart."""
     pg = browser.new_page(viewport={"width": 1400, "height": 1000})
     try:
-        pg.goto(f"{finished_site}/items")
+        pg.goto(f"{finished_site}/items?view=list")
         pg.wait_for_selector(".finished-note")
         pg.fill('input[type="search"]', "gap/g1")
         pg.wait_for_function("() => document.querySelector('tr[data-kind=gap] b')?.textContent === 'gap/g1'")
