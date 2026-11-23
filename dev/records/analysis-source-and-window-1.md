@@ -52,3 +52,67 @@ depends-on: [result-frames-and-verdicts]
 ## Size budget
 240 net lines
 size: L (confidence: medium)
+
+## Entry
+
+section: Done recently
+
+- **The analysis source and the window ledger** (analysis-source-and-window-1). A panel query `{"source": "analysis",
+  "text": "raw(A)"}` is answered on the server over query A of the same request. `analysis` is reserved, never declared,
+  and listed first among `datasources` with its language. The call language is closed: a call, the query ids, then
+  `key=value` options. The only call is `raw`, with one option, `points`. A bad call, option or reference, or text that
+  does not parse (with its column), is refused alone. `raw(A)` of an ergostat series reads the readings, never the
+  roll-ups, on one grid at their median spacing, coarsened only to stay within the point bound. A hole longer than
+  `GAP_SAMPLES` spacings stays empty and is listed in `gaps`. With only roll-ups left it is refused (`only-rollups`).
+  `raw` of a data source's query asks it again at the finest step and warns `not-raw`. Every answer carries
+  `meta.sampling`: step, scrape (null and warned `scrape-unknown` where not known), PromQL range windows, the observable
+  band `[2 × max(scrape, step), window / 2]` and the nulls `W/k` inside it (G1, G2). A request whose answers differ in
+  step or range windows warns on each (`mixed-windows`, G4). Left: G3 (windows the controller consumes) waits for
+  `loop-roles-and-loop-panels`; `pair`, `psd`, `spectrogram` and `ccf` are the next sub-gap; the page's batching does
+  not yet rewrite the ids inside an analysis text.
+
+## Where it stopped
+
+Built: every item of the definition, with the eight named acceptance tests and one more
+(`test_analysis_is_offered_and_reserved`) in `tests/test_analysis_source.py`, all passing.
+
+Choices made alone (the most reversible, each easy to change):
+- Four verdict codes added to the closed list in `ergostat/query/verdicts.py`, a file the definition does not name:
+  `only-rollups` (refuse), `not-raw`, `scrape-unknown` and `mixed-windows` (warn). The verdicts need them.
+- `items`, `moves`, `counts` and `events` record each change at its time and are not sampled. Their `scrape_s` is null
+  with no `scrape-unknown` warning: a warning on every item chart would say something false. Sampled answers (an
+  ergostat `series`, `raw`, every data source's) do warn when the scrape is not known. A plain `series` reads its
+  scrape from the raw readings in the window (the newest 500,000).
+- `nulls_s` holds at most 50 periods, the longest first. SPEC says so.
+- A metrics store with no `_sources` (VictoriaMetrics) refuses `raw`. Its `range` stands roll-ups in for readings, so
+  it cannot promise raw.
+- A model that declares a source named `analysis` keeps it in its file, but it is not listed and never asked. Refusing
+  that name at compile is left to a later change (`spec/compile.py` is not in this gap's files).
+- G4 compares every answer of the request. The page sends all panels' queries in one request, so a dashboard with a
+  PromQL panel and an item panel warns `mixed-windows` on both. That is what the definition asks. Narrowing the warning
+  to one panel's queries needs the page to say which queries are one panel's. It is noted in SPEC.
+- G3 (windows the controller consumes) needs loop roles and is left to `loop-roles-and-loop-panels`.
+
+Left for other gaps:
+- The page's batching (`panels.js`, `send`) renames query ids to `q0`, `q1`, ... and rewrites X, input and output
+  references, but not the ids inside an analysis text. A saved panel's `raw(A)` therefore names an id the request no
+  longer holds, and is refused ("no query 'A' in this request"). This is fail-closed, never wrong data. The page side
+  belongs with the next sub-gap's panels; no UI was changed here.
+- Pinned tests that the definition changes by design were updated: the envelope's `sampling` in
+  `tests/test_result_frames_and_verdicts.py` and `tests/test_result_shapes.py`, the `scrape-unknown` (and, for two
+  answers of different windows, `mixed-windows`) reasons on PromQL answers, and `datasources` listing `analysis` first in
+  `tests/test_data_sources.py`.
+
+Checked by breaking the code: reading the roll-up tier in place of the readings fails
+`test_raw_reads_readings_not_rollups`, and filling holes of any length fails `test_raw_masks_a_gap`. Both were seen to
+fail, then restored.
+
+Tests run here: `tests/test_analysis_source.py`, `test_result_frames_and_verdicts.py`, `test_result_shapes.py`,
+`test_data_sources.py`, `test_query_engine.py`, `test_query_fixes.py`, `test_query_axes.py`,
+`test_query_frequency.py`, `test_query_spread.py`, `test_group_progress.py`, `test_dashboards_doc.py` and
+`test_promql_suggest.py` all pass. These browser files also pass with Playwright under the watchdog, none skipped:
+`test_panel_editor.py`, `test_result_frames_page.py`, `test_result_shapes_page.py`, `test_panels.py`,
+`test_dashboard_page.py` and `test_plot_forms.py`. ruff is clean. The whole unit suite and the four browser files were
+not run here (the factory runs them).
+
+Overrun reason: 335 lines added and 32 removed outside tests, docs and dev, about 303 net against 240. The call language with columns for its refusals, the reference checks (self, missing, analysis, failed), the per-request bound held at parse and again at run time, the readings bound and the four verdict codes are each asked for, and each costs a few lines. The rest is docstrings.

@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import base64
 import json
+import types
+
+import pytest
 
 from ergostat import datasources
 from ergostat import model as mdl
@@ -78,6 +81,15 @@ def test_raw_refuses_when_only_rollups_remain(tmp_path):
     assert "series" not in r and "only roll-ups" in r["error"] and codes(r) == ["only-rollups"]
     assert r["meta"]["verdict"]["level"] == "refuse"
     assert codes(a) == ["scrape-unknown"] and a["meta"]["sampling"]["scrape_s"] is None    # never read as fine
+    (tmp_path / "half").mkdir()
+    p = record(tmp_path / "half", SAW)
+    p.measurements.raw = HOUR                         # the first hour's readings forgotten, its roll-ups kept
+    p.measurements.roll(now=T + 2 * HOUR + 60)
+    [r] = ask(p, A, ("R", {"source": "analysis", "text": "raw(A)"}))[1:]
+    assert set(r["series"][0]["values"][:360]) == {None} and r["series"][0]["values"][360:] == [v for _, v in SAW[360:]]
+    assert f"from {T:.0f} to {T + HOUR:.0f} only roll-ups are kept" in str(r["meta"]["verdict"])
+    with pytest.raises(datasources.SourceError, match="no raw readings"):        # a store that cannot tell them apart
+        analysis.raw(object(), parsing.Query("A", "series", "avg", series="s"), T, T + HOUR, analysis.call("raw(A)"))
 
 
 def test_ledger_records_promql_range_windows(tmp_path, prom):
@@ -104,6 +116,8 @@ def test_observable_band_and_nulls():
     assert got["nulls_s"] == [86400 / k for k in range(24, 74)]                     # the longest 50 are listed
     got, said = sampling.ledger({"step": 60, "scrape_s": None, "range_windows_s": [HOUR]}, None, 86400)
     assert got["observable_period_s"] == [120, 43200] and [c for c, _ in said] == ["scrape-unknown"]
+    got, said = sampling.ledger({"step": 60}, types.SimpleNamespace(transform="moving_avg", window=5), HOUR)
+    assert got["range_windows_s"] == [300] and got["nulls_s"] == [300, 150] and said == []    # an average's span; not sampled
 
 
 def test_mixed_windows_warn(tmp_path, prom):
@@ -162,7 +176,13 @@ def test_bounds_hold(tmp_path, monkeypatch):
     assert "error" not in got[2] and "past the 2 analysis queries" in got[3]["error"]
 
 
-def test_analysis_is_offered_and_reserved(tmp_path):
+def test_analysis_is_offered_and_reserved(tmp_path, prom):
     p = record(tmp_path, SAW)
     assert api(Live(p), "query/fields", {})["datasources"] == [datasources.ANALYSIS]
     assert datasources.ANALYSIS["name"] == parsing.ANALYSIS
+    (tmp_path / "q").mkdir()
+    q = ds.project(tmp_path / "q", f'analysis: {{type: prometheus, url: "{prom}"}}')     # declared: never listed, never asked
+    assert api(Live(q), "query/fields", {})["datasources"] == [datasources.ANALYSIS]
+    ds.Stub.seen.clear()
+    [r] = ask(q, ("R", {"source": "analysis", "text": "up"}))
+    assert ds.Stub.seen == [] and "'up' is not a call" in r["error"] and r["error_at"] == [1, 1]
