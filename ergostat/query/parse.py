@@ -50,11 +50,18 @@ class Query:
 
 
 @dataclass(frozen=True)
+class Refused:
+    """A query that cannot be asked: it answers with these words, and the others still answer."""
+    id: str
+    error: str
+
+
+@dataclass(frozen=True)
 class Asked:
     since: float                    # the window, in seconds back from ``until``
     until: float | None
     points: int
-    queries: tuple[Query, ...]
+    queries: tuple[Query | Refused, ...]
 
 
 def decode(q: str | None) -> dict:
@@ -154,6 +161,12 @@ def _window(d: dict, who: str) -> int:
     return v
 
 
+def _id_of(x, i: int) -> str:
+    """The id its answer goes under, even for a query that is not well formed."""
+    v = x.get("id", i) if isinstance(x, dict) else i
+    return str(v) if isinstance(v, str | int) and not isinstance(v, bool) and len(str(v)) <= 64 else str(i)
+
+
 def _since(v) -> float:
     if v is None:
         return 86400.0
@@ -167,7 +180,7 @@ def _since(v) -> float:
 
 
 def parse(d: dict) -> Asked:
-    """The request, checked; a request or query that is not well formed is refused whole."""
+    """The request, checked: one that is not well formed is refused whole, a query that is not answers with why."""
     until = d.get("until")
     if until is not None and (isinstance(until, bool) or not isinstance(until, int | float) or not 0 < until < 1e11):
         raise BadQuery("query: until must be a Unix time, or null for now")
@@ -177,10 +190,19 @@ def parse(d: dict) -> Asked:
     qs = d.get("queries")
     if not isinstance(qs, list) or not qs:
         raise BadQuery("query: queries must be a list of at least one")
-    if len(qs) > MOST_QUERIES:
-        raise BadQuery(f"query: {len(qs)} queries, more than the {MOST_QUERIES} allowed")
-    got = tuple(_query(x, i) for i, x in enumerate(qs))
-    ids = [q.id for q in got]
-    if len(set(ids)) != len(ids):
-        raise BadQuery("query: two queries have the same id")
+    got: list[Query | Refused] = []
+    seen: set[str] = set()
+    for i, x in enumerate(qs):
+        id_ = _id_of(x, i)
+        if i >= MOST_QUERIES:
+            got.append(Refused(id_, f"query {id_}: not answered, past the {MOST_QUERIES} queries one request may ask"))
+        elif id_ in seen:
+            got.append(Refused(id_, f"query {id_}: two queries have the same id"))
+        else:
+            try:
+                got.append(_query(x, i))
+            except BadQuery as e:
+                got.append(Refused(id_, str(e)))
+        seen.add(id_)
+    got = tuple(got)
     return Asked(_since(d.get("since")), None if until is None else float(until), points, got)

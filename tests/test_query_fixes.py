@@ -138,3 +138,16 @@ def test_abandoned_requests_cannot_hold_more_than_the_gate(p, monkeypatch):
     hold.set()
     for x in ts:
         x.join(5)
+
+
+def test_two_queries_with_one_id_the_second_says_so(p):
+    body = [{"id": "a", "source": "counts", "kind": "ticket"}, {"id": "a", "source": "nope"}, "not an object"]
+    got = _ask_raw(p, body)
+    assert "error" not in got[0] and "same id" in got[1]["error"] and "must be an object" in got[2]["error"]
+
+
+def _ask_raw(p, queries):
+    import base64
+    import json
+    raw = base64.urlsafe_b64encode(json.dumps({"since": 480, "until": T + 480, "points": 4, "queries": queries}).encode()).decode()
+    return api(Live(p), "query", {"q": [raw]})["results"]

@@ -231,10 +231,9 @@ def test_at_most_twelve_groups_and_the_rest_as_other(tmp_path):
                                         ({"source": "counts", "transform": "log"}, "transform"),
                                         ({"source": "series"}, "series"), ({"source": "counts", "bucket": "soon"}, "bucket"),
                                         ({"source": "counts", "window": 0}, "window")])
-def test_a_malformed_query_is_refused_naming_what_is_wrong(p, query, word):
-    with pytest.raises(BadQuery) as e:
-        _ask(p, query)
-    assert word in str(e.value)
+def test_a_malformed_query_is_refused_naming_what_is_wrong_and_the_others_answer(p, query, word):
+    got = _ask(p, query, {"source": "counts", "kind": "ticket"})
+    assert word in got[0]["error"] and "series" not in got[0] and "error" not in got[1]
 
 
 @pytest.mark.parametrize("raw", ["", "!!!", base64.urlsafe_b64encode(b"[1]").decode(), "A" * (MOST_ENCODED + 1)])
@@ -243,12 +242,12 @@ def test_a_request_that_is_not_one_is_refused(p, raw):
         api(Live(p), "query", {"q": [raw]})
 
 
-def test_too_many_queries_too_long_a_window_or_too_many_points_are_refused(p):
+def test_too_long_a_window_or_too_many_points_are_refused_and_queries_past_the_limit_say_so(p):
     for kw in ({"since": 1e9}, {"points": 5000}):
         with pytest.raises(BadQuery, match="since|points"):
             _ask(p, {"source": "counts"}, **kw)
-    with pytest.raises(BadQuery, match="queries"):
-        _ask(p, *[{"source": "counts"}] * (MOST_QUERIES + 1))
+    got = _ask(p, *[{"source": "counts"}] * (MOST_QUERIES + 2))
+    assert all("error" not in r for r in got[:MOST_QUERIES]) and all(str(MOST_QUERIES) in r["error"] for r in got[MOST_QUERIES:])
 
 
 def test_one_query_that_fails_leaves_the_others_answered(p):

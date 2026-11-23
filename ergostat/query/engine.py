@@ -12,7 +12,7 @@ from collections import OrderedDict
 from . import sources
 from . import transforms as tf
 from .buckets import Grid, grid
-from .parse import RATE_PER, Query, decode, parse
+from .parse import RATE_PER, Query, Refused, decode, parse
 from .sources import READERS, Read, Unanswerable, bucketed, series_grid
 
 MOST_GROUPS = 12
@@ -209,7 +209,7 @@ def _one(live, p, q: Query, since: float, until: float, points: int, first: floa
 
 
 def answer(live, p, raw: str | None) -> dict:
-    """``GET /api/query``: a malformed request raises ``BadQuery``; a query that cannot be answered says so in its result."""
+    """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or cannot be answered says so in its result."""
     asked = parse(decode(raw))
     now = time.time()
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
@@ -217,4 +217,5 @@ def answer(live, p, raw: str | None) -> dict:
     first = p.events.first_time()
     work = Work(_kept(live))
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step,
-            "results": [_one(live, p, q, since, until, asked.points, first, work) for q in asked.queries]}
+            "results": [{"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
+                        else _one(live, p, q, since, until, asked.points, first, work) for q in asked.queries]}
