@@ -7,6 +7,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -23,6 +24,9 @@ from ergostat.inbox import entries
 from ergostat.repair import FAILURE
 from ergostat.repair import apply as rapply
 from ergostat.sandbox import git as sgit
+from ergostat.spec import items as its
+from ergostat.spec import read as read_spec
+from ergostat.spec.counts import Counts
 from ergostat.store import Project
 from tests.test_repair2 import FIXED, broken, fixed, git, one, project
 
@@ -536,3 +540,107 @@ def test_a_dirty_tree_or_a_revert_in_progress_is_refused_not_touched(made):
         assert ("not committed" if how == "staged" else "a revert is in progress") in it.fields["revert"]["why"]
         assert git("rev-parse", "HEAD", cwd=root) == head and files(root) == was
         assert how == "staged" or (root / ".git" / "REVERT_HEAD").read_text() == base + "\n"
+
+
+# ---- fixes-hold: no fix regressed in the last 14 days (on the window, not on the stock)
+
+DAY = 86400.0
+
+
+def fixes_hold(p, e, at=None) -> tuple[str, float]:
+    """fixes-hold as the engine works it out, fixes-regressed-recent (and the stock regressed-fixes) read at ``at``
+    (default now): the record counted directly and through what the engine keeps of it (counts.py), which must agree.
+    Returns the goal's status and the auxiliary's reading."""
+    spec = p.model.spec
+    at = time.time() if at is None else at
+    got = {}
+    for part in (spec.auxiliaries["fixes-regressed-recent"], spec.stocks["regressed-fixes"]):
+        s = next(iter(part.sensors.values()))
+        direct, _ = its.measure(p.events, spec, s, now=at)
+        c = Counts(False)
+        assert c.follow(p.events, spec, [s], now=at)
+        assert c.value(spec, s, now=at) == (direct, ""), part.name
+        p.measurements.add(s.series, direct)
+        got[part.name] = direct
+    e.evaluate()
+    return e.status.get("fixes-hold"), got["fixes-regressed-recent"]
+
+
+def test_the_template_has_fixes_hold_and_check_finds_it_served(tmp_path, monkeypatch):
+    p, e = project(tmp_path, monkeypatch)
+    try:
+        spec = p.model.spec
+        g = spec.goals["fixes-hold"]
+        assert str(g.of) == "auxiliary.fixes-regressed-recent" and f"{g.hold.op} {g.hold.value:g}" == "<= 0"
+        assert g.tolerance == 0 and g.on_stale == "off"
+        s = next(iter(spec.auxiliaries["fixes-regressed-recent"].sensors.values()))
+        assert s.items["entering"] == "regressed" and s.items["over"] == 14 * DAY
+        about = {"goal.fixes-hold", "auxiliary.fixes-regressed-recent"}
+        mine = [f"{x.level} {x.code} {x.message}" for x in p.model.problems if x.about in about and x.level != "note"]
+        assert not mine, mine
+        assert spec.loop("fixes-hold").closes and "repair-settle" in spec.loop("fixes-hold").controllers
+    finally:
+        e.close()
+
+
+def test_an_auxiliary_counts_moves_over_its_window_and_refuses_over_alone(tmp_path):
+    head = "name: t\nitems:\n  issue: {id: issue/*, states: [open, closed], on: {issue.seen: open}}\nauxiliaries:\n"
+    for sensor, error in (("{items: issue, entering: open, over: 1d}", None),
+                          ("{items: issue, state: open, over: 1d}", "items-on-stock")):
+        d = tmp_path / str(bool(error))
+        d.mkdir()
+        (d / "ergostat.yaml").write_text(head + f"  seen-lately: {{unit: issues, sensor: {sensor}}}\n")
+        _, problems = read_spec(d / "ergostat.yaml", extremes=False)
+        assert [x.code for x in problems if x.level == "error"] == ([error] if error else []), problems
+    p = Project(mdl.load(tmp_path / "False"))
+    for i in range(3):
+        p.events.add("issue.seen", item=f"issue/{i}", source="t")
+    s = next(iter(p.model.spec.auxiliaries["seen-lately"].sensors.values()))
+    assert its.measure(p.events, p.model.spec, s) == (3.0, ""), "how many, not a rate per hour"
+    assert its.measure(p.events, p.model.spec, s, now=time.time() + 2 * DAY) == (0.0, "")
+
+
+def test_specs_parts_table_matches_the_template():
+    """SPEC §12r's parts table names every part the template has, and no other."""
+    import yaml
+    t = yaml.safe_load((Path(mdl.__file__).parent / "library/templates/repair/template.yaml").read_text())
+    spec = (Path(__file__).parents[1] / "docs/SPEC.md").read_text()
+    table = spec[spec.index("| Part | What |", spec.index("## 12r.")):]
+    table = table[:table.index("\n\n")]
+    rows = {r.split("|")[1].strip(): r.split("|")[2] for r in table.splitlines()[2:]}
+    assert set(rows) == {"stocks", "auxiliaries", "flows", "goals", "actions"}
+    for k, row in rows.items():                         # the names outside brackets; what is in them says more
+        assert set(re.findall(r"`([a-z-]+)`", re.sub(r"\([^)]*\)", "", row))) == set(t[k]), k
+
+
+def test_a_regressed_fix_turns_fixes_hold_off(made):
+    p, e, fid, root, base = made()
+    assert fixes_hold(p, e) == ("holding", 0.0), "an applied fix not yet judged"
+    (root / "answer.json").write_text(BAD)
+    e.run_block(p.model.spec.blocks["collector"], "test")
+    git("checkout", "--", "answer.json", cwd=root)
+    rapply.settle("3", p)
+    assert one(p, fid).state == "regressed"
+    assert fixes_hold(p, e) == ("off", 1.0)
+    assert p.events.query(n=1, type="loop.off", item="fixes-hold")
+
+
+def test_fixes_hold_recovers_after_the_window(made):
+    p, e, fid, root, base, commit = regressed(made)
+    now = time.time()
+    assert fixes_hold(p, e, now) == ("off", 1.0)
+    assert fixes_hold(p, e, now + 13 * DAY) == ("off", 1.0), "still inside the 14 days"
+    assert fixes_hold(p, e, now + 15 * DAY) == ("holding", 0.0), "a window passed with no new regression"
+    assert p.events.query(n=1, type="loop.holding", item="fixes-hold")
+
+
+def test_a_denied_revert_does_not_hold_it_off_for_good(made):
+    p, e, fid, root, base, commit = regressed(made)
+    gate.deny(p, reverts(p, fid)[0]["id"])
+    rapply.settle("3", p)
+    assert one(p, fid).state == "regressed" and reverts(p, fid)[0]["state"] == "denied"
+    spec, at = p.model.spec, time.time() + 15 * DAY
+    stock = next(iter(spec.stocks["regressed-fixes"].sensors.values()))
+    assert its.measure(p.events, spec, stock, now=at) == (1.0, ""), "the stock keeps it: a goal there never recovers"
+    assert fixes_hold(p, e, time.time()) == ("off", 1.0)
+    assert fixes_hold(p, e, at) == ("holding", 0.0)

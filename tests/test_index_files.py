@@ -205,6 +205,15 @@ def _hold(root: str, path: str, go, out) -> None:
     ix.close()
 
 
+def test_a_spawned_process_is_not_given_dev_bin_whose_queue_hides_the_standard_one(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parent.parent / "dev" / "bin"))
+    p = _project(tmp_path / "proj")
+    p.events.add("ticket.opened", item="ticket/1")
+    w = _Held(tmp_path / "proj", itemindex.index_for(p.events, p.model.spec, False).path)   # it would die on import
+    w.stop()
+    assert w.p.exitcode == 0
+
+
 def test_tidy_skips_an_index_another_process_has_open(tmp_path, monkeypatch):
     p = _project(tmp_path / "proj")
     p.events.add("ticket.opened", item="ticket/1")

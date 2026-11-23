@@ -47,7 +47,8 @@ def message(n, es: list[dict], late: bool, base: str, scrub=None) -> tuple[str, 
         subject += f" longer than {human(n.wait_at_most)}"
     lines = [f"- {e['id']} ({WORDS[e['kind']]}, class {e['class']}), waiting {human(e['age'])}"
              + (f"\n  {e['warn']}" if e.get("warn") else "")              # (whatever the detail: SPEC §12r)
-             + (f"\n  {scrub(e['summary'])}" + (f"\n  why: {scrub(e['why'])}" if e.get("why") else "") if scrub else "")
+             + (f"\n  {scrub(e['summary'])}" + (f"\n  why: {scrub(e['why'])}" if e.get("why") else "")
+                + (f"\n  runs: {scrub(e['run'])}" if e.get("run") else "") if scrub else "")
              + (f"\n  {base}{e['link']}" if base else "")
              + (f"\n  {en.command(e)}" if e["verbs"] else "") for e in es[:10]]
     if len(es) > 10:
