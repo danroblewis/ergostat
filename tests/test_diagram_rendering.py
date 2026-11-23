@@ -2385,6 +2385,48 @@ def test_the_dynamics_view_speaks_system_dynamics_and_marks_only_loops_whose_sig
         pg.close()
 
 
+def held_requests(d: Path) -> None:
+    """the-job with two modelling requests held, as the running demo has them: queue-goal-tolerance on
+    goal.ci-upgrade-planned (the owner's), and one the rule tier has no certain change for."""
+    from ergostat import model as mdl
+    from ergostat.numbers import requests as rq
+    from ergostat.store import Project
+    p, now = Project(mdl.load(d)), time.time()
+    for code, about, tier, why in [
+            ("queue-goal-tolerance", "goal.ci-upgrade-planned", "owner", rq.OWNER["queue-goal-tolerance"]),
+            ("no-description", "stock.backlog", "rule", "the rule tier has no certain change for it: no words to carry")]:
+        k = rq.rid("craft", code, about)
+        rq.event(p, k, "raised", {"source": "craft", "code": code, "about": about, "says": f"{code} on {about}",
+                                  "level": "note", "tier": tier, "raised": now, "since": now, "change": None, "why": None})
+        rq.event(p, k, "held", {"why": why, "owner": tier == "owner", "tier": tier})
+
+
+def test_the_dynamics_wording_never_touches_a_requests_code_id_or_tier(browser, tmp_path):
+    """The side list says a request in system dynamics' words in Dynamics, but its code, the part it is about and the
+    tier holding it are the request's own, the same as in Blocks: never 'desired level.' or 'desired level-'."""
+    from ergostat.numbers import requests as rq
+    goal, unit = rq.rid("craft", "queue-goal-tolerance", "goal.ci-upgrade-planned"), rq.rid("craft", "no-description", "stock.backlog")
+    assert goal == "80fe1e93e1"                            # the demo's request/80fe1e93e1
+    with served("the-job", tmp_path, held_requests) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        said = {}
+        for view in ("dynamics", "blocks"):
+            drawn(pg, url, f"view={view}", 0)
+            # (held requests sit in the folded Model housekeeping: read the card's text, open or folded)
+            said[view] = pg.evaluate("""(ids) => ids.map((id) =>
+              document.querySelector(`[data-inbox="request/${id}"]`)?.textContent || '')""", [goal, unit])
+        for view, (g, u) in said.items():
+            assert "queue-goal-tolerance" in g and "goal.ci-upgrade-planned" in g, (view, g)
+            assert "desired level." not in g and "desired level-" not in g, (view, g)
+            assert "rule tier" in u and "decision tier" not in u, (view, u)
+        assert "desired level's desired level" not in said["dynamics"][0], said["dynamics"][0]
+        assert "setpoint" not in said["dynamics"][0], said["dynamics"][0]     # its own words still in Dynamics'
+        assert not errors, errors
+        pg.close()
+
+
 def test_a_stocks_panel_names_its_goal_and_what_serves_it_and_never_says_nothing_acts_on_it(browser, tmp_path):
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
