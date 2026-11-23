@@ -7,9 +7,10 @@ import time
 from ..spec import codec, numberreads
 from ..spec import items as its
 from . import transforms
+from .axes import X_OF, X_TYPES
 from .labels import word
-from .parse import AGGS, RATE_PER, TRANSFORMS
-from .sources import _series_unit
+from .parse import AGGS, MOST_SEGMENTS, RATE_PER, SEGMENTS, TRANSFORMS
+from .sources import OHLC_SOURCES, _series_unit
 
 SAMPLE = 200                # the latest items a kind's low-cardinality fields are told from
 FEW = 12                    # the most distinct values a field to group by may have
@@ -52,8 +53,14 @@ def _read(p) -> dict:
             continue
         items_[name] = {"fields": [{"name": f["field"], "unit": f["unit"]} for f in numberreads.fields_of(ix).get(name, ())],
                         "states": list(k.states), "finished": finished, "group_by": _groupable(ix, k)}
-    return {"sources": {"items": {"kinds": items_}, "moves": {"kinds": moves}, "counts": {"kinds": list(kinds)},
-                        "series": {"series": _series(p)}, "events": {"types": sorted(types)}},
+    sources = {"items": {"kinds": items_}, "moves": {"kinds": moves}, "counts": {"kinds": list(kinds)},
+               "series": {"series": _series(p)}, "events": {"types": sorted(types)},
+               "frequency": {"needs": ["input", "output"], "segments": {"default": SEGMENTS, "min": 2, "max": MOST_SEGMENTS},
+                             "goals": [g for g, x in (getattr(spec, "goals", None) or {}).items() if x.process]}}
+    for name, got in sources.items():
+        got["x"] = list(X_OF[name])
+        got["ohlc"] = name in OHLC_SOURCES
+    return {"sources": sources, "x_types": list(X_TYPES),
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),
             "rate_units": dict(transforms.SHORT)}
 

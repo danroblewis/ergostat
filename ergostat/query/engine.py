@@ -8,8 +8,9 @@ import threading
 import time
 import weakref
 from collections import OrderedDict
+from dataclasses import replace
 
-from . import sources
+from . import shaped, sources
 from . import transforms as tf
 from .buckets import Grid, grid
 from .parse import RATE_PER, Query, Refused, decode, parse
@@ -23,6 +24,12 @@ REQUEST_SECONDS = 10.0      # a request stops starting queries after this: what 
 LOG_READS = 4               # distinct reads of the event log one request may make
 LOG_AT_ONCE = 2             # reads of the event log at once, in all: the web server's workers are never all held by them
 log = logging.getLogger("ergostat")
+
+
+def _cells(value: dict) -> int:
+    """How many numbers an answer holds, whatever its shape."""
+    lists = [*(value.get("frequency") or {}).values(), *(x for s in value.get("series", ()) for x in s.values())]
+    return 1 + sum(len(x) for x in lists if isinstance(x, list))
 
 
 class Kept:
@@ -42,7 +49,7 @@ class Kept:
             return v
 
     def put(self, key, value: dict) -> None:
-        size = 1 + sum(len(s["values"]) for s in value.get("series", ()))
+        size = _cells(value)
         with self.lock:
             if key in self.got:
                 return
@@ -209,6 +216,66 @@ def _one(live, p, q: Query, since: float, until: float, points: int, first: floa
     return got
 
 
+def _resolved(q: Query, by_id: dict[str, Query], refused: set[str]) -> Query:
+    """Its X's query, in place of that query's id; the query it names must be a plain one in time."""
+    if q.x is None or not isinstance(q.x.query, str):
+        ref = q.x.query if q.x is not None else None
+    else:
+        if q.x.query == q.id:
+            raise Unanswerable("its X cannot be itself")
+        ref = by_id.get(q.x.query)
+        if q.x.query in refused:
+            raise Unanswerable(f"its X, query {q.x.query!r}, is itself refused")
+        if ref is None:
+            raise Unanswerable(f"its X names query {q.x.query!r}, which is not in this request")
+        q = replace(q, x=replace(q.x, query=ref))
+    if ref is not None and (ref.x is not None or ref.source == "frequency" or ref.agg == "ohlc"):
+        raise Unanswerable(f"its X, query {ref.id!r}, must be a plain query in time")
+    return q
+
+
+def _versions(p, q: Query) -> tuple:
+    if q.source == "frequency":
+        return () if q.model else (_version(p, q.input), _version(p, q.output))
+    return (_version(p, q), _version(p, q.x.query)) if q.x is not None and isinstance(q.x.query, Query) else (_version(p, q),)
+
+
+def _build(a: shaped.Asking, q: Query, first) -> dict:
+    if q.source == "frequency":
+        return shaped.response(a, q)
+    if q.agg == "ohlc":
+        if q.x is not None:
+            raise Unanswerable("candles need a time X")
+        return shaped.ohlc(a, q, first)
+    return {"query": shaped.paired, "field": shaped.by_field, "category": shaped.category, "bins": shaped.binned}[q.x.type](a, q)
+
+
+def _shaped(live, p, q: Query, by_id: dict, refused: set, since: float, until: float, points: int, first: float | None,
+            work: Work) -> dict:
+    """A query that is not one value per time bucket: kept like the rest, and failing alone."""
+    uses_log = "events" in (q.source, getattr(q.input, "source", None), getattr(q.output, "source", None))
+    try:
+        q = _resolved(q, by_id, refused)
+        uses_log = uses_log or getattr(getattr(q.x, "query", None), "source", None) == "events"
+        kept = _kept(live)
+        key = ("shaped", q, since, until, points, getattr(live, "mtime", None), _versions(p, q))
+        if (got := kept.get(key)) is not None:
+            return got[0]
+        if work.late():
+            raise Unanswerable(f"busy: this request ran past {REQUEST_SECONDS:g} s; try again")
+        spec = getattr(p.model, "spec", None)
+        a = shaped.Asking(p, spec, since, until, points, lambda sub, n: _one(live, p, sub, since, until, n, first, work),
+                          lambda sub, g: _read(p, spec, sub, g, work))
+        got = _build(a, q, first)
+    except Unanswerable as e:
+        return {"id": q.id, "error": f"{q.source}: {e}", "read_log": uses_log}
+    except Exception as e:                            # one query's failure is its own: the others still answer
+        log.warning("ergostat: query %s (%s) failed: %s", q.id, q.source, e)
+        return {"id": q.id, "error": f"{q.source}: could not be read ({type(e).__name__}: {e})", "read_log": uses_log}
+    kept.put(key, got)
+    return got
+
+
 def answer(live, p, raw: str | None) -> dict:
     """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its result."""
     asked = parse(decode(raw))
@@ -216,7 +283,12 @@ def answer(live, p, raw: str | None) -> dict:
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
     since = until - asked.since
     first = p.events.first_time()
+    by_id = {q.id: q for q in asked.queries if isinstance(q, Query)}
+    refused = {q.id for q in asked.queries if isinstance(q, Refused)}
     work = Work(_kept(live))
+    plain = lambda q: q.x is None and q.source != "frequency" and q.agg != "ohlc"   # noqa: E731
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step,
             "results": [{"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
-                        else _one(live, p, q, since, until, asked.points, first, work) for q in asked.queries]}
+                        else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
+                        else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work)
+                        for q in asked.queries]}
