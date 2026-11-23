@@ -109,3 +109,16 @@ changed: the build is round 1's.
   which write the attribute even when it is unchanged. The branch's `quietRefresh` writes only to
   `#detail [data-quiet]`, and no panel is open in that test. So the failure is main's, not this branch's (lesson 13):
   it is left alone. It was not run on main itself here, because `git worktree add /tmp/mainwt main` was refused.
+
+## Where it stopped
+
+Round 3 (2026-11-23): the factory's merge of main (ead497d1) conflicted in pages.js. Main moved the Loops page's trends
+and performance words to the server (`api("loops", { perf: 1 })`, so the page no longer fetches the graph). The fix
+keeps main's lines and adds the branch's `qbox` and its `api("systems")` read beside them. Committed as 1cb0b45a. The
+build is unchanged from round 1.
+
+- Run after the merge: ruff (clean), tests/test_quiet_system.py (4 passed), tests/test_page_polling.py (20 passed),
+  tests/test_page_refresh.py (9 passed, 1 failed). The failure is round 2's
+  `test_other_pages_left_open_change_nothing[diagram?view=process&by=events]` again (6 mutations in 3 refreshes). It
+  comes from main's lines in diagram.js `show()`, not this branch's (see round 2), so it is left alone (lesson 13). The
+  branch's own browser test in that file passed.
