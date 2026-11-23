@@ -108,3 +108,14 @@ both, and nothing else changed. After the merge: ruff clean; `tests/test_style_t
 in rounds 2-4. This branch does not touch the header or the switcher, so it is reported and left alone (lesson 13).
 `test_actions_say_per_class_asked_approved_denied_and_whether_held` passes now. `test_the_items_table_fits_at_1440_px`
 passes. Not run: `tests/test_page_refresh.py`, the unit suite, the other browser files.
+
+Round 6: main (b6d7a1db) merged. The one conflict was in `tests/test_items_page.py`: both sides had added tests at the
+same place (the branch's seed and `test_the_items_table_fits_at_1440_px`, main's `desk` fixture and Timeline test).
+Both are kept whole. Main also added a module-level `TICKETS` (a model's YAML) further down. It shadowed the branch's
+seed script of the same name, so the acceptance test ran YAML as Python and failed. The branch's string is now
+`WIDE_TICKETS`. No code outside tests changed. After the merge: ruff clean; `tests/test_style_tokens.py` 14 passed;
+`tests/test_items_page.py` with Playwright under the watchdog 68 passed, 1 failed (rc 1). The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, with the same `#project` switcher timeout as in
+rounds 2-5. The branch does not touch the header or the switcher, so it is reported and left alone (lesson 13).
+`test_the_items_table_fits_at_1440_px` passes. Not run: `tests/test_page_refresh.py`, the unit suite, the other
+browser files.

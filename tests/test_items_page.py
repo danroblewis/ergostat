@@ -1589,7 +1589,7 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         events._kept.clear()
 
 
-TICKETS = """
+WIDE_TICKETS = """
 import time
 from pathlib import Path
 from ergostat import model as mdl
@@ -1631,7 +1631,7 @@ def test_the_items_table_fits_at_1440_px(browser, tmp_path):
     d = tmp_path / "ticket-factory"
     shutil.copytree(ROOT / "examples" / "ticket-factory", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
     home = tmp_path / "home"
-    subprocess.run([sys.executable, "-c", TICKETS.format(d=str(d))], env={**os.environ, "ERGOSTAT_HOME": str(home)},
+    subprocess.run([sys.executable, "-c", WIDE_TICKETS.format(d=str(d))], env={**os.environ, "ERGOSTAT_HOME": str(home)},
                    check=True, capture_output=True)
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
