@@ -277,10 +277,15 @@ flows:
   research-answered:
     system: research
     from: research-asked
-    description: a question answered - its report in run/research/, its summary on the item
+    description: a question answered with at least one source checked (a file and line of the clone, a URL the session opened) - its report in run/research/, its summary on the item
     driven-by: [+stock.research-asked]
     equation: stock.research-asked / research-time
     sensor: {items: research, entering: answered, over: 1d}
+  research-unsourced:
+    system: research
+    from: research-asked
+    description: an answer with no source checked - given back and asked again (back in through research-questions), the why in its brief; a second is a dead letter
+    sensor: {items: research, entering: unsourced, over: 1d}
   lessons-found:
     system: knowledge
     to: lessons-proposed
@@ -546,15 +551,15 @@ blocks:
     type: ai
     system: research
     agent: opus
-    description: a session per question in a read-only clone of main - the code, the docs, the record and the web where allowed; a report with sources
+    description: a session per question in a read-only clone of main - the code, the docs, the record and the web where allowed; a report with sources, each checked (a file and line at the clone's sha, a URL its session opened)
     run: python3 dev/bin/research.py
     prompt: dev/prompts/researcher.md
     takes: {kind: research, at: asked, to: [answered]}
     pool: 1
-    lease: {ttl: 60m, attempts: 2}
+    lease: {ttl: 60m, attempts: 2}   # (an unsourced answer is a counted attempt: the second is the dead letter)
     timeout: 2h
     in: block.research-when
-    out: flow.research-answered
+    out: [flow.research-answered, flow.research-unsourced]
 
   librarian:
     type: program

@@ -565,6 +565,8 @@ class Sensor:
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
     untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
+    run_in: str | None = None   # "owner" only when compile proved its run the owner's or ergostat's; else (None too)
+    #                             it runs in ergostat.sandbox (library/runs.py)
 
     @property
     def window(self) -> float:
@@ -758,6 +760,9 @@ class Block:
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
     untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
     law: KnownLaw | None = None  # an external block's declared law (``law: {kind: ...}``); None when it declares none
+    # ``runs-on: POOL``: the compute pool its runs are for (SPEC §12k); None: here. Left out of its plain form while None,
+    # so a model that names no pool hashes as it did before the key existed (numbers/version._plain).
+    runs_on: str | None = field(default=None, metadata={"unset": None})
 
     @property
     def builtin(self) -> bool:
