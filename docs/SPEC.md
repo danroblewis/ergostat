@@ -1240,6 +1240,17 @@ items:
 | `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `system`, `description` | | | |
 
+**Which states are finished.** One rule (`spec/finished.py`) decides it for the Items listing, the relations' status
+and critical path, and the completion estimates: the states `messages: {done:}` declares for the kind (*declared*),
+else the states after its first that no item has left yet (*inferred*, so it can change as items move); never its
+first state, a state a block takes from, `leased`, `dead`, or a state `messages: {paused:}` declares (those are
+*paused*, listed apart). A kind with one state, or with nothing declared and nothing inferable, *lives on*: it has
+no finished state (a pool is held, never done). `/api/items` gives each kind `finished`, `paused`, `dead` (a dead
+letter ends its items), `finished_from` (`declared`, `inferred` or `none`) and `lives_on`, and the Items page says it
+in one line under each kind's states: `finished: merged, closed (declared)`, `finished: answered (inferred: no item
+has left it yet)`, or `lives on`, with `paused: …` after it. The process map, the cumulative flow and message routing
+keep their own older rule for now (a kind's last state when every state has been left).
+
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
 folded into that document in sequence. The event chooses how it changes it, in one of three forms
 (never two at once):
