@@ -74,3 +74,22 @@ Main (52c675fe) is merged in. It conflicted in `diagram.js`, `pages.js`, `tests/
   link), then the `data-answered` row after the reader leaves.
 - Checked that the test can fail, three ways: the confirmation not put in the row (failed), answered rows not drawn
   again (failed), "approved by" dropped from the item line (failed).
+
+## Where it stopped (round 3)
+
+Main (ead497d1) is merged in. It conflicted in `diagram.js`, and the conflict is resolved with main's side kept
+throughout. `inboxAnswer` is main's: each button names what it answers, the reason field comes before the buttons,
+and Deny waits until a reason is typed. The branch adds only the confirmation in the row's reply (`ANSWERED` and
+`answeredSays`). The side list uses main's `waitsOnYou` (util.js) and the `id="waiting"` heading. Entries answered
+here are still left out of the waiting group and drawn at its top as `data-answered` rows.
+
+- The acceptance test's reason field is now found by main's label (`Why deny …`), not the old `Why`.
+- `tests/test_inbox_page.py` passes (10 tests). The acceptance test was broken again after the merge (the reply set
+  to the server's plain `said`) and it failed.
+- Failures this branch does not touch, left alone (lesson 13):
+  - `tests/test_agents_page.py::test_each_row_says_how_it_is_engaged_and_which_goal_it_serves` passes alone and
+    fails when the whole file runs. It reads `#detail` while the panel still says "Loading…". That is a test race on
+    `/agents` (`details.js`), which this branch does not change.
+  - `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` times out
+    waiting for the `#project` switcher's other-project option. That is the header, and the branch does not change
+    it. Not rerun on clean main here.
