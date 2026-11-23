@@ -105,6 +105,29 @@ def test_docker_outputs_parse(res):
     assert res.size_gb("1.5kB") == 1500 / 2**30 and res.size_gb("") == 0
 
 
+def test_the_docker_vms_open_files_are_read_on_macos_only(res, monkeypatch):
+    """dev/records/suites-copy-their-checkout-into-the-container.md, 4: the most any VM process holds (its limit is
+    per process); no reading (never 0) when no VM runs, lsof fails, or off macOS."""
+    lsof = "p101\nfcwd\nftxt\nf0\nf1\np202\nfcwd\nf0\nf1\nf2\nf3\n"
+    assert res.open_files(lsof) == 5 and res.open_files("p7\n") == 0 and res.open_files("") is None
+    calls = []
+
+    def sh(*cmd, timeout=10):
+        calls.append(cmd)
+        return {"pgrep": "101\n202\n", "lsof": lsof}.get(cmd[0], "")
+
+    monkeypatch.setattr(res, "sh", sh)
+    monkeypatch.setattr(res.sys, "platform", "darwin")
+    assert res.vm_open_files() == 5 and calls == [("pgrep", "-f", res.VM), ("lsof", "-n", "-P", "-F", "f", "-p", "101,202")]
+    monkeypatch.setattr(res, "sh", lambda *c, timeout=10: "101\n" if c[0] == "pgrep" else "")   # lsof failed
+    assert res.vm_open_files() is None
+    monkeypatch.setattr(res, "sh", lambda *c, timeout=10: "")                                  # no VM running
+    assert res.vm_open_files() is None
+    monkeypatch.setattr(res, "sh", sh)
+    monkeypatch.setattr(res.sys, "platform", "linux")
+    assert res.vm_open_files() is None and "vm-open-files" in res.SLOW_READINGS     # (its goal: test_gates_respect_headroom)
+
+
 SP = {"cpu": 0.8, "memory": 0.8, "vm-memory": 0.85, "disk": 50, "threads": 10000}
 CALM = {"cpus": 28, "cpu-utilisation": 0.2, "memory-total": 256.0, "memory-used": 40.0, "disk-free": 400.0,
         "machine-threads": 4000, "vm-cpus": 24, "vm-cpu-used": 2.0, "vm-memory": 150.0, "vm-memory-used": 10.0}
@@ -174,12 +197,21 @@ def test_gates_respect_headroom(res):
     assert {k: spec.goals[g].hold.value for k, g in res.GOALS.items()} == sp
     assert spec.goals["sessions-fit"].on_stale == "off"                 # a stale headroom counts as no room
     assert {r.name for r in spec.blocks["machine-full"].outputs["out"]} == {"implement-when", "review-when"}
+    vm = spec.goals["vm-open-files-within"]                             # a leak shown, before the engine fails
+    assert (vm.of.name, vm.hold.op, vm.hold.value) == ("vm-open-files", "<=", 150000)
+    assert [s.run for s in spec.auxiliaries["vm-open-files"].sensors.values() if s.run] == [
+        "python3 dev/bin/resources.py vm-open-files"]
+    assert spec.loop("vm-open-files-within").actuators == ["restart-docker"]     # its loop closes through the owner,
+    assert spec.blocks["restart-docker"].type == "external"                       # and nothing of the factory's reads it
+    assert [b for b in spec.blocks.values() if b.type != "external"
+            and any(r.kind == "goal" and r.name == "vm-open-files-within" for r in b.reads())] == []
+    assert not [p for p in problems if p.code == "missing-feedback" and p.about == "goal.vm-open-files-within"]
     calm = dict(fit=0, cpu=0, memory=0, vm=0, threads=0, disk=0)
     assert env_of(spec, "machine-full", calm) == 0
     for k in calm:
         assert env_of(spec, "machine-full", calm | {k: 1}) == 1, k
-    build = dict(ready=1, fixes=0, open=1, over=0, busy=1, pool=3, room=2, full=0)
-    review = dict(waiting=1, over=0, busy=1, pool=2, room=2, full=0)
+    build = dict(ready=1, fixes=0, open=1, over=0, busy=1, pool=3, room=2, full=0, held=0)
+    review = dict(waiting=1, over=0, busy=1, pool=2, room=2, full=0, held=0)
     assert env_of(spec, "implement-when", build) == 1
     assert env_of(spec, "implement-when", build | {"room": 0}) == 0                  # no headroom: closed
     assert env_of(spec, "implement-when", build | {"full": 1}) == 0                  # past a goal, or stale: closed
@@ -187,6 +219,8 @@ def test_gates_respect_headroom(res):
     assert env_of(spec, "review-when", review) == 1
     assert env_of(spec, "review-when", review | {"room": 0}) == 0
     assert env_of(spec, "review-when", review | {"busy": 2, "room": 9}) == 0
+    for when, given in (("implement-when", build), ("review-when", review)):      # the AI held (aihold.py): closed
+        assert env_of(spec, when, given | {"held": 1}) == 0, when
 
 
 def test_my_turn_respects_headroom(res, monkeypatch):
