@@ -498,7 +498,7 @@ function sdLoopList(side, g) {
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
   const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
   side.append(h("h3", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
-  const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
+  const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
     h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
     h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
@@ -513,7 +513,7 @@ function sdLoopList(side, g) {
     side.append(d);
   }
   for (const [n, xs] of modules)                        // as many as the module's own caption says
-    side.append(h("div", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
+    side.append(h("button", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
       h("div", {}, h("b", {}, n.label), `: ${xs.length} feedback loop${xs.length > 1 ? "s" : ""} inside`),
       h("div", { class: "sub" }, "Open it to see them")));
 }
