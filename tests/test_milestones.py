@@ -536,7 +536,51 @@ def test_with_no_milestone_to_go_to_a_gap_is_left_and_counted(ms):
     assert ms.passes() == []                                                 # never the completed one
     assert ms.fields("gap/late")["milestone"] == "milestone/m"
     assert ms.mod.status(ms.cfg).splitlines()[-1] == ("unfinished gaps with no milestone (none, an old label, or a "
-                                                      "completed one): 1 (late; the next pass places them)")
+                                                      "completed one): 1 (late; the next pass places 0 of them)")
+    ms.gap("new")
+    ms.mod.add(ms.cfg, "n")
+    assert ms.mod.status(ms.cfg).splitlines()[-1] == ("unfinished gaps with no milestone (none, an old label, or a "
+                                                      "completed one): 2 (late, new; the next pass places 1 of them)")
+
+
+def test_a_placement_that_would_close_a_cycle_goes_to_upkeep_or_is_left(ms):
+    """Milestone a active, b waiting on a, gap y in b; gap x requested depending on y. x in a would close
+    a's end -> b -> y -> x -> a's end: x never taken, a never completed, b never active. So x is not put in a."""
+    ms.cfg["milestones"] = {"enforce": True}
+    ms.mod.add(ms.cfg, "a", rank=1)
+    ms.mod.add(ms.cfg, "b", rank=2, depends=["a"])
+    ms.passes()
+    assert (ms.state("milestone/a"), ms.state("milestone/b")) == ("active", "waiting")
+    ms.gap("y", milestone="milestone/b")
+    requested(ms, "x", source="request", requested_by="coordinator", depends_on=["gap/y"])
+    assert ms.passes() == []                                                 # no upkeep one: left, not put on a cycle
+    assert ms.fields("gap/x").get("milestone") is None
+    assert ms.mod.status(ms.cfg).splitlines()[-1] == ("unfinished gaps with no milestone (none, an old label, or a "
+                                                      "completed one): 1 (x; the next pass places 0 of them)")
+    ms.mod.add(ms.cfg, "fixes", upkeep_=True)
+    ms.passes()
+    assert ms.fields("gap/x")["milestone"] == "milestone/fixes"
+    assert ms.fields("gap/x")["assigned_for"] == "the current upkeep milestone (milestone/a would close a cycle)"
+    assert "on a precedence cycle" not in ms.mod.status(ms.cfg)
+    requested(ms, "z", source="request", requested_by="coordinator")       # one with no dependency still joins a
+    ms.passes()
+    assert ms.fields("gap/z")["milestone"] == "milestone/a"
+
+
+def test_two_placements_of_one_pass_that_together_close_a_cycle_are_checked_together(ms):
+    """x (requested, depending on y) goes to a; y continues a parked gap in c (c waits on a), so it would keep c. Each
+    alone closes nothing; both close a's end -> c -> y -> x -> a's end. The second is checked against the first."""
+    three(ms)
+    ms.p.events.add("milestone.added", item="milestone/c", data={"depends_on": ["milestone/a"]})
+    ms.gap("q", "gap.parked", milestone="milestone/c")
+    requested(ms, "x", source="request", requested_by="coordinator", depends_on=["gap/y"])
+    requested(ms, "y", source="request", continues="q", requested_by="park-resume")
+    ms.p.events.add("gap.resumed", item="gap/q", data={"resumed_as": "gap/y"})
+    ms.passes()
+    assert ms.fields("gap/x")["milestone"] == "milestone/a"                  # placed first (by name)
+    assert ms.fields("gap/y")["milestone"] == "milestone/fixes"
+    assert ms.fields("gap/y")["assigned_for"] == "the current upkeep milestone (milestone/c would close a cycle)"
+    assert "on a precedence cycle" not in ms.mod.status(ms.cfg)
 
 
 @pytest.mark.parametrize("bad", [1, "true", None])

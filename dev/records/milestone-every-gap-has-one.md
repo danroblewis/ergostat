@@ -37,3 +37,17 @@ Built, in `dev/bin/milestones.py` (about 105 net lines; the budget is 600), with
   parent's live milestone or else the upkeep one. An upkeep cycle no longer carries its gaps to a successor that has
   completed: it makes a new one instead (this was a path that could assign a completed milestone). A raw event can
   still write the field. The engine does not refuse it, and the next pass undoes it.
+
+Round 2 (the review's one finding: the pass placed gaps with no cycle check): each placement is now checked with
+`closes` against the precedence graph as this pass leaves it, with the pass's earlier placements and its upkeep carry
+in it, the same check `assign` makes. If the preferred milestone would close a cycle, the gap tries the current upkeep
+milestone. If that would close one too, or there is none, the gap is left without a milestone and counted.
+`assigned_for` says which milestone was passed over. `status` no longer says "the next pass places them" for a gap
+the pass would leave. It runs the pass's plan without writing and says how many of the unplaced gaps it would place.
+New tests: `test_a_placement_that_would_close_a_cycle_goes_to_upkeep_or_is_left` (the review's example, with no
+upkeep milestone and then with one) and `test_two_placements_of_one_pass_that_together_close_a_cycle_are_checked_together`.
+Each was seen to fail with its guard broken (the check skipped, and the graph not updated after a placement).
+Decision, alone: when no milestone can take the gap without closing a cycle, the gap is left and counted. It is not
+placed anyway, since a gap with no milestone is still taken and one on a cycle never is. The cost is one cycle search
+over the graph for each gap placed. That is fine for a pass once a minute, but the first pass after `enforce` is
+turned on places every old-labelled gap, so it is slower once. `milestones.py` is now about 135 net lines over main.
