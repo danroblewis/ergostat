@@ -49,9 +49,42 @@ class BlockIn:
     run: KM | None = None          # how long a run holds its lease (the going censored)
     assumed: str = ""
     pool_said: str = ""            # why its pool is taken as 1 (its stock reads 0, or nothing)
+    lanes: int = 0                 # its capacity, from ``capacities`` (0: worked out from pool and shared)
 
     def capacity(self, pools: dict | None = None) -> int:
+        if self.lanes and self.name not in (pools or {}):
+            return self.lanes
         return min([(pools or {}).get(self.name, self.pool), *(c for _, c in self.shared)])
+
+
+def _capacity(p, spec, b, at: float) -> dict:
+    """A block's capacity at ``at``: its pool (or its pool now, from its stock: 1 at least, said why), its agent's
+    seats, its daemon's runs at once, whichever binds (the first on a tie)."""
+    from ..leases import poolnow
+    shared = []
+    if b.agent and b.agent in spec.agents and spec.agents[b.agent].at_once:
+        shared.append((f"agent:{b.agent}", spec.agents[b.agent].at_once))
+    dn = (b.params or {}).get("daemon")
+    if dn and dn in spec.daemons:
+        shared.append((f"daemon:{dn}", spec.daemons[dn].concurrency))
+    level = poolnow.read_at(p, spec, b, at) if b.pool_now else None
+    pool = max(1, poolnow.now(b, level))
+    lanes, source = min([(pool, f"its pool now, from {b.pool_now}" if b.pool_now else "its pool"),
+                         *((c, f"{n.split(':', 1)[1]}'s {'seats' if n.startswith('agent') else 'runs at once'}")
+                           for n, c in shared)], key=lambda x: x[0])
+    return {"lanes": max(1, lanes), "source": source, "pool": pool, "shared": shared, "said": poolnow.said(b, level)}
+
+
+def capacities(project, snapshot: dict) -> dict[str, dict]:
+    """Each block that takes items: its capacity at the snapshot's ``at``, ``{block: {lanes, source, ...}}``. The one
+    place it is decided: the estimates (``read``, so ``eta.py``'s simulation) and the Timeline's levelled pass
+    (``precedence.build``) both take it from here. Worked out once per snapshot and kept in it, never per request."""
+    got = snapshot.get("capacities")
+    if got is None:
+        spec = getattr(project.model, "spec", None)
+        got = snapshot["capacities"] = {b.name: _capacity(project, spec, b, snapshot["at"])
+                                        for b in (spec.blocks.values() if spec else ()) if b.takes and b.machine}
+    return got
 
 
 @dataclass
@@ -287,7 +320,6 @@ def gated_off(p, spec, at: float) -> dict[str, str]:
 
 def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     """Each block's attempts and its run-time curve; each open item's lease, attempts and put-off."""
-    from ..leases import poolnow
     from ..leases.fold import refused_expiries
     from ..leases.terms import terms
     evs = p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at)
@@ -305,6 +337,7 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
             runs[r].update(end=e["time"], how="expired" if e["type"].endswith("expired") else d.get("how") or "nack",
                            to=d.get("state"), after=float(d.get("after") or 0.0), counted=d.get("count") is not False)
     acquired = _workspaces(p, spec, out, since)
+    caps = capacities(p, {"at": out.at})
     by_block: dict[str, list[dict]] = {}
     for r in runs.values():
         by_block.setdefault(r["block"], []).append(r)
@@ -321,19 +354,13 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
     for b in spec.blocks.values():
         if not (b.takes and b.machine and b.takes.kind in out.kinds):
             continue
-        shared = []
-        if b.agent and b.agent in spec.agents and spec.agents[b.agent].at_once:
-            shared.append((f"agent:{b.agent}", spec.agents[b.agent].at_once))
-        dn = (b.params or {}).get("daemon")
-        if dn and dn in spec.daemons:
-            shared.append((f"daemon:{dn}", spec.daemons[dn].concurrency))
+        c = caps.get(b.name) or _capacity(p, spec, b, out.at)     # (a spec other than the project's: the same rule)
         t = terms(spec, b)
         ws = (b.params or {}).get("workspace")
         ws = ws if ws in spec.workspaces else None
-        level = poolnow.read_at(p, spec, b, out.at) if b.pool_now else None
-        bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), max(1, poolnow.now(b, level)), shared,
+        bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), c["pool"], c["shared"],
                      bool(b.takes.unblocked), t["attempts"], float(t["ttl"]), ws, b.takes.order, offs.get(b.name, ""),
-                     pool_said=poolnow.said(b, level))
+                     pool_said=c["said"], lanes=c["lanes"])
         rs = by_block.get(b.name, [])
         if ws:                                          # a run given back for want of a workspace held nothing: a wait
             out.workspaces[ws] = spec.workspaces[ws].size

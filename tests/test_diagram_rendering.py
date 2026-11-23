@@ -175,6 +175,73 @@ def test_every_view_draws_cleanly_and_in_time(browser, page_of):
     assert routed[0] < ROUTED_BOUND_MS, f"{name}: routing {routed[1]} took {routed[0]:.0f}ms"
 
 
+# drawn and routed, or (the Process view of a project with no record yet) saying there is nothing to draw
+DRAWN_OR_EMPTY = f"() => ({READY[6:]}) || !!document.querySelector('.canvas-wrap .empty')"
+
+
+# every part moved by under a pixel to where libavoid, working its width out again from its corners, finds it a hair
+# narrower than it is (a system box's or a block's port on its right edge then lay past it), and routed again
+ROUNDED_ROUTE = """async () => {
+  const spec = () => (S.graph.kind === 'blocks' ? bdAvoidSpec : avoidSpec)(S.layout, S.graph).shapes;
+  const edge = spec().flatMap((s) => s.pins.filter((p) => p.abs && p.x >= s.w - 1e-6)).length;
+  const under = (x, w) => (x + w) - x < w && ((x + w / 2) + w / 2) - ((x + w / 2) - w / 2) < w;
+  let moved = 0;
+  for (const c of S.layout.children) for (let i = 1; i < 400; i++) {
+    const x = c.x + i / 397, w = c.width + i / 389;
+    if (!under(x, w)) continue;
+    for (const p of Object.values(S.layout.ports || {}))   // (a block's ports, on the page: those on its right edge kept there)
+      if (p.node === c.id) p.x += p.x >= c.x + c.width - 0.5 ? x + w - c.x - c.width : x - c.x;
+    c.x = x; c.width = w; moved++;
+    break;
+  }
+  (S.graph.kind === 'blocks' ? bdRoute : avoidStart)(S.layout, S.graph);
+  await S.layout.whenRouted;
+  return [moved, edge];
+}"""
+
+
+@pytest.mark.parametrize("view,example", [("view=dynamics", "software-factory"), ("view=blocks", "first-loop")])
+def test_a_port_on_a_parts_right_edge_is_never_past_it_for_libavoid(browser, tmp_path, view, example):
+    """The pin offset clamped to the shape: a system box's (Dynamics) or a block's (Blocks) port on its right edge,
+    with the box at a sub-pixel place and width, gives libavoid no 'xOffset ... greater than shape width'."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        said: list[str] = []
+        pg.on("console", lambda m: said.append(f"{m.type}: {m.text[:200]}") if m.type in ("error", "warning") else None)
+        drawn(pg, url, view, 0)
+        said.clear()
+        moved, ports = pg.evaluate(ROUNDED_ROUTE)
+        pg.wait_for_timeout(200)                           # (the worker's last word reaches the page a moment later)
+        pg.close()
+    assert moved and ports, (moved, ports)                # (the window opened: parts moved, ports on a right edge)
+    assert not said, said
+
+
+def test_every_view_loads_with_no_console_error_or_warning(browser, page_of):
+    """Dynamics, Blocks and Process, whole and into each system: the page's console (its workers' too) says
+    nothing is wrong: no error, no warning (libavoid's pin past its part's edge, ELK falling back)."""
+    name, url = page_of
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    said: list[str] = []
+    pg.on("pageerror", lambda e: said.append(f"pageerror: {e}"))
+    pg.on("console", lambda m: said.append(f"{m.type}: {m.text[:300]}") if m.type in ("error", "warning") else None)
+    pg.on("worker", lambda w: w.on("console", lambda m: said.append(f"worker {m.type}: {m.text[:300]}")
+                                   if m.type in ("error", "warning") else None))
+    drawn(pg, url, "", 0)
+    tree = pg.evaluate("() => S.graph.tree || {}")
+    problems, n = [], 0
+    for view in ("dynamics", "blocks", "process"):
+        for v in ["", *(f"&system={s}" for s in tree)]:
+            said.clear()
+            n += 1
+            pg.goto(f"{url}/diagram?v={n}&view={view}{v}", timeout=DRAWN_S * 1000)
+            pg.wait_for_function(DRAWN_OR_EMPTY, timeout=DRAWN_S * 1000)
+            pg.wait_for_timeout(200)                       # (a worker's last word reaches the page a moment later)
+            problems += [f"[view={view}{v}] {x}" for x in said]
+    pg.close()
+    assert not problems, f"{name}: " + "\n".join(problems)
+
+
 # the critical layout faults an example's views had when the rules came (docs/layout-rules.md), each by its rule and
 # its parts: known, listed there to fix, and not to grow (RECORD_LAYOUT=1 writes them again)
 KNOWN = ROOT / "tests" / "fixtures" / "layout_known.json"
@@ -316,7 +383,7 @@ def test_every_part_opens_its_panel_when_clicked_even_mid_redraw(browser, tmp_pa
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         silent = []
         ids = pg.evaluate("() => S.graph.nodes.filter((n) => n.kind !== 'cloud').map((n) => n.id)")
         for i, nid in enumerate(ids):
@@ -446,6 +513,46 @@ def test_model_errors_drain_is_a_short_straight_satellite_of_its_stock(browser, 
     assert not errors, errors
 
 
+UPKEEP_BOX = """(id) => {
+  const me = S.layout.children.find((c) => c.id === id);
+  if (!me) return null;
+  const el = document.querySelector(`g.node[data-id="${CSS.escape(id)}"]`);
+  const others = S.layout.children.filter((c) => c !== me);
+  const ahead = others.filter((c) => !(me.x >= c.x + c.width - 0.5 || me.y >= c.y + c.height - 0.5)).map((c) => c.id);
+  const rule = document.querySelector("path.bd-upkeep-rule")?.getBBox();
+  const dashed = [...(el?.querySelectorAll("rect") || [])].some((r) => r.getAttribute("stroke-dasharray"));
+  const below = rule ? others.filter((c) => c.y + c.height > rule.y).map((c) => c.id) : [];
+  const said = el?.querySelector(".sys-upkeep")?.getBBox();
+  const fits = !!said && said.x >= 0 && said.x + said.width <= me.width && said.y >= 0 && said.y + said.height <= me.height;
+  return { ahead, others: others.length, dashed, fits, text: el?.textContent || "", rule: rule ? { y: rule.y, below } : null, top: me.y };
+}"""
+
+
+@pytest.mark.parametrize("example", ["alert-triage", "big"])
+def test_modelling_is_drawn_last_set_apart_and_labelled(browser, tmp_path, example):
+    """The design review (Q13): at the top level ergostat's model of its own upkeep was the top-left box, read first,
+    unexplained. In both views it comes last: its top-left corner below or right of every other part, its outline
+    dashed, and it says it is 'ergostat's upkeep of this model, not the system'; in Blocks below a thin rule."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, (view, box) in enumerate([("view=dynamics", "system:modelling"), ("view=blocks", "sys:modelling")]):
+            drawn(pg, url, view, i)
+            r = pg.evaluate(UPKEEP_BOX, box)
+            assert r, f"[{view}] no {box} drawn at the top level"
+            assert r["others"] >= 2, f"[{view}] too few other parts to be last among: {r}"
+            assert not r["ahead"], f"[{view}] {box}'s top-left corner is neither below nor right of {r['ahead']}"
+            assert r["dashed"], f"[{view}] {box}'s outline is not dashed"
+            assert "upkeep of this model" in r["text"], f"[{view}] {box} does not say what it is: {r['text']!r}"
+            assert r["fits"], f"[{view}] the line 'upkeep of this model' runs outside {box}"
+            if view == "view=blocks":
+                assert r["rule"], "[blocks] no rule above the modelling block"
+                assert r["rule"]["y"] < r["top"] and not r["rule"]["below"], f"[blocks] the rule is not between: {r}"
+        pg.close()
+    assert not errors, errors
+
+
 def test_a_valve_dragged_over_its_stock_stands_upright_on_its_top(browser, tmp_path):
     """A valve turns to follow its pipe wherever it is put: new-backups (copies-not-offsite's inflow from a cloud, laid
     out standing on the stock's top) dragged beside the stock turns level, its pipe straight into the stock's side;
@@ -557,7 +664,7 @@ def test_the_background_hides_the_side_panel_and_a_part_dragged_stays_pinned(bro
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=product", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         side = "() => document.querySelector('.diagram').classList.contains('side-hidden')"
         empty = pg.evaluate("""() => { const r = document.querySelector('svg.canvas').getBoundingClientRect();
             for (let y = r.top + 80; y < r.bottom - 80; y += 17) for (let x = r.left + 40; x < r.right - 40; x += 23) {
@@ -619,7 +726,7 @@ def test_an_open_system_dragged_by_its_outline_takes_its_parts_and_stays(browser
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
                        .includes('product')).map((c) => [c.id, [c.x, c.y]]))"""
         before = pg.evaluate(places)
@@ -678,7 +785,7 @@ def test_parts_chosen_with_a_box_move_together_pinned_and_with_no_new_layout(bro
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "system=product", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["stock:users", "flow:signups"]
         boxes = [pg.locator(f'g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 6, min(b["y"] for b in boxes) - 6
@@ -742,7 +849,7 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=-", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         # the product box put somewhere by hand
         box = pg.locator('g.node.k-system:has(text:text-is("product")) .hit').first.bounding_box()
         k = pg.evaluate("() => S.view.k")
@@ -769,6 +876,75 @@ def test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins(
             r = pg.evaluate(AUDIT)
             assert not r["through"] and not r["partOverlap"], (name, opened, r["through"], r["partOverlap"])
         assert not errors, errors
+        pg.close()
+
+
+# the page's answers from the paths matching window.__slow (a pattern) held back 2.5s: a slow server, made on purpose
+SLOW_FETCH = """(() => { const f = window.fetch;
+  window.fetch = async (u, o) => {
+    if (window.__slow && new RegExp(window.__slow).test(String(u.url || u))) await new Promise((r) => setTimeout(r, 2500));
+    return f(u, o);
+  }; })();"""
+# some text in the canvas drawn where it can be seen: non-empty, inside the canvas's box, not hidden
+CANVAS_TEXT = """() => { const svg = document.querySelector('svg.canvas'), r = svg.getBoundingClientRect();
+  return [...svg.querySelectorAll('text')].filter((t) => { const b = t.getBoundingClientRect(), st = getComputedStyle(t);
+    return t.textContent.trim() && b.width > 0 && b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom
+      && st.visibility !== 'hidden' && st.display !== 'none'; }).map((t) => t.textContent.trim()); }"""
+
+
+def test_into_open_and_a_panel_link_show_at_once_that_something_is_happening(browser, tmp_path):
+    """With the server slow: 300 ms after Into on api the canvas has text to read (the old diagram dimmed under
+    'Opening api…') and the side list is not empty; 300 ms after an agent's link in a goal's panel, the panel is that
+    agent's, with its name and 'Loading…'. Then each is drawn as it is when the answer comes."""
+    with served("big", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.add_init_script(SLOW_FETCH)
+        drawn(pg, url, "open=-", 0)
+        pg.wait_for_function("() => document.querySelector('.diagram .side').innerText.trim()", timeout=30000)
+        pg.evaluate("() => { window.__slow = '/api/graph'; }")
+        pg.locator('svg.canvas g.node:has(text.sys-title:text-is("api")) g.sys-btn:has(text:text-is("Into"))').first.click()
+        pg.wait_for_timeout(300)
+        assert "system=api" in pg.url
+        seen = pg.evaluate(CANVAS_TEXT)
+        assert seen, "300 ms after Into the canvas has no text to read"
+        assert "Opening api…" in seen, seen
+        assert pg.evaluate("() => document.querySelector('.diagram .side').innerText.trim()"), "the side list went blank"
+        pg.evaluate("() => { window.__slow = null; }")
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        assert pg.evaluate("() => !document.querySelector('svg.canvas g.was, svg.canvas .opening-note, .diagram.opening')"), \
+            "the old diagram or the note stayed once the new one was drawn"
+        # a goal's panel, and in it the link to the agent that fills its valve
+        pg.evaluate("() => openLoop('api-q0-low')")
+        link = pg.locator('#detail table.parts a:text-is("api-q0-drain")').first
+        link.wait_for(timeout=30000)
+        pg.evaluate("() => { window.__slow = '/api/agents'; }")
+        link.click()
+        pg.wait_for_timeout(300)
+        assert pg.locator("#detail h2").first.inner_text().strip() == "api-q0-drain"
+        assert "Loading…" in pg.locator("#detail").inner_text()
+        pg.wait_for_function("() => /Recent runs/.test(document.querySelector('#detail').innerText)", timeout=30000)
+        assert "Loading…" not in pg.locator("#detail").inner_text()
+        assert not errors, errors
+        pg.close()
+
+
+@pytest.mark.parametrize("path", ["loops", "items"])
+def test_loops_and_items_say_loading_under_their_heading_until_their_answer(browser, tmp_path, path):
+    """With the server slow, Loops and Items say 'Loading…' under their heading at once, and not once drawn."""
+    with served("big", tmp_path) as url:
+        pg = browser.new_page()
+        pg.add_init_script(f"window.__slow = '/api/{path}\\\\b';")
+        pg.add_init_script(SLOW_FETCH)
+        pg.goto(f"{url}/{path}")
+        pg.wait_for_selector(".page h1", timeout=30000)
+        pg.wait_for_timeout(300)
+        assert "Loading…" in pg.locator(".page").inner_text(), pg.locator(".page").inner_text()
+        pg.evaluate("() => { window.__slow = null; }")
+        # its answer drawn (a table of loops; the items' kinds, or that there are none yet): no longer loading
+        pg.wait_for_function("() => !document.querySelector('.page').innerText.includes('Loading…')", timeout=30000)
+        assert pg.locator(".page table, .page .kind-flow, .page p.muted").count(), "nothing drawn in its place"
         pg.close()
 
 
@@ -1150,8 +1326,8 @@ def test_scroll_pans_and_command_scroll_or_a_pinch_zooms_at_the_pointer(browser,
         for _ in range(60):
             r = pg.evaluate(WHEEL, [0, -500, {"ctrlKey": True}])
         assert r["after"]["k"] <= 4
-        pg.get_by_role("button", name="+").click()
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="+", exact=True).click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.close()
 
 
@@ -1259,6 +1435,29 @@ def test_every_process_view_draws_its_workflows_cleanly(browser, tmp_path, examp
         assert panels[0]["rework"] > 0, panels[0]
 
 
+def test_a_system_alone_at_its_level_beside_modelling_opens_at_first_load(browser, tmp_path):
+    """The-job at / on first load: 'job' open, its ten domains drawn as boxes, modelling closed (a once template's
+    system is not counted beside it); one click on Open draws a stock of incidents."""
+    with served("the-job", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/")
+        pg.wait_for_function(READY, timeout=60000)
+        boxes = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.node.k-system')].map((g) => g.dataset.id)")
+        domains = ["awareness", "delivery", "documents", "incidents", "messages", "rhythm", "safety", "stewardship",
+                   "support", "team"]
+        assert sorted(boxes) == sorted(["system:modelling", *(f"system:{d}" for d in domains)]), boxes
+        assert pg.evaluate("() => S.graph.open") == ["job"]
+        pg.locator('svg.canvas g.node[data-id="system:incidents"] g.sys-btn', has_text="Open").click()
+        pg.wait_for_function("""() => S.graph.open.includes('incidents') && S.graph.nodes.some((n) => n.kind === 'stock'
+          && (n.systems || []).includes('incidents')
+          && document.querySelector(`svg.canvas g.node.k-stock[data-id="${CSS.escape(n.id)}"]`))""",
+                             timeout=60000)                    # one click: a stock of incidents is drawn
+        pg.close()
+        assert not errors, errors
+
+
 def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_ones(browser, tmp_path):
     """Clicking a line of the process map lists the items that went along it, and links to the Items page
     filtered to exactly them; the Paths slider leaves out the lines rarer than its share; Times shows the median
@@ -1305,7 +1504,7 @@ def test_a_process_lines_panel_lists_its_items_and_the_paths_slider_hides_rare_o
         assert busy["id"] in ids and rare["id"] not in ids and "paths=50" in pg.url
         drawn = pg.evaluate("() => [...document.querySelectorAll('svg.canvas g.edge')].map((g) => g.dataset.id)")
         assert sorted(drawn) == sorted(ids)
-        pg.get_by_role("button", name="Times").click()
+        pg.get_by_role("button", name="Times", exact=True).click()
         pg.wait_for_function("() => S.pmShow === 'times' && document.querySelector('svg.canvas g.edge .elabel')")
         assert "show=times" in pg.url
         pg.close()
@@ -1393,7 +1592,7 @@ def test_a_process_node_dragged_stays_pinned_through_a_reload_a_refresh_and_stat
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pm_served(pg, url, 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         nid = "p:pr:pr.merged"                         # lines in and out within pr, and one back (rework)
         caused = pg.evaluate("() => S.graph.edges.find((e) => e.kind === 'caused' && e.target === 'p:pr:pr.opened')?.id")
         assert caused, "a dashed line from ticket into pr"
@@ -1469,7 +1668,7 @@ def test_a_kinds_frame_dragged_in_the_process_view_takes_its_map_and_nodes_chose
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pm_served(pg, url, 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         frame = "(name) => { const c = S.layout.containers.find((c) => c.name === name); return [c.bx ?? c.x, c.by ?? c.y]; }"
         ways = """(kind) => Object.fromEntries(S.layout.edges.filter((le) => S.graph.edges.find((e) => e.id === le.id &&
           e.kind === 'follows' && e.itemKind === kind)).map((le) => [le.id, [le.sections[0].startPoint,
@@ -1499,7 +1698,7 @@ def test_a_kinds_frame_dragged_in_the_process_view_takes_its_map_and_nodes_chose
         again = pg.evaluate(PM_KIND, "release")
         assert all(again[i] == pytest.approx(after[i], abs=2) for i in after)
         # two nodes chosen with Shift and a box, dragged together
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["p:ticket:ticket.started", "p:ticket:ticket.submitted"]
         boxes = [pg.locator(f'svg.canvas g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 4, min(b["y"] for b in boxes) - 4
@@ -1649,6 +1848,36 @@ def test_sensors_are_blocks_with_what_they_read_and_no_part_has_a_tooltip(browse
     assert not problems, f"{name}: " + "\n".join(problems)
 
 
+# each block as drawn: its main label (what is written inside it, but its caption) and its caption, the band at its top
+BLOCK_LABELS = """() => [...document.querySelectorAll('svg.canvas g.node.bd-block')].map((g) => {
+  const box = g.querySelector('.hit').getBoundingClientRect(), cap = g.querySelector(':scope > text.bd-tier');
+  const inside = [...g.querySelectorAll('text')].filter((t) => t !== cap && t.getBoundingClientRect().top >= box.top);
+  return { id: g.dataset.id, main: inside.map((t) => t.textContent).join(' | '), cap: cap ? cap.textContent : null,
+           capAtTop: cap ? cap.getBoundingClientRect().bottom <= box.top + 16 : null };
+})"""
+
+
+def test_every_block_carries_a_function_with_the_agents_name_as_its_caption(browser, tmp_path):
+    # Blocks, the ticket factory's making: open-pr (a program) and work (an AI agent) state no law, so each says
+    # f(·), its name and kind the caption in its top band; a counting sensor says H = 1 and how often
+    with served("ticket-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=blocks&system=making", 0)
+        got = pg.evaluate(BLOCK_LABELS)
+        pg.close()
+    assert len(got) >= 4, got
+    bad = [b for b in got if not re.search(r"=|\(s\)|\(z\)|f\(·\)", b["main"])]
+    assert not bad, f"a block whose main label is no function: {bad}"
+    named = [b for b in got if re.search(r"(?<![\w-])(open-pr|work)(?![\w-])", b["main"])]
+    assert not named, f"a block's name written as its main label: {named}"
+    caps = {b["id"]: b for b in got}
+    for bid, cap in (("blk:open-pr", "open-pr · program"), ("blk:work", "work · AI agent")):
+        assert caps[bid]["cap"] == cap and caps[bid]["capAtTop"], caps.get(bid)
+        assert "f(·), law not stated" in caps[bid]["main"], caps[bid]
+    assert any(re.search(r"H = 1, every 3 s", b["main"]) for b in got if b["id"].startswith("sen:")), \
+        [b for b in got if b["id"].startswith("sen:")]
+
+
 def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
     from tests.test_spec_systems import MODEL
     d = tmp_path / "cascade"
@@ -1746,7 +1975,7 @@ def test_a_block_dragged_in_the_blocks_view_stays_pinned_its_lines_end_on_it_and
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         nid = "blk:product-manager"
         before = pg.evaluate(BD_AT, nid)
         layouts = pg.evaluate("() => S.layouts")
@@ -1792,7 +2021,7 @@ def test_blocks_chosen_with_a_box_move_together_in_the_blocks_view(browser, tmp_
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         ids = ["sum:all-live", "blk:keep-all-live"]
         boxes = [pg.locator(f'svg.canvas g.node[data-id="{i}"]').bounding_box() for i in ids]
         x0, y0 = min(b["x"] for b in boxes) - 4, min(b["y"] for b in boxes) - 4
@@ -1833,7 +2062,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         places = """() => Object.fromEntries(S.layout.children.filter((c) => (S.graph.nodes.find((n) => n.id === c.id)?.systems || [])
                        .includes('frame:product')).map((c) => [c.id, [c.x, c.y]]))"""
         frame = "(id) => { const c = S.layout.containers.find((c) => c.id === id); return c && [c.bx ?? c.x, c.by ?? c.y]; }"
@@ -1869,7 +2098,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         assert set(again) == set(after) and all(abs(again[i][0] - after[i][0]) < 2 and abs(again[i][1] - after[i][1]) < 2 for i in after)
         # a block put by hand inside intake: its place in intake's frame kept through closing and opening it
         nid = "blk:support"
-        pg.get_by_role("button", name="fit").click()                 # (wider with its sensors: all of it on the screen)
+        pg.get_by_role("button", name="Fit", exact=True).click()                 # (wider with its sensors: all of it on the screen)
         bd_drag(pg, pg.locator(f'svg.canvas g.node[data-id="{nid}"]').bounding_box(), 0, 110)
         pg.wait_for_function(f"() => S.pins['{nid}'] && ({BD_ROUTED})()", timeout=20000)
         offset = ("(id) => { const c = S.layout.children.find((c) => c.id === id), "
@@ -1889,7 +2118,7 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
 
 SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
-  // parts drawn as themselves) has its marker; every connector whose polarity is known shows it at its head;
+  // parts drawn as themselves) has its marker; every connector shows its polarity (? where not known) at its head;
   // connectors are curves that cut through no part; and the drawing is in one ink (no fill or stroke in colour
   // but what is pointed at; the correspondence colours' rings are not drawn unless asked for)
   const bad = [], svg = document.querySelector("svg.canvas");
@@ -1901,14 +2130,14 @@ SD_CHECK = """() => {
   for (const m of svg.querySelectorAll(".loop-marker")) {
     const c = S.graph.causalLoops.find((x) => x.name === m.dataset.loop);
     const t = m.querySelector(".marker-letter")?.textContent || "";
-    if (!c || t[0] !== (c.polarity || "?")) bad.push(`marker ${m.dataset.loop} says ${t}`);
+    if (!c || t[0] !== (sdPol(c) || "?")) bad.push(`marker ${m.dataset.loop} says ${t}`);
   }
   const box = S.layout.children;
   for (const e of S.graph.edges.filter((x) => x.kind === "connector")) {
     const eg = svg.querySelector(`.edge[data-id="${CSS.escape(e.id)}"]`);
     if (!eg) { bad.push(`not drawn: ${e.id}`); continue; }
     const sign = eg.querySelector("text.polarity")?.textContent;
-    const want = { "+": "+", "-": "−" }[e.polarity];
+    const want = { "+": "+", "-": "−" }[e.polarity] || "?";
     if (want !== sign) bad.push(`${e.id}: polarity ${e.polarity}, shows ${sign}`);
     const path = eg.querySelector("path.sd-connector"), len = path.getTotalLength();
     for (let d = 8; d < len - 8; d += 6) {
@@ -1949,6 +2178,58 @@ def test_the_dynamics_view_draws_only_system_dynamics_symbols_each_loop_marked_e
         pg.close()
 
 
+SIGNS_CHECK = """() => {
+  // every link drawn has one sign (+, − or ?); no two signs' boxes overlap or lie within 10 px; each sign's nearest
+  // link line is its own (data-edge, and the line it is drawn with); a link declared with driven-by is dashed
+  const svg = document.querySelector("svg.canvas"), bad = [];
+  const links = [...svg.querySelectorAll(".edge")].filter((g) => g.querySelector("path.sd-connector"));
+  for (const g of links) {
+    const t = g.querySelectorAll("text.polarity");
+    if (t.length !== 1 || !["+", "−", "?"].includes(t[0].textContent))
+      bad.push(`sign of ${g.dataset.id}: ${[...t].map((x) => x.textContent)}`);
+    else if (t[0].dataset.edge !== g.dataset.id) bad.push(`${g.dataset.id}'s sign says ${t[0].dataset.edge}`);
+  }
+  const glyphs = [...svg.querySelectorAll(".edge text.polarity")], boxes = glyphs.map((t) => t.getBBox());
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const a = boxes[i], b = boxes[j];
+    const gap = Math.max(b.x - a.x - a.width, a.x - b.x - b.width, b.y - a.y - a.height, a.y - b.y - b.height);
+    if (gap < 10) bad.push(`${glyphs[i].dataset.edge} and ${glyphs[j].dataset.edge}: ${gap.toFixed(1)} px apart`);
+  }
+  const pts = links.flatMap((g) => { const p = g.querySelector("path.sd-connector"), L = p.getTotalLength(), out = [];
+    for (let d = 0; d <= L; d += 1) { const q = p.getPointAtLength(d); out.push([q.x, q.y, g.dataset.id]); }
+    return out; });
+  glyphs.forEach((t, i) => {
+    const cx = boxes[i].x + boxes[i].width / 2, cy = boxes[i].y + boxes[i].height / 2;
+    let best = null, bd = Infinity;
+    for (const [x, y, id] of pts) { const d = Math.hypot(x - cx, y - cy); if (d < bd) { bd = d; best = id; } }
+    if (best !== t.dataset.edge) bad.push(`${t.dataset.edge}'s sign at ${Math.round(cx)},${Math.round(cy)} is nearest ${best}`);
+  });
+  for (const e of S.graph.edges.filter((x) => x.drivenBy)) {
+    const p = svg.querySelector(`.edge[data-id="${CSS.escape(e.id)}"] path.sd-connector`);
+    if (p && getComputedStyle(p).strokeDasharray === "none") bad.push(`driven-by, drawn solid: ${e.id}`);
+  }
+  return { bad, links: links.length, drivenBy: S.graph.edges.filter((x) => x.drivenBy).length };
+}"""
+
+
+@pytest.mark.parametrize("example", [pytest.param(e, marks=pytest.mark.serial) if e in HEAVY else e for e in EXAMPLES])
+def test_each_polarity_sign_sits_on_its_own_link_apart_from_the_others_and_every_link_has_one(browser, tmp_path, example):
+    """The design review's Q25: on the demos' first page (software-factory's, and every example's) the signs were
+    stacked where many links meet, the nearest one belonging to another link; deployed → shipped had none; and the
+    links declared with driven-by were solid."""
+    with served(example, tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        r = pg.evaluate(SIGNS_CHECK)
+        assert not r["bad"], "\n".join(r["bad"][:12])
+        if example == "software-factory":                    # (its links between factory and product: driven-by)
+            assert r["links"] >= 5 and r["drivenBy"], r
+        assert not errors, errors
+        pg.close()
+
+
 def test_the_view_switch_says_what_each_view_shows_on_a_wide_screen_and_a_phone(browser, tmp_path):
     want = [("Dynamics", "what is"), ("Blocks", "what is controlled"), ("Process", "what happened")]
     with served("software-factory", tmp_path) as url:
@@ -1976,7 +2257,7 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.locator('.loop-marker[data-loop="backlog-clear"]').dispatch_event("click")
         pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail .what')", timeout=5000)
         assert pg.locator("#detail h2").inner_text().startswith("B")           # its label, R1 or B2, as Sterman numbers them
@@ -1985,6 +2266,66 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
         lit = pg.evaluate("""() => [...document.querySelectorAll('svg.canvas .node.in-loop')].map((n) => n.dataset.id).sort()""")
         assert lit == ["flow:submitted", "gap:backlog-clear", "stock:backlog"], lit
         assert pg.evaluate("() => document.querySelectorAll('svg.canvas .edge.in-loop').length") >= 3
+        pg.close()
+
+
+FOCUSED = ("() => { const a = document.activeElement; "
+           "return a && [a.tagName, a.getAttribute('aria-label') || '', a.dataset.key || '', a.getAttribute('role') || '']; }")
+# every element the svg points at as clickable, and whether a keyboard button (tabindex 0) is it or holds it
+UNREACHED = """() => [...document.querySelectorAll('svg.canvas *')].filter((el) => getComputedStyle(el).cursor === 'pointer'
+  && !el.closest('svg.canvas [tabindex="0"][role="button"][aria-label]')).map((el) => el.getAttribute('class') || el.tagName)"""
+
+
+def tab_to(pg, want, most=600) -> list:
+    """Tab (and only Tab) until the focus is on what ``want`` (a JS predicate on the focused element) accepts."""
+    seen = []
+    for _ in range(most):
+        pg.keyboard.press("Tab")
+        if pg.evaluate(f"() => {{ const a = document.activeElement; return !!a && ({want})(a); }}"):
+            return pg.evaluate(FOCUSED)
+        seen.append(pg.evaluate(FOCUSED))
+    raise AssertionError(f"Tab never reached {want}; it went {seen[:40]} ... {seen[-10:]}")
+
+
+def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard(browser, tmp_path):
+    """Only Tab, Enter and Escape: Open on factory reached and pressed opens it; a stock reached and pressed opens
+    its panel with the focus on its heading, and Escape gives the focus back to the stock. In every view, everything
+    the svg shows as clickable is a named keyboard button, and the side panel's loop rows are buttons."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "open=-", 0)
+        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open factory'")
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => (S.graph?.open || []).includes('factory') && document.querySelector('svg.canvas g.node')",
+                             timeout=30000)
+        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open intake'")   # (factory holds systems; intake, the backlog)
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => (S.graph?.open || []).includes('intake') && document.querySelector('svg.canvas g.node.k-stock')",
+                             timeout=30000)
+        stock = tab_to(pg, "(a) => a.matches('svg.canvas g.node.k-stock')")
+        assert stock[3] == "button" and stock[1].startswith("stock "), stock
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail h2')", timeout=10000)
+        pg.wait_for_function("() => document.activeElement?.matches('#detail h2, #detail h3')", timeout=5000)
+        pg.keyboard.press("Escape")
+        pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)
+        back = pg.evaluate(FOCUSED)
+        assert back[2] == stock[2] and back[1].startswith("stock "), (stock, back)
+        from ergostat import model as mdl
+        from ergostat.store import Project
+        seed_workflows(Project(mdl.load(tmp_path / "software-factory")), time.time())   # (the Process view's maps)
+        for i, view in enumerate(("view=dynamics&open=*", "view=blocks&open=*", "view=dynamics&open=-", "process")):
+            if view == "process":
+                pm_served(pg, url, 9)
+            else:
+                drawn(pg, url, view, i + 1)
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [tabindex=\"0\"]').length") > 0, view
+            assert not pg.evaluate(UNREACHED), (view, pg.evaluate(UNREACHED)[:10])
+            rows = pg.evaluate("() => [...document.querySelectorAll('.looprow[data-loop], .looprow.sd-inside')].map((r) => r.tagName)")
+            assert (rows or "open=*" not in view) and set(rows) <= {"BUTTON"}, (view, rows)   # the side panel's loop rows
+        assert not errors, errors
         pg.close()
 
 
@@ -2081,7 +2422,7 @@ def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser,
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.wait_for_timeout(300)
         where = ("(n) => { const r = document.querySelector(`.loop-marker[data-loop=\"${n}\"]`).getBoundingClientRect(); "
                  "return [r.x, r.y]; }")
@@ -2098,6 +2439,53 @@ def test_a_loop_marker_moves_with_its_system_when_the_system_is_dragged(browser,
         pg.wait_for_timeout(500)
         after = pg.evaluate(where, "missing-ops")                           # and placed again where its loop now is
         assert after[0] - before[0] > 60 and after[1] - before[1] > 40, (before, after)
+        pg.close()
+
+
+LOOP_SIGNS = """(label) => {
+  // a loop's panel: each row of 'Around the loop' (its text, its sign), its marker's letters, and each row whose
+  // connector is drawn here with the sign that connector shows (one sign per link across panels)
+  const c = S.graph.causalLoops.find((x) => x.label === label);
+  if (!c) return null;
+  openCausal(c.name);
+  const rows = [...document.querySelectorAll("#detail table.parts tr")].map((tr) => [tr.innerText.replace(/\\s+/g, " ").trim(),
+    tr.querySelector("td.num").textContent]);
+  const m = [...document.querySelectorAll("svg.canvas .loop-marker")].find((x) => (x.dataset.loops || "").split("|").includes(c.name));
+  const drawnSigns = (c.around || []).map((r) => {
+    const e = S.graph.edges.find((x) => x.kind === "connector" && (x.from ?? x.source) === r.from && (x.to ?? x.target) === r.to);
+    const t = e && document.querySelector(`svg.canvas .edge[data-id="${CSS.escape(e.id)}"] text.polarity`);
+    return e ? [r.from + " → " + r.to, t ? t.textContent : "?", r.sign ? sdSign(r.sign) : "?"] : null;
+  }).filter(Boolean);
+  return { rows, letter: m ? m.querySelector(".marker-letter").textContent : null, panel: document.querySelector("#detail").innerText,
+           markers: [...document.querySelectorAll("svg.canvas .loop-marker text")].map((t) => t.firstChild?.textContent || ""), drawnSigns,
+           alike: [...document.querySelectorAll("svg.canvas .marker-more")]
+             .map((t) => [t.firstChild.textContent, t.querySelector("title")?.textContent || ""]) };
+}"""
+
+
+def test_a_loop_is_called_r_or_b_only_when_every_link_has_a_sign(browser, tmp_path):
+    """software-factory's product system: R2's 'Around the loop' gives every link (all of them, through delivery
+    too) a sign, or its marker reads '?'; each part by its plain name; a connector drawn here shows the row's sign;
+    no marker reads '+1' (loops drawn alike: 'N alike')."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, v in enumerate(["system=product", "", "open=*"]):       # (open: every connector drawn, to compare)
+            drawn(pg, url, v, i)
+            r = pg.evaluate(LOOP_SIGNS, "R2")
+            assert v != "open=*" or len(r["drawnSigns"]) >= 4, r["drawnSigns"]
+            assert r and len(r["rows"]) >= 2, (v, r)
+            unsigned = [t for t, sign in r["rows"] if sign not in ("+", "−")]
+            assert not unsigned or r["letter"] == "?", (v, unsigned, r["letter"])
+            if unsigned:
+                assert "No sign on" in r["panel"], (v, r["panel"])
+            named = [t for t, _ in r["rows"] if re.search(r"\b(stock|gap|flow|desired|term|system|shadow|stub):", t)]
+            assert not named, (v, named)
+            assert not [t for t in r["markers"] if re.search(r"\+\d$", t)], (v, r["markers"])
+            assert all(shown == row for _, shown, row in r["drawnSigns"]), (v, r["drawnSigns"])
+            assert all(re.fullmatch(r"\d+ alike", t) and re.search(r"[RB?]\d+ ", title) for t, title in r["alike"]), (v, r["alike"])
+        assert not errors, errors
         pg.close()
 
 
@@ -2172,6 +2560,24 @@ def check_guide(seen: dict) -> None:
     assert seen["reinforcing"]["plotted"] == 2 and seen["closed"]["plotted"] == 2           # two runs; y and r
 
 
+def check_guide_steps(pg) -> None:
+    """A section's name goes to its first frame; each dot is a 24px target named 'Step n of 13', and the
+    current one, alone, is aria-current='step'."""
+    from ergostat.guide import frames
+    first = next(k for k, f in enumerate(frames()["frames"]) if f["part"] == "control")
+    pg.locator(".g-part", has_text="Control: what we control").click()
+    pg.wait_for_function(GUIDE_FRAME, arg=first, timeout=60000)
+    assert re.search(rf"[?&]frame={first}\b", pg.url), pg.url
+    dots = pg.evaluate("""() => [...document.querySelectorAll('.g-dot')].map((b) => {
+        const r = b.getBoundingClientRect();
+        return [r.width, r.height, b.getAttribute('aria-label'), b.getAttribute('aria-current')]; })""")
+    assert len(dots) == 13
+    assert all(w >= 24 and hgt >= 24 for w, hgt, _, _ in dots), dots
+    assert [lab for _, _, lab, _ in dots] == [f"Step {n} of 13" for n in range(1, 14)]
+    assert [k for k, (_, _, _, cur) in enumerate(dots) if cur is not None] == [first]
+    assert dots[first][3] == "step"
+
+
 def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, monkeypatch):
     from ergostat import model as mdl
     from ergostat.store import Project
@@ -2197,6 +2603,7 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
         if shots:
             shots.mkdir(parents=True, exist_ok=True)
         check_guide(walk_guide(pg, url + "/guide", shots))
+        check_guide_steps(pg)
         # the cascade's inner block opens on a click, and closes again
         pg.goto(url + "/guide?frame=11&v=1")
         pg.wait_for_function(GUIDE_FRAME, arg=11, timeout=60000)
@@ -2222,6 +2629,7 @@ def test_the_guide_draws_every_frame_live_and_in_a_snapshot(browser, tmp_path, m
     pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
              else (asked.append(rt.request.url), rt.abort()))
     check_guide(walk_guide(pg, f"file://{out}#/guide"))
+    check_guide_steps(pg)
     pg.close()
     assert not errors and not asked, (errors, asked)
 
@@ -2282,7 +2690,7 @@ def test_a_loop_lit_from_its_marker_lets_go_the_way_everything_else_does(browser
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="Fit").or_(pg.get_by_role("button", name="fit")).first.click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.wait_for_timeout(300)
         lit = "() => [S.hlCausal, document.querySelector('svg.canvas').classList.contains('loop-hl'), " \
               "document.querySelectorAll('svg.canvas .loop-marker.on, svg.canvas .node.dim').length]"
@@ -2392,6 +2800,126 @@ def charted(tmp_path: Path, monkeypatch) -> Path:
     return d
 
 
+def test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks(browser, tmp_path, monkeypatch):
+    """A goal past its ceiling (backlog <= 5, tolerance 1, read at 12 tickets) says how far it is in one phrase, the
+    state's: on the Loops page, the Dynamics side list, its gap's panel and its evidence (the loop's panel). Blocks
+    keeps the discipline's e = r − y, its signed e charted, and never the phrase."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = charted(tmp_path, monkeypatch)
+    p, now = Project(mdl.load(d)), time.time()
+    for i in range(6):
+        p.measurements.add("sensor/backlog.main", 12, at=now - 50 + i * 10)
+    p.events.add("loop.off", item="short-backlog", data={"value": 12}, at=now - 50)
+    want = "off by 7 tickets"
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        loops = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        assert loops["short-backlog"]["off_by_words"] == want, loops["short-backlog"]
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/loops")
+        cell = pg.locator('td[data-off="short-backlog"]')
+        cell.wait_for(timeout=30000)
+        said = {"loops page": cell.inner_text().strip()}
+        drawn(pg, url, "view=dynamics", 0)
+        side = "() => [...document.querySelectorAll('.side .att')].map((x) => x.textContent).join(' | ')"
+        pg.wait_for_function(f"() => ({side})().includes('short-backlog')", timeout=30000)
+        side = pg.evaluate(side)
+        said["side list"] = want if f"desired backlog = 5: {want}" in side else side
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'gap:short-backlog'))")
+        pg.wait_for_function("() => document.querySelector('#detail dl')?.textContent.includes('now ')", timeout=30000)
+        gap = pg.locator("#detail dl").inner_text()
+        said["gap"] = want if f"now {want}" in gap else gap
+        pg.evaluate("() => openLoop('short-backlog')")
+        pg.wait_for_function("() => [...document.querySelectorAll('#detail dt')].some((t) => t.textContent === 'how far')",
+                             timeout=30000)
+        rows = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('#detail dl dt')]"
+                           ".map((t) => [t.textContent, t.nextElementSibling?.textContent]))")
+        said["evidence"] = rows.get("how far")
+        assert said == dict.fromkeys(said, want), said
+        drawn(pg, url, "view=blocks", 1)                 # Blocks: the error as control writes it, e = r − y, signed
+        pg.evaluate("() => openBlock(S.graph.nodes.find((n) => n.role === 'comparator'))")
+        pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=30000)
+        names = pg.evaluate("() => [...document.querySelectorAll('#detail .scope .chart-name')].map((x) => x.textContent)")
+        text = pg.locator("#detail").inner_text()
+        assert "e" in names and "e = r − y" in text and want not in text, (names, text)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+def test_the_window_in_the_header_never_claims_more_than_the_record(browser, tmp_path, monkeypatch):
+    """Acceptance (ui-the-window-in-the-header-never-claims-more-than): on a project whose record began 33 minutes
+    ago, the header's window control says the window and how much of it is recorded ('Last 1h (33m recorded)'),
+    and a suggestion giving a share '% of the time' says it is of the 33m recorded; on the 10m window, all recorded,
+    the control says the window only. The Loops page's footnote says the same span."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "charted"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CHARTED)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    for i in range(198):                                   # 33 minutes of readings, the valve opening now and then
+        t = now - 1980 + i * 10
+        p.measurements.add("sensor/backlog.main", 8 + math.sin(i / 30), at=t)
+        if i % 6 == 0:
+            p.events.add("valve.opened", item="worker", data={"amount": 1, "flow": "finishing"}, at=t)
+    p.events.add("loop.off", item="short-backlog", data={"value": 8}, at=now - 1900)   # off since, most of the record
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(100):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "", 0)
+        when = "() => document.querySelector('#when .menu-btn')?.textContent || ''"
+        pg.wait_for_function(f"() => ({when})().includes('recorded')", timeout=10000)
+        label = pg.evaluate(when)
+        assert re.fullmatch(r"Last 1h \(3[234]m recorded\)", label), label
+        hints = pg.evaluate("() => [...document.querySelectorAll('.side .suggest .hint')].map((x) => x.textContent)")
+        timed = [x for x in hints if "% of the" in x]
+        assert timed, hints
+        for x in timed:                                     # every share of the time says of what record
+            assert "% of the time" not in x and re.search(r"% of the 3[234]m recorded", x), x
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelector('.page p.note')?.textContent.includes('recorded')", timeout=10000)
+        assert re.search(r"over the 3[234]m recorded", pg.locator(".page p.note").first.inner_text())
+        assert re.fullmatch(r"Last 1h \(3[234]m recorded\)", pg.evaluate(when))
+        pg.locator("#when .menu-btn").click()                # a window the record fills: the window alone
+        pg.locator("#when .menu-pop").get_by_text("Last 10 minutes").click()
+        pg.wait_for_function(f"() => ({when})() === 'Last 10m'", timeout=10000)
+        assert not errors, errors
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser, tmp_path, monkeypatch):
     """Clicking a stock draws its causes strip (it, its inflow and its outflow), a flow and an auxiliary
     theirs; parts chosen chart in the side panel; a loop's comparator and the Loops page's sparkline
@@ -2496,6 +3024,45 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
     assert not errors and not asked, (errors, asked)
 
 
+@contextlib.contextmanager
+def off_for(tmp_path: Path, span: float):
+    """CHARTED's page, its record ``span`` seconds long and its loop off nearly all of it, the worker opening
+    every 30s (served; the model is not run)."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / f"off-{int(span)}"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CHARTED)
+    env = {**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}    # (the caller has set it here too)
+    p = Project(mdl.load(d))
+    now = time.time()
+    p.events.add("ergostat.started", source="ergostat", at=now - span)
+    for i in range(int(span // 30)):
+        t = now - span + 5 + i * 30
+        p.measurements.add("sensor/backlog.main", 8 + i * 0.05, at=t)
+        p.measurements.add("sensor/arriving.main", 6, at=t)
+        p.events.add("valve.opened", item="worker", data={"amount": 1, "flow": "finishing"}, at=t)
+    p.events.add("loop.off", item="short-backlog", data={"value": 8}, at=now - span + 6)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    raise AssertionError("the page never answered") from None
+                time.sleep(0.2)
+        yield url
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 RINGED = "() => [...document.querySelectorAll('svg.canvas .node.selected')].map((n) => n.dataset.id)"
 TITLED = "(name) => (document.querySelector('#detail:not([hidden]) h2')?.firstChild?.textContent || '') === name"
 
@@ -2565,6 +3132,51 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+HINTS =("() => [...document.querySelectorAll('details.suggest .hint')].map((e) => [...e.childNodes]"   # (less its Evidence link)
+         ".filter((n) => n.nodeName !== 'A').map((n) => n.textContent).join('').trim())")
+LOOP_ENTRY = ("() => [...document.querySelectorAll('.att > div')].map((e) => e.textContent)"
+              ".filter((t) => /^[a-z]+ · loop short-backlog/.test(t))")   # (after its state word)
+CAUSE = re.compile(r"off \d+% of [^:]+: ([^.;]+)")
+
+
+def test_a_suggestion_appears_when_it_has_a_verdict(browser, tmp_path, monkeypatch):
+    """Before ten minutes of record nothing can say why a loop is off: no suggestion, and the goal's entry in
+    Needs attention says when it will be said. After, the suggestion names its goal once, never defers, and
+    says its cause in the same words on /diagram (both drawings) and /agents."""
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    with off_for(tmp_path, 300) as url:                      # 5m of record: no verdict yet
+        for i, view in enumerate(("view=blocks", "view=dynamics")):
+            drawn(pg, url, view, i)
+            pg.wait_for_function(f"() => ({LOOP_ENTRY})().length > 0", timeout=20000)
+            assert pg.evaluate(HINTS) == [], view
+            (entry,) = pg.evaluate(LOOP_ENTRY)
+            assert re.search(r"diagnosis in [45]m$", entry), (view, entry)
+    with off_for(tmp_path, 1200) as url:                     # 20m: a verdict
+        causes = []
+        for i, view in enumerate(("view=blocks", "view=dynamics")):
+            drawn(pg, url, view, i)
+            pg.wait_for_function(f"() => ({HINTS})().length > 0", timeout=20000)
+            hints = pg.evaluate(HINTS)
+            for t in hints:
+                assert "is said after" not in t and "diagnosis in" not in t, t
+                assert t.count("short-backlog") <= 1, t
+            (mine,) = [t for t in hints if "short-backlog" in t]
+            assert CAUSE.search(mine), (view, hints)
+            causes.append(CAUSE.search(mine).group(1))
+            assert not any("diagnosis in" in t for t in pg.evaluate(LOOP_ENTRY)), view
+        pg.goto(f"{url}/agents")
+        pg.wait_for_function("() => document.querySelectorAll('ul.hints li').length > 0", timeout=20000)
+        said = pg.evaluate("() => [...document.querySelectorAll('ul.hints li')].map((e) => e.textContent)")
+        (mine,) = [t for t in said if "short-backlog" in t]
+        assert "is said after" not in mine and mine.count("short-backlog") == 1, mine
+        assert causes == [CAUSE.search(mine).group(1)] * 2, (causes, mine)
+    pg.close()
+    assert not errors, errors
 
 
 def test_the_loop_markers_can_be_hidden_and_it_is_remembered(browser, tmp_path):
@@ -3052,10 +3664,11 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         box = pg.locator('g.node[data-id="flow:regressions"] .hit').first.bounding_box()
         pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve'", timeout=5000)
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve' && "
+                             "document.querySelector('#detail dl')", timeout=5000)   # (filled: it opens at once, then fills)
         text = pg.locator("#detail").inner_text()
         assert "the rate of regressions" in text, text[:600]
         inputs = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')].find((d) => d.textContent === 'inputs');
@@ -3075,6 +3688,79 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         text = pg.locator("#detail").inner_text()
         assert "what moves" in text.lower() and "ops" in text and "bugs-live" in text and "a source outside the model" in text, text[:600]
         assert "What is a flow?" in text
+        assert not errors, errors
+        pg.close()
+
+
+def seed_product_calibrations(d: Path) -> None:
+    """The software factory's copy with a calibration kept of two of the product's parameters: churn-per-failing-op
+    0.404 ± 0.116 against its declared 2 (the record's short-record note), fixes-per-ticket 0.01 ± 0.5."""
+    from ergostat import model as mdl
+    from ergostat.numbers import estimate as es
+    from ergostat.numbers import version as ver
+    from ergostat.store import Project
+    old = os.environ.get("ERGOSTAT_HOME")
+    os.environ["ERGOSTAT_HOME"] = str(d.parent / "home")                # where served() points the page's server
+    try:
+        p = Project(mdl.load(d))
+        p.measurements.add("sensor/users.main", 120.0, at=time.time() - 33 * 60)    # a record begun 33 minutes ago
+        short =("held, inconclusive: too little record to identify it (40 points fitted, under 60). Nothing says the "
+                 "value written is wrong: it needs about 20m more record (as the record has gone so far)")
+        f = es.path(p, ver.structure(p.model.spec), "parts")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({
+            "churn-per-failing-op": {"parameter": "churn-per-failing-op", "scope": "parts", "value": 0.404, "se": 0.116,
+                                     "n": 40, "refused": short},
+            "fixes-per-ticket": {"parameter": "fixes-per-ticket", "scope": "parts", "value": 0.01, "se": 0.5, "n": 40,
+                                 "refused": short}}))
+    finally:
+        if old is None:
+            os.environ.pop("ERGOSTAT_HOME", None)
+        else:
+            os.environ["ERGOSTAT_HOME"] = old
+
+
+VALVE_OF = "((n, f) => ['valve', 'disturbance'].includes(n.kind) && (n.flow || n.label) === f)"
+
+
+def test_a_flow_with_no_value_says_why_and_an_estimate_with_no_basis_says_so(browser, tmp_path):
+    """On the product's Dynamics view no flow's label is a bare '–' (one not measured says so, one that did not move
+    says 0, and its panel how long nothing moved); the churn panel does not say 'Nothing says the value written is
+    wrong' while the declared 2 lies outside 0.404 ± 3σ, and no interval more than ten times its estimate is printed."""
+    with served("software-factory", tmp_path, seed_product_calibrations) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=product", 0)
+        labels = pg.evaluate("""() => Object.fromEntries(S.graph.nodes.filter((n) => n.kind === 'valve' || n.kind === 'disturbance')
+          .map((n) => [n.flow || n.label, [...document.querySelectorAll(`svg.canvas g.node[data-id="${n.id}"] text.sd-value`)]
+                                            .map((t) => t.textContent.trim())]))""")
+        assert {"regressions", "fixes", "shipped", "asks", "churn"} <= set(labels), labels
+        assert not [f for f, t in labels.items() if "–" in t or not t], labels
+        assert labels["regressions"] == ["not measured"], labels
+        zero = [f for f, t in labels.items() if t and t[0].startswith("0")]
+        assert zero, labels                                     # (the market's flows: its block has moved nothing yet)
+        for flow in zero[:1] + ["regressions"]:
+            pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), flow)
+            pg.wait_for_function("(f) => new RegExp('the rate of ' + f).test(document.querySelector('#detail').textContent)", arg=flow,
+                                 timeout=5000)
+            pg.wait_for_timeout(300)
+            rate = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')]
+                                            .find((d) => d.textContent === 'rate, over the window');
+                                          return dt ? dt.nextElementSibling.textContent : null; }""")
+            assert rate == "not measured" if flow == "regressions" else re.match(r"^0 .*: no movement in 3[34]m$", rate or ""), (flow, rate)
+        pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), "churn")
+        pg.wait_for_function("() => document.querySelector('#detail table.calibrations')", timeout=10000)
+        text, cal = pg.locator("#detail").inner_text(), pg.locator("#detail table.calibrations").inner_text()
+        assert "Nothing says the value written is wrong" not in text, cal
+        assert "the record so far rejects 2 but cannot yet settle a value" in cal.lower(), cal
+        assert "0.404 ± 0.116" in cal, cal
+        pg.evaluate("(f) => openNode(S.graph.nodes.find((n) => VALVE_OF(n, f)))".replace("VALVE_OF", VALVE_OF), "fixes")
+        pg.wait_for_function("() => /fixes-per-ticket/.test(document.querySelector('#detail table.calibrations')?.textContent || '')",
+                             timeout=10000)
+        cal = pg.locator("#detail table.calibrations").inner_text()
+        assert "not enough record yet" in cal and "± 0.5" not in cal, cal
+        assert "Nothing says the value written is wrong" in cal, cal     # 0.4 lies within 0.01 ± 3σ: the note stays
         assert not errors, errors
         pg.close()
 
@@ -3202,6 +3888,88 @@ def test_a_selection_is_model_parts_and_survives_switching_view(browser, tmp_pat
         pg.keyboard.press("Escape")
         pg.wait_for_function("() => S.sel.size === 0", timeout=30000)
         assert pg.evaluate("() => S.sel.size") == 0 and pg.evaluate(LIT) == []
+        assert not errors, errors
+        pg.close()
+
+
+PANEL = "() => document.querySelector('#detail').hidden ? null : document.querySelector('#detail h2')?.textContent"
+
+
+def test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_its_words(browser, tmp_path):
+    """The stock quality chosen with its panel open, then Blocks: within a second of the block diagram being drawn,
+    its output y_quality at the process output has the selection ring and the panel is still open, titled in the
+    block diagram's words, 'output y_quality of P_service'; back in Dynamics, the stock's own panel. A flow's label
+    clicked plainly opens the flow's panel at once, before its numbers come (held back here, as a slow server would),
+    and filled when they do; carried to Blocks it is the actuating signal u_tuner, and a goal's reference, r = 0.93
+    and its summing junction. (The acceptance names the demo at :8793; this is the same model, served fresh.)"""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.set_default_timeout(120000)
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=service", 0)
+        fit(pg)
+
+        def switch(to: str, shape: str) -> None:       # the view's button, waited on until that view is drawn
+            pg.locator(".toolbar .seg button", has_text=to).click()
+            pg.wait_for_function(f"() => S.graph?.kind === {to.lower()!r} && "
+                                 f"document.querySelector('svg.canvas g.node[data-id=\"{shape}\"]')", timeout=DRAWN_S * 1000)
+        y = "document.querySelector('svg.canvas g.node[data-id=\"out:stock.quality\"]')"
+        click_part(pg, "stock:quality")
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality'", timeout=30000)
+        switch("Blocks", "out:stock.quality")
+        pg.wait_for_function(f"() => {y}.classList.contains('selected') && /y/.test(({PANEL})() || '')", timeout=1000)
+        ring = pg.evaluate(f"() => getComputedStyle({y}.querySelector('.hit')).stroke")
+        assert ring == pg.evaluate(ACCENT), ring
+        assert pg.evaluate(PANEL) == "output y_quality of P_service"
+        assert pg.evaluate("() => [...S.sel]") == ["stock.quality"]
+        switch("Dynamics", "stock:quality")
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality'", timeout=5000)
+        # a flow's label, clicked plainly: its panel at once, while its numbers are held back; filled when they come
+        held = []
+        pg.route("**/api/part/flow/**", lambda r: held.append(r))
+        fit(pg)
+        pg.locator('g.node[data-id="flow:quality-steps"] text.sd-name').click()
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality-steps'", timeout=1000)
+        assert pg.evaluate("() => [...S.sel]") == ["flow.quality-steps"] and held
+        for r in held:
+            r.continue_()
+        pg.unroute("**/api/part/flow/**")
+        pg.wait_for_function("() => /rate, over the window/.test(document.querySelector('#detail').textContent)", timeout=30000)
+        assert pg.evaluate(PANEL) == "quality-steps"
+        switch("Blocks", "blk:tuner")
+        pg.wait_for_function(f"() => ({PANEL})() === 'actuating signal u_tuner'", timeout=5000)
+        # the race: the flow's numbers come only after the switch to Blocks; the Dynamics answer, arriving late,
+        # does not paint its valve panel over the Blocks one
+        switch("Dynamics", "flow:quality-steps")
+        held.clear()
+        pg.route("**/api/part/flow/**", lambda r: held.append(r))
+        fit(pg)
+        pg.locator('g.node[data-id="flow:quality-steps"] text.sd-name').click()
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality-steps'", timeout=5000)
+        assert held
+        switch("Blocks", "blk:tuner")
+        pg.wait_for_function(f"() => ({PANEL})() === 'actuating signal u_tuner'", timeout=5000)
+        with pg.expect_response(lambda r: "/api/part/flow/" in r.url):
+            for r in held:
+                r.continue_()
+        pg.unroute("**/api/part/flow/**")
+        pg.wait_for_timeout(500)                       # the late answer handled (it has come; its handler is a tick)
+        assert pg.evaluate(PANEL) == "actuating signal u_tuner"
+        assert pg.evaluate("() => document.querySelector('#detail .kind')?.textContent") != "Valve"
+        # a reference chosen in Blocks, carried to Dynamics (its desired level) and back
+        pg.locator('g.node[data-id="ref:quality-held"]').dispatch_event("click")
+        pg.wait_for_function("() => [...S.sel].join() === 'goal.quality-held.r' && !document.querySelector('#detail').hidden", timeout=5000)
+        switch("Dynamics", "desired:quality-held")
+        pg.wait_for_function(f"() => ({PANEL})() === 'desired quality'", timeout=5000)
+        switch("Blocks", "ref:quality-held")
+        pg.wait_for_function(f"() => ({PANEL})() === 'reference r = 0.93 and its summing junction'", timeout=5000)
+        # a panel closed before the switch stays closed, though its part is still chosen
+        pg.locator("#detail button.close").click()
+        assert pg.evaluate(PANEL) is None and pg.evaluate("() => S.sel.size") == 1
+        switch("Dynamics", "desired:quality-held")
+        pg.wait_for_timeout(500)
+        assert pg.evaluate(PANEL) is None and pg.evaluate(LIT) == ["desired:quality-held"]
         assert not errors, errors
         pg.close()
 
@@ -4173,6 +4941,279 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+def test_a_one_sided_limit_is_drawn_and_named_as_a_limit(browser, tmp_path):
+    """ticket-factory's worked-opened holds worked ≤ 0: its reference is drawn 'r ≤ 0' and its panel calls it a limit,
+    never a setpoint; the on-off controller serving it switches on and off at one threshold, so it is an ideal relay,
+    drawn with one step, and nothing says hysteresis. The controller panel and the Loops page say 'limit ≤ 0'."""
+    with served("ticket-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.set_default_timeout(60000)
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&system=making", 0)
+        ref = pg.locator('svg.canvas g.node[data-id="ref:worked-opened"]')
+        assert "≤ 0" in ref.text_content(), ref.text_content()
+        fit(pg)
+        click_part(pg, "ref:worked-opened")
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'reference input'")
+        text = pg.locator("#detail").inner_text()
+        assert "limit" in text and "setpoint" not in text, text
+        relay = pg.locator('svg.canvas g.node[data-id="blk:keep-worked-opened"]')
+        assert relay.locator(".bd-sketch .bd-curve").get_attribute("d") == "M2,18 H14 V5 H26"   # one step: no loop
+        click_part(pg, "blk:keep-worked-opened")
+        pg.wait_for_function("() => document.querySelector('#detail h2')?.textContent === 'keep-worked-opened'")
+        text = pg.locator("#detail").inner_text()
+        assert "ideal relay" in text and "hysteresis" not in text, text
+        pg.evaluate("() => openLoop('worked-opened', true)")
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Controller'")
+        pg.wait_for_function("() => [...document.querySelectorAll('#detail dd')].some((d) => d.textContent === 'worked, limit ≤ 0')")
+        pg.goto(url + "/loops")
+        row = pg.locator("tr", has_text="worked-opened")
+        row.wait_for()
+        assert "limit ≤ 0" in row.inner_text(), row.inner_text()
+        assert not errors, errors
+        pg.close()
+
+
+NO_UNIT = """() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node')].filter((g) => g.querySelector('.sd-stock'))
+  .map((g) => { const t = g.querySelector('.sd-nounit'), v = g.querySelector('.sd-value');
+    return [g.querySelector('.sd-name').textContent, { value: v ? v.textContent : '', muted: t ? getComputedStyle(t).fill : null }]; }))"""
+
+
+def test_a_stock_with_no_unit_reads_unit_query_after_its_value_and_the_legend_explains_it(browser, tmp_path, monkeypatch):
+    """A missing unit is check's finding (no-unit), drawn on the stock (the dev record missing-unit-is-a-check-finding):
+    its value reads '12 unit ?', the 'unit ?' in the muted tone, a legend row says what it means, a stock with a unit
+    has none; and /api/status's check list (the Check page's) names each unitless stock once."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from tests.test_missing_unit import UNITLESS
+    d = tmp_path / "units"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(UNITLESS)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # the server is given it too
+    p = Project(mdl.load(d))
+    p.measurements.add("sensor/backlog.main", 12.0, at=time.time() - 5)
+    p.measurements.add("sensor/tickets-open.main", 3.0, at=time.time() - 5)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                st = json.loads(urllib.request.urlopen(url + "/api/status", timeout=2).read())
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        said = [c["message"].split(": no unit.")[0].rsplit(" ", 1)[-1] for c in st["check"] if ": no unit." in c["message"]]
+        assert sorted(said) == ["backlog", "done", "parked"], said              # each once
+        pg = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics", 0)
+        pg.wait_for_function("() => [...document.querySelectorAll('svg.canvas .sd-value')].some((t) => t.textContent.startsWith('12'))",
+                             timeout=30000)
+        got = pg.evaluate(NO_UNIT)
+        assert got["backlog"]["value"] == "12 unit ?", got
+        assert got["tickets-open"]["value"] == "3 tickets", got                  # a stock with a unit: none
+        assert got["done"]["value"].endswith(" unit ?") and got["parked"]["value"].endswith(" unit ?"), got
+        muted = pg.evaluate("() => { const t = document.createElementNS('http://www.w3.org/2000/svg', 'text'); "
+                            "t.setAttribute('fill', 'var(--sd-muted)'); document.querySelector('svg.canvas').append(t); "
+                            "const c = getComputedStyle(t).fill; t.remove(); return c; }")
+        assert got["backlog"]["muted"] == muted, (got["backlog"], muted)        # the muted tone, as the legend draws it
+        legend = pg.evaluate("() => sdLegend().textContent")
+        assert "unit ?: the stock's value has no unit" in legend, legend
+        pg.goto(f"{url}/model", timeout=DRAWN_S * 1000)                         # the Model page's Tools table lists them
+        row = pg.locator("table.avail tr", has_text="units").first
+        row.wait_for(timeout=60000)
+        assert row.locator(".no-unit a").all_inner_texts() == ["backlog", "done", "parked"], row.inner_text()
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+def open_all(pg) -> str:
+    """The ⋯ menu's Open all, clicked: its label as it read."""
+    pg.get_by_title("More: wrap, open or close every system, unpin").click()
+    item = pg.locator(".menu-pop .menu-item", has_text="Open all")
+    label = item.inner_text()
+    item.click()
+    return label
+
+
+OPENED = """(want) => typeof S !== 'undefined' && S.graph && [...(S.graph.open || [])].sort().join(',') === want &&
+  S.layout && S.graphSig && !S.layout.routing && document.querySelectorAll('svg.canvas g.node').length > 0"""
+LEVEL_SAID = "() => document.querySelector('.canvas-wrap .open-level')?.textContent || ''"
+
+
+@pytest.mark.serial
+def test_open_all_on_a_model_that_will_not_fit_opens_the_first_level_and_says_into_for_the_rest(browser, tmp_path):
+    """the-job (about 200 parts open) at 1600x1000: 'Open all (first level)' opens job and modelling, the ten systems
+    within job stay closed boxes with their Into, the canvas says so, the lines come within 3s, Blocks draws (never a
+    blank canvas), and the address lists what was opened, so a reload shows the same."""
+    with served("the-job", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        first = sorted(s for s, t in tree.items() if not t["within"])
+        nested = sorted(set(tree) - set(first))
+        assert first == ["job", "modelling"] and len(nested) == 10, (first, nested)
+        said = f"Opened to the first level: {len(nested)} systems stay closed. Use Into to open one."
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, (view, box, ctl) in enumerate([("view=dynamics", "system:", ".sys-btn"), ("view=blocks", "sys:", ".bd-toggle")]):
+            drawn(pg, url, view, i)
+            assert pg.evaluate(LEVEL_SAID) == ""
+            t0 = time.monotonic()
+            assert open_all(pg).startswith("Open all (first level)")
+            pg.wait_for_function(OPENED, arg=",".join(first), timeout=DRAWN_S * 1000)
+            took = time.monotonic() - t0
+            if view == "view=dynamics":
+                assert took < 3, f"the first level open, its lines routed, took {took:.1f}s"
+            assert f"open={','.join(first)}" in pg.url.replace("%2C", ","), pg.url
+            for _ in range(2):                                       # as opened, then as reloaded from the address
+                got = pg.evaluate("""([box, ctl, nested]) => nested.map((x) => {
+                  const el = document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(box + x)}"]`);
+                  return [x, !!el, !!el?.querySelector(ctl)]; }).filter(([, drawn, has]) => !drawn || !has)""", [box, ctl, nested])
+                assert not got, f"[{view}] not drawn as a closed box with its control: {got}"
+                assert pg.evaluate("() => document.querySelectorAll('svg.canvas g.node').length") > len(nested)
+                assert pg.evaluate(LEVEL_SAID) == (said if view == "view=dynamics" else said.replace("Into", "a block's +"))
+                pg.reload()
+                pg.wait_for_function(OPENED, arg=",".join(first), timeout=DRAWN_S * 1000)
+        pg.close()
+        assert not errors, errors
+
+
+@pytest.mark.serial
+def test_open_all_on_a_flat_model_that_will_not_fit_stays_at_the_system_boxes_and_says_into(browser, tmp_path):
+    """big (its systems all first level, too big open at 1600x1000): 'Open all (system boxes)' keeps every system a
+    closed box with its Into (Blocks: its +), the canvas says how many, and the address (open=-) shows the same on a
+    reload; the page as first drawn says nothing."""
+    with served("big", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        assert tree and not any(t["within"] for t in tree.values()), tree
+        said = f"Opened to the system boxes: {len(tree)} systems stay closed. Use Into to open one."
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, (view, box, ctl) in enumerate([("view=dynamics", "system:", ".sys-btn"), ("view=blocks", "sys:", ".bd-toggle")]):
+            drawn(pg, url, view, i)
+            assert pg.evaluate(LEVEL_SAID) == ""
+            t0 = time.monotonic()
+            assert open_all(pg).startswith("Open all (system boxes)")
+            pg.wait_for_function(OPENED, arg="-", timeout=DRAWN_S * 1000)    # (the server says back what was asked: "-")
+            if view == "view=dynamics":
+                assert time.monotonic() - t0 < 3, "the system boxes and their lines took 3s or more"
+            assert "open=-" in pg.url, pg.url
+            for _ in range(2):                                       # as opened, then as reloaded from the address
+                got = pg.evaluate("""([box, ctl, names]) => names.filter((x) =>
+                  !document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(box + x)}"]`)?.querySelector(ctl))""",
+                                  [box, ctl, sorted(tree)])
+                assert not got, f"[{view}] not drawn as a closed box with its control: {got}"
+                assert pg.evaluate(LEVEL_SAID) == (said if view == "view=dynamics" else said.replace("Into", "a block's +"))
+                pg.reload()
+                pg.wait_for_function(OPENED, arg="-", timeout=DRAWN_S * 1000)
+        pg.close()
+        assert not errors, errors
+
+
+def test_open_all_on_a_model_that_fits_opens_every_system_as_before(browser, tmp_path):
+    """software-factory (about 65 parts open, a system within another) fits: Open all opens every system (open=*)."""
+    with served("software-factory", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        assert any(t["within"] for t in tree.values()), tree
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        for i, view in enumerate(["view=dynamics", "view=blocks"]):
+            drawn(pg, url, view, i)
+            assert open_all(pg) == "Open all systems"
+            pg.wait_for_function(OPENED, arg=",".join(sorted(tree)), timeout=DRAWN_S * 1000)
+            assert "open=*" in pg.url.replace("%2A", "*"), pg.url
+            assert pg.evaluate(LEVEL_SAID) == ""
+        pg.close()
+
+
+# the reader's pages say what the reader can see or do, never a command, a line of the YAML or a section of SPEC
+NOT_FOR_READERS = re.compile(r"SPEC §|ergostat\.yaml|`ergostat |relations:|under with:|/private/tmp")
+READERS_DEMOS = ["first-loop", "image-squeeze", "roadmap", "software-factory", "the-job", "ticket-factory"]
+PANELS = """async (which) => {
+  // each panel the page opens, as a click opens it: its text once what it asks for has come
+  const out = [], settle = () => new Promise((r) => setTimeout(r, 300));
+  const take = async (what, open) => {
+    try { await open(); } catch (e) { out.push([what, `failed to open: ${e}`]); return; }
+    await settle();
+    for (let i = 0; i < 20 && document.querySelector('#detail')?.innerText.includes('\\u2026'); i++) await settle();
+    out.push([what, document.querySelector('#detail')?.innerText || '']);
+  };
+  if (which === "diagram") for (const n of S.graph.nodes.filter((n) => n.kind !== 'cloud')) await take(n.id, () => openNode(n));
+  if (which === "systems") for (const n of S.graph.nodes.filter((n) => n.kind === 'system')) await take(n.id, () => openNode(n));
+  if (which === "loops") for (const n of Object.keys(await api('loops'))) await take(`loop ${n}`, () => openLoop(n));
+  if (which === "agents") for (const n of Object.keys(await api('agents'))) await take(`agent ${n}`, () => openAgent(n));
+  return out;
+}"""
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("example", READERS_DEMOS)
+def test_the_readers_pages_name_no_command_yaml_line_or_spec_section(browser, tmp_path, example):
+    """/diagram (its side panel and each part's panel), /loops (each loop's panel), /agents (each agent's panel) and
+    /items (its list and its graph) say none of: a SPEC section, ergostat.yaml, a command, a YAML key, or an absolute
+    path into the project (an agent's log is named by its file)."""
+    with served(example, tmp_path) as url:
+        folder = str(tmp_path.resolve())                  # the project and its home (its logs) are under it
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        said: list[tuple[str, str]] = []
+        # both drawings: every part's panel with every system open, each system's own with them closed
+        for i, (view, which) in enumerate([("view=dynamics&open=*", "diagram"), ("view=blocks&open=*", "diagram"),
+                                           ("view=dynamics", "systems"), ("view=blocks", "systems")]):
+            drawn(pg, url, view, i)
+            said.append(("/diagram", pg.inner_text("body")))
+            said += [(f"/diagram {w}", t) for w, t in pg.evaluate(PANELS, which)]
+        for path, which in (("/loops", "loops"), ("/agents", "agents")):
+            pg.goto(url + path)
+            pg.wait_for_selector(".page h1")
+            pg.wait_for_timeout(800)
+            said.append((path, pg.inner_text("body")))
+            said += [(f"{path} {w}", t) for w, t in pg.evaluate(PANELS, which)]
+        pg.goto(url + "/items")
+        pg.wait_for_selector(".page h1")
+        pg.wait_for_timeout(800)
+        said.append(("/items", pg.inner_text("body")))
+        graph = pg.locator("button", has_text="Graph")
+        if graph.count():
+            graph.first.click()
+            pg.wait_for_timeout(1500)
+            said.append(("/items graph", pg.inner_text("body")))
+        pg.close()
+    found = re.compile(f"{NOT_FOR_READERS.pattern}|ergostat explain |{re.escape(folder)}")   # (a <code> shows no backticks)
+    bad = sorted({(where.split(" ")[0], m.group(0), t[max(0, m.start() - 60):m.end() + 60]) for where, t in said
+                  for m in found.finditer(t)})
+    assert any(w.startswith("/agents agent") for w, _ in said), "no agent's panel was opened"
+    assert any(w.startswith("/loops loop") for w, _ in said), "no loop's panel was opened"
+    assert not bad, "\n".join(map(str, bad))
+    assert not errors, errors
+
+
+def test_the_harris_row_says_what_is_missing_not_where_to_write_it(browser, tmp_path):
+    """A loop whose dead time is not known: its Harris row says so, not which YAML key to write it in (the demos are
+    not run, so the row is drawn here from the answer the server gives such a loop, control/monitor.py)."""
+    from ergostat.control.monitor import performance
+    t = [float(i) for i in range(20)]
+    hr = performance({"t": t, "h": 1.0, "e": [0.0] * 20, "u": [0.0] * 20}, "==", 0.0, None, None, [], "setting")["harris"]
+    assert hr.get("needs_theta") and "process:" in hr["why"], hr         # the answer as the server gives it
+    with served("first-loop", tmp_path) as url:
+        pg = browser.new_page()
+        pg.goto(url + "/loops")
+        pg.wait_for_selector(".page h1")
+        row = pg.evaluate("(hr) => performanceRows({ performance: { harris: hr } })[0]", hr)
+        pg.close()
+    assert row == ["Harris index", "needs the loop's dead time"], row
+
+
 def test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_verdict(browser, tmp_path):
     """/diagram has exactly one h1, one line under the view switch: the view's diagram type, the model's purpose, its
     systems and its verdict (Dynamics: goals; Blocks: control loops, the goals a controller holds); the svg is named
@@ -4300,8 +5341,8 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
             waiting, off, house = groups
             assert len(waiting["rows"]) == 1 and waiting["rows"][0].startswith("waiting · ") \
                 and "request/" not in waiting["rows"][0], waiting                # only the person's ask
-            held = [r for r in house["rows"] if "request/" in r]
-            assert len(held) == 2 and all(r.startswith("request · request/") for r in held), house
+            held = [r for r in house["rows"] if r.startswith("request · ")]   # each read as its sentence
+            assert len(held) == 2 and all("Modelling cannot decide it" in r for r in held), house
             assert off["rows"][0].startswith("off · loop short-backlog"), off          # the system's first,
             assert off["rows"][1] == "---", off                                         # a rule,
             assert off["rows"][2].startswith("off · loop requests-handled"), off       # then modelling's
@@ -4310,6 +5351,92 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
                 assert all(re.fullmatch(r"[a-z]+ · ", w) for w in g["words"]), g
         pg.close()
         assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+# the header's link: its text, its box, and whether it is the header's first element
+WAITS_LINK = """() => { const a = [...document.querySelectorAll('header a')].find((x) => /wait/.test(x.textContent));
+  if (!a || a.hidden) return null;
+  const r = a.getBoundingClientRect(), box = (x) => x.getBoundingClientRect();
+  const first = [...document.querySelectorAll('header *')].filter((x) => !x.children.length && box(x).width > 0)
+    .sort((p, q) => box(p).top - box(q).top || box(p).left - box(q).left)[0];
+  return { text: a.textContent.trim(), bottom: r.bottom + scrollY, first: first === a }; }"""
+WAITING_HEAD = """() => { const hd = document.getElementById('waiting'); if (!hd) return null;
+  const r = hd.getBoundingClientRect();
+  return { text: hd.textContent, top: r.top, bottom: r.bottom, height: r.height, inner: innerHeight,
+           focused: document.activeElement === hd, active: document.activeElement?.outerHTML.slice(0, 80) }; }"""
+WAITING_SHOWN = f"""() => {{ const w = ({WAITING_HEAD})();
+  return !!w && /^Waiting for you/.test(w.text) && w.top >= 0 && w.bottom <= w.inner && w.height > 0 && w.focused; }}"""
+
+
+def waiting_shown(pg, what) -> None:
+    try:
+        pg.wait_for_function(WAITING_SHOWN, timeout=60000)
+    except Exception:
+        raise AssertionError((what, pg.url, pg.evaluate(WAITING_HEAD))) from None
+
+
+def test_what_waits_for_you_is_one_step_from_every_page(browser, tmp_path, monkeypatch):
+    """Design review Q43: beside the loops count the header says 'N wait for you', in the first 200 px of /items,
+    /agents, /loops and /record at 1440 and 390 px (at 390 the header's first thing); following it shows the Diagram's
+    'Waiting for you' heading, focused, inside the viewport. N is the side list's own count of that group."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "waits"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(GROUPED.replace("goals:\n", "  archiving:\n    from: backlog\ngoals:\n").replace(
+        "uses:\n", "  approver:\n    type: person\n    ask: approve the plan\n    goal: short-backlog\n"
+                   "    out: flow.archiving\nuses:\n"))                     # a second person block
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    p.measurements.add("sensor/backlog.main", 9, at=now - 30)                    # a goal off: not waiting on a person
+    for who, ask in (("reviewer", "review the backlog"), ("approver", "approve the plan")):   # two asks: "2 wait for you"
+        p.events.add("person.asked", item=who, source="ergostat", data={"command": 2, "ask": ask})
+    from ergostat.numbers import requests as rq
+    rq.event(p, rq.rid("check", "flow-unmeasured", "flow.x"), "held", {"code": "flow-unmeasured", "about": "flow.x",
+                                                                       "source": "check", "tier": "ai", "why": "used"})
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        for width, height in ((1440, 900), (390, 844)):
+            pg = browser.new_page(viewport={"width": width, "height": height})
+            errors: list[str] = []
+            pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
+            for path in ("items", "agents", "loops", "record"):
+                pg.goto(f"{url}/{path}")
+                pg.wait_for_function(WAITS_LINK, timeout=30000)
+                got = pg.evaluate(WAITS_LINK)
+                assert got["text"] == "2 wait for you", (width, path, got)
+                assert got["bottom"] <= 200, (width, path, got)
+                if width < 700:
+                    assert got["first"], (width, path, got)            # on a phone, the header's first thing
+                pg.locator("header a", has_text="wait for you").click()
+                waiting_shown(pg, (width, path))
+                assert pg.evaluate("location.pathname") == "/diagram", path
+                head = pg.locator("#waiting").inner_text()
+                assert re.sub(r"\s+", " ", head).strip() == "Waiting for you 2", head   # the side list's own count
+            pg.goto("about:blank")
+            pg.goto(f"{url}/diagram#waiting")                          # the address itself, loaded afresh
+            waiting_shown(pg, (width, "loaded"))
+            pg.evaluate("() => { document.activeElement.blur(); document.querySelector('main').scrollTop = 0; scrollTo(0, 0); "
+                        "history.replaceState(null, '', '/diagram'); }")
+            pg.evaluate("() => { location.hash = 'waiting'; }")         # and asked for on the Diagram itself
+            waiting_shown(pg, (width, "hash"))
+            pg.close()
+            assert not errors, errors
     finally:
         proc.terminate()
         proc.wait(10)
