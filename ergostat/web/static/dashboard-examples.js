@@ -21,10 +21,12 @@ function dashFieldExamples(k) {
     { title: `${k.name}: spread of ${y.name} by state`, form: "box", note: "Median, quartiles and outliers",
       queries: [dashFieldQuery(k, y, { agg: "none", x: byState })], display: { unit } },
   ];
+  /* a heatmap takes points (SPEC §4e), so it counts the same pairs as the scatter, where there are two fields */
+  const pairs = x && [dashFieldQuery(k, y, { agg: "none", x: { type: "field", field: x.name } })];
   if (x) out.push({ title: `${k.name}: ${y.name} against ${x.name}`, form: "scatter", note: "One dot per item",
-                    queries: [dashFieldQuery(k, y, { agg: "none", x: { type: "field", field: x.name } })], display: { unit } });
-  out.push({ title: `${k.name}: ${y.name} per hour, heatmap`, form: "heatmap", note: "Darker means more time periods at that level",
-             queries: [dashFieldQuery(k, y, { agg: "sum", transform: "rate", rate_per: "hour" })], display: { unit: `${unit}/h` } });
+                    queries: pairs, display: { unit } },
+                  { title: `${k.name}: ${y.name} against ${x.name}, heatmap`, form: "heatmap", note: "Darker means more items in that cell",
+                    queries: pairs, display: { unit } });
   return out;
 }
 function dashFlowExamples(k, goals) {

@@ -10,7 +10,8 @@ one:
 
   broken     before the schedule, when the merge pipeline has been broken past [manager] broken_minutes (the queue
              blocked, a push pending, no merge while approved gaps wait, the same test failing on two main commits,
-             the load interlock holding the queue or its limits unreadable; at once, the dispatcher meeting an error
+             the load interlock holding the queue, named by the readings that hold it (suites-running, threads,
+             memory, push-waiting), or its limits unreadable; at once, the dispatcher meeting an error
              in every look past 2 minutes, from the engine's heartbeat, live.py): when each began is kept in
              run/manager.json; never sooner than broken_minutes after the last session of any kind
   scheduled  every [manager] every (2h), the routine review
@@ -29,6 +30,7 @@ import math
 import os
 import re
 import secrets
+import subprocess
 import sys
 import time
 
@@ -239,6 +241,17 @@ def triggers(cfg: dict, gaps: dict, opened: list[dict], now: float) -> list[dict
 
 HOLD = r"^  {name}:\s*$.*?hold: \"(<=|>=) ([\d.]+)\""
 INTERLOCK = {"suites": "machine-quiet", "threads": "suite-threads-within", "memory": "suite-memory-within"}
+READING = {"suites": "suites-running", "threads": "threads", "memory": "memory"}    # (as queue-when's text names them)
+
+
+def push_waiting() -> str:
+    """The push-waiting reading as its sensor reads it (`queue.py waiting`); one not read is "unreadable", never 0."""
+    try:
+        r = subprocess.run([sys.executable, str(fac.HERE / "bin" / "queue.py"), "waiting"], capture_output=True,
+                           text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return "unreadable"
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() in ("0", "1") else "unreadable"
 
 
 def hold(file: str, name: str) -> float | None:
@@ -278,7 +291,9 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
     limits = {w: hold("interlock.yaml", g) for w, g in INTERLOCK.items()}
     unknown = [INTERLOCK[w] for w, lim in limits.items() if lim is None]
     probe = approved and cfg.get("load", {}).get("wait", True)      # (the tests' machine is not the factory's)
-    over = [w for w, lim in limits.items() if lim is not None and load.reading(w) > lim] if probe else []
+    read = {w: load.reading(w) for w, lim in limits.items() if lim is not None} if probe else {}
+    over = [f"{READING[w]} {read[w]:g} over {limits[w]:g}" for w in read if read[w] > limits[w]]
+    over += [f"push-waiting {push}" for push in [push_waiting() if probe else "0"] if push != "0"]
     try:                                       # (no instance, no heartbeat or a stale one: a dead engine, not this; health's
         beat = live.heartbeat(cfg)             # own engine check says so)
         stopped = live.dispatch_failing(beat, now) if now - float(beat["written"]) <= live.PASS_FRESH else None
@@ -289,7 +304,7 @@ def conditions(cfg: dict, gaps: dict, opened: list[dict], now: float, starts: di
     if unknown:                                # (a goal renamed or reworded: never read as within its limit)
         out["interlock"] = f"the load interlock's goals {', '.join(unknown)} have no hold in dev/model/interlock.yaml"
     elif over:
-        out["interlock"] = f"the load interlock holds the queue ({', '.join(over)} over) while {len(approved)} gaps wait"
+        out["interlock"] = f"the load interlock holds the queue ({', '.join(over)}) while {len(approved)} gaps wait"
     return out
 
 

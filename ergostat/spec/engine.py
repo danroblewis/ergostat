@@ -153,6 +153,7 @@ class Engine:
         self.live: dict[str, subprocess.Popen] = {}    # run id → its process, while it runs (leases/kill.py)
         self.killing: dict[str, str] = {}              # run id → why it is being killed (its lease expired)
         self.ingester = None
+        self.journals = None                           # the journal sensors it owns, followed on a thread (SPEC §6)
         self.lease_seq = 0                             # the newest lease event taken to the workspace pools (SPEC §12k)
         self.following = False                         # whether _follow runs: it runs the actions programs ask for
         from ..leases.dispatch import Dispatcher
@@ -1883,6 +1884,7 @@ class Engine:
         self.adopted = adopt.scan(self)                          # runs the engine before left going: taken up, their
         self._listen()                                           # leases kept, before any run starts or lease is looked at
         self.daemons.sync(self.spec)                             # (after the socket: its path is in their environment)
+        self._journals()
         self._connect()
         self.looping = True                                      # readings go to the loop from now (no thread each)
         threading.Thread(target=self._schedule, name="ergostat-loop", daemon=True).start()
@@ -1932,6 +1934,23 @@ class Engine:
                     self.record_moved = True
                 self.wake.set()
                 self.stop.wait(BATCH)                     # (a burst of writes: one batch)
+
+    def _journals(self) -> None:
+        """The journal sensors this engine owns, followed on one thread (none started while it owns none: SPEC §6)."""
+        spec = self.spec
+        mine = {sensor_name(s.of.name, s.name): s for s in spec.sensors()
+                if s.journal is not None and self.own(f"{s.of.kind}.{s.of.name}.{s.name}", spec)}
+        if self.journals is None and mine:
+            from ..journal_source import Journals
+            self.journals = Journals(self.p, spec.root, self.p.dir / f"journals{'' if self.shard is None else f'-{self.shard}'}"
+                                     f".json", self.say, self._journal_read)
+        if self.journals is not None:
+            self.journals.sync(mine)
+
+    def _journal_read(self, s: Sensor) -> None:
+        with self.lock:
+            self.dirty_series.add(s.series)
+        self.wake.set()
 
     def _ingest(self) -> None:
         from .. import transcripts
@@ -2042,6 +2061,7 @@ class Engine:
             self.version = version
             self.full = True                                     # the next pass works out everything, under the new model
         self.daemons.sync(new)                                   # a daemon whose definition changed: drained, replaced
+        self._journals()                                         # a journal sensor removed: read no more
         self._connect()                                          # a pool changed or removed: its sessions closed
         self.wake.set()
         self._ingest()
@@ -2071,6 +2091,8 @@ class Engine:
     def close(self) -> None:
         self.shut(self.lock_wait)
         self.wake.set()
+        if self.journals is not None:
+            self.journals.close()                # its thread ended before the stop is recorded
         if self.calls is not None:
             self.calls.close()
         for pool in (self.pool, self.alarm_pool):
@@ -2507,6 +2529,8 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
         return measure(events, spec, s)
     if s.daemon is not None:
         return None, f"read by its daemon {s.daemon} while ergostat runs"
+    if s.journal is not None:
+        return None, f"read from its journals in {s.journal} while ergostat runs"
     if s.query is not None:
         src = spec.sources[s.query["source"]]
         if src.type == "prometheus":

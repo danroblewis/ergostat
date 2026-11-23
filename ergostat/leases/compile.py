@@ -89,7 +89,7 @@ def takes(c, m, what: str) -> Takes | None:
     where = dict(where)
     if where:
         c.where_values(where, raw["where"], f"{what}.takes", what.replace(" ", ".", 1))
-    return Takes(kind, list(states), list(to), where, unblocked, order, faults.compile_healthy(c, raw, what))
+    return Takes(kind, list(states), list(to), where, unblocked, order, *faults.compile_faults(c, raw, what))
 
 
 def pool(c, m, what: str) -> tuple[int, Ref | None]:

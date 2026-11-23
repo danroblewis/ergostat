@@ -23,9 +23,11 @@ import time
 
 from ergostat.library import sources, tree
 from ergostat.sandbox import git
+from ergostat.spec.files import TreeError
 
 LOCK, FOLDER = "libraries.lock", ".libraries"
 SIZE, TIMEOUT = 100_000_000, 120.0
+SOURCE = ("git", "version", "path")             # what a lock entry pins (``trust:`` is the owner's, not the lock's)
 _HEX = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 _OPTS = ["-c", "http.followRedirects=false", "-c", "credential.helper=", "-c", "core.sshCommand=false"]
 
@@ -45,9 +47,11 @@ def _say(line: str) -> None:
 
 def fetch(root, libraries: dict, update: bool = False, say=_say) -> dict[str, str]:
     """Fetch each library in ``libraries`` (checked by ``sources.check``) under ``root``; returns name -> ``fetched``
-    or ``kept``. An entry whose ``git``, ``version`` and ``path`` match the lock and whose copy is there is kept,
-    unless ``update``. Otherwise its version is resolved again; without ``update``, a commit or tree other than the
-    locked one is refused (``lock-mismatch``). The first refusal stops the fetch, with what was done before it kept."""
+    or ``kept``. An entry whose ``git``, ``version`` and ``path`` match the lock and whose copy is there with the
+    locked tree hash is kept, unless ``update``; with its copy missing or altered, the locked commit is fetched again,
+    and a tree other than the locked one is refused (``lock-mismatch``). A changed or new entry, or ``update``,
+    resolves the version from scratch. The first refusal stops the fetch, with what was
+    done before it kept."""
     wanted = sources.check(libraries)
     root = os.path.realpath(root)
     folder = os.path.join(root, FOLDER)
@@ -71,20 +75,29 @@ def fetch(root, libraries: dict, update: bool = False, say=_say) -> dict[str, st
         os.close(lfd)
 
 
+def _whole(dest: str, tree_hash) -> bool:
+    try:
+        return tree.digest(dest) == tree_hash
+    except (OSError, TreeError):
+        return False
+
+
 def _one(root: str, folder: str, name: str, src: dict, update: bool) -> str:
+    src = {k: src[k] for k in SOURCE if k in src}
     locks = read_lock(root)
     dest = _inside(folder, name)
     old = locks.get(name)
-    same = old is not None and all(old.get(k) == src.get(k) for k in sources.KEYS)
+    same = old is not None and all(old.get(k) == src.get(k) for k in SOURCE)
     if same and not _HEX.fullmatch(str(old.get("commit"))):
         raise FetchError("bad-lock", name, "its locked commit is not hex")
-    if same and not update and os.path.isdir(dest):
+    if same and not update and os.path.isdir(dest) and _whole(dest, old.get("tree")):
         return "kept"
     tmp = tempfile.mkdtemp(prefix=".tmp-", dir=folder)
     try:
-        commit, digest = _get(tmp, src)
-        if same and not update and (commit, digest) != (old.get("commit"), old.get("tree")):
-            raise FetchError("lock-mismatch", name, f"resolved {commit} {digest}, locked {old.get('commit')} "
+        again = same and not update                     # the copy is missing or altered: the locked commit again
+        commit, digest = _get(tmp, src, old["commit"] if again else src["version"])
+        if again and (commit, digest) != (old.get("commit"), old.get("tree")):
+            raise FetchError("lock-mismatch", name, f"got {commit} {digest}, locked {old.get('commit')} "
                              f"{old.get('tree')}; fetch with update to move it")
         had = os.path.isdir(dest)
         if had:
@@ -117,9 +130,10 @@ def _remove(folder: str, tmp: str) -> None:
         shutil.rmtree(_inside(folder, name))
 
 
-def _get(tmp: str, src: dict) -> tuple[str, str]:
-    """Check the version with ``git check-ref-format``, clone ``src`` bare into ``tmp``, resolve the version, archive
-    it (or its ``path``) and extract it to ``tmp``/copy; returns the commit and the copy's digest."""
+def _get(tmp: str, src: dict, want: str) -> tuple[str, str]:
+    """Check the version with ``git check-ref-format``, clone ``src`` bare into ``tmp``, resolve ``want`` (the version,
+    or the locked commit), archive it (or its ``path``) and extract it to ``tmp``/copy; returns the commit and the
+    copy's digest."""
     try:
         _run(["check-ref-format", "--allow-onelevel", src["version"]], tmp, tmp)
     except FetchError as e:
@@ -130,11 +144,11 @@ def _get(tmp: str, src: dict) -> tuple[str, str]:
     _run(["clone", "--bare", "--quiet", "--template=", "--end-of-options", src["git"], repo], tmp, tmp)
     out = os.path.join(tmp, "out")
     with open(out, "w+b") as f:
-        _run(["rev-parse", "--verify", "--quiet", "--end-of-options", src["version"] + "^{commit}"], tmp, tmp, repo, f)
+        _run(["rev-parse", "--verify", "--quiet", "--end-of-options", want + "^{commit}"], tmp, tmp, repo, f)
         f.seek(0)
         commit = f.read().decode().strip()
     if not _HEX.fullmatch(commit):
-        raise FetchError("git-failed", src["version"], f"resolved to {commit[:80]!r}")
+        raise FetchError("git-failed", want, f"resolved to {commit[:80]!r}")
     with open(out, "w+b") as f:
         what = commit + (":" + src["path"] if "path" in src else "")
         _run(["archive", "--format=tar", "--end-of-options", what], tmp, tmp, repo, f)
@@ -147,6 +161,15 @@ def _limit() -> None:
     resource.setrlimit(resource.RLIMIT_FSIZE, (SIZE, SIZE))
 
 
+def argv(*args: str) -> list[str]:
+    return ["git", *git.SAFE, *_OPTS, *args]
+
+
+def _start(args: list[str], cwd: str, env: dict, out, err) -> subprocess.Popen:
+    return subprocess.Popen(argv(*args), cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out or subprocess.DEVNULL,
+                            stderr=err, start_new_session=True, preexec_fn=_limit)
+
+
 def _run(args: list[str], cwd: str, watch: str, gitdir: str | None = None, out=None) -> None:
     """Run ``git ARGS`` in its own session; past ``TIMEOUT`` seconds or ``SIZE`` bytes under ``watch``, or on any
     exception here, its whole process group is killed while its leader is not yet reaped (so the group id is still
@@ -154,8 +177,7 @@ def _run(args: list[str], cwd: str, watch: str, gitdir: str | None = None, out=N
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/"), **git.ENV,
            "GIT_ALLOW_PROTOCOL": "https:file", **({"GIT_DIR": gitdir} if gitdir else {})}
     with tempfile.TemporaryFile() as err:
-        p = subprocess.Popen(["git", *git.SAFE, *_OPTS, *args], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                             stdout=out or subprocess.DEVNULL, stderr=err, start_new_session=True, preexec_fn=_limit)
+        p = _start(args, cwd, env, out, err)
         end = time.monotonic() + TIMEOUT
         try:
             while not _ended(p):
