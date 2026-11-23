@@ -72,3 +72,22 @@ of main's test pass (3 passed, under the watchdog with Playwright); tests/test_r
 Not run in round 3: the whole of tests/test_diagram_rendering.py. The background run
 (`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/drender.log 2>&1; echo done >> /tmp/drender.log`)
 was refused in this session. The other three browser files and the unit suite were not run either.
+
+Round 4. The one finding, conflicts with main in ergostat/web/static/pages.js and tests/test_diagram_rendering.py, is
+resolved in the merge of main (ead497d1, merge commit 9919deaa). pages.js keeps main's Loops page whole: one `loops`
+answer with `perf=1`, the trend from `lp.points`, the 'r' and 'how far' columns, `word(lp.perf)`. The branch adds only
+its `offFor`/`card` helpers, the card cell at the end of each row and the table's `loops` class. The earlier per-loop
+`perf` polling the branch had kept from old main is gone, as main removed it. In the test file, main's new
+test_a_suggestion_appears_when_it_has_a_verdict (with HINTS, LOOP_ENTRY, CAUSE) and the phone-card test are each whole
+and separate. No code changed beyond the merge. Net lines outside tests stay at 16.
+After the merge: ruff is clean; the phone-card test and
+test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[True] pass;
+tests/test_runner_and_state.py passes (45).
+Fails, twice in a row: test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[False], at
+line 3118. The diagram side panel's `.side .suggest .hint button.name` is never visible. That is the diagram's
+Suggestions fold, which this branch does not touch (the branch's CSS is scoped to `table.loops`, and its pages.js change
+is the Loops page's card). The test passed here in round 3, before this merge brought main's change that holds a
+suggestion back until ten minutes of record (test_a_suggestion_appears_when_it_has_a_verdict). So the likely cause is
+two of main's changes meeting, not this branch. Checking it on clean main (`git archive main | tar -x -C /tmp/mainck`
+and the same test there) was refused in this session, so that is not confirmed.
+Not run: the whole of tests/test_diagram_rendering.py, the other three browser files and the unit suite.
