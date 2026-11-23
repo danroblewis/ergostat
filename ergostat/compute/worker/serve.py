@@ -13,6 +13,7 @@ import threading
 import traceback
 
 import frames
+import keeper
 
 WORKER = "1"
 BEAT = 10.0
@@ -138,6 +139,7 @@ def the_root(given: str | None) -> str:
 def serve(root: str, inp, w: frames.Writer, every: float) -> int:
     said = hello(root)
     w.send("hello", **said)
+    HANDLERS.update(keeper.handlers(root, said))
     stop = threading.Event()
     threading.Thread(target=beats, args=(w, root, said["slots"], every, stop), daemon=True).start()
     want = 1
