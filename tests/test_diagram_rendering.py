@@ -6044,7 +6044,7 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         pg.evaluate("() => setWindow('1h')")
         assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
         pg.go_back()
-        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        pg.wait_for_function("() => location.pathname === '/goals'", timeout=5000)
         assert pg.evaluate(agree) == ["1d", "1d", "Last 1d"]
         pg.go_forward()
         pg.wait_for_function("() => location.pathname === '/items'", timeout=5000)
@@ -6087,9 +6087,9 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'stock:inbox'))")
         assert pg.evaluate(kind) == "Stock"
         pg.go_back()
-        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        pg.wait_for_function("() => location.pathname === '/goals'", timeout=5000)
         assert "select=inbox-short" in pg.url, pg.url
-        pg.wait_for_function(f"() => ({panel})('inbox-short') && ({kind})() === 'Loop' && !!document.querySelector('#detail dl')",
+        pg.wait_for_function(f"() => ({panel})('inbox-short') && ({kind})() === 'Goal' && !!document.querySelector('#detail dl')",
                              timeout=20000)          # (its answer in, not its 'Loading…': a late one is another matter)
         pg.go_forward()
         pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
