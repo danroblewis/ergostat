@@ -861,14 +861,14 @@ function toggleSide() {
 function applyView(svg) {
   const vp = svg.querySelector("#viewport");
   if (vp) vp.setAttribute("transform", `translate(${S.view.x},${S.view.y}) scale(${S.view.k})`);
-  // whether some of the diagram lies beyond the edge, and which way, after a drag or a zoom too
+  // whether some of the diagram lies beyond the edge, and which way (in words and arrows), after a drag or a zoom too
   const hint = document.getElementById("panhint"), r = svg.getBoundingClientRect();
   if (hint && S.layout && r.width) {
     const b = drawnBox(svg, S.layout), k = S.view.k, x0 = S.view.x + b.x * k, y0 = S.view.y + b.y * k;
     const way = { left: -x0, right: x0 + b.width * k - r.width, above: -y0, below: y0 + b.height * k - r.height };
-    const ways = Object.keys(way).filter((w) => way[w] > 2);
+    const ways = Object.keys(way).filter((w) => way[w] > 2), arrow = { left: "←", right: "→", above: "↑", below: "↓" };
     hint.hidden = !ways.length;
-    hint.textContent = "More " + ways.map((w) => (w === "left" || w === "right" ? "to the " + w : w)).join(" and ");
+    hint.textContent = "More " + ways.map((w) => (w === "left" || w === "right" ? "to the " + w : w) + " " + arrow[w]).join(" and ");
     hint.onclick = () => {                            // a pan most of a screen that way, no further than the edge
       const by = (w, room) => Math.min(Math.max(way[w], 0) + 60, room * 0.8);
       S.view.x += by("left", r.width) - by("right", r.width); S.view.y += by("above", r.height) - by("below", r.height);
@@ -890,9 +890,13 @@ function bars(svg, r) {
   return [at(".diagram .toolbar", (b) => b.bottom - r.top), at(".diagram .zoom", (b) => r.bottom - b.top)];
 }
 
+const NARROW = "(max-width: 700px)", NARROW_K = 0.7;   // a phone (style.css's narrowest layout): fitted down to 11px text at 7.7px (the zoom a laptop still shows whole)
+
 function fit(svg, lay, legible = false) {
   const r = svg.getBoundingClientRect();
   if (!lay || !r.width) return;
+  // on a phone the toolbars sit above and below the canvas, not over it: the canvas is all the drawing's
+  if (matchMedia(NARROW).matches) return fitNarrow(svg, lay, Math.min(1.25, (r.width - 20) / lay.width, (r.height - 20) / lay.height), legible, r);
   const [TOP, BOTTOM] = bars(svg, r), b = drawnBox(svg, lay), room = r.height - TOP - BOTTOM;
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
   const whole = Math.min(1.25, (r.width - 40) / b.width, room / b.height);
@@ -914,6 +918,24 @@ function showSystem(svg, name) {
   };
   const sx = S.view.x + c.x * S.view.k, sy = S.view.y + c.y * S.view.k;
   S.view = { k, x: S.view.x * k / S.view.k + into(sx, 20, c.width * k, r.width - 40), y: S.view.y * k / S.view.k + into(sy, TOP, c.height * k, room) };
+  applyView(svg);
+}
+
+/* the drawing fitted to a phone's canvas, down to NARROW_K; still too big, it is centred on its first part (a system
+   box, else a stock, else what comes first), kept from showing empty space beyond the drawing, and the hint says
+   which way the rest lies */
+function fitNarrow(svg, lay, whole, legible, r) {
+  const k = legible ? Math.max(whole, NARROW_K) : Math.max(0.08, whole), ox = lay.ox || 0, oy = lay.oy || 0;
+  const at = (ext, size, o) => (ext * k <= size - 20 ? (size - ext * k) / 2 - o * k : null);   // it fits: centred
+  let x = at(lay.width, r.width, ox), y = at(lay.height, r.height, oy);
+  if (x == null || y == null) {
+    const box = Object.fromEntries(lay.children.map((c) => [c.id, c])), nodes = (S.graph?.nodes || []).filter((n) => box[n.id]);
+    const first = box[(nodes.find((n) => n.kind === "system") || nodes.find((n) => n.kind === "stock") || nodes[0] || {}).id] || lay.children[0];
+    const centre = (p, ext, size, o) => Math.min(10 - o * k, Math.max(size - 10 - (o + ext) * k, size / 2 - p * k));
+    if (x == null) x = first ? centre(first.x + first.width / 2, lay.width, r.width, ox) : 10 - ox * k;
+    if (y == null) y = first ? centre(first.y + first.height / 2, lay.height, r.height, oy) : 10 - oy * k;
+  }
+  S.view = { k, x, y };
   applyView(svg);
 }
 
@@ -1098,9 +1120,11 @@ function captionText(st, view) {
   if (st.top) parts.push(n(st.top, "system"));
   // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
   if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
-    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);
-    const off = names.filter((x) => st.loops[x] && goalWord(st.loops[x]) === "off").length;
-    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
+    // the system's goals and their off, the model's upkeep apart, as the header: the server's count (state.goals_off)
+    const names = (view === "blocks" ? st.controlled : Object.keys(st.loops)).filter((x) => !st.loops[x]?.upkeep);
+    const { off, upkeep } = goalsOff({ goals_off: view === "blocks" ? st.controlled_off : st.goals_off });
+    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off` +
+      (upkeep ? ` · model upkeep ${upkeep}` : ""));
   }
   return parts.join(" · ");
 }
@@ -1486,6 +1510,37 @@ function inboxBody(a, href) {
     run ? h("details", { class: "cmd" }, h("summary", {}, "the command"), h("pre", { class: "mono small" }, run)) : null];
 }
 
+/* held requests alike (one code, one asker: the server's fold) as one entry, where the first of them stood */
+function folded(xs) {
+  const by = {}, out = [];
+  for (const a of xs) {
+    if (!a.fold) out.push(a);
+    else if (by[a.fold]) by[a.fold].members.push(a);
+    else out.push(by[a.fold] = { members: [a] });
+  }
+  return out.map((a) => (a.members?.length === 1 ? a.members[0] : a));
+}
+const PLURAL = { stock: "stocks", flow: "flows", auxiliary: "auxiliaries", parameter: "parameters", goal: "goals", block: "blocks" };
+function foldRow(ms, row) {
+  const kinds = new Set(ms.map((m) => String(m.about).split(".")[0])), systems = [...new Set(ms.map((m) => m.system).filter(Boolean))].sort();
+  const said = h("span", { class: "note", "aria-live": "polite" }), why = h("input", { type: "text", placeholder: "why (to deny all)", "aria-label": "Why" });
+  // read from the clicked row as it is on the page: a refresh hands this handler to the kept nodes (patchNode)
+  const all = h("button", { class: "ghost", "data-verb": "deny-all", onclick: async (ev) => {
+    const b = ev.currentTarget, act = b.parentElement, note = act.querySelector("input").value, out = act.querySelector(".note");
+    b.disabled = true;
+    const bad = [];                                   // one at a time: each answer is the owner's event, in turn
+    for (const m of ms) await apiPost(`inbox/${encodeURIComponent(m.what)}/deny`, note ? { note } : {}).catch((e) => bad.push(e.message));
+    out.textContent = bad.length ? ` ${bad.length} not denied: ${bad[0]}` : ` ${ms.length} denied`;
+    if (!bad.length) act.querySelector("input").value = "";   // the reason was this fold's; it goes with it
+    b.disabled = false; refreshHeader();
+  } }, "Deny all");
+  // keyed by its fold: a refresh matches it to its own nodes, never another fold's by place (and its typed reason)
+  return h("div", { "data-fold": ms[0].fold, key: `fold:${ms[0].fold}` }, h("details", { class: "fold" },
+    h("summary", {}, h("span", { class: "att-word" }, "request · "), h("b", { class: "lvl-warn" },`${ms.length} ${kinds.size === 1 ? PLURAL[[...kinds][0]] || "parts" : "parts"}: ${ms[0].fold.split("|")[0].replace(/-/g, " ")}`),
+      systems.length ? ` (${systems.join(", ")})` : ""), ...ms.map(row)),
+    SNAP || S.at ? null : h("div", { class: "row inbox-act" }, why, all, said));
+}
+
 /* a goal named in the side list: a button opening its evidence (as 'Evidence' does), and ringing its stock (Dynamics)
    or its summing junction (Blocks), the closed system holding it opened first (one level: the box drawn) */
 function goalButton(name, label) { return h("button", { class: "name", type: "button", onclick: () => showGoal(name) }, label); }
@@ -1550,21 +1605,25 @@ function renderSide(side, g, view) {
     }
     return live(held);
   };
+  const row = (a) => {
+    const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
+    const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
+    const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
+    const said = h("span", { class: "att-word" }, `${word} · `);
+    const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
+    if (a.answer && a.first) return h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a));
+    return h("div", keys, said,
+      href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
+      linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
+      a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null);   // its suggestion, once due
+  };
+  const one = (a) => (a.members ? a.members[0] : a);
   const list = (xs, none, cls, key, answered = []) => {
     const att = h("div", { class: `att ${cls}`, ...(key ? { key } : {}) }, ...answered);   // answered here: at the top
     if (!xs.length && !answered.length) att.append(h("div", { class: "none" }, none));
-    xs.forEach((a, i) => {
-      if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
-      const word = a.state || (a.kind === "request" ? "request" : ask(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
-      const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
-      const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
-      const said = h("span", { class: "att-word" }, `${word} · `);
-      const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
-      if (a.answer && a.first) { att.append(h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
-      att.append(h("div", keys, said,
-        href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
-        linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
-        a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null));   // its suggestion, once due
+    folded(xs).forEach((a, i, ys) => {
+      if (i && one(a).modelling && !one(ys[i - 1]).modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
+      att.append(a.members ? foldRow(a.members, row) : row(a));
     });
     return hold(att, cls);
   };
@@ -1580,7 +1639,9 @@ function renderSide(side, g, view) {
     side.append(fold ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);
   }
   side.append(legendBox(view));
-  side.append(h("h3", { class: "att-head", key: "off-h" }, "Goals off", count(off)), list(off, "No goal is off.", "goals-off", "off-rows"));
+  // (its count the header's, from the server: the system's goals off, the model's upkeep apart; never its rows counted)
+  side.append(h("h3", { class: "att-head", key: "off-h" }, "Goals off", h("span", { class: "muted" }, ` ${goalsOffText()}`)),
+              list(off, "No goal is off.", "goals-off", "off-rows"));
   const house = h("details", { class: "housekeeping", key: "house", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
       h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy.", "house"));

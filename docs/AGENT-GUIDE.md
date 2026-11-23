@@ -89,6 +89,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    without it after those with it; the critical first among equals). The completion estimates and the Timeline
    project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
    notes an order field no item holds yet (`takes-order-unset`).
+   **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
+   `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
+   the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.
    **When a queue's items share something that can be down** (a tracker, a build service), give the stock that
    checks it a sensor reading 1 while up and 0 while down, and say so on the block: `takes: {kind: ticket, at: todo,
    faults: {healthy: sensor.tracker-up}}` (or a `goal.` that holds, or a `block.` command). While it is down or
@@ -286,7 +289,8 @@ The Dynamics view is the workflow you declared; the Process view is the one that
       never printed (look at the collector).
 - [ ] **Items end where the work ends.** The end node should follow your final states; an item that
       ends in a waiting state means a step that never reports.
-- [ ] **Rework is what the person expects.** Lines marked ↺ run back to an earlier state: a review
+- [ ] **Rework is what the person expects.** Lines marked ↺ took an item back to a state it had already
+      been in (a repeated step; how many returns, in the line's panel), never other items' order: a review
       sending work back is real; a lease handing items back over and over is a failing step (its median
       time says how long each try took).
 - [ ] **Fan-out and join** (dashed lines between kinds): work that starts other work (a ticket
@@ -312,7 +316,7 @@ blocks), run again, until every kind reads `N of N agree`. How to read each:
 | Mismatch | Pair | What it means | What to change |
 |---|---|---|---|
 | `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
-| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (↺ on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
+| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (drawn running back on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
 | `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
 | `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
 | `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |
@@ -472,6 +476,9 @@ ergostat measures every run itself (SPEC §9.1): what its AI sessions cost (doll
 estimated from tokens), its tokens, the CPU time and peak memory of its processes, its wall time and exit. You do not
 write anything for this: an `ai` block's own `claude -p`, and `ergostat session` inside any block's `run:`, report
 through the run. The Agents page shows each agent's totals and history; `ergostat agent NAME` the same.
+An agent whose last run failed, that never ran on its schedule, or that ran under half the runs its `every:` asks for
+over the window's record ("behind: 10 of ~120") is marked in red with its reason under the row, and counted on the
+page's top line.
 
 When the person wants a limit ("no more than $5 a day on AI"), make it a goal, read from a built-in measure, and gate
 the AI blocks on it, so the loop that does the work also stops when the money is spent:
@@ -743,9 +750,10 @@ a clone of the repository, tested in the sandbox, and proposed as the gated acti
 Once applied, the fix is verified by the runs of its block begun after it (`verify` of them finished well: not a claim
 the failure is fixed); one that fails again regresses it, and the gated action `revert-fix` offers one `git revert` of
 the fix. A regressed fix whose revert is denied stays regressed, for the owner.
-Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
-is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
-swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read. With
+Triage reads Python, Node, Java, Go and Ruby traces from the last 8,000 characters of a run's output (a trace whose
+header is cut off there counts as none, except a Python traceback that runs to the end of the run's own file: that is
+read from the file's last 64,000 characters), and a run that exits 0 but printed a trace through the project's code is
+noted as a swallowed error, never opened and never moving a failure already there. Other languages are not read. With
 no such trace, its last error-level log line is noted the same way, in two forms only: Python logging's default
 `ERROR:logger:message` (or `CRITICAL`) and a JSON line with `level`/`levelname`/`severity` error, critical or fatal.
 What you set:
@@ -808,6 +816,27 @@ exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per 
 "transform": "rate", "rate_per": "hour", "group_by": "state"}]}`. Prefer `items`, `moves`, `counts` and `series`; the
 `events` source reads the log, bounded, and says so.
 
+## 3l. A shared dashboard: declared by you, never by a person
+
+People do not write `dashboards:` by hand; you (or the Supervisor) add one when the owner asks for a shared view,
+or when the same question is asked of the page again and again (SPEC §4f):
+
+1. Ask what it is for, in one sentence: that is its `description`. Pick one `window` for all its panels (at most
+   `keep:`).
+2. Put it in the file of the system it is about (one whose `defaults:` sets the system), so it is named
+   `SYSTEM.NAME` and moves with that system; a dashboard across systems goes in the main file.
+3. Write each panel with the parameters its endpoint already takes (the table in SPEC §4f): `chart` with `refs`,
+   `items` with `kind` and `state`, `states` or `cycle-time` with `kind`, `scope` with `goal`, `goals` with the
+   goals it shows. At most 24 panels; every panel that shows a measure shows the model's reading beside it (`replay:
+   true` on a chart of stocks with equations).
+4. `ergostat check`: a name that is not the model's is **unknown-ref** at its line. When you rename or remove a part,
+   check finds every dashboard that named it: fix them in the same change.
+5. Open `GET /api/dashboard/NAME` (or `ergostat snapshot`) and read each panel's answer: none should be empty
+   without a reason.
+
+A dashboards-only change alters no version and no replay, but the judge does not yet know that (it would replay it
+as a parameter change): add a dashboard as a direct edit followed by `ergostat check`, not as a proposal.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
@@ -833,6 +862,10 @@ exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per 
   the root (a lease, a full pool, the budget, a gate and which of its inputs is 0, a parked or missing dependency, a
   cycle, nothing taking its state, ...), names who must act and the command, and links the evidence. Ask it before
   guessing why work has stalled; when it says `unknown`, the record lacks what it needs (SPEC §5a).
+- **What holds the work up**: `ergostat held-up [--json]` (MCP `held_up`, `/api/held-up`) groups every unfinished
+  item by its root, ranks the roots (stalls first, then by what waits on them), folds the goals off because of a root
+  under it, and its first line names the biggest stall and its next step, or says nothing is stuck. Ask it first when
+  many goals are off at once: fix the first stall, then ask again (SPEC §5a).
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.
@@ -846,6 +879,9 @@ exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per 
 - **Docs**: [SPEC.md](SPEC.md) (the format; sections 5a items, 6 sensors, 7 flows, 8 goals, 9 blocks,
   9.5 leases, 12k gated actions, 4c remote systems), [MODELLING.md](MODELLING.md) (improving a model from its record),
   [MODELLING-WELL.md](MODELLING-WELL.md) (the craft of each diagram),
+  [DASHBOARDS.md](DASHBOARDS.md) (`ergostat help dashboards`: sensible Dashboard panels, each from the question it
+  answers and the decision it supports, with recipes and real `chartPanel` configs; read it before you build a
+  dashboard for someone),
   [QUICKSTART.md](QUICKSTART.md), `examples/ticket-factory/` and `examples/the-job/`.
 
 ## 6. When ergostat itself is wrong
