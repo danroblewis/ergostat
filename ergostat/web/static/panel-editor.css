@@ -49,6 +49,23 @@
 .pe-threshold input { min-width: 0; width: 100%; box-sizing: border-box; }
 .pe-side > button { align-self: flex-start; }
 .pe-live { position: absolute; width: var(--hair); height: var(--hair); overflow: hidden; clip-path: inset(50%); }
+.pe-x { border-top: var(--hair) solid var(--line); }
+.pe-x[hidden], .pe-parts[hidden], .pe-form-guide[hidden], .pe-options[hidden], .pe-side h3[hidden] { display: none; }
+.pe-parts { display: flex; flex-direction: column; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
+.pe-part { border: var(--hair) solid var(--line); border-radius: var(--radius); padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
+.pe-part .pe-q-grid { padding: 0; }
+.pe-form-group { display: flex; flex-direction: column; gap: var(--sp-0); margin-top: var(--sp-1); }
+.pe-gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pe-seg.pe-form { flex-direction: column; align-items: flex-start; gap: var(--sp-0); padding: var(--sp-1); min-width: 0; }
+.pe-form-icon { width: calc(var(--sp-4) * 2); height: var(--sp-4); fill: none; stroke: currentColor; stroke-width: 1.4; color: var(--accent); }
+.pe-form-name { font-size: var(--text-sm); font-weight: 600; }
+.pe-form-need { font-size: var(--text-sm); color: var(--muted); overflow-wrap: anywhere; line-height: 1.2; }
+.pe-form-blocked .pe-form-need { color: var(--warn); }
+.pe-form-blocked .pe-form-icon { color: var(--muted); }
+.pe-form-guide { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2); background: var(--warn-wash); color: var(--ink); border-radius: var(--radius); font-size: var(--text-sm); }
+.pe-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.pe-quick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-1); }
+.pe-quick-btn { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-0); text-align: left; white-space: normal; min-width: 0; font-size: var(--text-sm); }
 @media (max-width: 700px) {
   .pe-head { flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); }
   .pe-save-msg { order: 3; flex-basis: 100%; }
