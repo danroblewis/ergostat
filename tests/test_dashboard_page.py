@@ -1,5 +1,5 @@
-"""Acceptance: the Dashboard page. Its panels are stood in for by a small stub of the contract's globals and a fake
-/api/query, so this tests the page: the route, the default made from the fields, the draft in the address and in
+"""Acceptance: the Dashboard page, on the real panels.js with a fake /api/query, so this tests the page: the route,
+the default made from the fields, the draft in the address and in
 localStorage, editing by keyboard and mouse, and the layout at desktop and phone widths.
 
 It needs Playwright and a Chromium, so the usual run skips it:
@@ -60,34 +60,33 @@ ITEMS = {"kinds": [
 GRAPH = {"kinds": [{"name": "widget", "queue": ["new", "ready", "redo", "checked"]}, {"name": "part", "queue": ["queued"]},
                    {"name": "log", "queue": ["started"]}]}
 
-# chartPanel and friends as the contract gives them: the panel builder's real ones replace these
-STUB = """
+# the page runs on the real panels.js: only the server is faked, and each query it is sent is noted here
+WATCH = """
 window.__queries = 0;
-window.chartPanel = (config) => {
-  const el = document.createElement("div");
-  el.className = "stub-panel";
-  el.dataset.form = config.form;
-  const title = document.createElement("b"), plot = document.createElement("div");
-  title.textContent = config.title; plot.className = "stub-plot"; plot.textContent = config.form;
-  el.style.cssText = "display:flex;flex-direction:column;padding:6px;font-size:12px;gap:4px";
-  plot.style.cssText = "flex:1;background:var(--fill);min-height:0;display:flex;align-items:center;" +
-    "justify-content:center;color:var(--muted)";
-  el.append(title, plot);
-  el.update = (results) => { el.dataset.drawn = String(results.length); };
-  el.setState = (s) => { el.dataset.state = s; };
-  el.setConfig = (c) => { title.textContent = c.title; el.dataset.form = c.form; };
-  el.destroy = () => {};
-  return el;
-};
-window.queryFields = () => fetch("/api/query/fields").then((r) => r.json());
-window.queryPanels = async (configs, opts) => {
-  window.__queries++;
-  window.__since = opts.since;
-  const q = btoa(JSON.stringify({ since: opts.since, queries: configs.flatMap((c) => c.queries) }));
-  await fetch("/api/query?q=" + encodeURIComponent(q));
-  return new Map(configs.map((c) => [c.id, { results: c.queries.map((x) => ({ id: x.id, times: [], series: [] })), meta: {} }]));
+window.__asked = [];
+const realFetch = window.fetch.bind(window);
+window.fetch = (url, opts) => {
+  const text = String(url);
+  if (text.includes("/api/query?")) {
+    const q = new URL(text, location.href).searchParams.get("q").replace(/-/g, "+").replace(/_/g, "/");
+    const asked = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(q), (c) => c.charCodeAt(0))));
+    window.__queries++;
+    window.__since = asked.since;
+    window.__asked = asked.queries;
+  }
+  return realFetch(url, opts);
 };
 """
+
+
+def answer(route):
+    """A fake /api/query: three points for every query asked."""
+    text = route.request.url.split("q=")[1].split("&")[0]
+    asked = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+    now = 1795400000.0
+    route.fulfill(json={"now": now, "since": now - asked["since"], "until": now, "step": 60, "results": [
+        {"id": q["id"], "times": [now - 120, now - 60, now], "series": [{"name": "x", "values": [1.0, 2.0, 3.0]}],
+         "unit": "", "capped": 0, "read_log": False} for q in asked["queries"]]})
 
 
 @pytest.fixture(scope="module")
@@ -123,9 +122,9 @@ def browser():
 
 def context(browser, width=1440, height=1000, fields=FIELDS):
     ctx = browser.new_context(viewport={"width": width, "height": height})
-    ctx.add_init_script(STUB)
+    ctx.add_init_script(WATCH)
     ctx.route("**/api/query/fields", lambda r: r.fulfill(json=fields))
-    ctx.route("**/api/query?*", lambda r: r.fulfill(json={"results": []}))
+    ctx.route("**/api/query?*", answer)
 
     ctx.route("**/api/items?*", lambda r: r.fulfill(json=ITEMS))
     ctx.route("**/api/items-graph*", lambda r: r.fulfill(json=GRAPH))
@@ -191,7 +190,8 @@ def test_arrivals_enter_the_first_state_and_completions_the_finished_ones(browse
     ctx = context(browser)
     pg = opened(ctx, f"{site}/dashboard")
     a, b = default(pg)["widget: arrivals and completions per hour"]["queries"]
-    assert (a["label"], a["state"]) == ("arrivals", ["new"])
+    assert (a["label"], a["state"], a["first_only"]) == ("arrivals", ["new"], True)     # a re-entry is not an arrival
+    assert "first_only" not in b
     assert (b["label"], b["state"]) == ("completions", ["shipped", "dropped"])
     named = pg.evaluate("""() => dashNamed({ queries: [{ id: "a", label: "arrivals" }, { id: "b" }] },
       [{ id: "a", series: [{ name: "entries", values: [1] }] }, { id: "b", series: [{ name: "x", values: [1] }] }])
@@ -409,4 +409,120 @@ def test_a_project_with_nothing_recorded_says_so(browser, site):
     pg.goto(f"{site}/dashboard")
     pg.wait_for_selector(".dash-empty")
     assert "Nothing is recorded" in pg.locator(".dash-empty").inner_text()
+    ctx.close()
+
+
+def test_a_duration_stat_is_over_the_whole_window_and_says_who_is_still_waiting(browser, site):
+    ctx = context(browser)
+    now = 1795400000.0
+    waiting = [{"id": f"widget/{i}", "kind": "widget", "state": "ready", "entered": now - 3600 * (i + 1)} for i in range(3)]
+    ctx.route("**/api/items?*", lambda r: r.fulfill(json={**ITEMS, "items": waiting, "matched": {"widget": 3}})
+              if "state=ready" in r.request.url else r.fallback())
+    pg = opened(ctx, f"{site}/dashboard")
+    stat = default(pg)["widget: median wait of items that left ready"]
+    assert stat["display"]["whole"] is True and stat["display"]["still"] == {"kind": "widget", "state": "ready"}
+    asked = [q for q in pg.evaluate("() => window.__asked") if q.get("measure") == "time_in_state" and "bucket" in q]
+    assert asked and all(q["bucket"] >= 86400 for q in asked)
+    assert "whole" not in asked[0] and "still" not in asked[0]                    # the server is sent only query keys
+    assert pg.evaluate("""() => [[1795390000, 1795400000], [86400 * 20000 - 50, 86400 * 20000 + 50], [1000, 87400]]
+      .every(([a, b]) => { const s = dashWholeBucket(a, b); return s >= b - a && Math.floor(a / s) === Math.floor((b + 120) / s); })""")
+    assert pg.evaluate("(x) => dashStillWords(x, 3, 1795400000)", waiting) == "still waiting: 3, median age 2.0h"
+    assert pg.evaluate("(x) => dashStillWords(x, 9, 1795400000)", waiting) == "still waiting: 9"   # a cut list gives no median
+    pg.wait_for_function("() => [...document.querySelectorAll('.panel-note')].some((e) => e.textContent.includes('still waiting: 3'))")
+    ctx.close()
+
+
+@pytest.mark.parametrize("bad", ["constructor", "toString", "__proto__", 7, None])
+def test_a_crafted_draft_cannot_freeze_the_tab(browser, site, bad):
+    ctx = context(browser)
+    panels = [{"id": "a", "title": "x", "form": "line", "size": bad, "queries": []},
+              {"id": "__proto__", "title": "y" * 5000, "form": {"no": 1}, "size": "m", "queries": "no", "display": 3}]
+    panels += [{"id": f"n{i}", "title": "n", "form": "line", "size": "s", "queries": []} for i in range(200)]
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded({'title': 't', 'since': 'constructor', 'panels': panels})}")
+    d = pg.evaluate("() => dashboardDraft()")
+    assert d["panels"][0]["size"] == "m" and d["since"] == "1d" and len(d["panels"]) == 24
+    assert len(d["panels"][1]["title"]) == 200 and d["panels"][1]["form"] == "line" and d["panels"][1]["queries"] == []
+    assert pg.errors == []
+    ctx.close()
+
+
+def encoded(d) -> str:
+    return base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
+
+
+def opened_plain(ctx, url):
+    pg = ctx.new_page()
+    pg.errors = []
+    pg.on("pageerror", lambda e: pg.errors.append(str(e)))
+    pg.goto(url)
+    pg.wait_for_selector(".dash-cell")
+    return pg
+
+
+PLAIN = {"title": "t", "panels": [{"id": "g", "title": "good", "form": "line", "size": "m",
+                                   "queries": [{"id": "a", "source": "counts", "agg": "last"}], "display": {}}]}
+
+
+def test_a_hung_answer_is_late_keeps_its_data_and_is_asked_again(browser, site):
+    ctx = context(browser)
+    ctx.clock.install()
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded(PLAIN)}")
+    pg.wait_for_selector(".panel[data-state=drawn]")
+    held = []
+    pg.route("**/api/query?*", lambda r: held.append(r))
+    pg.evaluate("() => { localStorage.setItem(dashEveryKey(), 'Off'); dashPoll(); void dashRefresh(); }")
+    pg.wait_for_function("() => window.__queries > 1")
+    state = lambda: pg.eval_on_selector(".panel", "e => e.dataset.state")     # noqa: E731
+    pg.clock.run_for(4000)
+    assert state() == "drawn"
+    pg.clock.run_for(5000)
+    assert state() == "late" and pg.locator(".panel-flag").inner_text() == "Late"
+    pg.clock.run_for(17000)
+    assert "asking again" in pg.locator(".dash-said").inner_text()
+    assert state() == "late" and pg.locator(".panel canvas").count() > 0        # what it showed stays
+    pg.unroute("**/api/query?*")
+    pg.clock.run_for(11000)
+    pg.wait_for_selector(".panel[data-state=drawn]")
+    assert len(held) == 1
+    ctx.close()
+
+
+def test_a_snapshot_says_the_dashboard_needs_the_live_server(browser, site):
+    status = urllib.request.urlopen(site + "/api/status", timeout=10).read().decode()
+    ctx = context(browser)
+    ctx.add_init_script(f"window.SNAPSHOT = {{ at: 1795400000, data: {{ status: {status} }} }};")
+    pg = ctx.new_page()
+    pg.errors = []
+    pg.on("pageerror", lambda e: pg.errors.append(str(e)))
+    pg.goto(f"{site}/#/dashboard")
+    pg.wait_for_selector(".dash-snapshot")
+    assert "needs the live server" in pg.locator(".dash-snapshot").inner_text()
+    assert pg.locator(".dash-cell").count() == 0 and pg.errors == []
+    ctx.close()
+
+
+def test_a_recent_average_is_weighted_by_each_buckets_span(browser, site):
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    assert pg.evaluate("() => dashRecent([10, 20], 2, [1, 3])") == [10, 17.5]
+    assert pg.evaluate("() => dashSpans([100, 160, 220], 250)") == [60, 60, 30]
+    got = pg.evaluate("""() => dashAnswer({ form: "stat", display: { recent: 2 }, queries: [{ id: "a" }] },
+      [{ id: "a", times: [0, 30], series: [{ name: "x", values: [10, 20] }] }], { until: 120 })[0].series[0].values""")
+    assert got == [10, 17.5]
+    ctx.close()
+
+
+def test_a_draft_too_large_for_an_address_stays_in_this_browser(browser, site):
+    ctx = context(browser)
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded(PLAIN)}")
+    got = pg.evaluate("""() => {
+      const d = dashboardDraft();
+      d.panels = Array.from({ length: 20 }, (_, i) => ({ ...d.panels[0], id: `p${i}`, display: { pad: "n".repeat(4000) } }));
+      saveDashboardDraft(d);
+      return { search: location.search, said: document.querySelector(".dash-said").textContent,
+               kept: JSON.parse(localStorage.getItem(dashKey())).panels.length };
+    }""")
+    assert "draft=" not in got["search"] and got["kept"] == 20 and "Too large" in got["said"]
+    pg.get_by_role("button", name="Copy link").click()
+    assert "Too large" in pg.locator(".dash-said").inner_text()
     ctx.close()
