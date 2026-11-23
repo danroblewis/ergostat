@@ -1628,7 +1628,8 @@ out when one fails.
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
 (`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes). A system none of
 whose kinds has relations: the Timeline draws its kinds' items all the same, and the Graph says its items do not wait
-on one another, so there is no dependency graph. In both, the view comes first, above the kinds' charts:
+on one another, so there is no dependency graph. In both, the view comes first, above the kinds' charts, and the
+systems it draws come before those it has nothing to draw for (List keeps the systems' order):
 
 | View | What it shows |
 |---|---|

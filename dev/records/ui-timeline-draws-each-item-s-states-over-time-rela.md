@@ -112,3 +112,28 @@ section's content outside List, Timeline bar labels and snapshot `_graphs`. So t
 are left alone. Not proven: running them on main's code here was refused (`git worktree add --detach /tmp/mainck
 bf6dbebf` and `git checkout bf6dbebf -- <the three files>` were both refused), so the factory's rerun on clean main
 is what settles it.
+
+## Where it stopped (round 3, after merging main ead497d1)
+
+Merged main; both conflicts kept both sides:
+- `relations.js`: main's segment (`data-block`, "projected in BLOCK" in its title) plus the branch's `data-state` and
+  the in-bar state label.
+- `docs/SPEC.md`: main's Graph and Timeline rows (the levelled projection, clock times with date and zone), plus the
+  branch's "each segment named by its state where it fits".
+
+After the merge this gap's acceptance test failed: ticket/7's row was at 910 px. Main now draws a project's built-in
+`ergostat` system (9 kinds, 0 items) first, and its empty charts (432 px) pushed the project's own Timeline down to
+767 px. The definition says the mode's own content comes first, so in Graph and Timeline the systems a mode draws
+now come before those it has nothing to draw for (`pages.js`: the section is marked `data-draws` and the groups are
+sorted, stably; List keeps its order). SPEC §5a says so. The test is unchanged: it failed at 910 px without this
+and passes with it. Net code against main: +13 −6 = +7 lines, within budget.
+
+Review findings: the only finding listed (conflicts with main in docs/SPEC.md and relations.js) is resolved above.
+
+Tests run: `uv run ruff check ergostat tests scripts` clean; `tests/test_graph_cli_web.py` 43 passed;
+`tests/test_items_page.py` with Playwright under the watchdog: 33 passed, 1 failed, rc 1. The failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (failed again run by name). It times out
+waiting for the header's project picker (`#project` options, main.js/util.js) to list the other project. It failed
+the same way in round 2, and this branch does not change the header or the project list, so it is left alone as
+unrelated (lesson-13). It was not run on clean main here; the factory's rerun on main settles it. The five other
+round-2 failures now pass.
