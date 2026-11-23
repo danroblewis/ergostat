@@ -565,6 +565,8 @@ class Sensor:
     daemon: object = None       # the daemon that reads it (its name in spec.daemons; SPEC §9.7)
     push: bool = False          # its daemon sends its readings by itself (none asked for)
     untrusted: bool = False     # made by an untrusted library's template: its schedule bounded (library/bounds.py)
+    run_in: str | None = None   # "owner" only when compile proved its run the owner's or ergostat's; else (None too)
+    #                             it runs in ergostat.sandbox (library/runs.py)
 
     @property
     def window(self) -> float:
@@ -723,6 +725,14 @@ class Goal:
 
 
 @dataclass
+class KnownLaw:
+    """An external block's declared law, from the catalogue of known laws (control/laws.py, SPEC §12d): its kind and
+    its parameters as checked (numbers as floats, durations in seconds), each one the catalogue names, defaults filled."""
+    kind: str
+    params: dict
+
+
+@dataclass
 class Block:
     name: str
     type: str
@@ -749,6 +759,7 @@ class Block:
     on_stale: str | None = None  # what it does while a reading it reads is stale: act, hold or off (SPEC §9.6); None: not watched
     on: Trigger | None = None    # the event types that start it, a run per event (SPEC §9.3, *Started by an event*)
     untrusted: bool = False      # made by an untrusted library's template: its runs bounded (library/bounds.py)
+    law: KnownLaw | None = None  # an external block's declared law (``law: {kind: ...}``); None when it declares none
 
     @property
     def builtin(self) -> bool:

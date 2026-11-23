@@ -154,6 +154,7 @@ label.check { display: inline-flex; align-items: center; gap: var(--sp-1); curso
 .runstate { font-size: var(--text-sm); color: var(--muted); white-space: nowrap; }
 .runstate.bad { color: var(--bad); font-weight: 600; }
 .runstate.warn { color: var(--warn); font-weight: 600; }
+.waits { font-size: var(--text-sm); font-weight: 600; white-space: nowrap; }
 .bar nav { display: flex; align-self: stretch; gap: var(--sp-1); flex: 1; overflow-x: auto; min-width: 0; scrollbar-width: none; }
 .bar nav a { display: flex; align-items: center; color: var(--muted); padding: 0 var(--sp-2); border-bottom: 2px solid transparent; border-top: 2px solid transparent; white-space: nowrap; }
 .bar nav a:hover { color: var(--ink); text-decoration: none; }
@@ -177,6 +178,7 @@ svg.canvas .opening-note { fill: var(--ink); font-size: var(--text-lg); font-wei
 
 /* tables: hairlines between rows, nothing else; numbers to the right */
 .table-wrap { overflow-x: auto; max-width: 100%; }
+.run-count { color: var(--muted); font-variant-numeric: tabular-nums; }   /* a folded run's ×N (the Record) */
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: var(--sp-2) var(--sp-3) var(--sp-2) 0; border-bottom: var(--hair) solid var(--line); vertical-align: baseline; }
 th { font-size: var(--text-sm); color: var(--muted); font-weight: 400; white-space: nowrap; border-bottom-color: var(--line-strong); }
@@ -286,6 +288,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .side h3 .muted { font-weight: 400; }
 .looprow { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); margin: 0 calc(-1 * var(--sp-2));
   border-radius: var(--radius); cursor: pointer; }
+button.looprow { width: calc(100% + 2 * var(--sp-2)); min-height: 0; border: 0; background: none; text-align: left; }   /* a row, by keyboard too */
 .looprow:hover, .looprow.hl { background: var(--fill); }
 .looprow .sub { grid-column: 1 / -1; color: var(--muted); font-size: var(--text-sm); }
 .change { font-size: var(--text-sm); padding: var(--sp-0) 0; overflow-wrap: anywhere; }
@@ -364,6 +367,21 @@ a.chart-name { color: var(--accent); }
 .side-charts h3 { margin-top: var(--sp-5); }
 .side-strip + .side-strip { border-top: var(--hair) solid var(--line); }
 .detail .scope dl { margin-top: var(--sp-2); }
+/* plots.js: several series on one axis (each named with its value), a phase plot, a heatmap and its key */
+figure.plot-fig { margin: 0 0 var(--sp-3); }
+.plot-fig .chart-head { flex-wrap: wrap; }
+.plot-vals { display: flex; flex-wrap: wrap; gap: 0 var(--sp-3); color: var(--muted); }
+.plot-chip .n { color: var(--ink); }
+.plot-chip .sw { display: inline-block; width: var(--sp-4); border-top-width: var(--sp-0); margin-right: var(--sp-1); vertical-align: middle; }
+.plot-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
+.plot-key .ramp { display: inline-flex; border: var(--hair) solid var(--line); }
+.plot-key .ramp span, .plot-key .hatch { display: inline-block; width: var(--sp-3); height: var(--sp-3); }
+.plot-key .hatch { margin-left: var(--sp-2); border-top: var(--sp-0) solid var(--bad);
+  background: repeating-linear-gradient(-45deg, var(--bad) 0 var(--hair), var(--bg) var(--hair) var(--sp-1)); }
+.plot-data summary { cursor: pointer; }
+.plot-data table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.plot-data th, .plot-data td { padding: 0 var(--sp-2); text-align: right; font-weight: normal; }
+.plot-data thead th { color: var(--muted); }
 /* the Items page: each kind's cumulative flow, its states named at the right; its cycle times under its table */
 .cfd { display: grid; grid-template-columns: minmax(0, 1fr) 12em; gap: var(--sp-4); align-items: center; margin: 0 0 var(--sp-3); }
 .cfd-states { display: flex; flex-direction: column; gap: var(--sp-0); }
@@ -382,9 +400,14 @@ a.chart-name { color: var(--accent); }
 .page h3.kind-head .muted { font-weight: 400; }
 .kind-flows { display: flex; flex-wrap: wrap; gap: var(--sp-4) var(--sp-6); margin: var(--sp-3) 0 var(--sp-5); }
 .kind-flow { flex: 1 1 24rem; min-width: min(20rem, 100%); max-width: 36rem; }
-.kind-flow .cfd { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); margin: 0; }
+.kind-flow .cfd { grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-3); align-items: start; margin: 0; }
 .kind-flow .chart-plot { min-width: 0; overflow: hidden; }
-.kind-flow .cfd-states { flex-direction: row; flex-wrap: wrap; gap: 0 var(--sp-3); font-size: var(--text-sm); }
+.kind-flow .cfd-states { flex-wrap: wrap; align-content: flex-start; max-height: 7.5rem; gap: 0 var(--sp-3); font-size: var(--text-sm); }
+.kind-flow .cfd-states .stbox:not(.some):not(.on) { display: none; }
+@media (max-width: 40rem) {
+  .kind-flow .cfd { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
+  .kind-flow .cfd-states { flex-direction: row; max-height: none; }
+}
 .kind-flow > .states { margin: var(--sp-1) 0 0; }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
@@ -532,6 +555,7 @@ svg.sd .node .t-sub { fill: var(--sd-muted); }
 svg.sd .node .sd-name { font-weight: 500; font-size: var(--canvas); }
 svg.sd .node .sd-value { font-size: var(--canvas-sm); font-variant-numeric: tabular-nums; }
 svg.sd .node .sd-exo { font-style: italic; font-size: var(--canvas-sm); }
+svg.sd .node .sd-nounit { fill: var(--sd-muted); font-style: italic; }
 svg.sd .node .sd-shadow { fill: var(--sd-muted); font-size: var(--canvas); }
 svg.sd .sd-stock { fill: var(--sd-paper); stroke: var(--sd-ink); stroke-width: 1.6; }
 svg.sd .sd-aux { fill: var(--sd-paper); fill-opacity: 0.9; stroke: transparent; }
@@ -700,6 +724,8 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
 @media (max-width: 700px) {
   .bar { gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3) 0; }
   #when { margin-left: auto; }
+  .where { flex-wrap: wrap; column-gap: var(--sp-2); }
+  .where .waits { order: -1; flex: 1 0 100%; }          /* what waits for the reader: first, on a line of its own */
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
   .canvas-wrap { display: flex; flex-direction: column; }
