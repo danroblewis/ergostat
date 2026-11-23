@@ -32,7 +32,7 @@ def cmd_system(args) -> int:
                               "parts": len(m.members(s)), "loops": [n for n in snap["loops"] if n in m.members(s)],
                               "off": [n for n in snap["loops"] if n in m.members(s) and snap["loops"][n]["status"] in ("off", "open")]}
                              for s in m.system_names()])
-        print(table(["SYSTEM", "DESCRIPTION", "PARTS", "LOOPS", "OFF"], rows, "no systems: tag parts with systems = [...]"))
+        print(table(["SYSTEM", "DESCRIPTION", "PARTS", "GOALS", "OFF"], rows, "no systems: tag parts with systems = [...]"))
         print(c("\ndraw one: ergostat system NAME · everything: ergostat system --all", "dim"))
         return 0
     if args.name and args.name not in m.system_names():
@@ -73,7 +73,7 @@ def cmd_system(args) -> int:
             print(show.block_text(m, snap, graph.readings(p, at_of(args)), name))
             print()
         if not loops:
-            print(c("no loops in this selection", "dim"))
+            print(c("no goals in this selection", "dim"))
         return 0
     if args.wiring:
         print(c(f"what the record shows, over the {human(g['span'])} "
@@ -95,7 +95,7 @@ def cmd_system(args) -> int:
             print(c("\ncycles among the machines", "dim"))
             for cy in g["cycles"]:
                 ring = " ─▶ ".join(cy["agents"] + [cy["agents"][0]])
-                print(f"  {ring}  " + (c("loop " + cy["loop"], "ok") if cy["loop"] else c("not a declared loop", "warn")))
+                print(f"  {ring}  " + (c("goal " + cy["loop"], "ok") if cy["loop"] else c("not a declared loop", "warn")))
         return 0
     print(show.system_lines(m, snap, parts))
     return 0
@@ -115,20 +115,20 @@ def cmd_loop(args) -> int:
                 for n, lp in snap["loops"].items() if n in parts]
         if args.json:
             return out_json({n: lp for n, lp in snap["loops"].items() if n in parts})
-        print(table(["LOOP", "STATUS", "HOLDS", "NOW", "SETPOINT", "E = R − Y", "TIME OFF", "BACK IN", "CONTROLLER AGENT", "ACTED"], rows,
-                    "no loops: a loop is a [[controller]] that holds a stock"))
+        print(table(["GOAL", "STATUS", "HOLDS", "NOW", "SETPOINT", "E = R − Y", "TIME OFF", "BACK IN", "CONTROLLER AGENT", "ACTED"], rows,
+                    "no goals: a goal is a goals: entry holding a stock"))
         if rows:
             print(c(f"\nACTED: in the last {human(snap['window'])}, its sensor read and its controller decided or its valve opened. "
                     f"BACK IN: typically, from going off to holding again", "dim"))
         return 0
     lp = snap["loops"].get(args.name)
     if lp is None:
-        print(f"no loop {args.name!r}; loops: {', '.join(snap['loops']) or 'none'}", file=sys.stderr)
+        print(f"no goal {args.name!r}; goals: {', '.join(snap['loops']) or 'none'}", file=sys.stderr)
         return 2
     if args.json:
         return out_json(lp)
     ctl = m.controllers[args.name]
-    print(c("loop ", "dim") + show.loop_line(lp, args.name) + as_of(snap))
+    print(c("goal ", "dim") + show.loop_line(lp, args.name) + as_of(snap))
     if ctl.description:
         print(c("  " + ctl.description, "dim"))
     if lp.get("off_share"):
