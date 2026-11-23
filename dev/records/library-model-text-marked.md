@@ -90,3 +90,41 @@ refusal keeps the branch's marked `⟦untrusted: library file⟧PATH, under temp
 and main's new `library-unsandboxed` code for a `.daemon` key. In `tests/test_library_trust.py`, the refusal test
 takes main's code argument and keeps the branch's marked `makes`, and the wrapped built-in test is main's (its run is
 now sandboxed, not refused). Nothing else changed, and the size is unchanged.
+
+### Round 3 (answering the round-2 review; every finding)
+
+- **Finding 1 (a marked refusal shown without SAYS).** `Shown.problem` now counts a message that already carries
+  ergostat's opening mark (the `library-untrusted`/`untrusted-text` refusal, a bad-param) as marked. So `check`,
+  `check --json` and MCP `check` add `SAYS` once for a refused use, which puts nothing in the model. New test
+  `test_refusal_shown_with_says` runs all three on a refused use. It fails with that line removed (checked). One
+  reading, the most reversible: an owner's own finding text that holds the literal opening marker `⟦untrusted: `
+  also gets `SAYS`. That can only add the explanation, never take a mark away.
+- **Finding 2 (names matched as words mark the owner's text).** Two changes. First, an untrusted instance's own
+  name is the owner's word, written under `uses:`, so it is no longer matched anywhere. Its system's description is
+  still marked in the model copy. Second, the names that are still marked are the untrusted parts' names
+  (`INSTANCE-NAME`, NAME-checked). They are never marked inside the owner's own fields: each owner part's
+  description, run, prompt, ask, equation, sensor run and description, and each owner system's description, is
+  skipped whole, like an existing mark. So owner goals' `status` values, owner descriptions and commands, and
+  ergostat's single words (`off`, `unknown`, `queue`) come out as written. The SPEC sentence that said an owner's
+  word equal to a name is marked is removed. In its place, SPEC says names are never marked inside the owner's
+  fields and lists the instance's own name under *Not marked*. New test `test_owner_words_equal_to_names_stay`
+  covers instances named `unknown`, `off` and `queue`, with owner text that holds `queue-backlog`, and checks
+  status, explain and a block's run. It fails when the system name is matched again (in explain, and in status for
+  `unknown`), and when the owner-field skip is removed (both checked).
+  `test_mcp_model_views_mark` now expects the system's name (`  - u: `) raw.
+- **Still a reading, said here.** A part's name is still found as a whole word in what ergostat writes, outside
+  marks and the owner's fields. A word of ergostat's own that is exactly an untrusted part's `INSTANCE-NAME` (for
+  example instance `missing` with a library part `feedback`, against the code `missing-feedback`) would be marked
+  as that name. That marks more than needed and never shows the library's text raw. Marking each name where
+  explain writes it would mean rewriting explain.py's roughly thirty name sites, which is outside this gap. A
+  suffix of an owner field that a budget cut leaves partial is not skipped whole.
+- **Finding 3 (GAPS splice).** The Shared libraries entry again has `**Built** (library-sandbox-sensors-proven)`
+  with its lead. This gap's **Built** clause comes after that clause's *Left*, and the entry has one *Still
+  needed*: the diagrams, `fetch`, library blocks in the sandbox, and the rebase. The stale "the text … marked too"
+  item is removed.
+
+Overrun reason: the owner-field skip that finding 2 asked for (the owner's fields collected and kept whole, about 15 lines) and the SAYS rule for an existing mark take the code to 138 net lines, 18 over the 120 budget; the alternative, marking each name at each of explain's name sites, is larger and outside the files of this gap.
+
+Left: the diagrams (library-diagram-text-marked). Tests run: `tests/test_library_model_marks.py` (8 passed),
+`tests/test_library_trust.py` and `tests/test_library_provenance.py` (103 passed), ruff clean. Main (2f08c24e) is
+already merged. The unit suite and browser files were not run here (house rule: the factory runs them).

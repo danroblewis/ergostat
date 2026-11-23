@@ -46,18 +46,35 @@ TABLES = dict(stocks="stock", flows="flow", auxiliaries="auxiliary", parameters=
 class Shown:
     """The one place a view asks "untrusted, so mark" (SPEC §2a): a part ``bounds.untrusted_part`` holds, or one with
     no ``where``. ``model()``: a copy of the model with those parts' own fields marked, for the views that write them;
-    ``names``: their names (NAME-checked) as whole words outside a mark; ``problem``: a finding at or about one."""
+    ``names``: their names (NAME-checked) as whole words outside a mark and the owner's fields; ``problem``: a
+    finding at or about one."""
 
     def __init__(self, spec):
         from .bounds import untrusted_part
         self.spec, self.uses, self.untrusted, self.marked = spec, getattr(spec, "uses", None) or {}, untrusted_part, False
         self.parts = {f"{k}.{n}": (t, x) for t, k in TABLES.items()
                       for n, x in (getattr(spec, t, None) or {}).items() if self.held(x.where, part=True)}
-        got = {r.split(".", 1)[1]: x.where for r, (_, x) in self.parts.items()}
-        got |= {n: n for n in (getattr(spec, "systems", None) or {})      # an instance's system, unless marked trusted
-                if n in self.uses and not (isinstance(u := self.uses[n], dict) and u.get("untrusted") is False)}
-        self.wheres, self.opens = got, {f"{OPEN}{self.label(w)}⟧" for w in got.values()}
+        self.wheres = got = {r.split(".", 1)[1]: x.where for r, (_, x) in self.parts.items()}  # names matched: the
+        self.systems = {n for n in (getattr(spec, "systems", None) or {})  # parts' only; a system's is the owner's word
+                        if n in self.uses and not (isinstance(u := self.uses[n], dict) and u.get("untrusted") is False)}
+        self.opens = {f"{OPEN}{self.label(w)}⟧" for w in [*got.values(), *self.systems]}
         self.find = re.compile("|".join(rf"(?<![\w-]){re.escape(t)}(?![\w-])" for t in sorted(got, key=len, reverse=True))) if got else None
+        own = [t for t in self.owners(spec) if self.find and self.find.search(t)]
+        self.skip = re.compile("(" + "|".join([f"{re.escape(OPEN)}[^⟦⟧]*⟧[^⟦⟧]*{re.escape(END)}",  # a mark, and
+                                               *map(re.escape, sorted(own, key=len, reverse=True))]) + ")")  # the owner's
+
+    def owners(self, spec):
+        """The free text of the owner's parts and systems, each field whole: a name is never marked inside it."""
+        for t in TABLES:
+            for x in (getattr(spec, t, None) or {}).values():
+                if not self.held(x.where, part=True):
+                    p, e = getattr(x, "params", None) or {}, getattr(x, "equation", None)
+                    yield from (v for v in (x.description, p.get("run"), p.get("prompt"), p.get("ask"),
+                                            getattr(e, "text", None),
+                                            *(w for s in (getattr(x, "sensors", None) or {}).values()
+                                              for w in (s.run, s.description))) if isinstance(v, str) and v)
+        yield from (d for n, d in (getattr(spec, "systems", None) or {}).items()
+                    if n not in self.systems and isinstance(d, str) and d)
 
     def held(self, where, part: bool = False) -> bool:
         """A part (``part``) with no ``where``, or what an untrusted instance made (a ``Via``)."""
@@ -76,16 +93,17 @@ class Shown:
         return mark(text, self.label(where))
 
     def names(self, s):
-        """``s`` with each untrusted part's or system's name in it marked, outside the marks already there."""
+        """``s`` with each untrusted part's name in it marked, outside the marks there and the owner's own fields."""
         if not isinstance(s, str) or self.find is None:
             return s
-        bits = re.split(f"({re.escape(OPEN)}[^⟦⟧]*⟧[^⟦⟧]*{re.escape(END)})", s)
         return "".join(b if i % 2 else self.find.sub(lambda m: self.mark(m.group(), self.wheres[m.group()]), b)
-                       for i, b in enumerate(bits))
+                       for i, b in enumerate(self.skip.split(s)))
 
     def problem(self, p) -> str:
-        """A finding's message: the whole of it marked at an untrusted use or about an untrusted part; else its names."""
+        """A finding's message: the whole of it marked at an untrusted use or about an untrusted part; else its names.
+        A message that already carries a mark (a refusal's, a bad-param's) counts as marked, for ``SAYS``."""
         w, about = getattr(p, "where", None), getattr(p, "about", None)
+        self.marked |= OPEN in p.message
         if (w is not None and self.held(w)) or about in self.parts:
             return self.mark(p.message, w if w is not None else self.parts[about][1].where)
         return self.names(p.message)
@@ -98,10 +116,10 @@ class Shown:
 
     def model(self):
         """A copy of the model with its untrusted parts' and systems' own words marked; the model itself unchanged."""
-        if not self.wheres:
+        if not self.wheres and not self.systems:
             return self.spec
         out = copy.copy(self.spec)
-        out._ix, out.systems = None, {n: self.mark(d, n) if self.wheres.get(n) == n else d for n, d in self.spec.systems.items()}
+        out._ix, out.systems = None, {n: self.mark(d, n) if n in self.systems else d for n, d in self.spec.systems.items()}
         for t in TABLES:
             setattr(out, t, {**getattr(self.spec, t)})
         for t, x in self.parts.values():

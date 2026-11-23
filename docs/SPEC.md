@@ -194,19 +194,21 @@ for an untrusted template only; a trusted template's output is unchanged:
   system's description, are marked. Where a view cuts such text short (`explain` keeps 120 characters of a prompt, a
   `context` part its budget), the cut keeps the mark and closes it. A finding at an untrusted instance's `use:` line,
   or about an untrusted part, is marked whole in `ergostat check`'s lines and its `--json` messages, in the MCP
-  `check` answer and in a `context` recipe's findings. The names of untrusted parts and systems (identifiers, by NAME)
-  are marked as whole words outside a mark in those answers, in the notes' lines of `check`, and in the values (never
-  the keys) of the MCP `status` answer. An answer that carries a mark
-  ends with what the markers mean once (`check`'s last line; `"untrusted"` in a JSON answer). The owner's parts and
-  those of trusted and built-in templates are not marked, even where their text is the same as a library's, and an
-  answer with no untrusted part in it is unchanged.
+  `check` answer and in a `context` recipe's findings. The names of untrusted parts (identifiers, by NAME, each
+  `INSTANCE-NAME`) are marked as whole words where those answers, the notes' lines of `check` and the values (never
+  the keys) of the MCP `status` answer write them, but never inside a mark or inside the owner's own fields (a
+  description, run, prompt, ask, equation, sensor's run or description, or system description, each as written). An
+  answer that carries a mark, a refusal's or a bad-param's included, ends with what the markers mean once (`check`'s
+  last line; `"untrusted"` in a JSON answer). The owner's parts and those of trusted and built-in templates are not
+  marked, even where their text is the same as a library's or names an untrusted part, and an answer with no
+  untrusted part or mark in it is unchanged.
 
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the
 known types); a finding's `about` and `id` in JSON, and the keys of the MCP `status` answer (a goal by its name):
 references, kept as they are so the thing can be named back; a library's description or command quoted in a finding
 about an owner's part (only the untrusted names in it are marked); the diagrams; and the MCP `spec` answer, which is
-the format's document and holds none of the model's text. A word in the owner's own text that is the name of an
-untrusted part or system is marked as that name. A held chain's `ask`, `prompt`, `query` and `sources` are gated by
+the format's document and holds none of the model's text; and an untrusted instance's own name, which the owner
+wrote under `uses:` (its system's description is marked). A held chain's `ask`, `prompt`, `query` and `sources` are gated by
 who wrote them instead (R3, below).
 
 *Bounded.* A part is untrusted when it was made by an instance whose `uses` entry does not say `untrusted: false`
