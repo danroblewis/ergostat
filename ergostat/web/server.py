@@ -411,6 +411,11 @@ def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
         return None
     page = its.listing(p.events, spec, kind=kind, state="\0", until=snap["at"], n=1)     # counted by the index
     fp["now"] = next((k["counts"] for k in page["kinds"] if k["name"] == kind), {})
+    if fp["definition"]["finished_by"] == "inferred":     # as the listing infers it, from the states left by now
+        f = its.finishes(p.events, spec, kind)
+        fp["definition"]["finished_by"] = f["finished_from"]
+        for s in fp["definition"]["states"]:
+            s["finished"] = s["state"] in f["finished"]
     for t in fp["taken_by"]:
         _, _, got = its.in_states(p.events, spec, kind, None, {"lease.block": t["block"]}, until=snap["at"], items=True)
         t["taken"] = sum(1 for i in got if held(i.fields))

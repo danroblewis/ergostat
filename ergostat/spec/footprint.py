@@ -14,11 +14,12 @@ def _hold(g) -> str:
     return f"{g.hold.op} {g.hold.value:g}"
 
 
-def _finished(spec, k) -> tuple[list[str], str]:
-    """The states it is finished in, and why: ``messages: {done:}`` when it says, else its last state."""
-    if k.name in spec.messages.done:
-        return list(spec.messages.done[k.name]), "messages: done:"
-    return k.states[-1:], "its last state"
+def _finished(spec, k) -> tuple[list[str], list[str], str]:
+    """Its finished and paused states as far as the model says (``finished.finish_of``): ``messages: {done:}``
+    declared, else ``inferred`` from the states its items have left, which the request fills (``finishes``)."""
+    from .finished import finish_of
+    f = finish_of(spec, k.name, set())
+    return (f["finished"], f["paused"], "declared") if f["from"] == "declared" else ([], f["paused"], "inferred")
 
 
 def _counted_in(spec, kind: str) -> list[dict]:
@@ -61,14 +62,15 @@ def _build(spec, kind: str) -> dict:
     from .item_systems import TITLES, kind_systems
     k = spec.items[kind]
     counted, taken = _counted_in(spec, kind), _taken_by(spec, kind)
-    done, done_why = _finished(spec, k)
+    done, paused, done_why = _finished(spec, k)
     states = list(dict.fromkeys([*k.states, *([LEASED, DEAD] if taken else [])]))   # (a taken kind has them already)
     rel_in = [{"kind": o.name, "relation": r, "inverse": x.inverse or None}
               for o in spec.items.values() for r, x in o.relations.items() if kind in x.kinds]
     where = kind_systems(spec).get(kind) or {}
     definition = {
         "name": kind, "title": TITLES.get(kind) or kind, "description": k.description, "id": k.id,
-        "states": [{"state": s, "first": i == 0, "finished": s in done, "final": s in k.final,
+        "states": [{"state": s, "first": i == 0, "finished": s in done, "paused": s in paused,
+                    "final": s in k.final,
                     "ergostat": s in (LEASED, DEAD)} for i, s in enumerate(states)],
         "finished_by": done_why, "on": dict(k.on), "show": list(k.show), "fold": dict(k.fold),
         "relations": {r: {"kinds": x.kinds, "precedence": x.precedence, "inverse": x.inverse or None, "group": x.group}

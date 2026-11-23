@@ -73,3 +73,26 @@ Traceback (most recent call last):
 RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
 
 ```
+
+## Where it stopped
+
+Round 3, after the park (Docker restarted by the coordinator, nothing wrong with the gap). Main (52c675fe) was
+already merged in. Since round 1, `finish_of` (`spec/finished.py`) has landed on main, so the footprint now uses it
+as the definition asks ("via finish_of when present"), replacing round 1's stand-in (the last state):
+- The cached, spec-only footprint gives `finished` and `paused` per state from `finish_of`. If `messages: done:`
+  declares the kind's states, `finished_by: declared`. Otherwise `inferred`, with no state finished, because
+  inferring needs the states the items have left, and the model alone doesn't know them.
+- The request (`/api/kinds/K`) fills an inferred answer from `items.finishes` (the index's left states). That is the
+  same answer the Items listing gives, and the same request-time step that already adds `now`, `taken` and
+  `status`. It is the easiest choice to undo: remove the five lines in `_kind_now`.
+- New test `test_an_undeclared_kinds_finished_states_are_the_listings_inferred_from_the_record`. With the request's
+  fill turned off, it failed; with the fill back, it passes.
+
+Net lines outside tests, docs and dev: 200, the edge of the budget.
+
+tests/test_footprint.py (9) and tests/test_spec_items.py pass, and ruff is clean. tests/test_items_page.py: 29 pass,
+and `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` fails again, two runs out of two. It times
+out waiting for the other project in the `#project` switcher (the registry and header), which this branch does not
+touch. It was not run on clean main: making a worktree of main was refused in round 2, so I did not try again. In
+round 3, the shell refused one compound command (writing this section with a heredoc, then `git add` and
+`git commit`), so this section was written with the edit tool instead.

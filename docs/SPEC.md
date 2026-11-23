@@ -1784,7 +1784,7 @@ not have) says what a kind touches in the model:
 
 | Field | What it holds |
 |---|---|
-| `definition` | its title, description, id pattern, states (each `first`, `finished`, `final`, and `ergostat` for `leased` and `dead`), `finished_by` (`messages: done:` when it says, else its last state), `on`, `show`, `fold`, its relations and `named_by` (other kinds' relations naming it), `join`, its `lease` terms, `about`, its system and why |
+| `definition` | its title, description, id pattern, states (each `first`, `finished`, `paused`, `final`, and `ergostat` for `leased` and `dead`), `finished_by` (`declared`, `inferred` or `none`: the one rule of `spec/finished.py`, as the Items listing gives it; the model alone knows only what is declared, so an inferred answer is filled by the request from the states its items have left), `on`, `show`, `fold`, its relations and `named_by` (other kinds' relations naming it), `join`, its `lease` terms, `about`, its system and why |
 | `counted_in` | each stock, auxiliary and flow whose sensor counts the kind: its states (none: every state) or the state it counts entering or leaving, `where`, `measure`, its system; several sensors on one state are each listed |
 | `taken_by` | each block that takes it: `at`, `to`, `where`, `unblocked`, `order`, `pool`, `attempts` and `ttl` (its lease terms as they resolve), `out` (its flows), agent and rung, `only_some` and `says` (a `where` or `unblocked` takes only some items), and `taken`: how many it has taken now, a lease holder in whatever state its run moved the item to |
 | `goals` | those blocks' goals and the goals on the parts counting it, with `hold`, why each is here, and `status` (holding or off) |

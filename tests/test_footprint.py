@@ -96,7 +96,7 @@ def test_roadmap_kind_names_its_stocks_blocks_pools_goals_and_loops(tmp_path):
     assert any("block.developer" in lp["through"] and lp["polarity"] for lp in fp["loops"])
     assert fp["now"] == {"done": 1, "doing": 1}
     done = next(s for s in fp["definition"]["states"] if s["state"] == "done")
-    assert done["finished"] and fp["definition"]["finished_by"] == "messages: done:"
+    assert done["finished"] and fp["definition"]["finished_by"] == "declared"
     assert {"kind": "ticket", "relation": "blocked_by", "inverse": "blocks"} in fp["definition"]["named_by"]
     assert api(Live(p), "kinds/nope", {}) is None and api(Live(p), "kinds/ticket/x", {}) is None
 
@@ -163,6 +163,17 @@ def test_a_kind_nothing_counts_is_empty_and_says_why_and_a_where_takes_only_some
                                                                         "type": "note.made"}], "fields": {}})())
     assert step["stock"] is None and step["says"] == "nothing in the model counts note items in open"
     assert kind_footprint(spec, "nope") is None
+
+
+def test_an_undeclared_kinds_finished_states_are_the_listings_inferred_from_the_record(tmp_path):
+    from ergostat.spec import items as its
+    p = _project(tmp_path, text=UNCOUNTED)
+    assert not any(s["finished"] for s in kind_footprint(p.model.spec, "note")["definition"]["states"])
+    p.events.add("note.made", item="note/1", at=1000.0)
+    fp = api(Live(p), "kinds/note", {})
+    f = its.finishes(p.events, p.model.spec, "note")
+    assert fp["definition"]["finished_by"] == f["finished_from"] == "inferred"
+    assert [s["state"] for s in fp["definition"]["states"] if s["finished"]] == f["finished"] == ["closed"]
 
 
 def test_the_footprint_is_kept_per_model_and_each_caller_has_its_own(tmp_path):
