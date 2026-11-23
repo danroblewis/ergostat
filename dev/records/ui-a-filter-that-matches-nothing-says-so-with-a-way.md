@@ -173,3 +173,27 @@ count beside the box. The overview's search (/items?q=…) keeps the count and t
   tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart | grep …`), and
   appending to this file with a shell heredoc (Edit was used instead). Not run: the unit suite, the other three
   browser files, demo_check (no example touched).
+
+Round 7: the factory's merge of main (a171d119) conflicted in pages.js and tests/test_graph_cli_web.py, and both are
+resolved in 7975c25b.
+
+- pages.js: main added the "Show finished" box (`showFin`), the `loading` line, and the finished left out by default
+  (`leaves`, `isHidden`, `flip`, `finNote`, and a snapshot's rows filtered by them). All of it is kept. The filter
+  bar is now `search, hitsSaid, found, showFin, viewBar, chip`. The branch's `hits`/`hitsN`/`hit` come after main's
+  `rows`, so the snapshot's count is taken from main's filtered rows. A search never leaves the finished out
+  (`leaves` is false while there is a needle), so the count is unchanged. pages.js is still +19/-8 against main.
+- tests/test_graph_cli_web.py: both sides added tests at the same place. All are kept: the branch's two and main's
+  `test_the_loop_answer_carries_what_the_panels_first_table_shows`.
+- tests/test_items_page.py: main now hides a kind's finished items by default, so the paged page says "1-25 of 800"
+  and the branch's `test_a_search_on_a_kinds_own_page_keeps_its_one_count_and_its_section` failed on its first
+  check. It now opens `/items/ticket?finished=show`, as main's sibling paged tests do. It checks nothing else new.
+- Run: ruff clean; tests/test_graph_cli_web.py 54 passed. tests/test_items_page.py with Playwright under the
+  watchdog: 67 passed, 2 failed, nothing skipped. One failure was the test above, before the fix; after it, the gap's
+  three browser tests pass (3 passed, rc 0). The other is
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out at the `#project` switcher wait
+  (tests/test_items_page.py:2063), as in rounds 3 to 6. This branch does not touch the header or the switcher
+  (lesson 13).
+  `test_actions_say_per_class_asked_approved_denied_and_whether_held` passed this time.
+- Refused here: redirecting the browser run's output to /tmp/items.log (it was run without the redirect instead), and
+  a python one-off that resolved the conflicts (Edit was used instead). Not run: the unit suite, the other three
+  browser files, demo_check (no example touched).

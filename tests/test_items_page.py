@@ -2427,7 +2427,7 @@ def test_a_search_on_a_kinds_own_page_keeps_its_one_count_and_its_section(browse
     pg = browser.new_page(viewport={"width": 1440, "height": 900})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{paged_roadmap}/items/ticket")
+    pg.goto(f"{paged_roadmap}/items/ticket?finished=show")                     # every item, the finished too
     says(pg, f"1-25 of {PAGED}")
     pg.fill("input[type=search]", "ticket/n11")                                 # 111 matches, more than a page
     pg.wait_for_function("() => document.querySelector('.search-said')?.textContent.startsWith('111 matches')")
