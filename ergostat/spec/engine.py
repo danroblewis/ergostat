@@ -42,6 +42,7 @@ from ..costs import ai as costs_ai
 from ..costs import budget
 from ..costs import record as costs_record
 from ..costs.sampler import SAMPLER, Measured
+from ..leases import gone as run_gone
 from ..library import bounds, reap
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
@@ -2078,6 +2079,7 @@ class Engine:
         # still holds it): once its lease has ended, the fence refuses any line it still writes about the item, so a
         # new engine in this same process (tests, a reload) that leases the item again is not moved by it.
         self.dispatch.give_back()                # (and every lease still held here, its run's own end failed)
+        run_gone.closed(self.dispatch)              # (its leases' owner gone now: leases/gone.py)
         self.p.events.add("ergostat.stopped", source=SOURCE, data={"pid": os.getpid(), "shard": self.shard})
 
 
