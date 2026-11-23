@@ -1088,7 +1088,9 @@
       return { model: true, route: `/diagram?${q}` };
     }
     if (u.pathname !== "/items" && !u.pathname.startsWith("/items/")) return null;
-    const kinds = got("kinds") || got("kind") || decodeURIComponent(u.pathname.slice(7)), system = got("system");
+    let tail;                                          // a path that will not decode is no address: this panel says so
+    try { tail = decodeURIComponent(u.pathname.slice(7)); } catch (e) { return null; }
+    const kinds = got("kinds") || got("kind") || tail, system = got("system");
     return kinds || system ? { model: false, ask: kinds ? { kinds } : { system }, route: u.pathname + u.search } : null;
   }
   /* one model diagram is live on the page at a time: another is drawn when it is clicked. Nothing is asked until a

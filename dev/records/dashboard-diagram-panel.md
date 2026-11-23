@@ -96,3 +96,14 @@ Runs on the last commit:
   come from this branch, but that is a reading of the code, not something shown by a run. The merge queue's run of the
   four browser files is the real check.
 - Not run: the unit suite, test_items_page.py, test_page_refresh.py, demo_check.
+
+Round 2. The review's one finding, answered:
+- `diagramAddress` (panels.js): an Items path that will not decode (`/items/%zz`, `/items/%E0%A4%A`) threw a URIError
+  out of the Dashboard's drawing. The decode is now in a try that returns null, so that panel says "Not a Diagram or an
+  Items Graph address", asks nothing, and the rest of the Dashboard is drawn. +2 net lines.
+- New test `test_an_address_that_will_not_decode_stops_at_its_panel`: both addresses beside a line panel; each says it
+  is neither, the line panel is there, no `/api/items-graph` is asked, no page or console error. Lesson 9: with the
+  try removed it fails (the panels never appear, the Dashboard stops drawing).
+- Runs: tests/test_dashboard_page.py whole, 48 passed. Ruff clean. main (59600738) was already merged in; no newer
+  main in this clone. The four browser files, the unit suite and demo_check were not run here (the house rule); what
+  round 1 said about test_diagram_rendering.py stands, unchanged.

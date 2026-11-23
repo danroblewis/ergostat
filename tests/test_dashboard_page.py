@@ -874,6 +874,24 @@ def test_nothing_loads_until_on_screen_and_one_model_diagram_is_live(browser, fa
     ctx.close()
 
 
+def test_an_address_that_will_not_decode_stops_at_its_panel(browser, factory):
+    """'/items/%zz' is a URL but its path is no text: that panel says it is neither, asks nothing, and the panels
+    around it are drawn (review of round 1: the URIError stopped the whole Dashboard)."""
+    ctx = context(browser)
+    asked = []
+    ctx.route("**/api/items-graph*", lambda r: (asked.append(r.request.url), r.fulfill(json=RELATED)))
+    pg = watched(ctx, f"{factory}/dashboard?draft={diagrams('/items/%zz', '/items/%E0%A4%A', before=1, tall=False)}")
+    for pid in ("d0", "d1"):
+        cell = pg.locator(f'[data-panel-id="{pid}"]')
+        cell.wait_for()
+        assert cell.get_attribute("data-state") == "empty"
+        assert "Not a Diagram or an Items Graph address" in cell.inner_text()
+    assert pg.locator('[data-panel-id="f0"]').count() == 1                         # the rest of the Dashboard drawn
+    pg.wait_for_timeout(300)
+    assert asked == [] and pg.errors == []
+    ctx.close()
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("example", ["the-job", "ops", "autoscaler", "first-loop", "todo-list"])
 def test_a_diagram_panel_says_no_error_on_other_demos(browser, tmp_path_factory, example):
