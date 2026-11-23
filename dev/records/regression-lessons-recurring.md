@@ -33,3 +33,28 @@ dev/bin/measure.py, dev/model/guarantees-lessons.yaml (new), tests/test_factory_
 40 net lines outside tests/.
 
 Area: regression. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built, round 1 (2026-11-23). Choices made with no one to ask, each the most reversible:
+
+- **The setpoint is the literal `<= 2`, not a `parameters:` entry.** A goal's `hold` is a setpoint and only a number
+  is accepted there (`SETPOINT` in ergostat/spec/ir.py:16). A parameter nothing could reference would be dead. The
+  number is marked in the YAML as the value to tune. If the owner wants a real parameter, ergostat has to accept a
+  setpoint reference first, and that is outside this gap.
+- **"No recorded classes" means the field is missing**, so the librarian has not measured the review. An empty list
+  means it was measured and found nothing, and that counts as 0.
+- **A review whose gap has no first implementor brief recorded is left out and said too.** It is not taken as
+  "carried nothing", so a missing brief never reads as a held lesson (lesson-3). If every review in the window is
+  left out, there is no value (exit 1), never 0.
+- **Every round's review is counted**, against the first implementor brief only, as the Change says. Only
+  `lesson-*` ids count: the librarian's `new-*` classes are never carried.
+- dev/README.md *Regression guarantees* has one more bullet for the goal. It is not in "Files to touch", but the
+  section was written for later gaps to extend.
+- `ergostat check` as a shell command was refused in this session. Done item 4 is checked by
+  `test_a_carried_class_found_again_counts`, which loads ergostat.yaml with `ergostat.spec.read` and asserts no error.
+  It also asserts the goal and the auxiliary's sensor. `lessons-hold` is missing feedback (a warning) until
+  regression-guarantees-wired.
+
+Tests broken on purpose and seen to fail: dropping the carried intersection, reading the last brief instead of the
+first, counting an unmeasured review as 0, and giving 0 with no reviews.

@@ -266,6 +266,11 @@ programs already there.
   the fix made.
   Once main-mend sees the test pass twice alone on the pushed main, it holds again. The loop is named `main-repair`
   and is drawn balancing.
+- **lessons-hold.** The auxiliary `lessons-recurring` (dev/model/guarantees-lessons.yaml, `measure.py
+  lessons-recurring`) counts, over 14 days of reviews (every round), the librarian's classes found that the gap's
+  first implementor brief carried. A review whose classes are not recorded, or whose gap has no first brief, is left
+  out and counted on stderr, and with none left there is no value. The goal `lessons-hold` holds it `<= 2`
+  (`on-stale: off`). Nothing serves it yet (missing feedback). That waits for regression-guarantees-wired.
 
 ## The backlog: ranked, groomed
 

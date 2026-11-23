@@ -1,0 +1,19 @@
+# The lessons' guarantee: a class of finding the gap's own brief carried (its review lessons, dev/bin/knowledge.py)
+# found again by its review is the lesson failing (dev/README.md, *Regression guarantees*). Unserved until
+# regression-guarantees-wired, which closes its loop through the librarian. Nothing here acts on the world.
+defaults:
+  system: guarantees
+
+auxiliaries:
+  lessons-recurring:
+    unit: classes
+    description: classes reviews found in 14 days that the reviewed gap's first brief carried as review lessons
+    sensor: {run: python3 dev/bin/measure.py lessons-recurring, every: 10m, timeout: 1m, description: the factory's measures}
+
+goals:
+  lessons-hold:
+    auxiliary: lessons-recurring
+    hold: "<= 2"                      # the setpoint to tune (change it here): a hold is a number, not a reference
+    tolerance: 0
+    on-stale: "off"                   # a count not read is counted as lessons failing
+    description: at most 2 classes a brief carried found again by reviews in 14 days
