@@ -6798,7 +6798,10 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   pointer or the focus is in one of the side panel's lists (*Waiting for you*, *Goals off*, *Model housekeeping*; and
   likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its top
   how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or gone
-  meanwhile stays in its place and says so in its row until then.
+  meanwhile stays in its place and says so in its row until then. Held modelling requests that are alike (one code,
+  one asker: the entry's `fold`) are one entry, folded: their count, their code and the systems of their parts, with
+  one why and *Deny all* (each denied in turn); opened, each with its own answer. The Model page's *Changes to review*
+  counts them as waiting.
 
 **The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
 you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
