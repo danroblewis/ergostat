@@ -357,6 +357,8 @@ def main(argv: list[str]) -> int:
             os.setpgid(pid, pid)                # (both sides set it, so a stop can't reach before the group exists)
         except OSError:
             pass
+        import states  # (here: states imports this module)
+        states.record(d, pid)
         code, how = keep(d, pid, wall, spec.get("out"))
     except (OSError, ValueError):
         traceback.print_exc()
