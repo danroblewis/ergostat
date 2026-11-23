@@ -132,3 +132,28 @@ and docs (round 1's 370, plus 35 more; budget 600).
   - `git -C /work log --oneline -1 main; git -C /work merge-base --is-ancestor main HEAD && echo merged`. It was
     run again without `-C` and without the `log`.
   - The watchdog command piped to `tail` with `echo rc=$?`. It was run again without the pipe.
+
+### Round 3
+
+The only finding was the conflicts with main (2f08c24e). It is answered by the merge at ce254dc0. Main had added
+`suggest`, the names a PromQL editor completes, as a second operation a type may offer. The branch had added `values`.
+Each conflict keeps both:
+- `datasources/__init__.py`: `OFFERED` is `query`, `suggest` and `values`. The docstring and the refusal's words name
+  all three. The branch's bounds and main's suggestion bounds both stay.
+- `prometheus.py`: main's `_ask(src, path, params, seconds, most)` does the one bounded GET. The branch's `_get` takes
+  `path` again (default `query_range`), so `values` still asks `/api/v1/label/NAME/values` through it.
+- `web/server.py`: `/api/query/values` and main's `/api/query/suggest` both route.
+- `tests/test_data_sources.py`: every type offers only `query`, `suggest` and `values`.
+- SPEC §11: the paragraph names both the editor's metadata GETs and the variable's `label_values` GET, and all three
+  operations.
+
+No code changed beyond the merge, so the size stays at round 2's figure (about 405 net lines, budget 600).
+
+Run here, after the merge:
+- ruff is clean.
+- Unit files, one at a time: test_data_sources (18), test_promql_suggest (9), test_dashboard_variables (19) and
+  test_query_engine (52). All passed.
+- Under the watchdog: test_dashboard_variables_page and test_promql_editor, 10 passed, rc 0, none skipped.
+- Not run: the whole unit suite and the four browser files (the factory's job).
+
+Refused here: a no-op heredoc (`cat > /tmp/fix_prom.py <<'EOF' ... EOF`), sent by mistake. Nothing depended on it.
