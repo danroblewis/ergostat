@@ -2,7 +2,8 @@
 
    Graph: the items left to right, each after what it waits on (ELK, layered). A parent with children drawn (an
    epic) is a stadium its children hang off when nothing else they wait on is drawn; grouped by kind instead, each
-   kind is a frame. A card's left bar is its state, in the kind's chart's shade; its border its status: active (the
+   kind is a frame. A group other than a parent, of a kind not asked (a gap's milestone), is a frame its members are
+   drawn inside, titled with its tally (rgTally); one with nothing drawn in it, a card; the Timeline a summary row. A card's left bar is its state, in the kind's chart's shade; its border its status: active (the
    accent, breathing), queued for a block's next step (the accent, dotted), unblocked (ink), blocked (dashed), paused (dotted on a fill), done (faint,
    ticked), a dead letter (bad). The critical path is
    drawn heavier, in the bad hue. Frontier: the unfinished items and what they wait on, however far back; collapse

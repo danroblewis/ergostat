@@ -783,132 +783,6 @@ def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadma
     pg.close()
 
 
-FRAMES = """([d, o]) => { const m = rgModel(d, o);
-  return { nodes: m.nodes.map((n) => [n.id, n.in || null, !!n.fold, !!n.hub]), edges: m.edges.map((e) => [e.from, e.to, e.cls]),
-           info: m.frameInfo, folded: [...m.folded], lost: m.lost, capped: m.capped }; }"""
-MS = {"frontier": False, "collapse": False, "group": "parent", "q": "", "status": None}
-
-
-def test_the_graph_frames_each_gap_in_its_milestone(browser, roadmap):
-    """On a generated answer (tests/test_milestone_frames.py): each gap in its milestone's frame, the rest in a plain
-    one; each frame titled with its name, state and tally (blocked, and on what); an arrow between milestones; no
-    dependency line lost, across frames too; a completed milestone folded under Collapse done."""
-    from tests.test_milestone_frames import milestone_answer
-    ans = milestone_answer()
-    by = {x["id"]: x for x in ans["items"]}
-    gaps = {a for a, x in by.items() if x["kind"] == "gap"}
-    ms_of = {e["to"]: e["from"] for e in ans["edges"] if e["kind"] == "group" and e["rel"] == "milestone"}
-    between = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["kind"] == "gap"}
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
-    got = pg.evaluate(FRAMES, [ans, MS])
-    nodes = {a: (f, fold, hub) for a, f, fold, hub in got["nodes"]}
-    assert set(nodes) == gaps                                                  # every gap a card, no milestone one
-    assert {a: nodes[a][0] for a in gaps} == {a: ms_of.get(a, "(plain)") for a in gaps}   # each in its frame
-    assert nodes["gap/s"][2] and not got["folded"]                              # a split inside its frame: a hub
-    info = got["info"]
-    assert set(info) == {"milestone/m0", "milestone/m1", "milestone/m2", "milestone/m3", "(plain)"}
-    assert info["milestone/m1"]["head"] == "milestone/m1 · release 1 · active"
-    assert info["milestone/m1"]["sub"] == "0/5 done · 2 working · 1 ready · 2 blocked on a0, a3, a2"
-    assert info["milestone/m2"]["sub"] == "0/3 done · 0 working · 0 ready · 3 blocked on m1, b0 · waits on m1"
-    assert info["milestone/m0"]["sub"].startswith("6/6 done") and info["milestone/m0"]["head"].endswith("· completed")
-    assert info["(plain)"]["head"] == "no milestone"
-    assert info["(plain)"]["sub"].startswith("1/3 done · 0 working · 1 ready · 1 blocked on m1")
-    deps = {(a, b) for a, b, cls in got["edges"] if cls == "dep"}
-    assert between <= deps and got["lost"] == 0                                 # every line, across frames too
-    assert {("milestone/m0", "milestone/m1"), ("milestone/m1", "milestone/m2")} <= deps   # milestone to milestone
-    # Collapse done: the completed milestone folded to its frame, a line from its gap drawn from it
-    for o in ({**MS, "collapse": True}, {**MS, "frontier": True, "collapse": True}):
-        got = pg.evaluate(FRAMES, [ans, o])
-        nodes = {a: (f, fold) for a, f, fold, _ in got["nodes"]}
-        assert got["folded"] == ["milestone/m0"] and nodes["milestone/m0"] == (None, True)
-        assert not any(a.startswith("gap/d") or a == "gap/n2" for a in nodes)     # its gaps, done, not drawn
-        deps = {(a, b) for a, b, cls in got["edges"] if cls == "dep"}
-        assert {(a, b) for a, b in between if by[a]["status"] != "done"} <= deps
-        assert {("milestone/m0", "gap/a0"), ("milestone/m0", "milestone/m1"), ("milestone/m1", "milestone/m2")} <= deps
-    assert not errors, errors
-    pg.close()
-
-
-MS_DRAW = """async ([d, o]) => { const m = rgModel(d, o), el = relGraph(() => {});
-  document.querySelector('main').prepend(el); await el.draw(m, o);
-  const box = (e) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
-  const frames = Object.fromEntries([...el.querySelectorAll('.rg-frame')].map((f) => [f.dataset.id || '(plain)',
-    { ...box(f.querySelector('rect')), head: f.querySelector('.rg-fhead')?.textContent, cls: f.getAttribute('class') }]));
-  const cards = [...el.querySelectorAll('.rg-node')].map((n) => ({ id: n.dataset.id, ...box(n.querySelector('.rg-box')) }));
-  const out = { frames, cards, lines: el.querySelectorAll('.rg-edge').length, edges: m.edges.length,
-                within: Object.fromEntries(m.nodes.map((n) => [n.id, n.in || null])) };
-  el.remove(); return out; }"""
-
-
-@pytest.mark.parametrize("collapse", [False, True])
-def test_the_graph_draws_each_milestone_as_a_frame_holding_its_gaps(browser, roadmap, collapse):
-    """Drawn (ELK): each card inside its frame's box and no other milestone's, every line routed (milestone to
-    milestone, and gap to gap across frames), no two cards overlapping; under Collapse done the completed one is one
-    card, not a frame."""
-    from tests.test_milestone_frames import milestone_answer
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
-    got = pg.evaluate(MS_DRAW, [milestone_answer(), {**MS, "collapse": collapse}])
-    inside = lambda c, f: f["x"] - 1 <= c["x"] and c["x"] + c["w"] <= f["x"] + f["w"] + 1 and \
-        f["y"] - 1 <= c["y"] and c["y"] + c["h"] <= f["y"] + f["h"] + 1                  # noqa: E731
-    frames = got["frames"]
-    assert ("milestone/m0" in frames) is not collapse and "rg-plain" in frames["(plain)"]["cls"]
-    assert frames["milestone/m1"]["head"] == "milestone/m1 · release 1 · active"
-    for c in got["cards"]:
-        f = got["within"][c["id"]]
-        assert f is None or inside(c, frames[f]), (c, f)
-        assert not any(inside(c, b) for k, b in frames.items() if k != f), c        # in no other frame
-    assert collapse is any(c["id"] == "milestone/m0" for c in got["cards"])
-    assert got["lines"] == got["edges"] == (11 if collapse else 12)              # each line routed and drawn
-    # (10 between gaps and 2 between milestones; collapsed, the 2 from done gaps go and 1 comes from the folded m0)
-    assert not overlaps(got["cards"]), overlaps(got["cards"])
-    assert not errors, errors
-    pg.close()
-
-
-MS_TIMELINE = """([d, o, n]) => { const m = rgModel(d, o), el = relTimeline(() => {});
-  document.querySelector('main').prepend(el); el.draw(m, d);
-  const read = () => [...el.querySelectorAll('.rg-row')].map((r) => ({ id: r.dataset.id, sum: r.classList.contains('rg-sumrow'),
-    open: r.dataset.open, label: r.querySelector('.rg-id')?.textContent, tally: r.querySelector('.rg-tally')?.textContent,
-    bar: !!r.querySelector('.rg-msum'), y: r.querySelector('.rg-label').getBoundingClientRect().top }));
-  const out = { rows: read(), note: el.querySelector('.rg-note').textContent };
-  if (n) { el.querySelector(`.rg-sumrow[data-id="${n}"] .rg-tri`).dispatchEvent(new MouseEvent('click')); out.after = read(); }
-  el.remove(); return out; }"""
-
-
-def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browser, roadmap):
-    """A summary row a milestone (its span, how much is done, its tally), its gaps under it open for an active one;
-    rows in the order they start; a name whole; past the bound, milestones folded and said, never rows cut."""
-    from tests.test_milestone_frames import milestone_answer
-    ans = milestone_answer()
-    by = {x["id"]: x for x in ans["items"]}
-    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
-    got = pg.evaluate(MS_TIMELINE, [ans, MS, "milestone/m2"])
-    rows = got["rows"]
-    sums = [r for r in rows if r["sum"]]
-    assert [r["id"] for r in sums] == ["milestone/m0", "milestone/m1", "milestone/m2", "milestone/m3", "(plain)"]
-    assert {r["id"]: r["open"] for r in sums} == {"milestone/m0": "false", "milestone/m1": "true", "milestone/m2": "false",
-                                                  "milestone/m3": "true", "(plain)": "true"}
-    assert all(r["bar"] for r in sums) and "3 blocked on m1, b0" in next(r["tally"] for r in sums if r["id"] == "milestone/m2")
-    assert next(r["label"] for r in sums if r["id"] == "milestone/m1") == "milestone/m1 · release 1 · active"
-    ids = [r["id"] for r in rows]
-    assert not any(a.startswith(("gap/d", "gap/b")) for a in ids)              # folded under m0 and m2
-    m3 = [a for a in ids[ids.index("milestone/m3") + 1:ids.index("(plain)")]]
-    assert set(m3) == {"gap/s", "gap/s-1", "gap/milestones-shown-in-graph-and-timeline"}
-    start = lambda a: by[a]["segments"][0][1]                                    # noqa: E731
-    assert m3 == sorted(m3, key=start)                                           # the schedule's order, not the tree's
-    assert "gap/milestones-shown-in-graph-and-timeline" in [r["label"] for r in rows]   # a name whole
-    assert [r["y"] for r in rows] == sorted(r["y"] for r in rows)
-    after = [r["id"] for r in got["after"]]                                       # the triangle opens a folded one
-    assert after[after.index("milestone/m2") + 1:after.index("milestone/m2") + 4] == ["gap/b0", "gap/b1", "gap/b2"]
-    big = pg.evaluate(MS_TIMELINE, [milestone_answer(n_extra=40), MS, None])     # 44 frames and 263 gaps: past 200
-    sums = [r for r in big["rows"] if r["sum"]]
-    assert len(sums) == 45 and len(big["rows"]) <= 200                          # every milestone kept, as a row
-    assert any(r["open"] == "false" and r["id"].startswith("milestone/x") for r in sums)
-    assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
-    assert not errors, errors
-    pg.close()
-
-
 def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap):
     pg, errors = open_view(browser, roadmap, "items?view=timeline", ".rg-timeline[data-drawn] .rg-row")
     rows = drawn(pg, ".rg-timeline .rg-row .rg-label")
@@ -1587,3 +1461,131 @@ def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser
         for proc in procs:
             proc.terminate()
             proc.wait(timeout=10)
+
+
+# milestones in the Graph and the Timeline (dev/records/milestone-shown-in-the-graph.md): last in the file, so the
+# roadmap tests above keep the timing they had (the roadmap's record ages with its fixture)
+FRAMES = """([d, o]) => { const m = rgModel(d, o);
+  return { nodes: m.nodes.map((n) => [n.id, n.in || null, !!n.fold, !!n.hub]), edges: m.edges.map((e) => [e.from, e.to, e.cls]),
+           info: m.frameInfo, folded: [...m.folded], lost: m.lost, capped: m.capped }; }"""
+MS = {"frontier": False, "collapse": False, "group": "parent", "q": "", "status": None}
+
+
+def test_the_graph_frames_each_gap_in_its_milestone(browser, roadmap):
+    """On a generated answer (tests/test_milestone_frames.py): each gap in its milestone's frame, the rest in a plain
+    one; each frame titled with its name, state and tally (blocked, and on what); an arrow between milestones; no
+    dependency line lost, across frames too; a completed milestone folded under Collapse done."""
+    from tests.test_milestone_frames import milestone_answer
+    ans = milestone_answer()
+    by = {x["id"]: x for x in ans["items"]}
+    gaps = {a for a, x in by.items() if x["kind"] == "gap"}
+    ms_of = {e["to"]: e["from"] for e in ans["edges"] if e["kind"] == "group" and e["rel"] == "milestone"}
+    between = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["kind"] == "gap"}
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    got = pg.evaluate(FRAMES, [ans, MS])
+    nodes = {a: (f, fold, hub) for a, f, fold, hub in got["nodes"]}
+    assert set(nodes) == gaps                                                  # every gap a card, no milestone one
+    assert {a: nodes[a][0] for a in gaps} == {a: ms_of.get(a, "(plain)") for a in gaps}   # each in its frame
+    assert nodes["gap/s"][2] and not got["folded"]                              # a split inside its frame: a hub
+    info = got["info"]
+    assert set(info) == {"milestone/m0", "milestone/m1", "milestone/m2", "milestone/m3", "(plain)"}
+    assert info["milestone/m1"]["head"] == "milestone/m1 · release 1 · active"
+    assert info["milestone/m1"]["sub"] == "0/5 done · 2 working · 1 ready · 2 blocked on a0, a3, a2"
+    assert info["milestone/m2"]["sub"] == "0/3 done · 0 working · 0 ready · 3 blocked on m1, b0 · waits on m1"
+    assert info["milestone/m0"]["sub"].startswith("6/6 done") and info["milestone/m0"]["head"].endswith("· completed")
+    assert info["(plain)"]["head"] == "no milestone"
+    assert info["(plain)"]["sub"].startswith("1/3 done · 0 working · 1 ready · 1 blocked on m1")
+    deps = {(a, b) for a, b, cls in got["edges"] if cls == "dep"}
+    assert between <= deps and got["lost"] == 0                                 # every line, across frames too
+    assert {("milestone/m0", "milestone/m1"), ("milestone/m1", "milestone/m2")} <= deps   # milestone to milestone
+    # Collapse done: the completed milestone folded to its frame, a line from its gap drawn from it
+    for o in ({**MS, "collapse": True}, {**MS, "frontier": True, "collapse": True}):
+        got = pg.evaluate(FRAMES, [ans, o])
+        nodes = {a: (f, fold) for a, f, fold, _ in got["nodes"]}
+        assert got["folded"] == ["milestone/m0"] and nodes["milestone/m0"] == (None, True)
+        assert not any(a.startswith("gap/d") or a == "gap/n2" for a in nodes)     # its gaps, done, not drawn
+        deps = {(a, b) for a, b, cls in got["edges"] if cls == "dep"}
+        assert {(a, b) for a, b in between if by[a]["status"] != "done"} <= deps
+        assert {("milestone/m0", "gap/a0"), ("milestone/m0", "milestone/m1"), ("milestone/m1", "milestone/m2")} <= deps
+    assert not errors, errors
+    pg.close()
+
+
+MS_DRAW = """async ([d, o]) => { const m = rgModel(d, o), el = relGraph(() => {});
+  document.querySelector('main').prepend(el); await el.draw(m, o);
+  const box = (e) => { const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; };
+  const frames = Object.fromEntries([...el.querySelectorAll('.rg-frame')].map((f) => [f.dataset.id || '(plain)',
+    { ...box(f.querySelector('rect')), head: f.querySelector('.rg-fhead')?.textContent, cls: f.getAttribute('class') }]));
+  const cards = [...el.querySelectorAll('.rg-node')].map((n) => ({ id: n.dataset.id, ...box(n.querySelector('.rg-box')) }));
+  const out = { frames, cards, lines: el.querySelectorAll('.rg-edge').length, edges: m.edges.length,
+                within: Object.fromEntries(m.nodes.map((n) => [n.id, n.in || null])) };
+  el.remove(); return out; }"""
+
+
+@pytest.mark.parametrize("collapse", [False, True])
+def test_the_graph_draws_each_milestone_as_a_frame_holding_its_gaps(browser, roadmap, collapse):
+    """Drawn (ELK): each card inside its frame's box and no other milestone's, every line routed (milestone to
+    milestone, and gap to gap across frames), no two cards overlapping; under Collapse done the completed one is one
+    card, not a frame."""
+    from tests.test_milestone_frames import milestone_answer
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    got = pg.evaluate(MS_DRAW, [milestone_answer(), {**MS, "collapse": collapse}])
+    inside = lambda c, f: f["x"] - 1 <= c["x"] and c["x"] + c["w"] <= f["x"] + f["w"] + 1 and \
+        f["y"] - 1 <= c["y"] and c["y"] + c["h"] <= f["y"] + f["h"] + 1                  # noqa: E731
+    frames = got["frames"]
+    assert ("milestone/m0" in frames) is not collapse and "rg-plain" in frames["(plain)"]["cls"]
+    assert frames["milestone/m1"]["head"] == "milestone/m1 · release 1 · active"
+    for c in got["cards"]:
+        f = got["within"][c["id"]]
+        assert f is None or inside(c, frames[f]), (c, f)
+        assert not any(inside(c, b) for k, b in frames.items() if k != f), c        # in no other frame
+    assert collapse is any(c["id"] == "milestone/m0" for c in got["cards"])
+    assert got["lines"] == got["edges"] == (11 if collapse else 12)              # each line routed and drawn
+    # (10 between gaps and 2 between milestones; collapsed, the 2 from done gaps go and 1 comes from the folded m0)
+    assert not overlaps(got["cards"]), overlaps(got["cards"])
+    assert not errors, errors
+    pg.close()
+
+
+MS_TIMELINE = """([d, o, n]) => { const m = rgModel(d, o), el = relTimeline(() => {});
+  document.querySelector('main').prepend(el); el.draw(m, d);
+  const read = () => [...el.querySelectorAll('.rg-row')].map((r) => ({ id: r.dataset.id, sum: r.classList.contains('rg-sumrow'),
+    open: r.dataset.open, label: r.querySelector('.rg-id')?.textContent, tally: r.querySelector('.rg-tally')?.textContent,
+    bar: !!r.querySelector('.rg-msum'), y: r.querySelector('.rg-label').getBoundingClientRect().top }));
+  const out = { rows: read(), note: el.querySelector('.rg-note').textContent };
+  if (n) { el.querySelector(`.rg-sumrow[data-id="${n}"] .rg-tri`).dispatchEvent(new MouseEvent('click')); out.after = read(); }
+  el.remove(); return out; }"""
+
+
+def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browser, roadmap):
+    """A summary row a milestone (its span, how much is done, its tally), its gaps under it open for an active one;
+    rows in the order they start; a name whole; past the bound, milestones folded and said, never rows cut."""
+    from tests.test_milestone_frames import milestone_answer
+    ans = milestone_answer()
+    by = {x["id"]: x for x in ans["items"]}
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    got = pg.evaluate(MS_TIMELINE, [ans, MS, "milestone/m2"])
+    rows = got["rows"]
+    sums = [r for r in rows if r["sum"]]
+    assert [r["id"] for r in sums] == ["milestone/m0", "milestone/m1", "milestone/m2", "milestone/m3", "(plain)"]
+    assert {r["id"]: r["open"] for r in sums} == {"milestone/m0": "false", "milestone/m1": "true", "milestone/m2": "false",
+                                                  "milestone/m3": "true", "(plain)": "true"}
+    assert all(r["bar"] for r in sums) and "3 blocked on m1, b0" in next(r["tally"] for r in sums if r["id"] == "milestone/m2")
+    assert next(r["label"] for r in sums if r["id"] == "milestone/m1") == "milestone/m1 · release 1 · active"
+    ids = [r["id"] for r in rows]
+    assert not any(a.startswith(("gap/d", "gap/b")) for a in ids)              # folded under m0 and m2
+    m3 = [a for a in ids[ids.index("milestone/m3") + 1:ids.index("(plain)")]]
+    assert set(m3) == {"gap/s", "gap/s-1", "gap/milestones-shown-in-graph-and-timeline"}
+    start = lambda a: by[a]["segments"][0][1]                                    # noqa: E731
+    assert m3 == sorted(m3, key=start)                                           # the schedule's order, not the tree's
+    assert "gap/milestones-shown-in-graph-and-timeline" in [r["label"] for r in rows]   # a name whole
+    assert [r["y"] for r in rows] == sorted(r["y"] for r in rows)
+    after = [r["id"] for r in got["after"]]                                       # the triangle opens a folded one
+    assert after[after.index("milestone/m2") + 1:after.index("milestone/m2") + 4] == ["gap/b0", "gap/b1", "gap/b2"]
+    big = pg.evaluate(MS_TIMELINE, [milestone_answer(n_extra=40), MS, None])     # 44 frames and 263 gaps: past 200
+    sums = [r for r in big["rows"] if r["sum"]]
+    assert len(sums) == 45 and len(big["rows"]) <= 200                          # every milestone kept, as a row
+    assert any(r["open"] == "false" and r["id"].startswith("milestone/x") for r in sums)
+    assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
+    assert not errors, errors
+    pg.close()

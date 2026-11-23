@@ -258,7 +258,8 @@ A GAPS.md entry whose head (its opening parenthetical, or the clause after its c
 
 A `milestone` item (ergostat.yaml) is `waiting`, `active` or `completed`, and `completed` is final (`final:`: no event
 moves it out). It may depend on other milestones (`depends_on`); a gap names its milestone in `milestone` (a group
-relation: the Items page's Graph hangs a milestone's gaps off it). The block `milestones` (`milestones.py pass`, every
+relation: with kind `gap` chosen, the Items page's Graph draws a milestone's gaps in its frame, titled with what is
+done, working, ready and blocked on what, and the Timeline gives it a summary row). The block `milestones` (`milestones.py pass`, every
 minute, no AI) completes an active milestone with at least one gap once every one is merged or closed (a parked one
 holds it open; an empty one never completes), then activates waiting ones whose dependencies all completed, by rank,
 while fewer than `[milestones] active_max` (3; at most 20) are active. An `upkeep` milestone, for the factory's own
