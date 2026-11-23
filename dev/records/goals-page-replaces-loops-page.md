@@ -108,3 +108,13 @@ Its runs failed past their attempts (a dead letter):
 - attempt 9: nack exited 1
 - attempt 10: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 11: nack the run ended with gap/goals-page-replaces-loops-page still parked
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 18:07).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 9: nack exited 1
+- attempt 10: nack the implementor pool is full (run/pools.json): waits its turn
+- attempt 11: nack the run ended with gap/goals-page-replaces-loops-page still parked
+- attempt 12: nack the implementor pool is full (run/pools.json): waits its turn
