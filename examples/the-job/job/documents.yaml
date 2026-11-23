@@ -31,6 +31,19 @@ stocks:
       state: drafted
       every: 5s
 
+# The paper trail (world/traffic.py): changes start at 0.35 a working day, each with its problem statement, and
+# each approval but the board's opens the change's next document (problem, proposal, design, board): a coflow.
+parameters:
+  changes-base:
+    value: 0.35
+    unit: docs/workday
+    estimate: true
+    description: changes started a working day, each needing its first document (its problem statement)
+  next-docs-per-approval:
+    value: 0.75
+    unit: docs/doc
+    description: of a change's four documents, the approvals of the first three each open the next; the board's opens none
+
 auxiliaries:
   board-items-due:
     unit: docs
@@ -50,6 +63,7 @@ flows:
     driven-by:
       - cause: +flow.docs-approved
         instant: true                            # the next document is needed the moment the last is approved
+    equation: workdays-per-hour * changes-base + next-docs-per-approval * flow.docs-approved
     sensor:
       run: python3 bin/watch.py doc
       every: 10s

@@ -1,7 +1,6 @@
-"""Acceptance (plots.js), the unit part: the bucket alignment the phase plot pairs by, and plots.js coloured only from
-tokens. The browser checks (several flows on one axis in one unit, a phase plot's joined path and its marks, a heatmap
-of a kind's states, in both themes with no console error) are in tests/test_diagram_rendering.py, one of the four
-browser files the merge queue runs: test_the_three_chart_forms_draw_in_each_theme."""
+"""Acceptance (plots.js), the unit part: series on one time base, and plots.js coloured only from tokens. The browser
+check (a heatmap of a kind's states and of a goal, in both themes with no console error) is in
+tests/test_diagram_rendering.py, one of the four browser files the merge queue runs: test_the_heatmap_of_rows_draws_in_each_theme."""
 
 import time
 from pathlib import Path

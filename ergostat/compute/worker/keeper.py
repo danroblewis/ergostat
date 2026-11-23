@@ -1,6 +1,10 @@
 """A run on a node and its keeper (SPEC §12s.3): ``start`` makes the run's folder and starts a detached keeper
 (``--keep RUN``), which forks the run in its own process group, waits for it and writes its exit; ``kill`` writes the
-stop file the keeper acts on. The run never depends on the worker: a closed session leaves keeper and run going."""
+stop file the keeper acts on. The run never depends on the worker: a closed session leaves keeper and run going.
+
+The engine keeps its own machine blocks' runs the same way when ``runs: outlive_engine`` is on (SPEC §9.1, ``launch``,
+``Kept``): the run's standard output appended to its journal, ``runs/RUN.jsonl`` in the state folder, so stopping or
+killing the engine leaves the run going and its exit written."""
 
 import argparse
 import ctypes
@@ -25,6 +29,9 @@ DAY = 86400.0
 MOST_PIDS = 32768
 MOST_GRACE = 600
 MOST_LOG = 1 << 30          # (bytes a stream of the run's output may hold: output.py stops the run past them)
+APPEND = os.O_WRONLY | os.O_CREAT | os.O_APPEND
+WALL_GRACE = 2.0            # seconds from SIGTERM to SIGKILL when a run's own deadline stops it
+MARGIN = 5.0                # seconds a kept run's deadline is after its engine's: the engine's timeout first while up
 
 
 def put(path: str, text: str) -> None:
@@ -130,8 +137,14 @@ def child(d: str, spec: dict, keeper: int) -> None:
                 pass
         for fd, name, mode in ((0, "in", os.O_RDONLY), (1, "out", os.O_WRONLY | os.O_CREAT | os.O_TRUNC),
                                (2, "err", os.O_WRONLY | os.O_CREAT | os.O_TRUNC)):
-            os.dup2(os.open(os.path.join(d, name), mode, 0o600), fd)
-        os.chdir(os.path.join(d, "cwd"))
+            got = spec.get(name) if fd else None      # (an engine's run: its journal, appended to; its log's descriptor)
+            if type(got) is int:
+                os.dup2(got, fd)
+            else:
+                os.dup2(os.open(got or os.path.join(d, name), APPEND if got else mode, 0o600), fd)
+        if type(spec.get("err")) is int and spec["err"] > 2:
+            os.close(spec["err"])
+        os.chdir(spec.get("cwd") or os.path.join(d, "cwd"))
         for s in (signal.SIGPIPE, signal.SIGXFSZ, signal.SIGHUP):   # ignored by Python and the keeper; SIG_IGN
             signal.signal(s, signal.SIG_DFL)                        # would pass through exec to the whole run
         os.execve("/bin/sh", ["/bin/sh", "-c", spec["command"]], {**os.environ, **spec.get("env", {})})
@@ -159,16 +172,18 @@ def grace(path: str) -> float:
         return 10.0                             # (a stop file half read still stops the run, with the usual grace)
 
 
-def keep(d: str, pid: int) -> tuple[int, str]:
-    """Waits for the run; at the stop file, SIGTERM to its group, then SIGKILL to the group past the grace while any
-    of it is left. Its exit code (-N for a signal) and how it ended: ``exit``, the signal, or ``TERM``/``KILL``."""
+def keep(d: str, pid: int, wall: float | None = None) -> tuple[int, str]:
+    """Waits for the run; at the stop file, or ``wall`` seconds on (its own deadline, an engine or none), SIGTERM to
+    its group, then SIGKILL to the group past the grace while any of it is left. Its exit code (-N for a signal) and
+    how it ended: ``exit``, the signal, ``TERM``/``KILL``, or ``timeout`` (stopped at its deadline)."""
     code = how = term = None
-    stop = os.path.join(d, "stop")
+    stop, late, timed = os.path.join(d, "stop"), None if wall is None else time.monotonic() + wall, False
     while True:
         if code is None and (got := os.waitpid(pid, os.WNOHANG))[0]:
             code = os.waitstatus_to_exitcode(got[1])
-        if term is None and code is None and os.path.exists(stop):
-            term, how = time.monotonic() + grace(stop), "TERM"
+        if term is None and code is None and (os.path.exists(stop) or late is not None and time.monotonic() >= late):
+            timed = not os.path.exists(stop)
+            term, how = time.monotonic() + (WALL_GRACE if timed else grace(stop)), "TERM"
             group(pid, signal.SIGTERM)
         if how == "TERM" and time.monotonic() >= term and group(pid, signal.SIGKILL):
             how = "KILL"
@@ -177,7 +192,121 @@ def keep(d: str, pid: int) -> tuple[int, str]:
         time.sleep(TICK)
     if how is None:
         how = "exit" if code >= 0 else signal.Signals(-code).name.removeprefix("SIG")
-    return code, how
+    return code, "timeout" if timed else how
+
+
+# ---- a machine block's run on this machine, under its keeper (SPEC §9.1, *A run outlives its engine*)
+
+def ended(d: str) -> int | None:
+    """The run's exit as its keeper wrote it, or None while it has written none. A run that never started (its code
+    unknown) reads 127, never 0: an exit unknown is never taken for success."""
+    try:
+        with open(os.path.join(d, "exit"), encoding="utf-8") as f:
+            code = json.load(f).get("code")
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, AttributeError):
+        return 127                              # (written whole by put: unreadable is not a run still going)
+    return code if isinstance(code, int) and not isinstance(code, bool) else 127
+
+
+class Kept:
+    """A run its keeper holds, as the engine that started it sees it: what it uses of a ``Popen``. ``pid`` is the
+    run's own, the id of its process group (a stop, a lease's kill, a timeout signal the whole group, as before); its
+    exit is the keeper's ``exit`` file. ``rusage`` is None: no ``wait4`` here, its CPU and memory are the sampler's."""
+
+    rusage = None
+
+    def __init__(self, d: str, keeper, pid: int):
+        self.dir, self.keeper, self.pid, self.returncode = d, keeper, pid, None
+
+    def poll(self) -> int | None:
+        if self.returncode is None:
+            got = ended(self.dir)
+            if got is None and self.keeper.poll() is not None:
+                got = ended(self.dir)           # (looked at again: written just before it ended)
+                got = -signal.SIGKILL if got is None else got   # its keeper gone with no exit: the run with it
+            self.returncode = got
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        end = None if timeout is None else time.monotonic() + timeout
+        while self.poll() is None:
+            if end is not None and time.monotonic() >= end:
+                raise subprocess.TimeoutExpired("keeper", timeout)
+            time.sleep(0.02)
+        return self.returncode
+
+    def how(self) -> str | None:
+        """How its keeper says it ended (``timeout``: its own deadline stopped it), or None when unsaid."""
+        try:
+            with open(os.path.join(self.dir, "exit"), encoding="utf-8") as f:
+                return json.load(f).get("how")
+        except (OSError, ValueError, AttributeError):
+            return None
+
+    def kill(self) -> None:
+        put(os.path.join(self.dir, "stop"), json.dumps({"grace": 0, "why": "killed"}))
+
+    def release(self) -> None:
+        """Read to its end: its keeper may remove its folder and end (within a tick; reaped by a thread meanwhile, so
+        the run's end is never held up for it)."""
+        put(os.path.join(self.dir, "done"), "")
+        threading.Thread(target=self.keeper.wait, daemon=True, name="keeper-reap").start()
+
+
+def launch(root: str, run: str, command: str, inp: str, cwd: str, env: dict, out: str, err: int,
+           timeout: float | None = None, wait: float = 30.0) -> Kept:
+    """The run started under a detached keeper in its own session: ``root/runs/RUN/`` made (its record and its input),
+    its standard output appended to ``out`` (its journal), its errors to the descriptor ``err`` (passed down), ``env``
+    given to the keeper's process (never written to disk). A ``timeout`` is the keeper's own too: ``MARGIN`` seconds
+    after it the keeper stops the run's group itself, so a run whose engine is gone still ends by it. Returns once the run's group
+    exists; OSError when it does not within ``wait``, and the keeper is told to stop it should it start later."""
+    if not RUN.fullmatch(run):
+        raise OSError("a run's keeper needs a run id of 32 hex digits")
+    d = os.path.join(root, "runs", run)
+    os.makedirs(os.path.dirname(d), mode=0o700, exist_ok=True)
+    os.mkdir(d, 0o700)
+    try:
+        put(os.path.join(d, "run.json"), json.dumps({"run": run, "backend": "process", "command": command, "out": out,
+                                                     "err": err, "cwd": cwd, "limits": {},
+                                                     "wall": timeout + MARGIN if timeout else None}))
+        put(os.path.join(d, "in"), inp)
+        with open(os.path.join(d, "keeper.log"), "ab") as log:
+            p = subprocess.Popen([sys.executable, "-I", HERE, "--keep", run, "--root", root], env=env,
+                                 stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True,
+                                 pass_fds=(err,))
+    except OSError:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
+    end = time.monotonic() + wait
+    while True:
+        try:
+            with open(os.path.join(d, "pgid"), encoding="utf-8") as f:
+                return Kept(d, p, int(f.read()))
+        except (OSError, ValueError):
+            pass
+        if p.poll() is not None or os.path.exists(os.path.join(d, "exit")) or time.monotonic() > end:
+            put(os.path.join(d, "stop"), json.dumps({"grace": 0, "why": "not started in time"}))
+            put(os.path.join(d, "done"), "")
+            raise OSError(f"its keeper did not start it (see {os.path.join(d, 'keeper.log')})")
+        time.sleep(0.005)
+
+
+def stop_all(root: str, grace: float) -> list[str]:
+    """``ergostat run --stop --runs``: each run a keeper holds in ``root/runs`` and not yet ended is told to stop (its
+    stop file: SIGTERM to its group, SIGKILL past ``grace``), whether or not any engine is up. Returns their ids."""
+    runs, asked = os.path.join(root, "runs"), []
+    try:
+        names = sorted(os.listdir(runs))
+    except FileNotFoundError:
+        return []
+    for n in names:
+        d = os.path.join(runs, n)
+        if RUN.fullmatch(n) and os.path.isfile(os.path.join(d, "run.json")) and ended(d) is None:
+            put(os.path.join(d, "stop"), json.dumps({"grace": grace, "why": "ergostat run --stop --runs"}))
+            asked.append(n)
+    return asked
 
 
 def main(argv: list[str]) -> int:
@@ -195,6 +324,9 @@ def main(argv: list[str]) -> int:
     try:
         with open(os.path.join(d, "run.json"), encoding="utf-8") as f:
             spec = json.load(f)
+        wall = spec.get("wall")
+        if wall is not None and (isinstance(wall, bool) or not isinstance(wall, int | float) or not 0 < wall < math.inf):
+            raise ValueError(f"its deadline is not a number of seconds: {wall!r}")   # (not started, never unbounded)
         me, pid = os.getpid(), os.fork()
         if pid == 0:
             child(d, spec, me)
@@ -202,7 +334,7 @@ def main(argv: list[str]) -> int:
             os.setpgid(pid, pid)                # (both sides set it, so a stop can't reach before the group exists)
         except OSError:
             pass
-        code, how = keep(d, pid)
+        code, how = keep(d, pid, wall)
     except (OSError, ValueError):
         traceback.print_exc()
         code, how = None, "not started"

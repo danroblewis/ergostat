@@ -34,7 +34,7 @@ FILE_LIMIT = 20 * 1024 * 1024        # a file an item names is shown up to this 
 KEPT_MOST = 256                      # the answers kept (Live.keep): the least recently used goes first
 # the page's own addresses (/items, /item/ID, /diagram?view=blocks): each is the page, which draws what the path
 # names; the same list as the page's (``UI_PAGES``, util.js). /api, /static and /file are never among them
-UI_PAGES = ("diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
+UI_PAGES = ("diagram", "dashboard", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals")
 
 
 _VERSIONS: dict = {}                 # a static file's version, by name: (mtime, size, hash of its content)
@@ -371,6 +371,18 @@ def _window(q) -> float:
         return st.WINDOW
 
 
+def _set_alone(p, spec, q, one, at: float) -> dict:
+    """A set of items and nothing of the page (the side panel's list, a chart's "still waiting"): from the index, as of
+    ``at``, without the whole state, whose first estimate on a long record takes many seconds."""
+    from ..spec import item_sets
+    from ..spec import items as its
+    want = item_sets.parse(q, at)
+    n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
+    got = item_sets.select(p.events, spec, want, until=at, n=n, offset=offset)
+    k = spec.items[want.kind]
+    return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))), "kinds": []}
+
+
 def _tail(path, n: int) -> list[str]:
     """The last ``n`` lines of a file, read from its end."""
     try:
@@ -604,6 +616,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return proposed_graph(live, p, q, one("proposal"), lambda m2: _answer_with(live, path, q, m2))
     parts = path.strip("/").split("/")
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
+    if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
+        from ..query import answer, fields
+        return fields(live, p) if name == "fields" else answer(live, p, one("q")) if name is None else None
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
         from ..spec import itemgraph as ig
         asked = [k for k in ("near", "path", "about") if one(k) is not None]
@@ -628,6 +643,11 @@ def _answer(live: Live, path: str, q: dict, project=None):
             at = float(one("at"))
         except ValueError:
             at = None
+    if head == "items" and name is None and one("alone") and one("kind") and "search" not in q:
+        return _set_alone(p, getattr(m, "spec", None), q, one, time.time() if at is None else at)
+    if head == "items-overview":                  # the Items page's overview: from the item index, with no snapshot
+        from .items_overview import overview
+        return overview(p, at if at is not None else time.time(), _window(q))
     snap = live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates
@@ -789,6 +809,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
             a = m.agents.get(name)
             if a is None:
                 return None
+            from . import agent_spec
+            if len(parts) > 2:                    # its files' text, each from inside the project only
+                return agent_spec.files(p, name) if parts[2] == "files" and len(parts) == 3 else None
             runs = [e for e in p.events.query(n=400, item=name, type="agent.*", until=snap["at"])
                     if e["type"] in ("agent.ran", "agent.failed")]
             from ..runner import log_path
@@ -812,6 +835,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
                     "log": _tail(log, 40), "log_path": str(log),
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
+                    "spec": agent_spec.spec(p, snap, name),          # what it is: its block as written, law, files
                     "use": costs.of_block(p, name, snap["at"] - snap["window"], snap["at"])}   # what its runs cost (§9.1)
         from ..costs import record as costs
         use = costs.per_block(p, snap["at"] - snap["window"], snap["at"])
@@ -886,12 +910,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                               search=one("search"))
             return _as_listed(got, None, 0, bool(one("shown")))
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
-        if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
+        if want is not None and item_sets.asked(q):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
-            if one("alone"):                              # the side panel's list: the set, and nothing of the page
-                k = spec.items[want.kind]
-                return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))),
-                        "kinds": []}
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
         got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)
@@ -950,7 +970,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
         return report(p, "/".join(unquote(x) for x in parts[1:]))
     if head == "actions":                         # gated actions sessions asked for, about one item or all (SPEC §12k)
         from .actions_api import listing as actions
-        return actions(p, one("item") or None)
+        return actions(p, one("item") or None, bool(one("classes")))
     if head == "inbox":                           # everything waiting on a person (SPEC §12o)
         from .actions_api import inbox
         return inbox(p)

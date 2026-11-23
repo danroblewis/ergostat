@@ -1017,7 +1017,7 @@ def test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back(br
         errors: list[str] = []
         ctx.on("weberror", lambda e: errors.append(str(e.error)))
         pg = ctx.new_page()
-        pg.goto(url + "/items")
+        pg.goto(url + "/items?view=list")                     # every kind's list (bare, /items is the overview)
         pg.wait_for_selector("#main tr.click a[href^='/item/']", timeout=20000)
         hrefs = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('#main tr.click a[href^=\"/item/\"]')]"
                             ".map((a) => [a.textContent, a.getAttribute('href')]))")
@@ -1067,7 +1067,6 @@ def test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back(br
         pg.goto(url + "/diagram?view=blocks")
         pg.wait_for_function("() => document.querySelector('.toolbar .seg button.on')?.textContent.startsWith('Blocks')", timeout=30000)
         # old #/ addresses (bookmarks, briefs, messages): shown at their paths
-        # (a kind chosen ends at its page: the-kind-page)
         for old, new in (("/#/item/ticket%2F7", "/item/ticket%2F7"), ("/#/items?kind=ticket", "/items/ticket"),
                          ("/#/diagram?view=blocks", "/diagram?view=blocks"), ("/#/fit", "/model")):
             pg.goto(url + old)
@@ -3088,6 +3087,68 @@ def charted(tmp_path: Path, monkeypatch) -> Path:
     return d
 
 
+def test_the_goals_page_says_each_goals_word_as_the_server_does_live_and_from_a_snapshot(browser, tmp_path, monkeypatch):
+    """One goal of each word (holding, off, open, unknown), drawn by goalRow: each row's status is /api/loops' word,
+    on the page served and on the page read from a snapshot file, with nothing asked of a server."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    from tests.conftest import FOUR_GOALS
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    d = tmp_path / "four"
+    d.mkdir()
+    (d / "ergostat.toml").write_text(FOUR_GOALS)
+    p = Project(mdl.load(d))
+    p.measurements.add("sensor/disk-usage", 70)
+    rows = ("() => Object.fromEntries([...document.querySelectorAll('.page tr.click')]"
+            ".map((r) => [r.querySelector('td b').textContent, r.querySelector('td .status').textContent]))")
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        loops = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        want = {n: lp["word"] for n, lp in loops.items()}
+        assert sorted(want.values()) == ["holding", "off", "open", "unknown"], want
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelectorAll('.page tr.click').length === 4", timeout=30000)
+        live = pg.evaluate(rows)
+        pg.goto(url + "/diagram?view=blocks")           # the side list's lines: the same word, holding left unsaid
+        pg.wait_for_function("() => document.querySelectorAll('.side button.looprow[data-loop]').length > 0",
+                           timeout=60000)
+        side = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('.side button.looprow[data-loop]')]"
+                           ".map((r) => [r.querySelector('b').textContent, r.querySelector('.status')?.textContent || '']))")
+        assert side == {n: "" if w == "holding" else w for n, w in want.items()}, (side, want)
+        pg.close()
+    finally:
+        proc.terminate()
+        proc.wait(10)
+    out = tmp_path / "snapshot.html"
+    out.write_text(build(p))
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    asked: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.route("**/*", lambda rt: rt.continue_() if rt.request.url.startswith(("file:", "data:", "blob:"))
+             else (asked.append(rt.request.url), rt.abort()))
+    pg.goto(f"file://{out}#/loops")
+    pg.wait_for_function("() => document.querySelectorAll('.page tr.click').length === 4", timeout=30000)
+    offline = pg.evaluate(rows)
+    pg.close()
+    assert live == want and offline == want, (live, offline, want)
+    assert not errors and not asked, (errors, asked)
+
+
 def test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks(browser, tmp_path, monkeypatch):
     """A goal past its ceiling (backlog <= 5, tolerance 1, read at 12 tickets) says how far it is in one phrase, the
     state's: on the Loops page, the Dynamics side list, its gap's panel and its evidence (the loop's panel). Blocks
@@ -3276,7 +3337,7 @@ def test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot(browser,
         pg.locator("td.spark-cell").first.click()
         pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=20000)
         # the Items page: the kind's flow, and under its table its cycle times
-        pg.goto(url + "/items")
+        pg.goto(url + "/items/ticket")
         pg.wait_for_function(f"() => ({CHARTS.format('.cfd')})() >= 1 && ({CHARTS.format('.chart.cycle')})() >= 1", timeout=20000)
         states = pg.evaluate("() => [...document.querySelectorAll('.cfd-states .stbox')].map((x) => x.textContent)")
         assert states == ["3open", "3doing", "6done"], states
@@ -3672,6 +3733,54 @@ def test_flows_only_keeps_flows_between_closed_systems(browser, tmp_path):
         assert pg.evaluate(LINKS_SEEN) == before, "off: as before"
         pg.close()
         assert not errors, errors
+
+
+def test_process_view_with_no_kinds_says_so_inside_the_canvas(browser, tmp_path):
+    """big has no kinds of item: its Process view says so, and where to look instead, wholly inside the canvas at
+    every width (it was drawn below it, at y=900, unseen); the link opens Dynamics."""
+    inside = """() => {
+      const e = [...document.querySelectorAll('.canvas-wrap .empty')].find((x) => x.textContent.includes('No kinds of item'));
+      const t = e.querySelector('span') || e, r = t.getBoundingClientRect();
+      const c = document.querySelector('svg.canvas').getBoundingClientRect();
+      return { text: e.textContent, in: r.width > 0 && r.left >= c.left && r.right <= c.right && r.top >= c.top && r.bottom <= c.bottom,
+               mid: Math.abs((r.top + r.bottom) / 2 - (c.top + c.bottom) / 2) < 40,
+               r: [r.left, r.top, r.right, r.bottom], c: [c.left, c.top, c.right, c.bottom] }; }"""
+    errors: list[str] = []
+    with served("big", tmp_path) as url:
+        for i, w in enumerate((1440, 1024, 600)):
+            pg = browser.new_page(viewport={"width": w, "height": 900})
+            pg.on("pageerror", lambda e: errors.append(str(e)))
+            pg.goto(f"{url}/diagram?v={i}&view=process")
+            pg.wait_for_function("() => [...document.querySelectorAll('.canvas-wrap .empty')].some((x) => "
+                                 "x.textContent.includes('No kinds of item'))", timeout=DRAWN_S * 1000)
+            got = pg.evaluate(inside)
+            assert got["in"] and got["mid"], (w, got)
+            assert got["text"] == "No kinds of item in big: its parts are counted by sensors. See Dynamics.", got
+            if w == 1440:
+                pg.locator(".canvas-wrap .empty a", has_text="Dynamics").click()
+                pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+                assert "view=dynamics" in pg.url, pg.url
+            pg.close()
+            assert not errors, errors
+
+
+def test_no_flows_line_is_under_the_boxes_and_seen(browser, tmp_path):
+    """big's top level carries no flow between its systems: with Flows only, the line saying so lies under the boxes
+    and within the viewport at 1440x900 (it was drawn above them, at y=-14)."""
+    with served("big", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.goto(url + "/", timeout=DRAWN_S * 1000)
+        pg.wait_for_function(READY, timeout=DRAWN_S * 1000)
+        flows_menu(pg)
+        got = pg.evaluate("""() => { const t = [...document.querySelectorAll('svg.canvas #viewport .flows-none')];
+          const boxes = [...document.querySelectorAll('svg.canvas g.node.k-system')].map((b) => b.getBoundingClientRect().bottom);
+          return { n: t.length, text: t[0]?.textContent, r: t[0] && t[0].getBoundingClientRect().toJSON(),
+                   below: Math.max(...boxes), boxes: boxes.length }; }""")
+        assert got["n"] == 1 and got["text"].startswith("No flows at this level"), got
+        r = got["r"]
+        assert r["height"] > 0 and 0 <= r["top"] and r["bottom"] <= 900 and 0 <= r["left"] and r["right"] <= 1440, got
+        assert got["boxes"] and r["top"] >= got["below"], got
+        pg.close()
 
 
 def test_flows_only_hides_information_links_between_closed_systems(browser, tmp_path):
@@ -5674,7 +5783,7 @@ def test_needs_attention_is_three_headed_groups_in_a_fixed_order(browser, tmp_pa
         proc.wait(10)
 
 
-# plots.js's three chart forms (dev/records/dashboard-new-chart-forms.md), each mounted with fixed data on a test page
+# plots.js's heatmap of rows (dev/records/dashboard-new-chart-forms.md), mounted with fixed data on a test page
 # served by route() beside the real static files; the checks read the drawn canvas so each can fail
 PLOTS_PAGE = ('<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/static/style.css">'
               '<main id="m" style="width:720px"></main>' + "".join(
@@ -5686,9 +5795,6 @@ for i in range(6):
     p.events.add("valve.opened", item="delete-old-files", data={"amount": 1}, at=now - 560 + i * 100)"""
 PLOTS_MOUNT = """async () => {
   const T = Array.from({ length: 12 }, (_, i) => 1.7e9 + i * 60), m = document.getElementById("m");
-  m.append(multiChart(await (await fetch("/api/series?refs=flow.logs-written,flow.cleaned&points=6")).json()));
-  m.append(phasePlot({ times: T, x: { name: "queue", unit: "items", values: T.map((_, i) => (i === 5 ? null : i)) },
-                       y: { name: "done", unit: "items", values: T.map((_, i) => (i * i) % 7), goal: { value: 3 } } }));
   m.append(heatmap(heatOfStates({ kind: "pr", times: T, states: ["open", "review", "merged"],
     counts: { open: T.map((_, i) => (i % 2 ? 4 : 0)), review: T.map(() => 2), merged: T.map(() => 4) } })));
   m.append(heatmap(heatOfGoals([{ goal: "g", unit: "%", times: T, off: [[T[3], T[5]]], e: T.map((_, i) => -i) }])));
@@ -5697,21 +5803,9 @@ PLOTS_MOUNT = """async () => {
   const rgb = (t) => { one.fillStyle = tok(t); one.fillRect(0, 0, 1, 1); return [...one.getImageData(0, 0, 1, 1).data].slice(0, 3); };
   const at = (u, x, y) => [...u.ctx.getImageData(Math.round(x), Math.round(y), 1, 1).data].slice(0, 3);
   const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 40);
-  const by = (u, x, y, c) => [-1, 0, 1].some((a) => [-1, 0, 1].some((b) => near(at(u, x + a, y + b), c)));   // within a pixel
-  // a line's own pixels: nine samples along its first measured step in the left half (its end label is at the right)
-  const along = (u, j, c) => { const t = u.data[0], v = u.data[j + 1];
-    const i = v.findIndex((y, k) => k < v.length / 2 && y != null && v[k + 1] != null); if (i < 0) return -1;
-    return [1, 2, 3, 4, 5, 6, 7, 8, 9].filter((f) => by(u, u.valToPos(t[i] + (f / 10) * (t[i + 1] - t[i]), "x", true),
-                                                         u.valToPos(v[i] + (f / 10) * (v[i + 1] - v[i]), "y", true), c)).length; };
-  const mu = plot("plot-multi"), ph = plot("plot-phase"), P = (x, y) => at(ph, ph.valToPos(x, "x", true), ph.valToPos(y, "y", true));
   const hm = plot("plot-heat"), cell = (i, k) => at(hm, hm.valToPos(T[i], "x", true), hm.valToPos(3 - k - 0.5, "y", true));
   const want = { 0: (i) => (i % 2 ? "--ink" : "--fill"), 1: () => "--fan-50", 2: () => "--ink" };
-  return { chips: [...m.querySelectorAll(".plot-chip")].map((e) => e.textContent), data: mu.data.slice(1),
-    lines: ["--g0", "--g1"].map((t, j) => along(mu, j, rgb(t))),
-    first: near(P(0, 0), rgb("--bg")), last: near(P(11, 2), rgb("--ink")),
-    joined: by(ph, ph.valToPos(1.25, "x", true), ph.valToPos(1.75, "y", true), rgb("--ink")),     // a quarter along (1,1)-(2,4),
-    apart: by(ph, ph.valToPos(1.75, "x", true), ph.valToPos(1.25, "y", true), rgb("--ink")),      // off its tick; and off the path
-    phaseRows: m.querySelectorAll(".plot-phase tbody tr").length,
+  return {
     heatCols: m.querySelector(".plot-heat").querySelectorAll("thead th").length - 1,
     cells: [0, 1, 2].every((k) => T.every((_, i) => near(cell(i, k), rgb(want[k](i))))),
     off: [4, 8].map((i) => { const g = m.querySelectorAll(".plot-heat .chart-plot")[1].plot;
@@ -5721,10 +5815,9 @@ PLOTS_MOUNT = """async () => {
 }"""
 
 
-def test_the_three_chart_forms_draw_in_each_theme(browser, tmp_path):
-    """multiChart of two served flows: two labelled lines, each drawn in its own hue, in one unit; phasePlot: a joined
-    path, open first point, filled last; a heatmap of a kind's states: a row per state, a cell per bucket on the ramp,
-    a goal's off stretch hatched; every figure named; light and dark, no console error."""
+def test_the_heatmap_of_rows_draws_in_each_theme(browser, tmp_path):
+    """A heatmap of a kind's states: a row per state, a cell per bucket on the ramp, a goal's off stretch hatched; every
+    figure named; light and dark, no console error."""
     seed = lambda d: subprocess.run([sys.executable, "-c", PLOTS_SEED, str(d)], check=True, capture_output=True,  # noqa: E731
                                     env={**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")})
     errors: list[str] = []
@@ -5737,14 +5830,9 @@ def test_the_three_chart_forms_draw_in_each_theme(browser, tmp_path):
             pg.goto(f"{url}/plots-test")
             got = pg.evaluate(PLOTS_MOUNT)
             pg.close()
-            names = [c.split(" ")[0] for c in got["chips"]]
-            units = {re.sub(r"^.*\d ", "", c) for c in got["chips"]}
-            assert names == ["logs-written", "cleaned"] and len(units) == 1 and units.pop().startswith("%/"), (theme, got["chips"])
-            assert min(got["lines"]) >= 5, (theme, got["lines"], got["data"])      # each line's own pixels, in its hue
-            assert got["first"] and got["last"] and got["joined"] and not got["apart"] and got["phaseRows"] == 11, (theme, got)
             assert got["heatCols"] == 3 and got["cells"], (theme, got)              # one row per state, a cell per bucket
             assert got["off"] == [True, False] and "its own lowest" in got["goalKey"] and "off" in got["goalKey"], (theme, got)
-            assert len(got["named"]) == 4 and all(got["named"]), (theme, got["named"])
+            assert len(got["named"]) == 2 and all(got["named"]), (theme, got["named"])
     assert not errors, errors
 
 

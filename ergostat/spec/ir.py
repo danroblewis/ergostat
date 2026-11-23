@@ -876,6 +876,7 @@ class Takes:
     unblocked: bool = False         # only items whose predecessors are all finished, the critical first (SPEC §5a, relations)
     order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
                                                      # without one after those with it; the order above among equals
+    healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
 
 
 @dataclass
@@ -1013,6 +1014,7 @@ class Spec:
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
+    outlive_engine: bool = False            # runs: outlive_engine: a run kept by its keeper, never stopped with us (§9.1)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept
