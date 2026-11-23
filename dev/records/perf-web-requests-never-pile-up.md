@@ -62,3 +62,15 @@ Run in round 3, after the merge: tests/test_web_lanes.py (11 passed), tests/test
 Main (7cb97857e338) conflicted only in tests/test_page_polling.py: main added test_the_loops_page_asks_once_for_every_goal where the branch added test_leaving_a_page_cancels_its_fetches_in_flight. Both tests are kept, unchanged. No other finding was listed, so no code changed.
 
 Run in round 4, after the merge: tests/test_web_lanes.py (11 passed), tests/test_web_access.py (26 passed), tests/test_projects_header.py (6 passed), tests/test_page_polling.py with Playwright under suite_watch (21 passed, rc 0, none skipped, 951 s), and ruff (clean). Not run: the full unit suite, the other three browser files and demo_check (no example touched).
+
+### Round 5: an aborted page fetch settles
+
+Overrun reason: unchanged from round 2 (about 215 net lines against 140). This round's fix is 3 net lines fewer in ergostat/: the try/catch around the fetch goes, a 2-line pageLeft and handler come in, and review.js gets one guard.
+
+The finding (util.js:343 with review.js:298-311): an aborted page fetch returned a promise that never settled, so no caller's finally ran. availLoops left availBusy true after Model was left mid-fetch, so later visits never got their loop summaries.
+- apiText no longer swallows the abort: the left page's fetch rejects with the browser's own AbortError, so every caller's finally runs. `pageLeft(e)` (util.js) says whether an error is that one.
+- A rejection that no caller catches is not reported: a window "unhandledrejection" handler calls preventDefault for an AbortError. The choice taken without asking (easy to undo): reject, rather than give availLoops a cleanup of its own, because any other try/finally around a page fetch had the same leak. The cost: a caller's catch now runs for a left page and may write its error text into that page's elements. Those elements are no longer in the document, so nothing is shown (route() closes the detail panel before it aborts).
+- availLoops returns from its catch on pageLeft(e) without writing an error into AVAIL, which outlives the page. Its finally resets availBusy.
+- Test: tests/test_page_polling.py::test_leaving_the_model_page_mid_fetch_and_coming_back_fills_whats_available holds loops?perf=1, leaves Model for Agents, comes back, and asserts that the summaries are asked for again and fill the Loops table with no page error. With round 4's never-settling promise put back, it fails (no second ask, 60 s timeout). With the unhandledrejection handler removed, both it and test_leaving_a_page_cancels_its_fetches_in_flight fail on a page error ('signal is aborted without reason').
+
+Nothing to merge: main is at the branch's last merge (ead497d1).

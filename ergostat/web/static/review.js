@@ -303,7 +303,7 @@ async function availLoops(goals, redraw, box) {
       if (i && (await new Promise((ok) => setTimeout(ok, 3000)), !box.isConnected)) return;
       if (document.hidden) continue;
       let loops;
-      try { loops = await api("loops", { perf: 1 }); } catch (e) { for (const g of goals) AVAIL.set(g, { d: null, err: String(e.message || e) }); redraw(); return; }
+      try { loops = await api("loops", { perf: 1 }); } catch (e) { if (pageLeft(e)) return; for (const g of goals) AVAIL.set(g, { d: null, err: String(e.message || e) }); redraw(); return; }
       for (const g of goals) { const s = loops[g]?.perf; if (s?.working) AVAIL.delete(g); else AVAIL.set(g, s?.failed ? { d: null, err: `could not be worked out: ${s.failed}` } : { d: s && !s.not_analysed ? s : null }); }
       redraw();
       if (SNAP || goals.every((g) => AVAIL.has(g))) return;

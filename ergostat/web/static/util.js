@@ -317,8 +317,9 @@ function snapKey(path, params) {
 }
 
 /* the page shown's fetches, aborted when its page element leaves the document (route() replaces it, leavePage()):
-   the server then drops what it has not begun (web/server.py left()), and the left page never hears back, so
-   draws nothing. The header's (``kept``) are no page's */
+   the server then drops what it has not begun (web/server.py left()). The left page's fetch fails with an
+   AbortError (``pageLeft(e)``), so its callers' ``finally`` still runs; one no caller catches is not reported
+   as an error. The header's (``kept``) are no page's */
 let PAGE = { el: null, c: null };
 function pageSignal() {
   const el = document.querySelector("#main > *");
@@ -326,6 +327,8 @@ function pageSignal() {
   return PAGE.c?.signal;
 }
 function leavePage() { if (PAGE.el && !PAGE.el.isConnected) PAGE.c?.abort(); }
+const pageLeft = (e) => e?.name === "AbortError";
+window.addEventListener("unhandledrejection", (ev) => { if (pageLeft(ev.reason)) ev.preventDefault(); });
 /* an answer as its text, and the address it came from */
 async function apiText(path, params = {}, kept = false) {
   if (SNAP) {
@@ -337,14 +340,9 @@ async function apiText(path, params = {}, kept = false) {
   for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
   const url = `/api/${path}?${q}`;
   const signal = kept ? undefined : pageSignal();
-  try {
-    const r = await fetch(url, { signal });
-    if (!r.ok) throw new Error(`${path}: ${r.status}`);
-    return [url, await r.text()];
-  } catch (e) {
-    if (signal?.aborted) return new Promise(() => {});   // its page left: never answered, so nothing draws or says so
-    throw e;
-  }
+  const r = await fetch(url, { signal });
+  if (!r.ok) throw new Error(`${path}: ${r.status}`);
+  return [url, await r.text()];
 }
 async function api(path, params = {}, kept = false) { return JSON.parse((await apiText(path, params, kept))[1]); }
 /* a page's answers, remembered: ``changed`` says whether any asked since ``begin()`` differed from the last

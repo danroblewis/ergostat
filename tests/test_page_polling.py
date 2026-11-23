@@ -323,6 +323,32 @@ def test_leaving_a_page_cancels_its_fetches_in_flight(browser, site):
     assert not errors, errors
 
 
+def test_leaving_the_model_page_mid_fetch_and_coming_back_fills_whats_available(browser, site):
+    """The Model page's loop summaries (loops?perf=1) held on their way; the page left for Agents, so that fetch is
+    aborted. Back on Model, the summaries are asked for again and fill in: the abort ended the first ask (its
+    ``finally`` ran), so the second is not refused as still busy."""
+    pg = browser.new_page()
+    pg.add_init_script(FETCHES)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    perf = "window.__fetches.filter((f) => f.url.includes('/api/loops?') && f.url.includes('perf=1')).length"
+    pg.route("**/api/loops?*", lambda r: None)                   # never answered while held
+    pg.goto(f"{site}/model")
+    pg.wait_for_function(f"{perf} >= 1", timeout=60000)
+    pg.evaluate("navigate('/agents')")
+    pg.wait_for_function("window.__fetches.some((f) => f.url.includes('/api/agents'))", timeout=60000)
+    pg.unroute("**/api/loops?*")
+    first = pg.evaluate(f"({perf})")
+    pg.evaluate("navigate('/model')")
+    pg.wait_for_function(f"{perf} > {first}", timeout=60000)
+    pg.wait_for_function("() => { const t = document.querySelector('table.avail'); return t && t.rows.length > 1"
+                         " && !t.innerText.includes('analysing'); }", timeout=90000)
+    aborted = pg.evaluate("window.__fetches.filter((f) => f.url.includes('perf=1')).map((f) => f.failed)")
+    pg.close()
+    assert aborted[0] == "AbortError", aborted
+    assert not errors, errors
+
+
 def test_the_loops_page_asks_once_for_every_goal(browser, site):
     """Opening Loops sends at most four API requests (status, loops, projects and one more), none of them the graph
     and none per goal; its performance column fills within a few polls, each goal's as loop-control says."""
