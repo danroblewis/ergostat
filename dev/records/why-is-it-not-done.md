@@ -21,7 +21,7 @@ Definition of done:
 Built in round 1: `ergostat/why/` (the walk, the blocks' causes, the words), `ergostat why ITEM [--json]`,
 `GET /api/why?item=`, MCP `why`, the *Why isn't this done?* block first on an unfinished item's page, SPEC §5a and the
 agent guide. Tests: `tests/test_why.py` (30) and
-`tests/test_items_page.py::test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top`. About 587 net lines of
+`tests/test_items_page.py::test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top`. About 590 net lines of
 code outside tests, docs and dev.
 
 What is narrower than the definition, and the choices made with nobody to ask (each the most reversible):
