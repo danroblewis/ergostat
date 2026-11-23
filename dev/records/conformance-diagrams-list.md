@@ -73,3 +73,47 @@ Its runs failed past their attempts (a dead letter):
 - attempt 3: nack given back
 - attempt 4: nack exited 1
 - attempt 5: nack the run ended with gap/conformance-diagrams-list still parked
+
+## Where it stopped
+
+Built, round 1 (continued): `dev/conformance/diagrams.yaml` (25 lines), `dev/conformance/checks/diagrams.py` (125
+lines; 150 net together, the budget exactly) and `tests/test_conformance_lists_ergostat.py` (14 tests: the three named,
+plus each met check failing with one part of its answer missing, a check error read as broken (2) not unmet, and each
+check run on main as a process of its own with its result and time). Nothing is left in this gap.
+
+Each check run on main (52c675fe, which the branch holds) as `python dev/conformance/checks/diagrams.py CASE`, in this
+gap's container (24 CPUs), not on the factory machine, so these times are not the factory's; the test bounds each at
+60s wherever it runs:
+
+| Case | Proposal expected | Result | Time | What it said |
+|---|---|---|---|---|
+| `stock-and-flow` | met | met (0) | 0.9s | `met` |
+| `block-diagram` | met | met (0) | 0.8s | `met` (a narrower reading, below) |
+| `process-map` | met | met (0) | 0.8s | `met` |
+| `service-map` | unmet | unmet (1) | 0.8s | `unmet: no map view: view=map answers kind 'control'` |
+| `sequence-diagram` | unmet | unmet (1) | 0.9s | `unmet: the item's answer has no lifelines or no messages` |
+
+No result differs from the proposal's expectation. Choices the definition left open, each taken the more reversible way:
+- `block-diagram`, "a block per block": a block that reads nothing and only moves flows or auxiliaries is the world
+  (`ergostat/blockdiagram.py:137-139`), drawn as a disturbance only where something reads what it moves, so it is not
+  required as a block. In image-squeeze that is `owner` (`examples/image-squeeze/intent.yaml:81-85`: out
+  `flow.decided` into `decisions`, which no loop reads); read strictly, the case would be unmet for it alone. Every
+  other block needs its `blk:` node, and every goal with a controller or an actuator its `sum:` junction.
+- `sequence-diagram` asks the item's answer (`items/case%2Fb`) through the same `web.server.api` the `/graph` route
+  is answered by, not a `view=`: `docs/proposals/diagram-options.md:65-68` has it opened from an item's page, not as
+  a view of its own. It wants a lifeline per item of the chain and its five messages in `seq` order.
+- `service-map` asks `/graph?view=map` and wants `kind: map`, at least one edge, and `rate`, `failures` and `delay` on
+  every edge.
+- The record the checks write is five `case.*` events on `case/a` and `case/b` (unmet, met, unmet; unmet, met), each
+  caused by the one before, in a fresh state dir with `ERGOSTAT_HOME` under a temp folder, all removed after.
+- Any exception of the check's own (the example not loading, `ergostat` not importable, an unknown case) exits 2, so
+  it reads as broken, never unmet (lesson-3). The check puts the repository first on `sys.path`, so the list's
+  `python3 ...` command finds `ergostat` without the venv.
+
+Able to fail (lesson-9): with each view's builder (`dynamics.dynamics`, `blockdiagram.diagram`, `process.process`)
+monkeypatched to return no nodes and no edges, its check exits 1 (and 0 unpatched, in the same test). With only the
+flow nodes, only the comparators, or only the process lines dropped, each exits 1 too.
+
+Not run: the list's literal `python3` command (the tests run the check with the suite's own interpreter, since
+`ergostat` needs Python 3.12+ and `python3` on a machine may be older); the unit suite and the browser files (left
+to the factory, as the brief says).
