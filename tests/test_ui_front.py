@@ -133,3 +133,8 @@ def test_only_python_restarts_the_server():
     assert not ui.needs_restart(["ergostat/web/static/pages.js", "tests/test_x.py", "docs/a.md"])
     assert ui.needs_restart(["ergostat/web/server.py"])
     assert ui.needs_restart(["uv.lock"])
+
+
+def test_each_page_has_a_second_port_for_its_next_server():
+    assert len(ui.REAL_BACKENDS) == 2 and len(ui.STAGING_BACKENDS) == 2
+    assert not set(ui.REAL_BACKENDS) & set(ui.STAGING_BACKENDS)
