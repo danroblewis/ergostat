@@ -71,3 +71,23 @@ section reads: `taken_by[].out` names each flow as `flow.X`, which joins to a pa
 carries its lease's holder, block and time taken. It runs without a browser, so the build step now has a test that
 runs. Its file passes (10) and ruff is clean. The build step's own command (`scripts/affected_tests.py -- ...`) was
 refused in this session, so it was not run here.
+
+Round 2: the one review finding, fixed. A past run's link opened the Record over the step it left from. For a step
+"taken from here" that window ends at the moment of the take, so it held none of the run's events. Now each run
+link takes its window from that run's entry in `fields.lease.history`: `from=taken`, and `&to=ended` once the run
+has ended. The current run's link stays open-ended. If a rollup has dropped the run's entry from the history, the
+link opens from the step's start with no end. That window is too wide but still holds the run (the more reversible
+choice). SPEC §5a now says the same.
+- Test: the roadmap fixture's `ticket/e2-docs` now has a nacked first run (`r0bbbbbb`, taken 40 s before, given back
+  15 s later) before the current one. test_an_item_page_shows_its_path checks four things: the *given back (nack)
+  (developer, run r0bbbbbb)* move, that run's link (`from=taken&to=ended` as the API gives them), the current link's
+  `from` (that lease's `taken`, no `to`), *attempt 2*, and *Attempts (2)*. This also adds the page assertion for the
+  *given back* wording that round 1 lacked. I broke it by hand: with the history lookup set to `null`, the test fails
+  on the past-run link.
+- tests/test_items_page.py: 72 pass and 1 fails. Run alone, test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart
+  fails, the same timeout on the `#project` switcher as in round 1 (unrelated: header and project registry). That
+  test failing alone, plus test_an_item_page_shows_its_path passing alone, puts it as the full file's one failure.
+  tests/test_footprint.py: 10 pass. Ruff is clean. Main: no newer commits in this clone than the round-1 merge.
+- `uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_items_page.py::test_the_header_...` with
+  no watchdog was refused. Run under `scripts/suite_watch.py`, it went through.
+- Size: about 45 net lines outside tests and docs (budget 110).

@@ -994,12 +994,16 @@ function whereView(d, fp) {
   const steps = d.path, fin = new Set(d.kind_of?.final || []), lease = d.fields.lease?.holder ? d.fields.lease : null;
   const part = (kind, name, view = "dynamics") => `/diagram?view=${view}&select=${encodeURIComponent(`${kind}.${name}`)}`;
   const mover = Object.fromEntries(fp.taken_by.flatMap((t) => t.out.map((f) => [f.replace(/^flow\./, ""), t.block])));
-  const runLink = (s, run) => h("a", { href: `/record?item=${encodeURIComponent(d.id)}&from=${s.entered}${s.left ? `&to=${s.left}` : ""}` }, `run ${run.slice(0, 8)}`);
+  const ran = Object.fromEntries((d.fields.lease?.history || []).map((x) => [x.run, x]));   // each run's own span
+  const runLink = (run, from) => {                   // the Record of the item over that run (taken..ended); else from the step on
+    const x = ran[run], at = x?.taken ?? from;
+    return h("a", { href: `/record?item=${encodeURIComponent(d.id)}&from=${at}${x?.ended ? `&to=${x.ended}` : ""}` }, `run ${run.slice(0, 8)}`);
+  };
   const box = (s, i) => {
     const last = i === steps.length - 1, until = s.left ?? nowS();
     const name = s.stock ? h("a", { href: part("stock", s.stock), title: `counted in ${s.stock} while ${s.state}` }, s.stock)
       : h("span", { title: s.says || "" }, s.state);
-    const said = last && lease ? [h("b", {}, ` being worked by ${lease.block} for ${dur(nowS() - lease.taken)}`), ", ", runLink({ entered: lease.taken }, lease.holder)]
+    const said = last && lease ? [h("b", {}, ` being worked by ${lease.block} for ${dur(nowS() - lease.taken)}`), ", ", runLink(lease.holder, lease.taken)]
       : fin.has(s.state) ? h("span", { class: "muted" }, " finished") : h("span", { class: "muted" }, ` ${dur(until - s.entered)}`);
     return h("span", { class: `wv-step${last ? " on" : ""}${fin.has(s.state) ? " final" : ""}`, "data-state": s.state },
       name, s.stock && s.stock !== s.state ? h("span", { class: "muted" }, ` ${s.state}`) : null,
@@ -1008,7 +1012,7 @@ function whereView(d, fp) {
   const move = (s, nx) => {
     const back = s && (nx.state === s.state || (s.ended && s.ended !== "ack"));
     const b = s?.block || (!back && mover[nx.flow]);
-    const run = s?.run ? [", ", runLink(s, s.run)] : [];
+    const run = s?.run ? [", ", runLink(s.run, s.entered)] : [];
     return h("span", { class: "wv-move" }, back ? `given back (${s.ended || "again"})` : nx.flow ? h("a", { href: part("flow", nx.flow) }, nx.flow) : "moved",
       b ? [" (", h("a", { href: part("block", b, "blocks"), title: `block ${b}` }, b), ...run, ")"] : null, h("span", { class: "arrow", "aria-hidden": "true" }, " ⇒"));
   };

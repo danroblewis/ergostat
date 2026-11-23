@@ -2224,7 +2224,8 @@ stayed; between steps the valve (the flow that counted it into the next) and the
 block, its run and attempt, from the lease, else the block whose `out:` names that flow (`/api/kinds/K`'s
 `taken_by`). A nack or rework is a repeated step, said as *given back*, with its attempt. Each stock and flow links
 to `/diagram?view=dynamics&select=stock.S` (`flow.F`), each block to `/diagram?view=blocks&select=block.B` (no
-agent has a page of its own: its panel opens from there), each run to the Record narrowed to the item over that step.
+agent has a page of its own: its panel opens from there), each run to the Record narrowed to the item over that run (from its lease's `taken` to its `ended`, open while it
+runs; a run the lease history no longer keeps, from the step's start on).
 The final state is marked (a double border); the last step is where the item is counted now and, while a run has
 it, says *being worked by B for 4m*. This replaces the lifecycle strip. An item of a kind nothing counts or takes
 (the footprint's `why`) keeps the strip (the states it passed through, joined by arrows; its other endings apart)

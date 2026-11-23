@@ -928,8 +928,12 @@ work("ticket/e2-design", t + 1000)
 ev.add("epic.started", item="epic/e2", at=t + 1000)
 ev.add("ticket.started", item="ticket/e2-build-api", at=time.time() - 30)
 work("ticket/e2-build-ui", time.time() - 200, finish=False)
-ev.add("ergostat.lease.taken", item="ticket/e2-docs", data={{"run": "r1aaaaaaaaaa", "block": "developer", "fence": 1, "ttl": 600,
-       "max": 3, "back": "todo", "tier": "program", "attempt": 1}}, at=time.time() - 10)
+ev.add("ergostat.lease.taken", item="ticket/e2-docs", data={{"run": "r0bbbbbbbbbb", "block": "developer", "fence": 1, "ttl": 600,
+       "max": 3, "back": "todo", "tier": "program", "attempt": 1}}, at=time.time() - 40)
+ev.add("ergostat.lease.ended", item="ticket/e2-docs", data={{"run": "r0bbbbbbbbbb", "fence": 1, "how": "nack",
+       "why": "tests failed"}}, at=time.time() - 25)
+ev.add("ergostat.lease.taken", item="ticket/e2-docs", data={{"run": "r1aaaaaaaaaa", "block": "developer", "fence": 2, "ttl": 600,
+       "max": 3, "back": "todo", "tier": "program", "attempt": 2}}, at=time.time() - 10)
 ev.add("ticket.planned", item="ticket/v1", data={{"title": "first", "parent": "epic/e3"}}, at=t + 1500)
 ev.add("ticket.planned", item="ticket/v2", data={{"title": "second", "parent": "epic/e3", "blocked_by": ["ticket/v1"]}}, at=t + 1500)
 ev.add("ticket.planned", item="ticket/v3", data={{"title": "third", "parent": "epic/e3", "blocked_by": ["ticket/v2"]}}, at=t + 1500)
@@ -1022,10 +1026,18 @@ def test_an_item_page_shows_its_path(browser, roadmap):
     text = pg.locator(".went").inner_text()
     assert "held" not in text.lower() and "run r1aaaaaa" in text, text
     run = pg.locator(".went a", has_text="run r1aaaaaa").get_attribute("href")
-    assert run.startswith("/record?item=ticket%2Fe2-docs&from="), run                # the Record, of it over the run
+    assert re.fullmatch(r"/record\?item=ticket%2Fe2-docs&from=[\d.]+", run), run      # the Record, of it over the run
+    lease = pg.evaluate("async () => (await (await fetch('/api/items/ticket%2Fe2-docs')).json()).fields.lease.history")
+    span = {x["run"]: x for x in lease}
+    assert float(run.split("from=")[1]) == span["r1aaaaaaaaaa"]["taken"], (run, lease)
+    assert re.search(r"given back \(nack\) \(developer, run r0bbbbbb\)", text), text   # the nacked run: a repeated step
+    past = pg.locator(".went a", has_text="run r0bbbbbb").get_attribute("href")   # over that run, taken to ended
+    r0 = span["r0bbbbbbbbbb"]
+    assert past == f"/record?item=ticket%2Fe2-docs&from={r0['taken']}&to={r0['ended']}", (past, r0)
+    assert "attempt 2" in now, now
     assert "Not held Attempts" not in pg.locator("main").inner_text()
     assert pg.locator("details.lease:not([open]) table").count() == 1
-    assert pg.locator("details.lease > summary").inner_text() == "Attempts (1)"
+    assert pg.locator("details.lease > summary").inner_text() == "Attempts (2)"
     pg.set_viewport_size({"width": 390, "height": 844})                     # the longer path, on a phone: it wraps
     pg.goto(f"{roadmap}/item/ticket%2Fe1-design")
     pg.wait_for_selector(".went .wv-step.final", timeout=20000)
