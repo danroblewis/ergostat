@@ -34,6 +34,7 @@ MOST_GRACE = 600
 MOST_LOG = 1 << 30          # (bytes a stream of the run's output may hold: output.py stops the run past them)
 APPEND = os.O_WRONLY | os.O_CREAT | os.O_APPEND
 WALL_GRACE = 2.0            # seconds from SIGTERM to SIGKILL when a run's own deadline stops it
+MOST_STAMPS = 100_000       # (times its journal's size is stamped: ~7 hours printing every TICK, ~2.5 MB)
 MARGIN = 5.0                # seconds a kept run's deadline is after its engine's: the engine's timeout first while up
 
 
@@ -184,17 +185,39 @@ def grace(path: str) -> float:
         return 10.0                             # (a stop file half read still stops the run, with the usual grace)
 
 
-def keep(d: str, pid: int, wall: float | None = None, held: "deadline.Held | None" = None) -> tuple[int, str]:
+def stamp(d: str, out, last: list) -> None:
+    """When its journal ``out`` grew: its size and the time, appended to ``stamps`` (``size time``), once a ``TICK``
+    at most: a line ending by that size was printed by that time (SPEC §9.1). ``MOST_STAMPS`` at most, then none."""
+    try:
+        size = os.stat(out).st_size if isinstance(out, str) else 0
+        if size > last[0] and last[1] < MOST_STAMPS:
+            with open(os.path.join(d, "stamps"), "a", encoding="utf-8") as f:
+                f.write(f"{size} {time.time():.3f}\n")
+            last[:] = [size, last[1] + 1]
+    except OSError:
+        pass                                    # (a stamp missed: its lines read at the time they are read)
+
+
+def keep(d: str, pid: int, wall: float | None = None, held: "deadline.Held | None" = None,
+         out=None) -> tuple[int, str]:
     """Waits for the run; at the stop file, at ``wall`` seconds on (an engine's run: its own deadline, or none), or
     at the earlier of a node run's ``held`` deadlines (taken again each tick), SIGTERM to its group, then SIGKILL to
     the group past the grace (a deadline's: ``WALL_GRACE``, or the held ``kill``) while any of it is left. Its exit
     code (-N for a signal) and how it ended: ``exit``, the signal, ``TERM``/``KILL``, or the deadline that stopped
-    it, ``timeout`` (an engine's run), ``wall`` or ``lease``. Timed on ``deadline.CLOCK``, never the time of day."""
+    it, ``timeout`` (an engine's run), ``wall`` or ``lease``. Timed on ``deadline.CLOCK``, never the time of day.
+    The CPU ``wait4`` gave (the run and every descendant it waited for) is written to ``reaped`` first. ``out``: its
+    journal, stamped as it grows (``stamp``)."""
     code = how = term = timed = None
     stop, late = os.path.join(d, "stop"), None if wall is None else deadline.now() + wall
+    grown = [0, 0]
     while True:
-        if code is None and (got := os.waitpid(pid, os.WNOHANG))[0]:
+        stamp(d, out, grown)
+        if code is None and (got := os.wait4(pid, os.WNOHANG))[0]:
             code = os.waitstatus_to_exitcode(got[1])
+            try:                                # (best effort: without it the CPU is the sampled sum, said so)
+                put(os.path.join(d, "reaped"), json.dumps({"user": got[2].ru_utime, "system": got[2].ru_stime}))
+            except OSError:
+                traceback.print_exc()
         if held is not None and term is None:
             held.look()
         at = deadline.now()
@@ -210,6 +233,7 @@ def keep(d: str, pid: int, wall: float | None = None, held: "deadline.Held | Non
             break
         nxt = None if term is not None else held.next() if held is not None else late   # (woken at a nearer one)
         time.sleep(0.05 if how == "TERM" else max(0.01, min(TICK, TICK if nxt is None else nxt - deadline.now())))
+    stamp(d, out, grown)
     if how is None:
         how = "exit" if code >= 0 else signal.Signals(-code).name.removeprefix("SIG")
     return code, timed or how
@@ -355,7 +379,7 @@ def main(argv: list[str]) -> int:
             os.setpgid(pid, pid)                # (both sides set it, so a stop can't reach before the group exists)
         except OSError:
             pass
-        code, how = keep(d, pid, wall, held)
+        code, how = keep(d, pid, wall, held, spec.get("out"))
     except (OSError, ValueError):
         traceback.print_exc()
         code, how = None, "not started"

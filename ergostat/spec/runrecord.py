@@ -70,20 +70,81 @@ def start_time(pid: int) -> str | None:
     return out.stdout.strip() or None
 
 
-def write(f: dict[str, Path], pid: int, run_id: str, block: str, item: str | None, fence: int | None) -> dict:
+def write(f: dict[str, Path], pid: int, run_id: str, block: str, item: str | None, fence: int | None,
+          more: dict | None = None) -> dict:
+    """``more``: what a kept run's end needs from its start, should another engine end it (``adopt.settle``)."""
     rec = {"pid": pid, "start": start_time(pid), "run": run_id, "block": block,
-           "lease": {"item": item, "fence": fence} if item else None}
+           "lease": {"item": item, "fence": fence} if item else None, **(more or {})}
     tmp = f["json"].with_suffix(".json.tmp")
     tmp.write_text(json.dumps(rec))
     os.replace(tmp, f["json"])
     return rec
 
 
+def state(rec: dict) -> str:
+    """Whether the run's process is still the one its record names: ``alive``; ``gone`` when no process has its pid,
+    the one there has ended (a zombie) or is another process (its start time differs: the pid reused); ``unknown``
+    when that cannot be told (no start time recorded, a pid that is not one, the process table unreadable), which is
+    never taken as gone."""
+    pid, start = rec.get("pid"), rec.get("start")
+    if type(pid) is not int or pid <= 1 or not isinstance(start, str) or not start:
+        return "unknown"
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return "gone"
+    except PermissionError:
+        pass                                                  # (there, another user's: its start time tells)
+    except OSError:
+        return "unknown"
+    if sys.platform.startswith("linux"):
+        try:
+            text = Path(f"/proc/{pid}/stat").read_text()
+        except (FileNotFoundError, ProcessLookupError):
+            return "gone"
+        except OSError:
+            return "unknown"
+        rest = text[text.rfind(")") + 2:].split()                 # (the name in brackets may hold spaces)
+        if len(rest) < 20:
+            return "unknown"
+        return "gone" if rest[0] in ("Z", "X") or rest[19] != start else "alive"
+    now = start_time(pid)
+    if now is None:                                           # (ended since, or ps failed: told apart once more)
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return "gone"
+        except OSError:
+            pass
+        return "unknown"
+    return "alive" if now == start else "gone"
+
+
 def alive(rec: dict) -> bool:
-    """Whether the run's process is still the one its record names: a pid now held by another process (its start time
-    differs), or unread, counts as gone."""
-    start = start_time(rec.get("pid") or 0) if rec.get("start") else None
-    return start is not None and start == rec["start"]
+    return state(rec) == "alive"
+
+
+def look(state_dir: Path, run_id: str) -> str:
+    """The run's process now, from its record (``state``): ``none`` when it has no record (never started here, or its
+    end read and its files removed); ``unknown`` when the record cannot be read or is not this run's, or when it has
+    none yet but its input or output is there (its process may have started before its record was written): ``RUN.in``
+    or ``RUN.out``, or a kept run's journal ``RUN.jsonl`` or its keeper's folder ``RUN/``."""
+    if not SAFE.match(run_id or ""):
+        return "unknown"
+    runs = Path(state_dir) / "runs"
+    try:
+        rec = json.loads((runs / f"{run_id}.json").read_text())
+    except FileNotFoundError:
+        try:
+            begun = any((runs / n).exists() for n in (f"{run_id}.in", f"{run_id}.out", f"{run_id}.jsonl", run_id))
+        except OSError:
+            return "unknown"
+        return "unknown" if begun else "none"
+    except (OSError, ValueError):
+        return "unknown"
+    if not isinstance(rec, dict) or rec.get("run") != run_id:
+        return "unknown"
+    return state(rec)
 
 
 def remove(f: dict[str, Path]) -> None:

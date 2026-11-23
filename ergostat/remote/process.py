@@ -126,7 +126,7 @@ def lines(name: str, links: list[dict], body, bad, capped, drawn: set, here: set
         e = edges.setdefault(key, {"id": key, "kind": "related", "remote": name, "relation": x["relation"],
                                    "source": f"p:{x['kind']}:{x['activity']}", "target": f"p:{rk}:{b}",
                                    "itemKind": x["kind"], "relKind": rk, "from": x["activity"], "to": b, "count": 0,
-                                   "rework": False, "self": False, "median": None, "timed": 0, "_i": set(), "_t": set()})
+                                   "rework": False, "returns": 0, "self": False, "median": None, "timed": 0, "_i": set(), "_t": set()})
         e["count"] += 1
         e["_i"].add(x["item"])
         e["_t"].add(t)

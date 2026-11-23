@@ -39,7 +39,7 @@ def _requests(project) -> list[tuple[str, dict]]:
     m = project.model
     reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("daemons", {}), ("items", {}), ("items-overview", {}),
                                     ("residuals", {}), ("fit", {}), ("parts", {}), ("guide", {}), ("graph", {}),
-                                    ("events", {"n": 80}), ("events", {"n": 80, "runs": 1})]
+                                    ("events", {"n": 80}), ("events", {"n": 80, "runs": 1}), ("dashboards", {})]
     for view in ("dynamics", "control", "blocks", "process"):
         for system in [None, *m.system_names()]:
             reqs.append(("graph", {"view": view, **({"system": system} if system else {})}))
@@ -102,6 +102,8 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
     data: dict = {"projects": []}
     def ask(path: str, params: dict) -> None:
         q = {"since": [since], **{k: [str(v)] for k, v in params.items()}}
+        if path == "items":                    # every item, finished or not: the page leaves out the finished itself
+            q["finished"] = ["show"]
         try:
             got = api(live, path, q)
         except Exception:                      # one part that cannot be answered leaves the rest
@@ -113,6 +115,12 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             data[key(path, params)] = got
     for path, params in _requests(project):
         ask(path, params)
+    from .dashboard_api import answer as dashboard
+    for d in data.get("dashboards") or []:      # each dashboard's one answer, every panel worked out (none pending)
+        try:
+            data[key(f"dashboard/{_q(d['name'])}", {})] = dashboard(live, project, d["name"], {"since": [since]}, wait=True)
+        except Exception:                       # as any part that cannot be answered: left out, the rest kept
+            pass
     if isinstance(data.get("loops"), dict):     # the Loops page's one answer: each goal's summary from its analysis above
         from .control_api import summary
         data[key("loops", {"perf": 1})] = {n: {**lp, "perf": summary(data[c]) if (c := key("loop-control", {"goal": n})) in data
@@ -123,7 +131,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             ask("items", {"kind": k["name"], "state": st})
     for params in _graphs(data.get("items") or {}):
         ask("items-graph", params)
-    snapshot_sets.hold(data, lambda q: api(live, "items", {"since": [since], **q}))   # the sets its panels link to
+    snapshot_sets.hold(data, lambda q: api(live, "items", {"since": [since], "finished": ["show"], **q}))   # the sets its panels link to
     for it in ((data.get("items") or {}).get("items") or [])[:40]:
         got = api(live, f"items/{_q(it['id'])}", {"since": [since]})
         if got is not None:

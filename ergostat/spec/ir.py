@@ -930,6 +930,7 @@ class ItemKind:
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
+    attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
 
     def matches(self, id: str) -> bool:
         import fnmatch
@@ -976,6 +977,33 @@ class NamedLoop:
 
 
 @dataclass
+class Panel:
+    """One panel of a declared dashboard (SPEC §4f): its kind, its words, and exactly the parameters its endpoint and
+    page address take (``params``, plain data)."""
+
+    panel: str
+    title: str = ""
+    size: str = "m"
+    note: str = ""
+    params: dict = field(default_factory=dict)
+    where: Where | None = None
+
+
+@dataclass
+class Dashboard:
+    """A shared, named dashboard (``dashboards:``, SPEC §4f): one window for all its panels. Display only: it is in
+    no version hash, so declaring one changes no structure and no replay."""
+
+    name: str                      # in a system's file: SYSTEM.NAME
+    title: str = ""
+    description: str = ""
+    window: float | None = None    # seconds: the window it opens with (None: the page's)
+    panels: list[Panel] = field(default_factory=list)
+    system: str | None = None
+    where: Where | None = None
+
+
+@dataclass
 class Spec:
     name: str
     root: Path
@@ -1014,6 +1042,7 @@ class Spec:
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
+    dashboards: dict[str, Dashboard] = field(default_factory=dict)     # the shared, named dashboards (SPEC §4f)
     outlive_engine: bool = False            # runs: outlive_engine: a run kept by its keeper, never stopped with us (§9.1)
 
     def lookups(self):
