@@ -137,3 +137,16 @@ already merged. The unit suite and browser files were not run here (house rule: 
   factory's "Parked by the factory" section, which the size gate (`dev/bin/review.py` `stopped()`) leaves out. The
   branch's continuation now has its own `## Where it stopped` heading, so the gate reads that reason. No code
   changed in this round, and the size is still 138 net lines.
+
+## Where it stopped (round 5, the size finding again)
+
+The size finding was raised again. Traced by hand against `dev/bin/review.py` at HEAD 05842907. `appended()` returns
+the text after the first commit (f780536f), which HEAD only adds to. `stopped()` keeps the
+`## Where it stopped (continued by the branch after the park)` part, which does not open with "Parked by the factory".
+`OVER_REASON` matches that part's `Overrun reason:` line. So the finding reads as the round-3 HEAD's result. Running the
+gate's code directly was refused here (python run through Bash), so this is a reading, not a run. The reason is given
+again below under this heading of its own. No code changed, and the size is still 138 net lines.
+
+Overrun reason: the owner-field skip that round 2's finding 2 asked for (the owner's fields collected and kept whole, about 15 lines) and the SAYS rule for a message already marked take the code to 138 net lines, 18 over the 120 budget; the alternative, marking each name at each of explain's name sites, is larger and outside the files of this gap.
+
+Left: the diagrams (library-diagram-text-marked). Tests run this round: `tests/test_library_model_marks.py` (8 passed).
