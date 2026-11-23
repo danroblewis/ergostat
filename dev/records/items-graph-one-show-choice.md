@@ -47,6 +47,10 @@ Built, round 1. About 20 net lines outside tests and docs (pages.js +26/-21, rel
   `test_the_timeline_draws_what_happened_and_what_is_projected` (item 2 for rows), and
   `test_an_old_graph_address_opens_with_shown_and_the_choice_survives_a_view_switch` (item 5). SPEC §5a: the Graph
   and Timeline rows and *Finished items* are updated (item 6).
+- **Seen to fail (lesson 9):**
+  - With waits widened to every predecessor of anything in scope, the chain test fails at its waits assertion.
+  - With the old-address mapping switched off, the old-address test fails.
+  - Both were restored, and the tests pass on the committed code.
 - **Failures not caused by this branch (left alone, lesson 13):**
   - `tests/test_queue_batch_item.py::test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run` fails at
     line 306, before anything this branch changed. The batch ended `partial`, a finished state, so the list leaves
