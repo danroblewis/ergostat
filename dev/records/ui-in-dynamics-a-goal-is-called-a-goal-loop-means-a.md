@@ -105,3 +105,22 @@ Round 4: main (ead497d1) merged in at 80fc5a21. The conflicts are resolved and b
   here. So it is left for main (lesson 13). Not run here: `test_needs_attention_is_three_headed_groups_in_a_fixed_order`
   (it failed on main in rounds 2 and 3), the rest of `tests/test_diagram_rendering.py`, the other browser files and
   the unit suite.
+
+Round 5: main (dc47a763) merged in at 7429c516. The conflicts are resolved and both sides are kept.
+
+- `dynamics.py`: the branch's `what serves it` with main's new `a goal's setpoint` → `a desired level`; the branch's
+  `goal NAME` rewrite of `says` with main's translation of an inbox entry's `first`/`more`.
+- `diagram.js` Needs attention: main's `row`/`folded`/`foldRow` with the branch's `(?:loop|goal)` match. Blocks: main
+  made the loop list a fold (`details.loops`, summary `Loops`); its summary now reads "Control loops" and its empty
+  text "No control loops in view.".
+- `test_diagram_rendering.py`: the acceptance test and main's new tests are all kept. Main moved both loop headings into
+  fold summaries (Dynamics' "Feedback loops" too), so the acceptance test now reads `.side details.loops > summary`
+  as well as `.side h3`, and in Blocks it waits for that summary.
+- Runs: ruff clean; `tests/test_dynamics_view.py` 17 passed. Under the watchdog, the acceptance test passed (rc 0).
+  With the summary put back to "Loops" it failed (`'Control loops' in ['Goals off', 'Model housekeeping', 'Loops']`),
+  and after the change was restored it passed again. Also passed: all three parametrizations of
+  `test_the_side_panel_with_nothing_waiting_opens_on_the_legend_and_folds_the_rest` and the boxed parametrization of
+  `test_a_goal_name_opens_its_evidence…`. The unboxed one failed in the same way as round 4
+  (`.side .suggest .hint button.name` "not visible", `#detail` reopened by `openLoop`'s late answer in `details.js`,
+  which is the same as main's). Left for main (lesson 13). Not run here: the rest of `tests/test_diagram_rendering.py`,
+  the other browser files and the unit suite.
