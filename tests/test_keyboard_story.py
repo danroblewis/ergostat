@@ -15,8 +15,15 @@ import urllib.request
 
 import pytest
 
-from tests.test_diagram_rendering import IN_SVG, READY, browser, drawn, free_port, goal_named  # noqa: F401 (a fixture)
-from tests.test_diagram_rendering import playwright as pw
+try:                                   # skipped as tests/test_diagram_rendering.py is, but at the test, so the file collects
+    from tests.test_diagram_rendering import IN_SVG, READY, browser, drawn, free_port, goal_named  # noqa: F401 (a fixture)
+    from tests.test_diagram_rendering import playwright as pw
+except pytest.skip.Exception as e:
+    WHY = str(e)
+
+    @pytest.fixture
+    def browser():
+        pytest.skip(WHY)
 
 KEYS_MOST = 40
 # the focused element: its accessible name (aria-label, else its text), and whether it has a box on the screen
