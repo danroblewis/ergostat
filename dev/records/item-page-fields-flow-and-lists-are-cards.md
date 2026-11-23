@@ -115,3 +115,16 @@ fieldView's neighbours (the new pageFieldView, recordView, fileFold), fileView/m
 pageItem in pages.js; its CSS; and `_sizes` and the item answer in server.py. It does not touch pageItems (the /items
 tables and action classes), the header or the diagram. If a new top-level name clashed with another script's,
 every page would fail to load, the item page too. Not proved on main: in round 1, running main's code here was refused.
+
+## Where it stopped
+
+Continued, round 3 (2026-11-23): main (8a27f9e3) merged in. Its one conflict, tests/test_items_page.py, was both sides
+adding tests at one place (the branch's test_short_fields_flow_in_a_grid and test_field_history_is_one_section; main's
+FINISHED/DELAYED, the finished_site fixture and its three items-list tests); all kept. No code changed after the merge.
+Runs after the merge: ruff clean; tests/test_spec_items.py 8 passed; tests/test_items_page.py 69 passed, 1 failed, the
+same in each of two runs: test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (the header, failing
+since round 1, alone too). Main's three new items-list tests and the branch's item-page tests pass.
+tests/test_page_refresh.py: 8 passed, 2 failed; test_the_items_page_changes_only_the_new_row is one, the other was not
+named because a second run filtered for the failing names was refused (taken to be test_other_pages_left_open_change_nothing,
+the two of round 2). Unrelated for the reasons given in round 2: the branch touches only pageItem's Fields and Changes,
+their CSS and the item answer, not /items' tables, the header or the diagram.
