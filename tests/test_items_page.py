@@ -709,6 +709,41 @@ def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadm
     pg.close()
 
 
+RG_MODEL = """([d, o]) => { const m = rgModel(d, o);
+  return { nodes: m.nodes.map((n) => n.id), edges: m.edges.filter((e) => e.cls === 'dep' || e.cls === 'via').map((e) => [e.from, e.to]),
+           capped: m.capped, lost: m.lost }; }"""
+
+
+def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadmap):
+    """The page's own rgModel on an answer of the factory's shape (tests/test_graph_parts.py): every unfinished gap
+    and every line into one drawn, no review; past the bound, whole groups, and every line left out counted."""
+    from ergostat.web import graph_parts
+    from tests.test_graph_parts import factory_answer
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    ans = graph_parts.mark(factory_answer())
+    by = {x["id"]: x for x in ans["items"]}
+    into = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["status"] != "done"}
+    unfinished = {a for a, x in by.items() if x["kind"] == "gap" and x["status"] != "done"}
+    o = {"frontier": True, "collapse": False, "group": "parent", "q": "", "status": None}
+    got = pg.evaluate(RG_MODEL, [ans, o])
+    assert not got["capped"] and got["lost"] == 0, got["capped"]
+    assert unfinished <= set(got["nodes"]) and not any(a.startswith("review/") for a in got["nodes"])
+    assert {tuple(e) for e in got["edges"]} == into and len(into) == 340
+    got = pg.evaluate(RG_MODEL, [ans, {**o, "collapse": True}])                  # the finished collapsed: theirs go
+    assert set(got["nodes"]) == unfinished
+    assert {tuple(e) for e in got["edges"]} == {(a, b) for a, b in into if a in unfinished}
+    big = graph_parts.mark(factory_answer(n_open=1200, seed=11))                # past the bound
+    got = pg.evaluate(RG_MODEL, [big, o])
+    keep = set(got["nodes"])
+    preds = [(e["from"], e["to"]) for e in big["edges"] if e["kind"] == "precedence"]
+    assert got["capped"] > 600 >= len(keep) > 0
+    assert all((a in keep) == (b in keep) for a, b in preds)                    # no line cut in half
+    assert got["lost"] == sum(1 for a, b in preds if b not in keep) > 0         # each left out, counted
+    assert {f"gap/o{i}" for i in range(15)} <= keep                             # the groups with active work, first
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap):
     pg, errors = open_view(browser, roadmap, "items?view=timeline", ".rg-timeline[data-drawn] .rg-row")
     rows = drawn(pg, ".rg-timeline .rg-row .rg-label")
