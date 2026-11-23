@@ -2069,6 +2069,9 @@ def test_a_carried_class_found_again_counts(tmp_path):
     from tests.test_factory import ROOT
     spec, problems = read(ROOT / "ergostat.yaml")
     assert [p for p in problems if p.level == "error"] == []
+    assert [p.code for p in problems if p.about in ("goal.lessons-hold", "auxiliary.lessons-recurring",
+                                                     "block.lessons-relearn", "block.librarian")] == []
+    assert spec.loop("lessons-hold").closes
     goal, aux = spec.goals["lessons-hold"], spec.auxiliaries["lessons-recurring"]
     assert str(goal.of) == "auxiliary.lessons-recurring" and str(goal.hold) == "<= 2" and goal.on_stale == "off"
     assert aux.system == "guarantees" and [s.run for s in aux.sensors.values()] == [

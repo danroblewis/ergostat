@@ -58,3 +58,18 @@ Built, round 1 (2026-11-23). Choices made with no one to ask, each the most reve
 
 Tests broken on purpose and seen to fail: dropping the carried intersection, reading the last brief instead of the
 first, counting an unmeasured review as 0, and giving 0 with no reviews.
+
+**After `ergostat check` sent the branch back** (`auxiliary-without-causes auxiliary.lessons-recurring`,
+`missing-feedback goal.lessons-hold`). The note above about missing feedback lasting until regression-guarantees-wired
+no longer holds. The definition has no `allows-findings` line, and that line was not added.
+- `lessons-recurring` is `driven-by: [-stock.knowledge-entries]`: carried knowledge, sharpened by the librarian's
+  applied shapes, is what should bring the count down. Its value is still only its sensor's.
+- `lessons-relearn`, an `external` block (`in: goal.lessons-hold.off`, `out: block.librarian`), closes the loop the
+  long way: through lessons-found, lessons-approved and lessons-added to knowledge-entries. This is the most reversible
+  choice. ergostat never runs an external block, and the librarian starts only on `review.written` (`due()` returns
+  early for `on:` blocks, ergostat/spec/engine.py:752), so nothing changes at run time. Wiring the real loop is still
+  regression-guarantees-wired's job, and that gap can replace or drop this block. The librarian's own entry in
+  knowledge.yaml was not touched.
+- `test_a_carried_class_found_again_counts` now asserts that the model has no findings about the goal, the auxiliary,
+  the new block or the librarian, and that the loop closes. It was run before the model change and failed with both
+  findings.
