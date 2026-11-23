@@ -153,6 +153,18 @@ def test_the_engine_reads_item_counts_and_the_api_lists_them(tmp_path):
     assert one["kind_of"]["name"] == "pr" and len(one["moves"]) == 2 and len(one["record"]) == 2 and one["events"] == 2
 
 
+def test_an_items_kind_names_its_endings_as_the_process_map_counts_them(tmp_path):
+    """The item API's kind_of.final (what the lifecycle strip sets apart): the states after the first that no item
+    has left, in the kind's own order; a state an item has left is no ending."""
+    from ergostat.web.server import Live, api
+    p = project(tmp_path)
+    for n, ev in ((9, "pr.review-asked"), (9, "pr.merged"), (8, "pr.review-asked")):
+        p.events.add(ev, item=f"github/pull_request/{n}", data={"title": "x"})
+    one = api(Live(p), "items/github%2Fpull_request%2F9", {})
+    assert one["kind_of"]["states"] == ["open", "review", "merged", "closed"]
+    assert one["kind_of"]["final"] == ["merged", "closed"], one["kind_of"]
+
+
 def test_an_agent_records_events_and_reads_items_over_mcp(tmp_path):
     project(tmp_path)
     s = Server(tmp_path)
