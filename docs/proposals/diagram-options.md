@@ -6,6 +6,15 @@ but every option below adds UI, and building them all would overload it. The use
 the user flows (who opens what, when, from where) come first, later. This records the research,
 the options, and Claude's opinions and preferences so the decision can be made then.
 
+**Update 2026-11-23.** The owner has since allowed the new diagram kinds named in the chart catalog
+([../research/2026-11-23-charts/catalog.md](../research/2026-11-23-charts/catalog.md), §2.2), and only those: process
+map, conformance view, precedence network (dependency), wait-for graph, blast-radius (impact) graph, service map,
+sequence diagram and lineage graph, each drawn as a Dashboard panel or on an existing page, never on a page of its own.
+The service map is built from caller and callee labels in metrics first. Each is a `kind` of the `graph` result shape,
+and a result of any other kind is refused (SPEC §4e, *A graph*). The shape and its checks are in place; none of these
+diagrams is drawn yet (that starts with `graph-result-and-panel`). Dynamics and Blocks stay as they are and never read
+this shape.
+
 ## The rule the options were judged by
 
 **Each diagram must be one that a community of engineers already recognises.** The owner's

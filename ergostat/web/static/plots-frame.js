@@ -231,9 +231,9 @@ const plotFrame = (() => {
     return { update(next) { result = next; rebuild(); }, destroy() { frame.destroy(); }, model: () => built.model || {}, frame };
   }
   /* axes for two numeric or time scales, with grid; what each form draws goes inside the box this returns */
-  function cartesian(ctx, w, ht, { xr, yr, xKind = "number", xUnit, yUnit, xTitle, yTitle, right = 10, top = 6, equal = false }) {
+  function cartesian(ctx, w, ht, { xr, yr, xKind = "number", xUnit, yUnit, xTitle, yTitle, right = 10, top = 6, equal = false, yTicks = null }) {
     let yScale = scale(yr.min, yr.max, ht - 34, top, yr.log);
-    let yt = ticksOf(yScale, "number", ht - 40, yUnit, 34);
+    let yt = yTicks || ticksOf(yScale, "number", ht - 40, yUnit, 34);    // yTicks: {major, minor, words} the form chose
     const box = layout(ctx, w, ht, { yWords: yt.words, xTitle, yTitle, right, top });
     let X = scale(xr.min, xr.max, box.left, box.right, xr.log);
     let Y = scale(yr.min, yr.max, box.bottom, box.top, yr.log);
@@ -243,7 +243,7 @@ const plotFrame = (() => {
       X = scale(cx - per * box.width / 2, cx + per * box.width / 2, box.left, box.right);
       Y = scale(cy - per * box.height / 2, cy + per * box.height / 2, box.bottom, box.top);
     }
-    yt = ticksOf(Y, "number", box.height, yUnit, 34);
+    yt = yTicks || ticksOf(Y, "number", box.height, yUnit, 34);
     let xt = ticksOf(X, xKind, box.width, xUnit, 56);
     if (equal) {                                         // one unit, one tick spacing, on both axes
       const step = plotMath.niceStep((X.d1 - X.d0) / box.width * 56, 1);   // at least 56 px apart, on the shorter axis too

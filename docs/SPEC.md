@@ -1394,22 +1394,53 @@ reads the event log.
   Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
   `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
   is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
-- **Result shapes.** Every answer says which of five shapes it is (`shape`), so a chart is chosen by what the data is and
+- **Result shapes.** Every answer says which of six shapes it is (`shape`), so a chart is chosen by what the data is and
   not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn
   against the other, as an X of another query gives; `open`, `high`, `low`, `close` for candles), `table` (`dims`,
   `measures` and `rows`: a category X, or bins of an aggregate other than `count`), `points` (a field X; `order: "time"`
-  when the order is the content), `distribution` (`form` `bins` for a count in bins, `samples` for aggregation `none`
-  by category) and `response` (`has` `frequency`, and `system` from a model). Each answer also carries `meta`: its
-  `source`, its `query` (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the
-  record, `declared` for a model's) and `verdict` (`ok`, `warn` with what the answer says of itself, or `refuse` with the
-  error). A data source's type may answer with a typed frame instead of a list of series: `series` (with roles), a
-  `table` or `points`, each checked and bounded (5,000 rows or points), and refused with `error` when it is not what it
-  says. Series asked in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+  when the order is the content), `distribution` (`form` `bins` for a count in bins, with `over_time` for a histogram's
+  buckets at each time; `samples` for aggregation `none` by category), `response` (`has` `frequency`, and `system` from
+  a model) and `graph` (the nodes and edges of one named `kind` of diagram: `process`, `conformance`, `dependency`,
+  `wait_for`, `impact`, `service`, `sequence` or `lineage`). Each answer also carries `meta`: its `source`, its `query`
+  (a data source's text), `provenance` (`observed`, `derived` for a response estimated from the record, `declared` for a
+  model's), `verdict`, `n` (the values it holds), `n_effective` and `sampling` (`step_s`; `scrape_s`,
+  `range_windows_s` and `observable_period_s`). `n_effective` and those three of `sampling` are `null`, as not known yet,
+  never guessed. A data source's type may answer with a typed frame instead of a list of series: `series` (with roles),
+  a `table`, `points`, a histogram's cumulative buckets, or a `graph`. Each is checked and bounded (5,000 rows, points,
+  nodes or edges, 50 buckets), and refused with `error` when it is not what it says. A role on a series (`sp`, `pv`,
+  `op`, `mv`, `limit_hi`, `limit_lo`, `mode`, `input`, `output` and the four of candles) or on a graph's field (`rate`,
+  `errors`, `latency`, `utilisation`, `wait`, `count`, `age`, `slack`, `exposure`) is one of a closed list. Series asked
+  in PromQL and the same series from a SQL type are the same answer, and draw the same chart.
+- **Histograms.** A PromQL answer whose every series has a numeric `le` label, over two bounds or more with a finite
+  one, is one histogram's buckets (chart 16, the latency heatmap); an answer at one bound (`x_bucket{le="0.3"}` by
+  instance, an SLO's numerator) stays plain series. The buckets are a `distribution` of `bins` from 0 to the highest finite bound, with `over_time`, the count in each bucket at
+  each time (a time some bucket has no value at is a gap, never a zero). It is refused when the buckets are of more than
+  one histogram (`many-histograms`: add them with `sum by (le)`) or a count falls from one bound to a higher one
+  (`not-cumulative`). It is warned when counts lie above the highest finite bound, or there is no `+Inf`
+  (`open-top-bucket`). Only `le` is read: VictoriaMetrics's own `vmrange` buckets are not. The heatmap draws one
+  histogram's buckets on its own: a panel with them and another answer draws nothing and says so.
+- **A graph.** Each edge's `source` and `target`, and each node's `parent`, must be one of the nodes; ids are unique;
+  `semantics.paths_real` (is a route through two edges evidence?) must be said, with no default; `acyclic` is worked
+  out by the server, and a frame that states it wrongly is refused; an `inferred` edge needs its `confidence`; a
+  `wait_for` or `dependency` graph is never built from inferred edges; a graph of `events` needs each edge's `t`; and
+  `omitted` must say what was left out. An unknown `kind` is refused. Drawing a graph is `graph-result-and-panel`; until
+  then the table family lists its edges, a row each.
+- **Verdicts.** `verdict` is `ok`, `warn` or `refuse`, the worst of its `reasons`, each `{code, says, fix}`. The codes
+  are a closed list (`ergostat/query/verdicts.py`), each with its level and its fix: an error's kind (`limit`,
+  `unreachable`, `refused`, `unknown`, `unanswerable`, `busy`, `reader`), `no-coherence`, `partial`, and the misuses
+  `not-cumulative`, `many-histograms`, `open-top-bucket`, `averaged-percentiles` (an `avg` or `avg_over_time` of a
+  `histogram_quantile`) and `quantile-in-bucket` (any `histogram_quantile`, whose value is interpolated inside its
+  bucket). A refused answer holds nothing to draw (its `id`, `error` and `meta` only), except a frequency response
+  without coherence, which is sent with no curve. In the panel, a refused answer is drawn by no family: it says
+  "Refused" when the source refused it ("Could not load" otherwise), the reason, and "Fix:". A warned one is drawn, with
+  each reason and its fix under the plot. An answer from a model, a fit, a simulation or a hypothesis says so there
+  ("From the model, not measured.").
 - **Which charts apply.** Each chart family declares the shapes it takes (`shapes` in its registration): line takes
   series, a table over one numeric dimension, and points; bar series, a one-dimension table and bins; stat plain series and a
-  one-row table; table plain series and a one-dimension table; scatter two signals, a table of two measures, and points;
-  phase two signals and points in time order; histogram plain series, bins and samples; box samples and quartiles;
-  heatmap points; candlestick candles; Bode and Nyquist a response with its frequency; pole-zero a model's response.
+  one-row table; table plain series, a one-dimension table and a graph's edges; scatter two signals, a table of two
+  measures, and points; phase two signals and points in time order; histogram plain series, bins and samples; box
+  samples and quartiles; heatmap points and bins over time; candlestick candles; Bode and Nyquist a response with its
+  frequency; pole-zero a model's response.
   A chart that cannot show an answer is disabled in the panel editor, and a panel saved with it draws nothing and says
   in one sentence what it needs and how to reshape the data. Switching among the charts that apply asks the server
   nothing: the editor asks again only when what a chart would send differs.

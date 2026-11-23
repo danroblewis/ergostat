@@ -43,7 +43,8 @@ TAKES = {
     "samples": {"histogram", "box"},
     "quartiles": {"box"},
     "survival": set(),
-    "over-time": set(),
+    "over-time": {"bar", "histogram", "heatmap"},       # (result-frames-and-verdicts: a Prometheus histogram's buckets)
+    "graph": {"table"},                                 # (its edges, a row each; the graph family is graph-result-and-panel)
     "frequency": {"bode", "nyquist"},
     "model": {"bode", "nyquist", "pole-zero"},
 }
