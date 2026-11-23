@@ -73,8 +73,41 @@ def test_a_done_item_needing_files_outside_the_repo_is_a_needs_park_before_build
     f.tool("parks.py", "resume")                                       # resumed once: never again
     assert f.drain() == []
     for owner in ("Screenshots of the Blocks page are looked at by a person.", "It runs under Docker --sandbox.",
-                  "The seatbelt profile loads on macOS."):
+                  "The seatbelt profile loads on macOS.", "The import reads input files outside the repository.",
+                  "It is checked on macOS by hand."):
         assert classify(f, with_items("x", owner))[0]["needs"] == "owner", owner
+    # a mention is not a need: docker or macOS named in passing, a path outside the repository that is refused
+    for plain in ("The suite container (`docker run --init`) is killed by name; tests/test_x.py starts a fake.",
+                  "The sandbox profile keeps macOS's five-entry limit (house rules).",
+                  "A path outside the repository is refused, and so is ~/x or /home/y.",
+                  "A read of a file not in the repo is rejected with bad-path."):
+        assert [x["needs"] for x in classify(f, with_items("x", plain))] in ([], ["measure"]), plain
+
+
+def test_a_coordinator_definition_with_an_owner_item_is_parked_not_readied(tmp_path):
+    body = with_items("alpha-thing", "The importer reads every model under ~/ergostat-demos/ and checks it.")
+    f = Instance(tmp_path)
+    f.opened()
+    f.define(body)                                                     # the intake readies a coordinator's file
+    g = f.item("gap/alpha-thing")
+    assert g["state"] == "parked" and g["fields"]["parked_by"] == "plan-env" and g["fields"]["env_parked_at"]
+    assert g["fields"]["defined_by"] == "coordinator" and g["fields"]["env_needs"][0]["needs"] == "owner"
+    assert definition(f) == body                                       # the coordinator's file is left unmarked
+    f.run("intake.py")
+    assert f.item("gap/alpha-thing")["state"] == "parked"              # never readied on a later pass
+    # the planner's own check for a coordinator's file routes it the same way
+    p = Instance(tmp_path / "p")
+    gid = p.opened()
+    (p.model / "run" / "defs").mkdir(parents=True, exist_ok=True)
+    (p.model / "run" / "defs" / "alpha-thing.md").write_text(body)
+    said, _ = p.run("plan.py", gid)
+    assert said == ["gap.parked"] and p.item(gid)["state"] == "parked" and definition(p) == body
+    # a measure need only: ready, with the measure-runs request its tests satisfy
+    (p.model / "run" / "defs" / "alpha-thing.md").write_text(with_items("x", "It serves on port 8765."))
+    p.fold([{"event": "gap.found", "item": "gap/beta", "data": {"branch": "alpha-thing"}}], None)
+    said, _ = p.run("plan.py", "gap/beta")
+    b = p.item("gap/beta")["fields"]
+    assert said == ["gap.defined"] and b["measure_runs_wanted"]["items"] == [1] and b["defined_by"] == "coordinator"
 
 
 def test_a_plain_pytest_done_item_is_not_marked(tmp_path):

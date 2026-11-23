@@ -542,17 +542,21 @@ and named on stderr; with none it has no value (exit 1). It says where the money
 safe.
 
 **Done items the implementor cannot do** (`plan.env_needs`, run on every definition the planner, the size path, a
-split or the plan lint makes; a coordinator's definition that lands first while the planner runs is classified too,
-its file left as it is; one the coordinator wrote before planning, which the intake readies, is not). Each point of
+split or the plan lint makes, and on every definition the coordinator wrote, whether the intake or the planner finds
+it, or it lands while the planner runs: `plan.route`, the coordinator's file left as it is). Each point of
 `## Definition of done` (a numbered or bulleted point with its lines, or a paragraph) is read for what an implementor's
 container cannot do. A backticked span that reads as a command (it starts with a known program such as `uv`,
 `python`, `git`, `npm`, `docker` or `ergostat`, or a script path with arguments) passes only if it is on the
 allowlist once `uv run`, `python -m` and `scripts/suite_watch.py ... --` are taken off: `git`, `ruff`, `pytest`,
 `scripts/named_tests.py`, `scripts/demo_check.py`. Any other command is a **measure** need. So are a server on a port
 (`port 8765`, `localhost:8000`, "on a port") and an environment variable on a command (`CORR_SHOTS=1 ...`). Screenshots
-looked at by a person, Docker `--sandbox`, macOS or seatbelt, and input files not in the repository (`~/`, `/Users/`,
-`/home/`, `$HOME`, "outside the repo") are **owner** needs, and so is a measure need of a definition that names no
-acceptance test. The definition is given a `## Needs before building` section, a line per such item ("done item N:
+looked at by a person, the sandbox (`--sandbox`, "docker sandbox", seatbelt, `sandbox-exec`) or the platform ("runs
+on macOS", "checked on a Mac"), and input files read from outside the repository (an input file, or a read, load or
+import, followed by `~/`, `/Users/`, `/home/`, `$HOME` or "outside/not in the repo", in an item that does not say
+the path is refused, rejected or denied) are **owner** needs. A bare mention is not: `docker run --init` in a test,
+"macOS's five-entry limit", "a path outside the repository is refused" are pytest's to check (a command off the
+allowlist, like `docker run`, is still a measure need). A measure need of a definition that names no acceptance test
+is the owner's too. The definition is given a `## Needs before building` section, a line per such item ("done item N:
 `needs: measure`, a server on a port"), and the gap records them as `env_needs`. A definition with only measure needs is
 ready, with `measure_runs_wanted` (its acceptance tests and the items): the request a `measure-runs` of those tests
 answers once it is built (*The pipeline manager*). One with an owner need is never ready: the same event that records
@@ -563,7 +567,9 @@ who: owner), so the implementor, which takes only ready and fix gaps, never leas
 `resumed_as` its own id), re-read under the continue lock; `manage.py continue` refuses such a park, since no branch
 was built to continue. What reads as a command, or as one of these needs, is a pattern list: an item that says it in
 other words is not marked (its park comes after a review, as before, and `env-parks` counts it only if the gap was
-marked).
+marked), and one that names a need it does not have in these words (a read from `~/` that is a test's fixture, say)
+is parked for the owner until `gap.need-met`: the lists both miss and over-match, and tests/test_plan.py pins only
+the cases it names.
 
 ## The pools: sized by risk, against your tolerance
 

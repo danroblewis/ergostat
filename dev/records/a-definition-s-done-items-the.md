@@ -42,3 +42,27 @@ Choices made without anyone to ask (each easy to undo):
   parked a marked gap (`env_needs`) for a need. `first-pass-yield` leaves out those first reviews.
 - A definition the coordinator wrote before planning, which the intake readies, is not classified. The planner's own
   path, the S path, splits, the lint sweep, and a coordinator file that lands while the planner runs are classified.
+
+### Round 2
+
+Both findings of the round-1 review are answered:
+- The owner patterns are narrowed to what the definition names. The sandbox is `--sandbox`, "docker sandbox",
+  seatbelt or `sandbox-exec`. macOS counts only as a platform the item runs or is checked on ("runs on macOS",
+  "checked on a Mac"). An input file counts when an input file, or a read, load or import, is followed by `~/`,
+  `/Users/`, `/home/`, `$HOME` or "outside/not in the repo", and the item does not say the path is refused,
+  rejected or denied. A bare `docker` (e.g. `docker run --init` in a test), "macOS's five-entry limit" and "a path
+  outside the repository is refused" are not owner needs; tests/test_plan.py has these as negative cases. A
+  backticked `docker run ...` is still a measure need, as a command off the allowlist. dev/README now says the lists
+  both miss and over-match (lesson-8).
+- Every definition the coordinator wrote is now classified (`plan.coordinated`, then `plan.route`, which `define`
+  also uses), its file left unmarked. That covers the intake (intake.py) and the planner's own check (plan.py's
+  `planner`). One with an owner item is parked in the event that records it, never readied. New test:
+  test_a_coordinator_definition_with_an_owner_item_is_parked_not_readied. The last bullet of the round-1 choices
+  above no longer holds. A coordinator definition that cannot be read when it is routed records nothing, so it is
+  not readied.
+
+Each new case was seen to fail under a break: `\bdocker\b` put back, `\bmacOS\b` put back, the refusal guard
+removed, and `coordinated` readying without classifying.
+
+Size: about 134 net lines in dev/bin against main (154 added, 20 removed), within the 180. docs/SPEC.md is still
+left to the owner, as above.

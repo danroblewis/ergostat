@@ -207,31 +207,47 @@ def define(cfg: dict, gid: str, branch: str, body: str, by: str, notes: list[str
     before the owner answers: gap.need-met, then parks.py readies it); a measure need is recorded as the measure-runs
     request its acceptance tests satisfy (measure_runs_wanted), and it is ready."""
     target, kept = fac.run_dir(cfg, "defs") / f"{branch}.md", body
-    needs = env_needs(body)
-    text = marked(body, needs) + ("\n## Notes from the plan review (answer each)\n\n" + "".join(
+    text = marked(body, env_needs(body)) + ("\n## Notes from the plan review (answer each)\n\n" + "".join(
         f"- {n}\n" for n in notes) if notes else "")
     try:
         with target.open("x") as fh:
             fh.write(text)
     except FileExistsError:                              # the coordinator's definition: not the planner's size
         by, kept = "coordinator", target.read_text()     # (its own items classified, unmarked: the file is kept)
-        needs = env_needs(kept)
         data |= {"planned_size": None, "size_confidence": None} if "planned_size" in data else {}
+    route(gid, kept, definition=fac.rel(target), branch=branch, defined_by=by, plan_sha=sha(body),
+          risks=sorted(set(re.findall(r"\blesson-\d+\b", body))),
+          plan_review="wanted" if by != "coordinator" and (review_wanted(cfg, gid) if review is None else
+                                                           wanted(cfg, review)) else None, **data)
+
+
+def coordinated(cfg: dict, gid: str, where: str, branch: str) -> str | None:
+    """A definition the coordinator wrote (intake.definition's ``where``), routed as the planner's are (route), its file
+    left unmarked: the state it is now in; None (nothing recorded, so not ready) when its text cannot be read now."""
+    text = brief.definition_text(cfg, where, branch)
+    if not text.strip():
+        print(f"plan: {gid}: its definition {where} cannot be read: not readied", file=sys.stderr)
+        return None
+    return route(gid, text, definition=where, branch=branch, defined_by="coordinator")
+
+
+def route(gid: str, kept: str, **data) -> str:
+    """The gap ready with its definition ``kept``, or, with a done item that needs the owner (env_needs), parked for
+    it in the same event (never ready, so never leased); a measure need: the measure-runs request its tests satisfy."""
+    needs, now = env_needs(kept), time.time()
     tests = sorted(set(TEST.findall(brief.section(kept, "Acceptance tests") or "")))
-    owner, now = [x for x in needs if x["needs"] == "owner"], time.time()
-    data |= dict(definition=fac.rel(target), branch=branch, defined_by=by, plan_sha=sha(body), env_needs=needs or None,
-                 measure_runs_wanted={"tests": tests, "items": [x["item"] for x in needs]} if needs and not owner
-                 else None, risks=sorted(set(re.findall(r"\blesson-\d+\b", body))),
-                 plan_review="wanted" if by != "coordinator" and (review_wanted(cfg, gid) if review is None else
-                                                                  wanted(cfg, review)) else None)
+    owner = [x for x in needs if x["needs"] == "owner"]
+    data |= dict(env_needs=needs or None, measure_runs_wanted={"tests": tests, "items": [x["item"] for x in needs]}
+                 if needs and not owner else None)
     if not owner:
         fac.say("gap.defined", gid, ready_at=now, **data)
-        return
+        return "ready"
     why = "Done items it cannot build here, for the owner before it is built:\n" + "".join(
         f"- done item {x['item']}: {x['why']}\n" for x in owner)
     fac.say("gap.parked", gid, parked_at=now, where_it_stopped=why, parked_by=ENV_PARK, parked_in="plan",
             parked_for="needs", parked_until={"action": why[:300], "who": "owner"}, resumed_as=None, resumed_at=None,
             need_met=None, env_parked_at=now, **data)
+    return "parked"
 
 
 ENV_PARK = "plan-env"                                    # parked_by of a park at plan time for a done item's needs
@@ -241,9 +257,13 @@ NEEDS = (    # what a done item names that an implementor's container cannot do:
     ("measure", "an environment variable on a command", re.compile(r"\b[A-Z][A-Z0-9_]{2,}=\S")),
     ("owner", "screenshots looked at by a person", re.compile(
         r"\bscreenshots?\b.*\b(?:look|looked|seen|judged|by eye|a person|the owner)\b|\bby eye\b", re.I)),
-    ("owner", "Docker --sandbox or macOS", re.compile(r"--sandbox\b|\bmacOS\b|\bdocker\b|\bseatbelt\b", re.I)),
-    ("owner", "input files not in the repository", re.compile(
-        r"(?:^|[\s`(\"'])(?:~/|/Users/|/home/|\$HOME\b)|\b(?:outside|not in) the repo(?:sitory)?\b", re.I)))
+    ("owner", "Docker --sandbox or macOS", re.compile(   # the sandbox or the platform itself, never a mention of docker
+        r"--sandbox\b|\bdocker sandbox\b|\bseatbelt\b|\bsandbox-exec\b|"
+        r"\b(?:runs?|running|tested|checked|seen|measured|loads?) (?:on|under) (?:macOS|a Mac)\b", re.I)),
+    ("owner", "input files not in the repository", re.compile(   # read from there; a path refused is pytest's
+        r"^(?!.*\b(?:refus|reject|denie|denied)).*(?:\binput (?:files?|data|models?)\b|\b(?:reads?|reading|loads?|"
+        r"loading|imports?|importing)\b)[^.;]{0,80}(?:(?:^|[\s`(\"'])(?:~/|/Users/|/home/|\$HOME\b)|"
+        r"\b(?:outside|not in) the repo(?:sitory)?\b)", re.I)))
 ENV = r"(?:[A-Z][A-Z0-9_]*=\S+\s+)*"
 COMMAND = re.compile(ENV + r"(?:uv|python3?|pytest|ruff|git|ergostat|npm|npx|node|docker|make|bash|sh|curl|open|brew|"
                      r"playwright|claude|sandbox-exec|osascript)(?:\s|$)|" + ENV + r"\S+\.(?:py|sh|js)\s+\S")
@@ -370,7 +390,7 @@ def planner(cfg: dict, gap: dict) -> int:
     import intake
     import research as rs
     if where := intake.definition(cfg, gap):
-        fac.say("gap.defined", definition=where, ready_at=now, branch=branch, defined_by="coordinator")
+        coordinated(cfg, gap["id"], where, branch)
         return 0
     if (path := size_path(gap, bar)) == "S" and (own := entry_of(cfg, gap)):
         return small(cfg, gap, branch, own)

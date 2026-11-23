@@ -227,15 +227,14 @@ def main() -> int:
             fac.say("gap.found", gid, **e, source="gaps", branch=fac.slug(gid.split("/", 1)[1], 32), open_at=now)
             known[gid] = {"id": gid, "state": "open", "fields": {**e, "branch": fac.slug(gid.split("/", 1)[1], 32)}}
             found += 1
+    import plan  # (its done items routed as a plan's: plan.route)
     defined = 0
     for g in known.values():
         if g["state"] != "open" or not continued(cfg, g, known):
             continue
         where = definition(cfg, g)
-        if where:
-            fac.say("gap.defined", g["id"], definition=where, ready_at=now, branch=fac.branch_of(g),
-                    defined_by="coordinator")
-            g["fields"]["definition"], g["state"] = where, "ready"
+        if where and (state := plan.coordinated(cfg, g["id"], where, fac.branch_of(g))):
+            g["fields"]["definition"], g["state"] = where, state               # ready, or parked for the owner
             defined += 1
         elif g["fields"].get("continues"):                     # the planner never takes it: said, never waiting silently
             print(f"intake: {g['id']} continues a branch with no definition of done on it: not taken", file=sys.stderr)
