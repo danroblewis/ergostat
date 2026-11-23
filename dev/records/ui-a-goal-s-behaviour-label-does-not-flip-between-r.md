@@ -246,3 +246,13 @@ Run: the three behaviour tests (3 passed, rc 0, under the watchdog); main's
 `test_a_suggestion_appears_when_it_has_a_verdict` and `test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks`
 (2 passed, rc 0, under the watchdog); `tests/test_graph_cli_web.py` (43 passed); ruff clean. Not run: the whole unit
 suite and the four browser files in full (left to the factory and the merge queue).
+
+## Where it stopped (continued, round 5)
+
+The merge of main (5411f137) conflicted in `pages.js`, on the Loops row's last two cells. Main gives each table a
+caption (the `table(..., "", "Loops")` arguments) and a `<tbody>`. The branch's behaviour cell calls `word(n, lp)`
+(hysteresis and flapping) and has a longer title. Both are kept: the branch's cell, closed with main's caption
+arguments. No net lines added. No review findings were open.
+
+Run: the three behaviour tests (3 passed, rc 0, under the watchdog); `tests/test_graph_cli_web.py` (43 passed); ruff
+clean. Not run: the whole unit suite and the four browser files in full (left to the factory and the merge queue).
