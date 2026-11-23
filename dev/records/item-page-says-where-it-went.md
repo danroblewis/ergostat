@@ -79,7 +79,7 @@ has ended. The current run's link stays open-ended. If a rollup has dropped the 
 link opens from the step's start with no end. That window is too wide but still holds the run (the more reversible
 choice). SPEC §5a now says the same.
 - Test: the roadmap fixture's `ticket/e2-docs` now has a nacked first run (`r0bbbbbb`, taken 40 s before, given back
-  15 s later) before the current one. test_an_item_page_shows_its_path checks four things: the *given back (nack)
+  15 s later) before the current one. test_an_item_page_shows_its_path checks five things: the *given back (nack)
   (developer, run r0bbbbbb)* move, that run's link (`from=taken&to=ended` as the API gives them), the current link's
   `from` (that lease's `taken`, no `to`), *attempt 2*, and *Attempts (2)*. This also adds the page assertion for the
   *given back* wording that round 1 lacked. I broke it by hand: with the history lookup set to `null`, the test fails
