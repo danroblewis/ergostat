@@ -459,6 +459,30 @@ def _items_of(p, m, kind: str, name: str, snap: dict) -> dict | None:
     return got
 
 
+def _kind_now(p, spec, kind: str, snap: dict) -> dict | None:
+    """A kind's footprint (``footprint.py``, the model's alone) with what is so now: its count per state, how many each
+    block has taken now (a lease holder, whatever state the run has moved it to), and each goal's word."""
+    from ..leases.fold import held
+    from ..spec import items as its
+    from ..spec.footprint import kind_footprint
+    fp = kind_footprint(spec, kind)
+    if fp is None:
+        return None
+    page = its.listing(p.events, spec, kind=kind, state="\0", until=snap["at"], n=1)     # counted by the index
+    fp["now"] = next((k["counts"] for k in page["kinds"] if k["name"] == kind), {})
+    if fp["definition"]["finished_by"] == "inferred":     # as the listing infers it, from the states left by now
+        f = its.finishes(p.events, spec, kind)
+        fp["definition"]["finished_by"] = f["finished_from"]
+        for s in fp["definition"]["states"]:
+            s["finished"] = s["state"] in f["finished"]
+    for t in fp["taken_by"]:
+        _, _, got = its.in_states(p.events, spec, kind, None, {"lease.block": t["block"]}, until=snap["at"], items=True)
+        t["taken"] = sum(1 for i in got if held(i.fields))
+    for g in fp["goals"]:
+        g["status"] = (snap["loops"].get(g["goal"]) or {}).get("status")
+    return fp
+
+
 def _estimates(p, m, snap: dict, whatif: str | None) -> dict | None:
     """The completion estimates (``eta_api``), of now only: a moment travelled to has none."""
     if abs(time.time() - snap["at"]) >= 5:
@@ -768,6 +792,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 for n, a in snap["agents"].items()}
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})
+    if head == "kinds":                           # what a kind touches (SPEC §5a, *What a kind touches*); None: 404
+        return _kind_now(p, getattr(m, "spec", None), name, snap) if name and len(parts) == 2 else None
     if head == "events" and "remote" in q:        # a remote's, from its cache (remote/events.py): never the local record
         if name is not None:
             from ..remote.items import RemoteRefused
@@ -811,6 +837,11 @@ def _answer(live: Live, path: str, q: dict, project=None):
             est = _estimates(p, m, snap, one("whatif"))
             if d and est and name in est.get("items", {}):
                 d["eta"] = {**est["items"][name], "at": est["at"], "runs": est["runs"]}
+            if d and spec is not None:                # its moves as steps through the model (SPEC §5a, *What a kind touches*)
+                from types import SimpleNamespace
+
+                from ..spec.footprint import item_path
+                d["path"] = item_path(spec, SimpleNamespace(kind=d["kind"], moves=d["moves"], fields=d["fields"]))
             if d and d.get("kind_of") and spec and d["kind_of"]["name"] in spec.items:   # its endings, as the process map counts them
                 from ..process import _done
                 ends = _done(spec, p.events, spec.items[d["kind_of"]["name"]])
