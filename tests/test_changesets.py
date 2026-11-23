@@ -262,7 +262,8 @@ def test_every_examples_items_fold_as_they_did_where_no_rules_were_added(example
     for k in spec.items.values():
         names = [*k.show, *k.formats, "note", "why", "result"]
         plain = [n for n in names if n not in k.fold]
-        evs = [{"id": f"e{i}", "time": 1000.0 + i, "type": r.choice([*k.on, "x.y"]),
+        types = [t for t in k.on if t not in k.if_unchanged]      # those apply only to the item as read (their
+        evs = [{"id": f"e{i}", "time": 1000.0 + i, "type": r.choice([*types, "x.y"]),   # own test_todo_template)
                 "data": {n: _value(r) for n in r.sample(plain, r.randrange(len(plain) + 1))}} for i in range(40)]
         it = its.fold(f"{k.id.rstrip('*')}1", evs, k)
         assert it.fields == _latest_wins(evs), k.name

@@ -112,3 +112,34 @@ Round 4 (the queue's one finding: `tests/test_changesets.py::test_every_examples
   (9), test_blockdiagram (71), test_chains (32), test_cli_fallback (18), test_cloud_arrivals (34), test_daemon_docs
   (29), test_daemon_yaml_review (33), test_extremes_closed (14), test_scale_caches (37); all passed; ruff clean.
   demo_check, the whole unit suite and the browser files were not run. Main has not moved (merge base is main).
+
+Round 5 (the review's one finding, blocking: lesson 1 in the batcher's freeing. A new `todo.waiting` recorded
+between its read and its write, with no move or out to ready and back, was still freed, since `moves-from:` checks
+only the state):
+
+- The batcher's write is no longer something the fold can take on trust. The batcher prints its line and the
+  engine records it later, so no lock can be held across that write. The guard therefore sits in the fold, as a
+  compare-and-set on the item's version. A kind's new `if-unchanged:` (SPEC §5a, generic and opt-in: a kind without
+  it folds as before) lists the event types written from a reading of the item. Each must carry `read`, the item's
+  count of events when it was read. It applies (fields and move; `read` is not kept as a field) only when the item
+  has had no event since. The count is taken in the record's order, not by time (lesson 2). If the count differs,
+  or `read` is missing or not a whole number, nothing applies (fails closed, lesson 3). It is said in `refused`,
+  form `read`, and still counted among the item's events (test_rollup checks that count against the record).
+- The template sets `if-unchanged: [todo.freed, todo.stuck]`. The batcher folds each waiting to-do from the very
+  events it queried and judges that fold, not the index's copy, so the count it stamps is the count of what it
+  judged. `moves-from:` stays as a second guard for a freeing written by hand.
+- Also: compile.py (`bad-if-unchanged`), the item index's kinds key, and library/trust.py's allowlist of item keys.
+  `tests/test_changesets.py`'s example-wide fold test leaves an `if-unchanged:` event type out of its random events,
+  since one with no `read` is refused whole by design and is tested here instead.
+- Tests: `test_a_todo_waiting_on_something_new_while_the_batcher_frees_it_stays_waiting` (both cases of the
+  finding: the new wait with no move, and ready then waiting again; then freed once the new one is done),
+  `test_a_new_wait_between_the_batchers_list_and_its_reading_is_judged_on` (monkeypatched into the batcher, after its
+  listing and before its query), `test_an_event_written_from_a_reading_is_refused_without_the_count_it_read`, and
+  the drop race test now expects the `read` refusal and checks `moves-from:` alone. Seen to fail with the code
+  broken: without the count comparison in the fold, 3 failed; with the batcher judging the index's copy, the
+  between-the-list test failed.
+- Run one file at a time: test_todo_template (17 passed), test_changesets (60), test_rollup (52), test_why (33),
+  test_finished_states (5), test_templates (37), test_item_systems (7), test_modelling_core (24),
+  test_library_trust (49), test_library_untrusted (22), test_scale_caches (37); ruff clean. demo_check, the whole
+  unit suite and the browser files were not run (no page changed). Main has not moved. 545 net lines outside tests,
+  docs and dev (budget 600).

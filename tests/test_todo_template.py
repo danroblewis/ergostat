@@ -215,19 +215,98 @@ def test_a_todo_waiting_on_nothing_named_says_so_and_what_happens_next(tmp_path,
 
 
 def test_a_todo_dropped_while_the_batcher_frees_it_stays_dropped(tmp_path, monkeypatch, capsys):
-    """The person's drop lands between the batcher's read and its write: the freeing moves only out of waiting."""
+    """The person's drop lands between the batcher's read and its write: the freeing applies only to the to-do as read,
+    and moves it only out of waiting."""
     p = project(tmp_path, monkeypatch)
     add(p, "todo/a", "todo.ready", 300, title="a")
     add(p, "todo/b", "todo.waiting", 200, title="b", waits_on="todo/a")
     add(p, "todo/a", "todo.done", 100)
-    lines = batcher(p, capsys, record=False)              # read while b waits
-    add(p, "todo/b", "todo.dropped", 50)                  # the person drops it, in the gap
+    lines = in_the_gap(p, capsys, lambda: add(p, "todo/b", "todo.dropped", 50))   # the person drops it
+    assert [x["event"] for x in lines if x.get("item") == "todo/b"] == ["todo.freed"]
+    b = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"]
+    assert b.state == "dropped" and b.refused[-1]["form"] == "read", b.refused
+    k = p.model.spec.items["todo"]               # moves-from: still bars it, read or not (a freeing written by hand)
+    evs = [{"id": "e1", "time": 1.0, "type": "todo.dropped", "data": {}},
+           {"id": "e2", "time": 2.0, "type": "todo.freed", "data": {"read": 1}}]
+    it = its.fold("todo/x", evs, k)
+    assert it.state == "dropped" and "moves only from waiting" in it.refused[-1]["why"], it.refused
+
+
+def in_the_gap(p, capsys, competing) -> list[dict]:
+    """One batcher pass whose lines are recorded only after ``competing`` (a person's event) lands: the gap between its
+    read and its write."""
+    lines = batcher(p, capsys, record=False)
+    competing()
     for x in lines:
         if "event" in x:
             p.events.add(x["event"], item=x["item"], source="todo-batcher", data=x["data"])
-    assert [x["event"] for x in lines if x.get("item") == "todo/b"] == ["todo.freed"]
-    b = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"]
-    assert b.state == "dropped" and "moves only from waiting" in b.refused[-1]["why"]
+    return lines
+
+
+def test_a_todo_waiting_on_something_new_while_the_batcher_frees_it_stays_waiting(tmp_path, monkeypatch, capsys):
+    """The person names a new, unfinished wait between the batcher's read and its write (with no move, as it waits
+    already, or out to ready and back): the freeing was judged on the old wait, so it is refused, and the next pass
+    judges the new one."""
+    for n, competing in enumerate((
+            [("todo.waiting", {"waits_on": "todo/c"})],
+            [("todo.ready", {}), ("todo.waiting", {"waits_on": {"set": ["todo/c"]}})])):
+        p = project(tmp_path / str(n), monkeypatch)
+        add(p, "todo/a", "todo.ready", 300, title="a")
+        add(p, "todo/c", "todo.ready", 300, title="c")
+        add(p, "todo/b", "todo.waiting", 200, title="b", where="bastion-a", waits_on="todo/a")
+        add(p, "todo/a", "todo.done", 100)
+        lines = in_the_gap(p, capsys, lambda c=competing, p=p: [add(p, "todo/b", t, 50, **d) for t, d in c])
+        assert [x["event"] for x in lines if x.get("item") == "todo/b"] == ["todo.freed"], lines
+        assert [x["data"]["read"] for x in lines if x.get("event") == "todo.freed"] == [1], "b's one event, as read"
+        b = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"]
+        assert b.state == "waiting" and "todo/c" in b.fields["waits_on"], (b.state, b.fields)
+        assert b.refused[-1]["type"] == "todo.freed" and b.refused[-1]["form"] == "read", b.refused
+        assert "read" not in b.fields
+        for _ in range(2):                          # todo/c is not done: it waits, out of bastion-a's batch
+            lines = batcher(p, capsys)
+            assert not [x for x in lines if x.get("event") == "todo.freed"], lines
+        sitting = {i.id: i for i in its.project(p.events, p.model.spec)}.get("todo-batch/bastion-a")
+        assert sitting is None or "todo/b" not in sitting.fields["todos"]
+        add(p, "todo/c", "todo.done", 40)
+        assert [x["item"] for x in batcher(p, capsys) if x.get("event") == "todo.freed"] == ["todo/b"]
+        assert {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"].state == "ready"
+
+
+def test_a_new_wait_between_the_batchers_list_and_its_reading_is_judged_on(tmp_path, monkeypatch, capsys):
+    """The person's new wait lands after the batcher listed the waiting to-dos and before it read this one's events:
+    it judges the to-do as those events fold, so the new, unfinished wait keeps it waiting."""
+    p = project(tmp_path, monkeypatch)
+    add(p, "todo/a", "todo.ready", 300, title="a")
+    add(p, "todo/c", "todo.ready", 300, title="c")
+    add(p, "todo/b", "todo.waiting", 200, title="b", waits_on="todo/a")
+    add(p, "todo/a", "todo.done", 100)
+    listed = todo.items
+
+    def items(pp, kind, states=None):
+        out = listed(pp, kind, states)
+        if states == ["waiting"]:
+            add(pp, "todo/b", "todo.waiting", 50, waits_on="todo/c")
+        return out
+    monkeypatch.setattr(todo, "items", items)
+    assert not [x for x in batcher(p, capsys) if x.get("event") == "todo.freed"]
+    assert {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"].state == "waiting"
+
+
+def test_an_event_written_from_a_reading_is_refused_without_the_count_it_read(tmp_path, monkeypatch):
+    """if-unchanged: fails closed: a freeing that does not say what it read, or says a count not the item's, does
+    nothing; one that says the item's count applies, its read not kept as a field."""
+    p = project(tmp_path, monkeypatch)
+    k = p.model.spec.items["todo"]
+    assert k.if_unchanged == ("todo.freed", "todo.stuck")
+    wait = {"id": "e1", "time": 1.0, "type": "todo.waiting", "data": {"title": "b"}}
+    for data in ({}, {"read": None}, {"read": "1"}, {"read": True}, {"read": 0}, {"read": 2}):
+        it = its.fold("todo/b", [wait, {"id": "e2", "time": 2.0, "type": "todo.freed", "data": {"x": 1, **data}}], k)
+        assert it.state == "waiting" and "x" not in it.fields and it.refused[-1]["form"] == "read", data
+    it = its.fold("todo/b", [wait, {"id": "e2", "time": 2.0, "type": "todo.freed", "data": {"x": 1, "read": 1}}], k)
+    assert it.state == "ready" and it.fields == {"title": "b", "x": 1} and not it.refused
+    bad = MODEL + "items:\n  x:\n    id: x/*\n    states: [a, b]\n    on: {x.b: b}\n    if-unchanged: x.b\n"
+    (tmp_path / "ergostat.yaml").write_text(bad)
+    assert "bad-if-unchanged" in {x.code for x in read(tmp_path / "ergostat.yaml")[1] if x.level == "error"}
 
 
 # ---- the stakeholder update

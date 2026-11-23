@@ -255,7 +255,9 @@ step `KIND.ready`), and regroups the ready ones, one `KIND-batch/<where>` item a
 due first, every one's instructions in order in its `sitting`; it reads the record and prints events, and the
 template adds no action, workspace or daemon, so nothing it adds acts outside ergostat (the optional `command` is
 the owner's own, run by `collect` as a source); a freeing is `KIND.freed`, which `moves-from:` lets move a to-do
-only out of waiting, so one dropped since the batcher read it stays dropped; a to-do is added in one step,
+only out of waiting, and `if-unchanged:` (with `KIND.stuck`) applies only when nothing was recorded of the to-do
+after the events the batcher judged it from (their count, its `read`), so one dropped, or waiting on something new,
+since the batcher read it stays as recorded, and the next pass judges it again; a to-do is added in one step,
 `ergostat event --add KIND.ready --item KIND/ID --data '{...}'`, MCP's `record_event`, or a line of an optional
 `command`'s output). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
@@ -1337,6 +1339,7 @@ items:
 | `final` | list of its states | none | States no event moves an item out of: a later move is ignored and said (the item's `refused`, form `final`) |
 | `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the kind (a template's kind says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
 | `moves-from` | map of one of its `on:` events → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event not in `on:` or a state it does not have) |
+| `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
 | `system`, `description` | | | |
 
 **Which states are finished.** One rule (`spec/finished.py`) decides it for the Items listing, the relations' status

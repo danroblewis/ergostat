@@ -66,6 +66,7 @@ items:
     finished: [done, dropped]
     moves-from:
       ${kind}.freed: [waiting]
+    if-unchanged: ["${kind}.freed", "${kind}.stuck"]
     fold:
       notes: append
     relations:
