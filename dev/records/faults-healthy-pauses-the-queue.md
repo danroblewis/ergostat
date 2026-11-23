@@ -72,3 +72,14 @@ Net code is about 200 lines, within the 600 budget. Tests run: `tests/test_fault
 `tests/test_take_order.py` and `tests/test_library_trust.py::test_every_compile_key_classified`, all passing. Each new
 dispatch, check and read path was broken by hand, one at a time, and its tests failed. I did not run the whole unit
 suite or the browser files: the factory runs them. No page changed.
+
+Round 2. The one finding (blocking): `schema/ergostat.schema.json` refused `takes: {..., faults: ...}`. Fixed: `takes`
+gains `faults`, a closed map with the one required key `healthy`. It is a reference string of a kind `compile_healthy`
+takes (`sensor`, `stock`, `flow`, `auxiliary`, `variable`, `goal` or `block`, with an optional port).
+`tests/test_spec_schema.py::test_a_queue_s_faults_say_what_reads_healthy` accepts `sensor.`, `goal.` and `block.X.PORT`.
+It refuses an extra key, an empty map, a bare name, a number and a plain string. I broke the schema by hand twice, and
+the test failed both times: once with `faults` taken out of `takes` (3 cases failed) and once with the map open (1 failed).
+Seen while fixing it and not fixed here, because it is outside this gap (lesson 13): `takes.order`, which SPEC §9.5
+documents, is not in the schema either, so the schema refuses a model that uses it in the same way. It belongs in its
+own gap.
+Tests run in round 2: `tests/test_spec_schema.py` (39 passed), `tests/test_faults_healthy.py` (23 passed). Ruff is clean.
