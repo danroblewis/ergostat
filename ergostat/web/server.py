@@ -120,6 +120,7 @@ class Live:
         self._loading = threading.Lock()               # one thread reads a changed model; the others answer meanwhile
         self._lock = threading.Lock()
         self._snaps: dict = {}
+        self._seq = 0                      # the number of the last snapshot made (moment)
         self._making: dict = {}            # snapshots being made: one at a time for each moment, however many ask
         self._kept: OrderedDict = OrderedDict()   # the answers worked out, the least recently used first
         from .goal_work import GoalWork
@@ -162,13 +163,18 @@ class Live:
         moment (``at``) is kept until the model changes. Made once however many ask at once: on a
         long record, requests that each made their own (and kept making it after their clients gave
         up) were what left every later answer waiting."""
+        return self.moment(p, window, at)[0]
+
+    def moment(self, p, window: float, at: float | None):
+        """The snapshot, and its number: each snapshot made is numbered in turn, so two of one window are told apart
+        by equality of their number, never by their times (a dashboard's panels and its later polls, dashboard_api)."""
         key = (window, at, self.mtime)
         import threading
         while True:
             with self._lock:
                 got = self._snaps.get(key)
                 if got and (at is not None or time.time() - got[0] < 1.5):
-                    return got[1]
+                    return got[1], got[2]
                 busy = self._making.get(key)
                 if busy is None:                       # this request makes it; the others asking meanwhile wait for it
                     busy = self._making[key] = threading.Event()
@@ -179,8 +185,9 @@ class Live:
             with self._lock:
                 if len(self._snaps) > 32:
                     self._snaps.clear()
-                self._snaps[key] = (time.time(), snap)
-            return snap
+                self._seq += 1
+                self._snaps[key] = (time.time(), snap, self._seq)
+                return snap, self._seq
         finally:
             with self._lock:
                 self._making.pop(key, None)
@@ -540,7 +547,8 @@ def _answer_with(live: Live, path: str, q: dict, model):
     return _answer(live, path, q2, p)
 
 
-def _answer(live: Live, path: str, q: dict, project=None):
+def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
+    """``pinned``: the snapshot to answer from (a dashboard's panels, all of one moment), else the moment's own."""
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
         got = _LISTED
         return dict(got, age=None if got["at"] is None else max(0.0, time.time() - got["at"]))
@@ -566,13 +574,16 @@ def _answer(live: Live, path: str, q: dict, project=None):
             return None
         except ig.Bad as e:
             raise BadSet(str(e)) from e
+    if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4e)
+        from . import dashboard_api
+        return dashboard_api.listing(p) if head == "dashboards" else dashboard_api.answer(live, p, name, q)
     at = None
     if one("at"):
         try:
             at = float(one("at"))
         except ValueError:
             at = None
-    snap = live.snapshot(p, _window(q), at)
+    snap = pinned if pinned is not None else live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates
         from ..runner import running_pid

@@ -1588,6 +1588,8 @@ class Compiler:
             for r in refs:
                 if (why := exists(r)) is not None:
                     self.err(f"system {name}.show: {why}", self.doc.defined.get(("systems", name)), "unknown-ref", str(r))
+        from .dashboards import check as dashboards
+        dashboards(self, spec, exists)                       # dashboards:, checked as show: is (SPEC §4e)
         for lp in spec.named_loops.values():
             for r in lp.through:
                 if (why := exists(r)) is not None:

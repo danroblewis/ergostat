@@ -81,3 +81,10 @@ loops:
   rework:                                  # what review sends back goes back to the backlog, to be worked again
     through: [flow.rejected, stock.backlog]
     description: rejected work returns to the backlog and comes round again
+
+dashboards:
+  review:                                  # in delivery's file: named delivery.review (SPEC §4e)
+    description: what waits on review
+    panels:
+      - {panel: chart, refs: [stock.in-review, flow.merged, flow.rejected], size: l}
+      - {panel: items, kind: pr, state: review, size: m}

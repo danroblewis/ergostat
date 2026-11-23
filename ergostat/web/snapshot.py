@@ -32,7 +32,7 @@ def _requests(project) -> list[tuple[str, dict]]:
     m = project.model
     reqs: list[tuple[str, dict]] = [("status", {}), ("loops", {}), ("agents", {}), ("daemons", {}), ("items", {}),
                                     ("residuals", {}), ("fit", {}), ("parts", {}), ("guide", {}), ("graph", {}),
-                                    ("events", {"n": 80}), ("events", {"n": 80, "runs": 1})]
+                                    ("events", {"n": 80}), ("events", {"n": 80, "runs": 1}), ("dashboards", {})]
     for view in ("dynamics", "control", "blocks", "process"):
         for system in [None, *m.system_names()]:
             reqs.append(("graph", {"view": view, **({"system": system} if system else {})}))
@@ -106,6 +106,9 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             data[key(path, params)] = got
     for path, params in _requests(project):
         ask(path, params)
+    from .dashboard_api import answer as dashboard
+    for d in data.get("dashboards") or []:      # each dashboard's one answer, every panel worked out (none pending)
+        data[key(f"dashboard/{_q(d['name'])}", {})] = dashboard(live, project, d["name"], {"since": [since]}, wait=True)
     if isinstance(data.get("loops"), dict):     # the Loops page's one answer: each goal's summary from its analysis above
         from .control_api import summary
         data[key("loops", {"perf": 1})] = {n: {**lp, "perf": summary(data[c]) if (c := key("loop-control", {"goal": n})) in data
