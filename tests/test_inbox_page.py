@@ -24,6 +24,17 @@ from tests.ports import free_port
 
 playwright = pytest.importorskip("playwright.sync_api")
 
+DECIDER = """\
+  decider:
+    type: person
+    ask: push the queue, or not?
+    goal: queue-short
+    out:
+      declared: flow.declared
+      dismissed: flow.dismissed
+"""
+DECIDED = "  declared:\n    from: queue\n  dismissed:\n    from: queue\ngoals:"   # its two flows, beside the others
+
 
 MOVE = """actions:
   move:
@@ -35,23 +46,33 @@ MOVE = """actions:
 ASK = "Review the queue.\\nOutward acts wait for you: `ergostat actions` lists them.\\nThird.\\nFourth.\\nThe fifth line."
 
 
-def pushes(tmp_path, requests: int):
-    """The model with this many push actions held, and a person asked to review the queue."""
+def pushes(tmp_path, requests: int, decider: bool = False):
+    """The model with this many push actions held, and a person asked to review the queue (and, with ``decider``, a
+    person whose outputs are two named ends, as the-job's declare-incident)."""
     from ergostat import model as mdl
     from ergostat.actions import gate
     from ergostat.store import Project
 
     from .test_inbox import MODEL
-    (tmp_path / "ergostat.yaml").write_text(MODEL)
+    text = MODEL.replace("notify:", DECIDER + "notify:", 1).replace("goals:", DECIDED, 1) if decider else MODEL
+    (tmp_path / "ergostat.yaml").write_text(text)
     p = Project(mdl.load(tmp_path))
     a = [gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None}) for _ in range(requests)]
     p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 3, "ask": "review the queue"})
+    if decider:
+        p.events.add("person.asked", item="decider", source="ergostat", data={"command": 1, "ask": "push it?"})
     return p, a
 
 
 @pytest.fixture
 def site(tmp_path, home):
     p, a = pushes(tmp_path, 1)
+    yield from serve(tmp_path, home, p, a[0])
+
+
+@pytest.fixture
+def decided(tmp_path, home):
+    p, a = pushes(tmp_path, 1, decider=True)
     yield from serve(tmp_path, home, p, a[0])
 
 
@@ -205,6 +226,94 @@ def test_approve_in_the_side_panel(site):
         pg.wait_for_function("""() => !document.querySelector('[data-inbox^="person/reviewer@"]')""", timeout=20000)
         assert p.events.query(n=1, type="agent.ran", item="reviewer")[-1]["data"]["done"] == 2.0
         shot(pg, "side-panel-answered.png")
+        assert not errors, errors
+        b.close()
+
+
+INPUTS = """() => [...document.querySelectorAll('.att .inbox-act input')].map((i) => {
+    const l = i.closest('label'), row = i.closest('.inbox-act');
+    return { label: l ? l.innerText : null, shown: !!l && l.getBoundingClientRect().height > 0,
+             whole: !!l && [l, ...l.children].every((x) => x.scrollWidth <= x.clientWidth),
+             placeholder: i.placeholder, wide: i.getBoundingClientRect().width / row.clientWidth }; })"""
+
+
+@pytest.fixture
+def folds(tmp_path, home):
+    """Three stocks with no description, each a modelling request held for the owner: alike, so one folded entry."""
+    from ergostat import model as mdl
+    from ergostat.numbers import requests as rq
+    from ergostat.store import Project
+
+    from .test_inbox import MODEL
+    from .test_modelling_core import MODELLING
+    mine = {f"stock.bare-{i}" for i in range(3)}
+    stocks = "".join(f"  bare-{i}:\n    unit: things\n    sensor: {{manual: true}}\n" for i in range(3))
+    (tmp_path / "ergostat.yaml").write_text(MODEL.replace("stocks:\n", "stocks:\n" + stocks, 1) + MODELLING)
+    p = Project(mdl.load(tmp_path))
+    rq.sync(p)
+    held = [r for r in rq.current(p, ("open",)) if r["code"] == "no-description" and r["about"] in mine]
+    assert len(held) == 3, sorted(r["about"] for r in held)
+    for r in held:
+        rq.mark(p, r, "held", "no tier has a change for it")
+    yield from serve(tmp_path, home, p, held)
+
+
+def test_the_folded_requests_deny_all_reason_has_a_full_label_too(folds):
+    """Acceptance, the folded requests (the review of round 5): the fold's own Deny all reason, and each member's
+    reason once the fold is opened, sit under a visible <label> shown whole, as wide as the row, with no placeholder."""
+    url, p, _ = folds
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        fold = pg.locator('.side .att > [data-fold^="no-description|"]')
+        fold.wait_for(state="attached", timeout=60000)
+        house = pg.locator(".side details.housekeeping")             # held requests are housekeeping (folded)
+        if house.count() and not house.evaluate("(d) => d.open"):
+            house.locator(":scope > summary").click()
+        fold.locator(":scope > details.fold > summary").click()
+        assert fold.locator(':scope > details.fold > [data-inbox^="request/"]').count() == 3
+        got = pg.evaluate(INPUTS)
+        labels = [" ".join((x["label"] or "").split()) for x in got]
+        assert labels.count("Reason for denying all (required)") == 1, got           # the fold's own reason
+        assert labels.count("Reason for denying (required)") >= 3, got              # each member's
+        for x in got:
+            assert x["label"] and x["shown"] and x["whole"] and not x["placeholder"] and x["wide"] > 0.9, x
+        assert not errors, errors
+        b.close()
+
+
+def test_every_answer_in_the_side_list_has_a_full_label_and_a_number_its_unit(decided):
+    """Acceptance (ui-a-number-or-reason-asked-of-a-person-has-a-full): each input of the side list sits under a
+    visible <label> shown whole (scrollWidth <= clientWidth), as wide as its row, with no placeholder to be cut; a
+    number's label names its unit and the flow it moves; a person with two named ends (as the-job's approve-ramps and
+    declare-incident) keeps its number, which moves its first flow, and Done records what was typed."""
+    url, p, _ = decided
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        pg.locator('[data-inbox^="person/decider@"] .inbox-act button').first.wait_for(timeout=20000)
+        got = pg.evaluate(INPUTS)
+        assert len(got) == 3, got                      # the two numbers and the held action's reason
+        for x in got:
+            assert x["label"] and x["shown"] and x["whole"] and not x["placeholder"] and x["wide"] > 0.9, x
+        labels = [" ".join(x["label"].split()) for x in got]
+        assert labels.count("Jobs done, along reviewed (number)") == 1 and "Reason for denying (required)" in labels
+        assert "Jobs done, along declared (number)" in labels, labels      # two ends: its first flow, a number
+        decider = pg.locator('[data-inbox^="person/decider@"]')
+        decider.get_by_label("Jobs done, along declared (number)").fill("2")
+        buttons = decider.locator(".inbox-act button")
+        assert buttons.all_inner_texts() == ["Done with decider's ask"]
+        buttons.nth(0).click()
+        pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=decider.element_handle(), timeout=20000)
+        leave(pg)                                       # answered, it says so in its row until the reader leaves
+        pg.wait_for_function("""() => !document.querySelector('[data-inbox^="person/decider@"]')""", timeout=20000)
+        assert p.events.query(n=1, type="agent.ran", item="decider")[-1]["data"]["done"] == 2.0
         assert not errors, errors
         b.close()
 

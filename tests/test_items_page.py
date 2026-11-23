@@ -1593,6 +1593,95 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         events._kept.clear()
 
 
+# ---- the Timeline and the Graph of items that do not wait on one another (no relations declared)
+
+DESK = """name: desk
+items:
+  ticket:
+    id: ticket/*
+    states: [todo, doing, review, done]
+    on:
+      ticket.filed: todo
+      ticket.started: doing
+      ticket.submitted: review
+      ticket.closed: done
+"""
+
+
+@pytest.fixture(scope="module")
+def desk(tmp_path_factory):
+    """Eight tickets with no relations, none finished (the Frontier, on by default, hides the finished), each moved
+    through its states at its own pace."""
+    d = tmp_path_factory.mktemp("desk") / "desk"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(DESK)
+    home = d.parent / "home"
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+t = time.time() - 3000
+for i in range(1, 9):
+    p.events.add("ticket.filed", item=f"ticket/{{i}}", data={{"title": f"ask {{i}}"}}, at=t + i * 60)
+    p.events.add("ticket.started", item=f"ticket/{{i}}", at=t + i * 60 + 600)
+    if i % 2:
+        p.events.add("ticket.submitted", item=f"ticket/{{i}}", at=t + i * 60 + 1500)
+p.events.add("ticket.started", item="ticket/1", at=t + 2000)     # sent back: review is left, so not a finished state
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def test_the_timeline_draws_each_items_states_without_relations_and_the_graph_says_there_is_none(browser, desk):
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{desk}/items?view=timeline")
+    pg.wait_for_function("() => document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ticket/\"]').length >= 8",
+                         timeout=20000)
+    rows = pg.locator('.rg-timeline .rg-row[data-id^="ticket/"]').evaluate_all("""els => els.map((e) => ({
+        id: e.dataset.id, top: e.getBoundingClientRect().top,
+        states: [...e.querySelectorAll('rect.rg-seg')].map((r) => r.dataset.state),
+        labels: [...e.querySelectorAll('text.rg-inbar')].map((t) => t.textContent) }))""")
+    assert sorted(r["id"] for r in rows) == [f"ticket/{i}" for i in range(1, 9)], rows     # one row a ticket
+    for r in rows:
+        assert r["top"] < 900, r                                                          # within the first 900 px
+        n = int(r["id"].split("/")[1])
+        want = ["todo", "doing", "review", "doing"] if n == 1 else ["todo", "doing", "review"] if n % 2 else ["todo", "doing"]
+        assert r["states"] == want and r["labels"] == want, r                            # split by state, each named
+    tl, charts = pg.locator("section.sys-group:has(.rg-timeline)").first.evaluate(
+        "(e) => [e.querySelector('.rg-timeline').getBoundingClientRect().top, e.querySelector('.kind-flows').getBoundingClientRect().top]")
+    assert tl < charts, (tl, charts)                                                     # the mode's own drawing first
+    assert "relations:" not in pg.locator("#main").inner_text()
+    pg.goto(f"{desk}/items?view=graph")
+    said = "These items do not wait on one another, so there is no dependency graph."
+    pg.wait_for_function(f"() => document.body.innerText.includes({said!r})", timeout=20000)
+    top, charts = pg.locator("p.muted", has_text=said).first.evaluate(
+        "(e) => [e.getBoundingClientRect().top, e.closest('section').querySelector('.kind-flows').getBoundingClientRect().top]")
+    assert top < charts, (top, charts)                                                   # above the charts here too
+    assert "relations:" not in pg.locator("#main").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
 STAMP =re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+")
 EPOCH = re.compile(r"1,7\d\d,\d{3},\d{3}")
 WHEN_CELLS = """() => [...document.querySelectorAll('#main table')].filter((t) => t.rows[0]?.cells[0]?.textContent === 'when')
@@ -1714,6 +1803,114 @@ def test_the_side_panels_and_item_tables_are_captioned(browser, site):
     pg.evaluate("() => document.querySelector('#main').append(fieldView([{ step: 'a', took: 1 }, { step: 'b', took: 2 }]))")
     check("an item's list of objects")
     assert {"parts", "Recent", "params", "item-list", "sub"} <= seen, seen
+    assert not errors, errors
+    pg.close()
+
+
+# ---- the same on a project shaped like ticket-factory: tickets with relations declared, one waiting on another,
+# some finished, no system said (as ticket.yaml), and ergostat's own upkeep (messages, a built-in kind without
+# relations) unfinished beside them
+
+TICKETS = """name: tickets
+items:
+  ticket:
+    id: ticket/*
+    states: [todo, doing, review, done]
+    on:
+      ticket.filed: todo
+      ticket.started: doing
+      ticket.submitted: review
+      ticket.closed: done
+    relations:
+      blocked_by: ticket
+"""
+
+
+@pytest.fixture(scope="module")
+def tickets(tmp_path_factory):
+    """Eight tickets, ticket/2 blocked by ticket/1, three of them done (1, 3 and 5), and twelve of the owner's
+    messages, ten still open, in the built-in ``ergostat`` system (no relations: its Timeline is drawn too)."""
+    d = tmp_path_factory.mktemp("tickets") / "tickets"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(TICKETS)
+    home = d.parent / "home"
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+t = time.time() - 3000
+for i in range(1, 9):
+    waits = {{"blocked_by": ["ticket/1"]}} if i == 2 else {{}}
+    p.events.add("ticket.filed", item=f"ticket/{{i}}", data={{"title": f"ask {{i}}", **waits}}, at=t + i * 60)
+    p.events.add("ticket.started", item=f"ticket/{{i}}", at=t + i * 60 + 600)
+    if i in (1, 3, 5):
+        p.events.add("ticket.closed", item=f"ticket/{{i}}", at=t + i * 60 + 1500)
+for i in range(1, 13):
+    p.events.add("ergostat.message.received", item=f"ergostat.message/m{{i}}", data={{"text": f"note {{i}}"}}, at=t + i * 30)
+    p.events.add("ergostat.message.routed", item=f"ergostat.message/m{{i}}", at=t + i * 30 + 900)
+    if i <= 2:     # routed is left, so not a finished state: the other ten are unfinished
+        p.events.add("ergostat.message.delivered", item=f"ergostat.message/m{{i}}", at=t + i * 30 + 1200)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def _ticket_rows(pg, n):
+    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ticket/\"]').length >= {n}"
+                         " && document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ergostat.message/\"]').length >= 10",
+                         timeout=20000)
+    return pg.locator('.rg-timeline .rg-row[data-id^="ticket/"]').evaluate_all("""els => els.map((e) => ({
+        id: e.dataset.id, top: e.getBoundingClientRect().top,
+        states: [...e.querySelectorAll('rect.rg-seg')].map((r) => r.dataset.state),
+        labels: [...e.querySelectorAll('text.rg-inbar')].map((t) => t.textContent) }))""")
+
+
+def test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkeep(browser, tickets):
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    # the Frontier and collapse off: every ticket, the finished too (on, the default, they are left out: below)
+    pg.goto(f"{tickets}/items?view=timeline&frontier=0&collapse=0")
+    rows = _ticket_rows(pg, 8)
+    assert sorted(r["id"] for r in rows) == [f"ticket/{i}" for i in range(1, 9)], rows     # one row a ticket
+    for r in rows:
+        assert r["top"] < 900, r                                                          # within the first 900 px
+        # split by state, each named (a finished ticket's bar ends where it was closed)
+        assert r["states"] == ["todo", "doing"] and r["labels"] == ["todo", "doing"], r
+    order = pg.locator("section.sys-group").evaluate_all("els => els.map((e) => e.dataset.system)")
+    # the project's before the upkeep, though the server lists ergostat's before "other", where the tickets are
+    assert order.index("other") < order.index("ergostat"), order
+    tl, charts = pg.locator('section.sys-group[data-system="other"]').evaluate(
+        "(e) => [e.querySelector('.rg-timeline').getBoundingClientRect().top, e.querySelector('.kind-flows').getBoundingClientRect().top]")
+    assert tl < charts, (tl, charts)                                                     # the mode's own drawing first
+    assert "relations:" not in pg.locator("#main").inner_text()
+    # the defaults: the Frontier shows the unfinished and what they wait on, so the finished drop out but ticket/1,
+    # which ticket/2 waits on, collapsed into its line
+    pg.goto(f"{tickets}/items?view=timeline")
+    rows = _ticket_rows(pg, 5)
+    assert sorted(r["id"] for r in rows) == ["ticket/2", "ticket/4", "ticket/6", "ticket/7", "ticket/8"], rows
+    assert all(r["top"] < 900 and r["labels"][:2] == ["todo", "doing"] for r in rows), rows
+    order = pg.locator("section.sys-group").evaluate_all("els => els.map((e) => e.dataset.system)")
+    assert order.index("other") < order.index("ergostat"), order
+    assert "relations:" not in pg.locator("#main").inner_text()
     assert not errors, errors
     pg.close()
 

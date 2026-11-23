@@ -442,6 +442,33 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page(project):
+    """A pasted link's ?window= is S.since (main.js reads it only when it names one of WINDOWS) and goes to the API as
+    since=: each name must be a window the server reads as its seconds, never its 1h fallback. A link with ?select=,
+    ?window= and ?filter= is still the page (the browser half of this check is tests/test_diagram_rendering.py::
+    test_the_address_holds_what_is_chosen_and_the_window)."""
+    import re
+    from pathlib import Path
+
+    from ergostat.web import serve
+    main_js = (Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static" / "main.js").read_text()
+    windows = json.loads(re.search(r"const WINDOWS = (\{[^}]*\});", main_js).group(1))
+    assert {"1h", "6h"} <= set(windows)
+    server, url = serve(project, free_port())
+    try:
+        for name, secs in windows.items():
+            with urllib.request.urlopen(f"{url}/api/loops/disk-under-80?since={name}", timeout=10) as r:
+                lp = json.loads(r.read())
+            assert abs(lp["until"] - lp["since"] - secs) < 1, (name, lp["since"], lp["until"])
+        for path in ("/loops?select=disk-under-80&window=6h", "/diagram?view=dynamics&select=stock.disk-used&window=1d",
+                     "/record?filter=valve.*&window=10m"):
+            with urllib.request.urlopen(url + path, timeout=10) as r:
+                assert r.status == 200 and b'name="ergostat-token"' in r.read(), path
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_the_loop_answer_carries_what_the_panels_first_table_shows(tmp_path):
     """A controller's and a process's panel start with loopTable (control.js): rows law, process, held-out fit, time
     off, settling, saturation, the fit naming its measure. The image-squeeze tuner's loop answer holds every field
@@ -1008,6 +1035,26 @@ def test_a_snapshot_holds_the_items_graph_the_page_asks_for(tmp_path):
     assert "epic/e1" in t and t["ticket/a"]["status"] == "active"                   # what its relations reach
     both = {x["id"] for x in data["items-graph?kinds=epic,goal"]["items"]}
     assert {"epic/e1", "epic/e2", "goal/g"} <= both and data["items-graph?kinds=epic,goal"]["asked"] == ["epic", "goal"]
+
+
+def test_a_snapshot_holds_the_timeline_of_a_system_without_relations(tmp_path):
+    # as pages.js: a system none of whose kinds has relations asks for its kinds that have items (the Timeline)
+    import re as _re
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web.snapshot import build
+    (tmp_path / "ergostat.yaml").write_text("systems:\n  desk: {description: the help desk}\nitems:\n"
+                                            "  ticket: {id: ticket/*, system: desk}\n  call: {id: call/*, system: desk}\n"
+                                            "  memo: {id: memo/*, system: desk}\n")
+    p = Project(mdl.load(tmp_path))
+    p.events.add("ticket.opened", item="ticket/a", data={"title": "printer"})
+    p.events.add("call.taken", item="call/c", data={"title": "a call"})
+    data = json.loads(_re.search(r"window\.SNAPSHOT = (.*?);</script>", build(p), _re.S).group(1))["data"]
+    got = data.get("items-graph?kinds=ticket,call") or data.get("items-graph?kinds=call,ticket")
+    assert got is not None, sorted(k for k in data if k.startswith("items-graph"))
+    assert {x["id"] for x in got["items"]} == {"ticket/a", "call/c"}                # memo: no items, not asked
+    assert not any("memo" in k and "," in k for k in data if k.startswith("items-graph"))
 
 
 def _snapshot_data(p) -> dict:
