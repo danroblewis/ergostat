@@ -336,7 +336,8 @@ function controlBox(goal, part, { block = null } = {}) {
     const done = () => { CTL.delete(goal); draw(); document.dispatchEvent(new CustomEvent("loop-answered", { detail: goal })); };
     const kids = part === "process" ? processSection(d, done) : part === "controller" ? controllerSection(d, done)
       : part === "scope" ? [h("h3", {}, "How it is doing"), performanceRows(d).some(([, v]) => v != null && v !== "") ? dl(performanceRows(d))
-          : h("p", { class: "muted small" }, d.why ? "Not worked out: it has no one process." : "Not worked out yet: too little record since the loop started (its first ten controller periods, two minutes at least, are left out).")]
+          : h("p", { class: "muted small" }, d.why ? `Read it by its time off and its crossings (below): ${d.why}.`
+            : "Its numbers come once the loop has more record: its first ten controller periods, two minutes at least, are left out.")]
       : [...processSection(d, done), ...(d.controller?.law ? controllerSection(d, done) : [])];
     box.replaceChildren(...kids);
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));

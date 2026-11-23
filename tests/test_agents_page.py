@@ -479,7 +479,7 @@ def test_the_evidence_says_in_one_line_whether_the_actor_was_commanded_ran_and_m
     assert not ("never opened" in evidence and re.search(r"moves\s+requests-answered", evidence, re.I))
     moves = pg.locator("#detail dl", has_text="cycled").inner_text()   # the loop's own rows
     assert "requests-answered" not in moves and "changes-made-by-fixer" in moves   # what its own valve moves
-    hint = pg.inner_text("#detail p:has(b:text-is('Suggestion:'))")
+    hint = pg.inner_text("#detail p.remedy")                     # its suggestion, as the remedy, before the charts
     if made:                                                     # 3/h made against 2/h raised: it keeps up
         assert "keeps up on average" in hint and "moves nothing" not in hint
     else:                                                        # it ran 34 times and moved nothing
