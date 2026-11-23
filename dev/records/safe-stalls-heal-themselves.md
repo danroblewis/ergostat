@@ -15,7 +15,7 @@ Definition of done:
 
 ## Where it stopped
 
-Built, round 1. Net lines outside tests/, docs/ and dev/: about 210 (budget 600).
+Built, round 1. Net lines outside tests/, docs/ and dev/: 174 (budget 600); dev/bin adds about 75 more.
 
 - Done 1: `tests/test_lease_gone.py::test_a_killed_runs_lease_is_released_in_one_pass_uncounted_and_the_next_is_taken`
   (one `watch()` releases it, `count: false`, one attempt allowed and the item not a dead letter, then `tick()` takes
