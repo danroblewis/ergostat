@@ -1849,3 +1849,101 @@ def test_the_size_paths_are_in_the_model():
         assert any(flow in str(r) for refs in spec.blocks["planner"].outputs.values() for r in refs)
     aux = spec.auxiliaries["planning-cost-share"]
     assert [s.run for s in aux.sensors.values()] == ["python3 dev/bin/measure.py planning-cost-share"]
+
+
+def researched(f: Instance, rid: str, report: str | None = "# Found\n\nThe queue reruns a failure twice.\n",
+               state: str = "answered", **asked) -> None:
+    """A research item asked (with ``asked``'s fields) and, unless still asked, answered with ``report`` in
+    run/research/ (None: a report path that is not there); its state then set to ``state``."""
+    f.fold([{"event": "research.asked", "item": rid, "data": {"question": f"What of {rid}?", **asked}}], None)
+    if state != "asked":
+        name = rid.split("/", 1)[1]
+        if report is not None:
+            (f.model / "run" / "research").mkdir(parents=True, exist_ok=True)
+            (f.model / "run" / "research" / f"{name}.md").write_text(report)
+        f.fold([{"event": "research.answered", "item": rid, "data": {
+            "report": f"run/research/{name}.md", "summary": f"The summary of {name}."}}], None)
+    db = f.db()
+    db["items"][rid]["state"] = state
+    f.record.write_text(json.dumps(db))
+
+
+def test_implementor_and_reviewer_briefs_carry_the_gaps_research(tmp_path):
+    f = Instance(tmp_path)
+    f.define()
+    researched(f, "research/by-field-1")                                     # the gap's own research field
+    researched(f, "research/by-gap-2", gap="gap/alpha-thing", report="# Second\n\nThe lease is renewed.\n")
+    researched(f, "research/of-parent-3", report="# Third\n\nThe parent's answer.\n")
+    researched(f, "research/elsewhere-4", gap="gap/other", report="# Fourth\n\nNot this gap's.\n")
+    f.fold([{"event": "gap.measured", "item": "gap/alpha-thing", "data": {"research": ["research/by-field-1"],
+                                                                         "parent": ["gap/p"]}},
+            {"event": "gap.requested", "item": "gap/p", "data": {"title": "Parent", "research": ["research/of-parent-3"]}}],
+           None)
+    assert f.run("implement.py", "gap/alpha-thing")[0] == ["gap.started", "gap.built"]
+    assert f.run("review.py", "gap/alpha-thing")[0][-1] == "gap.approved"
+    gap = f.item("gap/alpha-thing")["fields"]
+    briefs = [(c, (f.model / c["brief"][5:]).read_text())
+              for c in (gap["contexts"][0], f.item("review/alpha-thing-1")["fields"]["context"])]
+    for ctx, text in briefs:
+        assert ctx["role"] in ("implementor", "reviewer")
+        assert {"research/by-field-1", "research/by-gap-2", "research/of-parent-3"} <= set(ctx["knowledge"])
+        assert "research/elsewhere-4" not in ctx["knowledge"] and "Not this gap's." not in text
+        head = text.index("## Research for this gap")
+        assert head < text.index("The queue reruns a failure twice.") and head < text.index("The lease is renewed.")
+        assert "### research/by-field-1: What of research/by-field-1?" in text
+        assert "**Summary:** The summary of by-gap-2." in text and "The parent's answer." in text
+        assert head < text.index("## The module map")                      # first of what is carried as it fits
+
+
+def test_asked_unsourced_or_dead_research_is_not_carried(tmp_path):
+    f = Instance(tmp_path)
+    f.define()
+    researched(f, "research/asked-1", state="asked", gap="gap/alpha-thing")
+    researched(f, "research/dead-2", state="dead", gap="gap/alpha-thing", report="# Dead\n\nA dead answer.\n")
+    researched(f, "research/gone-3", report=None, gap="gap/alpha-thing")    # its report is not in run/research/
+    researched(f, "research/out-4", gap="gap/alpha-thing")
+    db = f.db()
+    db["items"]["research/out-4"]["fields"]["report"] = "ergostat.yaml"     # a path outside run/research/: refused
+    f.record.write_text(json.dumps(db))
+    researched(f, "research/kept-5", gap="gap/alpha-thing", report="# Kept\n\nThe one answer.\n")
+    for role in ("implementor", "reviewer", "planner"):
+        got = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", role, "x")
+        assert [k for k in got["knowledge"] if k.startswith("research/")] == ["research/kept-5"]
+        assert "The one answer." in got["text"] and "A dead answer." not in got["text"]
+        assert not [k for k in got["knowledge_dropped"] if k.startswith("research/")]
+    got = f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "researcher", "x")
+    assert "## Research for this gap" not in got["text"]                    # only the three roles carry it
+
+
+def test_research_over_its_budget_is_cut_at_a_line_and_over_the_roles_dropped_whole(tmp_path):
+    f = Instance(tmp_path)
+    f.define()
+    long = "# Long\n\n" + "".join(f"line {n} of the report, <b>tagged</b>\n" for n in range(400))
+    researched(f, "research/long-1", gap="gap/alpha-thing", report=long)
+    got = f.py(BLOCK, json.dumps({"research_chars": 500}), "gap/alpha-thing", "implementor", "x")
+    part = got["text"].split("<report>\n", 1)[1].split("\n</report>", 1)[0]
+    assert "research/long-1" in got["knowledge"] and len(part) <= 500 + 40
+    assert part.endswith("</b>\n(cut to research_chars)") and "line 13 of the report" not in part   # cut at a line
+    assert f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "implementor", "x")["text"].count("<b>") == \
+        long[:6000].rsplit("\n", 1)[0].count("<b>")                          # the default: 6000
+    must = f.py(BLOCK, json.dumps({"chars": 1}), "gap/alpha-thing", "implementor", "x")["knowledge_chars"]
+    lean = f.py(BLOCK, json.dumps({"chars": must + 300, "research_chars": 500}), "gap/alpha-thing", "implementor", "x")
+    assert lean["knowledge_chars"] <= must + 300 and "research/long-1" in lean["knowledge_dropped"]
+    assert "research/long-1" not in lean["knowledge"] and "<report>" not in lean["text"] and "<b>" not in lean["text"]
+
+
+def test_ask_ties_a_question_to_a_known_gap(tmp_path):
+    f = Instance(tmp_path)
+    f.opened()
+    rid = f.tool("ask.py", "How", "does the queue decide?").stdout.strip()            # no option: as before
+    assert f.drain() == ["research.asked"]
+    assert f.item(rid)["fields"]["question"] == "How does the queue decide?" and "gap" not in f.item(rid)["fields"]
+    for name in ("alpha-thing", "gap/alpha-thing"):
+        rid = f.tool("ask.py", "--gap", name, "Why", "the lease?").stdout.strip()
+        assert f.drain() == ["research.asked"]
+        assert f.item(rid)["fields"] == {**f.item(rid)["fields"], "question": "Why the lease?", "gap": "gap/alpha-thing"}
+    r = f.tool("ask.py", "--gap", "nothing-here", "Why?", ok=False)
+    assert "no such gap: gap/nothing-here" in r.stderr and f.drain() == []
+    f.tool("ask.py", ok=False)                                                          # no question: refused
+    researched(f, "research/tied-1", gap="gap/alpha-thing", report="# Tied\n\nThe tied answer.\n")
+    assert "The tied answer." in f.py(BLOCK, json.dumps({}), "gap/alpha-thing", "reviewer", "x")["text"]

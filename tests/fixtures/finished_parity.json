@@ -1,0 +1,874 @@
+{
+ "image-squeeze/case": {
+  "process": [
+   "met"
+  ],
+  "route": [
+   "met"
+  ],
+  "series": [
+   "met"
+  ]
+ },
+ "image-squeeze/ergostat.claim": {
+  "process": [
+   "unchecked"
+  ],
+  "route": [
+   "unchecked"
+  ],
+  "series": [
+   "unchecked"
+  ]
+ },
+ "image-squeeze/ergostat.context": {
+  "process": [
+   "failed"
+  ],
+  "route": [
+   "failed"
+  ],
+  "series": [
+   "failed"
+  ]
+ },
+ "image-squeeze/ergostat.correction": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "image-squeeze/ergostat.decision": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "image-squeeze/ergostat.message": {
+  "process": [
+   "answered"
+  ],
+  "route": [
+   "answered"
+  ],
+  "series": [
+   "answered"
+  ]
+ },
+ "image-squeeze/ergostat.model-change": {
+  "process": [
+   "inconclusive"
+  ],
+  "route": [
+   "inconclusive"
+  ],
+  "series": [
+   "inconclusive"
+  ]
+ },
+ "image-squeeze/ergostat.modelling-request": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "image-squeeze/ergostat.report": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "image-squeeze/ergostat.verdict": {
+  "process": [
+   "missed"
+  ],
+  "route": [
+   "missed"
+  ],
+  "series": [
+   "missed"
+  ]
+ },
+ "image-squeeze/hypothesis": {
+  "process": [
+   "dropped",
+   "kept"
+  ],
+  "route": [
+   "dropped",
+   "kept"
+  ],
+  "series": [
+   "leased",
+   "dropped",
+   "dead"
+  ]
+ },
+ "image-squeeze/release": {
+  "process": [],
+  "route": [],
+  "series": []
+ },
+ "image-squeeze/session": {
+  "process": [
+   "lost"
+  ],
+  "route": [
+   "lost"
+  ],
+  "series": [
+   "lost"
+  ]
+ },
+ "roadmap/epic": {
+  "process": [
+   "shipped"
+  ],
+  "route": [
+   "shipped"
+  ],
+  "series": [
+   "underway",
+   "shipped"
+  ]
+ },
+ "roadmap/ergostat.claim": {
+  "process": [
+   "unchecked"
+  ],
+  "route": [
+   "unchecked"
+  ],
+  "series": [
+   "unchecked"
+  ]
+ },
+ "roadmap/ergostat.context": {
+  "process": [
+   "failed"
+  ],
+  "route": [
+   "failed"
+  ],
+  "series": [
+   "failed"
+  ]
+ },
+ "roadmap/ergostat.correction": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "roadmap/ergostat.decision": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "roadmap/ergostat.message": {
+  "process": [
+   "answered"
+  ],
+  "route": [
+   "answered"
+  ],
+  "series": [
+   "answered"
+  ]
+ },
+ "roadmap/ergostat.model-change": {
+  "process": [
+   "inconclusive"
+  ],
+  "route": [
+   "inconclusive"
+  ],
+  "series": [
+   "inconclusive"
+  ]
+ },
+ "roadmap/ergostat.modelling-request": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "roadmap/ergostat.report": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "roadmap/ergostat.verdict": {
+  "process": [
+   "missed"
+  ],
+  "route": [
+   "missed"
+  ],
+  "series": [
+   "missed"
+  ]
+ },
+ "roadmap/ticket": {
+  "process": [
+   "done"
+  ],
+  "route": [
+   "done"
+  ],
+  "series": [
+   "leased",
+   "done",
+   "dead"
+  ]
+ },
+ "software-factory/ergostat.claim": {
+  "process": [
+   "unchecked"
+  ],
+  "route": [
+   "unchecked"
+  ],
+  "series": [
+   "unchecked"
+  ]
+ },
+ "software-factory/ergostat.context": {
+  "process": [
+   "failed"
+  ],
+  "route": [
+   "failed"
+  ],
+  "series": [
+   "failed"
+  ]
+ },
+ "software-factory/ergostat.correction": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "software-factory/ergostat.decision": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "software-factory/ergostat.message": {
+  "process": [
+   "answered"
+  ],
+  "route": [
+   "answered"
+  ],
+  "series": [
+   "answered"
+  ]
+ },
+ "software-factory/ergostat.model-change": {
+  "process": [
+   "inconclusive"
+  ],
+  "route": [
+   "inconclusive"
+  ],
+  "series": [
+   "inconclusive"
+  ]
+ },
+ "software-factory/ergostat.modelling-request": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "software-factory/ergostat.report": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "software-factory/ergostat.verdict": {
+  "process": [
+   "missed"
+  ],
+  "route": [
+   "missed"
+  ],
+  "series": [
+   "missed"
+  ]
+ },
+ "software-factory/pr": {
+  "process": [
+   "deployed"
+  ],
+  "route": [
+   "deployed"
+  ],
+  "series": [
+   "deployed"
+  ]
+ },
+ "software-factory/release": {
+  "process": [],
+  "route": [],
+  "series": []
+ },
+ "software-factory/ticket": {
+  "process": [
+   "dropped"
+  ],
+  "route": [
+   "dropped"
+  ],
+  "series": [
+   "dropped"
+  ]
+ },
+ "the-job/action": {
+  "process": [
+   "dead",
+   "done"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "done",
+   "dead"
+  ]
+ },
+ "the-job/alert": {
+  "process": [
+   "commented",
+   "dead"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "commented",
+   "dead"
+  ]
+ },
+ "the-job/ci": {
+  "process": [
+   "dead",
+   "upgraded"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "upgraded",
+   "dead"
+  ]
+ },
+ "the-job/day": {
+  "process": [
+   "recorded"
+  ],
+  "route": [
+   "recorded"
+  ],
+  "series": [
+   "recorded"
+  ]
+ },
+ "the-job/doc": {
+  "process": [
+   "approved",
+   "dead"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "approved",
+   "dead"
+  ]
+ },
+ "the-job/ergostat.claim": {
+  "process": [
+   "unchecked"
+  ],
+  "route": [
+   "unchecked"
+  ],
+  "series": [
+   "unchecked"
+  ]
+ },
+ "the-job/ergostat.context": {
+  "process": [
+   "failed"
+  ],
+  "route": [
+   "failed"
+  ],
+  "series": [
+   "failed"
+  ]
+ },
+ "the-job/ergostat.correction": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "the-job/ergostat.decision": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "the-job/ergostat.message": {
+  "process": [
+   "answered"
+  ],
+  "route": [
+   "answered"
+  ],
+  "series": [
+   "answered"
+  ]
+ },
+ "the-job/ergostat.model-change": {
+  "process": [
+   "inconclusive"
+  ],
+  "route": [
+   "inconclusive"
+  ],
+  "series": [
+   "inconclusive"
+  ]
+ },
+ "the-job/ergostat.modelling-request": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "the-job/ergostat.report": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "the-job/ergostat.verdict": {
+  "process": [
+   "missed"
+  ],
+  "route": [
+   "missed"
+  ],
+  "series": [
+   "missed"
+  ]
+ },
+ "the-job/mention": {
+  "process": [
+   "answered",
+   "dead"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "answered",
+   "dead"
+  ]
+ },
+ "the-job/note": {
+  "process": [
+   "briefed"
+  ],
+  "route": [
+   "briefed"
+  ],
+  "series": [
+   "briefed"
+  ]
+ },
+ "the-job/outage": {
+  "process": [
+   "reviewed"
+  ],
+  "route": [
+   "reviewed"
+  ],
+  "series": [
+   "reviewed"
+  ]
+ },
+ "the-job/pr": {
+  "process": [
+   "closed",
+   "dead"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "closed",
+   "dead"
+  ]
+ },
+ "the-job/ramp": {
+  "process": [
+   "approved",
+   "broke",
+   "proved-fine",
+   "rejected"
+  ],
+  "route": [
+   "approved",
+   "broke",
+   "proved-fine",
+   "rejected"
+  ],
+  "series": [
+   "leased",
+   "proved-fine",
+   "dead"
+  ]
+ },
+ "the-job/review": {
+  "process": [
+   "answered"
+  ],
+  "route": [
+   "answered"
+  ],
+  "series": [
+   "leased",
+   "answered",
+   "dead"
+  ]
+ },
+ "the-job/secret": {
+  "process": [
+   "dead",
+   "rotated"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "rotated",
+   "dead"
+  ]
+ },
+ "the-job/session": {
+  "process": [
+   "lost"
+  ],
+  "route": [
+   "lost"
+  ],
+  "series": [
+   "lost"
+  ]
+ },
+ "the-job/team-pr": {
+  "process": [
+   "dead",
+   "moving"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "moving",
+   "dead"
+  ]
+ },
+ "the-job/ticket": {
+  "process": [
+   "answered",
+   "dead"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "answered",
+   "dead"
+  ]
+ },
+ "the-job/update": {
+  "process": [
+   "dead",
+   "sent"
+  ],
+  "route": [
+   "dead",
+   "leased"
+  ],
+  "series": [
+   "leased",
+   "sent",
+   "dead"
+  ]
+ },
+ "ticket-factory/ergostat.action": {
+  "process": [
+   "denied"
+  ],
+  "route": [
+   "denied"
+  ],
+  "series": [
+   "denied"
+  ]
+ },
+ "ticket-factory/ergostat.claim": {
+  "process": [
+   "unchecked"
+  ],
+  "route": [
+   "unchecked"
+  ],
+  "series": [
+   "unchecked"
+  ]
+ },
+ "ticket-factory/ergostat.context": {
+  "process": [
+   "failed"
+  ],
+  "route": [
+   "failed"
+  ],
+  "series": [
+   "failed"
+  ]
+ },
+ "ticket-factory/ergostat.correction": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "ticket-factory/ergostat.decision": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "ticket-factory/ergostat.message": {
+  "process": [
+   "answered"
+  ],
+  "route": [
+   "answered"
+  ],
+  "series": [
+   "answered"
+  ]
+ },
+ "ticket-factory/ergostat.model-change": {
+  "process": [
+   "inconclusive"
+  ],
+  "route": [
+   "inconclusive"
+  ],
+  "series": [
+   "inconclusive"
+  ]
+ },
+ "ticket-factory/ergostat.modelling-request": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "ticket-factory/ergostat.report": {
+  "process": [
+   "dismissed"
+  ],
+  "route": [
+   "dismissed"
+  ],
+  "series": [
+   "dismissed"
+  ]
+ },
+ "ticket-factory/ergostat.verdict": {
+  "process": [
+   "missed"
+  ],
+  "route": [
+   "missed"
+  ],
+  "series": [
+   "missed"
+  ]
+ },
+ "ticket-factory/ergostat.workspace": {
+  "process": [
+   "quarantined"
+  ],
+  "route": [
+   "quarantined"
+  ],
+  "series": [
+   "quarantined"
+  ]
+ },
+ "ticket-factory/okr": {
+  "process": [
+   "off-track"
+  ],
+  "route": [
+   "off-track"
+  ],
+  "series": [
+   "off-track"
+  ]
+ },
+ "ticket-factory/report": {
+  "process": [
+   "written"
+  ],
+  "route": [
+   "written"
+  ],
+  "series": [
+   "written"
+  ]
+ },
+ "ticket-factory/ticket": {
+  "process": [
+   "done"
+  ],
+  "route": [
+   "done"
+  ],
+  "series": [
+   "leased",
+   "stopped",
+   "dead"
+  ]
+ }
+}

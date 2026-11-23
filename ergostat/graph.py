@@ -170,7 +170,7 @@ def control(model, snap: dict, parts: set[str], readings: dict | None = None) ->
         c = m.controllers[n]
         lp = snap["loops"].get(n, {})
         nodes.append(_node(f"controller:{n}", "controller", n, setpoint=f"{c.holds} {c.setpoint}", status=lp.get("status"),
-                           error=lp.get("error"), agent=agent_of.get(n), description=c.description,
+                           error=lp.get("error"), offBy=lp.get("off_by_words"), agent=agent_of.get(n), description=c.description,
                            decision=((lp.get("last_decision") or {}).get("data") or {}).get("decision"),
                            decisionAt=(lp.get("last_decision") or {}).get("time"), openLoop=c.open_loop,
                            systems=in_system.get(n, [])))

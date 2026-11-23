@@ -97,6 +97,62 @@ def test_a_relation_folds_only_as_a_set(tmp_path):
     assert any("a relation folds as a set of ids" in g for g in got), got
 
 
+STARTS = """
+    items:
+      ticket:
+        id: ticket/*
+        states: [todo, review, done, on-hold]
+        relations:
+          {rel}
+    messages:
+      done: {{ticket: [done]}}
+      paused: {{ticket: [on-hold]}}
+    """
+
+
+def test_starts_at_naming_an_unknown_state_is_refused(tmp_path):
+    got = problems(tmp_path, STARTS.format(rel="blocked_by: {kind: ticket, starts_at: [reveiw]}"))
+    assert [g.split(":")[0] for g in got] == ["starts-at-unknown-state"], got
+    assert "did you mean review" in got[0]
+    assert problems(tmp_path, STARTS.format(rel="blocked_by: {kind: ticket, starts_at: [review]}")) == []
+
+
+def test_starts_at_on_a_group_relation_is_refused(tmp_path):
+    got = problems(tmp_path, STARTS.format(rel="parent: {kind: ticket, starts_at: [review]}"))
+    assert [g.split(":")[0] for g in got] == ["starts-at-not-precedence"], got
+    got = problems(tmp_path, STARTS.format(rel="relates_to: {kind: ticket, starts_at: [review]}"))
+    assert [g.split(":")[0] for g in got] == ["starts-at-not-precedence"], got
+
+
+@pytest.mark.parametrize("state", ["done", "on-hold"])
+def test_starts_at_naming_a_finished_or_paused_state_is_refused(tmp_path, state):
+    got = problems(tmp_path, STARTS.format(rel=f"blocked_by: {{kind: ticket, starts_at: [{state}]}}"))
+    assert [g.split(":")[0] for g in got] == ["starts-at-finished"], got
+
+
+TAKEN = """
+    items:
+      gap:
+        id: gap/*
+        states: [todo, approved, merged]
+        relations:
+          depends_on: {{kind: gap, starts_at: [{state}]}}
+    blocks:
+      dev:
+        type: program
+        run: "true"
+        takes: {{kind: gap, at: todo, unblocked: true}}
+    """
+
+
+@pytest.mark.parametrize("state,code", [("merged", "starts-at-finished"), ("dead", "starts-at-finished"),
+                                        ("leased", "starts-at-leased"), ("approved", None)])
+def test_starts_at_on_a_taken_kind_with_no_done_reads_its_own_last_state(tmp_path, state, code):
+    # a block takes the kind, so it gains leased and dead: the last state is still merged, not dead
+    got = problems(tmp_path, TAKEN.format(state=state))
+    assert [g.split(":")[0] for g in got] == ([code] if code else []), got
+
+
 def test_takes_unblocked_needs_a_precedence_relation(tmp_path):
     got = problems(tmp_path, """
         items:
