@@ -1169,8 +1169,25 @@ def test_the_graphs_status_counts_filter_it(browser, roadmap):
     pg.close()
 
 
-def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadmap):
+def fin_pressed(pg) -> list[str]:
+    """The page's one finished control: its pressed option (and that there is exactly one such control)."""
+    assert pg.locator(".fin-seg").count() == 1 and pg.locator("input[type=checkbox]").count() == 0
+    return pg.locator(".fin-seg button[aria-pressed=true]").evaluate_all("els => els.map((e) => e.textContent)")
+
+
+def fin_choose(pg, text: str, sel: str, before: int) -> int:
+    """Press one of the finished options and wait for the view to draw more than ``before`` of ``sel``."""
+    pg.locator(".fin-seg button", has_text=text).click()
+    pg.wait_for_function(f"() => document.querySelectorAll('{sel}').length > {before}", timeout=20000)
+    pg.wait_for_timeout(500)
+    return pg.locator(sel).count()
+
+
+def test_the_graph_draws_the_unfinished_with_the_finished_collapsed(browser, roadmap):
     pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    assert fin_pressed(pg) == ["Hidden"]                                              # the Graph's default
+    text = pg.locator(".page").inner_text()
+    assert "Frontier" not in text and "Collapse done" not in text and "Show: Open" not in text
     nodes = drawn(pg, ".rg-graph .rg-node")
     ids = {n["id"] for n in nodes}
     assert not overlaps(nodes), overlaps(nodes)
@@ -1182,20 +1199,24 @@ def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadm
     assert "rg-blocked" in st["ticket/e2-integrate"] and "rg-unblocked" in st["ticket/e3-design"]
     assert "rg-hub" in st["epic/e2"]                                                  # a parent, its children hang off it
     labels = pg.locator(".rg-graph .rg-elabel").evaluate_all("els => els.map((e) => e.textContent)")
-    assert "via 1 done" in labels, labels                                             # v1 -> (v2, done) -> v3
+    assert "via 1 finished" in labels, labels                                         # v1 -> (v2, done) -> v3
     assert pg.locator(".rg-graph .rg-edge.rg-crit").count() >= 2                       # the critical path, drawn
     legend = pg.locator(".rg-legend").first.inner_text()
     assert "active" in legend and "waiting" in legend and "critical path" in legend, legend
-    # everything: the finished drawn too, nothing collapsed
-    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()
-    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()
+    # what is not drawn, and what finished is for each kind (the answer's kinds[].finished)
+    unseen = pg.locator(".rg-legend .rg-unseen").first.inner_text()
+    assert re.fullmatch(r"\d+ finished not drawn: .*ticket done.*", unseen), unseen
+    # the three options draw strictly more cards each: those waited on (v2 comes back), then everything
+    waits = fin_choose(pg, "Those waited on", ".rg-graph .rg-node", len(nodes))
+    assert "finished=waits" in pg.url and fin_pressed(pg) == ["Those waited on"]
+    assert not any("ticket/e1-" in n["id"] for n in drawn(pg, ".rg-graph .rg-node"))   # nothing unfinished waits on them
+    fin_choose(pg, "Shown", ".rg-graph .rg-node", waits)
     pg.wait_for_function("() => document.querySelectorAll('.rg-graph .rg-node.rg-done').length >= 6")
-    pg.wait_for_timeout(500)
     every = drawn(pg, ".rg-graph .rg-node")
-    assert len(every) > len(nodes) and any(n["id"] == "ticket/e1-design" for n in every)
+    assert len(nodes) < waits < len(every) and any(n["id"] == "ticket/e1-design" for n in every)
     assert not overlaps(every), overlaps(every)
-    assert "via 1 done" not in pg.locator(".rg-graph .rg-elabel").evaluate_all("els => els.map((e) => e.textContent)")
-    assert "frontier=0" in pg.url and "collapse=0" in pg.url
+    assert "via 1 finished" not in pg.locator(".rg-graph .rg-elabel").evaluate_all("els => els.map((e) => e.textContent)")
+    assert "finished=show" in pg.url and not pg.locator(".rg-legend .rg-unseen").count()
     # by kind: each kind a frame; and the search narrows it
     pg.locator(".rg-viewbar button", has_text="By kind").click()
     pg.wait_for_function("() => document.querySelectorAll('.rg-graph .rg-frame').length === 2")
@@ -1216,6 +1237,72 @@ RG_MODEL = """([d, o]) => { const m = rgModel(d, o);
            capped: m.capped, lost: m.lost }; }"""
 
 
+def chain_answer() -> dict:
+    """a -> b -> c -> d, a to c finished, d not; and z -> y -> x, y finished, z and x not."""
+    st = {"a": "done", "b": "done", "c": "done", "d": "blocked", "x": "blocked", "y": "done", "z": "active"}
+    items = [{"id": f"t/{a}", "kind": "t", "title": a, "state": "closed" if s == "done" else "open", "status": s}
+             for a, s in st.items()]
+    links = [("a", "b"), ("b", "c"), ("c", "d"), ("z", "y"), ("y", "x")]
+    edges = [{"kind": "precedence", "from": f"t/{p}", "to": f"t/{q}"} for p, q in links]
+    return {"items": items, "edges": edges, "kinds": [{"name": "t", "asked": True, "finished": ["closed"]}],
+            "critical": [], "cycles": []}
+
+
+CHAIN = """([d, o]) => { const m = rgModel(d, o);
+  return { nodes: m.nodes.map((n) => n.id).sort(), edges: m.edges.map((e) => [e.from, e.to, e.label]), unseen: m.unseen }; }"""
+
+
+def test_rg_model_draws_each_finished_choice_on_a_chain(browser, roadmap):
+    """Acceptance (items-graph-one-show-choice): on a -> b -> c -> d with a to c finished, hide draws {d}, waits
+    {c, d}, show all four; waits never adds an item more than one precedence link from an unfinished one; the
+    finished not drawn are counted per kind."""
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    ans, o = chain_answer(), {"group": "parent", "q": "", "status": None}
+    got = {f: pg.evaluate(CHAIN, [ans, {**o, "finished": f}]) for f in ("hide", "waits", "show")}
+    on_chain = lambda g: [a for a in g["nodes"] if a[2] in "abcd"]      # noqa: E731
+    assert on_chain(got["hide"]) == ["t/d"]
+    assert on_chain(got["waits"]) == ["t/c", "t/d"]
+    assert on_chain(got["show"]) == ["t/a", "t/b", "t/c", "t/d"]
+    assert got["hide"]["nodes"] == ["t/d", "t/x", "t/z"] and got["waits"]["nodes"] == ["t/c", "t/d", "t/x", "t/y", "t/z"]
+    assert ["t/z", "t/x", "via 1 finished"] in got["hide"]["edges"]              # the chain through y: one line
+    assert ["t/c", "t/d", ""] in got["waits"]["edges"] and ["t/y", "t/x", ""] in got["waits"]["edges"]
+    assert got["hide"]["unseen"] == {"t": 4} and got["waits"]["unseen"] == {"t": 2} and got["show"]["unseen"] == {}
+    # one hop, on answers of the factory's and the milestones' shape too: each finished card waits drawn has an
+    # unfinished item waiting on it directly
+    from ergostat.web import graph_parts
+    from tests.test_graph_parts import factory_answer
+    from tests.test_milestone_frames import milestone_answer
+    one = """([d, o]) => { const m = rgModel(d, o), by = Object.fromEntries(d.items.map((x) => [x.id, x]));
+      return m.nodes.filter((n) => !n.fold && !n.hub && by[n.id].status === 'done')
+        .filter((n) => !d.edges.some((e) => e.kind === 'precedence' && e.from === n.id && by[e.to]?.status !== 'done'))
+        .map((n) => n.id); }"""
+    for a in (chain_answer(), graph_parts.mark(factory_answer()), milestone_answer()):
+        assert pg.evaluate(one, [a, {**o, "finished": "waits"}]) == []
+    assert not errors, errors
+    pg.close()
+
+
+def test_an_old_graph_address_opens_with_shown_and_the_choice_survives_a_view_switch(browser, roadmap):
+    """Acceptance 5: /items?view=graph&frontier=0&collapse=0 opens with Shown pressed (read once, written as
+    finished=show); a choice made in the list is kept when switching to the Graph."""
+    pg, errors = open_view(browser, roadmap, "items?view=graph&frontier=0&collapse=0", ".rg-graph[data-drawn] .rg-node")
+    assert fin_pressed(pg) == ["Shown"] and pg.locator(".rg-graph .rg-node.rg-done:not(.rg-hub)").count() >= 6
+    pg.locator(".seg[aria-label=Show] button", has_text="List").click()
+    pg.wait_for_function("() => location.search.includes('view=list') || !location.search.includes('view=')")
+    assert "frontier" not in pg.url and "collapse" not in pg.url and "finished=show" in pg.url
+    pg.locator(".fin-seg button", has_text="Those waited on").click()
+    pg.wait_for_function("() => location.search.includes('finished=waits')")
+    pg.locator(".seg[aria-label=Show] button", has_text="Graph").click()
+    pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
+    assert fin_pressed(pg) == ["Those waited on"] and "finished=waits" in pg.url and "view=graph" in pg.url
+    for old, want in (("frontier=1&collapse=0", "Those waited on"), ("frontier=0", "Hidden"), ("collapse=1", "Hidden")):
+        pg.goto(f"{roadmap}/items?view=timeline&{old}")
+        pg.wait_for_selector(".rg-timeline[data-drawn] .rg-row", timeout=20000)
+        assert fin_pressed(pg) == [want], old
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadmap):
     """The page's own rgModel on an answer of the factory's shape (tests/test_graph_parts.py): every unfinished gap
     and every line into one drawn, no review; past the bound (a chained record, one group bigger than the bound, an
@@ -1228,12 +1315,12 @@ def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadma
     by = {x["id"]: x for x in ans["items"]}
     into = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["status"] != "done"}
     unfinished = {a for a, x in by.items() if x["kind"] == "gap" and x["status"] != "done"}
-    o = {"frontier": True, "collapse": False, "group": "parent", "q": "", "status": None}
+    o = {"finished": "waits", "group": "parent", "q": "", "status": None}
     got = pg.evaluate(RG_MODEL, [ans, o])
     assert not got["capped"] and got["lost"] == 0, got["capped"]
     assert unfinished <= set(got["nodes"]) and not any(a.startswith("review/") for a in got["nodes"])
     assert {tuple(e) for e in got["edges"]} == into and len(into) == 340
-    got = pg.evaluate(RG_MODEL, [ans, {**o, "collapse": True}])                  # the finished collapsed: theirs go
+    got = pg.evaluate(RG_MODEL, [ans, {**o, "finished": "hide"}])               # the finished hidden: theirs go
     assert set(got["nodes"]) == unfinished
     assert {tuple(e) for e in got["edges"]} == {(a, b) for a, b in into if a in unfinished}
     for big in (factory_answer(n_open=1200, seed=11), fan_answer(), epic_answer()):   # past the bound
@@ -1272,12 +1359,18 @@ def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap
     pg.locator(".rg-timeline .rg-tools button", has_text="+").click()
     pg.locator(".rg-timeline .rg-tools button", has_text="+").click()
     assert ticks() != before
-    assert not pg.locator(".rg-timeline .rg-row.rg-done").count()                 # the finished collapsed, by default
-    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()   # the finished rows come back
-    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length > {len(rows)}")
-    kept = pg.locator(".rg-timeline .rg-row").count()
-    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()        # every item in the window
-    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length > {kept}")
+    # it opens on those waited on (a default, not in the address): only the finished an unfinished one waits on
+    assert fin_pressed(pg) == ["Those waited on"] and "finished=" not in pg.url
+    done = set(pg.locator(".rg-timeline .rg-row.rg-done").evaluate_all("els => els.map((e) => e.dataset.id)"))
+    assert "ticket/v2" in done and "ticket/e2-design" in done and not any("ticket/e1-" in i for i in done), done
+    waits = pg.locator(".rg-timeline .rg-row").count()
+    pg.locator(".fin-seg button", has_text="Hidden").click()                         # the finished rows go
+    pg.wait_for_function("() => !document.querySelector('.rg-timeline .rg-row.rg-done:not(.rg-sumrow)')")
+    pg.wait_for_timeout(500)
+    hidden = pg.locator(".rg-timeline .rg-row").count()
+    assert "finished=hide" in pg.url and fin_pressed(pg) == ["Hidden"]
+    every = fin_choose(pg, "Shown", ".rg-timeline .rg-row", waits)                   # every item in the window
+    assert hidden < waits < every, (hidden, waits, every)
     assert not errors, errors
     pg.close()
 
@@ -2412,7 +2505,7 @@ def test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkee
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    # the Frontier and collapse off: every ticket, the finished too (on, the default, they are left out: below)
+    # the finished shown (an old address's Frontier and Collapse done off): every ticket, the finished too
     pg.goto(f"{tickets}/items?view=timeline&frontier=0&collapse=0")
     rows = _ticket_rows(pg, 8)
     assert sorted(r["id"] for r in rows) == [f"ticket/{i}" for i in range(1, 9)], rows     # one row a ticket
@@ -2427,9 +2520,12 @@ def test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkee
         "(e) => [e.querySelector('.rg-timeline').getBoundingClientRect().top, e.querySelector('.kind-flows').getBoundingClientRect().top]")
     assert tl < charts, (tl, charts)                                                     # the mode's own drawing first
     assert "relations:" not in pg.locator("#main").inner_text()
-    # the defaults: the Frontier shows the unfinished and what they wait on, so the finished drop out but ticket/1,
-    # which ticket/2 waits on, collapsed into its line
+    # the default, those waited on: the finished drop out but ticket/1, which ticket/2 waits on directly
     pg.goto(f"{tickets}/items?view=timeline")
+    rows = _ticket_rows(pg, 6)
+    assert sorted(r["id"] for r in rows) == ["ticket/1", "ticket/2", "ticket/4", "ticket/6", "ticket/7", "ticket/8"], rows
+    # hidden: ticket/1 too, collapsed into its line
+    pg.goto(f"{tickets}/items?view=timeline&finished=hide")
     rows = _ticket_rows(pg, 5)
     assert sorted(r["id"] for r in rows) == ["ticket/2", "ticket/4", "ticket/6", "ticket/7", "ticket/8"], rows
     assert all(r["top"] < 900 and r["labels"][:2] == ["todo", "doing"] for r in rows), rows
@@ -2688,17 +2784,20 @@ def test_the_list_leaves_out_the_finished_and_one_parameter_shows_them(browser, 
         pg.wait_for_selector(".finished-note")
         assert gap_rows(pg) == unfinished
         assert pg.locator(".finished-note").all_inner_texts() == ["3 finished (merged, closed, dead) not shown · show"]
-        assert pg.locator("input[type=checkbox]").count() == 1 and pg.get_by_label("Show finished").count() == 1
+        assert fin_pressed(pg) == ["Hidden"]                          # the page's one finished control
         pg.click(".finished-note a")                                  # the note's link: the page-wide parameter
         pg.wait_for_function("() => document.querySelectorAll('tr[data-kind=gap]').length === 6")
-        assert "finished=show" in pg.url and pg.get_by_label("Show finished").is_checked()
+        assert "finished=show" in pg.url and fin_pressed(pg) == ["Shown"]
         assert pg.locator(".finished-note").count() == 0
-        pg.get_by_label("Show finished").uncheck()                    # the toggle: the same parameter
+        pg.locator(".fin-seg button", has_text="Those waited on").click()   # the list reads it as hidden
         pg.wait_for_selector(".finished-note")
-        assert "finished" not in pg.url and gap_rows(pg) == unfinished
+        assert "finished=waits" in pg.url and gap_rows(pg) == unfinished
+        pg.locator(".fin-seg button", has_text="Hidden").click()      # the control: the same parameter
+        pg.wait_for_function("() => !location.search.includes('finished')")
+        assert gap_rows(pg) == unfinished
         pg.goto(f"{finished_site}/items?finished=show")
         pg.wait_for_function("() => document.querySelectorAll('tr[data-kind=gap]').length === 6")
-        assert pg.get_by_label("Show finished").is_checked()
+        assert fin_pressed(pg) == ["Shown"]
         pg.goto(f"{finished_site}/items?kind=gap&state=closed")
         pg.wait_for_selector('tr[data-kind="gap"]')
         assert gap_rows(pg) == {"gap/g2": "closed"} and pg.locator(".finished-note").count() == 0
@@ -3210,13 +3309,13 @@ def test_a_kinds_search_reaches_every_item_and_its_sort_is_the_whole_sets(browse
 FRAMES = """([d, o]) => { const m = rgModel(d, o);
   return { nodes: m.nodes.map((n) => [n.id, n.in || null, !!n.fold, !!n.hub]), edges: m.edges.map((e) => [e.from, e.to, e.cls]),
            info: m.frameInfo, folded: [...m.folded], lost: m.lost, capped: m.capped }; }"""
-MS = {"frontier": False, "collapse": False, "group": "parent", "q": "", "status": None}
+MS = {"finished": "show", "group": "parent", "q": "", "status": None}
 
 
 def test_the_graph_frames_each_gap_in_its_milestone(browser, roadmap):
     """On a generated answer (tests/test_milestone_frames.py): each gap in its milestone's frame, the rest in a plain
     one; each frame titled with its name, state and tally (blocked, and on what); an arrow between milestones; no
-    dependency line lost, across frames too; a completed milestone folded under Collapse done."""
+    dependency line lost, across frames too; a completed milestone folded with the finished hidden."""
     from tests.test_milestone_frames import milestone_answer
     ans = milestone_answer()
     by = {x["id"]: x for x in ans["items"]}
@@ -3240,8 +3339,8 @@ def test_the_graph_frames_each_gap_in_its_milestone(browser, roadmap):
     deps = {(a, b) for a, b, cls in got["edges"] if cls == "dep"}
     assert between <= deps and got["lost"] == 0                                 # every line, across frames too
     assert {("milestone/m0", "milestone/m1"), ("milestone/m1", "milestone/m2")} <= deps   # milestone to milestone
-    # Collapse done: the completed milestone folded to its frame, a line from its gap drawn from it
-    for o in ({**MS, "collapse": True}, {**MS, "frontier": True, "collapse": True}):
+    # the finished hidden: the completed milestone folded to its frame, a line from its gap drawn from it
+    for o in ({**MS, "finished": "hide"},):
         got = pg.evaluate(FRAMES, [ans, o])
         nodes = {a: (f, fold) for a, f, fold, _ in got["nodes"]}
         assert got["folded"] == ["milestone/m0"] and nodes["milestone/m0"] == (None, True)
@@ -3267,11 +3366,11 @@ MS_DRAW = """async ([d, o]) => { const m = rgModel(d, o), el = relGraph(() => {}
 @pytest.mark.parametrize("collapse", [False, True])
 def test_the_graph_draws_each_milestone_as_a_frame_holding_its_gaps(browser, roadmap, collapse):
     """Drawn (ELK): each card inside its frame's box and no other milestone's, every line routed (milestone to
-    milestone, and gap to gap across frames), no two cards overlapping; under Collapse done the completed one is one
-    card, not a frame."""
+    milestone, and gap to gap across frames), no two cards overlapping; with the finished hidden the completed one
+    is one card, not a frame."""
     from tests.test_milestone_frames import milestone_answer
     pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
-    got = pg.evaluate(MS_DRAW, [milestone_answer(), {**MS, "collapse": collapse}])
+    got = pg.evaluate(MS_DRAW, [milestone_answer(), {**MS, "finished": "hide" if collapse else "show"}])
     inside = lambda c, f: f["x"] - 1 <= c["x"] and c["x"] + c["w"] <= f["x"] + f["w"] + 1 and \
         f["y"] - 1 <= c["y"] and c["y"] + c["h"] <= f["y"] + f["h"] + 1                  # noqa: E731
     frames = got["frames"]
@@ -3350,15 +3449,15 @@ def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browse
     pg.close()
 
 
-def test_the_timeline_spans_each_milestone_over_all_its_gaps_under_frontier_and_collapse(browser, roadmap):
-    """The Timeline's default (Frontier, Collapse done): a completed milestone's gaps are all collapsed out of the
+def test_the_timeline_spans_each_milestone_over_all_its_gaps_with_the_finished_hidden(browser, roadmap):
+    """With the finished hidden (finished=hide): a completed milestone's gaps are all collapsed out of the
     rows, yet its summary row keeps its bar over all of them, its tally inside the chart, and its arrow to the
     milestone after it; an active one's bar spans its done gaps too (the same span as with nothing collapsed)."""
     from tests.test_milestone_frames import milestone_answer
     ans = milestone_answer()
     pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
     full = {r["id"]: r for r in pg.evaluate(MS_TIMELINE, [ans, MS, None])["rows"] if r["sum"]}
-    got = pg.evaluate(MS_TIMELINE, [ans, {**MS, "frontier": True, "collapse": True}, None])
+    got = pg.evaluate(MS_TIMELINE, [ans, {**MS, "finished": "hide"}, None])
     sums = {r["id"]: r for r in got["rows"] if r["sum"]}
     ids = [r["id"] for r in got["rows"]]
     assert "milestone/m0" in sums and not any(a.startswith("gap/d") for a in ids)   # its gaps all collapsed

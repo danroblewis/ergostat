@@ -668,9 +668,21 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
   const found = h("span", { class: "muted search-said", "aria-live": "polite" });   // a kind's: its matches, the finished apart
-  let kind = q.get("kind"), state = q.get("state"), finished = itemsFinished(q);
-  const showFin = h("label", { class: "rg-check", title: "List the finished and dead items too (each kind says how many it leaves out)" },
-    h("input", { type: "checkbox", ...(finished === "show" ? { checked: "" } : {}), onchange: (ev) => { finished = ev.target.checked ? "show" : "hide"; go(); } }), "Show finished");
+  let kind = q.get("kind"), state = q.get("state"), finished = itemsFinished(q), finChosen = q.get("finished") != null;
+  // an old address's Frontier and Collapse done, read once: both off every item, Collapse done off the waited on
+  if (!finChosen && (q.get("frontier") != null || q.get("collapse") != null)) {
+    finChosen = true;
+    finished = q.get("collapse") !== "0" ? "hide" : q.get("frontier") === "0" ? "show" : "waits";
+  }
+  // the choice in force: the reader's, or the view's default (the Timeline opens on waits, so at now; the rest hide)
+  const fin = () => (finChosen ? finished : view === "timeline" ? "waits" : "hide");
+  const finSeg = h("span", { class: "seg fin-seg", role: "group", "aria-label": "Finished items" },
+    ...[["hide", "Hidden", "Only the unfinished and paused; a chain through finished items is one dashed line, via N finished"],
+        ["waits", "Those waited on", "And the finished items an unfinished one waits on directly (the list hides them)"],
+        ["show", "Shown", "Every item in the window, the finished and dead too"]]
+      .map(([v, text, title]) => h("button", { type: "button", "data-fin": v, title, onclick: () => { finished = v; finChosen = true; go(); } }, text)));
+  const finPress = () => { for (const b of finSeg.children) { const on = b.dataset.fin === fin(); b.className = on ? "on" : ""; b.setAttribute("aria-pressed", String(on)); } };
+  const showFin = h("span", { class: "fin-choice" }, h("span", { class: "muted" }, "Finished items:"), finSeg);
   const loading = h("p", { class: "muted items-loading", hidden: "" }, "Loading…");   // a click's, at once, until its answer
   const loaded = () => { if (!loading.hidden) loading.hidden = true; };   // (a poll touches nothing it need not)
   // a kind's page (SPEC §5a): a page of its items asked of the server, searched and sorted there; in the address as
@@ -683,12 +695,8 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
   // the list sorted by a column's field (a header's click: up, down, off), in the address: sort=rank, sort=-rank
   let sort = ofKind(q.get("sort"));
-  // both show the frontier (the unfinished, and what they wait on) with the finished collapsed, so the timeline opens
-  // at now; unless asked otherwise
-  const said = (k) => (q.get(k) == null ? null : q.get(k) !== "0");
-  const ask = { frontier: said("frontier"), collapse: said("collapse") };
-  const ro = { get frontier() { return ask.frontier ?? true; }, get collapse() { return ask.collapse ?? true; },
-               group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
+  const ro = { group: q.get("group") === "kind" ? "kind" : "parent", lanes: q.get("rows") === "lanes", status: q.get("status") || null };
+  finPress();
   const viewBar = h("span", { class: "rg-viewbar" });
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
   // (and the process map's, process.js: through a node, along a line, caused from another kind, by states or events)
@@ -743,14 +751,14 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   const go = (load = true) => { const u = new URLSearchParams(); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
-                     if (finished !== "hide") u.set("finished", finished);
-                     showFin.firstChild.checked = finished === "show";
+                     if (finChosen && (finished !== "hide" || view === "timeline")) u.set("finished", finished);
+                     finPress();
                      loading.hidden = false;           // and the rows already drawn filtered, before the answer
                      for (const tr of box.querySelectorAll("tr[data-kind]")) tr.hidden = !!kind && (tr.dataset.kind !== kind || (state != null && tr.dataset.state !== state));
                      if (sort && view === "list") u.set("sort", paged() ? `${kind}:${sort}` : sort);
                      if (paged() && view === "list" && pg > 1) u.set("page", `${kind}:${pg}`);
                      if (paged() && view === "list" && size !== 25) u.set("size", String(size));
-                     if (view !== "list") { u.set("view", view); for (const k of ["frontier", "collapse"]) if (ask[k] != null) u.set(k, ask[k] ? "1" : "0");
+                     if (view !== "list") { u.set("view", view);
                                             if (view === "graph" && ro.group === "kind") u.set("group", "kind");
                                             if (ro.status) u.set("status", ro.status);
                                             if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
@@ -779,18 +787,18 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     const folded = foldedSystems();
     let d;
     const sortAsked = sort && view === "list" ? sort : "";
-    const sig = JSON.stringify([kind, state, search.value.trim(), sortAsked, size, finished]);
+    const sig = JSON.stringify([kind, state, search.value.trim(), sortAsked, size, fin() === "show"]);   // (the list reads waits as hide)
     if (asked != null && sig !== asked && pg !== 1) { pg = 1; go(false); }      // a new search, sort or filter: page 1
     asked = sig;
     const wanted = pg, per = size;
     try {
       d = paged() ? await ans.api("items", { kind, ...(state ? { state } : {}), n: size, offset: (pg - 1) * size, shown: 1,
                                              ...(search.value.trim() ? { q: search.value.trim() } : {}),
-                                             ...(sortAsked ? { sort: sortAsked } : {}), ...(finished === "show" ? { finished } : {}),
+                                             ...(sortAsked ? { sort: sortAsked } : {}), ...(fin() === "show" ? { finished: "show" } : {}),
                                              ...whatifParams() }, signal)
         : await ans.api("items", { ...(kind ? { kind, ...setParams() } : {}), ...(state ? { state } : {}),
                                    ...(SNAP ? {} : { per_kind: kind ? 300 : 25, shown: 1, ...(needle ? { q: needle } : {}), ...whatifParams(),
-                                                     ...(finished === "show" ? { finished } : {}),
+                                                     ...(fin() === "show" ? { finished: "show" } : {}),
                                                      ...(folded.size && !kind && !needle ? { hide: [...folded].join(",") } : {}) }) }, signal);
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
       if (gone()) return;
@@ -853,13 +861,10 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
     if (!force && !ans.changed && JSON.stringify([flows, gps]) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
       h("button", { class: on ? "on" : "", "aria-pressed": String(!!on), title, onclick: fn }, text)));
-    const check = (on, text, title, fn) => h("label", { class: "rg-check", title }, h("input", { type: "checkbox", ...(on ? { checked: "" } : {}), onchange: fn }), text);
     patch(viewBar, seg("Show", [[view === "list", "List", "Each kind's items, newest first", () => { view = "list"; go(); }],
                                 [view === "graph", "Graph", "The items and their relations: what each waits on, the critical path", () => { view = "graph"; go(); }],
                                 [view === "timeline", "Timeline", "A Gantt chart: each item's states over time, and what is projected for the unfinished", () => { view = "timeline"; go(); }]]),
       ...(view === "list" ? [] : [
-        check(ro.frontier, "Frontier", "Only the unfinished, and what they wait on however far back", (ev) => { ask.frontier = ev.target.checked; go(); }),
-        check(ro.collapse, "Collapse done", "Finished items vanish; a chain through them is one dashed line, via N done", (ev) => { ask.collapse = ev.target.checked; go(); }),
         ...(view === "graph" ? [seg("Group", [[ro.group === "parent", "By parent", "A parent (an epic) is a stadium its children hang off", () => { ro.group = "parent"; go(); }],
                                               [ro.group === "kind", "By kind", "Each kind a frame", () => { ro.group = "kind"; go(); }]])]
           : [seg("Rows", [[!ro.lanes, "By item", "A row an item: what happened, and its projected bars", () => { ro.lanes = false; go(); }],
@@ -892,10 +897,10 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       d.unkinded ? h("p", { class: "note" }, `${d.unkinded} item${d.unkinded > 1 ? "s" : ""} match no kind of the model's; shown with their fields, no state.`) : null,
       !d.kinds.length && !d.unkinded ? h("p", { class: "muted" }, "No items yet. An item is what events with an id like ticket/12 are about; see the Guide.") : null].filter(Boolean));
     // the finished left out (SPEC §5a): never a chosen state's, a set's or a search's; by the server, or here in a snapshot
-    const leaves = finished !== "show" && !state && !d.set && !needle;
+    const leaves = fin() !== "show" && !state && !d.set && !needle;
     const isHidden = (i) => hiddenStates(kindOf[i.kind]).includes(i.state);
     const rows = SNAP ? d.items.filter((i) => (!needle || (i.id + " " + JSON.stringify(i.fields)).toLowerCase().includes(needle)) && !(leaves && isHidden(i))) : d.items;
-    const flip = () => h("a", { href: "#", class: "finished-flip", onclick: (ev) => { ev.preventDefault(); finished = finished === "show" ? "hide" : "show"; go(); } }, finished === "show" ? "hide" : "show");
+    const flip = () => h("a", { href: "#", class: "finished-flip", onclick: (ev) => { ev.preventDefault(); finished = fin() === "show" ? "hide" : "show"; finChosen = true; go(); } }, fin() === "show" ? "hide" : "show");
     const finNote = (name, its) => {                     // what a kind leaves out, or the finished among a search's matches
       const k = kindOf[name], left = hiddenStates(k).filter((s) => k?.counts?.[s]), n = left.reduce((a, s) => a + k.counts[s], 0);
       if (leaves && n) return h("p", { class: "note finished-note", key: `fin:${name}` }, `${n} finished (${left.join(", ")}) not shown · `, flip());
@@ -972,7 +977,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
       const { want, d: rd } = relAsked[g.name] || { want: [] };
       if (!want.length) return kind || view !== "graph" ? [] : [h("p", { class: "muted", key: `rel-none:${g.name}` }, "These items do not wait on one another, so there is no dependency graph.")];
       if (!rd || rd.err) return [h("p", { class: "muted", key: `rel-none:${g.name}` }, SNAP ? "The graph and the timeline are not in a snapshot." : String(rd?.err?.message || rd?.err || "not read"))];
-      const o = { frontier: ro.frontier, collapse: ro.collapse, group: ro.group, q: needle, status: ro.status,
+      const o = { finished: fin(), group: ro.group, q: needle, status: ro.status,
                   where: kind && d.set ? where : [] };     // a set's where on a relation (a milestone's gaps) narrows them
       const m = rgModel(rd, o);
       const key = `rel:${view}:${g.name}`;

@@ -308,8 +308,7 @@ def test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run(browser, tm
     assert listed == [bid], listed                                               # the kind's list
     pg.goto(f"file://{page}#/items?kind=batch&view=timeline")
     pg.wait_for_selector(".rg-timeline[data-drawn]", timeout=60000)
-    pg.locator(".rg-check", has_text="Collapse done").locator("input").uncheck()  # (it ended: a finished row, and
-    pg.locator(".rg-check", has_text="Frontier").locator("input").uncheck()       # no unfinished one waits on it)
+    pg.locator(".fin-seg button", has_text="Shown").click()   # (it ended: a finished row no unfinished one waits on)
     pg.wait_for_selector(f".rg-timeline[data-drawn] .rg-row[data-id='{bid}'] .rg-seg", timeout=20000)
     bars = pg.locator(f".rg-row[data-id='{bid}'] .rg-seg title").all_text_contents()
     assert [t.split(",")[0] for t in bars] == [f"{bid}: {s}" for s in
