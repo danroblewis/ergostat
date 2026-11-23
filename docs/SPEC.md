@@ -1252,6 +1252,23 @@ in the tooltip of each kind's legend: `finished: merged, closed (declared)`, `fi
 has left it yet)`, or `lives on`, with `paused: …` after it. The process map, the cumulative flow and message routing
 keep their own older rule for now (a kind's last state when every state has been left).
 
+**Finished items, left out of the list.** The Items list shows the unfinished by default: each kind's finished states
+and `dead` are left out, its paused states (`parked`) stay listed, and a kind that lives on leaves out nothing. One
+choice for the whole page says it, the address's `finished=hide|waits|show` (`hide` when absent; the list reads
+`waits`, the Graph's, as `hide`): the toggle **Show finished** beside the search writes it, and under each kind that
+leaves any out a note says how many and which (`3 finished (merged, closed, dead) not shown · show`), its link
+flipping the same parameter. `GET /api/items` takes the same `finished=` (`hide` by default, `show`; anything else is
+refused) and gives each kind `hidden`, its count in each state left out; the counts per kind and state stay whole,
+and the items are paged by the item index over the other states, never cut first and filtered after. Three things
+are never left out, whatever the parameter: a state asked for (`state=closed` lists closed); a set a link carries
+(a stock's or a flow's *Show them on the Items page*, a valve's leased items, a process map's node or line: the list
+is exactly that set, so it counts what the part counts; a stock counting every state links with `finished=show`); and a search's matches
+(`q=`): a finished match is listed and counted apart (`1 finished match`; the answer's `finished_matched` per kind).
+A snapshot holds every item and leaves the finished out on the page. A click on the page (a state, a kind, the
+toggle) says *Loading…* under the heading at once and filters the rows already drawn; it aborts the request of the
+click before it, and the 4 s poll never runs while a click's answer is pending. The Graph's and Timeline's
+requests for each system are asked together.
+
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
 folded into that document in sequence. The event chooses how it changes it, in one of three forms
 (never two at once):

@@ -559,6 +559,7 @@ async function pageItems(main, q) {
   const showFin = h("label", { class: "rg-check", title: "List the finished and dead items too (each kind says how many it leaves out)" },
     h("input", { type: "checkbox", ...(finished === "show" ? { checked: "" } : {}), onchange: (ev) => { finished = ev.target.checked ? "show" : "hide"; go(); } }), "Show finished");
   const loading = h("p", { class: "muted items-loading", hidden: "" }, "Loading…");   // a click's, at once, until its answer
+  const loaded = () => { if (!loading.hidden) loading.hidden = true; };   // (a poll touches nothing it need not)
   // how the items are shown (relations.js): as lists, as a graph of their relations, or as a timeline; the graph's
   // and the timeline's choices, in the address too
   let view = ["graph", "timeline"].includes(q.get("view")) ? q.get("view") : "list";
@@ -657,7 +658,7 @@ async function pageItems(main, q) {
     } catch (err) {                                     // a filter that is not one: said where the chip goes, the rest as it was
       if (gone()) return;
       box.querySelector(".page-loading")?.remove();
-      loading.hidden = true;
+      loaded();
       patch(chip, h("span", { class: "set-chip bad" }, String(err.message || err), " ",
         h("button", { class: "ghost", title: "Remove this filter", "aria-label": "Remove this filter", onclick: () => { kind = state = null; dropSet(); go(); } }, "\u00d7")));
       return;
@@ -694,7 +695,7 @@ async function pageItems(main, q) {
     }));
     const trust = await trustAsked;
     if (gone()) return;
-    loading.hidden = true;
+    loaded();
     if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
     const seg = (label, items) => h("span", { class: "seg", role: "group", "aria-label": label }, ...items.map(([on, text, title, fn]) =>
       h("button", { class: on ? "on" : "", title, onclick: fn }, text)));

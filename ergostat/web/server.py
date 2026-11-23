@@ -369,7 +369,8 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
     return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
 
 
-def _unfinished(p, spec, got: dict, kind: str | None, until: float, n: int, offset: int, pk: int) -> dict:
+def _unfinished(p, spec, got: dict, kind: str | None, until: float, n: int, offset: int, pk: int,
+                folded: set = frozenset()) -> dict:
     """The plain list without each kind's finished and dead items (SPEC §5a, *Finished items*): each kind's
     ``hidden`` (its count in each state left out), and its items paged by the index in its other states, never
     cut first and filtered after. The counts stay whole."""
@@ -386,9 +387,10 @@ def _unfinished(p, spec, got: dict, kind: str | None, until: float, n: int, offs
     if kind:                                          # the chosen kind: its page in its other states
         k = next(k for k in kinds if k["name"] == kind)
         return {**got, "items": page(kind, vis(k), n, offset)}
-    if pk:                                            # each kind's newest: those hiding something asked again
+    if pk:                                            # each kind's newest: those hiding something asked again (not folded)
+        again = {k["name"] for k in kinds if k["hidden"] and k.get("system") not in folded}
         items = [i for i in got["items"] if not any(k["hidden"] and k["name"] == i.get("kind") for k in kinds)]
-        return {**got, "items": items + [i for k in kinds if k["hidden"] for i in page(k["name"], vis(k), pk, 0)]}
+        return {**got, "items": items + [i for k in kinds if k["name"] in again for i in page(k["name"], vis(k), pk, 0)]}
     each = [i for k in kinds for i in page(k["name"], vis(k) if k["hidden"] else None, offset + n, 0)]
     each += page("", None, offset + n, 0) if got.get("unkinded") else []                  # the items of no kind
     return {**got, "items": sorted(each, key=lambda i: -i["last"])[offset:offset + n]}
@@ -854,7 +856,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
         if fin not in ("hide", "waits", "show"):
             raise BadSet(f"finished={fin}: hide, waits or show")
         if fin != "show" and not one("state") and not one("q") and spec is not None:   # never a searched or chosen state
-            got = _unfinished(p, spec, got, one("kind"), snap["at"], n, offset, pk)
+            got = _unfinished(p, spec, got, one("kind"), snap["at"], n, offset, pk, set((one("hide") or "").split(",")))
         if want is not None:
             got["set"] = {"says": want.says(), "params": want.params()}
         out = _as_listed(got, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))

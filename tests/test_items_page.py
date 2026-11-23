@@ -213,9 +213,9 @@ def test_items_list_sorts_by_a_column(browser, site):
                             .every((b) => b.getAttribute('aria-sort') === 'none')""")      # drawn again, unsorted
     pg.locator('section[data-system="lab"] table button.sort', has_text="title").click()
     pg.wait_for_function("() => location.search.includes('sort=title')")
-    pg.wait_for_function("""() => document.querySelector('section[data-system="lab"] table tr td:first-child b')
-                            ?.textContent === 'hypothesis/1'""")
-    assert rows()[:3] == ["hypothesis/1", "hypothesis/2", "hypothesis/3"]
+    pg.wait_for_function("""() => [...document.querySelectorAll('section[data-system="lab"] table tr td:first-child b')]
+                            .slice(0, 2).map((b) => b.textContent).join() === 'hypothesis/1,hypothesis/3'""")
+    assert rows()[:3] == ["hypothesis/1", "hypothesis/3", "hypothesis/4"]     # hypothesis/2, a dead letter, left out
     pg.close()
 
 
@@ -274,7 +274,7 @@ def test_leases_are_shown_on_the_items_page_and_the_items(browser, site):
     pg = browser.new_page(viewport={"width": 1500, "height": 1000})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
-    pg.goto(f"{site}/items?kind=hypothesis")
+    pg.goto(f"{site}/items?kind=hypothesis&finished=show")                     # a dead letter is left out unless shown
     pg.wait_for_selector('td[data-lease="held"]')
     heads = pg.locator('section.sys-group[data-system="lab"] table th').all_inner_texts()
     assert "leased by" in heads and "expires in" in heads, heads
@@ -1394,7 +1394,8 @@ def test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_o
         server.server_close()
 
 
-FINISHED = FINISHING.replace("parked, closed]", "parked, closed, dead]").replace("gap.closed: closed}", "gap.closed: closed, gap.died: dead}")
+FINISHED = FINISHING.replace("parked, closed]", "parked, closed, dead]").replace(
+    "gap.closed: closed}", "gap.closed: closed, gap.died: dead}")
 DELAYED = """(() => {          // /api/items held back window.__delay ms, each asked and each aborted counted
   window.__items = []; window.__aborted = 0; window.__delay = 0;
   const f = window.fetch.bind(window);
@@ -1430,7 +1431,8 @@ def finished_site(tmp_path):
 
 
 def gap_rows(pg) -> dict[str, str]:
-    return dict(pg.locator('tr[data-kind="gap"]:not([hidden])').evaluate_all("els => els.map((e) => [e.querySelector('b').textContent, e.dataset.state])"))
+    return dict(pg.locator('tr[data-kind="gap"]:not([hidden])').evaluate_all(
+        "els => els.map((e) => [e.querySelector('b').textContent, e.dataset.state])"))
 
 
 def test_the_list_leaves_out_the_finished_and_one_parameter_shows_them(browser, finished_site):
@@ -1490,7 +1492,8 @@ def test_a_state_click_answers_at_once_and_asks_once(browser, finished_site):
         pg.wait_for_selector('tr[data-kind="gap"]')
         got = pg.evaluate("""async () => {
             window.__delay = 2000;
-            const before = window.__items.length, box = (st) => [...document.querySelectorAll('.kind-flow a.stbox')].find((a) => a.textContent.endsWith(st));
+            const before = window.__items.length;
+            const box = (st) => [...document.querySelectorAll('.kind-flow a.stbox')].find((a) => a.textContent.endsWith(st));
             const t0 = performance.now();
             box('parked').click();
             await new Promise((r) => setTimeout(r, 100));
