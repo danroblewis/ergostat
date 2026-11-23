@@ -129,5 +129,23 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   tests/test_factory.py whole (about 943 s serially). Refused this session: `git checkout main -- dev/bin/fac.py`
   (the revert was done by hand-editing instead, and is checked equal to main), and one compound `uv run … ; git diff
   … | awk …; wc -l …` call.
+- Round 5, the build: it failed on the switcher test again
+  (`test_an_approved_switch_drains_and_switches_through_the_engine`, 1 failed, 195 passed, 2 skipped, 954 s), and the
+  factory asked for a code fix, not the test's bound. That goes against review finding (1), which asked for fac.py
+  to stay as main's. The fix kept is therefore not round 4's rule (skip states counted 0), which could miss an
+  item. It is a fix that gives the same result as main's code, outside the Files list, in dev/bin/fac.py (three
+  lines). `fac.items(kind)` with no state first makes one listing with no state. When that listing carries every
+  item of the kind (`items` as long as `total`, which the item index counts over the whole kind), it is returned:
+  one snapshot of every state, so no state's count is read and nothing is left out. Only when the listing is capped
+  (past 500) does it list each state as before. The result is the same set of items as main's (more consistent,
+  since it is read at one moment), and it takes one `ergostat item` start instead of 1 + one per state (gap has
+  20-odd states). So the 80-odd callers get the same answer. Most reversible: three lines, and if they are taken
+  out, main's path runs unchanged. New test `test_a_kind_within_the_cap_is_one_listing_of_every_item`
+  (tests/test_fac_items.py). It was seen to fail with the shortcut off (5 calls, not 1). The two capped tests there
+  still cover the per-state path. Seen: the switcher test alone takes 72 s (118 s with main's fac.py in round 2).
+  Passed: tests/test_fac_items.py (9), tests/test_backlog.py, tests/test_milestones.py (79 together),
+  tests/test_factory_manager.py (34), and the switcher test. Ruff (`ergostat tests scripts`, dev/bin/fac.py,
+  dev/bin/mend.py) is clean. Not run: tests/test_factory.py whole, or under `-n 8`. The test's 120 s wait under load
+  is still main's cost. This shortens it but does not prove it fits under every load.
 
 Overrun reason: 197 net lines against 150 (168 in mend.py, 24 in landing.yaml, 5 elsewhere); the stock, flow and parameter the block's in/out must name (about 10) and the round-5 rotation of the pick (tried.json, about 37, asked by review) were not in the definition's estimate.
