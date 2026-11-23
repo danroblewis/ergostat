@@ -186,3 +186,19 @@ hidden tab / diagram left open (6), page left open (10), the two dynamics tests 
 20 of 20 passed, none skipped. The watchdog counted 1 process left behind after the dynamics run (peak 2.9 GB, 127
 threads).
 Still not run: the factory-state acceptance (no copy of the factory's state here) and the merge queue's full suites.
+
+## Where it stopped
+
+Continued (gap/perf-goals-page-asks-once-continued, round 2): the factory's merge of main (52c675fe) conflicted in
+`ergostat/web/static/pages.js`, in pageLoops' table header. Resolved: main's header is kept ("how far" for the
+column showing `off_by_words`, in place of "error"). Main's copy of the per-goal loop-control fan-out is dropped,
+because this branch replaced it with `loops?perf=1`. After the merge, pages.js differs from main only by this
+branch's changes. Main's server.py change is to the loop-control answer's crossings and does not touch `/api/loops`,
+`Live.keep` or goal_work. No code changed beyond the conflict.
+Run after the merge: ruff clean; `tests/test_goal_work.py` 8 passed; `tests/test_off_by_words.py` 6 passed;
+`tests/test_web_access.py` 26 passed. Under the watchdog, rc 0, none skipped:
+`tests/test_page_polling.py::test_the_loops_page_asks_once_for_every_goal` (1 passed), and from
+`tests/test_diagram_rendering.py`, `test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks` and
+`test_loops_and_items_say_loading_under_their_heading_until_their_answer` (3 passed).
+Still not run: the rest of `tests/test_page_polling.py` after this merge, the factory-state acceptance (no copy of
+the factory's state here), and the merge queue's full suites.
