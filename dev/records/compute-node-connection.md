@@ -140,3 +140,15 @@ it has held three beats (up to 30 s late), not at its hello. Saying it at once w
 for a session that had no hello.
 
 Overrun reason: connection.py is now 341 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds about 20 net lines (the steady span that alone resets the backoff, and the deferred up).
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, continued round 7). Main (e43046dc) merged in. The two docs/SPEC.md conflicts keep
+both sides. §12k *Compute pools* now says a pool is declared, checked and connected to (the branch), and that a block
+may name its pool with `runs-on:` and still runs here (main). The opening of §12s names the engine's session (the
+branch) and says `runs-on:` is declared and checked only (main). Main's "nothing connects to a node" and "Nothing in
+the engine speaks to it yet" are dropped because this branch makes them false. §12s.4's "still to be filled" no
+longer lists `runs-on:`, which main has now added. No code changed this round, and no review findings were open
+apart from the conflict.
+
+Overrun reason: connection.py is 341 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds no lines.
