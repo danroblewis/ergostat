@@ -40,3 +40,13 @@ Built, round 1. 120 net lines outside tests and docs (dev/ counted: slots.py 84,
   over 6`, `threads`, `memory`) and `push-waiting 1` from the sensor's own command (`queue.py waiting`), "unreadable"
   when it cannot be read.
 - Not covered: suites that someone else starts outside the factory still take the kept slot; dev/README says so.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-23 09:13).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 8: nack queue: the push of 166e5ae0fd95 (gap/graph-draws-every-dependency) is requested
+- attempt 9: nack queue: the push of 76e1a9ab1945 (gap/perf-segments-item-span-first) is requested
+- attempt 10: nack queue: the push of 2985c7826921 (gap/milestone-kind-and-lifecycle) is requested
+- attempt 11: nack the implementor pool is full (run/pools.json): waits its turn
