@@ -6,7 +6,14 @@
    reason said), never a browser file skipped;
    the definition of done committed first (`dev/records/<branch>.md`) when the branch lacks it, by this
    program; a branch behind main (a continued one, a fix round) has main merged in by this program (a conflict is
-   left for the session, its files in the brief); then published to the drop;
+   left for the session, its files in the brief); then published to the drop. A gap whose every unfinished
+   dependency is approved, queued or push-pending (fac.stack_base) is stacked: main and each one's reviewed head merged
+   in rank order (`--no-ff`, never a rebase or a squash) as a commit in the drop, refs/stack/factory/<branch>, by this
+   program, and that commit merged in instead of main; it is the base the strays, net lines, check findings and the
+   run on main are measured against, and `finish` holds main and each base's sha. `stacked_on` [{gap, sha}] is on
+   gap.started and gap.built. Bases that conflict (with each other or main) give the gap back uncounted for 30m, the
+   files named; so does a base whose reviewed head is no longer its branch's tip (it waits for the merge-forward). A
+   gap with no unfinished dependency builds on main alone, as before;
 2. a session in a container of its own (or the stand-in) on a brief assembled from dev/prompts/implementor.md;
 3. what it left uncommitted committed and bundled back to the drop (in a container with no network); before the
    suites, a branch adding scratch files (`strays`: [gates] scratch_patterns, or a new top-level file or folder the
@@ -28,7 +35,10 @@ dollar cap only (fails closed): over it, the gap is given back for an hour, unco
 from __future__ import annotations
 
 import fnmatch
+import os
+import re
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -63,14 +73,14 @@ def definition_first(cfg: dict, gap: dict, work: Path) -> tuple[str, str]:
     return target.read_text(), held
 
 
-def merge_main(work: Path, main: str) -> list[str]:
-    """main merged into a branch that is behind it (by this program, before the session): a clean merge committed as
-    the factory; a conflicted one left in progress for the session to finish. The files in conflict (none: clean, or
-    nothing to merge)."""
+def merge_main(work: Path, main: str, what: str = "main") -> list[str]:
+    """main (or a stacked gap's stack: `what`) merged into a branch that is behind it (by this program, before the
+    session): a clean merge committed as the factory; a conflicted one left in progress for the session to finish. The
+    files in conflict (none: clean, or nothing to merge)."""
     if fac.git_ok(work, "merge-base", "--is-ancestor", main, "HEAD"):
         return []
     who = ["-c", "user.name=factory", "-c", "user.email=factory@localhost", "-c", "commit.gpgsign=false"]
-    if fac.git_ok(work, *who, "merge", "--no-ff", "-m", f"Merge main ({main[:12]}) into the branch\n\n{fac.TRAILER}",
+    if fac.git_ok(work, *who, "merge", "--no-ff", "-m", f"Merge {what} ({main[:12]}) into the branch\n\n{fac.TRAILER}",
                   main):
         return []
     conflicts = fac.conflicted(work)
@@ -79,6 +89,30 @@ def merge_main(work: Path, main: str) -> list[str]:
     return conflicts
 
 
+def stack(cfg: dict, branch: str, main: str, bases: list[dict]) -> tuple[str, list[str]]:
+    """main and each base's reviewed head merged in rank order (by this program, `--no-ff`, never a rebase or a
+    squash), in the drop with no work tree, as a commit under refs/stack/factory/<branch> (on no branch): (that commit,
+    or ""; the files where two of them conflict). Each merge is dated as the base it adds, so the same main and bases
+    make the same commit in every round, and a branch that holds it is not merged again."""
+    d, at = agents.drop(cfg), main
+    for b in bases:
+        out = fac.git(d, "merge-tree", "--write-tree", "--name-only", "--no-messages", "-z", at, b["sha"], check=False)
+        tree, *files = [p for p in re.split(r"[\0\n]", out) if p] or [""]
+        if not re.fullmatch(r"[0-9a-f]{40,64}", tree):                  # (failed for another reason: stop, never guess)
+            raise RuntimeError(f"git merge-tree {at[:12]} {b['sha'][:12]} in the drop said nothing readable")
+        if files:
+            return "", sorted(set(files))
+        when = fac.git(d, "show", "-s", "--format=%ci", b["sha"])
+        at = subprocess.run(["git", "-C", str(d), "-c", "commit.gpgsign=false", "commit-tree", tree, "-p", at, "-p",
+                             b["sha"], "-m", f"Merge {b['gap']} ({b['sha'][:12]}) under {branch}\n\n{fac.TRAILER}"],
+                            env={**os.environ, **WHO, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when},
+                            capture_output=True, text=True, check=True, timeout=600).stdout.strip()
+    fac.git(d, "update-ref", f"refs/stack/{fac.git_branch(branch)}", at)
+    return at, []
+
+
+WHO = {f"GIT_{who}_{what.upper()}": v for who in ("AUTHOR", "COMMITTER") for what, v in (("name", "factory"),
+                                                                                         ("email", "factory@localhost"))}
 SCRATCH = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej", "test_zz*", "*_tmp.py",
            "*.tail", ".bench*", ".mut*"]                                           # [gates] scratch_patterns
 
@@ -209,17 +243,33 @@ def build(cfg: dict, given: dict, began: float) -> int:
         park(cfg, gap, f"Building took {float(f['build_hours']):.1f} hours over its rounds, past the kill rule's "
                        f"{hours:g}: stopped. Its last findings: {f.get('findings') or 'none'}")
         return 0
-    fac.say("gap.started", branch=branch, rework=rework, building_at=began)
+    bases = fac.stack_base(cfg, gap) or []
+    moved = [b["gap"] for b in bases if fac.git(agents.drop(cfg), "rev-parse", "--verify", "-q",
+                                                f"refs/heads/{fac.git_branch(b['branch'])}", check=False) != b["sha"]]
+    if moved:
+        fac.nack(f"its base {', '.join(moved)} moved past its reviewed head: waits for the merge-forward", after="30m",
+                 count=False)
+        return 0
+    stacked = [{"gap": b["gap"], "sha": b["sha"]} for b in bases]       # ([] once, over a stack an earlier round had)
+    on = {"stacked_on": stacked} if stacked or f.get("stacked_on") else {}
+    fac.say("gap.started", branch=branch, rework=rework, building_at=began, **on)
     home, work = agents.clone(cfg, branch, "implementor")
     logs = fac.run_dir(cfg, "logs")
     if "browser" in onmain.fast(cfg):                  # (only with [suites] build_browser; no browser: stopped, uncounted)
         agents.browser_ready(cfg, home, logs, f"{fac.run_tag(branch, began)}-ready")
-    base_sha = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")
+    base_sha = against = fac.git(work, "rev-parse", f"origin/{cfg['git']['base']}")
+    if bases:                                          # (against: main, or the stack of main and the bases)
+        against, clash = stack(cfg, branch, base_sha, bases)
+        if clash:
+            fac.nack(f"its bases {', '.join(b['gap'] for b in bases)} conflict with each other (or with main "
+                     f"{base_sha[:12]}) in: {', '.join(clash)}", after="30m", count=False)
+            return 0
+        fac.git(work, "fetch", "-q", "origin", f"refs/stack/{fac.git_branch(branch)}")
     definition, held = definition_first(cfg, gap, work)
-    conflicts = merge_main(work, base_sha)
+    conflicts = merge_main(work, against, "main and its bases " + ", ".join(b["gap"] for b in bases) if bases else "main")
     was = agents.publish(cfg, work, branch)           # (in a merge left in progress: the branch as it was before it)
     text, context = brief.assemble(cfg, "implementor", gap, work, definition=definition)
-    text += conflict_brief(base_sha, conflicts) if conflicts else ""
+    text += conflict_brief(against, conflicts) if conflicts else ""
     text = gaps_md_brief(text, base_sha, branch) if gaps_md_edited(work, base_sha, "HEAD") else text
     context["brief"] = brief.save(cfg, "implementor", gap, text)
     context["round"], context["merge_conflicts"] = rounds, conflicts
@@ -243,8 +293,9 @@ def build(cfg: dict, given: dict, began: float) -> int:
             return 0
         cost, sessions = cost + float(got.get("total_cost_usd") or 0), sessions + 1
         used += [got["resources"]] if got.get("resources") else []
-        head = was = agents.finish(cfg, home, branch, base_sha, held, base_sha, was=was)   # (main merged in, and
-        stray = strays(cfg, agents.drop(cfg), base_sha, head, definition)    # the branch where it was given:
+        head = was = agents.finish(cfg, home, branch, against, held, base_sha, *(b["sha"] for b in bases), was=was)
+        stray = strays(cfg, agents.drop(cfg), against, head, definition)    # (main and each base merged in, and the
+        # branch where it was given:
         if stray:                                               # refused when not); scratch refused before the suites
             suites = {"failed": "scratch files", "tests": stray, "stray": stray, "tail": "\n".join(stray)}
             continue
@@ -252,19 +303,19 @@ def build(cfg: dict, given: dict, began: float) -> int:
             suites = {"failed": "docs/GAPS.md edited", "tests": [], "gaps_md": True, "tail": "docs/GAPS.md"}
             continue
         fac.wait_quiet(cfg)
-        new, allowed = new_findings(cfg, home, branch, base_sha, definition, logs, f"{fac.run_tag(branch, began)}-{i}",
+        new, allowed = new_findings(cfg, home, branch, against, definition, logs, f"{fac.run_tag(branch, began)}-{i}",
                                     mains)
         if new:                                                 # findings added to the model: back before the suites
             suites = {"failed": "check findings", "tests": new, "findings": new, "tail": "\n".join(new)}
             continue
-        suites, retried = onmain.check(cfg, gap["id"], home, branch, base_sha, logs, f"{fac.run_tag(branch, began)}-{i}",
+        suites, retried = onmain.check(cfg, gap["id"], home, branch, against, logs, f"{fac.run_tag(branch, began)}-{i}",
                                        deadline, seen, retried)
         fast_seconds += sum(float((suites.get(s) or {}).get("seconds") or 0) for s in onmain.fast(cfg))
         used += [v["resources"] for v in suites.values() if isinstance(v, dict) and v.get("resources")]
         if not suites.get("failed") or suites.get("main_broken"):    # (main's failures are never the session's)
             break
-    net = fac.net_lines(agents.drop(cfg), cfg["git"]["base"], head)
-    record = dict(rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
+    net = fac.net_lines(agents.drop(cfg), against if bases else cfg["git"]["base"], head)
+    record = dict(**on, rounds=1, ai_cost_usd=round(cost, 4), sessions=sessions, contexts=[context], head=head,
                   net_lines=net, budget=fac.budget_of(definition), built_main=base_sha, suites_fast=suites, session_dir=str(home),
                   fast_seconds=round(fast_seconds, 1),
                   build_hours=round((time.time() - began) / 3600, 3), said=str(got.get("result", ""))[-600:],

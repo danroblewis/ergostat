@@ -66,7 +66,7 @@ def say(event: str, item: str | None = None, **data) -> None:
     line = {"event": event, "data": data}
     if item:
         line["item"] = item
-    print(json.dumps(line, default=str), flush=True)
+    print(json.dumps(line, default=str) + "\n", end="", flush=True)   # (one write: a half's thread may say one too)
 
 
 def nack(why: str, after: str | None = None, count: bool = True) -> None:
@@ -76,16 +76,29 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def _aihold():
+    """dev/bin/aihold.py, found beside this file when fac was loaded by path (dev/bin not on sys.path)."""
+    if str(HERE / "bin") not in sys.path:
+        sys.path.append(str(HERE / "bin"))
+    import aihold
+    return aihold
+
+
 def draining(cfg: dict) -> bool:
     """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
-    review) waits for its next turn instead of starting."""
-    return (run_dir(cfg) / "drain.json").exists()
+    review) waits for its next turn instead of starting; so it does while the AI is held (aihold.py)."""
+    aihold = _aihold()
+    return (run_dir(cfg) / "drain.json").exists() or aihold.held(cfg) is not None
 
 
 def drain_holds(cfg: dict) -> bool:
-    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), an AI run takes no new
-    item: it gives it back uncounted, to be taken again after the switch."""
-    if not draining(cfg):
+    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), or the AI is held for the
+    provider's usage limit (aihold.py), an AI run takes no new item: it gives it back uncounted, to be taken again
+    after the switch, or at the reset."""
+    aihold = _aihold()
+    if aihold.holds(cfg):
+        return True
+    if not (run_dir(cfg) / "drain.json").exists():
         return False
     nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
     return True
@@ -165,6 +178,22 @@ def items(kind: str, state: str | None = None) -> list[dict]:
                 seen.add(i["id"])
                 out.append(i)
     return out
+
+
+STACKABLE = ("approved", "queued", "push-pending")      # a dependency reviewed and not yet on main: one to build on
+
+
+def stack_base(cfg: dict, gap: dict) -> list[dict] | None:
+    """The bases a gap is built on: when every dependency not yet merged or closed is in STACKABLE, each one's reviewed
+    head ({gap, sha, branch}; sha "" when none is recorded, which no branch tip equals), in rank order. None for any
+    other gap (no unfinished dependency, or one not found or not reviewed): it builds on main, as before."""
+    deps = ids(gap["fields"].get("depends_on"))
+    gaps = {g["id"]: g for g in items("gap")} if deps else {}
+    left = [gaps.get(d) for d in deps if (gaps.get(d) or {}).get("state") not in ("merged", "closed")]
+    if not left or any(g is None or g["state"] not in STACKABLE for g in left):
+        return None
+    left.sort(key=lambda g: (g["fields"].get("rank") or 10**9, g["id"]))
+    return [{"gap": g["id"], "sha": str(g["fields"].get("reviewed_head") or ""), "branch": branch_of(g)} for g in left]
 
 
 def act(name: str, key: str, **args) -> tuple[int, str]:
@@ -336,17 +365,49 @@ def daily_cap() -> float:
     return float(m.group(1))
 
 
+def run_alive(cfg: dict, run: str) -> bool:
+    """Whether a run's process is still there, from the engine's record of it (written before the run starts, removed
+    when it ends). A record that cannot be read counts as alive: the cap fails closed."""
+    import live
+    try:
+        pid = int(json.loads((live.state_dir(cfg) / "runs" / f"{run}.json").read_text())["pid"])
+        os.kill(pid, 0)
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    except (OSError, ValueError, KeyError, TypeError):
+        return True
+    return True
+
+
 def spent_today(cfg: dict) -> float:
-    """Dollars the factory's sessions cost over the last 24 hours, from its ledger. An unreadable line raises."""
+    """Dollars the factory's sessions cost over the last 24 hours, from its ledger. A reservation with no settlement is
+    held in full while its run is alive. A run that died (killed by a restart) never settles and what it spent is not
+    known, so it is charged twice the day's mean session, at most what it reserved, rather than holding the whole
+    reservation against the cap. An unreadable line raises."""
     ledger = run_dir(cfg) / "costs.jsonl"
     if not ledger.exists():
         return 0.0
-    since, total = time.time() - 86400, 0.0
+    since, total, unsettled, spends = time.time() - 86400, 0.0, {}, []
     for line in ledger.read_text().splitlines():
         if line.strip():
             e = json.loads(line)
-            if float(e["at"]) >= since:
-                total += float(e["usd"])
+            at, usd, run = float(e["at"]), float(e["usd"]), e.get("run")
+            if run and e.get("kind") == "reserved":
+                unsettled.setdefault(run, []).append((at, usd))
+                continue
+            if at >= since:
+                total += usd
+                if e.get("kind") == "settled" and "spent" in e:
+                    spends.append(float(e["spent"]))
+            if run and e.get("kind") == "settled" and unsettled.get(run):
+                was_at, was = unsettled[run].pop(0)
+                total += was if was_at >= since else 0.0
+    typical = 2 * sum(spends) / len(spends) if spends else None
+    for run, held in unsettled.items():
+        held = [(at, usd) for at, usd in held if at >= since]
+        if held:
+            alive = typical is None or run_alive(cfg, run)
+            total += sum(usd if alive else min(usd, typical) for _, usd in held)
     return total
 
 
@@ -376,7 +437,7 @@ class OverBudget(RuntimeError):
 def reserve(cfg: dict, usd: float, **what) -> float:
     """Charge a session's most (its --max-budget-usd) before it starts, under a lock, so two sessions never pass the
     cap together; refused (OverBudget) when it would. ``settle`` gives back what it did not spend, once its cost is
-    known: a session that times out, crashes or is killed keeps its whole reservation. Returns its time."""
+    known; a session that dies unsettled is charged as spent_today says. Returns its time."""
     with open(run_dir(cfg) / "costs.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
@@ -445,15 +506,16 @@ def queue_lock(cfg: dict):
 SUITES: set[int] = set()                                # the process groups of the suites running now (suite())
 
 
-def stop_suites() -> None:
+def stop_suites(group: set | None = None) -> None:
     """Every running suite's process group stopped, and its container by name: a run stopped while suites run in
-    threads of its own (queue.py)."""
-    for pid in list(SUITES):
+    threads of its own (queue.py). ``group`` (what suite() added to it): only those, so one half's failure never stops
+    the other's suites."""
+    for pid in [p for p in list(SUITES) if group is None or p in group]:
         try:
             os.killpg(pid, signal.SIGTERM)
         except ProcessLookupError:
             pass
-    for name in list(BOXES):
+    for name in [b for b in list(BOXES) if group is None or b in group]:
         agents_module().killed(name)
 
 
@@ -494,7 +556,7 @@ def agents_module():
 
 
 def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command: str | None = None,
-          quarantined: list[str] = (), box: str = "", **fmt) -> tuple[int, float]:
+          quarantined: list[str] = (), box: str = "", group: set | None = None, **fmt) -> tuple[int, float]:
     """One of [suites] in cwd (or ``command`` for it: in a container), its output to log; (exit, seconds). Run by the
     shell, as the coordinator does, inside [suites] slot (a machine-wide suite slot, waited for) unless ``slot`` is
     False (the queue: its lock is its slot); ``quarantined``: deselected from unit and browser. The suite's whole
@@ -502,7 +564,7 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     faulthandler); "host" (the queue's and triage's `[suites] host`) on the Mac, never boxed; the others, with
     [suites] queue_container (true unless false), in a container of its own (agents.queued), killed by name on any
     way out; one that did not start raises agents.NotStarted (an infrastructure failure, never read as the suite's
-    result)."""
+    result). ``group``: a set this suite's pid and container are added to, for stop_suites(group)."""
     quoted = {k: " ".join(map(shlex.quote, v)) if isinstance(v, list) else shlex.quote(str(v)) for k, v in fmt.items()}
     cmd = command or deselected(name, cfg["suites"][name].format(**quoted), list(quarantined))
     stall, wall = limits(cfg) if box else (600.0, 600.0)  # (again at run time: the queue's and triage's only)
@@ -513,6 +575,8 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
     if box and box != "host" and cfg["suites"].get("queue_container", True) is not False:
         boxed, cmd = agents_module().queued(cfg, name, cmd, cwd, box, (f"PYTEST_ADDOPTS={env['PYTEST_ADDOPTS']}",))
         BOXES.add(boxed)
+        if group is not None:
+            group.add(boxed)
     held = None
     if slot and cfg["suites"].get("slot") and name != "ruff":
         if box:                                         # the limits' clocks start once the slot is held (marked inside)
@@ -525,6 +589,8 @@ def suite(cfg: dict, name: str, cwd: Path, log: Path, slot: bool = True, command
         p = subprocess.Popen(cmd, shell=True, cwd=cwd, env=env, stdout=out, stderr=subprocess.STDOUT,
                              start_new_session=True)
         SUITES.add(p.pid)
+        if group is not None:
+            group.add(p.pid)
         try:
             size, grew, clock = 0, began, began
             while p.poll() is None:
@@ -669,7 +735,9 @@ def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = Non
     (--max-budget-usd) is reserved first and what it did not spend given back once its cost is known; a session that
     fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged.
     Its conversation is kept as the item session/<item>-<role>-<n> (sessions.py; ``item``: the gap, research or
-    review it works for, else the run's own)."""
+    review it works for, else the run's own). One that ends on the provider's usage limit holds the AI till its reset
+    and ends the run, its lease given back uncounted (aihold.py)."""
+    aihold = _aihold()
     import sessions
     model, usd = cfg["ai"][f"{role}_model"], float(cfg["ai"][f"{role}_session_usd"])
     who = dict(role=role, model=model, item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
@@ -689,12 +757,16 @@ def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = Non
                 out = agents.session(cfg, role, brief, work, keep=kept)
     except BaseException as e:
         error = f"{type(e).__name__}: {e}"
-        raise
+        if isinstance(e, SystemExit) or not aihold.limited(str(e), anywhere=True):
+            raise
+        aihold.stop(cfg, str(e))                         # (the usage limit: the run given back uncounted, ended)
     finally:
         kept.ended(out, error)
     if out.get("total_cost_usd") is not None:
         settle(cfg, usd, float(out["total_cost_usd"]), at, **who)
     print(json.dumps({k: v for k, v in out.items() if k != "result"} | {"type": "result"}), flush=True)
+    if aihold.limited(str(out.get("result"))):
+        aihold.stop(cfg, str(out.get("result")))
     if out.get("is_error"):
         raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
     return out
@@ -717,7 +789,7 @@ STANDIN = {
                'It works.\n\n## Files to touch\n\n- `x.py` (new)\n- `standin/work.txt` (new)\n\n## Risks\n\n- none.\n\n'
                '## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
                'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
-    "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
+    "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- `docs/GAPS.md:1`: the gaps\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
     "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
     "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}

@@ -447,10 +447,10 @@ class Segments:
             return []
         if after_seq is not None and s.last <= after_seq or before_seq is not None and s.first >= before_seq:
             return []
+        if item is not ... and s.span(item) is None:     # first: it rules out most segments, and costs a bisection
+            return []
         want_types = None if types is None else [t for t in s.types if types(t)]
         if want_types is not None and not want_types:
-            return []
-        if item is not ... and s.span(item) is None:
             return []
         items_ok = None if item_test is None else [i for i, x in enumerate(s.items) if item_test(x)]
         if items_ok is not None and not items_ok:
@@ -666,6 +666,32 @@ class Segments:
         return self._scan(n=None if first is not None else n, item=item if item is not None else ..., type=type,
                           skip=tuple(skip), since=since, until=until, after_seq=after_seq, before_seq=before_seq,
                           test=test, limit=first)
+
+    def moments(self, *, n: int, type: str | None = None, since: float | None = None, until: float | None = None,
+                skip: tuple[str, ...] = ()) -> list[tuple[float, str]]:
+        """(time, type) of the newest ``n`` matching events, oldest first: from the segments' columns, no block unpacked
+        and no event parsed, which is what a chart of events needs and most of what reading them costs."""
+        test = _types_matcher(type, tuple(skip)) if type or skip else None
+        for attempt in range(3):
+            segs, hd, hn = self._hstate()
+            out = [(e["time"], e["type"]) for e in (hd.evs[j] for j in range(hn))
+                   if (test is None or test(e["type"])) and (since is None or e["time"] >= since)
+                   and (until is None or e["time"] <= until)][-n:]
+            try:
+                for s in reversed(segs):
+                    if len(out) >= n:
+                        break
+                    rows = self._rows(s, ..., test, since, until)[-(n - len(out)):]
+                    if rows:
+                        c = self._cols(s)
+                        out = [(c["time"][r], s.types[c["type"][r]]) for r in rows] + out
+                return out
+            except FileNotFoundError:                    # rewritten under us: ask again
+                if attempt == 2:
+                    raise
+                with self._lock:
+                    self._dir_stamp = None
+        return []
 
     def get(self, id: str) -> dict | None:
         segs, head = self._state()

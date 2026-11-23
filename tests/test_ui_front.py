@@ -138,3 +138,12 @@ def test_only_python_restarts_the_server():
 def test_each_page_has_a_second_port_for_its_next_server():
     assert len(ui.REAL_BACKENDS) == 2 and len(ui.STAGING_BACKENDS) == 2
     assert not set(ui.REAL_BACKENDS) & set(ui.STAGING_BACKENDS)
+
+
+def test_the_fronts_address_replaces_the_servers_once_written(tmp_path, monkeypatch):
+    (tmp_path / "web.json").write_text('{"url": "http://127.0.0.1:8793"}')
+    monkeypatch.setattr(ui.lv, "state_dir", lambda cfg: tmp_path)
+    site = ui.Site.__new__(ui.Site)
+    site.cfg, site.keep_address = {}, "http://127.0.0.1:8798"
+    site.address_kept(8793)
+    assert "8798" in (tmp_path / "web.json").read_text()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 BIN = Path(__file__).resolve().parent.parent / "dev" / "bin"
@@ -42,3 +43,48 @@ def test_a_state_past_the_cap_is_said(monkeypatch, capsys):
     record(monkeypatch, {"merged": 501})
     assert len(fac.items("gap")) == 500
     assert "501 items" in capsys.readouterr().err
+
+
+def ledger(tmp_path, monkeypatch, *lines) -> dict:
+    (tmp_path / "costs.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
+    monkeypatch.setattr(fac, "run_dir", lambda cfg, *a: tmp_path)
+    return {}
+
+
+def test_a_settled_session_costs_what_it_spent(tmp_path, monkeypatch):
+    now = time.time()
+    cfg = ledger(tmp_path, monkeypatch, {"at": now - 60, "usd": 15, "kind": "reserved", "run": "a"},
+                 {"at": now - 30, "usd": -13, "kind": "settled", "run": "a"})
+    assert fac.spent_today(cfg) == 2
+
+
+def test_a_running_session_holds_its_reservation(tmp_path, monkeypatch):
+    cfg = ledger(tmp_path, monkeypatch, {"at": time.time() - 60, "usd": 15, "kind": "reserved", "run": "a"})
+    assert fac.spent_today(cfg) == 15
+
+
+def test_a_dead_runs_reservation_is_charged_as_a_typical_session(tmp_path, monkeypatch):
+    now = time.time()
+    cfg = ledger(tmp_path, monkeypatch, {"at": now - 90, "usd": 15, "kind": "reserved", "run": "a"},
+                 {"at": now - 80, "usd": -13, "kind": "settled", "spent": 2, "run": "a"},
+                 {"at": now - 60, "usd": 15, "kind": "reserved", "run": "dead"})
+    monkeypatch.setattr(fac, "run_alive", lambda c, run: False)
+    assert fac.spent_today(cfg) == 2 + 4
+
+
+def test_a_live_runs_reservation_is_held_in_full(tmp_path, monkeypatch):
+    now = time.time()
+    cfg = ledger(tmp_path, monkeypatch, {"at": now - 90, "usd": 15, "kind": "reserved", "run": "a"},
+                 {"at": now - 80, "usd": -13, "kind": "settled", "spent": 2, "run": "a"},
+                 {"at": now - 60, "usd": 15, "kind": "reserved", "run": "live"})
+    monkeypatch.setattr(fac, "run_alive", lambda c, run: True)
+    assert fac.spent_today(cfg) == 2 + 15
+
+
+def test_a_run_whose_record_is_gone_has_ended_and_an_unreadable_one_counts_as_alive(tmp_path, monkeypatch):
+    import live
+    monkeypatch.setattr(live, "state_dir", lambda cfg: tmp_path)
+    (tmp_path / "runs").mkdir()
+    assert not fac.run_alive({}, "gone")
+    (tmp_path / "runs" / "broken.json").write_text("not json")
+    assert fac.run_alive({}, "broken")
