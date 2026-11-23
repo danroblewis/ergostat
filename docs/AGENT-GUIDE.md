@@ -782,6 +782,27 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
    every write there is refused; `check` and the page's header say it is public. The tunnel must still keep the
    Host (step 2): the declared name is what opens it, and a request through Cloudflare by `127.0.0.1` is refused.
 
+## 3k. A shared dashboard: declared by you, never by a person
+
+People do not write `dashboards:` by hand; you (or the Supervisor) add one when the owner asks for a shared view,
+or when the same question is asked of the page again and again (SPEC §4e):
+
+1. Ask what it is for, in one sentence: that is its `description`. Pick one `window` for all its panels (at most
+   `keep:`).
+2. Put it in the file of the system it is about (one whose `defaults:` sets the system), so it is named
+   `SYSTEM.NAME` and moves with that system; a dashboard across systems goes in the main file.
+3. Write each panel with the parameters its endpoint already takes (the table in SPEC §4e): `chart` with `refs`,
+   `items` with `kind` and `state`, `states` or `cycle-time` with `kind`, `scope` with `goal`, `goals` with the
+   goals it shows. At most 24 panels; every panel that shows a measure shows the model's reading beside it (`replay:
+   true` on a chart of stocks with equations).
+4. `ergostat check`: a name that is not the model's is **unknown-ref** at its line. When you rename or remove a part,
+   check finds every dashboard that named it: fix them in the same change.
+5. Open `GET /api/dashboard/NAME` (or `ergostat snapshot`) and read each panel's answer: none should be empty
+   without a reason.
+
+A dashboards-only change alters no version and no replay, but the judge does not yet know that (it would replay it
+as a parameter change): add a dashboard as a direct edit followed by `ergostat check`, not as a proposal.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |

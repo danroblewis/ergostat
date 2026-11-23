@@ -198,7 +198,12 @@ def _separate(live, panel: dict, at: float):
 def test_one_request_answers_every_panel_as_the_separate_endpoints_do(live):
     from ergostat.web.server import api
     at = time.time() - 5
+
+    def another(*a, **k):                                  # every panel on the dashboard's one snapshot: none asks again
+        raise AssertionError("a panel asked for a snapshot of its own")
+    live.snapshot = another
     got = api(live, "dashboard/ops", {"at": [str(at)]})
+    del live.snapshot
     assert got["window"] == 7200.0 and got["declared"] and len(got["panels"]) == 8
     assert all("answer" in x for x in got["panels"]), [x for x in got["panels"] if "answer" not in x]
     for x in got["panels"]:
@@ -244,6 +249,7 @@ def test_a_slow_panel_answers_pending_while_the_others_answer(live, monkeypatch)
     assert all("answer" in kinds[k] for k in ("goals", "chart", "items", "cycle-time", "scope", "timeline", "note")), \
         got["panels"]
     assert took < dashboard_api.BATCH + 0.5, took
+    time.sleep(1.6)                                        # past a live snapshot's 1.5 s: a new one is made for others
     gate.set()                                             # worked out for the next poll, of the same moment
     deadline = time.monotonic() + 10
     while True:
