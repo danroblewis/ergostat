@@ -6165,3 +6165,168 @@ def test_a_changed_count_of_what_waits_is_announced(browser, tmp_path, monkeypat
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+# ---- a closed module's sparklines (dev/records/module-box-sparklines.md)
+
+SPARKED = """
+name: sparked
+systems:
+  reception-and-triage:
+    description: the desk
+    show: [stock.backlog, auxiliary.pressure, flow.arriving, stock.spare]
+  archive:
+    description: what it serves
+    show: [stock.filed]
+stocks:
+  backlog: {unit: tickets, system: reception-and-triage, sensor: {manual: true}}
+  spare: {unit: things, system: reception-and-triage, sensor: {manual: true}}
+  filed: {unit: tickets, system: archive, sensor: {manual: true}}
+flows:
+  arriving: {to: backlog, system: reception-and-triage, sensor: {manual: true}}
+  finishing: {from: backlog, to: filed, system: reception-and-triage}
+auxiliaries:
+  pressure: {unit: share, driven-by: +stock.backlog, system: reception-and-triage, sensor: {manual: true}}
+  load: {driven-by: +stock.spare, system: archive}
+  heat: {driven-by: +auxiliary.pressure, system: archive}
+"""
+DESK = "system:reception-and-triage"
+# every spark row drawn: its box, whether that box is a closed module, its texts, its line, whether it is inside its box
+SPARKS = """() => [...document.querySelectorAll('svg.canvas .sd-spark')].map((r) => {
+  const g = r.closest('g.node'), a = r.getBoundingClientRect(), b = g.querySelector('.hit').getBoundingClientRect();
+  const line = r.querySelector('.sd-spark-line');
+  return { box: g.dataset.id, module: g.classList.contains('k-system'), ref: r.dataset.ref,
+           texts: [...r.querySelectorAll('text')].map((t) => t.textContent), d: line?.getAttribute('d') || '',
+           inside: a.left >= b.left - 0.5 && a.right <= b.right + 0.5 && a.top >= b.top - 0.5 && a.bottom <= b.bottom + 0.5,
+           stroke: line ? getComputedStyle(line).stroke : null,
+           paper: getComputedStyle(document.querySelector('svg.canvas')).backgroundColor };
+})"""
+# where every box is, and how big: its layout, its transform, its outline and all it draws, on the screen
+PLACES = """() => [...document.querySelectorAll('svg.canvas g.node')].map((g) => {
+  const c = S.layout.children.find((x) => x.id === g.dataset.id), r = g.getBoundingClientRect();
+  const h = g.querySelector('.hit')?.getBoundingClientRect();
+  const at = (b) => [b.x, b.y, b.width, b.height].map((v) => Math.round(v * 10) / 10);
+  return [g.dataset.id, g.getAttribute('transform'), c ? [c.x, c.y, c.width, c.height] : null, at(r), h ? at(h) : null];
+}).sort()"""
+
+
+@contextlib.contextmanager
+def sparked(tmp_path: Path):
+    """SPARKED's page, an hour and more of readings every 30s, backlog's missing from 30 to 10 minutes ago."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "sparked"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(SPARKED)
+    env = {**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}
+    old = os.environ.get("ERGOSTAT_HOME")
+    os.environ["ERGOSTAT_HOME"] = env["ERGOSTAT_HOME"]
+    try:
+        p = Project(mdl.load(d))
+        now = time.time()
+        for i in range(150):
+            t = now - 4500 + i * 30
+            if not now - 1800 <= t < now - 600:
+                p.measurements.add("sensor/backlog.main", 4 + 3 * math.sin(i / 9), at=t)
+            p.measurements.add("sensor/pressure.main", 0.5 + 0.3 * math.cos(i / 11), at=t)
+            p.measurements.add("sensor/arriving.main", 6 + i % 4, at=t)
+            p.measurements.add("sensor/spare.main", 2, at=t)
+            p.measurements.add("sensor/filed.main", i, at=t)
+    finally:
+        if old is None:
+            os.environ.pop("ERGOSTAT_HOME", None)
+        else:
+            os.environ["ERGOSTAT_HOME"] = old
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)], env=env,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    raise AssertionError("the page never answered") from None
+                time.sleep(0.2)
+        yield url
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+def _asked_again(pg, asked: list, n: int) -> None:
+    for _ in range(100):
+        if len(asked) > n:
+            return
+        pg.wait_for_timeout(100)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_a_closed_module_draws_three_sparklines_after_its_structure_without_moving_a_box(browser, tmp_path, scheme):
+    """Done items 1 to 4: a closed module shows its first three headline measures (its show:), each its name, its value
+    now, its line and its scale, inside its box; the boxes are where they were and as big before the one batched answer
+    (held back here) and after it; the line has a gap where backlog was not read; too small to read when zoomed out,
+    none is drawn; a click on one opens the module's panel; an open module, a stock or a flow draws none."""
+    import urllib.parse
+    with sparked(tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        asked: list[str] = []
+        held: list = []
+
+        def hold(route):                                 # the first answer held until the boxes are measured
+            asked.append(route.request.url)
+            if len(asked) == 1:
+                held.append(route)
+            else:
+                route.continue_()
+        pg.route(re.compile(r"/api/series\?.*measured=1"), hold)
+        drawn(pg, url, "view=dynamics", 0)
+        _asked_again(pg, asked, 0)
+        assert len(held) == 1, asked
+        before = pg.evaluate(PLACES)
+        assert pg.evaluate(SPARKS) == [], "drawn before its answer"
+        refs = urllib.parse.parse_qs(urllib.parse.urlsplit(asked[0]).query)["refs"][0].split(",")
+        assert sorted(refs) == ["flow.arriving", "stock.backlog", "stock.filed", "stock.pressure"], refs   # every box's
+        assert len(asked) == 1, asked                                                                       # in one ask
+        held[0].continue_()
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length >= 4", timeout=30000)
+        assert pg.evaluate(PLACES) == before, "a box moved or changed its size when its sparklines came"
+        got = pg.evaluate(SPARKS)
+        mine = {x["ref"]: x for x in got if x["box"] == DESK}
+        assert sorted(mine) == ["auxiliary.pressure", "flow.arriving", "stock.backlog"], got      # three: the first three
+        assert [x["ref"] for x in got if x["box"] != DESK] == ["stock.filed"], got
+        assert all(x["module"] and x["inside"] for x in got), got
+        charted = pg.evaluate(f"() => S.graph.nodes.find((n) => n.id === '{DESK}').charted")
+        for x in mine.values():
+            m = next(c for c in charted if c["part"].split(":")[1] == x["ref"].split(".")[1])
+            assert x["texts"][0] == m["label"] and x["texts"][1].split(" ")[0] == m["value"].split(" ")[0], (x, m)   # now
+            assert re.fullmatch(r"\S+–\S+", x["texts"][2]), x                                          # its own scale
+            assert x["stroke"] and x["stroke"] != x["paper"], x
+        assert mine["stock.backlog"]["d"].count("M") == 2, mine["stock.backlog"]      # a gap where it was not read
+        assert mine["auxiliary.pressure"]["d"].count("M") == 1, mine["auxiliary.pressure"]
+        pg.evaluate("() => { S.view.k = 0.3; applyView(document.querySelector('svg.canvas')); }")
+        assert pg.evaluate(SPARKS) == [], "drawn too small to read"
+        pg.evaluate("() => { S.view.k = 1; applyView(document.querySelector('svg.canvas')); }")
+        assert len(pg.evaluate(SPARKS)) == 4
+        n = len(asked)
+        _asked_again(pg, asked, n)                       # asked again on the page's interval
+        assert len(asked) > n, asked
+        row = pg.locator(f'svg.canvas g.node[data-id="{DESK}"] .sd-spark[data-ref="stock.backlog"]').bounding_box()
+        pg.mouse.click(row["x"] + row["width"] / 2, row["y"] + row["height"] / 2)
+        pg.wait_for_function(TITLED, arg="reception-and-triage", timeout=10000)   # its panel, with the full charts
+        drawn(pg, url, "view=dynamics&open=reception-and-triage", 1)
+        _asked_again(pg, asked, len(asked))
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length >= 1", timeout=30000)
+        got = pg.evaluate(SPARKS)
+        assert all(x["box"] == "system:archive" and x["module"] for x in got), got   # the open one draws none
+        drawn(pg, url, "view=dynamics&open=*", 2)
+        pg.wait_for_timeout(1500)
+        assert pg.evaluate(SPARKS) == [], "a stock, a flow or an auxiliary drew one"
+        pg.close()
+        assert not errors, errors

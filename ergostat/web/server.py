@@ -658,6 +658,9 @@ def _answer(live: Live, path: str, q: dict, project=None):
     if head == "items-overview":                  # the Items page's overview: from the item index, with no snapshot
         from .items_overview import overview
         return overview(p, at if at is not None else time.time(), _window(q))
+    if head == "series" and one("measured"):     # the module boxes' sparklines: the measurement store alone, no snapshot
+        refs = [r for r in (one("refs") or "").split(",") if r]
+        return series.measured(p, at if at is not None else time.time(), _window(q), refs, int(one("points") or 48))
     snap = live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates

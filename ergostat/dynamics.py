@@ -356,8 +356,8 @@ def finish(g: dict) -> dict:
     for n in g["nodes"]:
         if n["kind"] == "system":
             n["charted"] = [{"part": x["part"], "label": x["label"], **{k: x[k] for k in ("value", "stale", "missing",
-                            "unchecked") if k in x}} for x in n.get("measures") or []]   # its panel charts them
-            n["measures"] = []                         # a module box draws no measures: SD draws structure
+                            "unchecked") if k in x}} for x in n.get("measures") or []]   # its panel charts them,
+            n["measures"] = []                         # its box draws three as sparklines (dynamics.js: sdSparks), no rows
             n["status"] = None
             n["loops"] = {}
     return g

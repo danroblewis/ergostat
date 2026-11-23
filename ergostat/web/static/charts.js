@@ -499,8 +499,8 @@ function fanSaid(d, drawn) {
     ` (${f.parameters.length > 1 ? "each its" : "its"} ${how.join(" or ")})` + (f.joint ? `; ${f.joint}` : "") +
     (f.tails ? "" : `; nine in ten not drawn from fewer than 100 runs`);
 }
-/* a system's own measures (its show:, else its goals' measures), each a chart on one time axis: what its
-   box used to draw as sparklines, now in its panel */
+/* a system's own measures (its show:, else its goals' measures), each a chart on one time axis, in its panel (its
+   closed box draws the first three as sparklines: dynamics.js, sdSparks) */
 function moduleCharts(n, group = chartGroup("module")) {
   const refs = [...new Set((n.charted || n.measures || []).filter((x) => !x.missing && !x.unchecked)   // (nothing to ask for)
     .map((x) => x.part.replace(":", ".")))];
@@ -518,6 +518,22 @@ function moduleCharts(n, group = chartGroup("module")) {
       href: () => openRef(s.ref) })), h("div", { class: "chart-foot" }, h("span", { class: "muted" }, "Its measures, on one time axis"), group.when));
   }).catch((e) => box.replaceChildren(h("p", { class: "muted small" }, String(e.message || e))));
   return box;
+}
+/* a sparkline's path, ``w`` by ``hgt`` from 0,0, on its own scale (``lo``…``hi``: written beside it, so two never seem
+   to share an axis), its buckets spread evenly over the window: broken where a bucket has no reading (or one not a
+   finite number), never drawn across it; a reading alone between gaps is a dot. ``d`` is "" when nothing was read */
+function sparkPath(values, w, hgt) {
+  const ok = (v) => typeof v === "number" && Number.isFinite(v);
+  const read = values.filter(ok), lo = read.length ? Math.min(...read) : null, hi = read.length ? Math.max(...read) : null;
+  const x = (i) => (values.length > 1 ? (i / (values.length - 1)) * w : w / 2);
+  const y = (v) => (hi === lo ? hgt / 2 : hgt - ((v - lo) / (hi - lo)) * hgt);
+  let d = "";
+  values.forEach((v, i) => {
+    if (!ok(v)) return;
+    const alone = !ok(values[i - 1]) && !ok(values[i + 1]);
+    d += `${ok(values[i - 1]) ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}${alone ? "h0.01" : ""}`;
+  });
+  return { d, lo, hi };
 }
 const windowSaid = (d) => (d && d.until - d.since < (S.status?.window || 0) * 0.95 ? `the ${dur(d.until - d.since)} recorded` : "the window");
 
