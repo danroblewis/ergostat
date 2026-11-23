@@ -3,10 +3,12 @@ path through the unfinished work, each item's slack, and a schedule projected fr
 index (its links, both ways, and its moves); nothing is declared for it but the relations themselves.
 
 - **Status.** *paused*: in a state its kind declares paused (``messages: paused:``): not finished, not moving, its
-  dependents blocked by it. *done*: in a state its kind counts as finished (``messages: done:``, else as the item index says;
-  never a state a block takes from, its first, ``leased`` or ``dead``). *active*: leased, or in a working state (one
+  dependents blocked by it. *done*: in a state its kind counts as finished (``spec/finished.py``: ``messages: done:``,
+  else the states no item has left yet; never a state a block takes from, its first, ``leased`` or ``dead``; a kind
+  with one state lives on). *active*: leased, or in a working state (one
   that is neither its kind's first state, nor a state a block takes from, nor finished). *blocked*: a precedence
-  relation names an item not finished. *queued*: started, and waiting in a later state a block takes from (review).
+  relation names an item not finished (nor in a state the relation's ``starts_at`` names: a start-to-start link, for
+  status and for ``takes: {unblocked: true}`` only). *queued*: started, and waiting in a later state a block takes from (review).
   *unblocked*: in its first state, nothing it waits on unfinished. *dead*: a dead letter.
 - **Durations.** Each kind's time per state, the median of every stay its latest items made in it (``leased``, a
   run's hold, counted as the work it is), weighted by how often its items visit the state. An item's expected
@@ -15,21 +17,26 @@ index (its links, both ways, and its moves); nothing is declared for it but the 
   kind with no stays yet takes the median of the kinds that have them, else ``ASSUMED``, said as assumed.
 - **The critical path** (CPM: Kelley and Walker's critical path method): a forward pass over the unfinished items
   in precedence order (each starts once its unfinished predecessors are expected to end; an active one now), a
-  backward pass from the last end, and each item's slack, how long it may slip without moving the end. The
-  critical items have none. Not levelled: a pool's limit is in the completion estimates (``numbers/eta.py``), whose
-  levelled run the Timeline draws in place of this projection once it is worked out.
+  backward pass from the last end, and each item's slack, how long it may slip without moving the end. Every link
+  is finish-to-start here, ``starts_at`` or not (conservative: a dependent is projected after its target ends). The
+  critical items have none. Not levelled: it is the longest chain of waits, ignoring capacity.
+- **The levelled schedule** (``level``): the forward pass again, each block at most its capacity at once (the serial
+  schedule-generation scheme). Its bars and its end are what the Timeline draws and says until the completion
+  estimates (``numbers/eta.py``) are worked out, and at a moment travelled to.
 - **Cycles.** Items whose precedence relations go round, or round through a parent (a summary ends after its
   children, which start after it starts: a descendant depending on its ancestor, or an ancestor on its descendant, at
   any depth), are a finding: they are left out of the projection,
   and a block that takes unblocked items takes none of them.
 - **The schedule** (the Timeline): each item's actual segments, its states over time from its moves, and for the
-  unfinished, projected segments from the forward pass, state by state.
+  unfinished, projected segments from the levelled pass, state by state.
 
 Bounded: the unfinished items of the kinds asked (``MOST_OPEN``), the finished in the window (``MOST_DONE``), and
 the items their relations reach, of any kind (``MOST_PULLED``, ``HOPS`` links away); what was cut is said."""
 
 from __future__ import annotations
 
+import bisect
+import heapq
 from statistics import median
 
 from .spec.ir import DEAD, LEASED
@@ -43,6 +50,7 @@ STAYS = 2000             # the latest items whose stays give a kind's medians
 ASSUMED = 600.0          # an item's duration when nothing is known of any kind's (seconds)
 EPS = 1e-6
 END = "\0end"          # a summary's end, in the critical path
+WAIT = "\0wait"        # a step that is a wait in a queue, in the levelling: no lane held through it
 
 
 class Kinds:
@@ -57,17 +65,13 @@ class Kinds:
         return self.got[name]
 
     def _info(self, name: str | None) -> dict:
-        from .spec.itemindex import done_states
+        from .spec.finished import finish_of
         k = (getattr(self.spec, "items", None) or {}).get(name or "")
         if k is None or not k.states:
             return {"name": name, "finished": [], "queue": [], "working": [], "paused": [], "medians": {}, "weights": {},
                     "duration": None, "relations": {}}
-        declared = getattr(getattr(self.spec, "messages", None), "done", None)
-        queue = [k.states[0]] + [s for b in self.spec.blocks.values() if b.takes and b.takes.kind == name
-                                 for s in b.takes.at if s != k.states[0]]
-        paused = list((getattr(getattr(self.spec, "messages", None), "paused", None) or {}).get(name) or [])
-        finished = [s for s in done_states(k, self.ix.left(name) if self.ix else set(), declared)
-                    if s not in queue and s not in (LEASED, DEAD) and s not in paused]
+        fin = finish_of(self.spec, name, self.ix.left(name) if self.ix else set())
+        queue, paused, finished = fin["queue"], fin["paused"], fin["finished"]
         working = [s for s in k.states[1:] if s not in finished and s != DEAD and s not in paused]   # time spent in
         stays, visits, n = self.ix.stays(name, STAYS, finished) if self.ix else ({}, {}, 0)
         medians = {s: median(v) for s, v in stays.items() if v}
@@ -75,11 +79,11 @@ class Kinds:
         # with none finished yet, once each
         weights = {s: (visits.get(s, 0) / n if n else 1.0) for s in medians}
         known = [s for s in working if s in medians]
-        return {"name": name, "finished": finished, "queue": list(dict.fromkeys(queue)), "working": working,
+        return {"name": name, "finished": finished, "queue": queue, "working": working,
                 "paused": paused, "medians": medians, "weights": weights,
                 "duration": sum(medians[s] * weights[s] for s in known) if known else None,
-                "relations": {r.name: {"kinds": r.kinds, "precedence": r.precedence, "inverse": r.inverse, "group": r.group}
-                              for r in k.relations.values()}}
+                "relations": {r.name: {"kinds": r.kinds, "precedence": r.precedence, "inverse": r.inverse, "group": r.group,
+                                       "starts_at": r.starts_at} for r in k.relations.values()}}
 
     def expected(self, name: str | None) -> float | None:
         return self[name]["duration"]
@@ -179,17 +183,22 @@ def cycles(nodes, edges) -> list[list[str]]:
     return out
 
 
+def _graph(nodes, edges) -> tuple[dict, dict]:
+    preds: dict[str, list[str]] = {n: [] for n in nodes}
+    succs: dict[str, list[str]] = {n: [] for n in nodes}
+    for a, b in edges:
+        if a in nodes and b in nodes and a != b:
+            preds[b].append(a)
+            succs[a].append(b)
+    return preds, succs
+
+
 def cpm(durations: dict[str, float], edges, started=()) -> dict[str, dict]:
     """The critical path method over ``durations`` (item: seconds) and ``edges`` (``(a, b)``: a must finish before b
     starts), from 0: each item's earliest start and finish, latest start and finish, slack, and whether it is
     critical; an item in ``started`` starts at 0 whatever comes before it. The edges must be acyclic among the items
     (``cycles`` first); an edge to or from an item not in ``durations`` is left out."""
-    preds: dict[str, list[str]] = {n: [] for n in durations}
-    succs: dict[str, list[str]] = {n: [] for n in durations}
-    for a, b in edges:
-        if a in durations and b in durations and a != b:
-            preds[b].append(a)
-            succs[a].append(b)
+    preds, succs = _graph(durations, edges)
     order, deg = [], {n: len(p) for n, p in preds.items()}
     ready = sorted(n for n, d in deg.items() if not d)
     while ready:
@@ -212,6 +221,70 @@ def cpm(durations: dict[str, float], edges, started=()) -> dict[str, dict]:
     tol = EPS * max(1.0, end)
     return {n: {"es": es[n], "ef": ef[n], "ls": ls[n], "lf": lf[n], "slack": max(0.0, ls[n] - es[n]),
                 "critical": ls[n] - es[n] <= tol, "end": end} for n in order}
+
+
+def level(steps: dict[str, list], edges, started, plan: dict, lanes: dict[str, int]) -> dict[str, list]:
+    """The forward pass levelled by each block's capacity: the serial schedule-generation scheme of
+    resource-constrained scheduling. In precedence order, the least slack first, then the longest path ahead (the
+    dispatcher's tie-break; ``plan``, from ``cpm``), each item is placed at the earliest time what it waits on is done
+    (a started one at 0) and the block that takes it has a lane free for each of its ``steps`` (``[(block or None,
+    [(state, seconds)])]``, one after another; a step of no block waits on none). A ``WAIT`` step, a queue, holds no
+    lane: the step after it takes its lane at the wait's median end, or later when no lane is free by then (the
+    levelling's wait in place of the median's, never both). ``lanes``: block → capacity.
+    Returns each item's start (``es``), end (``ef``) and ``segs``, ``[state, from, to, block, lane]``."""
+    preds, succs = _graph(steps, edges)
+    started, deg = set(started), {n: len(p) for n, p in preds.items()}
+    key = lambda n: (n not in started, plan[n]["slack"], plan[n]["ls"], n)   # noqa: E731 - (ls: end - path ahead)
+    ready = [key(n) for n, k in deg.items() if not k]
+    heapq.heapify(ready)
+    free: dict[str, list[list]] = {}          # block → each lane's free gaps, [(from, to)] in order, the last to inf
+
+    def fit(block, t, dur):                   # the earliest lane gap from t that holds dur: (start, lane, gap)
+        gaps = free.setdefault(block, [])
+        if len(gaps) < max(1, lanes[block]):
+            gaps.append([(0.0, float("inf"))])       # a lane not yet used: it starts at t (none is earlier)
+        fits = []
+        for k, g in (enumerate(gaps) if gaps[-1] != [(0.0, float("inf"))] else [(len(gaps) - 1, gaps[-1])]):
+            i = max(0, bisect.bisect_right(g, (t, float("inf"))) - 1)
+            while max(g[i][0], t) + dur > g[i][1] + EPS:
+                i += 1
+            fits.append((max(g[i][0], t), k, i))
+        return min(fits)
+    end, out = {}, {}
+    while ready:
+        n = heapq.heappop(ready)[-1]
+        t = 0.0 if n in started else max([end[p] for p in preds[n]] or [0.0])
+        out[n], wait = [], None
+        for block, segs in steps[n]:
+            dur = sum(x for _, x in segs)
+            if block == WAIT:                        # a queue: no lane; the take after it is levelled from its start
+                wait = (t, dur, segs)
+                continue
+            lane = None
+            if block in lanes and dur > 0:
+                t0 = wait[0] if wait else t
+                t, lane, i = fit(block, t0, dur)
+                if wait and t < t0 + wait[1]:        # free before its median wait is out: taken when the wait ends
+                    t, lane, i = fit(block, t0 + wait[1], dur)
+                if wait:                             # the wait drawn: from where it began to the take
+                    out[n].append([wait[2][0][0], t0, t, None, None])
+                a, b = free[block][lane][i]
+                free[block][lane][i:i + 1] = [x for x in ((a, t), (t + dur, b)) if x[1] - x[0] > EPS]
+            elif wait:
+                segs = wait[2] + segs
+            wait = None
+            for s_, secs in segs:
+                out[n].append([s_, t, t + secs, block if lane is not None else None, lane])
+                t += secs
+        for s_, secs in wait[2] if wait else []:
+            out[n].append([s_, t, t + secs, None, None])
+            t += secs
+        end[n] = t
+        for s in succs[n]:
+            deg[s] -= 1
+            if not deg[s]:
+                heapq.heappush(ready, key(s))
+    return {n: {"es": out[n][0][1] if out[n] else end[n], "ef": end[n], "segs": out[n]} for n in out}
 
 
 def title_of(it, show) -> str:
@@ -238,10 +311,13 @@ def _segments(it, now: float, finished) -> list[list]:
     return out
 
 
-def build(events, spec, kinds: list[str], now: float, since: float, ix=None, until: float | None = None) -> dict:
+def build(events, spec, kinds: list[str], now: float, since: float, ix=None, until: float | None = None,
+          lanes: dict | None = None) -> dict:
     """The items of ``kinds`` (unfinished, and finished since ``since``) and the items their relations reach, with
     their links, each one's status, expected duration, its place on the critical path and its schedule. With
-    ``until``, as they stood then: every read of the index through ``spec/asof.py``."""
+    ``until``, as they stood then: every read of the index through ``spec/asof.py``. ``lanes``: each block's capacity
+    (``etamodel.capacities``, kept with the snapshot: nothing read for it here), which levels the schedule; a block
+    not in it holds none back."""
     from .spec.itemindex import index_for
     ix = ix if ix is not None else index_for(events, spec, False)
     out = {"now": now, "since": since, "kinds": [], "items": [], "edges": [], "cycles": [], "critical": [], "end": now,
@@ -317,9 +393,9 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             out["edges"].append({"from": a, "to": d, "rel": r, "kind": "other"})
     # statuses: blocked by a predecessor not finished (one past the cap by its own status; one not found at all is not
     # known to be finished)
-    def finished(d: str) -> bool:
+    def finished(d: str, rel) -> bool:          # (or in a state its relation's ``starts_at`` names: start-to-start)
         i = got.get(d) or beyond.get(d)
-        return i is not None and status(i, info[i.kind], []) == "done"
+        return i is not None and (status(i, info[i.kind], []) == "done" or starts(i, rel))
     durs = {kk: info.expected(kk) for kk in {i.kind for i in got.values()}}
     known = [d for d in durs.values() if d]
     fallback = median(known) if known else ASSUMED
@@ -328,8 +404,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
     waiting: dict[str, list[str]] = {}
     for a, it in got.items():
         mine = rels.get(it.kind or "") or {}
-        preds = [d for r, ds in (out_of.get(a) or {}).items() if mine.get(r) is not None and mine[r].precedence for d in ds]
-        waiting[a] = [d for d in preds if not finished(d)]
+        waiting[a] = [d for r, ds in (out_of.get(a) or {}).items() if mine.get(r) is not None and mine[r].precedence
+                      for d in ds if not finished(d, mine[r])]
     for a, it in got.items():
         st[a] = status(it, info[it.kind], waiting[a])
     found = cycles(list(got), before)
@@ -364,22 +440,44 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
             d[a + END] = 0.0
             continue
         d[a], ahead[a], sure[a] = remaining(it, info[it.kind], now, fallback)
-    plan = cpm(d, pairs, [a for a in todo if st[a] in ("active", "queued") or (st[a] == "blocked" and started(got[a], info[got[a].kind]))
-                          and a not in kids])
+    going = [a for a in todo if st[a] in ("active", "queued") or (st[a] == "blocked" and started(got[a], info[got[a].kind]))
+             and a not in kids]
+    plan = cpm(d, pairs, going)
     end = max([p["ef"] for p in plan.values()] or [0.0])
-    out["end"] = now + end
+    # levelled by each block's capacity (``lanes``, from etamodel.capacities): a state a block takes from is a wait,
+    # no block's (``WAIT``); a working state, the block that took it from the queue before it; a hold, its holder's
+    by_state: dict[tuple, str | None] = {}
+    for kk, k in spec.items.items():
+        cur = None
+        for s_ in k.states:
+            cur = next((b.name for b in spec.blocks.values() if b.takes and b.takes.kind == kk and s_ in b.takes.at
+                        and b.name in (lanes or {})), cur)
+            by_state[kk, s_] = cur
+    steps: dict[str, list] = {n: [] for n in d}
+    for a in todo:
+        lease = held(got[a].fields) or {}
+        for s_, secs in ahead[a] or [(got[a].state or "", d[a])]:
+            b = lease.get("block") if s_ == LEASED and lease.get("block") in (lanes or {}) else \
+                WAIT if s_ in info[got[a].kind]["queue"] else by_state.get((got[a].kind, lease.get("back") if s_ == LEASED else s_))
+            if steps[a] and steps[a][-1][0] == b:
+                steps[a][-1][1].append((s_, secs))
+            else:
+                steps[a].append((b, [(s_, secs)]))
+    lev = level(steps, pairs, going, plan, {b: c["lanes"] for b, c in (lanes or {}).items()})
     crit = sorted((a for a, p in plan.items() if p["critical"] and d[a] > 0), key=lambda a: (plan[a]["es"], a))
-    out["critical"] = crit
+    out["critical"] = crit                     # the unlevelled chain: the longest chain of waits, ignoring capacity
     tol = EPS * max(1.0, end)
     for e in out["edges"]:
         p, q = plan.get(end_of(e["from"])), plan.get(e["to"])
         e["critical"] = bool(e["kind"] == "precedence" and p and q and p["critical"] and q["critical"]
                              and abs(p["ef"] - q["es"]) <= tol)
+    for n, p in plan.items():                  # what is drawn and said: the levelled start and end
+        p.update(es=lev[n]["es"], ef=lev[n]["ef"])
+    out["end"] = now + max([p["ef"] for p in plan.values()] or [0.0])
     for p_ in kids:
         plan[p_] = {**plan[p_], "ef": plan[p_ + END]["ef"], "lf": plan[p_ + END]["lf"], "slack": plan[p_ + END]["slack"],
                     "critical": plan[p_ + END]["critical"], "summary": True}
         d[p_] = plan[p_]["ef"] - plan[p_]["es"]
-        ahead[p_] = [("children", d[p_])]
     for a, it in got.items():
         k = spec.items.get(it.kind or "")
         lease = held(it.fields)
@@ -397,12 +495,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
         if p is not None:
             x.update(duration=d[a], known=sure[a], es=now + p["es"], ef=now + p["ef"], ls=now + p["ls"], lf=now + p["lf"],
                      slack=p["slack"], critical=p["critical"] and d[a] > 0, summary=bool(p.get("summary")))
-            t, proj = now + p["es"], []
-            for s_, secs in (ahead[a] or [(it.state or "", d[a])]):
-                if secs > 0:
-                    proj.append([s_, t, t + secs])
-                    t += secs
-            x["projected"] = proj
+            x["projected"] = [["children", now + p["es"], now + p["ef"]]] if a in kids and d[a] > 0 else \
+                [[s_, now + t0, now + t1, *([b, k] if b else [])] for s_, t0, t1, b, k in lev[a]["segs"] if t1 > t0]
         out["items"].append(x)
     out["items"].sort(key=lambda x: (x.get("es", x["first"]), x["first"], x["id"]))
     seen_kinds = list(dict.fromkeys([*kinds, *(i.kind for i in got.values() if i.kind)]))
@@ -417,7 +511,8 @@ def build(events, spec, kinds: list[str], now: float, since: float, ix=None, unt
 
 def order_ready(events, spec, kind: str, items: list, now: float) -> list:
     """For a block that takes only unblocked items (``takes: {unblocked: true}``): of ``items`` (those it may take,
-    in its order), those whose precedence relations name only finished items, the critical first (the least slack,
+    in its order), those whose precedence relations name only finished items (or ones in a ``starts_at`` state),
+    the critical first (the least slack,
     then the longest path ahead: the bottom level), the block's own order kept among equals."""
     from .spec.itemindex import index_for
     ix = index_for(events, spec, False)
@@ -430,10 +525,11 @@ def order_ready(events, spec, kind: str, items: list, now: float) -> list:
         x = by.get(it.id)
         if x is None:                                         # not in the graph (past its caps): its links read alone
             with ix.lock:
-                preds = [d for _, r, d in ix.links_from([it.id]) if r in _prec(spec, it.kind)]
-                done = {i.id for i in ix.items(None, ids=preds)
-                        if status(i, Kinds(spec, ix)[i.kind], []) == "done"} if preds else set()
-            if any(p not in done for p in preds):
+                prec = _prec(spec, it.kind)
+                links = [(r, d) for _, r, d in ix.links_from([it.id]) if r in prec]
+                by_id = {i.id: i for i in ix.items(None, ids=[d for _, d in links])} if links else {}
+            if any(d not in by_id or (status(by_id[d], Kinds(spec, ix)[by_id[d].kind], []) != "done"
+                                      and not starts(by_id[d], prec[r])) for r, d in links):
                 continue
             out.append((float("inf"), 0.0, n, it))
             continue
@@ -443,9 +539,19 @@ def order_ready(events, spec, kind: str, items: list, now: float) -> list:
     return [it for *_, it in sorted(out, key=lambda t: t[:3])]
 
 
-def _prec(spec, kind) -> set[str]:
+def starts(i, rel) -> bool:
+    """Whether item ``i`` is in a state ``rel.starts_at`` names; a leased one by the state it was taken from (its
+    lease's ``back``), so a target taken from ``approved`` still counts as approved while it is held."""
+    s = i.state
+    if s == LEASED:
+        lease = i.fields.get("lease") if isinstance(i.fields.get("lease"), dict) else {}
+        s = lease.get("back")
+    return bool(rel.starts_at) and s in rel.starts_at
+
+
+def _prec(spec, kind) -> dict:
     k = spec.items.get(kind or "")
-    return {r.name for r in k.relations.values() if r.precedence} if k else set()
+    return {r.name: r for r in k.relations.values() if r.precedence} if k else {}
 
 
 _CACHE: dict = {}

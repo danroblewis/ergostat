@@ -1,6 +1,7 @@
 """Triage (SPEC §12r): a failed run kept as ``ergostat.run.failed`` about ``ergostat.failure/<block>-<signature>``, and
 opened for repair only when its block runs a program of the project's and the code may be to blame; a run that ended
-well but printed a traceback through the project's code kept as ``ergostat.run.swallowed``, which moves nothing."""
+well but printed a traceback through the project's code, or else logged an error, kept as ``ergostat.run.swallowed``,
+which moves nothing."""
 
 from __future__ import annotations
 
@@ -63,9 +64,10 @@ def traceback_of(text: str, root: Path) -> dict | None:
     return traces.last(text, root)
 
 
-def signature(block: str, program: str | None, tb: dict | None, how: str = "") -> str:
-    return hashlib.sha1(repr((block, program, tb["type"], tb["file"], tb["function"]) if tb else
-                             (block, program, how)).encode()).hexdigest()[:8]
+def signature(block: str, program: str | None, tb: dict | None, how: str = "", log: dict | None = None) -> str:
+    key = ((block, program, tb["type"], tb["file"], tb["function"]) if tb else
+           (block, program, "log", log["level"], log["logger"]) if log else (block, program, how))
+    return hashlib.sha1(repr(key).encode()).hexdigest()[:8]
 
 
 def current(p, spec, fid: str):
@@ -171,22 +173,28 @@ def failed(p, spec, b, begun: dict, data: dict, stdin: str, stderr: str) -> dict
 
 
 def swallowed(p, spec, b, begun: dict, tail: str, stdin: str = "") -> dict | None:
-    """A run that ended well whose output's last trace goes through the project's code: ``ergostat.run.swallowed``
-    about the failure that trace signs. A new one arrives ``noted`` with a failure's fields and is never opened; an
-    existing one gets counts only, so no failure is moved, unleased or given another's traceback (SPEC §12r)."""
+    """A run that ended well whose output's last trace goes through the project's code, or failing that whose tail has
+    an error-level log line (``traces.log_event``): ``ergostat.run.swallowed`` about the failure it signs. A new one
+    arrives ``noted`` with a failure's fields and is never opened; an existing one gets counts only, so no failure is
+    moved, unleased or given another's traceback (SPEC §12r)."""
     if guarded(p, b, begun.get("causedby")):
         return None
     program = program_of(spec, b) if b.type in ("program", "ai") else None
     tb = traces.last(tail, spec.root) if program else None
+    log = None
     if not tb or not any(f["project"] for f in tb["frames"]):
-        return None
-    sig = signature(b.name, program, tb)
+        tb, log = None, traces.log_event(tail) if program else None      # a trace always wins over a log line
+        if log is None:
+            return None
+    sig = signature(b.name, program, tb, log=log)
     name = f"{b.name}-{sig}"
     fid = f"{FAILURE}/{name}"
     with held(p) as keep:
         if current(p, spec, fid) is None:
             (keep / f"{name}.input").write_text(scrub(p, stdin), encoding="utf-8")
             d = {**_fields(p, b, begun, {"exit": 0}, name, sig, program, tb, tail), "count": 0, "swallowed": 1}
+            if log:
+                d["error"] = scrub(p, log["message"])[:300]
         else:
             d = {"swallowed": 1, "last_swallowed": begun["id"]}
         row = _row("ergostat.run.swallowed", fid, begun, d)

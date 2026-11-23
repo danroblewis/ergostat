@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -26,6 +27,9 @@ RB_AT = r"(?P<file>\S.*?):(?P<line>\d+):in [`'](?P<function>[^`']*)'"
 RB_HEAD = re.compile(rf"^{RB_AT}: (?P<message>.*) \((?P<type>[A-Z][\w:]*)\)$")
 RB_FROM = re.compile(rf"^\tfrom {RB_AT}$")
 PY_END = re.compile(r"^(?:[A-Za-z_]\w*\.)*[A-Z]\w*(?:: .*)?$")       # a Python exception line: `pkg.Type: message`
+PY_LOG = re.compile(r"^(?P<level>ERROR|CRITICAL):(?P<logger>[^:\s]*):(?P<message>.*)$")   # logging's default form
+LOG_LEVELS = ("error", "critical", "fatal")
+LOG_LINE = 8000                                      # a log line longer than this is not read
 
 
 def project(file: str | None, root: Path) -> bool:
@@ -212,3 +216,33 @@ def last(text: str, root: Path) -> dict | None:
     lines = text.splitlines()
     got = [t for parse in (_python, _node, _java, _go, _ruby) if (t := parse(lines, root)) is not None]
     return max(got, key=lambda t: t[0])[1] if got else None
+
+
+def _json_log(s: str) -> dict | None:
+    try:
+        d = json.loads(s) if s.startswith("{") else None
+    except ValueError:
+        return None
+    if not isinstance(d, dict):
+        return None
+    level = next((v for k in ("level", "levelname", "severity") if isinstance(v := d.get(k), str)), "")
+    logger = next((v for k in ("logger", "name") if isinstance(v := d.get(k), str)), None)
+    message = next((v for k in ("message", "msg") if isinstance(v := d.get(k), str)), None)
+    if level.lower() not in LOG_LEVELS or logger is None or message is None:
+        return None
+    return {"level": level.upper(), "logger": logger, "message": message}
+
+
+def log_event(text: str) -> dict | None:
+    """The last error-level log line in ``text``: Python logging's default ``ERROR:logger:message`` (or ``CRITICAL``),
+    or a JSON line whose ``level``/``levelname``/``severity`` is error, critical or fatal (any case), with
+    ``logger``/``name`` and ``message``/``msg``. No other form is read; a line over ``LOG_LINE`` characters is skipped."""
+    for s in reversed(text.splitlines()):
+        s = s.strip()
+        if len(s) > LOG_LINE:
+            continue
+        if m := PY_LOG.match(s):
+            return {"level": m["level"], "logger": m["logger"], "message": m["message"]}
+        if got := _json_log(s):
+            return got
+    return None
