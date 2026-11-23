@@ -115,3 +115,19 @@ reads the header counts, which this gap does not touch. It was not run on main t
 Refused this round, as given: `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py
 tests/test_graph_cli_web.py` (it was then run without the watchdog). The whole of tests/test_diagram_rendering.py was
 not run.
+
+Round 5: the merge of main (b6d7a1db) is done (f1fc18d5). It conflicted in two test files, each resolved by keeping
+both sides one after the other: in tests/test_diagram_rendering.py main's
+`test_the_address_holds_what_is_chosen_and_the_window` after the branch's acceptance test, and in
+tests/test_graph_cli_web.py main's `test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page`
+after the branch's unit test. No page code conflicted. Net lines outside tests and docs against main: 11 added, 5
+removed (6 net), within the 20 budget. Ruff is clean.
+Suites, run serially: tests/test_graph_cli_web.py without a browser (55 passed); with Playwright under suite_watch,
+the acceptance test and main's merged address test (3 passed), tests/test_inbox_page.py (12 passed), and
+tests/test_items_page.py (67 passed, 1 failed). The failure was again
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (a 30 s `wait_for_function` timeout). Run
+alone, it failed the same way. This is the same failure as in rounds 2-4: it reads the header counts, which this gap
+does not touch, and round 2 saw it fail with the gap's pages.js lines undone. It was not run on main.
+Refused this round, as given: `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py
+tests/test_graph_cli_web.py` (it was then run without the watchdog), and the same test name run without suite_watch
+(it was then run under suite_watch). The whole of tests/test_diagram_rendering.py was not run.
