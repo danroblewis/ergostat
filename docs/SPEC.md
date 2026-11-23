@@ -7716,9 +7716,10 @@ from `/dev/null`, its output to `runs/RUN/keeper.log`, SIGHUP ignored), and answ
 `keeper` (its pid). The worker reaps its keepers; nothing ties a keeper to the worker, so closing the worker's
 standard input, or killing its session, leaves every run going.
 
-**The keeper** forks the run, then writes `runs/RUN/proc` `{"pid", "start", "keeper", "keeper_start"}` (the run's
-pid and start time, its own pid and start time, as the system gives them: `/proc/PID/stat` field 22 on Linux,
-`ps -o lstart=` elsewhere; best effort: without it the run reads `unknown`, section 12s.6). The child takes its own process group (the keeper sets it too, so a stop never
+**The keeper** forks the run, then writes `runs/RUN/proc` `{"pid", "start", "keeper", "keeper_start", "boot"}` (the
+run's pid and start time, its own pid and start time, as the system gives them: `/proc/PID/stat` field 22 on Linux,
+`ps -o lstart=` elsewhere; and the boot, `/proc/sys/kernel/random/boot_id` on Linux, `sysctl -n kern.boottime`
+elsewhere; best effort: without it the run reads `unknown`, section 12s.6). The child takes its own process group (the keeper sets it too, so a stop never
 precedes it), writes `runs/RUN/pgid` before anything else, sets `RLIMIT_AS` to `memory`, `RLIMIT_NPROC` to `pids`
 and `RLIMIT_CPU` to `cpus × wall` (rounded up) when given, and on Linux `PR_SET_PDEATHSIG = SIGKILL` (by `ctypes`;
 the run is not started if that fails or the keeper has already gone) and `oom_score_adj` 500 (best effort: it
@@ -7889,23 +7890,29 @@ three states. **Gone** needs a reading made, one of an allowlist:
 
 - `running`: its `proc` pid is alive with the start time recorded, and so is its keeper's;
 - `gone`, with `code` and `how`: its keeper's `exit` is written (an unreadable one reads `code` 127, never 0); or its
-  pid is absent, a zombie or another process (another start time) *and* its process group (`pgid`) is read as having
+  `proc` names another boot than this one (every process of that boot has ended); or its pid is another process
+  (another start time): the run leads its own group (its pgid is its pid) and the kernel does not give a pid number
+  again while any process has it as its pid or its group, so the run's group is empty and any process now in a group
+  of that number is a stranger's; or its pid is absent or a zombie *and* the group of that number is read as having
   no process that has not ended (`/proc` on Linux, one `ps -A -o pgid=,state=` elsewhere). Then, when its keeper is
   still alive, `code` and `how` are null (the keeper writes the exit within a quarter second); when its keeper is
-  gone too, the worker writes the exit itself, `{"code": null, "how": "keeper gone"}` (so `code` reads 127), and the
-  folder is left for the engine's `done` and the sweep;
-- `unknown`, with `why`: anything else: `record unreadable` (no `proc`, or not of that shape, or no `pgid` once its pid is gone), `ps
-  failed` (a start time not read), `group not read`, `group not empty` (its pid gone or reused while its group still
+  gone too, the worker writes the exit itself, `{"code": null, "how": "keeper gone"}` (`"rebooted"` for another
+  boot; `code` reads 127), and the folder is left for the engine's `done` and the sweep;
+- `unknown`, with `why`: anything else: `record unreadable` (no `proc`, or not of that shape), `ps failed` (a start
+  time or the boot not read), `group not read`, `group not empty` (its pid absent while a group of that number still
   has a process), `keeper gone` (the run alive, its keeper not), `not read` (an unexpected fault, said on standard
-  error). Unknown is never gone and never fine: the worker stops it by name at once, itself, by writing its `stop`
-  (so a keeper still there acts on it as for a `kill`) and sending SIGTERM to the group in its `pgid`, then SIGKILL
-  2 seconds later (never to the worker's own group; one stopping thread at a time), and lists it `unknown` until a
-  reading puts it in one of the other two states.
+  error). Unknown is never gone and never fine: the worker stops it by name at once by writing its `stop` (so a
+  keeper still there acts on it as for a `kill`), and itself sends SIGTERM to the run's group, then SIGKILL 2 seconds
+  later, each only when, read again just before it is sent, the record's boot is this one and its pid (the group's
+  leader) is alive with the start time recorded; else that signal is not sent. Never to the worker's own group; one
+  stopping thread at a time. A group whose leader is not shown so (a `group not empty`, a `proc` unreadable, a ps
+  still failing) is left to its keeper's `stop` and listed `unknown` until a reading puts it in one of the other two
+  states. Left open: the leader ending and its number taken again between that reading and the signal.
 
 Each `beat` reads the state of each run listed in `hello` again (the process groups listed once a beat), carries it
 in that run's object, and stops again each run still unknown. A run started in this session is not read so: its
 state is its `started` and `ended`. A folder another worker on the same root is making at the instant this one
-starts (no `proc` yet) reads `unknown` and is stopped.
+starts (no `proc` yet) reads `unknown` and its `stop` is written (its keeper stops it; the worker sends no signal).
 
 **The sweep** (`states.sweep`), once just after `hello` and then every hour, removes a run folder (of the form
 above) only when its run has ended (its `exit` is there) and it has `done` or its `exit` is a day old or more. It

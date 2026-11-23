@@ -1,8 +1,9 @@
 """The runs a starting worker finds in its root, each ``running``, ``gone`` or ``unknown``, and the sweep of their
 folders by name (SPEC §12s.6). ``gone`` is said only on a reading made (an allowlist): the keeper's ``exit`` written,
-or the run's pid absent or another process's (its start time differs) and its process group read as empty. Every
-other case is ``unknown``, never gone and never fine, and is stopped by name: its ``stop`` written, SIGTERM then
-SIGKILL to the group in its ``pgid``. The keeper writes ``proc`` (``record``): the run's pid and start time, its own."""
+another boot recorded, the run's pid another process's (its start time differs), or its pid absent and its process
+group read as empty. Every other case is ``unknown``, never gone and never fine, and is stopped by name: its ``stop``
+written, and SIGTERM then SIGKILL to its group only while its leader is shown to be the run. The keeper writes
+``proc`` (``record``): the boot, the run's pid and start time, its own."""
 
 import json
 import os
@@ -60,14 +61,30 @@ def start_of(pid: int) -> str | None:
     return None if got is None or got[0] in ("Z", "X") else got[1]
 
 
+def boot() -> str:
+    """This boot's id (``/proc/sys/kernel/random/boot_id``; ``sysctl kern.boottime`` elsewhere); Unread when not read."""
+    try:
+        if LINUX:
+            with open("/proc/sys/kernel/random/boot_id", encoding="utf-8") as f:
+                got = f.read().strip()
+        else:
+            out = subprocess.run(["sysctl", "-n", "kern.boottime"], capture_output=True, text=True, timeout=5)
+            got = out.stdout.strip() if out.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError) as e:
+        raise Unread(str(e)) from None
+    if not got:
+        raise Unread("no boot id")
+    return got
+
+
 def record(d: str, pid: int) -> None:
-    """In the keeper, after its fork: ``proc``, the run's pid and start time and the keeper's (best effort: without
-    it the run reads ``unknown``, never gone)."""
+    """In the keeper, after its fork: ``proc``, the boot, the run's pid and start time and the keeper's (best effort:
+    without it the run reads ``unknown``, never gone)."""
     try:
         run, me = _stat(pid), _stat(os.getpid())
         if run and me:
             keeper.put(os.path.join(d, "proc"), json.dumps({"pid": pid, "start": run[1], "keeper": os.getpid(),
-                                                            "keeper_start": me[1]}))
+                                                            "keeper_start": me[1], "boot": boot()}))
     except (OSError, Unread):
         pass
 
@@ -115,36 +132,59 @@ def _pid(v) -> bool:
     return type(v) is int and v > 1
 
 
+def _proc(d: str) -> dict | None:
+    """The keeper's ``proc`` record, None when missing or not of its shape."""
+    rec = _read(os.path.join(d, "proc"), json.loads)
+    ok = (isinstance(rec, dict) and _pid(rec.get("pid")) and _pid(rec.get("keeper"))
+          and all(isinstance(rec.get(k), str) for k in ("start", "keeper_start", "boot")))
+    return rec if ok else None
+
+
+def _ended(d: str, how: str) -> dict:
+    """The run and its keeper both gone: the exit written here, never success (``code`` null, read as 127)."""
+    if keeper.ended(d) is None:
+        keeper.put(os.path.join(d, "exit"), json.dumps({"code": None, "how": how}) + "\n")
+    return {"state": "gone", "code": keeper.ended(d), "how": how}
+
+
 def state(d: str, table: list) -> dict:
-    """One run folder's state now. ``table``: the process groups, read once a look (``[set]``, ``[None]`` to read)."""
+    """One run folder's state now. ``table``: the process groups, read once a look (``[set]``, ``[None]`` to read).
+    The run leads its own group (keeper.py: pgid == pid), and a pid number is not given again while any process has
+    it as its pid or its group: so a pid now another process's means the run's group is empty."""
     code = keeper.ended(d)
     if code is not None:
         return {"state": "gone", "code": code, "how": (_read(os.path.join(d, "exit"), json.loads) or {}).get("how")}
-    rec = _read(os.path.join(d, "proc"), json.loads)
-    if not (isinstance(rec, dict) and _pid(rec.get("pid")) and _pid(rec.get("keeper"))
-            and all(isinstance(rec.get(k), str) for k in ("start", "keeper_start"))):
+    rec = _proc(d)
+    if rec is None:
         return {"state": "unknown", "why": "record unreadable"}
     try:
-        run_alive = start_of(rec["pid"]) == rec["start"]
+        if rec["boot"] != boot():
+            return _ended(d, "rebooted")                          # (every process of that boot has ended)
+        run_start = start_of(rec["pid"])
         keeper_alive = start_of(rec["keeper"]) == rec["keeper_start"]
     except Unread:
         return {"state": "unknown", "why": "ps failed"}
-    if run_alive:
+    if run_start == rec["start"]:
         return {"state": "running"} if keeper_alive else {"state": "unknown", "why": "keeper gone"}
-    pgid = _read(os.path.join(d, "pgid"), int)
-    try:
-        if table[0] is None:
-            table[0] = groups()
-        empty = _pid(pgid) and pgid not in table[0]
-    except Unread:
-        return {"state": "unknown", "why": "group not read"}
-    if not empty:
-        return {"state": "unknown", "why": "group not empty" if _pid(pgid) else "record unreadable"}
+    if run_start is None:                                         # its pid free or a zombie: its group may be left
+        try:
+            if table[0] is None:
+                table[0] = groups()
+        except Unread:
+            return {"state": "unknown", "why": "group not read"}
+        if rec["pid"] in table[0]:
+            return {"state": "unknown", "why": "group not empty"}
     if keeper_alive:
         return {"state": "gone", "code": None, "how": None}       # (its keeper writes the exit within a tick)
-    if keeper.ended(d) is None:                                   # its keeper gone with it: the exit recorded here
-        keeper.put(os.path.join(d, "exit"), json.dumps({"code": None, "how": "keeper gone"}) + "\n")
-    return {"state": "gone", "code": keeper.ended(d), "how": "keeper gone"}
+    return _ended(d, "keeper gone")
+
+
+def shown(rec: dict | None) -> bool:
+    """Whether the run's group is shown to be the run's now: the same boot, its leader alive with the start recorded."""
+    try:
+        return rec is not None and rec["boot"] == boot() and start_of(rec["pid"]) == rec["start"]
+    except Unread:
+        return False
 
 
 def _folders(runs: str) -> list[str]:
@@ -209,10 +249,11 @@ class States:
         return [{"run": n, **s} for n, s in self.now.items()]
 
     def stop(self, names: list[str]) -> None:
-        """Each run stopped by name: its ``stop`` written (its keeper, if any, acts on it) and its group signalled
-        here, SIGTERM then SIGKILL after ``GRACE``; never this worker's own group."""
+        """Each run stopped by name: its ``stop`` written (its keeper, if any, acts on it), and its group (its pid)
+        signalled here, SIGTERM then SIGKILL after ``GRACE``, each only when ``shown`` just before it is sent, else
+        not at all; never this worker's own group."""
         try:
-            pgids = []
+            recs = []
             for n in names:
                 d = os.path.join(self.runs, n)
                 try:
@@ -220,14 +261,15 @@ class States:
                         keeper.put(os.path.join(d, "stop"), json.dumps({"grace": GRACE, "why": "unknown"}))
                 except OSError:
                     pass
-                pg = _read(os.path.join(d, "pgid"), int)
-                if _pid(pg) and pg != os.getpgid(0):
-                    pgids.append(pg)
+                rec = _proc(d)
+                if rec is not None and rec["pid"] != os.getpgid(0):
+                    recs.append(rec)
             for sig in (signal.SIGTERM, signal.SIGKILL):
                 if sig == signal.SIGKILL:
                     time.sleep(GRACE)
-                for pg in pgids:
-                    keeper.group(pg, sig)
+                for rec in recs:
+                    if shown(rec):
+                        keeper.group(rec["pid"], sig)
         finally:
             self.stopping.release()
 

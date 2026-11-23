@@ -67,19 +67,24 @@ def test_ps_failure_is_unknown_and_stopped(node, st, monkeypatch):
     assert until(lambda: (node.dir(run) / "proc").exists())
     node.w.close()
 
-    def failed(pid):
-        raise st.Unread("ps ended 1")
+    calls, real_start = [], st.start_of
+
+    def failed_once(pid):                                    # the look's ps fails; the stop's own reading does not
+        calls.append(pid)
+        if len(calls) == 1:
+            raise st.Unread("ps ended 1")
+        return real_start(pid)
     sent, real = [], os.killpg
-    monkeypatch.setattr(st, "start_of", failed)
+    monkeypatch.setattr(st, "start_of", failed_once)
     monkeypatch.setattr(st, "GRACE", 0.2)
     monkeypatch.setattr(os, "killpg", lambda p, s: sent.append((p, s)) or real(p, s))
     found = st.States(str(node.root))
     assert found.hello() == [{"run": run, "state": "unknown", "why": "ps failed"}]
-    assert until(lambda: (pg, signal.SIGTERM) in sent)      # the worker itself signals the recorded group
+    assert until(lambda: (pg, signal.SIGTERM) in sent)      # the worker itself signals the group, its leader read again
+    assert {p for p, _ in sent} == {pg}
     assert until(lambda: not alive(pg), 5)
-    again = found.look()[run]                                # (gone only once its keeper's exit is there to read)
-    assert again == ({"state": "gone", "code": -signal.SIGTERM, "how": "TERM"} if (node.dir(run) / "exit").exists()
-                     else {"state": "unknown", "why": "ps failed"})
+    assert until(lambda: (node.dir(run) / "exit").exists(), 5)
+    assert found.look()[run] == {"state": "gone", "code": -signal.SIGTERM, "how": "TERM"}
 
 
 def _folder(root, proc: dict, pgid: int) -> str:
@@ -98,29 +103,54 @@ def _ended_pid() -> int:
     return p.pid
 
 
-def test_reused_pid_group_empty_gone(tmp_path, st):
-    dead = _ended_pid()
-    me = os.getpid()                                         # the run's pid now another's: this process, started otherwise
-    run = _folder(tmp_path, {"pid": me, "start": "1", "keeper": dead, "keeper_start": "1"}, dead)
-    found = st.States(str(tmp_path))
-    assert found.hello() == [{"run": run, "state": "gone", "code": 127, "how": "keeper gone"}]
-    assert json.loads((tmp_path / "runs" / run / "exit").read_text()) == {"code": None, "how": "keeper gone"}
-    assert not (tmp_path / "runs" / run / "stop").exists()
-
-
-def test_reused_pid_group_alive_unknown(tmp_path, st, monkeypatch):
-    p = subprocess.Popen(["sleep", "30"], start_new_session=True)     # the run's group, still holding a process
+def test_absent_pid_by_group_state(tmp_path, st, monkeypatch):
+    """Its pid absent: gone when its group reads empty; a group left holding a process is unknown, and not signalled
+    (nothing shows that group is still the run's)."""
+    monkeypatch.setattr(st, "GRACE", 0.2)
+    sent = []
+    monkeypatch.setattr(os, "killpg", lambda p, s: sent.append((p, s)))
+    dead, boot = _ended_pid(), st.boot()
+    run = _folder(tmp_path, {"pid": dead, "start": "1", "keeper": dead, "keeper_start": "1", "boot": boot}, dead)
+    p = subprocess.Popen(["sh", "-c", "sleep 30 >/dev/null 2>&1 & echo $!"], stdout=subprocess.PIPE,
+                         start_new_session=True, text=True)
+    left = int(p.stdout.readline())                          # its leader ended, one process left in its group
+    p.wait()
     try:
-        monkeypatch.setattr(st, "GRACE", 0.2)
-        run = _folder(tmp_path, {"pid": os.getpid(), "start": "1", "keeper": _ended_pid(), "keeper_start": "1"}, p.pid)
+        held = _folder(tmp_path, {"pid": p.pid, "start": "1", "keeper": dead, "keeper_start": "1", "boot": boot}, p.pid)
         found = st.States(str(tmp_path))
-        assert found.hello() == [{"run": run, "state": "unknown", "why": "group not empty"}]
-        assert p.wait(5) == -signal.SIGTERM                   # its group stopped by name
-        assert not (tmp_path / "runs" / run / "exit").exists()
+        assert listed({"runs": found.hello()}, run) == {"run": run, "state": "gone", "code": 127, "how": "keeper gone"}
+        assert json.loads((tmp_path / "runs" / run / "exit").read_text()) == {"code": None, "how": "keeper gone"}
+        assert not (tmp_path / "runs" / run / "stop").exists()
+        assert listed({"runs": found.hello()}, held) == {"run": held, "state": "unknown", "why": "group not empty"}
+        assert until(lambda: found.stopping.acquire(blocking=False), 5)      # (the stopping thread has ended)
+        assert (tmp_path / "runs" / held / "stop").exists() and sent == [] and alive(left)
     finally:
-        if p.poll() is None:
-            os.killpg(p.pid, signal.SIGKILL)
-            p.wait()
+        os.kill(left, signal.SIGKILL)
+
+
+def test_reused_pid_stranger_survives(tmp_path, st, monkeypatch):
+    """A stranger now leads the run's pid (and so its group): the run's own group is empty, so gone, and the
+    stranger is never signalled; nor on its own start time when the record is of another boot."""
+    p = subprocess.Popen(["sleep", "30"], start_new_session=True)     # a setsid daemon on the run's old pid
+    try:
+        sent = []
+        monkeypatch.setattr(os, "killpg", lambda g, s: sent.append((g, s)))
+        assert until(lambda: st.start_of(p.pid) is not None)
+        dead, boot, its = _ended_pid(), st.boot(), st.start_of(p.pid)
+        reused = _folder(tmp_path, {"pid": p.pid, "start": "1", "keeper": dead, "keeper_start": "1", "boot": boot},
+                         p.pid)
+        before = _folder(tmp_path, {"pid": p.pid, "start": its, "keeper": dead, "keeper_start": "1", "boot": "old"},
+                         p.pid)
+        found = st.States(str(tmp_path))
+        assert listed({"runs": found.hello()}, reused) == {"run": reused, "state": "gone", "code": 127,
+                                                           "how": "keeper gone"}
+        assert listed({"runs": found.hello()}, before) == {"run": before, "state": "gone", "code": 127,
+                                                           "how": "rebooted"}
+        assert found.look()[reused]["state"] == "gone" and sent == [] and p.poll() is None
+        assert not any((tmp_path / "runs" / r / "stop").exists() for r in (reused, before))
+    finally:
+        p.kill()                                             # (os.killpg is the stand-in here)
+        p.wait()
 
 
 def test_sweep_deletes_only_its_own_names(tmp_path, st):

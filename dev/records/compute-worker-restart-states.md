@@ -38,3 +38,32 @@ Not tested: the macOS `ps` paths (this container is Linux), the hourly sweep's t
 (the run alive, its keeper not), and a beat's re-stop.
 
 Overrun reason: about 255 net lines against 200, because the definition assumes a recorded start time that did not exist (the keeper's `proc` record and the reading of both start times) and the allowlisted readings need a second platform's form (`ps` on macOS) beside `/proc`, each failure read as Unread rather than gone.
+
+Round 2: the one review finding (states.py:142-147 with `States.stop`: a reused pid's recorded group signalled, and
+the SIGKILL sent without reading again), answered as the review asked, all three parts:
+
+- **A reused pid reads gone.** The run leads its own group (pgid == pid), and the kernel gives a pid number again
+  only when no process has it as pid or group, so a pid now another process's (start time differs) means the run's
+  group is empty: `gone`, never signalled. The `pgid` file is no longer read by the states; the group is the pid.
+  Only an absent (or zombie) pid reads the group table: empty is gone, else `unknown` "group not empty".
+- **A boot id in `proc`** (`/proc/sys/kernel/random/boot_id`; `sysctl -n kern.boottime` on macOS); another boot is
+  `gone` with the exit written `{"code": null, "how": "rebooted"}`. The boot not read is `unknown` "ps failed".
+- **Each signal is sent only when `shown`**, read just before it (SIGTERM, and again before the SIGKILL 2 s later):
+  the record's boot is this one and its pid alive with the recorded start time. Otherwise no signal at all; the
+  run's `stop` is still written, so a keeper that is there stops its own run. So a `group not empty`, an unreadable
+  record or a ps still failing is never signalled by the worker; it stays listed unknown. Narrower than the
+  definition's "SIGTERM then SIGKILL to the recorded group" for those cases, by the review's ruling; the most
+  reversible choice (a missed stop leaves a run going and listed unknown; a wrong one kills a stranger).
+- **Tests:** `test_reused_pid_group_alive_unknown` (which locked the bug in) is replaced by
+  `test_reused_pid_stranger_survives`: a setsid stranger on the run's old pid, with one folder of another start time
+  and one of the stranger's own start time but another boot, both gone, nothing signalled, the stranger alive.
+  `test_reused_pid_group_empty_gone` became `test_absent_pid_by_group_state`: an absent pid with an empty group is
+  gone; an absent leader whose group still holds a process is unknown, its `stop` written, nothing signalled, the
+  process alive. `test_ps_failure_is_unknown_and_stopped` now fails ps for the look only and shows the worker's
+  SIGTERM goes to that group alone once the leader is read again. Still six tests. Each break was seen to fail a
+  test: `shown` always true (absent-pid test), always false (ps-failure test), the group read for a reused pid
+  (stranger test), the boot check removed (stranger test).
+- Left open, said in SPEC: the leader ending and its number taken again between `shown`'s reading and the signal.
+  Not tested: the macOS `sysctl`/`ps` paths, the hourly sweep's timer.
+
+Overrun reason: about 290 net lines against 200 (round 1's reasons, plus the boot record and reading, and the reading again of the leader before each signal that the review's fix requires).
