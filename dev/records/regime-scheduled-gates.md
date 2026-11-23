@@ -124,3 +124,16 @@ column. None of them decides whether an act runs.
 Net lines outside tests and docs: 83 (budget 140).
 Run: `tests/test_regime_gates.py` (10 passed) and `tests/test_program_actions.py` (10 passed), and ruff is clean.
 Not run here: the unit suite and the four browser files.
+
+Round 3. The factory refused the build before the suites because the branch edited docs/GAPS.md. docs/GAPS.md is
+put back as main has it, and the entry is below: a sub-gap of the umbrella record `operating-modes-regime`.
+The round-3 review finding still stands and is not fixed here: under §12k the notify channels' `notify.CHANNEL`
+actions get scheduled cells too, so an entered incident or an unreadable record denies them, and `deliver.sweep`
+counts the denied entries as told. Left for the next round: keep any action whose cells were not compiled from
+`actions:` (empty `gates`) out of scheduling, plus a test of an `auto` channel under an entered incident and under an
+unreadable state.
+
+## Entry
+
+entry-of: operating-modes-regime
+done: 2026-11-23 Gates and thresholds by operating state, on `regime-scheduled-gates` (SPEC §12k): `gate:` and `risk.threshold` as a map by column (normal, away, maintenance, freeze, incident), unwritten cells never looser than normal's, chosen at the request and again inside the run lock at the act, an unsure state read as `deny`.
