@@ -3263,7 +3263,15 @@ blocks:
 
 The Agents page shows each agent's totals over the window (runs, dollars, tokens, CPU, peak memory) and, in its panel,
 the history of each (dollars by hour, and tokens, CPU and memory run by run) and its runs with their numbers;
-`ergostat agent NAME` says the same in the terminal.
+`ergostat agent NAME` says the same in the terminal. A cost of none says why: "free stand-in, $0" for an AI agent's
+runs with no session and no tokens, unless one failed or was stopped (a killed session may have spent and recorded
+nothing: "not known: N failed or stopped", added after any dollars known; a run given back unrun because its
+workspace pool was full began no session and is not one of them), "no AI, $0" for another kind's, "no runs, $0", "not run here", "a person, not
+priced". A column empty for every agent is left out, and the table ends in the window's total. An item's header
+states what the runs that took it cost (named by its lease's history, §9.5, which keeps every take, one rolled up
+into its snapshot too), and says "not known yet" while none has ended.
+It reads as an AI agent's when any of the blocks that took it is one (or is no longer in the model), and only those
+blocks' failed or stopped runs count as not known.
 
 ### 9.2 Built-in block types
 
