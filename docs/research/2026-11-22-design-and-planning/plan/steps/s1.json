@@ -1,0 +1,10 @@
+[
+ {"goto": "http://127.0.0.1:8794/item/ticket%2Fe201-integrate"}, {"wait": 2500},
+ {"shot": "plan-ks-road-item-leased.png", "full": true},
+ {"text": "css=main"},
+ {"goto": "http://127.0.0.1:8792/item/review%2F2243"}, {"wait": 2500},
+ {"shot": "plan-ks-job-item-review.png", "full": true},
+ {"goto": "http://127.0.0.1:8794/items?kind=ticket"}, {"wait": 3000},
+ {"shot": "plan-ks-road-items-ticket.png", "full": false},
+ {"text": "css=main"}
+]

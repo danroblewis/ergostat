@@ -40,13 +40,18 @@ def _skip(x) -> bool:
     return x.code in NOT_MODELLING or template_made(x) or not x.code
 
 
+def _as_note(x) -> bool:
+    from .requests import as_note
+    return as_note(x)
+
+
 def findings(problems) -> set[str]:
     return {f"{x.code}@{x.about}" if x.about else x.code for x in problems
-            if x.level not in ("error", "note") and not _skip(x)}
+            if x.level != "error" and not _as_note(x) and not _skip(x)}
 
 
 def notes(problems) -> set[str]:
-    return {f"{x.code}@{x.about}" if x.about else x.code for x in problems if x.level == "note" and not _skip(x)}
+    return {f"{x.code}@{x.about}" if x.about else x.code for x in problems if _as_note(x) and not _skip(x)}
 
 
 def pieces(spec: Spec) -> dict[str, int]:

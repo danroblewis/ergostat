@@ -56,7 +56,7 @@ and `rm -rf run outbox`.
 ## Where to look
 
 - **Diagram, Dynamics** (the stock-and-flow view): `job` open, each domain a closed module
-  with the number of feedback loops inside, and the influences between domains (an unreviewed
+  that says what it is (its description; its panel counts its feedback loops), and the influences between domains (an unreviewed
   flag ramp raising alerts). The side panel says what needs attention: the goals that are off.
   **Open** a domain to see its stocks, flows and loops in place (R and B mark the reinforcing
   and balancing loops), or go **Into** it to draw it alone.
