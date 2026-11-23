@@ -243,8 +243,26 @@ until answered, up to a count, then a person takes over), `daily-report` (a repo
 item), `keep-under` (a level held under a limit by a corrective action), `steps` (an item worked through a list
 of steps, a block each), `collect` (the event collector) and `modelling` (the model improved as a loop of its
 own, section 12e: its fit held by a goal, what `check` finds held as requests, a rule tier and an AI tier that answer
-them, and the judge; once a model, every model should have it), and `upkeep` (ergostat's own upkeep as loops of
-the model, below). Each says its reading in both disciplines
+them, and the judge; once a model, every model should have it), `upkeep` (ergostat's own upkeep as loops of
+the model, below), and `todo` (a person's own to-dos, each with its instructions, its requester, its due date and
+where it must be done, `where`: a host, a bastion, a VPN or anywhere; states new, ready, in-progress, waiting,
+done and dropped, its own `finished: [done, dropped]`; what one waits on in `waits_on`, a precedence relation to
+another to-do or to a `KIND-wait` item, something someone else does; two person blocks, one asked while new to-dos
+wait to be written up, one while ready ones wait to be done, each answered with the inbox's `--done N`; and the
+batcher, a program on the rule rung, `todo batches`, which says a waiting to-do ready again once everything it
+waits on has happened (done, or answered: `--met`; only what its `waits_on` named since it last entered waiting
+counts, so a wait over before does not free a new one), keeps one whose prerequisite was dropped, or whose wait
+names nothing, waiting and says so once in its `stuck` field (`KIND.stuck`, which `ergostat why` says, its next
+step `KIND.ready`; a to-do that has left waiting by any event, by hand or freed, has its `stuck` cleared on the
+batcher's next pass, so it lasts at most one regroup after the move), and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
+due first, every one's instructions in order in its `sitting`; it reads the record and prints events, and the
+template adds no action, workspace or daemon, so nothing it adds acts outside ergostat (the optional `command` is
+the owner's own, run by `collect` as a source); a freeing is `KIND.freed`, which `moves-from:` lets move a to-do
+only out of waiting, and `if-unchanged:` (with `KIND.stuck`) applies only when nothing was recorded of the to-do
+after the events the batcher judged it from (their count, its `read`), so one dropped, or waiting on something new,
+since the batcher read it stays as recorded, and the next pass judges it again; a to-do is added in one step,
+`ergostat event --add KIND.ready --item KIND/ID --data '{...}'`, MCP's `record_event`, or a line of an optional
+`command`'s output). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
 ergostat.library.run`): `collect` (a sensor that polls a command or an HTTP endpoint, records each new record as
 an event about an item, once, from a cursor, and prints the arrivals per hour), `each` (a block's program that
@@ -1424,10 +1442,14 @@ items:
 | `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `attention` | a field name | none | A finding said where it is seen: the words of this field on the kind's latest item that has them (by its latest event, then its id; blank words are none) are a warning on the page's attention list, naming the item, cut at 400 characters; a kind that cannot be read says so there instead. Only the latest: a newer finding replaces it. A relation's field is refused (`bad-attention`) |
 | `final` | list of its states | none | States no event moves an item out of: a later move is ignored and said (the item's `refused`, form `final`) |
+| `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the kind (a template's kind says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
+| `moves-from` | map of one of its `on:` events → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event not in `on:` or a state it does not have) |
+| `if-unchanged` | list of event types | none | Events written from a reading of the item: each carries `read` in its data, the item's count of events (its `events`) when it was read, and applies (its fields and its move; `read` is not kept) only when the item has had no event since, compared by count in the record's order, not by time; any other, or one with no whole-number `read`, changes nothing and is said (the item's `refused`, form `read`), though it is counted among the item's events. A compare-and-set for a program that reads, decides and writes with nothing held (`bad-if-unchanged` for anything but a list of names) |
 | `system`, `description` | | | |
 
 **Which states are finished.** One rule (`spec/finished.py`) decides it for the Items listing, the relations' status
-and critical path, and the completion estimates: the states `messages: {done:}` declares for the kind (*declared*),
+and critical path, and the completion estimates: the states `messages: {done:}` declares for the kind, else those
+the kind's own `finished:` names (*declared*, either way),
 else the states after its first that no item has left yet (*inferred*, so it can change as items move); never its
 first state, a state a block takes from, `leased`, `dead`, or a state `messages: {paused:}` declares (those are
 *paused*, listed apart). A kind with one state, or with nothing declared and nothing inferable, *lives on*: it has
@@ -1651,8 +1673,16 @@ while the item is unfinished. The answer:
 - **the cause**, followed to its end: the precedence targets it waits on (as *Relations* reads them: unfinished, not in
   a `starts_at` state), what each of those waits on, depth first in link order, to each **root**: `work` (held by a
   lease whose taking recorded the pid of the process that took it, that pid running and an engine running; or in a
-  working state no block takes from: in progress outside ergostat), `person` (the owner asked to
-  answer a gated action about it, or a gate whose input a person reads by hand: a manual sensor), `pool-full` (the
+  working state no block takes from: in progress outside ergostat, saying, for a kind with precedence relations, that
+  what it waits on is finished, or that it waits on nothing recorded, and the item's own `stuck` text when one is
+  recorded (a program's reason it cannot go on); the next step is the first of its kind's `on:` events, in the order
+  written, that moves it out of its state, not back to its kind's first and not barred by `moves-from:`, given as the
+  `ergostat event --add` that records it), `person` (the owner asked to
+  answer a gated action about it, or a gate whose input a person reads by hand: a manual sensor; or, with no block
+  taking it from its state, a person block's goal on a part a sensor counts from its kind's items in that state,
+  with no `where:`: the person is asked to do it, and the next step is the first of its kind's `on:` events, in the
+  order written, that moves it out of the states counted and not back to its first, given as the
+  `ergostat event --add` that records it, and the inbox's `--done N` after), `pool-full` (the
   block's runs at once are its pool now, the holders named; a holder whose lease is dead is the root instead, `via`
   the block; a holder whose process is not recorded is named under **missing**), `gate` (a `budget.refused` for the
   block in the last 5 minutes with no run started since, `gate: budget`; or a gate commanding the block reads 0, a
