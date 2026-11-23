@@ -366,3 +366,30 @@ Run here: ruff clean. tests/test_graph_cli_web.py, 53 passed. With Playwright un
 Refused: a python3 heredoc that would have resolved the pages.js conflict in place. It was resolved with the editor
 instead. Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs
 them.
+
+## Where it stopped
+
+Round 12 (continued gap, round 3), answering the review's one finding: on the Dashboard, route() reset S.since to 1h
+(or to a carried window=), so the Moment slider, 'Back to live', or arriving under another window made the Dashboard
+switch windows, rewrite its since= and overwrite its saved copy. The finding was true. Fixed by taking the finding's
+first option, the more reversible one: the Dashboard keeps its own window, as on main. In util.js, a new
+`ownWindow(path, q)` is true on /dashboard and on the Record's `window=1`. route() leaves S.since alone where it is
+true. main.js's setWindow writes no `window=` there (the Dashboard writes its own since= when the window is chosen,
+as before). withWindow carries no `window=` to a /dashboard route. Leaving the Dashboard, the next page's address
+gets the Dashboard's window, so the address and the header still agree. No code in dashboard.js changed.
+`git diff main --shortstat -- ergostat/` is 61 insertions and 22 deletions (about 39 net, within 60).
+
+The test: tests/test_dashboard_page.py::test_the_dashboard_keeps_its_own_window_when_the_page_is_routed_again.
+On /dashboard?since=6h, a past moment and then back to live (both call route()): the window and since= stay 6h, with
+no window= in the address. With a saved dashboard at 7d, a bare /dashboard and then route(): the window and the
+saved copy stay 7d. Then /loops with 6h chosen (window=6h in its address) and navigate('/dashboard'): the address has
+no window=, the Dashboard asks for 7d, and after route() the window and the saved copy are still 7d. Two breaks were
+seen to fail it. With route()'s old check put back, it fails with `['1h', '1h', False] != ['6h', '6h', False]`.
+With withWindow carrying window= to /dashboard, it fails at the no-window= check. Restored, it passes.
+
+Run here: ruff clean. tests/test_graph_cli_web.py, 53 passed. With Playwright under the watchdog, all rc 0:
+tests/test_dashboard_page.py, 34 passed (the whole file). test_the_address_holds_what_is_chosen_and_the_window,
+test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back and
+test_a_change_of_window_shows_that_windows_behaviour_at_once, 3 passed.
+Refused: a python3 heredoc that would have made the three code edits. They were made with the editor instead.
+Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs them.

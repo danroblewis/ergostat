@@ -480,6 +480,39 @@ def test_the_header_window_is_used_and_kept(browser, site):
     ctx.close()
 
 
+def test_the_dashboard_keeps_its_own_window_when_the_page_is_routed_again(browser, site):
+    """The Dashboard's window is its since= or its saved copy: the Moment slider and 'Back to live' (both route())
+    keep it, and the window=/1h the other pages carry in the address neither resets it nor is saved over it."""
+    ctx = context(browser)
+    seen = "() => [S.since, new URL(location.href).searchParams.get('since'), location.search.includes('window=')]"
+    pg = opened(ctx, f"{site}/dashboard?since=6h")
+    pg.wait_for_function("() => window.__since === 21600")
+    pg.evaluate("async () => { S.at = Date.now() / 1000 - 600; showAt(); await route(); }")       # a past moment
+    pg.evaluate("async () => { S.at = null; showAt(); await route(); }")                          # back to live
+    pg.wait_for_selector(".dash-cell")
+    assert pg.evaluate(seen) == ["6h", "6h", False]
+
+    pg.evaluate("() => localStorage.setItem(dashKey(), JSON.stringify({ ...dashboardDraft(), since: '7d' }))")
+    saved = "() => JSON.parse(localStorage.getItem(dashKey())).since"
+    kept = opened(ctx, f"{site}/dashboard")                                                       # a saved 7d
+    kept.wait_for_function("() => window.__since === 604800")
+    kept.evaluate("async () => { await route(); }")
+    kept.wait_for_selector(".dash-cell")
+    assert kept.evaluate("() => S.since") == "7d" and kept.evaluate(saved) == "7d"
+
+    kept.evaluate("async () => { navigate('/loops'); await setWindow('6h'); }")                   # another page, 6h
+    assert "window=6h" in kept.url
+    kept.evaluate("() => navigate('/dashboard')")
+    kept.wait_for_selector(".dash-cell")
+    kept.wait_for_function("() => window.__since === 604800")
+    assert kept.evaluate(seen)[2] is False                                                        # no window= carried
+    kept.evaluate("async () => { await route(); }")
+    kept.wait_for_selector(".dash-cell")
+    assert kept.evaluate("() => S.since") == "7d" and kept.evaluate(saved) == "7d"
+    assert pg.errors == [] and kept.errors == []
+    ctx.close()
+
+
 @pytest.mark.parametrize("width,height", [(1440, 1000), (390, 844)])
 def test_no_sideways_scroll_and_one_column_on_a_phone(browser, site, width, height):
     ctx = context(browser, width, height)

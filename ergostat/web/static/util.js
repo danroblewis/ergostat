@@ -566,9 +566,11 @@ function setQuery(over) {
   for (const [k, v] of Object.entries(over)) if (v) q.set(k, v); else q.delete(k);
   replaceRoute(path + (q.toString() ? "?" + q : ""));
 }
-/* the window chosen, carried to the page gone to (unless it says its own: the Record's window=1) */
+/* a page that keeps its own window: the Dashboard (its since= and its saved copy), the Record's window=1 */
+const ownWindow = (path, q) => path === "/dashboard" || q.get("window") === "1";
+/* the window chosen, carried to the page gone to (unless it keeps its own) */
 function withWindow(r) {
-  if (SNAP || S.since === "1h" || /[?&]window=/.test(r)) return r;
+  if (SNAP || S.since === "1h" || /[?&]window=/.test(r) || /^\/dashboard(\?|$)/.test(r)) return r;
   return r + (r.includes("?") ? "&" : "?") + "window=" + S.since;
 }
 /* a link's route, when it is one of the page's own: "/items", "#/items" (an old address), or the same as a full URL */
@@ -618,7 +620,7 @@ async function route(keep = false) {             // keep: the window changed; th
   const { path, q } = parseRoute();
   const top = path.split("/").slice(0, 2).join("/");
   const w = Object.hasOwn(WINDOWS, q.get("window") || "") ? q.get("window") : "1h";   // the address's window is the one shown
-  if (!SNAP && q.get("window") !== "1" && w !== S.since) { S.since = w; S.graphSig = ""; showAt(); refreshHeader(); }   // (back, forward)
+  if (!SNAP && !ownWindow(path, q) && w !== S.since) { S.since = w; S.graphSig = ""; showAt(); refreshHeader(); }   // (back, forward)
   for (const a of document.querySelectorAll("#nav a")) {
     const on = routeOfHref(a.getAttribute("href")) === top;
     a.classList.toggle("on", on);

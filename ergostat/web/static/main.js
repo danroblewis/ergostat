@@ -40,7 +40,8 @@ $("#when").append(whenMenu);
 /* a window chosen: in the address (the Record's own window=1 kept), the page asked again with its panel left open */
 function setWindow(k) {
   S.since = k; S.graphSig = ""; showAt();
-  if (parseRoute().q.get("window") !== "1") setQuery({ window: k === "1h" ? null : k });
+  const { path, q } = parseRoute();
+  if (!ownWindow(path, q)) setQuery({ window: k === "1h" ? null : k });
   const done = route(true).then(() => S.again?.()); refreshHeader(); return done;
 }
 function showAt() {
