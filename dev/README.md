@@ -273,7 +273,8 @@ programs already there.
   sha once, by the code measures' trend helper (`measure.by_seq`, `measure.code_change`). Counts `unknown` on the
   latest full run, fewer than two full runs in the window, or no checkout: no value (exit 1); a run with no counts is
   never zero. The goal `tests-not-falling` (`>= 0`, tolerance 0, on-stale off) is off when main passes fewer tests than
-  10 merges ago. It is left unserved (check's `missing-feedback`) until regression-guarantees-wired. This is not the
+  10 merges ago. Its loop closes through the coordinator (`restore-tests`, an external block: a fix gap brings the
+  tests back; nothing in the factory acts) until regression-guarantees-wired gives it a factory block. This is not the
   test ratio's count (cx-test-ratio: the tests *defined* in the code, from the code-health cache): this counts the
   tests a queue run on main *passed*, so it falls when a test is skipped, deselected or fails to collect though
   still defined. The two are never summed.

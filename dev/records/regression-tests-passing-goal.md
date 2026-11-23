@@ -30,3 +30,15 @@ Built, round 1 (2026-11-23). Choices made with no one to ask, each the most reve
   branch is made from main and main has not moved in this clone, so there was nothing to merge.
 
 Size: about 67 net lines (passing.py about 40, measure.py +7, the model YAML about 20), within the 70.
+
+Round 1, sent back before the suites: `ergostat check` reported `missing-feedback goal.tests-not-falling` as new, and
+this definition has no `allows-findings` line (it was not added: the definition is not edited). The most reversible
+fix: an external block `restore-tests` (the coordinator has a fix gap bring the tests back), `in:
+goal.tests-not-falling`, `out: auxiliary.tests-passing`, as `restart-docker` serves vm-open-files-within. Its loop
+closes through tests-passing-change's `driven-by`. regression-guarantees-wired replaces it with a factory block. A block
+that outputs to an auxiliary gives it an implicit `set` sensor (compile.py:1160), which an external block never feeds.
+The model test is now `test_the_passing_model_adds_no_finding` (the root model with and without the file: no error, no
+finding more), and the sensor check in `test_fewer_tests_passed_turns_tests_not_falling_off` skips `set`. Done's "the
+only new finding is missing-feedback@tests-not-falling" is therefore not met as written: there is no new finding at all.
+Size: +7 lines of model YAML, about 74 net in all.
+Overrun reason: the seven-line restore-tests block, which check's send-back asked for, takes the model over the 70 budgeted.

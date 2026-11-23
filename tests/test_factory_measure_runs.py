@@ -630,13 +630,14 @@ def test_fewer_tests_passed_turns_tests_not_falling_off(tmp_path):
     assert (goal.status(float(r.stdout), False), goal.status(0, False), goal.status(3, False)) == (
         "off", "holding", "holding")
     for name in ("tests-passing", "tests-passing-change"):
-        (s,) = spec.auxiliaries[name].sensors.values()
+        (s,) = [x for x in spec.auxiliaries[name].sensors.values() if x.name != "set"]   # (restore-tests' set: never)
         assert s.every == 1800 and s.run == f"python3 dev/bin/passing.py {name}"
 
 
-def test_the_passing_model_adds_only_missing_feedback_at_tests_not_falling(tmp_path):
+def test_the_passing_model_adds_no_finding(tmp_path):
     """read (what check runs) on the root model, and on it without dev/model/guarantees-passing.yaml: no error, and
-    the one finding more is tests-not-falling's missing feedback (left unserved until regression-guarantees-wired)."""
+    no finding more: tests-not-falling closes through restore-tests (the coordinator, until
+    regression-guarantees-wired)."""
     from collections import Counter
 
     from ergostat.spec import read
@@ -653,4 +654,4 @@ def test_the_passing_model_adds_only_missing_feedback_at_tests_not_falling(tmp_p
     key = lambda ps: Counter((p.level, p.code, p.about) for p in ps)  # noqa: E731
     assert key(without)[("finding", "acting-on-its-own", "block.intake")] == key(with_it)[  # (the copy reads alike)
         ("finding", "acting-on-its-own", "block.intake")]
-    assert key(with_it) - key(without) ==Counter({("finding", "missing-feedback", "goal.tests-not-falling"): 1})
+    assert key(with_it) - key(without) == Counter()

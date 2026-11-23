@@ -1,7 +1,8 @@
 # The tests main passes (dev/bin/passing.py): the summed `passed` of the latest landed queue run on main whose counts
 # cover unit, browser and host, by main's seq, and its change over main's last 10 merges. Not the test ratio's count
 # (the tests defined in the code): a test skipped, deselected or broken falls here though still defined; the two are
-# never summed. tests-not-falling is left unserved (missing-feedback) until regression-guarantees-wired closes it.
+# never summed. tests-not-falling closes through the coordinator (restore-tests, external) until
+# regression-guarantees-wired gives it a factory block.
 defaults:
   system: guarantees
 
@@ -24,3 +25,10 @@ goals:
     tolerance: 0
     on-stale: "off"
     description: main passes no fewer tests than 10 merges ago
+
+blocks:
+  restore-tests:                      # until regression-guarantees-wired puts a factory block here
+    type: external
+    description: the coordinator has the tests main stopped passing (skipped, deselected, broken) brought back by a fix gap; nothing in the factory does it
+    in: goal.tests-not-falling
+    out: auxiliary.tests-passing
