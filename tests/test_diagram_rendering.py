@@ -5424,6 +5424,10 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         pg.evaluate("() => setWindow('1d')")
         pg.evaluate("() => navigate('/items')")
         assert "window=1d" in pg.url, pg.url
+        overview = "() => !!document.querySelector('#main .kind-overview')"    # bare /items: the kinds' overview, whatever the window
+        assert pg.evaluate(overview), "/items?window=1d is not the overview"
+        pg.evaluate("() => setWindow('6h')")
+        assert "window=6h" in pg.url and pg.evaluate(overview), pg.url
         pg.evaluate("() => setWindow('1h')")
         assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
         pg.go_back()
@@ -5432,6 +5436,9 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         pg.go_forward()
         pg.wait_for_function("() => location.pathname === '/items'", timeout=5000)
         assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
+        pg.goto(url + "/items?window=1d")                              # a pasted link with a window: still the overview
+        pg.wait_for_function(overview, timeout=20000)
+        assert pg.evaluate(agree) == ["1d", "1d", "Last 1d"]
         # the diagram: a stock chosen is in the address, and a reload rings it
         pg.goto(url + "/diagram")
         pg.wait_for_function(READY, timeout=DRAWN_S * 1000)

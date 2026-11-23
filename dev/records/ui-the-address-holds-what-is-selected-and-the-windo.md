@@ -283,3 +283,33 @@ tests/test_diagram_rendering.py::test_the_address_holds_what_is_chosen_and_the_w
 test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back, 2 passed, rc 0.
 A first try of that browser command with `| tail -5; echo rc=$?` appended was refused; run again without them, it ran.
 Not run: the rest of the four browser files and the unit suite (no Python changed). The merge queue runs them.
+
+## Where it stopped
+
+Round 9. The factory's merge of main (7a905955) conflicted in pages.js, Loops. Main now draws each row with the
+shared goalRow (goalrow.js), and goalRow's name button called openLoop itself. Resolved by keeping main's goalRow,
+with the row calling the branch's pick (writes select=, opens the loop). goalRow takes an optional `open` (its default
+is openLoop, so other callers are unchanged), and the Loops page passes pick, so the name button writes select= too.
+Committed as the merge.
+
+The review finding (with a non-default window, /items?window=… fell through to the list of every kind, not the
+overview) was true. Fixed in util.js route(): `window` is ignored, like `states`, when deciding that /items is the
+overview. No other route or page code checks the query's shape. The acceptance test now checks that /items is still
+the overview after navigate('/items') under 1d, after choosing 6h on it, and on a pasted /items?window=1d. With the
+old check put back, the test failed ("/items?window=1d is not the overview"). Restored, it passes.
+`git diff main --shortstat -- ergostat/` is 57 insertions and 21 deletions (about 36 net, within 60).
+
+Run here: ruff clean. tests/test_graph_cli_web.py, 48 passed. Under the watchdog with Playwright:
+test_the_address_holds_what_is_chosen_and_the_window and
+test_pages_are_ordinary_links_opened_in_new_tabs_reloaded_and_walked_back, 2 passed, rc 0.
+tests/test_items_page.py: 56 passed and 2 failed (rc 1), the same two on a second run:
+- test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart: the #project list timeout that rounds 5 and 6
+  reported as not this branch's.
+- test_actions_say_per_class_asked_approved_denied_and_whether_held: times out waiting for `.action-classes li`
+  after a bare goto of /items. A bare /items (no query) is the overview on main and on the branch alike (this round's
+  change only adds `window` to the keys ignored). The action-classes line is drawn by pageItems (pages.js), which
+  the branch does not change. Reported as not this branch's (lesson 13). Not run on main here.
+Refused commands: a browser run piped to `grep -E '^(FAILED|ERROR)|^E  |...'` (run again with a narrower grep, it
+ran), and a shell heredoc appending this section (`cat >> dev/records/... <<'EOF'`; written with the editor instead).
+Not run: the rest of tests/test_diagram_rendering.py, tests/test_page_polling.py, tests/test_page_refresh.py, and the
+unit suite (no Python changed). The merge queue runs them.

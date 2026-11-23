@@ -620,7 +620,7 @@ async function route(keep = false) {             // keep: the window changed; th
     replaceRoute(`/items/${encodeURIComponent(k)}${q.toString() ? `?${q}` : ""}`);
     return route();
   }
-  if (path === "/items" && [...q.keys()].every((x) => x === "states")) return pageKinds(main, q);
+  if (path === "/items" && [...q.keys()].every((x) => x === "states" || x === "window")) return pageKinds(main, q);
   if (path.startsWith("/items/")) { q.set("kind", decodeURIComponent(path.slice(7))); return pageItems(main, q, true); }
   return (pages[path] || pageDiagram)(main, q);
 }
