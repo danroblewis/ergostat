@@ -77,6 +77,30 @@ function panelNote(d = $("#detail")) {
 }
 function markChosen() { const svg = $("svg.canvas"); if (svg) markInteraction(svg); }
 
+/* a view switched with a panel open on what is chosen: the panel stays, on what stands for it in the new view, titled
+   in its words (a stock: its output y at the process; a flow a controller moves: its actuating signal u; a reference:
+   r and its summing junction). Noted before the switch (diagram.js's view buttons), opened once the view is drawn */
+function carryPanel() { S.carry = !$("#detail")?.hidden && S.sel.size ? [...S.sel].sort().join(",") : null; }
+function carriedPanel() {
+  const want = S.carry, g = S.graph;
+  S.carry = null;
+  if (!want || want !== [...S.sel].sort().join(",") || !g?.corr) return;
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  const ns = [...S.sel].flatMap((p) => g.corr.parts?.[p] || []).map((id) => byId[id]).filter(Boolean);
+  if (g.kind !== "blocks") { if (ns.length) openNode((ns[0].orig && byId[ns[0].orig]) || ns[0]); return; }
+  const sym = (n) => (n?.fn?.sym ? n.fn.sym + (n.fn.sub ? `_${n.fn.sub}` : "") : "");
+  const from = (n) => { const s = byId[g.edges.find((e) => e.target === n.id)?.source]; return s?.kind === "demux" ? from(s) : s; };
+  const out = ns.find((n) => n.kind === "output"), ref = ns.find((n) => n.kind === "input" && n.fn?.sym === "r");
+  const blk = ns.find((n) => n.id.startsWith("blk:")), ids = ns.map((n) => n.id);
+  const u = blk && g.edges.find((e) => e.signal?.sym === "u" && e.signal.sub === blk.id.slice(4) && ids.includes(e.source));
+  let title = null;
+  if (out) { openBlock(out); title = `output ${sym(out)}${sym(from(out)) ? ` of ${sym(from(out))}` : ""}`; }
+  else if (ref) { openBlock(ref); title = `reference r ${ref.fn.value || ""} and its summing junction`; }
+  else if (u) { openSignal(u); title = `actuating signal u_${u.signal.sub}`; }
+  else if (ns.length) openBlock(ns[0]);
+  if (title) $("#detail h2")?.replaceChildren(title);
+}
+
 /* a part pressed (drawGraph's handler): a drag, or a click (which chooses it, with Shift or Command) */
 function partDown(ev, n) {
   if (ev.button) return;

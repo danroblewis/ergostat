@@ -3445,7 +3445,8 @@ def test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves(brows
         pg.get_by_role("button", name="fit").click()
         box = pg.locator('g.node[data-id="flow:regressions"] .hit').first.bounding_box()
         pg.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve'", timeout=5000)
+        pg.wait_for_function("() => document.querySelector('#detail .kind')?.textContent === 'Valve' && "
+                             "document.querySelector('#detail dl')", timeout=5000)   # (filled: it opens at once, then fills)
         text = pg.locator("#detail").inner_text()
         assert "the rate of regressions" in text, text[:600]
         inputs = pg.evaluate("""() => { const dt = [...document.querySelectorAll('#detail dt')].find((d) => d.textContent === 'inputs');
@@ -3592,6 +3593,88 @@ def test_a_selection_is_model_parts_and_survives_switching_view(browser, tmp_pat
         pg.keyboard.press("Escape")
         pg.wait_for_function("() => S.sel.size === 0", timeout=30000)
         assert pg.evaluate("() => S.sel.size") == 0 and pg.evaluate(LIT) == []
+        assert not errors, errors
+        pg.close()
+
+
+PANEL = "() => document.querySelector('#detail').hidden ? null : document.querySelector('#detail h2')?.textContent"
+
+
+def test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_its_words(browser, tmp_path):
+    """The stock quality chosen with its panel open, then Blocks: within a second of the block diagram being drawn,
+    its output y_quality at the process output has the selection ring and the panel is still open, titled in the
+    block diagram's words, 'output y_quality of P_service'; back in Dynamics, the stock's own panel. A flow's label
+    clicked plainly opens the flow's panel at once, before its numbers come (held back here, as a slow server would),
+    and filled when they do; carried to Blocks it is the actuating signal u_tuner, and a goal's reference, r = 0.93
+    and its summing junction. (The acceptance names the demo at :8793; this is the same model, served fresh.)"""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1440, "height": 900})
+        pg.set_default_timeout(120000)
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=service", 0)
+        fit(pg)
+
+        def switch(to: str, shape: str) -> None:       # the view's button, waited on until that view is drawn
+            pg.locator(".toolbar .seg button", has_text=to).click()
+            pg.wait_for_function(f"() => S.graph?.kind === {to.lower()!r} && "
+                                 f"document.querySelector('svg.canvas g.node[data-id=\"{shape}\"]')", timeout=DRAWN_S * 1000)
+        y = "document.querySelector('svg.canvas g.node[data-id=\"out:stock.quality\"]')"
+        click_part(pg, "stock:quality")
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality'", timeout=30000)
+        switch("Blocks", "out:stock.quality")
+        pg.wait_for_function(f"() => {y}.classList.contains('selected') && /y/.test(({PANEL})() || '')", timeout=1000)
+        ring = pg.evaluate(f"() => getComputedStyle({y}.querySelector('.hit')).stroke")
+        assert ring == pg.evaluate(ACCENT), ring
+        assert pg.evaluate(PANEL) == "output y_quality of P_service"
+        assert pg.evaluate("() => [...S.sel]") == ["stock.quality"]
+        switch("Dynamics", "stock:quality")
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality'", timeout=5000)
+        # a flow's label, clicked plainly: its panel at once, while its numbers are held back; filled when they come
+        held = []
+        pg.route("**/api/part/flow/**", lambda r: held.append(r))
+        fit(pg)
+        pg.locator('g.node[data-id="flow:quality-steps"] text.sd-name').click()
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality-steps'", timeout=1000)
+        assert pg.evaluate("() => [...S.sel]") == ["flow.quality-steps"] and held
+        for r in held:
+            r.continue_()
+        pg.unroute("**/api/part/flow/**")
+        pg.wait_for_function("() => /rate, over the window/.test(document.querySelector('#detail').textContent)", timeout=30000)
+        assert pg.evaluate(PANEL) == "quality-steps"
+        switch("Blocks", "blk:tuner")
+        pg.wait_for_function(f"() => ({PANEL})() === 'actuating signal u_tuner'", timeout=5000)
+        # the race: the flow's numbers come only after the switch to Blocks; the Dynamics answer, arriving late,
+        # does not paint its valve panel over the Blocks one
+        switch("Dynamics", "flow:quality-steps")
+        held.clear()
+        pg.route("**/api/part/flow/**", lambda r: held.append(r))
+        fit(pg)
+        pg.locator('g.node[data-id="flow:quality-steps"] text.sd-name').click()
+        pg.wait_for_function(f"() => ({PANEL})() === 'quality-steps'", timeout=5000)
+        assert held
+        switch("Blocks", "blk:tuner")
+        pg.wait_for_function(f"() => ({PANEL})() === 'actuating signal u_tuner'", timeout=5000)
+        with pg.expect_response(lambda r: "/api/part/flow/" in r.url):
+            for r in held:
+                r.continue_()
+        pg.unroute("**/api/part/flow/**")
+        pg.wait_for_timeout(500)                       # the late answer handled (it has come; its handler is a tick)
+        assert pg.evaluate(PANEL) == "actuating signal u_tuner"
+        assert pg.evaluate("() => document.querySelector('#detail .kind')?.textContent") != "Valve"
+        # a reference chosen in Blocks, carried to Dynamics (its desired level) and back
+        pg.locator('g.node[data-id="ref:quality-held"]').dispatch_event("click")
+        pg.wait_for_function("() => [...S.sel].join() === 'goal.quality-held.r' && !document.querySelector('#detail').hidden", timeout=5000)
+        switch("Dynamics", "desired:quality-held")
+        pg.wait_for_function(f"() => ({PANEL})() === 'desired quality'", timeout=5000)
+        switch("Blocks", "ref:quality-held")
+        pg.wait_for_function(f"() => ({PANEL})() === 'reference r = 0.93 and its summing junction'", timeout=5000)
+        # a panel closed before the switch stays closed, though its part is still chosen
+        pg.locator("#detail button.close").click()
+        assert pg.evaluate(PANEL) is None and pg.evaluate("() => S.sel.size") == 1
+        switch("Dynamics", "desired:quality-held")
+        pg.wait_for_timeout(500)
+        assert pg.evaluate(PANEL) is None and pg.evaluate(LIT) == ["desired:quality-held"]
         assert not errors, errors
         pg.close()
 

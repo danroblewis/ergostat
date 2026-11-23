@@ -4,6 +4,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import pytest
 
@@ -312,3 +313,100 @@ def test_a_remote_part_is_never_edited_here(tmp_path):
     via = compose.RemoteVia(tmp_path / "ergostat.yaml", 3, "incidents", "http://127.0.0.1:8794")
     with pytest.raises(yamledit.EditError, match="belongs to remote incidents"):
         yamledit.own(via, "flow incidents-resolved")
+
+
+def test_explain_marks_remote_part(tmp_path):
+    from ergostat.spec.explain import explain
+    local = tmp_path / "support"
+    write(local, LOCAL)
+    body = served_into(local, tmp_path)
+    st = cache.folder("support", local, "incidents") / cache.STATUS
+    st.write_text(json.dumps({**json.loads(st.read_text()), "answered": time.time() - 120}))
+    spec, _ = sp.read(local / "ergostat.yaml", extremes=False)
+    v = body["version"][:7]
+    said = f"remote incidents's (runs at http://127.0.0.1:1, model v{v}, read 2m ago)"
+    assert explain(spec, "stock.incidents-open").startswith(f"{said} stock incidents-open (incidents).")
+    block = explain(spec, "block.incidents-pager")
+    assert block.startswith(f"{said} block incidents-pager:") and "It is never run here: remote incidents runs it." in block
+    system = explain(spec, "system.incidents")
+    assert system.count("remote incidents's") == 1 and f"It is {said}: its parts are read here" in system
+    assert system.startswith("System incidents") and "  Holds " in system and "stock.incidents-open → flow.filed" in system
+    goal = explain(spec, "goal.calm")                       # a local goal on a remote's measure
+    assert "Its loop reads a remote's parts (crosses remote incidents: stock.incidents-open, flow.incidents-" in goal
+    assert "never an actuator" in goal and not goal.startswith("remote")
+    assert "remote" not in explain(spec, "stock.tickets")
+    served_into(local, tmp_path, ok=False)
+    spec, _ = sp.read(local / "ergostat.yaml", extremes=False)
+    assert explain(spec, "stock.incidents-open").startswith(
+        f"remote incidents's (runs at http://127.0.0.1:1, model v{v}, not answering for 30s · never read)")
+
+
+def test_explain_loop_crossing_remote(tmp_path):
+    from ergostat.spec.explain import explain
+    local = tmp_path / "support"
+    write(local, LOCAL.replace("goals:\n  calm:\n    stock: incidents-open\n    hold: \"<= 8\"\n", """
+  escalated: {from: tickets, to: incidents-open}
+goals:
+  few-tickets: {stock: tickets, hold: "<= 4"}
+blocks:
+  escalator: {type: program, goal: few-tickets, run: echo 1, out: flow.escalated}
+"""))
+    served_into(local, tmp_path)
+    spec, problems = sp.read(local / "ergostat.yaml", extremes=False)
+    assert not [p for p in problems if p.level == "error"], problems
+    lines = [x for x in explain(spec).splitlines() if "flow.escalated → stock.incidents-open → flow.filed" in x]
+    assert lines and lines[0].endswith(" (crosses remote incidents: stock.incidents-open)"), lines
+    goal = explain(spec, "goal.few-tickets")
+    assert "crosses remote incidents: stock.incidents-open" in goal and "never an actuator" in goal
+
+
+GOLDEN = Path(__file__).parent / "golden" / "explain-alert-triage.txt"
+
+
+def _every_explanation(spec):
+    from ergostat.spec.explain import explain
+    out = [explain(spec)]
+    for kind, table in (("goal", spec.goals), ("block", spec.blocks), ("stock", spec.stocks), ("flow", spec.flows),
+                        ("auxiliary", spec.auxiliaries), ("system", spec.systems)):
+        out += [explain(spec, f"{kind}.{n}") for n in sorted(table)]
+    # this host's interpreter and checkout paths (library/expand.py PY, library/templates.py HERE) become placeholders
+    from ergostat.library.expand import PY
+    from ergostat.library.templates import HERE
+    return _own_text("\n\n".join(out).replace(PY, "<python>").replace(str(HERE), "<templates>")) + "\n"
+
+
+def _own_text(text):
+    # explain's own words only: the Items line keeps the model's own kinds (ergostat's built-in kinds and their
+    # states come from spec/ir.py, which main changes on its own), and the Modes sections go (eigenvalue and
+    # elasticity numbers whose signs, ties and order can differ with a host's maths library)
+    out, cut = [], None
+    for line in text.split("\n"):
+        depth = len(line) - len(line.lstrip(" "))
+        if cut is not None and line.strip() and depth > cut:
+            continue
+        cut = None
+        if line.lstrip(" ").startswith("Modes"):
+            cut = depth
+            continue
+        if line.startswith("Items: "):
+            own = [k for k in line[len("Items: "):].rstrip(".").split("; ") if not k.startswith("ergostat.")]
+            line = "Items: " + "; ".join(own) + "."
+        out.append(line)
+    return "\n".join(out)
+
+
+def _alert_triage_without_uses(tmp_path):
+    # the example's own parts only: its `uses:` system is library template text, which main rewords on its own
+    import shutil
+    shutil.copytree(Path(__file__).parent.parent / "examples/alert-triage", tmp_path / "alert-triage")
+    path = tmp_path / "alert-triage/ergostat.yaml"
+    text = path.read_text()
+    assert "\nuses:\n" in text
+    path.write_text(text[:text.index("\nuses:\n") + 1])
+    return sp.load(path)
+
+
+def test_explain_without_remotes_unchanged(tmp_path):
+    spec = _alert_triage_without_uses(tmp_path)
+    assert not spec.remotes and not any("modelling" in n for n in spec.systems)
+    assert _every_explanation(spec) == GOLDEN.read_text()     # written from main's explain, before this gap
