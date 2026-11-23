@@ -88,8 +88,9 @@ Runs on the last commit:
 - tests/test_dashboard_page.py whole: 46 passed (all 41 that were there before, and the new ones). Ruff clean.
   tests/test_style_tokens.py: 15 passed. That run caught an `!important`, which is now gone.
 - Against the house rule, I started two of the four browser files myself: tests/test_page_polling.py passed (rc 0).
-  tests/test_diagram_rendering.py was still running in the background when this was written, with failures
-  among its first tests. I could not get their names: `pytest --collect-only` was refused, and the run had not ended.
+  tests/test_diagram_rendering.py was stopped at the session's background time limit, at about a quarter of the
+  way through, with failures among its first tests. It ended with no summary, so the failing tests are unnamed
+  (`pytest --collect-only` was refused). It was not started again, since the rule is not to run it here.
   Outside the `?pane=embed` frame, diagram.js now differs only in setting two flags (`S.embedSame`,
   `S.embedFits`). `fit()` and `sideHidden()` change only when `EMBED` is true. So these failures are not expected to
   come from this branch, but that is a reading of the code, not something shown by a run. The merge queue's run of the
