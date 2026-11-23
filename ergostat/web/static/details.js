@@ -72,12 +72,22 @@ function remoteMeasures(n) {
     h("td", {}, m.label), h("td", { class: "num" }, m.value || "")))) : null;
 }
 
+/* a quiet system says so ('all 14 goals holding, nothing being worked': state.quiet), in its panel; each poll of the
+   diagram sets it again from the system's node, so it goes when a goal goes off (quietRefresh, from diagram.js) */
+const quietLine = (n) => h("p", { class: "quiet-line", "data-quiet": n.label, hidden: n.quiet ? null : "" }, n.quiet || "");
+function quietRefresh(g) {
+  for (const el of document.querySelectorAll("#detail [data-quiet]")) {
+    const q = (g.nodes || []).find((x) => x.kind === "system" && x.label === el.dataset.quiet)?.quiet;
+    setText(el, q || ""); el.hidden = !q;
+  }
+}
+
 function openSystem(n) {                            // a system as one part: what goes in and out, and how its loops do
   const side = (d) => (n.ports || []).filter((p) => p.side === d);
   const list = (ps, none) => ps.length ? h("table", {}, ps.map((p) => h("tr", {}, h("td", {}, p.label), h("td", { class: "muted" }, p.kind),
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   showDetail(h("div", { class: "kind" }, n.remote ? "System, remote" : "System"), h("h2", {}, n.label, exceptional(n.status) ? statusEl(n.status) : null),
-    typeof moduleCharts === "function" ? moduleCharts(n) : null, whatIs("system"),
+    quietLine(n), typeof moduleCharts === "function" ? moduleCharts(n) : null, whatIs("system"),
     n.description ? h("p", { class: "muted" }, n.description) : null, remoteNote(n.remote), remoteMeasures(n),
     dl([["loops", loopsText(n)], ["size", n.size], ["inside", n.subsystems?.length ? n.subsystems.join(", ") : null],
         ["inner loop", n.inner?.length ? `given a setpoint for ${n.inner.join(", ")} from outside, it holds it: an outer loop can treat it as one block` : null]]),
@@ -111,7 +121,7 @@ async function openNode(n) {
   if (kind === "valve") rows.push(["acts on", m.flow], ["mode", m.mode], ["most a run", m.max != null ? fmt(m.max) : null],
                                   ["filled by", agentLink(d.agent)], ["rate", rateText(now.flow?.rate, "", m.flow)]);
   const rd = now.readings || [], last = rd[rd.length - 1];
-  if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", agentLink(d.agent)],
+  if (kind === "sensor") rows.push(["measures", m.measures], ["filled by", d.agent || !last ? agentLink(d.agent) : null],
                                    ["last reading", last ? `${fmt(last[1])}, ${ago(last[0])}` : "none yet"], ["in the window", `${now.count ?? rd.length} readings`]);
   const shown = n.kind === "auxiliary" ? "auxiliary" : kind;
   if (n.kind === "auxiliary") for (let i = rows.length - 1; i >= 0; i--) if (rows[i][0] === "in" || rows[i][0] === "out") rows.splice(i, 1);
@@ -148,12 +158,12 @@ async function openLoop(name, asController = false) {
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
   const kids = asController
-    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("controller"), whatIs("loop")]
-    : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(lp.status) ? statusEl(lp.status) : null), whatIs("loop")];
+    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("controller"), whatIs("loop")]
+    : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("loop")];
   kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
-  kids.push(dl([["status", statusEl(lp.status)], ["holds", `${lp.stock}, ${holdText(lp.setpoint, lp.band)}${lp.per ? `, each ${lp.per}` : ""}`],
+  kids.push(dl([["status", statusEl(goalWord(lp))], ["holds", `${lp.stock}, ${holdText(lp.setpoint, lp.band)}${lp.per ? `, each ${lp.per}` : ""}`],
     ["now", lp.per ? `${fmt(lp.value)}, the worst ${lp.per}'s` : fmt(lp.value)],
     ["stale", lp.stale != null ? `read ${dur(lp.stale)} ago, too long for its sensor; on-stale: ${lp.on_stale}` : null],
     ["how far", lp.off_by_words || null], ["time off", `${Math.round((lp.off_share || 0) * 100)}% ${windowWords}`],
@@ -161,13 +171,16 @@ async function openLoop(name, asController = false) {
       lp.answers_in != null ? `its valve opens ${dur(lp.answers_in)} after it goes off` : null,
       lp.back_in != null ? `it holds again ${dur(lp.back_in)} after (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times)` : null,
     ].filter(Boolean).join("; ") : null],
-    ["moves", lp.flows.map((f) => `${f} ${rateText(lp.rates?.[f], "", f)}`).join(", ") || "nothing"],
+    ["moves", Object.entries(lp.moves || {}).map(([f, r]) => `${f} ${rateText(r, "", f)}`).join(", ") || null],  // its own valves' only
     ["cycled", lp.observed ? "yes, in this window" : "not in this window"]]));
+  // each that acts for it in one line, from the counts Agents and the Record use
+  for (const a of lp.actors || []) kids.push(h("p", { class: "actor-line" }, h("b", {}, a.name), `: commanded ${a.commanded} time${a.commanded === 1 ? "" : "s"}, ran ${a.ran}, `
+    + (a.moved == null ? "what it moved is not measured" : a.moved ? `moved ${fmt(a.moved)}` : "moved nothing") + (a.log ? ` (its log: ${a.log})` : "")));
   // each part along the loop, who fills it, and what it last did: as `ergostat loop NAME`
-  kids.push(h("table", { class: "parts" }, h("tr", {}, ["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
+  kids.push(h("table", { class: "parts" }, tableCaption(`The parts along loop ${name}`), headRow(["part", "name", "filled by", "last"].map((x) => h("th", {}, x))),
     (lp.parts || []).map((pt) => h("tr", {}, h("td", {}, pt.kind), h("td", {}, h("b", {}, pt.name),
         pt.kind === "valve" ? h("span", { class: "muted" }, ` ${pt.mode}${pt.max ? `, \u2264 ${fmt(pt.max)} a run` : ""}`) : null),
-      h("td", {}, agentLink(pt.agent)),
+      h("td", {}, pt.agent || !pt.last ? agentLink(pt.agent) : ""),   // a sensor that reads is not unfilled
       h("td", {}, pt.kind === "sensor" ? (pt.last ? `read ${ago(pt.last.time)}: ${fmt(pt.last.value)}` : h("span", { class: "muted" }, "no reading yet"))
         : pt.kind === "controller" ? (pt.last ? `decided ${ago(pt.last.time)}: ${pt.last.data.decision}`
           : h("span", { class: "muted" }, pt.open_loop ? "acts on its schedule, reads nothing" : "no decision yet"))
@@ -195,7 +208,7 @@ async function openLoop(name, asController = false) {
     kids.push(h("table", { class: "crossings" }, lp.crossings.map((e, i) => [e, next(i)]).reverse().map(([e, to]) => h("tr", {},
       h("td", { class: "nowrap" }, h("a", { href: `/record?about=${encodeURIComponent(name)}&from=${e.time}${to != null ? `&to=${to}` : ""}`,
         title: "What the goal, its controller and its valves recorded from this crossing to the next" },
-        new Date(e.time * 1000).toLocaleTimeString([], { hour12: false }))),
+        stamp(e.time))),
       h("td", {}, statusEl(e.type.split(".")[1])), h("td", { class: "num" }, fmt(e.data.value)),
       h("td", { class: "muted" }, e.type === "loop.off" ? e.off_by_words || "" : "")))));
   }
@@ -264,13 +277,14 @@ async function openAgent(name) {
   const outcome = (e) => e.type === "agent.failed" ? [h("span", { class: "s-off" }, "failed"), h("span", { class: "muted" }, `: ${e.data.note || "no reason given"}`)]
     : (a.ended || {})[e.causedby]?.how === "nack" ? [h("span", { class: "s-open" }, "refused"), h("span", { class: "muted" }, `: ${a.ended[e.causedby].why || e.data.note || "no reason given"}`)]
     : [h("span", { class: "status" }, "done"), e.data.note ? h("span", { class: "muted" }, `: ${e.data.note}`) : null];
-  kids.push(h("div", { class: "table-wrap runs-table" }, h("table", {}, h("tr", {}, th("when"), th("item"), th("outcome"), th("outward actions asked"), th("cost", "num")),
+  kids.push(h("div", { class: "table-wrap runs-table" }, h("table", {}, tableCaption(`Recent runs of ${name}, newest first`), headRow(th("when"), th("item"), th("outcome"), th("outward actions asked"), th("cost", "num")),
     last.map((e) => { const r = costOf(e), asked = (a.asked || {})[e.causedby] || []; return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
       h("td", { class: "cell" }, e.data.item ? itemLink(e.data.item) : h("span", { class: "muted" }, "none")), h("td", { class: "cell" }, outcome(e)),
       h("td", { class: "cell" }, asked.length ? asked.map((x, i) => [i ? ", " : "", h("a", { href: `/item/${encodeURIComponent(x.id)}`, title: x.state }, x.action || x.id)]) : h("span", { class: "muted" }, "none")),
       h("td", { class: "num nowrap", title: r.cost ? `${r.cost}${r.model ? ", " + r.model : ""}` : "" }, costText({ ...r, runs: 1 }, a), r.cost && r.cost !== "reported" ? h("span", { class: "muted" }, " est.") : null)); }))),
     h("details", { class: "runs-resources" }, h("summary", {}, "resources"), h("div", { class: "table-wrap" }, h("table", {},
-      h("tr", {}, th("when"), ...["readings", "openings", "decisions", "tokens", "CPU", "memory"].map((t) => th(t, "num"))),
+      tableCaption(`Resources of ${name}'s recent runs, newest first`),
+      headRow(th("when"), ...["readings", "openings", "decisions", "tokens", "CPU", "memory"].map((t) => th(t, "num"))),
       last.map((e) => { const r = costOf(e), n = (k) => h("td", { class: "num" }, String(e.data[k] || 0)); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
         n("readings"), n("openings"), n("decisions"), h("td", { class: "num" }, tokensText(r.tokens)), h("td", { class: "num" }, cpuText(r.cpu)), h("td", { class: "num" }, bytesText(r.memory))); })))));
   if (a.log?.length) kids.push(h("h3", {}, "End of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
@@ -337,34 +351,34 @@ function itemLink(id) {
 }
 /* an event's item: a remote's event (marked ``remote``) links to that remote's item, read there (SPEC §4c) */
 const eventItemLink = (e) => (e.remote ? remoteItemLink(e.item, e.remote) : itemLink(e.item));
-function dataCell(d) {                                  // the whole of it, one click away (rounded: the event's panel has it exactly)
-  const flat = JSON.stringify(tidy(d || {}));
+function dataCell(d) {                                  // the whole of it, unrounded, one click away
+  const flat = JSON.stringify(d || {});
   if (flat === "{}") return h("td", { class: "mono muted" }, "");
   if (flat.length <= 110) return h("td", { class: "mono muted data" }, flat);
   return h("td", { class: "mono muted data" }, h("details", {}, h("summary", {}, flat.slice(0, 100) + "\u2026"),
-    h("pre", {}, JSON.stringify(tidy(d), null, 2))));
+    h("pre", {}, JSON.stringify(d, null, 2))));
 }
 function eventsTable(evs, compact, fold = false) {
-  const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false });
   const runs = [];                                        // newest first; folded, a run of identical events is one row
   for (const e of evs.slice().reverse()) {
     const last = runs[runs.length - 1], sig = JSON.stringify([e.type, e.source, e.item, changeOf(e)]);
     if (fold && last && last.sig === sig) last.evs.push(e); else runs.push({ sig, evs: [e] });
   }
-  return h("div", { class: "table-wrap" }, h("table", {}, h("tr", {}, h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
-    runs.map(({ evs: run }) => { const e = run[0], n = run.length; return h("tr", { key: e.id },
-      h("td", { class: "nowrap", title: new Date(e.time * 1000).toLocaleString() }, n > 1 ? `${clock(run[n - 1].time)}–${clock(e.time)}` : clock(e.time)),
+  return h("div", { class: "table-wrap" }, h("table", {}, h("caption", { class: "sr-only" }, "Events, newest first"),
+    headRow(h("th", {}, "when"), h("th", {}, "type"), compact ? null : h("th", {}, "item"), h("th", {}, "source"), h("th", {}, "data")),
+    h("tbody", {}, runs.map(({ evs: run }) => { const e = run[0], n = run.length; return h("tr", { key: e.id },
+      h("td", { class: "nowrap" }, n > 1 ? `${stamp(run[n - 1].time)}–${stamp(e.time)}` : stamp(e.time)),
       h("td", { class: "nowrap" }, h("a", { href: "#", class: "plain", title: n > 1 ? `${n} events in a row: list them` : `event ${e.id}`,
         onclick: (ev) => { ev.preventDefault(); n > 1 ? showRun(run) : showEvent(e); } }, e.type), n > 1 ? h("span", { class: "run-count" }, ` ×${n}`) : null),
       compact ? null : h("td", { class: "nowrap" }, e.item ? eventItemLink(e) : "–"),
-      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))); })));
+      h("td", { class: "muted nowrap" }, e.source || "\u2013"), dataCell(changeOf(e))); }))));
 }
 function showRun(run) {                                  // a folded run, each of its events, in the side panel
   showDetail(h("div", { class: "kind" }, "Events in a row"), h("h2", {}, `${run[0].type} ×${run.length}`), eventsTable(run.slice().reverse(), false));
 }
 function showEvent(e) {                                 // one event, all of it, in the side panel
   showDetail(h("div", { class: "kind" }, e.remote ? `Event, remote ${e.remote}` : "Event"), h("h2", {}, e.type),
-    dl([["item", e.item ? eventItemLink(e) : null], ["source", e.source], ["when", new Date(e.time * 1000).toLocaleString()], ["id", e.id],
+    dl([["item", e.item ? eventItemLink(e) : null], ["source", e.source], ["when", stamp(e.time)], ["id", e.id],
         ["caused by", e.causedby]]),
     h("pre", {}, JSON.stringify(changeOf(e), null, 2)));
 }
@@ -425,12 +439,12 @@ async function openEdge(e) {
     const c = byId[dst];
     what = `Here: ${nameOf(src)}'s reading goes to the controller of ${nameOf(dst)}.`;
     rows.push(["from", link(src)], ["reading", byId[src]?.reading || null], ["to", link(dst)],
-              ["setpoint", c?.setpoint || null], ["how far", c?.offBy || null], ["status", c?.status ? statusEl(c.status) : null]);
+              ["setpoint", c?.setpoint || null], ["how far", c?.offBy || null], ["status", c?.status ? statusEl(goalWord(c)) : null]);
   } else if (e.kind === "action") {
     kind = "control action · control";
     const c = byId[src], v = byId[dst];
     what = `Here: the controller of ${nameOf(src)} opens the valve on ${nameOf(dst)} while its goal is off.`;
-    rows.push(["controller", link(src)], ["holds", c?.setpoint || null], ["status", c?.status ? statusEl(c.status) : null],
+    rows.push(["controller", link(src)], ["holds", c?.setpoint || null], ["status", c?.status ? statusEl(goalWord(c)) : null],
               ["acts on", link(dst)], ["filled by", v?.agent ? badgeText(v.agent) : null], ["rate now", v?.rateText || null],
               ["last decision", c?.decision ? `“${c.decision}”${c.decisionAt ? ", " + ago(c.decisionAt) : ""}` : null]);
   } else if (e.kind === "influence") {

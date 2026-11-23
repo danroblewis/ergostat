@@ -37,6 +37,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .. import mirror
 from .. import runner as old
+from ..compute.worker import keeper
 from ..costs import ai as costs_ai
 from ..costs import budget
 from ..costs import record as costs_record
@@ -836,26 +837,50 @@ class Engine:
             if slot:
                 slot.release()
             with self.lock:
-                for s in self.after_acting(moved):              # read after acting: the loop sees the effect now
-                    if run:
-                        self.read_cause[s.series] = run         # (what that reading crosses, this run caused)
-                    self.read_soon(s)                           # (marked under way before it may run again)
+                self._read_moved(moved, run)                    # read after acting: the loop sees the effect now
                 self.running.discard(b.name)
                 self.finished[b.name] = time.time()
         self.poke(b.name)
 
-    def after_acting(self, flows) -> list[Sensor]:
+    def after_acting(self, flows, spec: Spec | None = None) -> list[Sensor]:
         """The sensors of the stocks these flows connect: read at once after a block moves them (a flow the model
         no longer has, moved by a run that started before it changed, has none)."""
-        out = []
+        spec, out = spec or self.spec, []
         for f in flows:
-            fl = self.spec.flows.get(f)
+            fl = spec.flows.get(f)
             if fl is None:
                 continue
             for st in (fl.source, fl.target):
-                if st in self.spec.stocks:
-                    out += [s for s in self.spec.stocks[st].sensors.values() if s.measured]
+                if st in spec.stocks:
+                    out += [s for s in spec.stocks[st].sensors.values() if s.measured]
         return out
+
+    def _read_moved(self, flows, cause: str | None, spec: Spec | None = None) -> None:
+        """The sensors after_acting names that are in this engine's shard (``Plan.of``; all, with no shard), each read
+        at once, its reading caused by the run ``cause``. Another shard's are read by their owner (``_moved``)."""
+        with self.lock:
+            for s in self.after_acting(flows, spec):
+                try:
+                    if not self.own(f"{s.of.kind}.{s.of.name}.{s.name}", spec):
+                        continue
+                except (KeyError, ValueError):                  # (in no shard of this model: not read here)
+                    continue
+                if cause:
+                    self.read_cause[s.series] = cause           # (what that reading crosses, this run caused)
+                self.read_soon(s)                               # (marked under way before it may run again)
+
+    def _moved(self, e: dict) -> None:
+        """A run's ended event that moved flows (``data.moved``), followed by seq (``_follow``): the moved stocks' sensors
+        in this shard read at once, caused by that run. None with no shard, nor for a block this engine follows under
+        the model now: its own runs were read by ``_run``. So a swap that moves the block between its run and this
+        leaves the new owner's stocks to their schedule: read at once by neither, never twice. A ``moved`` not a
+        mapping, a flow moved by 0, NaN or not a number, a flow or stock this model lacks: no read."""
+        spec, d = self.spec, e.get("data")
+        moved = d.get("moved") if isinstance(d, dict) else None
+        if self.shard is None or not isinstance(moved, dict) or self.follows(f"block.{e.get('item') or ''}", spec):
+            return
+        flows = [f for f, v in moved.items() if type(v) in (int, float) and v == v and v]
+        self._read_moved(flows, e["causedby"] if isinstance(e.get("causedby"), str) else None, spec)
 
     def context(self, b: Block, why: str) -> dict:
         cmd, detail = self.command_of(b)
@@ -1009,6 +1034,7 @@ class Engine:
         if "command" in ctx:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
         env.pop("ERGOSTAT_EVENT", None)
+        env.pop("ERGOSTAT_JOURNAL", None)                        # (a kept run's own, below: never one inherited)
         reserve = budget.reserve_of(spec, b) if spec.budget is not None else None
         env.pop("ERGOSTAT_MAX_COST", None)                       # its cap (T1, SPEC §9.9), never one inherited
         if reserve is not None:
@@ -1075,36 +1101,56 @@ class Engine:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
             else:
-                files, proc = runrecord.files(self.p.dir, begun["id"]), None   # its input, output, exit, record
+                kept = spec.outlive_engine                   # held by a keeper, never stopped with us (SPEC §9.1)
+                name = begun["id"] if not kept or keeper.RUN.fullmatch(begun["id"]) else uuid.uuid4().hex
+                files, proc = runrecord.files(self.p.dir, name), None   # its input, output, exit, record
+                if kept:
+                    files["out"] = files["out"].with_suffix(".jsonl")    # its journal: what it prints, appended
+                    env["ERGOSTAT_JOURNAL"] = str(files["out"])
                 try:
                     if refused:
                         raise OSError(refused)
-                    files["in"].write_text(stdin or "", encoding="utf-8")
-                    with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
-                        proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
-                                        stderr=lf, start_new_session=True)
+                    if kept:
+                        os.close(os.open(files["out"], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600))
+                        proc = keeper.launch(str(self.p.dir.resolve()), name,
+                                             "exec " + shlex.join(runrecord.command(cmd, files)), stdin or "",
+                                             str(cwd), env, str(files["out"]), lf.fileno(), b.timeout)
+                    else:
+                        files["in"].write_text(stdin or "", encoding="utf-8")
+                        with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
+                            proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
+                                            stderr=lf, start_new_session=True)
                     runrecord.write(files, proc.pid, begun["id"], b.name, item, fence)
                 except OSError as e:
                     note = refused or f"could not start: {e}"
                     if proc is not None:                         # started, but its record not written: stopped
                         old._kill(proc)
                         proc.wait()
+                        if kept:
+                            proc.release()
                     runrecord.remove(files)
                 else:
-                    old.LIVE.add(proc)
+                    if not kept:                                 # (kill_all's: a kept run is left going)
+                        old.LIVE.add(proc)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
                         stopping = self.stop.is_set()            # (set under this lock: close's kill missed this run;
                     if stopping:                                 # not STOPPING: process-wide)
                         old._kill(proc)
-                    tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
+                    tracked, left = SAMPLER.track(proc), False      # its process tree's CPU and memory, sampled
                     try:
                         proc.watch = reap.Watch(proc.pid)            # what it starts, for a lease kill (leases/kill.py)
-                        if stream.follow(proc, files["out"], b.timeout, take):
-                            note = f"stopped after its timeout of {b.timeout:g}s"
+                        got = (stream.follow(proc, files["out"], b.timeout, take, self.stop) if kept
+                               else stream.follow(proc, files["out"], b.timeout, take))    # (off: the call as before)
+                        left = got is None                           # we stop, it goes on: its end is not ours
+                        if got or kept and not left and proc.how() == "timeout":   # (its keeper's, should that
+                            note = f"stopped after its timeout of {b.timeout:g}s"     # come first)
                     finally:
-                        runrecord.remove(files)                      # read to its end: nothing left to take again
+                        if not left:
+                            runrecord.remove(files)                  # read to its end: nothing left to take again
+                            if kept:
+                                proc.release()
                         resources = SAMPLER.finish(tracked)
                         if getattr(proc, "watch", None):
                             proc.watch.close(look=False)         # (its run is over: no last ps)
@@ -1116,6 +1162,9 @@ class Engine:
                             self.stopping_runs.discard(b.name)
                             self.live.pop(begun["id"], None)
                             killed = self.killing.pop(begun["id"], None)
+                    if left:                                     # no agent.ran: its journal and its keeper's exit
+                        self.say(f"{b.name}: its run {begun['id'][:8]} goes on without us ({files['out']})")
+                        return []                                # are what is left of it (SPEC §9.1)
                     code = proc.returncode
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
@@ -1706,23 +1755,30 @@ class Engine:
         mark = board.n if board else 0
         while not self.stop.is_set():
             try:
-                top = self.p.events.last_seq()                # (what is written while it looks is looked at next time)
-                new = sorted(self.p.events.query(n=None, after_seq=seq, type="block.approved,block.denied,trigger.reset") +
-                             self.p.events.query(n=None, after_seq=seq, type="ergostat.action.approved") +
-                             self.p.events.query(n=None, after_seq=seq, type="steptest.approved") +
-                             self.p.events.query(n=None, after_seq=seq, type=STOP_ASKED) +
-                             self.p.events.query(n=None, after_seq=seq, type=RESTART_ASKED), key=lambda e: e["seq"])
+                seq = self._follow_once(seq)
             except Exception:
                 self.stop.wait(1)
                 continue
-            for e in new:
-                seq = max(seq, e["seq"])
-                self._ask(e)
-            seq = max(seq, top)
             if board is None:
                 self.stop.wait(0.5)
             else:
                 mark = board.wait(mark, 0.5)
+
+    def _follow_once(self, seq: int) -> int:
+        """One look at what was written after ``seq``, each event in seq order; returns the seq looked to. A shard
+        engine follows the runs that moved flows too (``_moved``): their ended events, failed or not."""
+        top = self.p.events.last_seq()                        # (what is written while it looks is looked at next time)
+        runs = "agent.ran,agent.failed" if self.shard is not None else None
+        new = sorted([e for t in ("block.approved,block.denied,trigger.reset", "ergostat.action.approved",
+                                  "steptest.approved", STOP_ASKED, RESTART_ASKED, runs) if t
+                      for e in self.p.events.query(n=None, after_seq=seq, type=t)], key=lambda e: e["seq"])
+        for e in new:
+            seq = max(seq, e["seq"])
+            try:                                              # (one event's fault never stops the rest, nor repeats them)
+                self._moved(e) if e["type"] in ("agent.ran", "agent.failed") else self._ask(e)
+            except Exception as x:
+                self.say(f"following {e['type']}: {type(x).__name__}: {x}")
+        return max(seq, top)
 
     def _ask(self, e: dict) -> None:
         """One owner's ask, followed only by the engine whose shard owns what it names (SPEC §9.8), judged and acted on
@@ -1998,7 +2054,8 @@ class Engine:
                 if got:
                     self.lock.release()
             for proc in mine:
-                old._kill(proc)
+                if not isinstance(proc, keeper.Kept):    # (one its keeper holds goes on: SPEC §9.1)
+                    old._kill(proc)
         self.daemons.close()
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
@@ -2395,10 +2452,21 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
             from ..remote.readings import read
             return read(spec, src, s)
         return None, f"source type {src.type} cannot be queried"
+    from ..library import runs
+    from ..store import state_dir
+    if env is None:
+        env = callback_env(spec, state_dir(spec.name, spec.root))
+    if runs.sandboxed(s):                                # not proven the owner's or ergostat's (library/runs.py)
+        out, why = runs.read(spec, s, env.get("ERGOSTAT_STATE_DIR") or state_dir(spec.name, spec.root))
+        if out is None:
+            return None, why
+        if observe is not None:
+            seen, refused = observations(out)
+            said = [o for o in seen if "message" in o]
+            observe([o for o in seen if "message" not in o],
+                    refused + ["message: a sandboxed run cannot relay a message"] * bool(said))
+        return number_in(out, s.parse)
     try:
-        if env is None:
-            from ..store import state_dir
-            env = callback_env(spec, state_dir(spec.name, spec.root))
         env = {**env, "ERGOSTAT_SENSOR": sensor_name(s.of.name, s.name)}      # who a mirror cites as (mirror.py)
         p = subprocess.run(s.run, shell=True, cwd=spec.root, capture_output=True, text=True, timeout=s.timeout,
                            start_new_session=True, env=env)

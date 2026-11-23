@@ -1,4 +1,4 @@
-"""Acceptance: the inbox on the page (SPEC §12o). *Needs attention* lists what waits on the owner first, each with its
+"""Acceptance: the inbox on the page (SPEC §12o). *Waiting for you* lists what waits on the owner first, each with its
 answer inline: Approve on a held action approves it (an event from the owner) and the entry leaves the panel; a
 person's request takes a number and Done.
 
@@ -62,6 +62,23 @@ def three(tmp_path, home):
 
 
 @pytest.fixture
+def ticket_site(tmp_path, home):
+    """Two actions asked for about one item: one approved (and run) already, one held for the owner."""
+    from ergostat import model as mdl
+    from ergostat.actions import gate
+    from ergostat.store import Project
+
+    from .test_inbox import MODEL
+    (tmp_path / "ergostat.yaml").write_text(MODEL)
+    p = Project(mdl.load(tmp_path))
+    p.events.add("ticket.opened", item="ticket/SCRUM-2", source="test")
+    done = gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "ticket/SCRUM-2"})
+    gate.approve(p, p.model.spec, done["id"], by="owner")
+    a = gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": "ticket/SCRUM-2"})
+    yield from serve(tmp_path, home, p, a)
+
+
+@pytest.fixture
 def sentences(tmp_path, home):
     """A held action with a description, an argument and a python3 command, and a person asked five lines with code."""
     from ergostat import model as mdl
@@ -103,6 +120,14 @@ def ladder(tmp_path, home):
     yield from serve(tmp_path, home, p, a)
 
 
+@pytest.fixture
+def held_again(tmp_path, home):
+    """A modelling request held for the owner: its id is fixed, so held again it comes back under the same id."""
+    from .test_inbox import held_request
+    p, r, eid = held_request(tmp_path)
+    yield from serve(tmp_path, home, p, (r, eid))
+
+
 def serve(tmp_path, home, p, a):
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(tmp_path), "web", "--port", str(port)],
@@ -133,6 +158,14 @@ def off(pg) -> None:
     """The pointer off the side list, over the diagram beside it."""
     side = pg.locator(".side").bounding_box()
     pg.mouse.move(max(5, side["x"] - 120), side["y"] + 120)
+
+
+def unfold(pg) -> None:
+    """More than 3 waiting sit in one closed line, "N wait for you": the reader opens it, then moves off it."""
+    pg.wait_for_selector(".side details.waiting-fold", state="attached", timeout=20000)
+    if not pg.evaluate("() => document.querySelector('.side details.waiting-fold').open"):
+        pg.locator(".side details.waiting-fold > summary").click()
+    off(pg)
 
 
 def shot(pg, name: str) -> None:
@@ -172,6 +205,36 @@ def test_approve_in_the_side_panel(site):
         pg.wait_for_function("""() => !document.querySelector('[data-inbox^="person/reviewer@"]')""", timeout=20000)
         assert p.events.query(n=1, type="agent.ran", item="reviewer")[-1]["data"]["done"] == 2.0
         shot(pg, "side-panel-answered.png")
+        assert not errors, errors
+        b.close()
+
+
+def test_a_list_the_reader_is_in_is_not_folded_away_when_a_fourth_comes(site):
+    """Two waiting, the pointer on the first: alarms that wait come, past 3, and the list stays unfolded and in place
+    under the pointer; left, the 4 and more fold into one line, "N wait for you"."""
+    from ergostat.actions import record
+    url, p, a = site
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        row = pg.locator(f'[data-inbox="action/{record.short(a["id"])}"]')
+        row.wait_for(timeout=20000)
+        n = alarms_coming(pg, set())
+        row.hover()
+        top = row.bounding_box()["y"]
+        for _ in range(30):                                                    # 3 alarms more than the 2: past 3
+            if n[0] >= 4:
+                break
+            pg.wait_for_timeout(1000)
+        assert n[0] >= 4 and "updates waiting" in pg.inner_text(".needs > .waiting"), n
+        assert row.is_visible() and row.bounding_box()["y"] == top
+        assert not pg.locator(".side details.waiting-fold").count()
+        leave(pg)
+        pg.wait_for_selector(".side details.waiting-fold:not([open])", state="attached", timeout=20000)
+        assert not row.is_visible()
         assert not errors, errors
         b.close()
 
@@ -241,6 +304,7 @@ def test_a_typed_reason_stays_with_its_entry_when_one_above_is_answered(site):
         pg.goto(f"{url}/diagram?view=blocks")
         pg.wait_for_function("""() => document.querySelectorAll('.att [data-inbox^="action/"]').length === 3""",
                              timeout=20000)
+        unfold(pg)                                  # (4 waiting: folded in one line)
         top, mid, low = pg.eval_on_selector_all('.att [data-inbox^="action/"]', "rs => rs.map((r) => r.dataset.inbox)")
         row = lambda what: pg.locator(f'[data-inbox="{what}"]')   # noqa: E731
         waiting = record.get(p, ids[low])["state"]
@@ -299,6 +363,8 @@ def test_the_side_list_holds_still_while_the_reader_is_in_it_and_a_request_stays
         gone: set = set()
         n = alarms_coming(pg, gone)
         pg.goto(f"{url}/diagram?view=blocks")
+        pg.locator('[data-inbox^="action/"]').nth(2).wait_for(state="attached", timeout=20000)
+        unfold(pg)                                                             # (4 and more: folded in one line)
         pg.locator('[data-inbox^="action/"]').nth(2).wait_for(timeout=20000)
         pg.wait_for_selector('[data-row="alarm new-1"]', timeout=20000)           # the alarms are coming
         what = pg.locator("[data-inbox]").nth(2).get_attribute("data-inbox")
@@ -357,6 +423,8 @@ def test_a_reason_typed_for_one_request_does_not_stay_for_the_request_below_it(t
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.goto(f"{url}/diagram?view=blocks")
+        pg.locator('[data-inbox^="action/"]').nth(2).wait_for(state="attached", timeout=20000)
+        unfold(pg)                                                             # (4 waiting: folded in one line)
         pg.locator('[data-inbox^="action/"]').nth(2).wait_for(timeout=20000)
         first = pg.locator('[data-inbox^="action/"]').nth(0).get_attribute("data-inbox")
         row = pg.locator(f'[data-inbox="{first}"]')
@@ -444,6 +512,7 @@ def test_a_request_answered_from_the_keyboard_holds_the_list_with_the_pointer_of
         off(pg)
         # several refreshes patched in first (the reader not in the list): the row's nodes kept, the handlers handed over
         pg.wait_for_function("() => document.querySelector('[data-row=\"alarm new-3\"]')", timeout=30000)
+        unfold(pg)                                                             # (past 3 waiting: folded in one line)
         row.locator('input[aria-label^="Why"]').focus()
         pg.keyboard.type("not this week")
         pg.keyboard.press("Tab")                                             # past Approve to Deny, from the keyboard
@@ -495,4 +564,80 @@ def test_an_entry_keeps_its_class_record_and_its_suggestion_up_the_ladder(ladder
         assert act["ladder"] and act["ladder"].startswith("7 asked this week, 6 approved, 0 denied"), act
         assert "6 approvals of outward this week, all approved: consider gate: auto" in act["ladder"], act
         assert "python3" not in act["ladder"] and "consider gate" not in act["first"], act
+        b.close()
+
+
+def test_a_denied_row_says_by_whom_and_links_its_item_whose_page_shows_it(ticket_site):
+    from ergostat.actions import record
+    url, p, a = ticket_site
+    short = record.short(a["id"])
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        row = pg.locator(f'[data-inbox="action/{short}"]')
+        row.wait_for(timeout=20000)
+        row.locator('input[aria-label^="Why deny"]').fill("not on a Friday")
+        row.locator('button[data-verb="deny"]').click()
+        note = row.locator(".inbox-act .note")          # while the reader is in the list: said in the row held
+        pg.wait_for_function("(el) => el.textContent.includes('Denied by you at')", arg=note.element_handle(), timeout=20000)
+        assert note.locator('a[href="/item/ticket%2FSCRUM-2"]').count() == 1, note.inner_text()
+        leave(pg)                                       # the list let go: the row drawn again as answered
+        done = pg.locator(f'[data-answered="action/{short}"]')
+        done.wait_for(timeout=20000)
+        for _ in range(2):                              # the side list drawn again from the record: still there
+            with pg.expect_response(lambda r: "/api/" in r.url, timeout=20000):
+                pass
+        assert pg.locator(f'[data-inbox="action/{short}"]').count() == 0 and done.count() == 1
+        said = done.inner_text()
+        assert "Denied by you at" in said and "reason: not on a Friday" in said, said
+        link = done.locator('a[href="/item/ticket%2FSCRUM-2"]')
+        assert link.count() == 1 and link.inner_text() == "ticket/SCRUM-2"
+        assert record.get(p, a["id"])["state"] == "denied"
+        link.click()
+        lines = pg.locator('h2:has-text("Gated actions") + div .claim > p:first-child')
+        lines.first.wait_for(timeout=20000)
+        texts = lines.all_inner_texts()
+        assert len(texts) == 2, texts
+        assert all("approved by" in t or "denied by" in t for t in texts), texts
+        assert any("denied by owner" in t and "not on a Friday" in t for t in texts), texts
+        assert any("approved by owner" in t and ", ran " in t for t in texts), texts
+        assert not errors, errors
+        b.close()
+
+
+def test_a_request_answered_here_and_held_again_under_its_id_waits_again(held_again):
+    """lesson-5: a modelling request's id is fixed; approved here, then held again (its change turned away), it is
+    listed again with its answers, and the earlier 'Approved by you' row no longer stands for it."""
+    from ergostat.numbers import requests as rq
+    url, p, (r, eid) = held_again
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        row = pg.locator(f'[data-inbox="{eid}"]')
+        row.wait_for(state="attached", timeout=20000)
+        pg.locator(".housekeeping > summary").click()  # a modelling request is listed in the housekeeping (main's rule)
+        row.wait_for(timeout=20000)
+        row.locator('button[data-verb="approve"]').click()
+        note = row.locator(".inbox-act .note")
+        pg.wait_for_function("(el) => el.textContent.includes('Approved by you at')", arg=note.element_handle(), timeout=20000)
+        leave(pg)
+        done = pg.locator(f'[data-answered="{eid}"]')
+        done.wait_for(timeout=20000)
+        assert rq.stored(p)[r["id"]]["state"] == "open"
+        for _ in range(2):                              # drawn again from a record where it no longer waits
+            with pg.expect_response(lambda x: "/api/" in x.url, timeout=20000):
+                pass
+        assert done.count() == 1 and pg.locator(f'[data-inbox="{eid}"]').count() == 0
+        rq.mark(p, rq.stored(p)[r["id"]], "held", "its change was turned away", tier="ai", tried={"ai": 2})
+        row.wait_for(timeout=20000)                     # waiting again, under the same id, with its answers
+        assert row.locator('button[data-verb="approve"]').count() == 1
+        pg.wait_for_function(f"() => !document.querySelector('[data-answered=\"{eid}\"]')", timeout=20000)
+        assert done.count() == 0 and row.count() == 1
+        assert not errors, errors
         b.close()
