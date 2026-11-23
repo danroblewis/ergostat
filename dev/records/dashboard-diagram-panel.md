@@ -17,8 +17,8 @@ Milestone: dashboard. Owner items: 18 (a nodes-and-edges diagram), 10. From the 
 
 ## Where it stopped
 
-Round 1, built. The panel, the embedding and the five acceptance checks are in; what follows says what each done item
-is checked against, and where the claim is narrower than the item's words.
+Round 1, built. The panel, the embedding and six acceptance tests are in. What follows says what each done item is
+checked against, and where the claim is narrower than the item's words.
 
 What was built (about 140 net lines of code, inside the 220 budget):
 - A draft panel `{form: "diagram", display: {address}}` (panels.js: `diagramPanel`, `diagramAddress`; dashboard.js
@@ -78,3 +78,20 @@ fails item 3. Making every model panel live fails the one-live test.
 Lesson 10: the one-live test failed 2 of 4 whole-file runs at first. The cause was in ergostat, not the test: each
 panel had its own observer, so when two panels came on screen in the same frame either could become the live one. One
 shared observer, taking panels in document order, fixed it, and the next three whole-file runs passed.
+
+The Items Graph in a panel: relGraph sizes its stage for the Items page (an inline height) and has Fit, + and −
+buttons. In the panel the height is cleared, the drawing is fitted again (Fit, called without letting the click bubble
+to the panel's link), the buttons are hidden and the drawing takes no pointer, so a click opens the address and never
+an item.
+
+Runs on the last commit:
+- tests/test_dashboard_page.py whole: 46 passed (all 41 that were there before, and the new ones). Ruff clean.
+  tests/test_style_tokens.py: 15 passed. That run caught an `!important`, which is now gone.
+- Against the house rule, I started two of the four browser files myself: tests/test_page_polling.py passed (rc 0).
+  tests/test_diagram_rendering.py was still running in the background when this was written, with failures
+  among its first tests. I could not get their names: `pytest --collect-only` was refused, and the run had not ended.
+  Outside the `?pane=embed` frame, diagram.js now differs only in setting two flags (`S.embedSame`,
+  `S.embedFits`). `fit()` and `sideHidden()` change only when `EMBED` is true. So these failures are not expected to
+  come from this branch, but that is a reading of the code, not something shown by a run. The merge queue's run of the
+  four browser files is the real check.
+- Not run: the unit suite, test_items_page.py, test_page_refresh.py, demo_check.

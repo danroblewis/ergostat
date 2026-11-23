@@ -1131,7 +1131,7 @@
       if (!graph.isConnected) body.replaceChildren(link(graph));
       await graph.draw(rgModel(d, { finished: "hide" }), { finished: "hide" });
       graph.querySelector(".rg-stage").style.height = "";       // the panel's height, not the Items page's
-      graph.querySelector(".rg-tools button")?.click();         // and fitted to it (relGraph's Fit)
+      graph.querySelector(".rg-tools button")?.dispatchEvent(new MouseEvent("click"));   // fitted to it (relGraph's Fit; not bubbling to the link)
       const vp = graph.querySelector(".rg-view"), k = Number(/scale\(([\d.]+)\)/.exec(vp?.getAttribute("transform") || "")?.[1] || 1);
       if (k < 1) vp.setAttribute("transform", "translate(8,8) scale(1)");   // 11 px text is never drawn smaller
       say(k < 1 ? "Too large to read here: open on the Items page" : cfg.note || "");
