@@ -709,6 +709,42 @@ def test_the_graph_draws_the_frontier_with_the_finished_collapsed(browser, roadm
     pg.close()
 
 
+RG_MODEL = """([d, o]) => { const m = rgModel(d, o);
+  return { nodes: m.nodes.map((n) => n.id), edges: m.edges.filter((e) => e.cls === 'dep' || e.cls === 'via').map((e) => [e.from, e.to]),
+           capped: m.capped, lost: m.lost }; }"""
+
+
+def test_the_graph_draws_every_dependency_of_the_unfinished_work(browser, roadmap):
+    """The page's own rgModel on an answer of the factory's shape (tests/test_graph_parts.py): every unfinished gap
+    and every line into one drawn, no review; past the bound (a chained record, one group bigger than the bound, an
+    epic over more than the bound), exactly what the unit tests' rule draws, and every line left out counted."""
+    from ergostat.web import graph_parts
+    from tests.test_graph_parts import drawn as rule
+    from tests.test_graph_parts import epic_answer, factory_answer, fan_answer, unreported
+    pg, errors = open_view(browser, roadmap, "items?view=graph", ".rg-graph[data-drawn] .rg-node")
+    ans = graph_parts.mark(factory_answer())
+    by = {x["id"]: x for x in ans["items"]}
+    into = {(e["from"], e["to"]) for e in ans["edges"] if e["kind"] == "precedence" and by[e["to"]]["status"] != "done"}
+    unfinished = {a for a, x in by.items() if x["kind"] == "gap" and x["status"] != "done"}
+    o = {"frontier": True, "collapse": False, "group": "parent", "q": "", "status": None}
+    got = pg.evaluate(RG_MODEL, [ans, o])
+    assert not got["capped"] and got["lost"] == 0, got["capped"]
+    assert unfinished <= set(got["nodes"]) and not any(a.startswith("review/") for a in got["nodes"])
+    assert {tuple(e) for e in got["edges"]} == into and len(into) == 340
+    got = pg.evaluate(RG_MODEL, [ans, {**o, "collapse": True}])                  # the finished collapsed: theirs go
+    assert set(got["nodes"]) == unfinished
+    assert {tuple(e) for e in got["edges"]} == {(a, b) for a, b in into if a in unfinished}
+    for big in (factory_answer(n_open=1200, seed=11), fan_answer(), epic_answer()):   # past the bound
+        big = graph_parts.mark(big)
+        got = pg.evaluate(RG_MODEL, [big, o])
+        scope, keep, lost = rule(big)                                        # the rule, as the unit tests hold it
+        assert got["capped"] == len(scope) > 600 and set(got["nodes"]) == keep and got["lost"] == lost
+        assert unreported(big, scope, keep, got["lost"]) == 0                   # each line left out, counted
+        assert not any(a.startswith("gap/p") for a in keep)                     # never paused work before active
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap):
     pg, errors = open_view(browser, roadmap, "items?view=timeline", ".rg-timeline[data-drawn] .rg-row")
     rows = drawn(pg, ".rg-timeline .rg-row .rg-label")
@@ -742,6 +778,40 @@ def test_the_timeline_draws_what_happened_and_what_is_projected(browser, roadmap
     pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline .rg-row').length > {kept}")
     assert not errors, errors
     pg.close()
+
+
+def test_the_timeline_says_how_well_last_weeks_estimates_held(browser, roadmap):
+    """A clause per kind in the Timeline's note (eta.calibration, SPEC §5a), in the warning ink under 0.7 of 10 or more;
+    by item and by lanes."""
+    good = "last week's estimates: 8 in 10 tickets finished by their p90 (41 tickets)"
+    poor = "last week's estimates: 4 in 10 epics finished by their p90 (12 epics)"
+    cal = {"ticket": {"coverage": 0.83, "items": 41, "mae": 600.0, "since": 0, "said": good},
+           "epic": {"coverage": 0.42, "items": 12, "mae": 900.0, "since": 0, "said": poor},
+           "note": {"coverage": 0.0, "items": 3, "mae": None, "since": 0, "said": "notes: too few finished last week to check"}}
+
+    def fill(route):
+        r = route.fetch()
+        d = r.json()
+        if d.get("eta"):
+            d["eta"]["calibration"] = cal
+        route.fulfill(response=r, json=d)
+    def look(rows: str) -> None:
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.route("**/api/items-graph*", fill)
+        pg.goto(f"{roadmap}/items?view=timeline{rows}")
+        pg.wait_for_selector(".rg-timeline .rg-note .rg-calibration span", timeout=20000)
+        said = pg.locator(".rg-timeline .rg-note").inner_text()
+        assert good in said and poor in said and "too few finished last week to check" in said, said
+        warned = pg.locator(".rg-timeline .rg-calibration .lvl-warn").evaluate_all("els => els.map((e) => e.dataset.kind)")
+        assert warned == ["epic"], warned
+        ink = lambda k: pg.locator(f'.rg-timeline .rg-calibration [data-kind="{k}"]').evaluate("e => getComputedStyle(e).color")   # noqa: E731
+        assert ink("epic") != ink("ticket") and ink("note") == ink("ticket")
+        assert not errors, errors
+        pg.close()
+    look("")
+    look("&rows=lanes")
 
 
 def test_the_timeline_levels_lanes_per_block(browser, roadmap):
@@ -1188,6 +1258,54 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         remote.server_close()
         items._state.clear()
         events._kept.clear()
+
+
+FINISHING = """
+items:
+  gap:
+    id: gap/*
+    states: [open, building, merged, parked, closed]
+    on: {gap.opened: open, gap.started: building, gap.merged: merged, gap.parked: parked, gap.closed: closed}
+  pool:
+    id: pool/*
+    states: [held]
+    on: {pool.measured: held}
+messages:
+  done: {gap: [merged, closed]}
+  paused: {gap: [parked]}
+"""
+
+
+def test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_on(browser, tmp_path):
+    """items-kinds-say-which-states-finish: under each kind's states, 'finished: ... (declared)' with its paused
+    states, or 'lives on' for a kind with one state."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    (tmp_path / "ergostat.yaml").write_text(FINISHING)
+    p = Project(mdl.load(tmp_path))
+    t = time.time() - 600
+    for i in range(1, 4):
+        p.events.add("gap.opened", item=f"gap/g{i}", at=t + i)
+        p.events.add("pool.measured", item=f"pool/p{i}", at=t + i)
+    p.events.add("gap.merged", item="gap/g1", at=t + 10)
+    p.events.add("gap.parked", item="gap/g2", at=t + 11)
+    server, url = web_serve(p, free_port())
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        pg.goto(f"{url}/items")
+        pg.wait_for_function("() => document.querySelectorAll('.kind-flow .finish-line').length >= 2")
+        lines = dict(pg.locator(".kind-flow").evaluate_all("""els => els.map((e) => [
+            e.querySelector('.kname').firstChild.textContent, e.querySelector('.finish-line')?.textContent])"""))
+        assert lines["gap"] == "finished: merged, closed (declared) · paused: parked", lines
+        assert lines["pool"] == "lives on", lines
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
 
 
 UPKEEP_SEED = """
