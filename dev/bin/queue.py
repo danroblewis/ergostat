@@ -87,6 +87,7 @@ import agents  # noqa: E402
 import batches  # noqa: E402
 import fac  # noqa: E402
 import flakes  # noqa: E402
+import gapsdoc  # noqa: E402
 import halves  # noqa: E402
 import pools  # noqa: E402
 import review  # noqa: E402
@@ -1248,6 +1249,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
                 batches.end("given-back", f"outage: {why}")
                 fac.nack(f"queue: outage: {why}", after=fac._outage().AFTER, count=False)
                 return 0
+            merged, notes = gaps_md(repo, pre, merged) if landed else (merged, {})   # (part of the landing)
             batches.settled([g["id"] for g, _ in landed], merged, [(g["id"], why) for g, why in back])
             if not landed:                                 # no push to wait for: the run's own gap's outcome now
                 release({"then": HELD["said"]})
@@ -1260,7 +1262,7 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             save(cfg, {**state(cfg), "running": {"pre": pre, "gaps": ids, "at": began, "landing": ids}})
             run = {"run": fac.run_tag(fac.branch_of(gap), began), "minutes": round((time.time() - began) / 60, 1),
                    "at": time.time(), "tried": len(batch), "landed": len(landed), "given_back": len(back),
-                   **(summed(landed[-1][1]["suites_queue"]) if landed else {})}   # (the green run main ends at)
+                   **(summed(landed[-1][1]["suites_queue"]) if landed else {}), **notes}   # (the green run main ends at)
             # (the whole run, on each of its gaps, for merges-per-hour; given_back: sent back to approved, uncounted)
             extra = lambda g: {} if g["id"] == gap["id"] else {"queued_at": began, "queue_attempts": 1}  # noqa: E731
             for g, timing in landed:
@@ -1287,6 +1289,29 @@ def take(cfg: dict, gap: dict, repo, started: float) -> int:
             ask(cfg, repo, gap, landed, merged, pre)
             greened(landed[-1][1]["suites_queue"], merged)
     return 0
+
+
+def gaps_md(repo, pre: str, merged: str) -> tuple[str, dict]:
+    """Inside the landing, before its point of no return (so a stop undoes it with the merges, and recover() puts main
+    back past it): the batch's own GAPS.md edits carried into the records and docs/GAPS.md written from them
+    (gapsdoc.regenerate()), committed on main as `docs/GAPS.md from the records` when anything differs. (main's head:
+    every landed gap's main_sha and the push; what the run says: gaps_md_carried, gaps_md_unplaced.) Any failure
+    commits nothing, leaves main at ``merged`` and says `gaps_md: why`; the batch lands all the same."""
+    wrote: list[str] = []
+    try:
+        before = fac.git(repo, "show", f"{pre}:docs/GAPS.md", check=False) + "\n"   # (unread: "", so none removed)
+        got = gapsdoc.regenerate(repo, gapsdoc.rendered_at(repo, pre), before)
+        wrote = got["files"]
+        fac.git(repo, "add", "--", *wrote)
+        if not fac.git_ok(repo, "diff", "--cached", "--quiet"):
+            fac.git(repo, "commit", "-q", "-m", f"docs/GAPS.md from the records\n\n{fac.TRAILER}")
+        return fac.git(repo, "rev-parse", "HEAD"), {f"gaps_md_{k}": got[k] for k in ("carried", "unplaced") if got[k]}
+    except Exception as e:  # noqa: BLE001 - a render that fails never blocks a merge
+        fac.git(repo, "reset", "-q", "--hard", merged, check=False)        # (the queue's own checkout, at its merge)
+        for p in wrote:                                                     # (only files it wrote that main lacks)
+            if not fac.git_ok(repo, "cat-file", "-e", f"{merged}:{p}"):
+                (repo / p).unlink(missing_ok=True)
+        return merged, {"gaps_md": f"{type(e).__name__}: {e}"[:600]}
 
 
 def greened(suites: dict, merged: str) -> None:

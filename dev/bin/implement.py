@@ -53,15 +53,19 @@ import pools  # noqa: E402
 
 def definition_first(cfg: dict, gap: dict, work: Path) -> tuple[str, str]:
     """The definition file (fac.definition_file), committed as the branch's first commit when the branch does not have
-    it (by this program, in the clone it made, before any session); (its text, the commit that holds it)."""
+    it (by this program, in the clone it made, before any session); (its text, the commit that holds it). A record
+    that holds only its GAPS.md `## Entry` (gapsdoc split's) is given the definition, put before that Entry, which
+    stays the record's last section; one whose definition is in the old folder is never given a second
+    (fac.definition_file() names the old file)."""
     branch, rel = fac.branch_of(gap), fac.definition_file(gap, work)
     target = work / rel
-    if not target.is_file():
+    entry = target.read_text() if target.is_file() and fac.entry_only(target.read_text()) else ""
+    if not target.is_file() or entry:
         text = brief.definition_text(cfg, str(gap["fields"].get("definition", "")), branch)
         if not text.strip():
             raise RuntimeError(f"{gap['id']} has no definition of done to commit")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text if text.endswith("\n") else text + "\n")
+        target.write_text(text.rstrip("\n") + "\n" + (f"\n{entry.lstrip()}" if entry else ""))
         fac.git(work, "add", rel)
         fac.git(work, "-c", "user.name=factory", "-c", "user.email=factory@localhost", "commit", "-q", "-m",
                 f"{branch}: the definition of done\n\n{fac.TRAILER}")
@@ -146,6 +150,20 @@ def stray_brief(text: str, stray: list[str]) -> str:
             "files that look like scratch ([gates] scratch_patterns), or a new top-level file or folder the definition's "
             "Files to touch does not name:\n\n" + "\n".join(f"- `{p}`" for p in stray) + "\n\nRemove each (`git rm`), "
             "or move what belongs to the gap under a folder main has, commit, and stop.\n")
+
+
+def gaps_md_edited(repo: Path, base: str, head: str) -> bool:
+    """Whether the branch's own commits change docs/GAPS.md (since it left ``base``: main, or the stack of main and
+    its approved bases, whose GAPS.md edits the queue carries): the queue writes GAPS.md from the records as it lands
+    (queue.gaps_md()), so a gap's entry is written as its record's `## Entry`."""
+    return bool(fac.git(repo, "diff", "--name-only", f"{base}...{head}", "--", "docs/GAPS.md"))
+
+
+def gaps_md_brief(text: str, base: str, branch: str, what: str = "main") -> str:
+    return (f"{text}\n\n# docs/GAPS.md edited\n\nThe factory refused your build before the suites (uncounted): the "
+            "branch changes docs/GAPS.md, which the merge queue writes from the records as it lands. Write the gap's "
+            f"entry as the `## Entry` section of `{fac.DEFS}/{branch}.md` (its shape is in dev/prompts/definition.md), "
+            f"put docs/GAPS.md back as {what} has it (`git checkout {base[:12]} -- docs/GAPS.md`), commit, and stop.\n")
 
 
 def new_findings(cfg: dict, home: Path, branch: str, base_sha: str, definition: str, logs: Path, tag: str,
@@ -251,10 +269,12 @@ def build(cfg: dict, given: dict, began: float) -> int:
             return 0
         fac.git(work, "fetch", "-q", "origin", f"refs/stack/{fac.git_branch(branch)}")
     definition, held = definition_first(cfg, gap, work)
-    conflicts = merge_main(work, against, "main and its bases " + ", ".join(b["gap"] for b in bases) if bases else "main")
+    what = "main and its bases " + ", ".join(b["gap"] for b in bases) if bases else "main"
+    conflicts = merge_main(work, against, what)
     was = agents.publish(cfg, work, branch)           # (in a merge left in progress: the branch as it was before it)
     text, context = brief.assemble(cfg, "implementor", gap, work, definition=definition)
     text += conflict_brief(against, conflicts) if conflicts else ""
+    text = gaps_md_brief(text, against, branch, what) if gaps_md_edited(work, against, "HEAD") else text
     context["brief"] = brief.save(cfg, "implementor", gap, text)
     context["round"], context["merge_conflicts"] = rounds, conflicts
     cost, sessions, used = 0.0, 0, []
@@ -264,7 +284,8 @@ def build(cfg: dict, given: dict, began: float) -> int:
     seen: dict[str, bool] = {}                                # tests run on main in this run: failed there?
     retried, deadline = False, began + (hours - float(f.get("build_hours") or 0)) * 3600
     for i in range(1 + int(cfg["ai"]["suite_fix_rounds"])):
-        prompt = text if i == 0 else stray_brief(text, suites["stray"]) if suites.get("stray") else findings_brief(
+        prompt = text if i == 0 else gaps_md_brief(text, against, branch, what) if suites.get(
+            "gaps_md") else stray_brief(text, suites["stray"]) if suites.get("stray") else findings_brief(
             text, suites["findings"]) if suites.get("findings") else (
             f"{text}\n\n# The fast suites failed after your work\n\n`{suites['failed']}` failed"
             f" ({', '.join(suites['tests']) or 'see the tail'}). Fix the code (not the tests' bounds), commit, and"
@@ -281,6 +302,9 @@ def build(cfg: dict, given: dict, began: float) -> int:
         # branch where it was given:
         if stray:                                               # refused when not); scratch refused before the suites
             suites = {"failed": "scratch files", "tests": stray, "stray": stray, "tail": "\n".join(stray)}
+            continue
+        if gaps_md_edited(agents.drop(cfg), against, head):            # the entry belongs in the record: uncounted
+            suites = {"failed": "docs/GAPS.md edited", "tests": [], "gaps_md": True, "tail": "docs/GAPS.md"}
             continue
         fac.wait_quiet(cfg)
         new, allowed = new_findings(cfg, home, branch, against, definition, logs, f"{fac.run_tag(branch, began)}-{i}",
@@ -307,6 +331,11 @@ def build(cfg: dict, given: dict, began: float) -> int:
     record["main_broken_tests"] = broken
     if broken:
         onmain.record(gap["id"], base_sha, broken)
+    if suites.get("gaps_md"):                         # never a build failure: its next try is told why (gaps_md_brief)
+        fac.say("gap.measured", **record)
+        fac.nack("refused before the suites, uncounted: the branch edits docs/GAPS.md; the entry goes in its record's "
+                 "## Entry", count=False, after="1m")
+        return 0
     if suites.get("failed") and suites.get("main_broken"):
         fac.say("gap.measured", waits_on_main=base_sha, **record)
         fac.nack(f"its fast suites failed only on tests that fail on main {base_sha[:12]} too "
