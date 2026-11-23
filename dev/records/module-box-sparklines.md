@@ -153,5 +153,6 @@ nothing, while reception's three draw as before). Seen to fail (lesson 9): with 
 browser test fails on archive's "filed 149 no readings". With `cut` always [], both unit tests fail.
 Run: tests/test_module_sparklines.py, tests/test_series.py and tests/test_spec_schema.py, 49 passed.
 tests/test_parity.py and tests/test_graph_cli_web.py, 71 passed. The three sparkline browser tests plus the new one
-(Playwright, under suite_watch), 4 passed, rc 0. ruff is clean. The whole of tests/test_diagram_rendering.py was not
-run again. Done item 5 stands as rounds 1 to 3 left it.
+(Playwright, under suite_watch), 4 passed, rc 0. tests/test_page_polling.py (Playwright, suite_watch), 22 passed,
+rc 0. ruff is clean. The whole of tests/test_diagram_rendering.py was not run again. Done item 5 stands as rounds 1 to
+3 left it.
