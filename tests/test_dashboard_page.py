@@ -24,8 +24,6 @@ import pytest
 
 from tests.ports import free_port
 
-playwright = pytest.importorskip("playwright.sync_api")
-
 ROOT = Path(__file__).resolve().parent.parent
 SHOTS = os.environ.get("DASHBOARD_SHOTS")
 
@@ -119,6 +117,7 @@ def served(tmp_path_factory, example):
 
 @pytest.fixture(scope="module")
 def browser():
+    playwright = pytest.importorskip("playwright.sync_api")   # (here: the tests needing no browser run without it)
     with playwright.sync_playwright() as p:
         b = p.chromium.launch()
         yield b
@@ -786,6 +785,16 @@ def drawn(pg, pid, timeout=15000):
     fr = pg.locator(f'[data-panel-id="{pid}"] iframe').element_handle().content_frame()
     fr.wait_for_function("() => S.embedDrawn > 0 && document.querySelector('svg.canvas #viewport')")
     return fr
+
+
+def test_a_diagram_panels_poll_is_answered_with_its_values_alone(factory):
+    """The server half of done item 1, run with no browser: the panel's address asked again with the structure it
+    holds comes back as values alone (``same``), so nothing in it can be laid out again."""
+    ask = f"{factory}/api/graph?view=dynamics&system=product&have="
+    first = json.loads(urllib.request.urlopen(ask + "-", timeout=30).read())
+    assert first.get("structure") and "same" not in first and first.get("nodes")
+    again = json.loads(urllib.request.urlopen(ask + first["structure"], timeout=30).read())
+    assert again.get("same") == first["structure"] and "nodes" not in again
 
 
 @pytest.mark.serial
