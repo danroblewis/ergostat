@@ -1394,6 +1394,124 @@ def test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_o
         server.server_close()
 
 
+FINISHED = FINISHING.replace("parked, closed]", "parked, closed, dead]").replace("gap.closed: closed}", "gap.closed: closed, gap.died: dead}")
+DELAYED = """(() => {          // /api/items held back window.__delay ms, each asked and each aborted counted
+  window.__items = []; window.__aborted = 0; window.__delay = 0;
+  const f = window.fetch.bind(window);
+  window.fetch = (u, o) => {
+    if (!String(u).startsWith('/api/items?')) return f(u, o);
+    window.__items.push(performance.now());
+    return new Promise((res, rej) => {
+      const t = setTimeout(() => f(u, o).then(res, rej), window.__delay);
+      o?.signal?.addEventListener('abort', () => { clearTimeout(t); window.__aborted++; rej(new DOMException('aborted', 'AbortError')); });
+    });
+  };
+})();"""
+
+
+@pytest.fixture
+def finished_site(tmp_path):
+    """Gaps in merged, closed, parked, dead and open (two), and a pool that lives on."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    (tmp_path / "ergostat.yaml").write_text(FINISHED)
+    p = Project(mdl.load(tmp_path))
+    t = time.time() - 600
+    for i, end in enumerate(("merged", "closed", "parked", "died", None, None), 1):
+        p.events.add("gap.opened", item=f"gap/g{i}", at=t + i)
+        if end:
+            p.events.add(f"gap.{end}", item=f"gap/g{i}", at=t + 10 + i)
+    p.events.add("pool.measured", item="pool/p1", at=t + 1)
+    server, url = web_serve(p, free_port())
+    yield url
+    server.shutdown()
+    server.server_close()
+
+
+def gap_rows(pg) -> dict[str, str]:
+    return dict(pg.locator('tr[data-kind="gap"]:not([hidden])').evaluate_all("els => els.map((e) => [e.querySelector('b').textContent, e.dataset.state])"))
+
+
+def test_the_list_leaves_out_the_finished_and_one_parameter_shows_them(browser, finished_site):
+    """items-list-hides-finished-by-default 1-4: no finished or dead gap by default, parked kept, the note saying what
+    is left out; the note's link and the toggle write and read the one finished= parameter; a chosen state is listed."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    unfinished = {"gap/g3": "parked", "gap/g5": "open", "gap/g6": "open"}
+    try:
+        pg.goto(f"{finished_site}/items")
+        pg.wait_for_selector(".finished-note")
+        assert gap_rows(pg) == unfinished
+        assert pg.locator(".finished-note").all_inner_texts() == ["3 finished (merged, closed, dead) not shown · show"]
+        assert pg.locator("input[type=checkbox]").count() == 1 and pg.get_by_label("Show finished").count() == 1
+        pg.click(".finished-note a")                                  # the note's link: the page-wide parameter
+        pg.wait_for_function("() => document.querySelectorAll('tr[data-kind=gap]').length === 6")
+        assert "finished=show" in pg.url and pg.get_by_label("Show finished").is_checked()
+        assert pg.locator(".finished-note").count() == 0
+        pg.get_by_label("Show finished").uncheck()                    # the toggle: the same parameter
+        pg.wait_for_selector(".finished-note")
+        assert "finished" not in pg.url and gap_rows(pg) == unfinished
+        pg.goto(f"{finished_site}/items?finished=show")
+        pg.wait_for_function("() => document.querySelectorAll('tr[data-kind=gap]').length === 6")
+        assert pg.get_by_label("Show finished").is_checked()
+        pg.goto(f"{finished_site}/items?kind=gap&state=closed")
+        pg.wait_for_selector('tr[data-kind="gap"]')
+        assert gap_rows(pg) == {"gap/g2": "closed"} and pg.locator(".finished-note").count() == 0
+        assert not errors, errors
+    finally:
+        pg.close()
+
+
+def test_searching_a_finished_items_id_finds_it_and_says_so(browser, finished_site):
+    """Story F1: a finished item is never hidden from a search; it is counted apart."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+    try:
+        pg.goto(f"{finished_site}/items")
+        pg.wait_for_selector(".finished-note")
+        pg.fill('input[type="search"]', "gap/g1")
+        pg.wait_for_function("() => document.querySelector('tr[data-kind=gap] b')?.textContent === 'gap/g1'")
+        assert gap_rows(pg) == {"gap/g1": "merged"}
+        assert pg.locator(".finished-note").all_inner_texts() == ["1 finished match"]
+    finally:
+        pg.close()
+
+
+def test_a_state_click_answers_at_once_and_asks_once(browser, finished_site):
+    """Point 7: with /api/items held back 2 s, a state click shows 'Loading…' or the rows filtered within 100 ms, one
+    request follows it (the poll waits for it), a newer click aborts the older, and the document never loads again."""
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000})
+    loads: list[int] = []
+    pg.on("load", lambda _: loads.append(1))
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 10;" + DELAYED)   # a poll every 0.4 s: some fall in the 2 s
+    try:
+        pg.goto(f"{finished_site}/items?kind=gap")
+        pg.wait_for_selector('tr[data-kind="gap"]')
+        got = pg.evaluate("""async () => {
+            window.__delay = 2000;
+            const before = window.__items.length, box = (st) => [...document.querySelectorAll('.kind-flow a.stbox')].find((a) => a.textContent.endsWith(st));
+            const t0 = performance.now();
+            box('parked').click();
+            await new Promise((r) => setTimeout(r, 100));
+            const shown = !document.querySelector('.items-loading').hidden;
+            const rows = [...document.querySelectorAll('tr[data-kind=gap]:not([hidden])')].map((e) => e.dataset.state);
+            while (!document.querySelector('.items-loading').hidden) await new Promise((r) => setTimeout(r, 20));
+            const asked = window.__items.slice(before).length, took = performance.now() - t0;   // until its answer drew
+            box('open').click(); box('parked').click();                // the older of two clicks let go
+            await new Promise((r) => setTimeout(r, 2500));
+            return { shown, rows, asked, took, aborted: window.__aborted };
+        }""")
+        assert got["shown"] and got["rows"] == ["parked"], got
+        assert got["asked"] == 1 and got["took"] >= 2000, got        # held back for 2 s, and never asked again meanwhile
+        assert got["aborted"] >= 1, got
+        pg.wait_for_function("() => document.querySelector('.items-loading').hidden")
+        assert gap_rows(pg) == {"gap/g3": "parked"}
+        assert loads == [1], loads
+    finally:
+        pg.close()
+
+
 UPKEEP_SEED = """
 import sys, time
 from pathlib import Path

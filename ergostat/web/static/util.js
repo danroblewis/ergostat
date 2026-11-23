@@ -317,7 +317,7 @@ function snapKey(path, params) {
 }
 
 /* an answer as its text, and the address it came from */
-async function apiText(path, params = {}) {
+async function apiText(path, params = {}, signal = null) {   // ``signal``: an AbortController's, to let it go
   if (SNAP) {
     const k = snapKey(path, params);
     if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
@@ -326,7 +326,7 @@ async function apiText(path, params = {}) {
   const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
   for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
   const url = `/api/${path}?${q}`;
-  const r = await fetch(url);
+  const r = await fetch(url, signal ? { signal } : undefined);
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return [url, await r.text()];
 }
@@ -339,8 +339,8 @@ function answers() {
   const a = {
     changed: true,
     begin() { a.changed = false; },
-    async api(path, params = {}) {
-      const [key, text] = await apiText(path, params);
+    async api(path, params = {}, signal = null) {
+      const [key, text] = await apiText(path, params, signal);
       if (last.get(key) !== text) { last.set(key, text); a.changed = true; }
       return JSON.parse(text);
     },
