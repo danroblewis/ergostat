@@ -3305,8 +3305,8 @@ uncounted (`count: false`; its why says the run's process is gone), its item bac
 again on the same pass's dispatch. On the engine's first pass, a lease whose run has no record at all is ended so too
 (the run no longer exists: its end was read and its files removed, or it never started). Left alone, to its TTL: a
 live run (pid and start time both match), a record that cannot be read or has no start time, a pid that is not one,
-a run with no record yet whose input or output file is there (its process may have started before its record was
-written) (unknown is never gone), a run with no record after the first pass, a daemon's run, and a lease on a block this
+a run with no record yet whose input or output file is there, or a kept run's journal or keeper folder
+(`runs/RUN.jsonl`, `runs/RUN/`; its process may have started before its record was written) (unknown is never gone), a run with no record after the first pass, a daemon's run, and a lease on a block this
 engine does not run (remote, or no longer in the model). The end is written under the ends' lock with the item read
 again there, so the run's own end or an expiry written meanwhile wins and nothing is ended twice. A run this engine
 follows ends as any run does, so one killed under it (a signal from outside) is a counted nack (`exited -9`): only a

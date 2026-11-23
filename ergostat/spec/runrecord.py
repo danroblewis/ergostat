@@ -125,7 +125,8 @@ def alive(rec: dict) -> bool:
 def look(state_dir: Path, run_id: str) -> str:
     """The run's process now, from its record (``state``): ``none`` when it has no record (never started here, or its
     end read and its files removed); ``unknown`` when the record cannot be read or is not this run's, or when it has
-    none yet but its input or output is there (its process may have started before its record was written)."""
+    none yet but its input or output is there (its process may have started before its record was written): ``RUN.in``
+    or ``RUN.out``, or a kept run's journal ``RUN.jsonl`` or its keeper's folder ``RUN/``."""
     if not SAFE.match(run_id or ""):
         return "unknown"
     runs = Path(state_dir) / "runs"
@@ -133,7 +134,7 @@ def look(state_dir: Path, run_id: str) -> str:
         rec = json.loads((runs / f"{run_id}.json").read_text())
     except FileNotFoundError:
         try:
-            begun = any((runs / f"{run_id}.{k}").exists() for k in ("in", "out"))
+            begun = any((runs / n).exists() for n in (f"{run_id}.in", f"{run_id}.out", f"{run_id}.jsonl", run_id))
         except OSError:
             return "unknown"
         return "unknown" if begun else "none"

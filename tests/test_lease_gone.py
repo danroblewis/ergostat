@@ -173,3 +173,11 @@ def test_a_run_record_tells_gone_from_unknown(tmp_path):
     f["in"].unlink()
     f["out"].write_text("")
     assert runrecord.look(tmp_path, "r") == "unknown"
+    f["out"].unlink()                                          # a kept run (runs: outlive_engine): its journal is made,
+    f["out"].with_suffix(".jsonl").write_text("")              # then its keeper's folder, before its record
+    assert runrecord.look(tmp_path, "r") == "unknown"
+    f["out"].with_suffix(".jsonl").unlink()
+    (tmp_path / "runs" / "r").mkdir()
+    assert runrecord.look(tmp_path, "r") == "unknown"
+    (tmp_path / "runs" / "r").rmdir()
+    assert runrecord.look(tmp_path, "r") == "none"

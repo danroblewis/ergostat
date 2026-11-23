@@ -108,3 +108,19 @@ tests/test_factory_outage.py and tests/test_finding_attention.py (13 passed); te
 tests/test_leases.py and tests/test_resilience.py (101 passed); tests/test_leased_workspaces.py,
 tests/test_engine_shard.py and tests/test_agents.py (44 passed, 1 failed: the same unrelated `No module named
 'flakes'` at dev/bin/onmain.py:25). ruff is clean.
+
+Round 7 (no review findings came back). main as of the clone (7a905955) was already merged (58778671). I checked
+what it brought against the release path. runs-keep-going-without-the-engine adds kept runs (`runs: outlive_engine`),
+and they opened a gap here (lessons 7 and 3). A kept run writes no `RUN.in` or `RUN.out`. Before its record
+`RUN.json` is written there is only its journal `RUN.jsonl` (made before the keeper starts) and its keeper's folder
+`RUN/`. So an engine killed in that window left a live run that the next engine's first pass read as "no longer
+exists", and it released that run's lease. Fixed: `runrecord.look` says `unknown` for those two as well (3 lines).
+Test: `tests/test_lease_gone.py::test_a_run_record_tells_gone_from_unknown` is extended. It failed (`'none' ==
+'unknown'`) with the two new names taken out, and passes with them. The rest of the kept-run path agrees with the
+release: a kept run's record names its own process (the keeper's `pgid`, the wrapper), so a run left going by a
+killed engine is alive and left. Once it ends with no engine reading it, it is gone and its lease is given back
+uncounted (its journal is not read back here; that is `engine-adopts-runs-from-their-journals`). SPEC §9.5 *A run
+gone* now names the two files. Ran, one file at a time: tests/test_lease_gone.py, tests/test_runs_outlive_engine.py
+and tests/test_factory_outage.py (21 passed); tests/test_finding_attention.py, tests/test_leases.py and
+tests/test_resilience.py (81 passed); tests/test_leased_workspaces.py, tests/test_faults_healthy.py and
+tests/test_runner_and_state.py (72 passed). ruff is clean.
