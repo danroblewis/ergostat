@@ -91,3 +91,39 @@ Its runs failed past their attempts (a dead letter):
 - attempt 4: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 5: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 6: nack the run ended with gap/compute-worker-keeper-continued-continued still parked
+
+## Where it stopped
+
+Round 1 (continued, continued), 2026-11-23: built. `compute-worker-protocol` is on `main` now (6e9eee4a), and
+`main` (2a97eafb) was already merged into the branch (41c6c2f4).
+
+Done: `ergostat/compute/worker/keeper.py` (`start`, `kill`, the keeper); its registration in `serve.py` (one
+line after `hello`, `HANDLERS.update(keeper.handlers(root, said))`, plus its import); docs/SPEC.md §12s.3;
+tests/test_compute_keeper.py with five tests: `test_a_run_reports_its_exit_code`,
+`test_closing_the_workers_stdin_leaves_the_run_going`, `test_a_killed_keeper_takes_its_run_with_it` (Linux),
+`test_kill_is_term_then_kill_to_the_whole_group`, `test_each_refusal_makes_no_folder_and_no_process`. Each was
+seen to fail when the code it covers was broken: the keeper started without `setsid` (the stdin test, which also
+hangs up and kills the worker's session); the death signal not set; SIGTERM to the run's leader only, not its
+group; SIGKILL never sent; the folder made before the slot count.
+
+Choices made with nobody to ask (each the more reversible one):
+- Outside the Files list, `ergostat/compute/worker/__main__.py` gains two lines that send `--keep` to
+  `keeper.main`. The keeper has to be started as the same folder or zipapp (`python3 -I WORKER --keep RUN`), and
+  `serve.main`'s parser requires `--stdio`. Routing it in `__main__` leaves `serve.py` with only the registration.
+- `kill` is answered `stopping`, or `refused` `no such run`; a malformed `start` (no command, env not strings) or
+  `kill` (a grace outside 0 to 600 s) gets an `error` and makes nothing. A limit that is unknown or not a positive
+  number counts as `limits over the node` (an allowlist: `cpus`, `memory`, `pids` at most 32768, `wall` at most a
+  day). A run id whose folder exists is refused `bad name`.
+- `full` counts every run folder that has no `exit` yet, whatever its keeper's state. That is the worst case: a
+  folder whose keeper was killed holds its slot until a later gap (restart states) reads it as gone.
+- After a stop, the keeper SIGKILLs the group past the grace if any process of it is left, even when the first
+  process has ended at the TERM. A run that ends on its own is not swept.
+- `oom_score_adj` is best effort (a failed write is ignored: it only orders the OOM killer's choice);
+  PR_SET_PDEATHSIG is not best effort (if it fails, the run is not started).
+- `hello`'s `backends` stays `[]`: the protocol's test pins it, and the run listing comes with later gaps.
+
+Left for later gaps (not this one's): the keeper's wall and lease deadlines (compute-worker-keeper-deadlines); a
+`done` message from the engine (the keeper waits for `runs/RUN/done`, but only the tests write it so far, and
+otherwise it removes the folder after a day); `ended` and `out`; the runs listed in `hello` and `beat`.
+
+Overrun reason: keeper.py has 212 lines with its docstrings and blank lines (186 not blank), plus 5 in serve.py and __main__.py, against a 180-line budget; the extra lines are the fail-closed checks the review lessons ask for (the slot count and folder made under one lock, the allowlisted limits, the path resolved under the root before removal, the exit written whole), not features beyond the definition.
