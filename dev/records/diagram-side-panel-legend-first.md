@@ -168,3 +168,26 @@ Continued, round 2 (2026-11-23): the merge of main (7cb97857) finished.
   /loops? off/ in #running, and main's header (util.js:398) says "N goals off".
 - Not run: the unit suite, the whole of tests/test_diagram_rendering.py (a background run of it was refused here) and
   the other browser files.
+
+## Where it stopped
+
+Continued, round 3 (2026-11-23): the merge of main (ead497d1) finished.
+
+- Conflicts resolved. diagram.js: main's waitsOnYou (util.js, the header's count) is the rule for what waits. Main's
+  `id="waiting" tabindex="-1"` (where the header's "N wait for you" link goes, Q43) is on this branch's "Waiting for
+  you" heading, which is drawn only when something waits (the header's link is hidden when nothing does). Main's
+  dropped chart fallback agrees with this branch's. tests/test_inbox_page.py: both sides' tests kept. Main's
+  `aria-label^="Why"` (now "Why deny the push") is used in this branch's unfold() test too.
+- What the merge broke: main's new test_a_typed_reason_stays_with_its_entry_when_one_above_is_answered has 4 waiting,
+  so this branch folds them. With unfold() added (as main's other tests here have), it failed: the reason typed was
+  lost when the top request was answered and 4 became 3. Keyed rows match only among siblings, so the rows moving
+  out of the fold were made again. Now, when the fold is made or undone, the list on the page is patched and moved
+  into its new place (renderSide, `moved`), so what is typed stays with its row. Seen to fail without this; passes
+  with it.
+- Choice made alone (the most reversible): following the header's link with the list folded scrolls to and focuses
+  the heading, as on main; it does not open "N wait for you" (util.js toWaiting, main's, not touched).
+- Run, under the watchdog: tests/test_inbox_page.py whole (10 passed); the four acceptance tests (7 + 1 cases);
+  tests/test_legend_memory.py; the SD-words test; tests/test_dynamics_view.py (15 passed). ruff is clean.
+- Fails, not this gap, as in rounds 1 and 2: test_needs_attention_is_three_headed_groups_in_a_fixed_order (waits
+  for /loops? off/ in #running; main's header says "N goals off").
+- Not run: the unit suite, the whole of tests/test_diagram_rendering.py and the other browser files.

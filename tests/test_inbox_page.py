@@ -279,6 +279,7 @@ def test_a_typed_reason_stays_with_its_entry_when_one_above_is_answered(site):
         pg.goto(f"{url}/diagram?view=blocks")
         pg.wait_for_function("""() => document.querySelectorAll('.att [data-inbox^="action/"]').length === 3""",
                              timeout=20000)
+        unfold(pg)                                  # (4 waiting: folded in one line)
         top, mid, low = pg.eval_on_selector_all('.att [data-inbox^="action/"]', "rs => rs.map((r) => r.dataset.inbox)")
         row = lambda what: pg.locator(f'[data-inbox="{what}"]')   # noqa: E731
         waiting = record.get(p, ids[low])["state"]

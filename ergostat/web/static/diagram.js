@@ -1510,9 +1510,12 @@ function renderSide(side, g, view) {
   // what waits for the owner first (the one thing a person does here), only when something waits; more than 3: one line
   // (while the reader is in the list it holds still: folded or not, as it was). The header's link goes to its heading.
   const inList = out.querySelector(".att.needs"), fold = heldStill(inList) ? !!inList.closest("details.waiting-fold") : waiting.length > 3;
+  let moved = null;
   if (waiting.length) {
     side.append(h("h3", { class: "att-head", key: "waiting-h", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)));
-    const rows = list(waiting, "", "needs", "waiting-rows");
+    let rows = list(waiting, "", "needs", "waiting-rows");
+    // folded or unfolded: the rows on the page are moved, not made again, so a reason typed in one stays with it
+    if (inList && !rows.__ref && !!inList.closest("details.waiting-fold") !== fold) rows = live(moved = patchNode(inList, rows));
     side.append(fold ? h("details", { class: "waiting-fold", key: "waiting" }, h("summary", {}, `${waiting.length} wait for you`), rows) : rows);
   }
   side.append(legendBox(view));
@@ -1560,6 +1563,7 @@ function renderSide(side, g, view) {
     side.append(d);
   }
   patch(out, [...panel.childNodes]);
+  if (moved) moved.__persist = false;                      // moved once; patched as any other from the next refresh
   if (S.toWaiting) toWaiting();                            // the header's "N wait for you", followed
 }
 
