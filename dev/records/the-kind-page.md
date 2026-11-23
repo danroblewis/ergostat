@@ -273,3 +273,9 @@ also fails (a timeout). That is the project-switcher failure reported in rounds 
 not touch, and the count matches. Not run: the unit suite, tests/test_diagram_rendering.py as a whole and the other
 browser files. Commands refused in this session: a single-test run without the watchdog piped to `grep` (to name the
 failing line), and a `cat >> … <<'EOF'` heredoc append to this file (done with the editor instead).
+
+## Where it stopped
+
+Parked by the factory (merge-queue, 2026-11-23 12:03).
+
+Failed its gates 8 times (the kill rule); the last, in the merge queue: conflicts with main: docs/SPEC.md ergostat/web/static/pages.js ergostat/web/static/split.js tests/test_graph_cli_web.py tests/test_items_page.py
