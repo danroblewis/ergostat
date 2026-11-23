@@ -38,8 +38,11 @@ def command(e: dict) -> str | None:
     return f"ergostat inbox {e['id']} " + " | ".join(flags.get(v, f"--{v}") for v in e["verbs"]) if e["verbs"] else None
 
 
-def _cut(s: str, n: int = 80) -> str:
-    return s if len(s) <= n else s[:n - 3] + "..."
+def sentence(a: dict) -> str:
+    """A held action as a sentence: what it does, to what, for which item and who asks (its why stays the entry's)."""
+    args = ", ".join(f"{k} {v}" for k, v in (a.get("args") or {}).items())
+    return (f"{a.get('description') or a.get('action')}" + (f" ({args})" if args else "")
+            + (f", for {a['item']}" if a.get("item") else "") + (f", asked by {a['block']}" if a.get("block") else ""))
 
 
 def _why(p, spec, item: str | None) -> str:
@@ -63,10 +66,8 @@ def _actions(p, spec, now: float) -> list[dict]:
         return []
     return [{"id": f"action/{record.short(a['id'])}", "kind": "action", "time": a["time"], "link": f"/item/{a['id']}",
              "verbs": ["approve", "deny"], "class": a.get("class") or a.get("action"), "action": a.get("action"),
-             **({"warn": w} if (w := warning(p, spec, a)) else {}),
-             "summary": f"{a.get('action')}" + (f" for {a['item']}" if a.get("item") else "") + f": "
-                        f"{_cut(a.get('command') or '', 70)}",
-             "why": w if a.get("action") == "revert-fix" else _why(p, spec, a.get("item"))}
+             **({"warn": w} if (w := warning(p, spec, a)) else {}), "run": a.get("command"),
+             "summary": sentence(a), "why": w if a.get("action") == "revert-fix" else _why(p, spec, a.get("item"))}
             for a in record.stored(p, until=now).values() if a["state"] == "requested"]
 
 
@@ -103,7 +104,7 @@ def _blocks(p, spec, now: float) -> list[dict]:
         out.append({"id": f"{kind}/{b.name}@{x['seq']}", "kind": kind, "block": b.name, "seq": x["seq"],
                     "time": x["time"], "link": f"/diagram?view=blocks&around=block/{b.name}",
                     "verbs": ["done"] if person else ["approve", "deny"], "class": f"{kind}:{b.name}", "why": "",
-                    "summary": f"{b.name} is asked: {_cut(ask) or cmd}" if person else f"{b.name} advises its {cmd}"})
+                    "summary": f"{b.name} asks: {ask or cmd}" if person else f"{b.name} advises its {cmd}"})
     return out
 
 
@@ -140,7 +141,7 @@ def _steptests(p, spec, now: float) -> list[dict]:
             continue
         out.append({"id": f"steptest/{pid}", "kind": "steptest", "time": x["time"], "verbs": ["approve", "deny"],
                     "link": f"/diagram?around=loop/{x['goal']}", "class": "steptest", "summary": x.get("title") or pid,
-                    "why": _cut(x.get("reason") or "", 200)})
+                    "why": x.get("reason") or ""})
     return out
 
 
@@ -152,7 +153,7 @@ def _changes(p, spec, now: float) -> list[dict]:
     xs = [x for x in pr.pending(p, spec) if (not judged or x.get("state") == "passed") and not rv.unread(spec, x)]
     return [{"id": f"change/{x['id']}", "kind": "change", "time": x.get("created") or now, "verbs": ["approve", "deny"],
              "link": f"/item/ergostat.model-change/{x['id']}", "class": f"change:{x.get('kind')}",
-             "summary": f"model change: {_cut(x.get('title') or x['id'])}", "why": _cut(x.get("reason") or "", 200),
+             "summary": f"model change: {x.get('title') or x['id']}", "why": x.get("reason") or "",
              **({"control": True} if x.get("kind") in ("process", "tuning") else {})}
             for x in xs + control_pending(p, spec)]
 
@@ -169,7 +170,11 @@ def _requests(p, spec, now: float) -> list[dict]:
     return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now,
              "verbs": ["approve", "deny"] if rq.approvable(spec, r) else ["deny"],
              "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
-             "summary": f"modelling holds {r.get('code')} on {r.get('about')}", "why": _cut(r.get("why") or "", 200),
+             "summary": f"{str(r.get('says') or r.get('code')).rstrip('.')}. Modelling cannot decide it"
+                        + (f": {r['why']}" if r.get("why") else "") + "."
+                        + (" Approve hands it back to modelling's AI tier." if rq.approvable(spec, r) else "")
+                        + f" Deny tells it to stop asking until {r.get('about')} changes; the change is yours to make"
+                          " through the Supervisor.", "why": "",
              "fold": f"{r.get('code')}|{r.get('source')}", "about": r.get("about"),
              "system": spec.owner(ref) if (ref := Ref.parse(r.get("about"))) else None}
             for r in rq.stored(p).values() if r["state"] == "held"]

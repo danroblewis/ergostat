@@ -82,6 +82,7 @@ run it
   mcp            ergostat for an AI agent, over MCP
   projects       Every project on this machine, which run, and their pages
   remote         Remote systems this model reads (status); token NAME lets another ergostat read this one
+  worker         Be a compute node's worker for an engine (--stdio), or write it to copy to a node (--pack FILE)
   report         Reports about ergostat itself, scrubbed, for you to read and submit by hand (--draft TEXT)
   reset          Forget this project's record and start from nothing (--yes)
   verify         Score the changes written to the model again on the record since (--propose)
@@ -311,6 +312,9 @@ def build() -> argparse.ArgumentParser:
                                                               "\"value\": N} (- for standard input), written whole or "
                                                               "not at all; one backfilled before is skipped")
             sp.add_argument("--from", dest="from_", metavar="TEXT", help="with --backfill: where they came from")
+            sp.add_argument("--replace", action="store_true", help="with --backfill and --from: every reading from the "
+                                                                   "file's first at to its last set aside first (a measure "
+                                                                   "redefined: its history written again)")
             sp.add_argument("--backfilled", action="store_true", help="the sensor's backfills: when, from, first, last, count")
         if t == "controller":
             sp.add_argument("--decided", metavar="TEXT", help="a person records a decision")
@@ -372,6 +376,8 @@ def build() -> argparse.ArgumentParser:
     remote_topics(sub, common)
     from .reports import register as report_topics
     report_topics(sub, common)
+    from .worker import register as worker_topic
+    worker_topic(sub, common)
     return ap
 
 

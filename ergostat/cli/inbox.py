@@ -95,7 +95,7 @@ def cmd_inbox(args) -> int:
         return 0 if not args.name else 2
     for e in es:
         print(f"{c(e['id'], 'accent')}  {e['summary']}  " + c(f"waiting {human(e['age'])}", "dim"))
-        for line in (e["why"] and f"why: {e['why']}", e["link"], e.get("record"), e.get("suggest")):
+        for line in (e["why"] and f"why: {e['why']}", e.get("run") and f"runs: {e['run']}", e["link"], e.get("record"), e.get("suggest")):
             if line:
                 print(c(f"    {line}", "dim"))
         if e["verbs"]:                                   # a kind with none is not shown as answerable
