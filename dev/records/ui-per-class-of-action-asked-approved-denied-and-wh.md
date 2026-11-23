@@ -76,3 +76,23 @@ taking the newest request's gate, it failed on the no-model assertion. Runs: tes
 tests/test_items_page.py 22 passed with none skipped (under suite_watch, rc 0); ruff is clean. main (277a9c6c) is
 already in the branch, so there was nothing to merge. Not run: the unit suite and the other browser files (the
 factory and the queue run those).
+
+Round 3: the blocking finding (a conflict with main in tests/test_items_page.py) is resolved. The merge of main
+(bf6dbebf) keeps both sides. The branch's `acted` fixture and Actions test now come first, and main's `add_record`,
+`record_rows`, crossing-to-record test and lifecycle-strip test follow. Compared with main, the file differs only by the
+branch's fixture and test (85 added lines, none removed). No code changed this round, so the net count stays at 41.
+
+Runs after the merge: ruff is clean. tests/test_gated_actions.py: 13 passed. tests/test_items_page.py (under
+suite_watch): 26 passed and 6 failed, rc 1, run twice with the same result. The Actions acceptance test passed. The
+six that fail are test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set,
+test_the_model_changes_are_found_by_heading_search_and_panel, test_a_valves_leased_items_are_listed_live,
+test_a_snapshot_lists_a_parts_items_and_opens_its_set, test_a_set_left_out_of_a_snapshot_says_so and
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart. Five of them time out waiting for a diagram
+part's side panel (`#detail .item-set`, `.counts-line`, `.leases-line`) after `openNode`, and one times out waiting
+for the project switcher's entry. I believe these are unrelated to this gap. The branch changes none of that code:
+its changes are record.py, the `classes=1` query, and one `actionClasses` line on /items that is drawn only when
+Actions items exist, which the `site` example has none of. The merge of main brought large changes to details.js,
+diagram.js, dynamics.js and pages.js (86 lines). In round 2, before this merge, the file passed with nothing failing.
+I could not confirm it by running these tests on main: `git worktree add -q --detach /tmp/mainwt bf6dbebf` (to run
+them there) was refused in this session. By lesson 13 they are reported here and not fixed in this branch. The
+factory's rerun on clean main should show whether main has them too.
