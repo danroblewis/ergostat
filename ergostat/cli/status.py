@@ -117,6 +117,7 @@ def status(args) -> int:
         agents = {x.agent for t in (m.sensors, m.controllers, m.valves) for x in t.values() if x.name in parts}
         loops = {n: lp for n, lp in loops.items() if n in parts}
         att = [a for a in att if a["what"].split(" ", 1)[-1] in parts | agents or a["what"] == "the record"]
+    g = st.goals_off({"loops": loops})                   # the one count, of the goals shown (--system narrows them)
     trouble = any(a["level"] in ("bad", "warn") for a in att)
     code = 1 if (getattr(args, "exit_code", False) and trouble) else 0
     said = None
@@ -129,7 +130,8 @@ def status(args) -> int:
     if args.json:
         out_json({"running": bool(pid), "web": web_url(p) if pid else None, "attention": att,
                   **({} if pid else {"last_seen": last_seen(p, snap)}),
-                  "loops": loops, "counts": counts(p), "ok": not trouble, **({"modelling": said} if said else {})})
+                  "loops": loops, "goals_off": g,
+                  "counts": counts(p), "ok": not trouble, **({"modelling": said} if said else {})})
         return code
     seen = last_seen(p, snap) if not pid else None
     run = c("running", "ok") + (f" · {web_url(p)}" if web_url(p) else "") if pid else \
@@ -138,6 +140,7 @@ def status(args) -> int:
     if not m.stocks and not m.agents:
         print("the model is empty. describe your system with `ergostat chat`.")
         return 0
+    print(c(st.goals_said(g), "bad" if g["system"] else "dim"))
     print()
     problems = [a for a in att if a["level"] != "hint"]
     hints = [a for a in att if a["level"] == "hint"]

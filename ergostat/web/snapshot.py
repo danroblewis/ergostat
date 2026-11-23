@@ -102,6 +102,8 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
     data: dict = {"projects": []}
     def ask(path: str, params: dict) -> None:
         q = {"since": [since], **{k: [str(v)] for k, v in params.items()}}
+        if path == "items":                    # every item, finished or not: the page leaves out the finished itself
+            q["finished"] = ["show"]
         try:
             got = api(live, path, q)
         except Exception:                      # one part that cannot be answered leaves the rest
@@ -123,7 +125,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             ask("items", {"kind": k["name"], "state": st})
     for params in _graphs(data.get("items") or {}):
         ask("items-graph", params)
-    snapshot_sets.hold(data, lambda q: api(live, "items", {"since": [since], **q}))   # the sets its panels link to
+    snapshot_sets.hold(data, lambda q: api(live, "items", {"since": [since], "finished": ["show"], **q}))   # the sets its panels link to
     for it in ((data.get("items") or {}).get("items") or [])[:40]:
         got = api(live, f"items/{_q(it['id'])}", {"since": [since]})
         if got is not None:

@@ -5,7 +5,9 @@ thread, which also keeps the beat deadline and reconnects with backoff. A ``conn
 kept in the pool's log; an ``ssh:`` session's never is (ssh names the HostName, address and user its config gives),
 only its exit status. A node is in service only after a ``hello`` of protocol 1 whose labels
 include the pool's; lost after three beats missed or the session's end, whichever first. Only a session that held
-three beats starts the backoff again, so a worker that says hello and dies is tried at growing waits, said once."""
+three beats starts the backoff again, so a worker that says hello and dies is tried at growing waits, said once.
+A second thread per node pings it every 2 s while it is in service; ``least_rtt`` is the least round trip of the
+window, and ``Pools.status`` each pool's nodes in service, out, slots, free, last error and least round trip."""
 
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 from .compile import MAX_NODES, MAX_SLOTS
@@ -30,6 +33,8 @@ FIRST, MOST = 1.0, 600.0        # reconnects: from 1 s, doubling, to ten minutes
 TIMEOUT = 30.0                  # a request's answer, unless the caller says
 LOG_MOST, ERR_MOST = 8 << 20, 1 << 20   # a pool's log before it turns over to .1; a session's stderr kept (its tail)
 SOURCE = "ergostat"
+PING, RTTS = 2.0, 300           # a ping every 2 s while in service; the round trips kept (10 minutes of them)
+ERRS = itertools.count(1)       # the order errors were set in, over every node (never by their times)
 BAD = frozenset({"line over 1 MiB", "not JSON", "not a JSON object", "no type"})   # frames.Bad's fixed reasons
 
 
@@ -48,7 +53,7 @@ def argv_of(entry: dict) -> list[str]:
 
 
 class Node:
-    def __init__(self, pool, n: int, log: Path, record, beat: float = BEAT, first: float = FIRST):
+    def __init__(self, pool, n: int, log: Path, record, beat: float = BEAT, first: float = FIRST, ping: float = PING):
         entry = pool.nodes[n - 1]
         self.name, self.argv, self.want = f"{pool.name}/{n}", argv_of(entry), dict(pool.labels)
         self.ssh = "ssh" in entry
@@ -63,10 +68,32 @@ class Node:
         self.ids = itertools.count(1)
         self.handlers: dict[str, list] = {}
         self.thread = threading.Thread(target=self._run, name=f"ergostat-node-{self.name}", daemon=True)
+        self.every, self.rtts, self.free, self.erred = ping, deque(maxlen=RTTS), None, 0   # (rtts: (when, seconds))
+        self.pinger = threading.Thread(target=self._ping, name=f"ergostat-ping-{self.name}", daemon=True)
 
     def start(self) -> Node:
         self.thread.start()
+        self.pinger.start()
         return self
+
+    def alive(self) -> bool:
+        return self.thread.is_alive() or self.pinger.is_alive()
+
+    def least_rtt(self, window: float = 60.0) -> float | None:
+        """The least round trip (s) of the pongs heard in the last ``window`` seconds of this session; None before
+        the first."""
+        now = time.monotonic()
+        with self.lock:
+            return min((r for at, r in self.rtts if now - at <= window), default=None)
+
+    def reading(self) -> dict:
+        """What the pool's status takes from this node: a node out of service gives no slots and nothing free."""
+        rtt = self.least_rtt()
+        with self.lock:
+            up, h = self.state == "in-service", self.hello or {}
+            slots = h.get("slots", 0) if up else 0
+            free = self.free if up and type(self.free) is int and 0 <= self.free <= slots else 0   # (unsaid: none)
+            return {"up": up, "slots": slots, "free": free, "error": self.error, "erred": self.erred, "rtt": rtt}
 
     def on(self, type: str, fn) -> None:
         """``fn(node, frame)`` for each frame of ``type`` that answers no request, called on the reader thread."""
@@ -192,6 +219,9 @@ class Node:
         if slot is not None:
             slot[1] = f
             slot[0].set()
+        elif f["type"] == "beat":
+            with self.lock:
+                self.free = f.get("free")
         for fn in () if slot is not None else fns:
             try:
                 fn(self, f)
@@ -245,10 +275,30 @@ class Node:
         with self.lock:
             if self.closed.is_set():
                 return
-            self.state, self.error, self.hello = state, why, None
+            self.state, self.error, self.hello, self.free, self.erred = state, why, None, None, next(ERRS)
+            self.rtts.clear()                           # (the round trips of a session ended: never the next one's)
             new, self.said = self.said != (state, why), (state, why)
         if new:                                         # (once, not each try of a node that stays down)
             self.record(f"compute.node.{state}", {"node": self.name, "why": why}, f"{self.name}: {state} ({why})")
+
+    def _ping(self) -> None:
+        while not self.closed.wait(self.every):
+            with self.lock:
+                h = self.hello if self.state == "in-service" else None
+            if h is None:
+                continue
+            t = time.monotonic()
+            try:
+                got = self.request({"type": "ping"})
+            except (Lost, TimeoutError):
+                continue
+            except Exception as e:                      # (said; the pings go on)
+                self._note(f"ping failed: {type(e).__name__}")
+                continue
+            now = time.monotonic()
+            with self.lock:
+                if got.get("type") == "pong" and self.hello is h:     # (still the session it was sent on)
+                    self.rtts.append((now, now - t))
 
     def _keep(self, err) -> None:
         if err is None:                                 # an ssh session: its exit status alone, never its words
@@ -309,7 +359,7 @@ class Pools:
                 for k in [k for k in self.nodes if k.startswith(name + "/")]:
                     self.nodes[k].close()
                     self.draining.append(self.nodes.pop(k))
-            self.draining = [n for n in self.draining if n.thread.is_alive()]
+            self.draining = [n for n in self.draining if n.alive()]
             for name, c in want.items():
                 if name in self.defs:
                     continue
@@ -332,6 +382,24 @@ class Pools:
         end = time.monotonic() + wait
         for n in every:
             n.thread.join(max(0.0, end - time.monotonic()))
+            n.pinger.join(max(0.0, end - time.monotonic()))
+
+    def status(self) -> dict:
+        """Each pool's status, by name: ``in_service`` and ``lost`` (every node not in service, one still connecting
+        too), the ``slots`` and ``free`` of those in service, the last ``error`` set on a node still out of service
+        (``{node, why}``, or None) and the least round trip (s) of the last 60 s over its nodes. Nodes as POOL/N only."""
+        with self.lock:
+            pools = {name: {k: n for k, n in self.nodes.items() if k.startswith(name + "/")} for name in self.defs}
+        out = {}
+        for name, nodes in pools.items():
+            got = {k: n.reading() for k, n in nodes.items()}
+            up = [r for r in got.values() if r["up"]]
+            bad = max(((r["erred"], k, r["error"]) for k, r in got.items() if not r["up"] and r["error"]), default=None)
+            rtt = min((r["rtt"] for r in up if r["rtt"] is not None), default=None)
+            out[name] = {"in_service": len(up), "lost": len(got) - len(up), "slots": sum(r["slots"] for r in up),
+                         "free": sum(r["free"] for r in up), "error": bad and {"node": bad[1], "why": bad[2]},
+                         "least_rtt": None if rtt is None else round(rtt, 6)}
+        return out
 
     def _record(self, kind: str, data: dict, said: str) -> None:
         self.say(f"compute {said}")
