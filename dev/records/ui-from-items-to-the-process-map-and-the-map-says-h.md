@@ -238,3 +238,21 @@ Runs: ruff clean; the gap's browser test under suite_watch with Playwright, 1 pa
 the four browser files in full, and tests/test_items_page.py (the merge queue runs them). Main has not moved in the
 clone since the round-7 merge. The first commit command for this round (a heredoc `cat >>` to this file chained with
 `git add -A && git commit`) was refused in this session, so this section was written with the editor.
+
+### Round 9, main (dc8ad98d) merged at dd0fa14f
+
+The finding (conflicts with main in kinds.js and pages.js) is answered in dd0fa14f, keeping both sides. Main added
+milestone group rows (`gp`, `groupRows`) to each kind's card. In kinds.js the overview card keeps main's `gp` and
+its `kind-card-groups` class, and it keeps the branch's `pm` process-map link after the name. In pages.js, `/items/KIND`'s
+card with no flow chart keeps main's `gp` (its definition and its place at the end) and the branch's `pm` link.
+No conflict markers are left in `ergostat/`, `tests/` or `docs/`. The only `=======` lines left are setext heading
+underlines in old roadmap docs. No source changed beyond the merge.
+
+Runs: ruff clean. The gap's browser test under suite_watch with Playwright: 1 passed (rc 0). The gap's unit test
+`tests/test_graph_cli_web.py::test_the_process_maps_states_say_how_many_are_there_now_as_items_counts_them`: 1 passed.
+tests/test_items_page.py under suite_watch with Playwright: 70 passed / 1 failed (rc 1). The one failure is
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`: the header's `#project` switcher never lists
+the other project. It also failed in rounds 3, 5 and 6, and main's own record names it as failing in this container.
+This branch does not touch the header, so it is not this gap's. Not run: the unit suite and the four browser files in
+full (the merge queue runs them). A chained check command (`uv run ruff … ; node --check …`) was refused in this
+session. Ruff was then run alone. `node --check` was not run, but the browser tests above load both scripts.
