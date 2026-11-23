@@ -46,3 +46,14 @@ there to ask, so each open question went the more reversible way; each is listed
   `test_an_enforce_not_true_or_false_is_refused`. tests/test_factory_knowledge.py pinned the planner's `where`
   exactly and was updated to the new value. Not run here: the whole unit suite and the four browser files (left to the
   factory, as the brief asks). No page is changed.
+- **The build step (round 1) stopped with no failure named.** Its log ends after 48 of the 138 tests, with no FAILED
+  line, no pytest summary and no suite_watch line. That reads as the run killed from outside, not as a failing test.
+  I could not reproduce it, because this session may only run tests serially through `scripts/named_tests.py`.
+  Serially, both files pass when run together: 138 passed in 441 s. Alone, test_milestones.py passes 39 in 124 s and
+  test_factory_knowledge.py passes 99 in 417 s. A `read()` of the whole model costs 61 s, nearly all of it findings,
+  and its peak RSS is 55 MB. So memory is not the cause.
+  The test this gap changed in test_factory_knowledge.py now compiles the model without its findings, as the `blocks`
+  fixture already does. That test still takes 63 s on its own, so the change saves little. The other whole-model reads
+  belong to other gaps' tests and are left alone (lesson 13).
+  If the build stops the same way again, look at the slot or the container's limits. Nothing these tests do points
+  there, but nothing in them hangs either.
