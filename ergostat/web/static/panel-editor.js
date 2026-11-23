@@ -369,7 +369,7 @@
         chart.setState("empty", draft.queries.some(q => q.hidden) ? "Every query is hidden" : "Choose what to show in a query below");
         return;
       }
-      const sig = JSON.stringify(cfg.queries);
+      const sig = JSON.stringify([cfg.form, cfg.options || {}, cfg.queries]);   // (a family may ask for its data its own way)
       if (sig === lastSig) {                 // only the display changed: no need to ask again
         if (!inFlight) { chart.setConfig(cfg); if (lastAnswer) draw(lastAnswer); }
         return;

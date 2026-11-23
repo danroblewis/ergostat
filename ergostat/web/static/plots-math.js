@@ -31,6 +31,19 @@ const plotMath = (() => {
              mean: xs.reduce((a, b) => a + b, 0) / xs.length, min: xs[0], max: xs[xs.length - 1] };
   }
 
+  /* statistics the answer worked out over every value: a whisker rule picks from them. Statistics with no percentiles
+     are drawn exactly as given */
+  function boxFrom(given, whiskers = "tukey", sample = []) {
+    const out = { outliers: [], ...given };
+    if (given.p5 == null) return out;
+    if (whiskers === "min-max") return { ...out, lo: given.min, hi: given.max, outliers: [], outliers_more: 0 };
+    if (whiskers === "p5-p95") {
+      const beyond = finite(sample).filter((v) => v < given.p5 || v > given.p95);
+      return { ...out, lo: given.p5, hi: given.p95, outliers: beyond, outliers_more: 0, sampled: given.n > sample.length };
+    }
+    return out;
+  }
+
   /* the Freedman-Diaconis width, falling back on Sturges when the middle half of the data has no spread */
   function autoBins(values) {
     const xs = ascending(values);
@@ -147,6 +160,6 @@ const plotMath = (() => {
     return { major, minor };
   }
 
-  return { finite, ascending, quantile, boxStats, autoBins, edgesOver, countInto, edgesFromX, shapeCounts, linearFit, density,
+  return { finite, ascending, quantile, boxStats, boxFrom, autoBins, edgesOver, countInto, edgesFromX, shapeCounts, linearFit, density,
            unwrapPhase, wrapPhase, niceStep, linearTicks, logTicks };
 })();

@@ -12,7 +12,7 @@ from ..spec.item_sets import BadSet
 
 SOURCES = ("items", "moves", "counts", "series", "events", "frequency")
 AGGS = ("count", "sum", "avg", "min", "max", "last", "p50", "p90", "p95", "p99", "ohlc")
-NO_AGG = "none"            # each point is one item (an X of type field)
+NO_AGG = "none"            # each item counts by itself (an X of type field, or a category's spread)
 TRANSFORMS = ("none", "rate", "delta", "cumulative", "moving_avg")
 MEASURES = ("entries", "exits", "time_in_state")
 RATE_PER = {"second": 1.0, "minute": 60.0, "hour": 3600.0, "day": 86400.0}
@@ -228,8 +228,9 @@ def _query(d, i: int, depth: int = 0) -> Query:
     default = "p50" if measure == "time_in_state" else DEFAULT_AGG[source]
     default = NO_AGG if x and x.type == "field" else "count" if x and x.type == "bins" else default
     agg = _word(d, "agg", (*AGGS, NO_AGG), default, who)
-    if agg == NO_AGG and not (x and x.type == "field"):
-        raise BadQuery(f"{who}: agg 'none' is only for an x of type field, where each point is one item")
+    if agg == NO_AGG and not (x and x.type in ("field", "category")):
+        raise BadQuery(f"{who}: agg 'none' is only for an x of type field, where each point is one item, "
+                       "or category, where each category answers with its items' spread")
     q = Query(id=str(id_), source=source, agg=agg, x=x,
               transform=_word(d, "transform", TRANSFORMS, "none", who), kind=_text(d, "kind", who),
               field=_text(d, "field", who), where=_where(d, who), group_by=_text(d, "group_by", who),

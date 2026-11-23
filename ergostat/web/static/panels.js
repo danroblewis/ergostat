@@ -888,6 +888,11 @@
         setState("error", `This panel asks for a chart form that is not available: ${st.form}.`);
         return;
       }
+      if (st.form !== "box" && (results || []).some((r) => r.x?.distribution)) {   // each category's spread is a box plot's answer
+        dropView();
+        setState("empty", "Aggregation none on a category is for a box plot: choose an aggregation for this chart.");
+        return;
+      }
       const byForm = drawnBy(results || []);
       if (byForm) { drawForm(byForm); return; }
       if (st.view) { dropView(); host.replaceChildren(); }
