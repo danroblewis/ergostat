@@ -8,7 +8,9 @@ import math
 import re
 import string
 
+from ..durations import DurationError, parse_duration
 from ..spec.ir import GATES, NAME, Action
+from . import operating as op
 from .risk import HIGHEST, THRESHOLD
 
 ACTION_KEYS = {"run", "gate", "class", "args", "timeout", "wait", "in", "description", "fenced", "risk"}
@@ -84,6 +86,30 @@ def risk(c, m, what: str) -> tuple[int | None, float]:
               f"not {t!r}", r.at("threshold"), "bad-value")
         t = THRESHOLD
     return s, float(t)
+
+
+def operating(c, spec) -> None:
+    """``operating: {away-after: 2h}`` (main file only, SPEC §12k, ``operating.py``): how long with no event from the
+    owner before they read as away, from 5m to 7d."""
+    m, w = c.doc.operating, c.doc.operating_at
+    if m is None:
+        return
+    if not isinstance(m, dict):
+        c.err("operating: a map (away-after: 2h)", w, "not-a-map")
+        return
+    c.keys(m, {"away-after"}, "operating")
+    v = m.get("away-after")
+    if v is None:
+        return
+    try:
+        s = parse_duration(v, "operating.away-after")
+    except (DurationError, OverflowError, ValueError):
+        s = math.nan
+    if not op.AWAY_LEAST <= s <= op.AWAY_MOST:          # (NaN fails it too)
+        c.err(f"operating.away-after: a duration from 5m to 7d (how long with no event from the owner before they "
+              f"read as away), not {v!r}", m.at("away-after"), "bad-value")
+        return
+    spec.away_after = s
 
 
 def blocks(c, spec) -> None:
