@@ -9,11 +9,10 @@ items:
     description: one merge queue run's batch (batch/<run tag>) - its gaps tested together, each run of the suites (full, named, halves) with its outcome, the gaps isolated, what landed and was given back (dev/bin/batches.py)
     states: [new, testing, isolating, pushing, landed, partial, failed, given-back]
                                     # new: no event puts one there; it arrives testing, a working state the merge
-                                    # queue moves on (batch.run-finished), so why names it (AGENT-GUIDE 3m)
+                                    # queue moves on (batch.run-finished), so why names it (AGENT-GUIDE 3m); the
+                                    # events into testing are written last, so a later state names its way on
     final: [landed, partial, failed, given-back]
     on:
-      batch.started: testing
-      batch.run-started: testing      # a run of the suites under way: one Timeline bar a run
       batch.run-finished: isolating   # between runs: a red run's tests checked alone and on main, the next run chosen
       batch.isolated: isolating       # a gap found failing: how, and its tests
       batch.landed: pushing           # merged on main, its push asked for
@@ -21,6 +20,8 @@ items:
       batch.ended-partial: partial    # some landed and pushed, the rest failed or given back
       batch.ended-failed: failed      # none landed and a gap failed, or its push was denied
       batch.ended-given-back: given-back   # none landed and none blamed: a stall, main red, out of time, an error
+      batch.started: testing
+      batch.run-started: testing      # a run of the suites under way: one Timeline bar a run
     show: [size, run, outcome, base, main_sha, runs_n, minutes, why]
     fold: {runs: append, isolated: append}
     relations:

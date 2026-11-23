@@ -188,6 +188,32 @@ def test_a_working_state_names_whoever_records_the_move_on_to_the_next_state(tmp
     assert r["says"].endswith("recorded: change.reviewed, change.released, change.held, change.dropped"), r
 
 
+def test_with_new_first_a_later_working_state_names_its_way_on_not_the_arriving_event(tmp_path):
+    """The guide's recipe (a first state ``new`` no event enters, the arriving events written last): the worked
+    example's sitting, open, names whoever records batch.closed, not batch.planned (a move back); and on the
+    factory's own model, a batch in isolating names batch.landed, a lesson in proposed lesson.requested, never the
+    event it arrived by."""
+    from ergostat.why import answer
+    from ergostat.why.blocks import _onward
+    p = project(tmp_path)
+    p.events.add("batch.planned", item="batch/lab-1")
+    p.events.add("batch.opened", item="batch/lab-1")
+    r = answer(p, "batch/lab-1")["root"]
+    assert r["kind"] == "work" and r["owner"] == "whoever records batch.closed", r
+    spec = mdl.load(ROOT).spec
+    batch, lesson, knowledge = (spec.items[k] for k in ("batch", "lesson", "knowledge"))
+    assert batch.states[0] == lesson.states[0] == knowledge.states[0] == "new"
+    assert _onward(batch, "testing")[0] == "batch.run-finished"
+    assert _onward(batch, "isolating")[0] == "batch.landed"
+    assert _onward(lesson, "seen")[0] == "lesson.proposed"
+    assert _onward(lesson, "proposed")[0] == "lesson.requested"
+    assert _onward(knowledge, "active")[0] == "knowledge.retired"
+    for k, arrive in ((batch, {"batch.started", "batch.run-started"}), (lesson, {"lesson.seen"})):
+        for s in k.states[1:]:
+            on = _onward(k, s)
+            assert not on or on[0] not in arrive, (k.name, s, on)
+
+
 # ---- every command in the section runs
 
 def test_every_command_in_the_section_runs_on_the_worked_example(engine, tmp_path, capsys):

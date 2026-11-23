@@ -876,7 +876,11 @@ work that is plainly waiting on someone. Build the model so that every wait has 
   then names "whoever records change.reviewed" (the first event of its `on:` that moves it out, in the order
   written, so write the way on before side exits) and lists the others. The kind's first state is where items wait to
   be taken: when nothing in ergostat takes them, give the kind a first state no event moves an item into (`new`) and
-  let the arriving event put it straight into its working state (`todo.added: todo`).
+  let the arriving event put it straight into its working state (`todo.added: todo`). **Write the arriving events
+  last in `on:`.** Only a move back to the kind's first state is left out of the ways on, and with `new` first the
+  arriving event is no longer one, so written first it is named as the owner of every later working state: a batch
+  in `isolating` would name "whoever records batch.started", a move backwards. Written last, it is named only for a
+  state with no other way on.
 - **Owners and people as blocks.** A `person` block is asked while its goal is off but never takes an item, so a
   person holds items in one of two ways `why` can name: the working state their event moves on (above), or a gate
   whose input they read by hand (`sensor: {manual: true}`). Name events after what the person records, so "whoever
@@ -957,12 +961,12 @@ items:
     id: pr/*
     description: a pull request on the code host, as the collector saw it
     states: [new, open, merged, closed]
-    on: {pr.opened: open, pr.merged: merged, pr.closed: closed}
+    on: {pr.merged: merged, pr.closed: closed, pr.opened: open}          # the arriving event last
   todo:
     id: todo/*
     description: one of the owner's own to-dos
     states: [new, todo, done, dropped]
-    on: {todo.added: todo, todo.done: done, todo.dropped: dropped}
+    on: {todo.done: done, todo.dropped: dropped, todo.added: todo}
     relations:
       needs: {kind: batch, precedence: true, starts_at: [open]}   # a sitting in an access context
       covers: change                                              # an update's subject: says, never waits
@@ -970,7 +974,7 @@ items:
     id: batch/*
     description: one sitting in an access context (the lab network)
     states: [new, planned, open, closed]
-    on: {batch.planned: planned, batch.opened: open, batch.closed: closed}
+    on: {batch.opened: open, batch.closed: closed, batch.planned: planned}   # open names batch.closed
 
 messages:
   done: {change: [released, dropped], pr: [merged], todo: [done, dropped], batch: [closed]}

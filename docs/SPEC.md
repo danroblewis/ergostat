@@ -1763,7 +1763,9 @@ unfinished) it answers in under 200 ms (`tests/test_held_up.py`).
 
 **What the model must say for why.** An item in a working state no block takes is `work` outside ergostat, its owner
 whoever records the first of the events that move it on, in the order its kind's `on:` writes them (not one into its
-own state or the kind's first, nor one whose `moves-from:` leaves its state out), so a kind writes its way on first.
+own state or the kind's first, nor one whose `moves-from:` leaves its state out), so a kind writes its way on first,
+and a kind whose first state no event enters (`new`) writes the events items arrive by last: a move into an earlier
+state is then the owner only of a state with no other way on.
 `check` finds
 `wait-unexplained` (`spec/waits.py`) for a kind whose finished states `messages: done:` declares, not `ergostat.*`,
 sealed or made by a template, with no precedence relation, and a state an `on:` event moves its items into that is
