@@ -1118,6 +1118,103 @@ def test_main_green_stale_is_off(tmp_path, monkeypatch):
     assert not e.stale and e.signals["goal.main-green.off"] == 0
 
 
+def held_on(tmp_path, monkeypatch, text: str | None, marked=()):
+    """dev/bin/held.py on a checkout whose main as pushed (refs/remotes/origin/main) holds ``text`` as
+    tests/quarantine.txt (None: no such ref), the flake items marked quarantined being ``marked``; (held, cfg)."""
+    sys.modules.setdefault("fac", module("fac"))
+    held = module("held")
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    git(repo, "init", "-q", "-b", "main")
+    if text is not None:
+        (repo / "tests").mkdir()
+        (repo / "tests" / "quarantine.txt").write_text(text)
+        git(repo, "add", "tests")
+        git(repo, "commit", "-q", "-m", "q")
+        git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    items = [{"id": f"flake/{n}", "fields": {"test": t, "quarantined": True}} for n, t in enumerate(marked)]
+    monkeypatch.setattr(held.fac, "items", lambda kind: items)
+    return held, {"paths": {"checkout": str(repo)}, "git": {"base": "main", "remote": "origin"}}
+
+
+QUARANTINE = ("# a comment\n# Released: tests/test_x.py::test_old | them | 2026-01-01 | gone\n"
+              "tests/test_a.py::test_one | them | 2026-11-21 | load\n\n"
+              "tests/test_b.py::test_two | them | 2026-11-12 | load\n")
+
+
+def test_held_counts_the_quarantine_and_the_age_of_its_oldest_test(tmp_path, monkeypatch, capsys):
+    """The tests listed on main as pushed (comments and released lines not counted) and the days since the oldest
+    `when`; the list's tests all marked quarantined on their flake items: nothing named."""
+    import datetime
+    held, cfg = held_on(tmp_path, monkeypatch, QUARANTINE, ["tests/test_a.py::test_one", "tests/test_b.py::test_two"])
+    today = datetime.date(2026, 11, 23)
+    assert held.reading("quarantined", cfg, today) == 2
+    assert held.reading("quarantine-oldest-days", cfg, today) == 11
+    assert capsys.readouterr().err == ""
+
+
+def test_held_gives_no_value_for_a_list_or_date_it_cannot_read(tmp_path, monkeypatch):
+    """No main as pushed, a line not `test | who | when | why`, or a `when` not a date: no value (exit 1), never 0;
+    nothing listed has no oldest age (and a count of 0)."""
+    import datetime
+    today = datetime.date(2026, 11, 23)
+    for n, text in enumerate([None, QUARANTINE + "tests/test_c.py::test_three | them\n",
+                              QUARANTINE + "tests/test_c.py::test_three | them | last week | load\n"]):
+        held, cfg = held_on(tmp_path / str(n), monkeypatch, text)
+        for name in ("quarantined", "quarantine-oldest-days"):
+            with pytest.raises(SystemExit) as e:
+                held.reading(name, cfg, today)
+            assert "no value" in str(e.value.code), (n, name)
+    held, cfg = held_on(tmp_path / "empty", monkeypatch, "# nothing\n")
+    assert held.reading("quarantined", cfg, today) == 0
+    with pytest.raises(SystemExit, match="no value"):
+        held.reading("quarantine-oldest-days", cfg, today)
+
+
+def test_held_names_a_listed_test_with_no_quarantined_flake_and_the_reverse(tmp_path, monkeypatch, capsys):
+    """A listed test no flake item marks quarantined, and a flake item marked quarantined whose test is not listed,
+    each named on stderr; the reading is still the list's."""
+    import datetime
+    held, cfg = held_on(tmp_path, monkeypatch, QUARANTINE, ["tests/test_a.py::test_one", "tests/test_z.py::test_gone"])
+    assert held.reading("quarantined", cfg, datetime.date(2026, 11, 23)) == 2
+    err = capsys.readouterr().err
+    assert "listed, no flake item marked quarantined: tests/test_b.py::test_two" in err
+    assert "marked quarantined, not listed: tests/test_z.py::test_gone" in err
+    assert "test_one" not in err
+
+
+def test_quarantine_small_holds_on_main_and_is_off_with_one_test_added(tmp_path):
+    """check finds no error in the factory's model, quarantine-small is `<= quarantine-most` (one number), no goal is
+    on quarantine-oldest-days, and the real engine on dev/model/guarantees-quarantine.yaml holds quarantine-small at the
+    count tests/quarantine.txt lists and turns it off with one test more."""
+    import yaml
+
+    from ergostat import model as mdl
+    from ergostat.spec.engine import Engine
+    from ergostat.store import Project
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    g = spec.goals["quarantine-small"]
+    assert (g.of.kind, g.of.name, g.hold.op, g.on_stale, g.system) == ("stock", "quarantined", "<=", "off", "guarantees")
+    assert g.hold.value == spec.parameters["quarantine-most"].value
+    assert [n for n, x in spec.goals.items() if x.of.name == "quarantine-oldest-days"] == []
+    sys.modules.setdefault("fac", module("fac"))
+    count = len(module("held").listed((ROOT / "tests" / "quarantine.txt").read_text()))
+    parts = yaml.safe_load((ROOT / "dev" / "model" / "guarantees-quarantine.yaml").read_text())
+    (tmp_path / "ergostat.yaml").write_text(yaml.safe_dump(
+        {"name": "q", **{k: parts[k] for k in ("stocks", "parameters", "goals")}}, sort_keys=False))
+    p = Project(mdl.load(tmp_path))
+    e = Engine(p, say=lambda s: None)
+    e.start = lambda b, why: None                                              # (nothing runs)
+    series = next(iter(p.model.spec.stocks["quarantined"].sensors.values())).series
+    p.measurements.add(series, count, time.time())
+    e.evaluate(tick=True)
+    assert e.signals["goal.quarantine-small.off"] == 0, count
+    p.measurements.add(series, count + 1, time.time() + 1)
+    e.evaluate(tick=True)
+    assert e.signals["goal.quarantine-small.off"] == 1
+
+
 def pools_module():
     sys.modules.setdefault("fac", module("fac"))       # (pools.py imports fac and risk from beside it)
     sys.modules.setdefault("risk", module("risk"))

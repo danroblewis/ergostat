@@ -1,0 +1,33 @@
+# The quarantine (tests/quarantine.txt on main as pushed, dev/bin/held.py) as a stock that must not grow:
+# quarantine-small holds at the count on main the day it was built and goes off only when a test is added. The owner
+# lowers quarantine-most, and the goal's setpoint with it, as tests are released: a setpoint is a number, so the two are
+# one number written twice (tests/test_factory.py keeps them equal). The age of the oldest test is a measure with no
+# goal until the owner says how many days a test may stay (dev/records/regression-quarantine-goals.md). Unserved: no
+# block acts on quarantine-small until regression-guarantees-wired.
+defaults:
+  system: guarantees
+
+stocks:
+  quarantined:
+    unit: tests
+    description: tests quarantined on main as pushed, each deselected from the suites and run beside them
+    sensor: {run: python3 dev/bin/held.py quarantined, every: 10m, timeout: 1m, description: the quarantine on main}
+
+auxiliaries:
+  quarantine-oldest-days:
+    unit: days
+    description: days since the oldest quarantined test was listed (its `when`)
+    sensor: {run: python3 dev/bin/held.py quarantine-oldest-days, every: 1h, timeout: 1m, description: the quarantine on main}
+
+parameters:
+  quarantine-most:
+    value: 8
+    description: the most tests quarantined, the count on main on 2026-11-23; lowered by the owner as tests are released
+
+goals:
+  quarantine-small:
+    stock: quarantined
+    hold: "<= 8"                    # quarantine-most
+    tolerance: 0
+    on-stale: "off"                   # a list not read counts as grown
+    description: the quarantine does not grow past quarantine-most
