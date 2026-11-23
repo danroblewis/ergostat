@@ -125,3 +125,8 @@ refused, so this could not be measured: running the same test on main in a /tmp 
 changed and the test's bound was left alone. No cause was found in this gap, so a change would be a guess, or would be
 outside the gap (lesson-13). If it fails again, it should be run on clean main under the same load. If it fails there
 too, the failure is main's, not this gap's.
+
+Round 3 (no review findings; main 7a905955 already merged in at c81fbadd, nothing newer on local main): no code
+changed. Run here, serially: ruff clean; the five stack-forward tests passed, and so did
+test_an_approved_switch_drains_and_switches_through_the_engine (the earlier build failure), 3 passed in 276 s and 3 in
+200 s. The whole file and the build command under `-n 8` were not run this round.
