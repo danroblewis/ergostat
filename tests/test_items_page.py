@@ -139,7 +139,7 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
-NAV = ["/diagram", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
+NAV = ["/diagram", "/dashboard", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
 
 
 @pytest.fixture(scope="module")
