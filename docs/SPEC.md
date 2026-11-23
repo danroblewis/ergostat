@@ -3719,7 +3719,12 @@ them for someone new to system dynamics):
   an auxiliary driven by it): with the stock empty it would still run and take it below zero (the
   extreme-conditions test). Drive it from the stock as well;
 - **auxiliary-without-causes**: an auxiliary nothing drives, nothing sets and not `exogenous`: the
-  model cannot say why it changes. Name its causes, or mark it `exogenous: true`.
+  model cannot say why it changes. Name its causes, or mark it `exogenous: true`;
+- **no-unit**: a stock with no unit (a template's parts left out), with its file and line. A property of the model,
+  not a request: the modelling loop raises none for it (§12e), so `requests-handled` never counts it; its fixer, when
+  it runs, reads it from check and proposes the unit it can infer, as a change. The judge and the redesign scorecard
+  count it as a craft note (`requests.as_note`): a change that adds a stock with no unit makes no new finding. The Dynamics view writes `unit ?`,
+  muted, after the stock's value, with a legend row; the Model page's Tools table names each such stock.
 - **extreme-conditions**: the behaviour test of extreme conditions (section 12c): the equations run
   with the stocks empty, with nothing coming in, with each input alone at 0 and at a hundred times its
   largest, and with each estimated, timed or ranged parameter alone at its extremes, and a stock
@@ -3733,7 +3738,6 @@ leaves them out), and the modelling loop takes each up as a request (§12e). Par
 change only through the use's `with:`):
 
 - **no-description**: a stock, flow, auxiliary, parameter, goal, block, item kind or agent with no description;
-- **no-unit**: a stock with no unit;
 - **no-equation**: a flow between two stocks with no equation (nor a declared rate): replayed, never projected;
 - **collector-undescribed**: a sensor that reads the outside (`run:`, `query:`) with no description (the Blocks view
   titles the collector with its command);

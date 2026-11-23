@@ -4706,6 +4706,67 @@ def test_a_line_to_a_remote_is_drawn_dashed_between_the_frames(browser, tmp_path
     assert not errors, errors
 
 
+NO_UNIT = """() => Object.fromEntries([...document.querySelectorAll('svg.canvas g.node')].filter((g) => g.querySelector('.sd-stock'))
+  .map((g) => { const t = g.querySelector('.sd-nounit'), v = g.querySelector('.sd-value');
+    return [g.querySelector('.sd-name').textContent, { value: v ? v.textContent : '', muted: t ? getComputedStyle(t).fill : null }]; }))"""
+
+
+def test_a_stock_with_no_unit_reads_unit_query_after_its_value_and_the_legend_explains_it(browser, tmp_path, monkeypatch):
+    """A missing unit is check's finding (no-unit), drawn on the stock (the dev record missing-unit-is-a-check-finding):
+    its value reads '12 unit ?', the 'unit ?' in the muted tone, a legend row says what it means, a stock with a unit
+    has none; and /api/status's check list (the Check page's) names each unitless stock once."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from tests.test_missing_unit import UNITLESS
+    d = tmp_path / "units"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(UNITLESS)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))       # the server is given it too
+    p = Project(mdl.load(d))
+    p.measurements.add("sensor/backlog.main", 12.0, at=time.time() - 5)
+    p.measurements.add("sensor/tickets-open.main", 3.0, at=time.time() - 5)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                st = json.loads(urllib.request.urlopen(url + "/api/status", timeout=2).read())
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        said = [c["message"].split(": no unit.")[0].rsplit(" ", 1)[-1] for c in st["check"] if ": no unit." in c["message"]]
+        assert sorted(said) == ["backlog", "done", "parked"], said              # each once
+        pg = browser.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=dynamics", 0)
+        pg.wait_for_function("() => [...document.querySelectorAll('svg.canvas .sd-value')].some((t) => t.textContent.startsWith('12'))",
+                             timeout=30000)
+        got = pg.evaluate(NO_UNIT)
+        assert got["backlog"]["value"] == "12 unit ?", got
+        assert got["tickets-open"]["value"] == "3 tickets", got                  # a stock with a unit: none
+        assert got["done"]["value"].endswith(" unit ?") and got["parked"]["value"].endswith(" unit ?"), got
+        muted = pg.evaluate("() => { const t = document.createElementNS('http://www.w3.org/2000/svg', 'text'); "
+                            "t.setAttribute('fill', 'var(--sd-muted)'); document.querySelector('svg.canvas').append(t); "
+                            "const c = getComputedStyle(t).fill; t.remove(); return c; }")
+        assert got["backlog"]["muted"] == muted, (got["backlog"], muted)        # the muted tone, as the legend draws it
+        legend = pg.evaluate("() => sdLegend().textContent")
+        assert "unit ?: the stock's value has no unit" in legend, legend
+        pg.goto(f"{url}/model", timeout=DRAWN_S * 1000)                         # the Model page's Tools table lists them
+        row = pg.locator("table.avail tr", has_text="units").first
+        row.wait_for(timeout=60000)
+        assert row.locator(".no-unit a").all_inner_texts() == ["backlog", "done", "parked"], row.inner_text()
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def open_all(pg) -> str:
     """The ⋯ menu's Open all, clicked: its label as it read."""
     pg.get_by_title("More: wrap, open or close every system, unpin").click()
