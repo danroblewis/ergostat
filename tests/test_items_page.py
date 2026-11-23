@@ -622,6 +622,54 @@ def test_a_valves_leased_items_are_listed_live(browser, site):
     pg.close()
 
 
+STARTED = "(n.flow || n.label) === 'started' && ['valve', 'disturbance'].includes(n.kind)"   # the developer's valve
+TAKEN_ROWS = "#detail .taken-list table tr td:first-child a"
+NO_HELD = """() => [...document.querySelectorAll('#detail .leases-line, #detail .taken-list')]
+    .every((e) => !/\\bheld\\b|\\bholds\\b/i.test(e.innerText))"""        # its words: the model's own names may say held
+CLOCKED = "(r.type === 'characterData' && [4, 5].includes(r.target.parentElement?.cellIndex))"  # taken for, expires in
+
+
+def until_taken(pg, n: int) -> None:
+    """Until the site's part answer for the started flow says its block has taken ``n`` (a record written from outside
+    is seen by the page's server a moment later)."""
+    for _ in range(80):
+        if pg.evaluate("() => api('part/flow/started').then((d) => d.leases[0].taken)") == n:
+            return
+        pg.wait_for_timeout(250)
+    pytest.fail(f"the started flow's block never had {n} taken")
+
+
+def open_blocks_valve(pg, site, valve: str) -> None:
+    """In the Blocks view, a valve's panel (a block moving several flows has one valve per flow, BLOCK.FLOW): the
+    Blocks/classic panel (details.js), not the Dynamics one."""
+    pg.goto(f"{site}/diagram?view=blocks")
+    pg.wait_for_function("() => S.graph && document.querySelectorAll('.node').length > 0", timeout=60000)
+    pg.evaluate(f"() => openNode({{ id: 'valve:{valve}', kind: 'valve', label: '{valve}' }})")
+    pg.wait_for_selector("#detail .kind:text-is('valve')")
+
+
+def test_a_valves_panel_lists_each_taken_item(browser, site):
+    """A valve whose block takes items lists, under its line, each item the block has taken now (SPEC §9.5): a link
+    to the item, its state, its run, how long it has been taken, when its lease expires and its attempt; in the
+    Dynamics and in the Blocks panel alike, with the line saying how many wait, and no 'held' in its words."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    for opened in (lambda: open_part(pg, site, STARTED, "flow/started"),
+                   lambda: open_blocks_valve(pg, site, "developer.started")):
+        opened()
+        pg.wait_for_selector(TAKEN_ROWS)
+        assert pg.locator(TAKEN_ROWS).first.get_attribute("href") == "/item/hypothesis%2F1"
+        assert "being worked by developer (1)" in pg.locator("#detail .taken-list").inner_text()
+        row = pg.locator("#detail .taken-list table tr").nth(1).inner_text()
+        assert "developer" in pg.locator("#detail .leases-line").inner_text() and "leased" in row
+        assert "run1aaaa" in row and "attempt 1 of 2" in row, row
+        assert "waiting at proposed" in pg.locator("#detail .leases-line").inner_text()
+        assert pg.evaluate(NO_HELD), pg.locator("#detail").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
 ACTIONS = """
 actions:
   jira-transition: {run: "echo moved {key}", gate: auto, args: {key: the issue}}
@@ -707,6 +755,60 @@ def test_actions_say_per_class_asked_approved_denied_and_whether_held(browser, a
     pg.close()
 
 
+def test_a_lease_taken_or_ended_comes_and_goes_in_the_valves_panel(browser, site):
+    """The panel's list is read again while it is open: a lease taken appears and one ended goes, without a reload,
+    within 8 s; an answer that has not changed leaves the list's nodes alone."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    open_part(pg, site, STARTED, "flow/started")
+    pg.wait_for_selector(TAKEN_ROWS)
+    pg.evaluate(f"""() => {{ window.__same = true; window.__moved = 0;      // all but the clocks' text, which moves
+        new MutationObserver((m) => {{ window.__moved += m.filter((r) => !{CLOCKED}).length; }})
+          .observe(document.querySelector('#detail .taken-list'), {{ childList: true, subtree: true, characterData: true }}); }}""")
+    pg.wait_for_timeout(5000)                                      # one read again at least, the same answer
+    assert pg.evaluate("() => window.__moved") == 0
+    shown = f"() => [...document.querySelectorAll('{TAKEN_ROWS}')].map((a) => a.textContent)"
+    add_events(("ergostat.lease.taken", "hypothesis/4", {"run": "run4aaaaaaaa", "fence": 1, "block": "developer", "ttl": 2400,
+                                                          "max": 2, "back": "proposed", "tier": "ai"}))
+    pg.wait_for_function(f"() => ({shown})().includes('hypothesis/4')", timeout=8000)
+    assert "(2)" in pg.locator("#detail .taken-list .taken-head").inner_text()
+    assert "2 leased now" in pg.locator("#detail .leases-line").inner_text()
+    add_events(("ergostat.lease.ended", "hypothesis/4", {"run": "run4aaaaaaaa", "fence": 1, "how": "nack", "count": False}))
+    pg.wait_for_function(f"() => !({shown})().includes('hypothesis/4')", timeout=8000)
+    assert pg.evaluate(shown) == ["hypothesis/1"] and pg.evaluate("() => window.__same")
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_taken_items_clocks_move_and_go_overdue_while_the_panel_is_open(browser, site):
+    """The list's clocks move on each read: a lease taken with a short time to live shows its time left first, then,
+    with the panel still open and nothing else changed, 'overdue' in the bad colour, and its 'taken for' grows.
+    The panel is opened before the lease is taken, so loading the diagram under load does not eat the lease's time."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    open_part(pg, site, STARTED, "flow/started")
+    pg.wait_for_selector(TAKEN_ROWS, timeout=20000)                    # the panel is open and its list read
+    row = "#detail .taken-list table tr:has(a[href='/item/hypothesis%2F5'])"
+    expiry = f"""(td) => {{ const c = document.querySelector("{row} td:nth-child(6)"); return c && td(c); }}"""
+    try:
+        add_events(("ergostat.lease.taken", "hypothesis/5", {"run": "run5aaaaaaaa", "fence": 1, "block": "developer",
+                                                              "ttl": 18, "max": 2, "back": "proposed", "tier": "ai"}))
+        pg.wait_for_function(f"""() => ({expiry})((c) => c.textContent !== '' && !c.textContent.startsWith('overdue')
+            && !c.classList.contains('bad'))""", timeout=20000)             # time left, not yet overdue
+        cells = lambda: pg.locator(f"{row} td").evaluate_all("tds => tds.map((td) => [td.textContent, td.className])")  # noqa: E731
+        first = cells()
+        pg.wait_for_function(f"""() => ({expiry})((c) => c.textContent.startsWith('overdue ')
+            && c.classList.contains('bad'))""", timeout=40000)
+        assert cells()[4][0] != first[4][0], (first, cells())                 # taken for: seconds, moved too
+    finally:
+        add_events(("ergostat.lease.ended", "hypothesis/5", {"run": "run5aaaaaaaa", "fence": 1, "how": "nack", "count": False}))
+    until_taken(pg, 1)
+    assert not errors, errors
+    pg.close()
+
+
 def test_the_record_folds_runs_of_identical_events(browser, site):
     """The Record folds consecutive events of the same type, source, item and data into one row, '×N' with the first
     and last time; clicking it lists them. A different value, or another event between, starts a new row."""
@@ -740,6 +842,32 @@ for t, src, v in [("ticker.set", "teammate", 0)] * 6 + [("ticker.set", "teammate
     pg.wait_for_selector("#detail:not([hidden]) .table-wrap tr td")
     listed = pg.locator("#detail .table-wrap tr").evaluate_all("trs => trs.slice(1).map((tr) => tr.querySelectorAll('td')[1].textContent)")
     assert listed == ["ticker.set"] * 6, listed
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_valves_block_working_nothing_says_so_and_what_waits(browser, site):
+    """With nothing taken the panel says the block is working nothing now, and the line how many wait at its state.
+    (The site's lease on hypothesis/1 is given back for it, and taken again after, for the other tests.)"""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    add_events(("ergostat.lease.ended", "hypothesis/1", {"run": "run1aaaaaaaa", "fence": 1, "how": "nack", "count": False}))
+    try:
+        open_part(pg, site, STARTED, "flow/started")
+        pg.wait_for_function("() => document.querySelector('#detail .taken-list')?.innerText === 'developer is working nothing now'",
+                             timeout=20000)
+        until_taken(pg, 0)
+        open_part(pg, site, STARTED, "flow/started")
+        pg.wait_for_selector("#detail .taken-list p")
+        assert pg.locator("#detail .taken-list").inner_text() == "developer is working nothing now"
+        line = pg.locator("#detail .leases-line").inner_text()
+        assert "0 leased now" in line and "waiting at proposed" in line, line
+        assert pg.evaluate(NO_HELD)
+    finally:
+        add_events(("ergostat.lease.taken", "hypothesis/1", {"run": "run1aaaaaaaa", "fence": 2, "block": "developer", "ttl": 2400,
+                                                              "max": 2, "back": "proposed", "tier": "ai"}))
+        until_taken(pg, 1)
     assert not errors, errors
     pg.close()
 

@@ -693,13 +693,14 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
   // a set of items a side panel links to (item_sets.py): fields matched, and moves in a span; shown as a chip
   // (and the process map's, process.js: through a node, along a line, caused from another kind, by states or events)
   let where = q.getAll("where"), moved = q.get("moved"), movedSince = q.get("moved_since"), movedUntil = q.get("moved_until");
-  let pm = { by: q.get("by"), through: q.get("through"), followed: q.get("followed"), caused: q.getAll("caused") };
+  // (and a valve's panel's: the items a block has taken now, taken=BLOCK)
+  let pm = { by: q.get("by"), through: q.get("through"), followed: q.get("followed"), caused: q.getAll("caused"), taken: q.get("taken") };
   const spanned = () => moved || pm.through || pm.followed || pm.caused.length;
   const setParams = () => ({ ...(where.length ? { where } : {}), ...(moved ? { moved } : {}),
                              ...Object.fromEntries(Object.entries(pm).filter(([, v]) => v && v.length)),
                              ...(spanned() && movedSince ? { moved_since: movedSince } : {}), ...(spanned() && movedUntil ? { moved_until: movedUntil } : {}) });
   const dropSet = () => { where = []; moved = movedSince = movedUntil = null; pm = { by: null, through: null, followed: null, caused: [] }; };
-  const paged = () => !!kind && !SNAP && !where.length && !spanned();
+  const paged = () => !!kind && !SNAP && !where.length && !spanned() && !pm.taken;
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
@@ -1025,13 +1026,19 @@ function etaCell(e) {
 /* an item's lease (SPEC §9.5): who holds it and until when, its attempts; a dead letter said as one */
 function leaseCells(l, state) {
   if (!l || typeof l !== "object") return [h("td", {}, ""), h("td", {}, ""), h("td", {}, "")];
-  const left = l.holder ? l.expires - nowS() : null;
   return [h("td", { class: "nowrap", "data-lease": l.holder ? "held" : state === "dead" ? "dead" : "free" },
             l.holder ? h("span", { title: `run ${l.holder}, lease ${l.fence}` }, `${l.block} `, h("span", { class: "muted" }, l.holder.slice(0, 8)),
                          l.taken ? h("span", { class: "muted", title: "held for" }, `, ${dur(nowS() - l.taken)}`) : null)
               : state === "dead" ? h("b", { class: "bad" }, "dead letter") : h("span", { class: "muted" }, "–")),
-          h("td", { class: "num nowrap" + (left != null && left < 0 ? " bad" : "") }, left == null ? "" : left < 0 ? `overdue ${dur(-left)}` : dur(left)),
-          h("td", { class: "num" }, `${l.attempts || 0}/${l.max ?? "?"}`)];
+          ...leaseTail(l)];
+}
+/* a lease's last two cells: the time left ('overdue 1m' in the bad colour) and its attempts, counted ("1/3"), or with
+   ``nth`` the one its run is making ("attempt 2 of 3": a run's own is counted when it ends); the Items page's rows
+   and a valve's panel's taken items (itemsets.js) */
+function leaseTail(l, nth = false) {
+  const left = l.holder ? l.expires - nowS() : null, n = l.attempts || 0;
+  return [h("td", { class: "num nowrap" + (left != null && left < 0 ? " bad" : "") }, left == null ? "" : left < 0 ? `overdue ${dur(-left)}` : dur(left)),
+          h("td", { class: "num" }, nth ? `attempt ${n + 1} of ${l.max ?? "?"}` : `${n}/${l.max ?? "?"}`)];
 }
 function leaseView(l, state) {
   const left = l.holder ? l.expires - nowS() : null;
