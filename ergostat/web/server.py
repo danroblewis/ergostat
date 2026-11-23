@@ -263,6 +263,14 @@ class Live:
         return self.p
 
 
+def _compute(p, spec, running: bool) -> dict:
+    """Each of the model's pools' status as the running engine's last heartbeat gives it (SPEC §12s.4); None for a
+    pool it does not give (no engine running, none written yet, or not connected), never a guess."""
+    from ..watcher import beats
+    got = next((b["compute"] for b in beats(p.dir) if isinstance(b.get("compute"), dict)), {}) if running else {}
+    return {name: got[name] if isinstance(got.get(name), dict) else None for name in spec.compute}
+
+
 def _edited(live: Live, p, running: bool) -> dict | None:
     """The edited model's errors, while the last good version runs (and is shown): the runner's, when one runs here,
     else the page's own."""
@@ -679,7 +687,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                 "rate_units": rates.overrides(getattr(m, "spec", None)),
                 "changes": [{"time": e["time"], **{k: e["data"][k] for k in ("added", "removed", "changed")}}
                             for e in history.changes(p, snap["at"] - snap["window"])][-5:],
-                **({"web": w} if (w := live.web.recent()) else {})}
+                **({"web": w} if (w := live.web.recent()) else {}),
+                **({"compute": _compute(p, spec, running)} if getattr(spec, "compute", None) else {})}
     if head == "coherence":                          # the three views held against each other (the Check page)
         from .numbers_api import coherence
         return coherence(live, p, snap, _window(q) if one("since") else None)
