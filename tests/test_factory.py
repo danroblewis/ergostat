@@ -711,7 +711,8 @@ def test_a_fixed_flake_seen_again_is_made_anew(tmp_path, monkeypatch):
         d = flake_now(flakes, test)
         assert d["state"] == again.split(".")[1] and not d["refused"], d["refused"]
         assert d["fields"]["times"] == 1 and d["fields"]["gaps"] == ["gap/b"] and d["fields"]["main_broken_at"] == 9.0
-        assert not {"main_fixed_at", "fixed_by", "green_passes"} & set(d["fields"])
+        assert not {"main_fixed_at", "fixed_by"} & set(d["fields"])
+        assert d["fields"].get("green_passes") == (0 if again == "flake.seen" else None)   # (3 gone: counted anew)
 
 
 def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
@@ -734,6 +735,75 @@ def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
     other[0].join(timeout=60)
     d = flake_now(flakes)
     assert d["state"] == "main-broken" and d["fields"]["main_broken_at"] == 10.0 and d["fields"]["times"] == 2
+
+
+# ---- a seen flake fixed after green queue runs (dev/records/regression-flake-fixed-after-green.md)
+
+def green_run(tmp_path, n: int, unit: str, browser: str | None = None, over: dict | None = None) -> dict:
+    """A green run's suites as queue.suites records them: unit (and browser) green, each with its log (``over``:
+    a suite's entry otherwise)."""
+    over = over or {}
+    got = {}
+    for name, text in (("unit", unit), ("browser", browser)):
+        if text is not None:
+            (tmp_path / f"{name}-{n}.txt").write_text(text)
+            got[name] = {"rc": 0, "seconds": 1, "log": str(tmp_path / f"{name}-{n}.txt")} | over.get(name, {})
+    return got
+
+
+PASSED = f"....\nPASSED {FLAKY}\nPASSED tests/test_x.py::test_other\n2 passed in 0.1s\n"
+
+
+def test_n_consecutive_green_runs_naming_the_test_passed_fix_it(tmp_path, monkeypatch):
+    flakes = flake_record(tmp_path, monkeypatch)
+    (tmp_path / "factory.toml").write_text(f'[paths]\nrun = "{tmp_path / "run"}"\n[gates]\nflake_fixed_after = 3\n')
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    for i in (1, 2):
+        assert flakes.green(green_run(tmp_path, i, "", PASSED), f"m{i}") == []           # (in the browser log)
+        d = flake_now(flakes)
+        assert d["state"] == "seen" and d["fields"]["green_passes"] == i and not d["refused"], d["refused"]
+    assert flakes.green(green_run(tmp_path, 3, PASSED), "m3") == [f"flake/{flakes.fac.slug(FLAKY, 80)}"]
+    d = flake_now(flakes)
+    assert d["state"] == "fixed" and d["fields"]["fixed_by"] == "green-runs" and d["fields"]["fixed_on"] == "m3"
+    assert d["fields"]["green_passes"] == 3
+    assert flakes.green(green_run(tmp_path, 4, PASSED), "m4") == []                     # (fixed: no longer seen)
+
+
+def test_a_seen_between_green_runs_restarts_the_count(tmp_path, monkeypatch):
+    flakes = flake_record(tmp_path, monkeypatch)
+    (tmp_path / "factory.toml").write_text(f'[paths]\nrun = "{tmp_path / "run"}"\n[gates]\nflake_fixed_after = 2\n')
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    flakes.green(green_run(tmp_path, 1, PASSED), "m1")
+    assert flake_now(flakes)["fields"]["green_passes"] == 1
+    flakes.say("flake.seen", FLAKY, gaps=["gap/b"], times=1, seen_at=2.0)
+    assert flake_now(flakes)["fields"]["green_passes"] == 0
+    assert flakes.green(green_run(tmp_path, 2, PASSED), "m2") == []                     # (one in a row, not two)
+    d = flake_now(flakes)
+    assert d["state"] == "seen" and d["fields"]["green_passes"] == 1
+    assert flakes.green(green_run(tmp_path, 3, PASSED), "m3") and flake_now(flakes)["state"] == "fixed"
+
+
+def test_a_test_absent_from_the_log_never_counts(tmp_path, monkeypatch):
+    """Unknown changes nothing: a deleted or renamed test (no PASSED line), a suite not run in that batch, a red,
+    stopped or unreadable one, a FAILED line beside a PASSED one, a quarantined flake; and a flake_fixed_after past
+    its ceiling is refused, never read as some other count."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    gone = "PASSED tests/test_x.py::test_y_renamed\nSKIPPED [1] tests/test_x.py:3: no\n1 passed in 0.1s\n"
+    for i, run in enumerate((green_run(tmp_path, 1, gone), {"ruff": {"rc": 0}}, {"unit": {"rc": 0}},
+                             green_run(tmp_path, 2, PASSED, over={"unit": {"rc": 1}}),
+                             green_run(tmp_path, 3, PASSED, over={"unit": {"stopped_by": "browser"}}),
+                             {"unit": {"rc": 0, "log": str(tmp_path / "missing.txt")}},
+                             green_run(tmp_path, 4, PASSED, f"FAILED {FLAKY} - boom\n"))):
+        assert flakes.green(run, f"m{i}") == []
+        assert flake_now(flakes)["fields"]["green_passes"] == 0, run
+    flakes.fac.add("flake.measured", f"flake/{flakes.fac.slug(FLAKY, 80)}", quarantined=True)
+    flakes.green(green_run(tmp_path, 5, PASSED), "m5")
+    assert flake_now(flakes)["fields"]["green_passes"] == 0
+    for bad in (0, 51, "5", 2.5, True):
+        with pytest.raises(ValueError, match="flake_fixed_after"):
+            flakes.fixed_after({"gates": {"flake_fixed_after": bad}})
+    assert flakes.fixed_after({}) == 5 and flakes.fixed_after({"gates": {"flake_fixed_after": 50}}) == 50
 
 
 # ---- a flake said fixed by hand, and the quarantine's release (dev/records/regression-flake-fixed-by-hand.md)
@@ -1118,6 +1188,107 @@ def test_main_green_stale_is_off(tmp_path, monkeypatch):
     p.measurements.add(series, 0, clock[0])
     e.evaluate(tick=True)
     assert not e.stale and e.signals["goal.main-green.off"] == 0
+
+
+def held_on(tmp_path, monkeypatch, text: str | None, marked=()):
+    """dev/bin/held.py on a checkout whose main as pushed (refs/remotes/origin/main) holds ``text`` as
+    tests/quarantine.txt (None: no such ref), the flake items marked quarantined being ``marked``; (held, cfg)."""
+    sys.modules.setdefault("fac", module("fac"))
+    held = module("held")
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    git(repo, "init", "-q", "-b", "main")
+    if text is not None:
+        (repo / "tests").mkdir()
+        (repo / "tests" / "quarantine.txt").write_text(text)
+        git(repo, "add", "tests")
+        git(repo, "commit", "-q", "-m", "q")
+        git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    items = [{"id": f"flake/{n}", "fields": {"test": t, "quarantined": True}} for n, t in enumerate(marked)]
+    monkeypatch.setattr(held.fac, "items", lambda kind: items)
+    return held, {"paths": {"checkout": str(repo)}, "git": {"base": "main", "remote": "origin"}}
+
+
+QUARANTINE = ("# a comment\n# Released: tests/test_x.py::test_old | them | 2026-01-01 | gone\n"
+              "tests/test_a.py::test_one | them | 2026-11-21 | load\n\n"
+              "tests/test_b.py::test_two | them | 2026-11-12 | load\n")
+
+
+def test_held_counts_the_quarantine_and_the_age_of_its_oldest_test(tmp_path, monkeypatch, capsys):
+    """The tests listed on main as pushed (comments and released lines not counted) and the days since the oldest
+    `when`; the list's tests all marked quarantined on their flake items: nothing named."""
+    import datetime
+    held, cfg = held_on(tmp_path, monkeypatch, QUARANTINE, ["tests/test_a.py::test_one", "tests/test_b.py::test_two"])
+    today = datetime.date(2026, 11, 23)
+    assert held.reading("quarantined", cfg, today) == 2
+    assert held.reading("quarantine-oldest-days", cfg, today) == 11
+    assert capsys.readouterr().err == ""
+
+
+def test_held_gives_no_value_for_a_list_or_date_it_cannot_read(tmp_path, monkeypatch):
+    """No main as pushed, a line not `test | who | when | why`, or a `when` not a date: no value (exit 1), never 0;
+    nothing listed has no oldest age (and a count of 0)."""
+    import datetime
+    today = datetime.date(2026, 11, 23)
+    for n, text in enumerate([None, QUARANTINE + "tests/test_c.py::test_three | them\n",
+                              QUARANTINE + "tests/test_c.py::test_three | them | last week | load\n"]):
+        held, cfg = held_on(tmp_path / str(n), monkeypatch, text)
+        for name in ("quarantined", "quarantine-oldest-days"):
+            with pytest.raises(SystemExit) as e:
+                held.reading(name, cfg, today)
+            assert "no value" in str(e.value.code), (n, name)
+    held, cfg = held_on(tmp_path / "empty", monkeypatch, "# nothing\n")
+    assert held.reading("quarantined", cfg, today) == 0
+    with pytest.raises(SystemExit, match="no value"):
+        held.reading("quarantine-oldest-days", cfg, today)
+
+
+def test_held_names_a_listed_test_with_no_quarantined_flake_and_the_reverse(tmp_path, monkeypatch, capsys):
+    """A listed test no flake item marks quarantined, and a flake item marked quarantined whose test is not listed,
+    each named on stderr; the reading is still the list's."""
+    import datetime
+    held, cfg = held_on(tmp_path, monkeypatch, QUARANTINE, ["tests/test_a.py::test_one", "tests/test_z.py::test_gone"])
+    assert held.reading("quarantined", cfg, datetime.date(2026, 11, 23)) == 2
+    err = capsys.readouterr().err
+    assert "listed, no flake item marked quarantined: tests/test_b.py::test_two" in err
+    assert "marked quarantined, not listed: tests/test_z.py::test_gone" in err
+    assert "test_one" not in err
+
+
+def test_quarantine_small_holds_on_main_and_is_off_with_one_test_added(tmp_path):
+    """check finds no error in the factory's model, quarantine-small is `<= quarantine-most` (one number), no goal is
+    on quarantine-oldest-days, and the real engine on dev/model/guarantees-quarantine.yaml holds quarantine-small at the
+    count tests/quarantine.txt lists and turns it off with one test more."""
+    import yaml
+
+    from ergostat import model as mdl
+    from ergostat.spec.engine import Engine
+    from ergostat.store import Project
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    mine = {"stock.quarantined", "flow.quarantine-added", "flow.quarantine-released", "parameter.quarantine-most",
+            "auxiliary.quarantine-oldest-days", "parameter.quarantine-release-time", "goal.quarantine-small",
+            "block.release-quarantined"}
+    assert [(p.code, p.about) for p in problems if p.about in mine] == []          # what check finds on its parts
+    g = spec.goals["quarantine-small"]
+    assert (g.of.kind, g.of.name, g.hold.op, g.on_stale, g.system) == ("stock", "quarantined", "<=", "off", "guarantees")
+    assert g.hold.value == spec.parameters["quarantine-most"].value
+    assert [n for n, x in spec.goals.items() if x.of.name == "quarantine-oldest-days"] == []
+    sys.modules.setdefault("fac", module("fac"))
+    count = len(module("held").listed((ROOT / "tests" / "quarantine.txt").read_text()))
+    parts = yaml.safe_load((ROOT / "dev" / "model" / "guarantees-quarantine.yaml").read_text())
+    (tmp_path / "ergostat.yaml").write_text(yaml.safe_dump(
+        {"name": "q", **{k: parts[k] for k in ("stocks", "parameters", "goals")}}, sort_keys=False))
+    p = Project(mdl.load(tmp_path))
+    e = Engine(p, say=lambda s: None)
+    e.start = lambda b, why: None                                              # (nothing runs)
+    series = next(iter(p.model.spec.stocks["quarantined"].sensors.values())).series
+    p.measurements.add(series, count, time.time())
+    e.evaluate(tick=True)
+    assert e.signals["goal.quarantine-small.off"] == 0, count
+    p.measurements.add(series, count + 1, time.time() + 1)
+    e.evaluate(tick=True)
+    assert e.signals["goal.quarantine-small.off"] == 1
 
 
 def pools_module():
@@ -5857,6 +6028,11 @@ def test_a_failing_browser_test_is_named(tmp_path):
     fac = module("fac")
     now = run(pytest_args(suites["browser"]))
     assert fac.failed_tests(now) == ["test_b.py::test_bad", "test_b.py::test_broken"]
+    assert now.index("\nPASSED test_b.py::") < now.index("\nFAILED test_b.py::")  # (p first: the FAILED lines stay
+    #                                                                              in the 2000-char tail a failure keeps)
+    assert fac.outcomes(now, ["test_b.py::test_ok", "test_b.py::test_skipped", "test_b.py::test_bad"]) == {
+        "test_b.py::test_ok": "pass", "test_b.py::test_skipped": "unknown", "test_b.py::test_bad": "fail"}
+    assert report_chars(pytest_args(suites["unit"])) == report_chars(pytest_args(suites["browser"])) == "pfEs"
     old = run([("-rs" if a.startswith("-r") else a) for a in pytest_args(suites["browser"])])
     assert fac.failed_tests(old) == []                                          # what -rs gave: no test named
     unit = tmp_path / "unit.txt"

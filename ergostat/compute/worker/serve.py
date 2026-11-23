@@ -14,6 +14,7 @@ import traceback
 
 import frames
 import keeper
+import leaseclock
 import output
 import sampler
 
@@ -145,6 +146,7 @@ def serve(root: str, inp, w: frames.Writer, every: float) -> int:
     readings = sampler.Readings(root)
     out = output.Output(root, readings.ended(w))
     HANDLERS.update(out.handlers(HANDLERS["start"]))
+    HANDLERS.update(leaseclock.Clock(root).handlers(HANDLERS))
     stop = threading.Event()
     threading.Thread(target=readings.loop, args=(stop,), name="ergostat-worker-sampler", daemon=True).start()
     runs = lambda: readings.runs_for_beat(out.offsets())                    # noqa: E731
