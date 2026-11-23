@@ -17,7 +17,9 @@ from. A name that is no gap, a link that would close a cycle, or one on the gap'
 depth: a split parent waits on its children) is never recorded: it is a dependency problem on the
 gap (`dependency_problem`, the goal dependencies-sound), said, never dropped silently. A gap waiting on any unfinished
 one says which and its state (`blocked_reason`; only a parked or dead one sets `waits_on_parked`); one whose branch is
-already merged into main is said 'landed, not closed', for the coordinator to close."""
+already merged into main is said 'landed, not closed', for the coordinator to close; one in a starts_at state
+(approved, queued, push-pending: fac.STACKABLE) is said 'stacked on X (approved)', as the gap is built on it.
+`deps.py stacked` prints the count for the auxiliary gaps-stacked."""
 
 from __future__ import annotations
 
@@ -177,6 +179,8 @@ def waiting(d: str, g: dict, merged: set[str], landed: set[str] = frozenset()) -
         return f"waits on {d} ({g['state']}): landed, not closed (its branch {b} is on main; close it)"
     if g["state"] in ("parked", "dead"):
         return f"waits on {d}, which is {g['state']}: {stopped(g)}"
+    if g["state"] in fac.STACKABLE:                    # (ergostat.yaml's starts_at: built on it, not waiting)
+        return f"stacked on {d} ({g['state']})"
     return f"waits on {d}, which is {g['state']}"
 
 
@@ -218,7 +222,14 @@ def tree(gaps: dict[str, dict]) -> str:
     return "\n".join(lines) if len(lines) > 1 else "graph LR\n  %% no dependencies recorded"
 
 
+def stacked(gaps: list[dict]) -> int:
+    """The gaps built stacked on a base (a `stacked_on` that is not empty, or cannot be read) and not yet merged or
+    closed: the auxiliary gaps-stacked (dev/model/building.yaml)."""
+    return sum(g["state"] not in DONE and bool(g["fields"].get("stacked_on")) for g in gaps)
+
+
 if __name__ == "__main__":
     import sys
-    print(tree({g["id"]: g for g in fac.items("gap")}))
+    gaps = fac.items("gap")
+    print(stacked(gaps) if sys.argv[1:] == ["stacked"] else tree({g["id"]: g for g in gaps}))
     sys.exit(0)

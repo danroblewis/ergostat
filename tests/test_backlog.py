@@ -95,6 +95,33 @@ def test_the_items_graph_draws_gap_dependencies(tmp_path):
     assert [(e["from"], e["to"], e["rel"], e["kind"]) for e in g["edges"]] == [("gap/a", "gap/b", "depends_on", "precedence")]
 
 
+def test_a_dependency_in_a_starts_at_state_is_said_stacked_on():
+    """merge-pipeline-stacks-turned-on: deps.py says a dependency in the relation's starts_at state (the gap is built on
+    it) as `stacked on X (approved)`, not as waiting; one parked or building still waits. blocked_reason is a column the
+    Items page shows already; the auxiliary gaps-stacked counts the gaps with stacked_on not merged or closed."""
+    from ergostat.spec import read
+    intake()                                                   # (dev/bin importable, as the factory runs it)
+    deps, fac = module("deps"), module("fac")
+    spec, _ = read(ROOT / "ergostat.yaml")
+    assert spec.items["gap"].relations["depends_on"].starts_at == list(fac.STACKABLE)    # the one list, both sides
+    assert "blocked_reason" in spec.items["gap"].show
+    for state in fac.STACKABLE:
+        gaps = {"gap/a": {"id": "gap/a", "state": state, "fields": {"branch": "a"}},
+                "gap/b": {"id": "gap/b", "state": "ready", "fields": {"branch": "b", "depends_on": ["gap/a"]}}}
+        got = deps.plan(gaps, {}, {})["gap/b"]
+        assert (got["blocked_reason"], got["waits_on_parked"]) == (f"stacked on gap/a ({state})", False)
+    for state, said in (("building", "waits on gap/a, which is building"), ("parked", "waits on gap/a, which is parked")):
+        gaps["gap/a"]["state"] = state
+        got = deps.plan(gaps, {}, {})["gap/b"]
+        assert got["blocked_reason"].startswith(said) and got["waits_on_parked"] == (state == "parked")
+    st = spec.auxiliaries["gaps-stacked"]
+    assert st.unit == "gaps" and "deps.py stacked" in str(next(iter(st.sensors.values())).run)
+    on = [{"gap": "gap/a", "sha": "0" * 40}]
+    assert deps.stacked([{"state": s, "fields": {"stacked_on": v}} for s, v in (
+        ("built", on), ("approved", on), ("fix", "unreadable"), ("merged", on), ("closed", on), ("ready", []),
+        ("building", None))]) == 3
+
+
 # ---- the intake's done rule
 
 GAPS = """\
