@@ -373,6 +373,33 @@ def test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top(browser, si
     pg.close()
 
 
+def test_the_header_says_what_holds_the_work_up_in_one_line(browser, site):
+    """What holds the work up (SPEC §5a, /api/held-up): its first line in the page's header, red for a stall, the whole
+    line as its title; here the first stall /api/held-up ranks, said as /api/status's held_up says it (the two are
+    worked out apart, and the hours of waiting in the line move with the clock)."""
+    import json
+    got = json.loads(urllib.request.urlopen(f"{site}/api/held-up", timeout=30).read())
+    assert got["stall"] is True and got["line"].startswith(f"Stalled: {got['roots'][0]['says']}. "), got["line"]
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/items")
+    pg.wait_for_selector("header #heldup:not([hidden])")
+    line = pg.locator("#heldup")
+    for _ in range(40):                                   # (the header follows the status's next look)
+        said = pg.evaluate("() => fetch('/api/status').then((r) => r.json()).then((s) => s.held_up.line)")
+        if line.inner_text() == said:
+            break
+        pg.wait_for_timeout(500)
+    assert line.inner_text() == said and line.get_attribute("title") == said
+    assert said.startswith(f"Stalled: {got['roots'][0]['says']}. "), (said, got["line"])
+    assert "bad" in line.get_attribute("class").split(), "a stall is said in red"
+    assert pg.evaluate("() => { const b = document.querySelector('#heldup').getBoundingClientRect(); "
+                       "return b.height < 40 && b.top < 60; }"), "one line, at the top"
+    assert not errors, errors
+    pg.close()
+
+
 def test_an_idle_unfinished_items_page_is_left_untouched_and_a_finished_one_never_asks_why(browser, site):
     """The why answer differs at every poll (its time, its durations); the page redraws only when what it says
     changes, so an idle page is patched by no poll (util.js: unchanged answers, nothing touched). A finished item's
