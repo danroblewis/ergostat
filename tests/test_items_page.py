@@ -315,6 +315,8 @@ def test_a_folded_system_keeps_its_charts_not_its_lists_and_stays_folded(browser
 
 
 def test_a_chosen_kinds_folded_system_is_shown(browser, site):
+    """A kind chosen is its own page (the-kind-page), which has no system headings to fold: its list is shown
+    though its system is folded on the Items page."""
     ctx = browser.new_context(viewport={"width": 1500, "height": 1000})
     pg = ctx.new_page()
     pg.goto(f"{site}/items")
@@ -323,7 +325,7 @@ def test_a_chosen_kinds_folded_system_is_shown(browser, site):
     pg.reload()
     lab = 'section.sys-group[data-system="lab"]'
     pg.wait_for_selector(f"{lab} table")
-    assert pg.locator(f"{lab} .sys-head button").get_attribute("aria-expanded") == "true"
+    assert pg.evaluate("location.pathname") == "/items/hypothesis" and pg.locator(".sys-head").count() == 0
     ctx.close()
 
 
@@ -484,7 +486,7 @@ def test_the_model_changes_are_found_by_heading_search_and_panel(browser, site):
         value = int(float(pg.evaluate(f"() => api('part/stock/{stock}').then((d) => d.now.value)")))
         line.locator("a").click()
         pg.wait_for_selector(".set-chip")
-        assert f"kind=ergostat.model-change&state={state}" in pg.url
+        assert f"/items/ergostat.model-change?state={state}" in pg.url                # a kind chosen: its page
         pg.wait_for_selector('section.sys-group[data-system="modelling"] table tr td')
         rows = pg.locator('section.sys-group table tr td:first-child').all_inner_texts()
         assert len(rows) == value and all(r.startswith("ergostat.model-change/") for r in rows), (rows, value)
@@ -1223,7 +1225,7 @@ def test_a_snapshot_lets_a_kind_and_its_state_be_chosen(browser, tmp_path):
     pg.wait_for_function("() => document.querySelectorAll('table.items tr.click').length >= 2", timeout=20000)
     assert listed() == {"ticket/a", "ticket/b"}, listed()
     assert "epic/e1" not in listed() and "not in this snapshot" not in said()
-    pg.locator('.kind-flow:has(.kname.on) a.stbox', has_text="doing").first.click()      # the chart's state: its items
+    pg.locator('.kind-bar a.stbox', has_text="doing").first.click()                     # the bar's state: its items
     pg.wait_for_function("() => document.querySelectorAll('table.items tr.click').length === 1", timeout=20000)
     assert listed() == {"ticket/a"}, listed()
     assert "not in this snapshot" not in said()
@@ -1808,5 +1810,151 @@ def test_the_timeline_spans_each_milestone_over_all_its_gaps_under_frontier_and_
     ts = [t for x in ans["items"] if x["id"] in m0 for g in x.get("segments", []) + x.get("projected", []) for t in g[1:3]]
     assert len(m0) == 6 and sums["milestone/m0"]["span"] == [min(ts), max(ts)]
     assert any(abs(y - sums["milestone/m0"]["cy"]) < 0.2 for y in got["starts"])     # m0's arrow to m1 kept
+    assert not errors, errors
+    pg.close()
+
+
+# ---- the kind's page (dev/records/the-kind-page.md; SPEC §5a, *The kind's page*): last, on the roadmap's record as
+# seeded (its counts do not move while the page is served alone)
+
+def kind_page(browser, base: str, path: str, width: int = 1500):
+    pg = browser.new_page(viewport={"width": width, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{base}{path}")
+    pg.wait_for_selector(".kind-page table.kind-model, .kind-page .kind-uncounted", timeout=20000)
+    return pg, errors
+
+
+def test_a_kinds_page_shows_its_definition_and_model_place(browser, roadmap):
+    """/items/ticket: its h1, description and 'finishes'; In the model names its stocks, its flows, the blocks that take
+    it, its goals and its feedback loops, each a link to the diagram; its definition closed; its list under them."""
+    import json
+    fp = json.loads(urllib.request.urlopen(f"{roadmap}/api/kinds/ticket", timeout=30).read())
+    pg, errors = kind_page(browser, roadmap, "/items/ticket")
+    assert pg.locator("#main h1").count() == 1 and pg.locator("#main h1 .kname").inner_text() == "ticket"
+    bar = pg.locator("#main .kind-bar[data-kind=ticket]").inner_text()
+    assert "one piece of an epic's work" in bar and "finishes: done" in bar and "ticket/*" in bar, bar
+    model = pg.locator("table.kind-model")
+    links = dict(model.locator("a").evaluate_all("els => els.map((a) => [a.textContent, a.getAttribute('href')])"))
+    loops = [lp["name"] for lp in fp["loops"]]
+    want = ["todo", "in-progress", "in-review", "planned", "started", "submitted", "finished", "developer", "reviewer",
+            "nothing-ready-waits", *loops]
+    assert loops and all(w in links for w in want), (want, links)
+    assert all(h.startswith("/diagram") for h in links.values()), links
+    assert links["todo"] == "/diagram?view=dynamics&around=stock%2Ftodo" and links["developer"].startswith("/diagram?view=blocks")
+    rows = {r[1]: r for r in model.locator("tr").evaluate_all("trs => trs.map((tr) => [...tr.cells].map((c) => c.textContent))")}
+    assert "doing" in rows["in-progress"][2] and "ticket.started" in rows["started"][2], rows
+    assert "pool" in rows["developer"][2] and "TTL" in rows["developer"][2], rows["developer"]
+    assert "1 taken" in rows["developer"][3], rows["developer"]                      # ticket/e2-docs, leased now
+    assert pg.locator("a", has_text="its states as a process map").get_attribute("href") == "/diagram?view=process&kinds=ticket"
+    d = pg.locator("details.kind-sect")
+    assert d.get_attribute("open") is None and "Definition" in d.locator("summary").inner_text()
+    d.locator("summary").click()
+    text = d.inner_text()
+    assert "ticket.started → doing" in text and "blocked_by → ticket" in text and "3 attempts" in text, text
+    pg.wait_for_selector("section.kind-items table.items tr.click")
+    assert {t.split("/")[0] for t in pg.locator("table.items tr.click td:first-child").all_inner_texts()} == {"ticket"}
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_kind_chosen_ends_at_its_page_and_its_links_go_there(browser, roadmap):
+    """/items?kind=ticket&view=graph ends at /items/ticket?view=graph; the item page's kind link and the Items page's
+    bar title point there."""
+    pg, errors = kind_page(browser, roadmap, "/items?kind=ticket&view=graph")
+    assert pg.evaluate("location.pathname + location.search") == "/items/ticket?view=graph"
+    pg.wait_for_selector(".rg-graph[data-drawn] .rg-node", timeout=20000)
+    assert pg.locator("#nav a[aria-current=page]").get_attribute("href") == "/items"
+    pg.goto(f"{roadmap}/item/ticket%2Fe1-design")
+    pg.wait_for_selector("#main a[href='/items/ticket']", timeout=20000)
+    pg.goto(f"{roadmap}/items")
+    title = pg.locator(".kind-bar[data-kind=ticket] .kname")
+    title.wait_for()
+    assert title.get_attribute("href") == "/items/ticket"
+    title.click()
+    pg.wait_for_selector("h1.kind-title")
+    assert pg.evaluate("location.pathname") == "/items/ticket"
+    assert not errors, errors
+    pg.close()
+
+
+BAR_HTML = """() => document.querySelector('.kind-bar[data-kind=ticket]').outerHTML
+  .replace(/<(\\/?)h[13]\\b/g, '<$1hN').replace(/aria-expanded="\\w+"/, '').replace(/aria-label="(Hide|Show) /, 'aria-label="')
+  .replace(/[▾▸]/, '')"""
+
+
+def test_the_kind_bar_is_one_component(browser, roadmap):
+    """The ticket bar on /items and on /items/ticket: the same markup but for the heading's level and the open state."""
+    pg, errors = kind_page(browser, roadmap, "/items/ticket")
+    on_page = pg.evaluate(BAR_HTML)
+    level = pg.locator(".kind-bar[data-kind=ticket] > *").first.evaluate("e => e.tagName")
+    pg.goto(f"{roadmap}/items")
+    pg.wait_for_selector(".kind-bar[data-kind=ticket] .stbox")
+    on_items = pg.evaluate(BAR_HTML)
+    assert level == "H1" and pg.locator(".kind-bar[data-kind=ticket] > *").first.evaluate("e => e.tagName") == "H3"
+    assert on_page == on_items, (on_page, on_items)
+    assert "finishes: done" in on_items and 'href="/items/ticket?state=review"' in on_items
+    assert not errors, errors
+    pg.close()
+
+
+@pytest.mark.parametrize("path, address", [("/items/ticket", "/items/ticket?state=review"),
+                                           ("/items", "/items?kind=ticket&state=review")])
+def test_a_kinds_state_link_filters_without_reload(browser, roadmap, path, address):
+    """A state chip in the kind's bar filters the list in place (no reload: window.__same survives), lands in the
+    address, and a second click clears it, on the Items page and on the kind's page alike."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{roadmap}{path}")
+    chip = pg.locator(".kind-bar[data-kind=ticket] a.stbox", has_text="review")
+    chip.wait_for(timeout=20000)
+    pg.wait_for_selector("table.items tr.click")
+    pg.evaluate("window.__same = 1")
+    chip.click()
+    pg.wait_for_function("(a) => location.pathname + location.search === a", arg=address)
+    pg.wait_for_function("""() => { const rows = [...document.querySelectorAll('table.items tr.click')];
+        return rows.length && rows.every((r) => r.cells[1].textContent === 'review'); }""", timeout=20000)
+    assert pg.evaluate("window.__same") == 1
+    assert "on" in chip.get_attribute("class").split()
+    chip.click()
+    pg.wait_for_function("(p) => location.pathname + location.search === p", arg=path)
+    assert pg.evaluate("window.__same") == 1
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_kinds_page_stacks_at_phone_width(browser, roadmap):
+    """At 390 px the kind's page's sections stack, one under another, with no sideways scroll."""
+    pg, errors = kind_page(browser, roadmap, "/items/ticket", width=390)
+    pg.locator("details.kind-sect summary").click()
+    pg.wait_for_selector("section.kind-items table.items tr.click")
+    pg.wait_for_timeout(500)
+    got = pg.evaluate("""() => ({ wide: [document.documentElement.scrollWidth, innerWidth],
+        boxes: [...document.querySelectorAll('.kind-page > .item-systems > *')]
+          .map((e) => { const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right), Math.round(r.top)]; }) })""")
+    assert got["wide"][0] <= got["wide"][1], got
+    assert all(b[1] <= 390 for b in got["boxes"]), got
+    tops = [b[2] for b in got["boxes"]]
+    assert tops == sorted(tops) and len(set(tops)) == len(tops), got             # one under another
+    assert not errors, errors
+    pg.close()
+
+
+def test_an_uncounted_kind_says_so(browser, site):
+    """release: nothing counts it nor takes it, said under In the model; its definition and its items still shown.
+    A built-in kind (the model's changes) renders its page too."""
+    pg, errors = kind_page(browser, site, "/items/release")
+    assert "Nothing in the model counts it" in pg.locator(".kind-uncounted").inner_text()
+    assert pg.locator("table.kind-model").count() == 0
+    d = pg.locator("details.kind-sect")
+    assert d.locator("summary").inner_text() == "Definition" and "commit" in d.text_content()   # its fields shown
+    pg.wait_for_selector("table.items tr.click")
+    ids = pg.locator("table.items tr.click td:first-child").all_inner_texts()
+    assert ids and all(t.startswith("release/") for t in ids), ids
+    pg.goto(f"{site}/items/ergostat.model-change")
+    pg.wait_for_selector(".kind-page table.kind-model, .kind-page .kind-uncounted", timeout=20000)
+    assert pg.locator("#main h1 .kname").inner_text().startswith("Model changes")
     assert not errors, errors
     pg.close()

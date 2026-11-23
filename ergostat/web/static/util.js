@@ -585,6 +585,13 @@ async function route() {
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
+  if (path === "/items" && q.get("kind")) {                // a kind chosen is its page (SPEC §5a), its other params kept
+    const k = q.get("kind");
+    q.delete("kind");
+    replaceRoute(kindHref(k, q.toString()));
+    return route();
+  }
+  if (path.startsWith("/items/") && path.length > 7) return pageItems(main, q, decodeURIComponent(path.slice(7)));
   return (pages[path] || pageDiagram)(main, q);
 }
 

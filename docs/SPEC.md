@@ -1912,6 +1912,34 @@ rework is a repeated step; a state nothing counts has `says`. The k-th move into
 lease of the item's `lease.history` (from its tail, when a rollup kept fewer moves). The snapshot holds each kind's
 answer.
 
+**The kind's page.** `/items/K` is the Items page with that one kind chosen (no nav entry of its own: *Items* stays
+lit). `/items?kind=K` ends there, its other parameters kept (`/items?kind=K&state=S&view=graph` becomes
+`/items/K?state=S&view=graph`), and every link to a whole kind points there: the item page's *Kind*, the Items page's
+bar titles, the process map's kind names, a side panel's set when it is a whole kind (a set with a state or a move
+keeps its `/items?kind=K&…` address and ends on the same page). It asks for that kind's items alone. Its sections, in
+order:
+
+1. *The kind's bar*, drawn by the one `kindBar` (`static/kinds.js`) that draws each kind's bar on the Items page,
+   with the same markup apart from its heading's level (the page's `h1` here) and its disclosure's open state: the
+   title (its name small), id pattern, description, `finishes: S, …` or `lives on` (where that came from on hover),
+   the state chips with their counts, the total, and `in SYSTEM` (why on hover). A chip filters the list in place
+   (`state=` in the address, a second click clears it), the same on both pages; the title links to the kind's page;
+   on the Items page the disclosure hides or shows that kind's list in place.
+2. *Now*: the kind's cumulative flow chart and its cycle times.
+3. *In the model*, from `GET /api/kinds/K`: a row each for the parts that count it (*counted in*: the stock or
+   auxiliary, its states, how many are there now), the flows counted from its moves (*moved by*: the state entered or
+   left and the events that move an item there), the blocks that take it (*taken by*: what it takes, to where, its
+   pool, attempts and TTL, how many it has taken now and how many wait in its `at` states), its goals (how each
+   holds, and its status word) and its feedback loops (R or B, and through which of its parts). Each name links to
+   the diagram drawn around it (`around=stock/NAME`, a block in Blocks, a goal its control loop, a feedback loop
+   around its first part), and a last link opens its states as a process map (`view=process&kinds=K`). A kind
+   nothing counts and nothing takes says so here, and its other sections are drawn as for any kind.
+4. *Definition*, a closed disclosure: its states (first, finished, paused, final, ergostat's), where its finishing
+   came from, events to states, the fields shown, how each folds, its relations both ways, its joins, its lease rule.
+5. *Items*: the search, the List, Graph and Timeline views and the set chip of the Items page, for this kind alone.
+
+At 390 px wide its sections stack, with no sideways scroll.
+
 ## 5b. The Process view: how the items really moved
 
 The Diagram page's third view, beside Dynamics and Blocks, draws the work as the record says it went:
