@@ -51,3 +51,12 @@ Tests: tests/test_group_progress.py (done items 1, 2, 4 and the status lines), t
 `test_twenty_five_milestones_fit_on_the_gap_card_without_pushing_the_kinds_below_the_fold` (item 3) and
 `test_a_milestones_row_opens_exactly_its_gaps_in_the_list_graph_and_timeline` (item 2 on the page). Each was seen
 to fail with its code broken: the split rule, the `done_when` rule, the Graph's `where` filter, and the fold.
+
+Run here: tests/test_group_progress.py (8 passed), tests/test_milestones.py (41 passed), tests/test_relations.py,
+tests/test_spec_schema.py and tests/test_milestone_frames.py (58 passed), and ruff (clean).
+tests/test_items_page.py: 52 passed, 1 failed the same way in both runs:
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` times out at line 1647, waiting for the
+header's project switcher to list a second ergostat site in the same home. This branch does not touch the header, the
+switcher or project discovery. It was not run on clean main here because making a worktree of main was refused in
+this session, so whether main fails it too is not known; the factory's rerun on clean main decides. Not run here: the
+other three browser files and the whole unit suite (the factory's).
