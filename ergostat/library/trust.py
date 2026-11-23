@@ -101,6 +101,7 @@ SENSOR = {     # where sensors live: stocks.X.sensor(s), flows.X.sensor(s), auxi
     "timeout": (W, "how long a command runs: only as the owner or a trusted template wrote it"),
     "builtin": (NO, "runs ergostat's own measure as a process of its own, on a timer"),
     "manual": (NO, "asks a person for readings"),
+    "runs-on": (NO, "names the machine it runs on, which only the owner says (and a sensor is refused it anyway)"),
     "averages": (W, "the window a command's readings are averaged over: only as the owner or a trusted template wrote it"),
 }
 SENSORS = {"sensors": (each(SENSOR), "its sensors, by name"), "sensor": (SENSOR, "its one sensor")}
@@ -173,6 +174,7 @@ MACHINE_NO = {k: (NO, why) for why, ks in (
     ("how many runs, items, attempts and how much each may take", ("max", "min", "takes", "pool", "lease", "on")),
     ("a controller's law, which only the owner tunes", ("gain", "integral-time", "deadband", "resolution", "limits")),
     ("what is run, kept running or parsed from its output", ("run", "daemon", "parse", "timeout", "until")),
+    ("the machine it runs on, which only the owner names", ("runs-on",)),
     ("what it may read, write and reach", ("workdir", "workspace", "read", "tools", "actions", "read-only", "network")),
     ("what it is given or judged by", ("context", "review")),
     ("the text of another type of block", ("prompt", "ask"))) for k in ks}
