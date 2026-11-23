@@ -89,6 +89,9 @@ Work through these steps in order. Ask the person only what you cannot infer.
    without it after those with it; the critical first among equals). The completion estimates and the Timeline
    project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
    notes an order field no item holds yet (`takes-order-unset`).
+   **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
+   `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
+   the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.
    **When a queue's items share something that can be down** (a tracker, a build service), give the stock that
    checks it a sensor reading 1 while up and 0 while down, and say so on the block: `takes: {kind: ticket, at: todo,
    faults: {healthy: sensor.tracker-up}}` (or a `goal.` that holds, or a `block.` command). While it is down or

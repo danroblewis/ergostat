@@ -1,0 +1,166 @@
+# safe-stalls-heal-themselves: a lease whose process is gone is released, and a stall is said where it is seen
+
+On 2026-11-22 the merge queue stopped for 40 minutes behind a lease whose process had died. The pipeline manager diagnosed it correctly within minutes, in a record nobody was shown, and nothing acted. An engine restart did not end the lease either.
+
+Change:
+- The engine releases a lease as soon as the process of the run holding it is gone (the run record's pid and start time), given back **uncounted** when the cause was outside the item (the engine, Docker or a restart). A lease on a remote or detached run is left alone.
+- When an engine starts, it ends the leases of runs that no longer exist.
+- A run that fails because Docker or the AI service is unreachable is an outage: it pauses and retries, and does not spend the item's attempts or park it.
+- The pipeline manager's latest finding is shown on the page's attention list, not only stored in its situation.
+
+Definition of done:
+1. A test kills a run's process and its lease is released within one dispatch pass, uncounted, and the queue takes its next batch.
+2. A live run's lease is never released, including across a pid reuse.
+3. A Docker outage during a run parks nothing, and the items run again when it returns.
+
+## Where it stopped
+
+Built, round 1. Net lines outside tests/, docs/ and dev/: 174 (budget 600); dev/bin adds about 75 more.
+
+- Done 1: `tests/test_lease_gone.py::test_a_killed_runs_lease_is_released_in_one_pass_uncounted_and_the_next_is_taken`
+  (one `watch()` releases it, `count: false`, one attempt allowed and the item not a dead letter, then `tick()` takes
+  the next), and `::test_a_running_engine_releases_it_once_its_process_is_killed` (a started engine).
+- Done 2: `::test_a_live_runs_lease_is_never_released_and_a_reused_pid_is_not_it` (a live pid kept over five passes; a
+  pid whose start time differs is gone; no start time or an unreadable record is unknown, never gone; nothing
+  signalled), `::test_an_engines_own_live_run_is_never_released`, `::test_a_run_record_tells_gone_from_unknown`.
+- Engine start: `::test_at_start_a_lease_of_a_run_that_no_longer_exists_is_ended`.
+- Done 3: `tests/test_factory_outage.py::test_a_docker_outage_during_a_queue_run_parks_nothing_and_it_lands_when_docker_returns`
+  (the queue's run on its last attempt, Docker down: an uncounted nack put off 10m, nothing parked, sent back or
+  failed, main as it was; Docker back: it lands), and the implementor/reviewer path through `fac.guarded`.
+- Finding on the attention list: `tests/test_finding_attention.py`.
+- Mutations seen to fail the tests: the `count: false` dropped, unknown read as gone, `max` made `min` for the latest
+  finding, the queue's outage branch bypassed.
+
+Choices made with nobody to ask, each the more reversible one:
+- "Uncounted when the cause was outside the item" is read as: a lease whose run this engine is *not* following (an
+  engine gone, a restart) is given back uncounted. A run this engine follows and that is killed from outside still
+  ends as any run does (a counted `exited -9`), unchanged.
+- "Remote or detached" is read as: any lease whose block is not one this engine runs with a run record (a daemon's
+  block, a block of another shard or engine, a block no longer in the model) is left to its TTL, as before.
+- The "no record" rule (the run no longer exists) applies only on the engine's first full watchdog pass, as the
+  definition says; later a lease with no record is left to its TTL.
+- A released run's files (`runs/RUN.*`) are left in place, not deleted; its output was never read.
+- Outage detection is an allowlist: the AI service by connection-error words; Docker by words naming Docker confirmed
+  by `docker info` failing. An outage retries every 10 minutes for as long as it lasts (a bounded rate, no ceiling on
+  the count), and its session hours are not added toward the kill rule.
+- The finding is shown through a new, generic kind key `attention: FIELD` (SPEC §5a), set in the factory's
+  `ergostat.yaml` on `situation` as `attention: finding`, and the manager writes `finding` on `situation.handled`.
+  "Latest" is by the item's latest event time, then its id. No page code changed: the entry has the shape the page
+  already draws (like a precedence cycle's), so no browser file was run for it.
+
+Two existing tests pinned the old behaviour (only a TTL ended a dead engine's lease) and were updated:
+`tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth` and
+`tests/test_resilience.py::test_a_hard_restart_spends_no_attempt`; two in `tests/test_leased_workspaces.py` now give
+their hand-made run a record naming a live process.
+
+Not mine, left alone: `tests/test_agents.py::test_a_rerun_is_timed_by_the_suite_that_failed` fails alone, before
+any change of this branch to dev/bin, on `ModuleNotFoundError: No module named 'flakes'` (dev/bin/onmain.py:25).
+
+Round 2 (no review findings came back, so I checked the branch against the review lessons myself). Fixed, lesson-3
+and done 2: an engine killed between starting a run's process and writing its run record left a live run with no
+record, and the next engine's first pass read that as "the run no longer exists" and released its lease.
+`runrecord.look` now says `unknown` (never gone) when the record is missing but the run's `.in` or `.out` file is
+there (`.in` is written before the process starts). Tests: `tests/test_lease_gone.py::test_a_run_record_tells_gone_from_unknown`
+and `::test_at_start_a_lease_of_a_run_that_no_longer_exists_is_ended` (a lease whose run has only its input is left);
+both failed with the new branch mutated to return `none`. About 8 net lines more outside tests/, docs/ and dev/.
+
+Round 3 (again no review findings came back). No code changed. Checked against the lessons again: the release reads
+the item again under the ends' lock and `_finish` checks the fence, so the run's own end or an expiry written in the
+meantime wins (lesson 1); a run this engine takes is in `ours` before its lease is written, so its own new run is never
+read as "no longer exists" (lessons 1 and 3); unknown (no start time, ps failing or timing out, an unreadable record) is
+never gone (lesson 3). main is already merged (28ca107a). Ran again, one file at a time: tests/test_lease_gone.py,
+tests/test_factory_outage.py and tests/test_finding_attention.py (13 passed); tests/test_leases.py,
+tests/test_resilience.py and tests/test_leased_workspaces.py (81 passed); tests/test_agents.py (20 passed, 1 failed:
+the unrelated `test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'`, because it imports
+dev/bin/onmain.py without dev/bin on its path, and this branch changes neither that test nor onmain.py). ruff is clean.
+
+Round 4 (no review findings came back). No code changed. main was merged again (a71ebec6, bringing 5411f137: a red
+batch split into halves, dev/bin/halves.py). Checked the outage path against it: a half whose suite ends as Docker goes
+down raises `agents.NotStarted` (fac.suite), which halves.run_all hands back as that half's result; with nothing
+settled it is raised again and the queue's outage branch nacks uncounted (10m); with something settled the half's gaps
+go back to `approved` uncounted (queue.py `lose`; the run's own gap nacked `count=False` after 1m). Either way nothing
+is parked or counted, so done 3 holds; the shorter 1m retry in the second case is main's, left as it is. Ran again, one
+file at a time, on the merged tree: tests/test_lease_gone.py, tests/test_factory_outage.py and
+tests/test_finding_attention.py (13 passed); tests/test_leases.py, tests/test_resilience.py and
+tests/test_leased_workspaces.py (81 passed); tests/test_agents.py (20 passed, 1 failed: the same unrelated
+`test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'` at dev/bin/onmain.py:25). ruff is clean.
+
+Round 5 (no review findings came back). No code changed. main as of the clone (58471daf) is merged (6ed6ce59). Checked
+what it brought against the release path: remote-systems changed docs only; shard-daemons-file-each gives each shard
+its own `daemons.SHARD.json`, which the release never reads (a daemon's block is left to its TTL, gone.py `local`), so
+neither touches it. Ran again, one file at a time, on the merged tree: tests/test_lease_gone.py,
+tests/test_factory_outage.py and tests/test_finding_attention.py (13 passed); tests/test_leases.py,
+tests/test_resilience.py and tests/test_leased_workspaces.py (81 passed); tests/test_engine_shard.py (21 passed);
+tests/test_shards.py, tests/test_daemons.py and tests/test_daemons_restart.py (55 passed); tests/test_agents.py (20
+passed, 1 failed: the same unrelated `test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'` at
+dev/bin/onmain.py:25). ruff is clean. The browser files were not run: no page code changed.
+
+Round 6 (no review findings came back). The factory's merge of main (e43046dc) conflicted in two places, and I
+resolved both by keeping both sides (e39acfd0). In ergostat/leases/dispatch.py, the import line now brings in main's
+`faults` and the branch's `gone`. In docs/AGENT-GUIDE.md, main's "*Faults*: a queue held while what it shares is down"
+paragraph and the branch's `attention: FIELD` paragraph are now next to each other. I checked how main's
+faults-healthy-pauses-the-queue works with the release path. The release always ends uncounted (`count: False`), and
+main's fault check in `_finish` acts only on a counted nack, so it does not touch the release. A run this engine
+follows that fails while its queue's `faults: healthy` is down is now not counted either (main's rule). That makes the
+same promise as done 3 and does not conflict with the branch's Docker/AI outage branch in the factory's queue. No code
+changed beyond the merge. Ran again, one file at a time, on the merged tree: tests/test_lease_gone.py,
+tests/test_factory_outage.py and tests/test_finding_attention.py (13 passed); tests/test_faults_healthy.py,
+tests/test_leases.py and tests/test_resilience.py (101 passed); tests/test_leased_workspaces.py,
+tests/test_engine_shard.py and tests/test_agents.py (44 passed, 1 failed: the same unrelated `No module named
+'flakes'` at dev/bin/onmain.py:25). ruff is clean.
+
+Round 7 (no review findings came back). main as of the clone (7a905955) was already merged (58778671). I checked
+what it brought against the release path. runs-keep-going-without-the-engine adds kept runs (`runs: outlive_engine`),
+and they opened a gap here (lessons 7 and 3). A kept run writes no `RUN.in` or `RUN.out`. Before its record
+`RUN.json` is written there is only its journal `RUN.jsonl` (made before the keeper starts) and its keeper's folder
+`RUN/`. So an engine killed in that window left a live run that the next engine's first pass read as "no longer
+exists", and it released that run's lease. Fixed: `runrecord.look` says `unknown` for those two as well (3 lines).
+Test: `tests/test_lease_gone.py::test_a_run_record_tells_gone_from_unknown` is extended. It failed (`'none' ==
+'unknown'`) with the two new names taken out, and passes with them. The rest of the kept-run path agrees with the
+release: a kept run's record names its own process (the keeper's `pgid`, the wrapper), so a run left going by a
+killed engine is alive and left. Once it ends with no engine reading it, it is gone and its lease is given back
+uncounted (its journal is not read back here; that is `engine-adopts-runs-from-their-journals`). SPEC §9.5 *A run
+gone* now names the two files. Ran, one file at a time: tests/test_lease_gone.py, tests/test_runs_outlive_engine.py
+and tests/test_factory_outage.py (21 passed); tests/test_finding_attention.py, tests/test_leases.py and
+tests/test_resilience.py (81 passed); tests/test_leased_workspaces.py, tests/test_faults_healthy.py and
+tests/test_runner_and_state.py (72 passed). ruff is clean.
+
+Round 7, after the factory's fast suites. They failed on
+`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (history
+`['expired', 'expired', 'ack']`). It passes alone on this branch (1 passed). No code changed, because this failure is
+not in this gap (lesson 13). In this test every lease is held by a run this engine took. The run's id is in `ours`
+before its lease is written (ergostat/leases/dispatch.py:297), so the branch's new step in `watch` (`gone.released`, then
+`gone.why`) returns at its first check, `run in d.ours`, and touches nothing. The expiry decision (`look`/`expire`, a
+1 s TTL with a 1 s grace) is main's, unchanged here. The run keeps its lease only by starting `$ERGOSTAT_CMD event`
+every 0.4 s, and under the suite's load a Python start-up can take longer than TTL plus grace. Many earlier gaps'
+records name this same failure on main's code (continue-branch2, code-health-simplifier, pool-control,
+daemons-left-over, library-trust-folders, quarantine-list-honest, a-lease-end-is-never-dropped). Changing the
+watchdog's renewal belongs in a gap of its own: either its quarantine (tests/quarantine.txt, added to by hand), or a
+renewal that does not depend on a CLI's start-up time. This branch waits for neither.
+
+Round 8. One blocking finding (lessons 1 and 8), fixed. 'Gone' was decided from the run's process alone, so a second
+engine's run (`ergostat block NAME --now`, a trial, a steptest) could be released while its owner was still ending it.
+Its process has exited but its record is not yet removed, or it is between its TAKEN and its RUN.in. When that
+happened, its counted end was dropped and the item could be taken twice. Fix: the taken event now names the engine
+that took it (`engine`: pid, that pid's start time, and an id per engine, because one process may hold several), and
+the fold keeps it on the lease. `gone.owner_gone` reads it, and a lease is released (as gone, or as "no longer
+exists") only when that owner is gone too. Another process's engine is gone when its process is (`runrecord.state`).
+An engine in this process is gone once it has closed (`Engine.close` unregisters it) or the process was exec'd over (a
+hard restart keeps the pid, and the id is no longer registered). The owner is put on the lease, not on `RUN.json` as
+the finding suggested, because the lease also covers the window before any run file exists. The more reversible
+choices: a lease naming no engine (taken before this change) and a lease naming this engine are left to their TTL,
+and unknown is never gone. Test: `tests/test_lease_gone.py::test_another_engines_run_ending_is_its_own_counted_end_and_nothing_is_taken_twice`
+opens the window: a second Engine's `dispatch.once` runs `exit 3`, with `runrecord.remove` held for 2.5 s while the
+serving engine's watchdog loops (at least 5 passes inside the window). It checks that the one end is the run's own
+counted nack (attempts 1) and that there is one TAKEN. `::test_at_start_a_lease_of_a_run_that_no_longer_exists_is_ended`
+now checks that the first pass leaves a lease with no record when its owner is a live engine in this process, a live
+other process, or not named. Both tests failed with `or not owner_gone(d, lease)` taken out and pass with it. The
+hand-made leases in that file name a closed engine. `tests/test_leases.py::test_leases_survive_a_restart_the_fold_is_the_truth`
+unregisters its "dead" first engine, as its process ending would. About 45 net lines more outside tests/, docs/ and
+dev/ (about 230 in all, budget 600). SPEC §9.5 (the taken event's `engine`, *A run gone*) is updated. Ran, one file at a
+time: tests/test_lease_gone.py (7 passed); tests/test_leases.py, tests/test_resilience.py and
+tests/test_leased_workspaces.py (81 passed); tests/test_runs_outlive_engine.py, tests/test_factory_outage.py and
+tests/test_faults_healthy.py (38 passed); tests/test_engine_shard.py, tests/test_runner_and_state.py and
+tests/test_finding_attention.py (70 passed); tests/test_daemons_restart.py, tests/test_shards.py and
+tests/test_agents.py (43 passed); tests/test_daemons.py (34 passed). ruff is clean. The browser files were not run,
+because no page code changed.
