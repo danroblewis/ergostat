@@ -7528,8 +7528,12 @@ out among the runs it saw). Memory and processes between samples are not seen, n
 (its `memory_peak` 0). Without a readable `reaped` (a keeper killed, or one from before it was written) the CPU is
 the sampled sum alone, which can miss up to the last gap of the run, and `method` has no `keeper`.
 
-Once a run's `exit` can be read, a last sample is taken and the run leaves the beat's readings; its readings are
-kept, unsampled, until its folder is removed. They are the `resources` of its **`ended`** (below, sent by the
+A run is sampled only before its keeper has reaped it: a sample whose run has a `reaped` or an `exit` once the
+listing is taken is dropped, and a run whose `exit` was read is never sampled again. From then on its group's id may
+be a stranger's (the pid reused once the group empties), so a restarted worker's run found already ended has
+nothing from the process on that pid; what the run left running after its exit, and its last second before, go
+unseen (its CPU then only what `reaped` holds). Once a run's `exit` can be read the run leaves the beat's readings;
+its readings are kept, unsampled, until its folder is removed. They are the `resources` of its **`ended`** (below, sent by the
 output follower after the run's last `out`), with `reaped` read again then: a run `ended` before any look found
 it has its CPU from `reaped` and `samples` 0 (`method` `keeper`), and an `ended` said again after an `attach` carries
 them again. A run never started (an exit and no `pgid`) has `method` `none`. The sampler sends no frame itself. A

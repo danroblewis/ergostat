@@ -82,3 +82,20 @@ after `wait4`, so a run stopped at its deadline still has its keeper's CPU. Its 
 opening paragraph keeps main's text (the engine's session with each node, 12s.4; `runs-on:` checked only) with the
 branch's "and its CPU and memory read (12s.3)". After the merge, the readings (5), keeper (5), output (6),
 worker-protocol (8) and connection (6) tests pass, and ruff is clean.
+
+Round 6: the one finding was a stranger on an ended run's pid (the keeper has reaped the leader, so whatever holds
+that pid or group id later may be another process, and its memory, processes and CPU went into `ended.resources`).
+Fixed by sampling a run only before its keeper has reaped it: a run whose `exit` was read is never sampled again
+(no last sample), and after each listing any due run that now has `reaped` or `exit` has its sample dropped, so a
+pid freed and reused between the look and the listing is not read either. Decision taken alone (the most
+reversible): no last sample after the exit, rather than a group-only one, since a stranger that reused the pid and
+made its own group has that same group id and nothing in a listing tells them apart. The cost, said in SPEC 12s.3:
+what a run leaves running after its exit, and its last second before it, go unseen (its CPU then only `reaped`).
+A sixth test, `test_a_stranger_on_an_ended_runs_pid_is_not_read`, puts a live unrelated process (its own group) on
+the pid of two runs: one first found already ended (a restarted worker), and one whose `reaped` is written during
+the listing. Both must read samples 0, memory 0, `method` `keeper` and exactly the `reaped` CPU. With the
+after-listing drop disabled it fails (the stranger's memory read); the exclusion of an exit-read run is covered by
+the same drop (that run has `exit` too), so it only saves a listing and no test fails without it alone.
+After the change the readings (6), keeper (5) and output (6) tests pass, and ruff is clean.
+
+Overrun reason: 251 net lines against 150 after round 6 (+3: the after-listing drop of a reaped run). The four reasons above still stand.

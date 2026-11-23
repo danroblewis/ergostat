@@ -1,9 +1,10 @@
 """Each run's CPU and memory on the node, as readings (SPEC §12s.3, *Readings*). One thread for every run finds
 the runs in the root's ``runs/`` (each folder and its ``pgid``), lists the processes once a sample (``/proc`` on
 Linux, one ``ps`` elsewhere) and reads each run's tree: its process group and its descendants by parent. A run is
-sampled once a second for its first ten seconds seen, then every ten. Its resources carry the keys a local run's do
-(``ergostat/costs/sampler.py``, ``Tracker.result``). The latest is in each ``beat``; the whole, with the CPU the
-keeper's ``wait4`` gave (its ``reaped`` file), is in the ``resources`` of the run's ``ended`` (output.py says it).
+sampled once a second for its first ten seconds seen, then every ten, and only before its keeper has reaped it (no
+``reaped`` or ``exit`` there after the listing): from then on its group's id may be a stranger's. Its resources
+carry the keys a local run's do (``ergostat/costs/sampler.py``, ``Tracker.result``). The latest is in each ``beat``; the
+whole, with the CPU the keeper's ``wait4`` gave (its ``reaped`` file), is in the ``resources`` of its ``ended``.
 Readings are measurements: nothing here sends a frame or writes an event."""
 
 import functools
@@ -211,11 +212,13 @@ class Readings:
                     ends.add(n)                           # (read after the exit: the keeper writes it before)
                     r.reap(_read(os.path.join(self.runs_dir, n, "reaped"), json.loads))
             due = [r for r in self.runs.values() if r.pgid is not None and not r.ended
-                   and (r.due <= now + 0.05 or r.name in ends)]
+                   and r.due <= now + 0.05 and r.name not in ends]
         if not due and not ends:
             return
         c0 = time.thread_time()
         rows, cost = listing() if due else ({}, 0.0)
+        due = [r for r in due if not any(os.path.exists(os.path.join(self.runs_dir, r.name, f))
+                                         for f in ("reaped", "exit"))]   # (reaped since: its pid may be another's)
         kids: dict[int, list[int]] = {}
         for p, r in rows.items():
             kids.setdefault(r[0], []).append(p)

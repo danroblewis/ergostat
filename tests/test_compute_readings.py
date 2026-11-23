@@ -108,10 +108,46 @@ class _Writer:
         self.sent.append((type, fields))
 
 
-def test_one_thread_samples_four_runs(tmp_path, monkeypatch):
+def _module():
     spec = importlib.util.spec_from_file_location("worker_sampler", WORKER / "sampler.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
+    return mod
+
+
+def test_a_stranger_on_an_ended_runs_pid_is_not_read(tmp_path, monkeypatch):
+    """Once the keeper has reaped a run, its old pid may be a stranger's: a run first found ended (a restarted
+    worker), and one reaped between a look and its listing, have nothing of the process now on that pid."""
+    mod = _module()
+    runs = tmp_path / "runs"
+    stranger = subprocess.Popen(["sleep", "30"], start_new_session=True)     # (pid == pgid, as a reused leader's)
+    old, late = uuid.uuid4().hex, uuid.uuid4().hex
+    try:
+        for name in (old, late):
+            (runs / name).mkdir(parents=True)
+            (runs / name / "pgid").write_text(f"{stranger.pid}\n")
+        (runs / old / "reaped").write_text('{"user": 0.25, "system": 0.0}\n')
+        (runs / old / "exit").write_text('{"code": 0, "how": "exit"}\n')
+        real = mod.listing
+
+        def reaped_meanwhile():                                              # (the late run's keeper reaps it)
+            got = real()
+            (runs / late / "reaped").write_text('{"user": 0.5, "system": 0.0}\n')
+            return got
+        monkeypatch.setattr(mod, "listing", reaped_meanwhile)
+        r = mod.Readings(str(tmp_path))
+        r.look(time.monotonic())
+        r.look(time.monotonic() + 1.0)
+        got = {n: r.final(n) for n in (old, late)}
+        assert all(g["samples"] == 0 and g["memory_peak"] == 0 and g["method"] == "keeper" for g in got.values()), got
+        assert got[old]["cpu"] == 0.25 and got[late]["cpu"] == 0.5, got
+    finally:
+        os.killpg(stranger.pid, signal.SIGKILL)
+        stranger.wait()
+
+
+def test_one_thread_samples_four_runs(tmp_path, monkeypatch):
+    mod = _module()
     listings = []
     real = mod.listing
     monkeypatch.setattr(mod, "listing", lambda: listings.append(1) or real())
