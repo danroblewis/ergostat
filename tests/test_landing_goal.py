@@ -199,7 +199,7 @@ items:
   gap:
     id: gap/*
     states: [new, approved, queued, merged]        # (a gap arrives in its first state, as the factory's in open)
-    on: {gap.approved: approved, gap.queued: queued, gap.merged: merged}
+    on: {gap.opened: new, gap.approved: approved, gap.queued: queued, gap.merged: merged}
   batch:
     id: batch/*
     states: [testing, isolating, landed]
@@ -259,6 +259,16 @@ def test_a_waiting_gap_s_why_names_its_batch_and_run_or_the_batches_ahead(tmp_pa
     assert e["place"]["ahead"] == d["place"]["ahead"]
     assert "ahead of it: 1 unfinished batch item, the latest batch/r-6 (testing; size 1)" in e["summary"]
     assert answer(p, "gap/q", now=now, engine=up)["place"]["in"][0]["item"] == "batch/q-5"   # (its own batch)
+    # A gap in an earlier state, not waiting for the queue: gap/r left `new` too, but was never taken from it
+    p.events.add("gap.opened", item="gap/early", at=T0 + 90)
+    early = answer(p, "gap/early", now=now, engine=up)
+    assert early["now"]["state"] == "new"
+    assert early["place"] == {"in": [], "ahead": {}} and "ahead of it" not in early["summary"]
+    assert answer(p, "gap/later", now=now, engine=up)["place"]["ahead"] == d["place"]["ahead"]   # (still ahead)
+    # Taken from approved, then back in approved (its lease given back): counted by its state, as before, not twice
+    p.events.add("gap.approved", item="gap/r", at=T0 + 95)
+    assert answer(p, "gap/later", now=now, engine=up)["place"]["ahead"]["batch"]["n"] == 1
+    assert answer(p, "gap/early", now=now, engine=up)["place"]["ahead"] == {}
 
 
 def test_a_kind_no_relation_names_has_no_place(tmp_path):

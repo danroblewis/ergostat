@@ -254,3 +254,39 @@ test, without Playwright in that run), `tests/test_factory.py::test_ergostat_che
 Not run this round: the browser files under Playwright (no page changed this round), the unit suite, demo_check (no
 example touched). Bash refused a debug script (a Python heredoc reading an item's moves), so I found the
 first-state arrival by reading `items.py` instead.
+
+### Round 6: the review's finding (a batch ahead of every gap that ever left a state)
+
+Main had not moved (`git rev-list --count HEAD..main` is 0), so there was nothing to merge.
+
+- **"Ahead" was wider than a waiting gap's** (`ergostat/why/within.py`). Round 5 counted a batch ahead whenever its
+  gap had ever moved out of the asking gap's state, so with any batch unfinished, every gap in an earlier state
+  (open, planned, building, in-review, fix) read "ahead of it: N unfinished batch items". Now `waits_in` keeps, for
+  each named item, only the `from` of its last take (its last move into `leased`), and drops it once the item moves
+  back into that state. A batch counts ahead when its gap waits in the asker's state (a leased one in the state it was
+  taken from, as before) or when its gap's last take was from the asker's state and it has not come back. The queue's
+  head gap (approved, then leased, then queued) still counts ahead of an approved gap. A gap in `open` or `built` has
+  none ahead, because the last take of a batch's gaps is the queue's take from approved: a gap the reviewer took from
+  `built` was taken again later, from approved. Nothing in the rule names a kind. This reads the finding's first
+  suggestion ("the from of its move into the lease"). I did not take its other suggestion (the state the gap was in
+  when the holder named it), because that would compare the times of two items' events (lesson 2). If a gap's moves
+  can't be read, it has no take, so it is counted by its state alone. That undercounts and invents nothing.
+- New assertions in `test_a_waiting_gap_s_why_names_its_batch_and_run_or_the_batches_ahead`: a gap in `new` (the test
+  model's first state, which `gap/r` left too) gets no `ahead` and no "ahead of it" in its summary while `batch/r-6`
+  runs, and the approved `gap/later` still has it ahead. After `gap/r` goes back to approved, it is counted once, by
+  its state, and the `new` gap still has nothing ahead.
+- Seen to fail with the code broken: with round 5's "any state it left" clause put back next to the new one, the
+  `new` gap's assertion fails (ahead `{'batch': {'n': 2, …}}`). Code restored, nothing of the experiment committed.
+  Round 5's check (the queued assertion fails without the take clause) still holds, since that clause is what counts
+  the queued head now.
+- Docs: SPEC §5a (*place*). dev/README.md's line ("batches holding approved gaps are ahead of it") already says
+  this, so it is unchanged.
+
+Size: within.py +9 net this round, about 121 net lines outside tests/, docs/ and dev/. Under 600.
+
+Run here, serially, rc 0: tests/test_landing_goal.py (13 passed), then tests/test_landing_goal.py,
+tests/test_why.py and tests/test_queue_batch_item.py together (61 passed, 1 skipped: the batch-item browser test,
+without Playwright in that run), and `uv run ruff check ergostat tests scripts dev/bin/measure.py dev/bin/landing.py`
+(clean). Not run this round: the browser files under Playwright (no page changed), the unit suite, demo_check (no
+example touched), and the `ergostat check` tests (no model file changed). Bash refused a Python heredoc that would
+have rewritten within.py, so I made the same edits with the editor.

@@ -38,27 +38,36 @@ def unfinished(ctx, kind: str) -> list:
 
 
 def waits_in(ctx, its: list) -> tuple[dict, dict]:
-    """({id: its state as its work has it}, {id: the states it has left}). The first is SPEC §9.5's: its own, but for
-    one held by a run (``leased``), which waits in the state it was taken from, read from its last move into the lease
-    (that state unread: ``leased`` itself). The second is every ``from`` of its moves: an item the work has taken on
-    (approved, leased, then queued) has left the state the one behind it waits in. Moves unread: none left."""
+    """({id: its state as its work has it}, {id: the state its last take was from}). The first is SPEC §9.5's: its
+    own, but for one held by a run (``leased``), which waits in the state it was taken from, read from its last move
+    into the lease (that state unread: ``leased`` itself). The second: the ``from`` of its last move into the lease,
+    while it has not come back to that state since: an item the work took from a state and moved on (approved, leased,
+    then queued) is still ahead of one waiting there. Never taken, or back since: none. Moves unread: none."""
     ids = [i.id for i in its]
     with ctx.ix.lock:
         moved = {i.id: i.moves or [] for i in ctx.ix.items(None, ids=ids)} if ids else {}
-    out = {i.id: i.state for i in its}
+    out, taken = {i.id: i.state for i in its}, {}
+    for iid, moves in moved.items():
+        took = None
+        for m in moves:
+            if m["to"] == LEASED and m.get("from") not in (LEASED, None):
+                took = m["from"]
+            elif took is not None and m["to"] == took:
+                took = None                           # back in the state it was taken from
+        if took is not None:
+            taken[iid] = took
     for i in its:
         if i.state == LEASED:
-            took = [m["from"] for m in moved.get(i.id, []) if m["to"] == LEASED and m["from"] not in (LEASED, None)]
-            out[i.id] = took[-1] if took else LEASED
-    left = {iid: {m["from"] for m in moves if m.get("from")} for iid, moves in moved.items()}
-    return out, left
+            out[i.id] = taken.get(i.id, LEASED)
+    return out, taken
 
 
 def place(ctx, it) -> dict | None:
     """{"in": the unfinished items naming it, "ahead": {kind: {n, latest}}}, or None when no relation of the model may
     name its kind. Ahead of it: the unfinished items of a relating kind that name an item of its kind waiting in its
-    state (a leased one counted in the state it was taken from), or one that has left its state (an approved gap
-    behind the batch testing a gap the queue took from approved and moved on to queued), the latest first."""
+    state (a leased one counted in the state it was taken from), or one whose last take was from its state and that has
+    not come back to it (an approved gap behind the batch testing a gap the queue took from approved and moved on to
+    queued; never a gap in an earlier state, which no take of a batch's gaps was from), the latest first."""
     rels = relating(ctx.spec, it.kind)
     if not rels:
         return None
@@ -81,9 +90,9 @@ def place(ctx, it) -> dict | None:
         with ctx.ix.lock:
             links = [(a, d) for a, r, d in ctx.ix.links_from([h.id for h in open_]) if r in mine]
         named = ctx.items([d for _, d in links])
-        at, left = waits_in(ctx, [it, *named.values()])
+        at, taken = waits_in(ctx, [it, *named.values()])
         like = {a for a, d in links if d in named and named[d].kind == it.kind
-                and (at[d] == at[it.id] or at[it.id] in left.get(d, ()))}
+                and (at[d] == at[it.id] or taken.get(d) == at[it.id])}
         alike = [h for h in open_ if h.id in like]
         if alike:
             ahead[kind] = {"n": len(alike), "latest": said(ctx.spec, alike[0])}
