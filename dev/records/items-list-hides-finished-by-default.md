@@ -79,3 +79,13 @@ Round 3 (answering the queue: two `tests/test_graph_cli_web.py` snapshot tests f
 - I ran these files and they pass: `test_graph_cli_web.py` (42), `test_snapshot_sets.py` (4), `test_item_sets.py`
   (16), and `test_export.py` + `test_guide.py` (14 passed and 2 skipped there because Playwright was missing; the browser run
   is reported in the result). ruff is clean.
+
+Round 4 (the merge of main 58471daf conflicted in `util.js`):
+- Main gave `apiText`/`api` a third argument `kept` (true for the header's asks, which no page leaving aborts) and
+  aborts every other ask through `pageSignal()` when its page leaves. This branch had used the same slot for the click's
+  AbortSignal. Kept both: the third argument is `true` (kept), an AbortSignal (the page's own), or nothing. A page
+  ask with its own signal is aborted by either one (`AbortSignal.any`), so a newer click and a page left both let it go.
+- Ran after the merge: `test_item_sets.py` 16 passed; `test_graph_cli_web.py` 43 passed; `test_items_page.py` 54 passed
+  and 1 failed, the same `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` as in rounds 1-3
+  (it times out waiting for the project switcher). Still not run on clean main here; the factory's rerun decides it.
+  ruff is clean.
