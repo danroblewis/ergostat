@@ -141,6 +141,8 @@ function scorecardView(c) {
     ["coherence", arrow(co.mismatches_before, co.mismatches_after), (kinds ? `agree on the record: ${kinds}` : "nothing on the record to compare") + (co.introduced?.length ? `; new: ${co.introduced.join(", ")}` : "")],
     ["craft notes", arrow(cr.before, cr.after), `closed ${cr.closed.length}, opened ${cr.opened.length}`],
     ["fit", h("span", { class: ft.worse ? "s-open" : "" }, ft.worse ? "worse" : ft.made_measurable ? "made measurable" : ft.measurable_before ? "no worse" : "not measurable"), ft.says || ""],
+    ...(c.systems ? [["systems", h("span", { class: c.systems.worse.length ? "s-open" : c.systems.improved ? "s-ok" : "" }, c.systems.worse.length ? "worse" : c.systems.improved ? "improved" : "no better"),
+      "links inside/across: " + Object.entries(c.systems.by_system).map(([s, v]) => `${s} ${v.before ? `${v.before.inside}/${v.before.crossing}` : "–"} → ${v.after.inside}/${v.after.crossing}`).join(", ")]] : []),
     ["behaviour", h("span", { class: (c.lost || []).length ? "s-open" : "s-ok" }, (c.lost || []).length ? `${c.lost.length} lost` : "kept"), (c.lost || []).join("; ") || "what the old model explained, the new still explains"],
   ];
   return h("div", { class: "scorecard" },

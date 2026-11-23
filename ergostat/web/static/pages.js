@@ -130,7 +130,7 @@ async function pageRecord(main, q) {
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
   const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's
   const about = q.get("about") || "", from = q.get("from") || "", to = q.get("to") || "";   // a goal's, from its crossing
-  const at = (t) => new Date(t * 1000).toLocaleString([], { hour12: false });
+  const at = stamp;                                   // one time format (util.js)
   const scope = machine || inWindow || item || remote || about || from || to ? h("span", { class: "muted" }, [item ? `about ${item}` : "", about ? `of goal ${about}` : "", machine ? `from ${machine}` : "", remote ? `of remote ${remote}` : "", inWindow ? "in the window" : "", from ? `from ${at(from)}` : "", to ? `to ${at(to)}` : ""].filter(Boolean).join(", "),
     " ", h("a", { href: "/record" + (filt.value ? "?match=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
   const kept = () => Object.fromEntries([["match", filt.value], ["runs", runs.checked ? "1" : ""], ["about", about], ["from", from], ["to", to],
@@ -177,6 +177,7 @@ function formatOf(path, declared) {                      // how a file is shown:
   return IMAGE.test(path) ? "image" : ext === "md" ? "markdown" : ext === "json" ? "json" : CODE[ext] ? "code" : "text";
 }
 const LIST_SHOWN = 40;      // a long list (a session's messages) shows its latest; the API and the CLI give all of it
+const fieldOf = (name, v, ...rest) => timeField(name, v) ?? fieldView(v, ...rest);   // a time field as a stamp (util.js)
 function fieldView(v, small = false, depth = 0, declared = null, there = "") {
   if (v == null || v === "") return h("span", { class: "muted" }, "–");
   // a remote's file: is a file in its own project, never ours: text, never fetched from our /file/ (SPEC §4c)
@@ -198,11 +199,11 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
       const shown = v.slice(-LIST_SHOWN), cols = [...new Set(shown.flatMap((x) => Object.keys(x)))];
       return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
         h("table", { class: "sub" }, tableCaption(cols.join(", ")), headRow(cols.map((c) => h("th", {}, c))),
-          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1, null, there)))))));
+          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldOf(c, x[c], false, depth + 1, null, there)))))));
     }
     return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1, null, there)]) : h("span", { class: "muted" }, "none");
   }
-  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1, null, there)))));
+  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldOf(k, x, false, depth + 1, null, there)))));
 }
 
 /* a file's contents, shown as what they are: one view of each file, kept across refreshes and asked for again
@@ -476,12 +477,27 @@ function actionAnswer(a, done) {
 }
 function actionsAbout(as, done) {
   if (!as.length) return h("p", { class: "muted" }, "No gated actions asked for about it.");
+  // what was done and by whom: approved by … 03:24, ran 03:24; or denied by …: why
+  const hm = (t) => (t ? ` ${new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}` : "");
+  const at = (a, st) => hm((a.moves || []).findLast((m) => m.to === st)?.time);
+  // who answered is the record's own words (record.who: an approval a later denial overrode, the gate's own denial)
+  const said = (a) => (a.state === "denied" ? `${a["approved by"]}${at(a, "denied")}`
+    : `approved by ${a["approved by"]}${at(a, "approved")}` + (a.state === "approved" ? "" : `, ${a.state}${at(a, a.state)}`));
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), " ",
-      h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : a.state),
-      h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` + (a.state === "requested" ? "" : a.state === "denied" ? `, ${a["approved by"]}` : `, approved by ${a["approved by"]}`))),
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : `: asked by ${a.by}, `,
+      h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : said(a)),
+      a.state === "requested" ? h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}`) : null),
     commandBox(a.command),
     actionAnswer(a, done))));
+}
+/* the Items page's line per class (record.asked): "push: 5 asked, 3 approved (by the gate), 1 denied, 1 waiting this
+   week · held for approval"; each action counted once, by where it ended */
+function actionClasses(by, shown) {
+  const who = (c) => (!c.approved ? "" : c.by_gate === c.approved ? " (by the gate)" : !c.by_gate ? " (by a person)" : ` (${c.by_gate} by the gate)`);
+  const gate = { approve: "held for approval", auto: "let through", deny: "never run" };
+  return h("ul", { class: "action-classes" }, Object.entries(by).filter(([c, x]) => shown(c, x)).map(([c, x]) => h("li", { "data-class": c },
+    h("b", {}, c), `: ${x.asked} asked, ${x.approved} approved${who(x)}, ${x.denied} denied, ${x.waiting} waiting this week · `,
+    h("span", { class: x.gate === "approve" ? "s-open" : "muted" }, gate[x.gate] || `gate ${x.gate || "unknown"}`))));
 }
 function actionView(d, refresh) {
   const f = d.fields;
@@ -555,7 +571,7 @@ function itemsFinished(q) { const v = q.get("finished"); return v === "show" || 
 /* the states the list leaves out unless shown: a kind's finished and dead, none for a kind that lives on (items.hidden_states) */
 const hiddenStates = (k) => (!k || k.lives_on ? [] : [...(k.finished || []), ...(k.dead ? ["dead"] : [])]);
 
-async function pageItems(main, q) {
+async function pageItems(main, q, only = false) {     // only: a kind's own page (/items/KIND), that kind alone
   const p = page(main, "Items");
   const notes = h("div"), box = h("div", { class: "item-systems" }, h("p", { class: "muted page-loading" }, "Loading…"));   // (until the first answer)
   const search = h("input", { type: "search", placeholder: "Search kinds, ids and fields", value: q.get("q") || "", "aria-label": "Search" });
@@ -623,7 +639,7 @@ async function pageItems(main, q) {
     try { await run; } finally { if (busy === run) { busy = null; ctl = null; } }
   }
   const ans = answers();
-  const go = () => { const u = new URLSearchParams(); if (kind) u.set("kind", kind); if (state) u.set("state", state);
+  const go = () => { const u = new URLSearchParams(); if (state) u.set("state", state);
                      for (const [k, v] of Object.entries(kind ? setParams() : {})) for (const x of [].concat(v)) u.append(k, x);
                      if (search.value) u.set("q", search.value);
                      if (finished !== "hide") u.set("finished", finished);
@@ -635,7 +651,9 @@ async function pageItems(main, q) {
                                             if (view === "graph" && ro.group === "kind") u.set("group", "kind");
                                             if (ro.status) u.set("status", ro.status);
                                             if (view === "timeline" && ro.lanes) u.set("rows", "lanes"); }
-                     replaceRoute("/items" + (u.toString() ? "?" + u : "")); refresh(); };
+                     if (only && !kind) return navigate("/items" + (u.toString() ? "?" + u : ""));   // the kind let go
+                     if (!kind && !u.toString()) u.set("view", "list");      // every kind's list (bare, /items is the overview)
+                     replaceRoute((kind ? `/items/${encodeURIComponent(kind)}` : "/items") + (u.toString() ? "?" + u : "")); refresh(); };
   search.addEventListener("input", () => go());
   let sysOf = {};                                      // each kind's system, as last listed
   const toggle = (sys) => {                            // a chosen kind's system is open: folding it lets the kind go
@@ -673,7 +691,8 @@ async function pageItems(main, q) {
     sysOf = Object.fromEntries(d.kinds.map((k) => [k.name, k.system]));
     const named = (k) => needle && `${k.name} ${k.title || ""}`.toLowerCase().includes(needle);   // the search names the kind
     const isOpen = (sys) => !folded.has(sys) || (kind && sysOf[kind] === sys) || d.kinds.some((k) => k.system === sys && named(k));
-    const systems = d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }];
+    const systems = (d.systems || [{ name: "", kinds: d.kinds.map((k) => k.name) }])      // a kind's page: its system, it alone
+      .flatMap((g) => (!only ? [g] : g.kinds.includes(kind) ? [{ ...g, kinds: [kind] }] : []));
     const kindOf = Object.fromEntries(d.kinds.map((x) => [x.name, x]));
     // each open kind: its states stacked over the window (a cumulative flow diagram), each named with its count,
     // a click on one shows its items; a kind without states, one line of its count. A flow over the window
@@ -687,6 +706,8 @@ async function pageItems(main, q) {
     }));
     // how far each block's claims held, under the ergostat.claim table
     const trustAsked = d.items.some((i) => i.kind === CLAIM_KIND) && (!kind || kind === CLAIM_KIND) ? ans.api("trust", {}, signal).catch(() => null) : null;
+    // above the gated actions' rows, a line per class: asked this week, and how each ended (with the trust table's)
+    const classesAsked = d.items.some((i) => i.kind === ACTION_KIND) && (!kind || kind === ACTION_KIND) ? ans.api("actions", { classes: 1 }, signal).catch(() => null) : null;
     // the Graph's and the Timeline's answers (relations.js), asked on every refresh: a relation can change on an item
     // the list does not show. Of the kinds with relations (or named by one) in each open system; the chosen kind alone.
     // Every system's at once, with the trust table's
@@ -698,7 +719,7 @@ async function pageItems(main, q) {
       const want = kind ? (g.kinds.includes(kind) ? [kind] : []) : g.kinds.filter((n) => relKinds.has(n));
       relAsked[g.name] = { want, d: want.length ? await ans.api("items-graph", { kinds: want.join(","), ...whatifParams() }, signal).catch((err) => ({ err })) : null };
     }));
-    const trust = await trustAsked;
+    const trust = await trustAsked, classes = (await classesAsked)?.asked ?? null;
     if (gone()) return;
     loaded();
     if (!force && !ans.changed && JSON.stringify(flows) === flowsWere) return;     // nothing changed: nothing touched
@@ -769,7 +790,7 @@ async function pageItems(main, q) {
         ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, "data-kind": i.kind || "", "data-state": i.state || "", ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
-          show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
+          show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldOf(f, i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
           ...(leased ? leaseCells(i.fields.lease, i.state) : []),
           ...(movedCol ? [h("td", { class: "num nowrap", title: (i.moved_at || []).map(when).join("\n") },
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
@@ -787,6 +808,7 @@ async function pageItems(main, q) {
         const title = kindOf[name]?.title;
         parts.push(h("h3", { class: "kind-head", key: `head:${name}` }, title || name || "No kind",
           title ? h("span", { class: "muted small mono" }, ` ${name}`) : null, h("span", { class: "muted" }, ` ${many}`)));
+        if (name === ACTION_KIND && classes) parts.push(keyed(actionClasses(classes, (c, x) => !needle || c.toLowerCase().includes(needle) || its.some((i) => x.actions.includes(i.fields.action))), "action-classes"));
         if (its.length) parts.push(keyed(tableOf(its, kindOf[name]?.show || [], limit), `table:${name}`));
         if (note) parts.push(note);
         if (name === CLAIM_KIND && trust) parts.push(keyed(trustView(trust), "trust"));   // how far each block's claims held
@@ -841,11 +863,9 @@ async function pageItems(main, q) {
 }
 
 /* an item's completion estimate (SPEC §5a, Completion estimates): when, by the p50; the p90 and why on hover */
-const etaWhen = (t) => (t == null ? "beyond the horizon" : new Date(t * 1000).toLocaleString([], { hour12: false, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }));
-/* a p90 after its p50: the time alone on the same day, else with its date; not said under twenty runs */
-const etaP90 = (e) => (e.p90 == null && e.runs != null && e.runs < 20 ? `p90 not worked out (${e.runs} runs)`
-  : e.p90 == null || e.p50 == null || new Date(e.p90 * 1000).toDateString() !== new Date(e.p50 * 1000).toDateString() ? `p90 ${etaWhen(e.p90)}`
-  : `p90 ${new Date(e.p90 * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}`);
+const etaWhen = (t) => (t == null ? "beyond the horizon" : stamp(t));
+/* a p90 after its p50; not said under twenty runs */
+const etaP90 = (e) => (e.p90 == null && e.runs != null && e.runs < 20 ? `p90 not worked out (${e.runs} runs)` : `p90 ${etaWhen(e.p90)}`);
 const ordinal = (n) => n + (n % 100 > 10 && n % 100 < 14 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
 function etaCell(e) {
   if (!e) return h("td", {}, "");
@@ -880,7 +900,7 @@ function leaseView(l, state) {
 }
 
 /* a field's history: each change, oldest first, with the event that made it (a click opens it) */
-const when = (t) => new Date(t * 1000).toLocaleString([], { hour12: false });
+const when = (t) => stamp(t);
 // why an unfinished item is not done (/api/why: SPEC §5a): the summary, who acts and how, the evidence linked
 function whyBox(w) {
   if (!w || !w.known || w.done) return null;
@@ -900,11 +920,11 @@ function eventLink(eid, type, d) {
 function recordLinkItem(id) {
   return h("a", { href: `/record?item=${encodeURIComponent(id)}` }, "all of them in the Record");
 }
-function historyView(cs, total, d) {
+function historyView(cs, total, d, f) {
   if (!total) return null;
   const how = (c) => c.op === "rolled up" ? `${c.count} change${c.count > 1 ? "s" : ""} from ${when(c.first.time)}, rolled up`
     : c.op === "refused" ? "refused" : c.op + (c.rule && c.rule !== "replace" ? ` (${c.rule})` : "") + (c.form !== "data" ? ` by ${c.form}` : "");
-  const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldView(v, true));
+  const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldOf(f, v, true));
   const rows = cs.slice().reverse().map((c, i) => h("tr", { key: c.event ? `${c.event}|${c.path || "/"}|${c.op}` : `${c.time}|${i}` }, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
     h("td", { class: "mono small" }, c.path || "/"), h("td", { class: "cell" }, c.op === "refused" ? c.why : val(c.before)),
     h("td", { class: "cell" }, c.op === "refused" ? "" : val(c.after)), h("td", { class: "nowrap" }, eventLink(c.event, c.type, d))));
@@ -946,7 +966,7 @@ async function pageRemoteItem(main, id, name) {
     patch(body, remoteSaid(name, d), h("div", { class: "meta" }, pair("Remote", name), pair("Kind", it.kind_of?.name || it.kind || "–"),
       pair("State", stateWord(it.state)), pair("Events", String(it.events ?? evs.length))),
       h("h2", {}, "Fields"), Object.keys(f).length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, Object.keys(f).sort().map((k) =>
-        h("tr", { key: k }, h("th", {}, k), h("td", {}, fieldView(f[k], false, 0, null, name)))))) : h("p", { class: "muted" }, "No fields."),
+        h("tr", { key: k }, h("th", {}, k), h("td", {}, fieldOf(k, f[k], false, 0, null, name)))))) : h("p", { class: "muted" }, "No fields."),
       h("h2", {}, "How it moved"), (it.moves || []).length ? table(["when", "from", "to", "by event"], it.moves.map((m) => h("tr", { key: `${m.time}|${m.to}` },
         h("td", { class: "nowrap" }, when(m.time)), h("td", {}, m.from || "arrived"), h("td", {}, m.to), h("td", { class: "muted" }, m.type)))) : h("p", { class: "muted" }, "No moves."),
       h("h2", {}, "Events"), eventsTable(evs, true));
@@ -1002,7 +1022,7 @@ async function pageItem(main, id, q) {
     const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
-      d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
+      d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, when(m.time)), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
     // its kind's chosen fields first, in their order, then the rest by name
     const first = (k?.show || []).filter((f) => f in d.fields);
@@ -1011,8 +1031,8 @@ async function pageItem(main, id, q) {
     const lease = d.fields.lease && typeof d.fields.lease === "object" ? [h("h2", {}, "Lease"), leaseView(d.fields.lease, d.state)] : [];
     const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f, key: f },
       h("th", {}, f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null),
-      h("td", {}, f in d.fields ? fieldView(d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
-        historyView(hist[f] || [], (d.changes || {})[f] || 0, d))))))
+      h("td", {}, f in d.fields ? fieldOf(f, d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
+        historyView(hist[f] || [], (d.changes || {})[f] || 0, d, f))))))
       : h("p", { class: "muted" }, "No fields: its events carry no data.");
     const refused = (d.refused || []).length ? [h("h2", {}, "Refused"), h("p", { class: "note" }, "Events recorded that changed nothing: their changeset could not apply, so none of it did."),
       table(["when", "event", "as", "why"], d.refused.slice().reverse().map((r) => h("tr", { key: r.event }, h("td", { class: "nowrap" }, when(r.time)),
