@@ -344,6 +344,25 @@ review into *Done recently*). Newest decisions from the owner first within each 
   `Engine.run_block` or `Dispatcher.take` (and, with `[budget]` in `ergostat.toml`, `runner.run_agent`) asks a permit under a file lock, and a charged run is refused unless what
   is left of the day covers `max-cost`; spend is folded by run id, an unknown cost charged as the reserve;
   `ergostat.budget.left`. It covers those start paths only.
+- **The day's AI budget, P3: runs reserve before they start** (done; `run-budget-reserve`, merged in c8c94527; SPEC
+  §9.9, `docs/roadmap/overnight/run-budget-reserve.md`, `dev/records/the-day-s-ai-budget-p3-runs.md`):
+  `budget: {daily, max-cost}`; every run started through `Engine.run_block` or `Dispatcher.take` asks a permit under
+  a file lock, and a charged run is refused unless what is left of the day covers `max-cost`; spend is folded by run
+  id, an unknown cost charged as the reserve; `ergostat.budget.left`. P3 itself covers those two start paths only:
+  ergostat's own AI calls are the next entry's (`ai-calls-ask-the-budget`), and models in `ergostat.toml` are left to
+  `toml-models-budget`.
+- **ergostat's own AI calls under the budget** (in part; `factory/ai-calls-ask-the-budget`, SPEC §9.9,
+  `dev/records/ai-calls-ask-the-budget.md`). Done: every call through `decisions/ai.call` (decisions extract, the
+  intent verdicts from `Engine.judge` and `ergostat intent judge`, `improve --architecture`) reserves its per-call cap
+  under P3's lock (`costs/budget.ask`), is refused when the day's budget is gone, is closed with its reported cost
+  (unknown: its reserve), and is counted once inside a reserving run. So does every call through
+  `numbers/modeller` (the redesigner, the modelling reviewer, the ai tier, the architecture review:
+  `modeller-calls-ask-the-budget`, `dev/records/modeller-calls-ask-the-budget.md`), at its `unsaid` estimate. A
+  structural scan (`test_only_listed_ai_starts`) finds AI commands started only in `decisions/ai.py`,
+  `numbers/modeller.py` and a named allowlist (`bench/`, `session.py`, `supervisor.chat`, `spec/engine.py`,
+  `repair/fix.py`). Left: models in `ergostat.toml` (`runner.run_agent`), which have no `budget:`
+  (`toml-models-budget`). Their ends count in spent when priced, but nothing refuses them when the day's budget is
+  gone.
 - **T1: a run stopped at its spend cap** (done; `run-budget-trip`, SPEC §9.9, `dev/records/run-budget-trip.md`):
   each run gets its reserve as its cap (`ERGOSTAT_MAX_COST`; `--max-budget-usd` on an `ai` block's own `claude`),
   `ergostat session` takes all that is left from a per-run ledger under `flock`, and the engine kills the run's
