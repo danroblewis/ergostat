@@ -185,3 +185,26 @@ Run: `test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named`,
 `test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks` (3 passed, rc 0, under the watchdog);
 `tests/test_graph_cli_web.py` (41 passed); ruff clean. Not run: the whole unit suite and the four browser files in
 full (left to the factory and the merge queue).
+
+## Where it stopped (continued, round 2)
+
+The merge of main (7cb97857) conflicted in `pages.js`. Main moved each loop's behaviour into `/api/loops?perf=1`
+(worked out on the server in the background, again every 5 minutes, `PERF_LIFE`). The page no longer asks
+`/api/loop-control` for each loop every 5 minutes. Both sides are kept:
+- Main's one answer, its `lp.points` trend, and its 'being worked out' / 'could not be worked out' words.
+- The branch's hysteresis and flapping now sit in main's `word()`. A goal with 20 crossings or more reads
+  `flapping (N crossings in W)` through `steadyWord`. Any other analysed behaviour goes through `steadyWord` too.
+  'Being worked out' is shown as it is. `PERF_EVERY` (300 s) still sets the stale margin and matches the server's
+  `PERF_LIFE`.
+- About 1 more net line of code (about 33 in all).
+
+Tests changed to match: the two behaviour tests now give `perf` inside their mocked `/api/loops` answer, not through
+`/api/loop-control`. In `tests/test_graph_cli_web.py`, the source check's pattern follows the merged line. Each
+behaviour test was seen to fail with a break: with no hysteresis, the reload test showed
+`['past its bound', 'within its bound', ...]`; with the stale limit set back to the hold alone, the open-page test
+showed `['past its bound', 'within its bound', 'past its bound', 'within its bound']`.
+
+Run: both behaviour tests and main's `test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks`
+(3 passed, rc 0, under the watchdog); `tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (passed);
+`tests/test_graph_cli_web.py` (41 passed); ruff clean. Not run: the whole unit suite and the four browser files in
+full (left to the factory and the merge queue).

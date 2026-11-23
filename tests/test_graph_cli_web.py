@@ -303,7 +303,7 @@ def test_the_loops_row_writes_shares_through_share_text_and_names_flapping_at_tw
     loops = pages[pages.index("async function pageLoops"):]
     loops = loops[:loops.index("\nasync function ", 1)]
     assert "shareText(lp.off_share)" in loops and '"0%"' not in loops, "time off is not written through shareText"
-    assert re.search(r"steadyWord\(n, lp\.times_off >= FLAP_AT \? `flapping \(", loops), "flapping not named in the row"
+    assert re.search(r"lp\.times_off >= FLAP_AT \? steadyWord\(n, `flapping \(", loops), "flapping not named in the row"
 
 
 def test_api_status_counts_the_goals_off_with_modellings_own_beside_them(tmp_path, monkeypatch):

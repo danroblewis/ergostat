@@ -3008,15 +3008,11 @@ def test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named(browser, t
     row = {"stock": "backlog", "value": 5, "setpoint": "<= 8", "band": "", "error": 0, "status": "holding",
            "off_share": 0.003, "back_in": None, "times_off": 1, "observed": True}
 
-    def loops(rt):
-        rt.fulfill(status=200, content_type="application/json",
-                   body=json.dumps({"steady": row, "flappy": {**row, "times_off": 23, "off_share": 0.05}}))
-
-    def control(rt):                                     # the share past its bound flips with each load, its status not
-        loaded[0] += "goal=steady" in rt.request.url
-        share = 0.04 if loaded[0] % 2 else 0.0
+    def loops(rt):                                       # the share past its bound flips with each answer, its status not
+        loaded[0] += "perf=1" in rt.request.url
+        perf = {"performance": {"constraint": {"share": 0.04 if loaded[0] % 2 else 0.0, "share_off": 0, "mean": 1, "worst": 1}}}
         rt.fulfill(status=200, content_type="application/json", body=json.dumps(
-            {"goal": "steady", "performance": {"constraint": {"share": share, "share_off": 0, "mean": 1, "worst": 1}}}))
+            {"steady": {**row, "perf": perf}, "flappy": {**row, "times_off": 23, "off_share": 0.05, "perf": perf}}))
     try:
         for _ in range(100):
             try:
@@ -3028,7 +3024,6 @@ def test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named(browser, t
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.route(lambda u: "/api/loops?" in u, loops)
-        pg.route(lambda u: "/api/loop-control?" in u, control)
         seen = []
         for _ in range(5):
             pg.goto(url + "/loops")
@@ -3067,28 +3062,22 @@ def test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named(browser, t
 
 
 def test_a_goals_behaviour_holds_across_refreshes_of_an_open_page(browser, tmp_path, monkeypatch):
-    """The Loops page left open: its behaviours are asked again every 5 minutes, and each answer flips the share past
-    its bound (4%, 0%, 4%, ...) with no change of status. Across refreshes 5 minutes apart (the page's clock jumped
-    forward) the behaviour text stays the same."""
+    """The Loops page left open: each answer of its behaviours flips the share past its bound (4%, 0%, 4%, ...) with
+    no change of status. Across refreshes 5 minutes apart (the page's clock jumped forward, as the server works each
+    behaviour out again) the behaviour text stays the same."""
     d = charted(tmp_path, monkeypatch)
     port = free_port()
     proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
                             env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{port}"
-    loaded, asked = [0], [0]
+    loaded = [0]
     row = {"stock": "backlog", "value": 5, "setpoint": "<= 8", "band": "", "error": 0, "status": "holding",
            "off_share": 0.003, "back_in": None, "times_off": 1, "observed": True}
 
-    def loops(rt):                                       # its value moves (so the page redraws), its status not
-        asked[0] += 1
-        rt.fulfill(status=200, content_type="application/json",
-                   body=json.dumps({"steady": {**row, "value": 5 + asked[0] % 2}}))
-
-    def control(rt):
-        loaded[0] += 1
-        share = 0.04 if loaded[0] % 2 else 0.0
-        rt.fulfill(status=200, content_type="application/json", body=json.dumps(
-            {"goal": "steady", "performance": {"constraint": {"share": share, "share_off": 0, "mean": 1, "worst": 1}}}))
+    def loops(rt):                                       # its share past its bound flips with each answer, its status not
+        loaded[0] += "perf=1" in rt.request.url
+        perf = {"performance": {"constraint": {"share": 0.04 if loaded[0] % 2 else 0.0, "share_off": 0, "mean": 1, "worst": 1}}}
+        rt.fulfill(status=200, content_type="application/json", body=json.dumps({"steady": {**row, "perf": perf}}))
     try:
         for _ in range(100):
             try:
@@ -3101,7 +3090,6 @@ def test_a_goals_behaviour_holds_across_refreshes_of_an_open_page(browser, tmp_p
         pg.on("pageerror", lambda e: errors.append(str(e)))
         pg.clock.install()
         pg.route(lambda u: "/api/loops?" in u, loops)
-        pg.route(lambda u: "/api/loop-control?" in u, control)
         pg.goto(url + "/loops")
         cell = "() => document.querySelector('td[data-perf=\"steady\"]')?.textContent"
         pg.wait_for_function(cell, timeout=20000)
