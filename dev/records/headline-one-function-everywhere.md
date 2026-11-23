@@ -147,3 +147,21 @@ test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart failed: it 
 (line 1647). This is the main-side failure described in round 1 (it serves both projects with `ergostat web`, which
 never holds `run.pid`), and the branch does not change that test. The first run had one more failure. It passed on
 both later runs, and its name was not captured. tests/test_diagram_rendering.py was not run whole this round.
+
+## Where it stopped
+
+Round 6: main (e43046dc) merged in. Three conflicts, each resolved by keeping both sides:
+- ergostat/state.py: main's new `quiet()` and this branch's `goals_said()`.
+- pages.js's Loops page: main's quiet-systems box and this branch's heading that prints the server's goals-off count.
+- tests/test_items_page.py: this branch's acceptance test and main's items-overview tests.
+No other change. Main's quiet line is chosen by the server (`state.quiet`), so the page still makes no count of its own.
+
+Runs: ruff is clean. These pass: the two acceptance tests in tests/test_graph_cli_web.py,
+tests/test_items_page.py::test_every_surface_prints_the_servers_one_count_of_goals_off (under the watchdog), and
+main's tests/test_page_refresh.py::test_a_quiet_system_says_so_on_the_loops_page_and_in_its_panel_until_a_goal_goes_off.
+tests/test_page_refresh.py::test_other_pages_left_open_change_nothing[diagram?view=process&by=events] failed on both
+of its two runs (32 mutations, then 6). They come from an H1 `title` and a DIV `class`. Those are set on every refresh
+by main's own lines in diagram.js `show()` (`shell.classList.remove("opening")` and `caption.title = …`). This branch
+changes neither line. On the process view its caption code is skipped, and its side heading changes only a SPAN's text.
+It is left alone (lesson 13). A run with main's diagram.js put back was refused here, so this rests on reading the
+code, not on a run.
