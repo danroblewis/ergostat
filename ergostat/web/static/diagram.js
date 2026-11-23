@@ -1165,8 +1165,8 @@ async function pageDiagram(main, q) {
   const toolbar = h("div", { class: "toolbar" },
     h("span", { class: "seg", role: "group", "aria-label": "View" },
       h("button", { class: view === "dynamics" ? "on" : "", title: "The stock-and-flow diagram, as system dynamics draws it",
-                    onclick: () => go({ view: "dynamics" }) }, "Dynamics", h("span", { class: "what" }, " · what is")),
-      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => go({ view: "blocks" }) },
+                    onclick: () => { carryPanel(); go({ view: "dynamics" }); } }, "Dynamics", h("span", { class: "what" }, " · what is")),   // (the panel kept: interact.js)
+      h("button", { class: view === "blocks" ? "on" : "", title: "The control system as a block diagram", onclick: () => { carryPanel(); go({ view: "blocks" }); } },
         "Blocks", h("span", { class: "what" }, " · what is controlled")),
       h("button", { class: view === "process" ? "on" : "", title: "The process map: how items really moved, from the record (a directly-follows graph per kind)",
                     onclick: () => go({ view: "process" }) }, "Process", h("span", { class: "what" }, " · what happened"))),
@@ -1282,6 +1282,7 @@ async function pageDiagram(main, q) {
         if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
       }
       renderSide(side, g, "blocks");
+      carriedPanel();                                  // a panel open before a switch of view (interact.js)
       if (typeof toolArrived === "function") toolArrived();    // a model tool asked for from the Model page (review.js)
       return;
     }
@@ -1318,6 +1319,7 @@ async function pageDiagram(main, q) {
     drawGraph(svg, g, S.layout);
     if (!S.fitted) { fit(svg, S.layout, true); S.fitted = true; }
     renderSide(side, g, view);
+    carriedPanel();
     if (typeof toolArrived === "function") toolArrived();
   }
   S.relayout = () => { S.graphSig = ""; return tick(); };      // after a part is pinned or unpinned

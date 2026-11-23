@@ -1620,8 +1620,15 @@ group (or for the chosen kind), the kinds with relations and the items their rel
 
 Both stay as they are while what they show is the same (a refresh draws nothing), and are drawn again in place,
 the reader's pan and zoom kept, when it changes. Bounded: 600 unfinished items of each kind asked, 400 finished in
-the window, 400 more reached by relations (six links away at most), 300 cards and 200 rows drawn; a note says when
-any was reached. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
+the window, 400 more reached by relations (six links away at most), 600 cards and 200 rows drawn; a note says when
+any was reached. Both draw the items of the kinds asked; another kind's item only when one of them waits on it
+(a precedence relation, however far back) or as the parent of one drawn, so a record that only names an item (a
+review of a gap) is in the answer, for the counts, but not drawn. Past its 600 cards the Graph keeps whole connected
+groups (precedence links only; `web/graph_parts.py`), each with its parents, in order of the best status each holds
+(active, then queued, then unblocked, …); the first group that does not fit whole is cut inside, its most active
+items kept, and the groups after it are left out. Only that cut, and a parent drawn for its child while its own
+group is left out, can leave a dependency line half drawn; its note says how many items and dependency lines are
+not drawn, those included. The caps bound what is drawn, never whether an item waits: a precedence target cut from the graph
 is read by id and its own status counts (one that cannot be read counts as unfinished, and is named). In a snapshot
 they are not drawn.
 
@@ -6973,7 +6980,7 @@ capped failure is given back for an hour, not counted as an attempt. `repair-spe
 
 A compute node runs what this engine decided and nothing else; it holds no model, goals or record, fills no role
 and is never drawn (the design: `docs/proposals/compute-systems.md`). What is built so far is the node's side of
-the protocol: the worker, its frame, `hello`, `beat` and `ping`. Nothing in the engine speaks to it yet, and no
+the protocol: the worker, its frame, `hello`, `beat` and `ping`, and a run started under its keeper (12s.3). Nothing in the engine speaks to it yet, and no
 model says `compute:` or `runs-on:` yet; a model is unchanged by any of this.
 
 **The worker.** `ergostat/compute/worker/` is a folder of single-purpose modules, standard library only, flat: its
@@ -7028,8 +7035,50 @@ closed, the worker ends (0).
 
 ### 12s.3 A run on a node: start, limits, output and its keeper
 
-(To be filled: `start`, `started`, `refused`, the process backend and its limits, `out` by offset, `ended`, the
-run folders and the per-run keeper.)
+Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`,
+registered in `serve.HANDLERS` once `hello` is said). Still to come: the keeper's wall and lease deadlines, `out`
+by offset, `ended`, `done` and the runs listed in `hello` (`backends` stays `[]` until then).
+
+**`start`** `{"run", "command", "input", "env", "block", "limits"}`: `command` a non-empty string, `input` (the
+run's standard input) a string, `env` an object of strings, else an `error`. It is answered `refused` with `why`:
+
+- `bad name`: `run` is not exactly 32 lower-case hex digits, or a run of that id has a folder here already (never
+  made again over it);
+- `limits over the node`: a limit other than `cpus`, `memory` (bytes), `pids` and `wall` (seconds), or one not a
+  positive number within the node (`cpus` and `memory` at most what `hello` said, and over when that was null;
+  `pids` at most 32768; `wall` at most a day). `network` is refused on this backend rather than pretended;
+- `full`: as many runs going as `slots` (a run folder with no `exit` yet counts as going), counted and the folder
+  made under one lock (`runs/.lock`), so two workers on one root can't both take the last slot;
+- `no keeper`: the folder's files could not be written or the keeper could not be started; the folder is removed.
+
+Each refusal makes no folder and no process. Else the worker makes `runs/RUN/` in the root with `run.json` (the
+run id, block, backend `process`, command, env and limits), `in` and an empty `cwd/`, starts the keeper
+(`python3 -I WORKER --keep RUN --root ROOT`, the same folder or zipapp, in a session of its own, standard input
+from `/dev/null`, its output to `runs/RUN/keeper.log`, SIGHUP ignored), and answers `started` with `run` and
+`keeper` (its pid). The worker reaps its keepers; nothing ties a keeper to the worker, so closing the worker's
+standard input, or killing its session, leaves every run going.
+
+**The keeper** forks the run. The child takes its own process group (the keeper sets it too, so a stop never
+precedes it), writes `runs/RUN/pgid` before anything else, sets `RLIMIT_AS` to `memory`, `RLIMIT_NPROC` to `pids`
+and `RLIMIT_CPU` to `cpus × wall` (rounded up) when given, and on Linux `PR_SET_PDEATHSIG = SIGKILL` (by `ctypes`;
+the run is not started if that fails or the keeper has already gone) and `oom_score_adj` 500 (best effort: it
+orders the OOM killer's choice, run before keeper). It sets `SIGPIPE`, `SIGXFSZ` and `SIGHUP` back to their
+default (Python and the keeper ignore them, and an ignored signal stays ignored across exec, so `yes | head` would
+not end on its broken pipe). It then execs `/bin/sh -c COMMAND` in `cwd/` with the keeper's
+environment and `env` over it, standard input from `in`, output to `out` and `err`. The keeper waits for it and
+writes `runs/RUN/exit` (whole, by a replace) as `{"code", "how"}`: the exit code, or `-N` for signal N, and `how`,
+`exit` or the signal's name (`USR1`), or `TERM`/`KILL` when it was stopped; `{"code": null, "how": "not started"}`
+when it could not fork. A keeper that is itself killed writes nothing: on Linux the kernel then SIGKILLs the run's
+first process (the death signal), but other processes of its group go on.
+
+**`kill`** `{"run", "grace", "why"}` (`grace` 0 to 600 seconds, 10 by default, else an `error`) writes
+`runs/RUN/stop` and is answered `stopping`, or `refused` `no such run`. The keeper looks for the stop file every
+quarter second; seeing it while the run goes, it sends SIGTERM to the run's whole group, then SIGKILL to the group
+once the grace has passed if any of it is left (`how` is then `KILL`, else `TERM`). A stop file that can't be
+read stops the run all the same, with the 10-second grace.
+
+After the exit is written the keeper waits for `runs/RUN/done` or a day (`--day SECONDS`, hidden, for tests),
+removes its run folder (by its name, after resolving it under the root's `runs/`), and ends.
 
 ### 12s.4 Pools in the model, and the engine's connection
 
