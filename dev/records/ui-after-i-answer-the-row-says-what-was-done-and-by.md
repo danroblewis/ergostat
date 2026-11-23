@@ -119,3 +119,16 @@ The review's one finding (lesson-5, `diagram.js` ANSWERED kept under a fixed id)
   against the code before the fix (timed out waiting for the answered row to go) and passes with it.
 - Ran: `tests/test_inbox_page.py` under the watchdog, 11 passed, rc 0, none skipped. `ruff check ergostat tests
   scripts` is clean. The other browser files were not run (the factory runs them).
+
+## Where it stopped (round 5)
+
+Main (5411f137) is merged in. It conflicted in `diagram.js` only, and the conflict is resolved with main's side kept
+throughout. On main, "Waiting for you" shows only when something waits, folds past three, and gives each list a key.
+The branch adds two things to that. `list` takes the answered rows after main's `key` argument and draws them at the
+top of the group. The group also shows while `ANSWERED` holds an entry, so a row answered here stays after the last
+waiting entry is answered.
+
+- Checked that the test can fail: with the group shown only while `waiting.length` is non-zero, the acceptance test
+  failed (timed out waiting for the `data-answered` row). It passes with the fix.
+- Ran: `tests/test_inbox_page.py` under the watchdog, 12 passed, rc 0, none skipped. `ruff check ergostat tests
+  scripts` is clean. The other browser files and the unit suite were not run (the factory runs them).
