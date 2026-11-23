@@ -40,6 +40,7 @@ function choose(parts, how = "only") {
   else if (how === "toggle" && parts.length && parts.every((p) => S.sel.has(p))) for (const p of parts) S.sel.delete(p);
   else for (const p of parts) S.sel.add(p);
   markChosen();
+  if (parseRoute().path === "/diagram") setQuery({ select: [...S.sel].join(",") });   // in the address: a reload rings them
   if (typeof peerSay === "function") peerSay({ type: "sel", parts: [...S.sel] });
 }
 function chooseShape(id, how = "only") { choose(partsOf(id), how); if (how === "only") whereElse(partsOf(id)); }

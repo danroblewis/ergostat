@@ -1589,6 +1589,177 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         events._kept.clear()
 
 
+WIDE_TICKETS = """
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({d!r})))
+t = time.time() - 30000
+steps = ["ticket.pick-up", "ticket.locate", "ticket.work", "ticket.open-pr", "ticket.ask-review"]
+for i in range(1, 9):
+    item = f"ticket/PROJ-{{100 + i}}"
+    for j, ev in enumerate(steps[: 2 + i % 4]):
+        data = {{}}
+        if j == 0:
+            data = {{"title": f"Make the export of the quarterly figures keep its column order, case {{i}}",
+                     "repo": "some-organisation/platform-services-monorepo"}}
+        if ev == "ticket.open-pr":
+            data = {{"pr": 7000 + i,
+                     "pr_url": f"https://git.example.com/some-organisation/platform-services-monorepo/pull/{{7000 + i}}"}}
+        if ev == "ticket.ask-review":
+            data = {{"repings": 2, "ci_failures": 1, "ai_cost_usd": 1.2345}}
+        p.events.add(ev, item=item, data=data, at=t + i * 600 + j * 60)
+p.events.add("ergostat.lease.taken", item="ticket/PROJ-103", data={{"block": "ask-review", "ttl": 2400, "max": 3,
+             "back": "pr-open", "tier": "program", "run": "run3aaaaaaaa", "fence": 1}})
+"""
+
+FITS = """() => {
+  const wrap = [...document.querySelectorAll('.table-wrap')].find((w) => w.textContent.includes('PROJ-101'));
+  const right = wrap.getBoundingClientRect().right;
+  return { wide: wrap.scrollWidth - wrap.clientWidth,
+           out: [...wrap.querySelectorAll('th')].filter((e) => e.getBoundingClientRect().right > right + 0.5).map((e) => e.textContent),
+           clipped: [...wrap.querySelectorAll('th, td')].filter((e) => e.scrollWidth > e.clientWidth).map((e) => e.textContent),
+           pr: [...wrap.querySelectorAll('td a[href*="/pull/"]')].map((a) => a.textContent),
+           shown: [...wrap.querySelectorAll('th')].filter((e) => e.offsetParent).map((e) => e.textContent) };
+}"""
+
+
+def test_the_items_table_fits_at_1440_px(browser, tmp_path):
+    """At 1440x900 the ticket table's every header ends within its container and no cell's text is clipped; a pull
+    request's address is a short link ('PR #7001'). At phone width the id, the state and the time in it are kept."""
+    d = tmp_path / "ticket-factory"
+    shutil.copytree(ROOT / "examples" / "ticket-factory", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    home = tmp_path / "home"
+    subprocess.run([sys.executable, "-c", WIDE_TICKETS.format(d=str(d))], env={**os.environ, "ERGOSTAT_HOME": str(home)},
+                   check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    pg = browser.new_page(viewport={"width": 1440, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        deadline = time.monotonic() + 120              # a loaded machine starts it slowly: wait for it, not a count
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                if time.monotonic() > deadline or proc.poll() is not None:
+                    pytest.fail("the page never came up")
+                time.sleep(0.2)
+        pg.goto(f"{url}/items?kind=ticket")
+        pg.wait_for_function("""() => document.body.innerText.includes('PROJ-108')
+                                && document.body.innerText.includes('leased by')""")
+        got = pg.evaluate(FITS)
+        assert got["wide"] <= 0 and not got["out"], got
+        assert not got["clipped"], got
+        assert got["pr"] and all(t.startswith("PR #70") for t in got["pr"]), got
+        assert {"latest", "last", "in state"} <= set(got["shown"]), got
+        pg.set_viewport_size({"width": 390, "height": 844})
+        pg.wait_for_function(f"() => ({FITS})().shown.length === 3")
+        got = pg.evaluate(FITS)
+        assert got["shown"] == ["item", "state", "in state"], got
+        assert got["wide"] <= 0, got
+        assert not errors, errors
+    finally:
+        pg.close()
+        proc.terminate()
+        proc.wait(timeout=10)
+
+
+# ---- the Timeline and the Graph of items that do not wait on one another (no relations declared)
+
+DESK = """name: desk
+items:
+  ticket:
+    id: ticket/*
+    states: [todo, doing, review, done]
+    on:
+      ticket.filed: todo
+      ticket.started: doing
+      ticket.submitted: review
+      ticket.closed: done
+"""
+
+
+@pytest.fixture(scope="module")
+def desk(tmp_path_factory):
+    """Eight tickets with no relations, none finished (the Frontier, on by default, hides the finished), each moved
+    through its states at its own pace."""
+    d = tmp_path_factory.mktemp("desk") / "desk"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(DESK)
+    home = d.parent / "home"
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+t = time.time() - 3000
+for i in range(1, 9):
+    p.events.add("ticket.filed", item=f"ticket/{{i}}", data={{"title": f"ask {{i}}"}}, at=t + i * 60)
+    p.events.add("ticket.started", item=f"ticket/{{i}}", at=t + i * 60 + 600)
+    if i % 2:
+        p.events.add("ticket.submitted", item=f"ticket/{{i}}", at=t + i * 60 + 1500)
+p.events.add("ticket.started", item="ticket/1", at=t + 2000)     # sent back: review is left, so not a finished state
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def test_the_timeline_draws_each_items_states_without_relations_and_the_graph_says_there_is_none(browser, desk):
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{desk}/items?view=timeline")
+    pg.wait_for_function("() => document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ticket/\"]').length >= 8",
+                         timeout=20000)
+    rows = pg.locator('.rg-timeline .rg-row[data-id^="ticket/"]').evaluate_all("""els => els.map((e) => ({
+        id: e.dataset.id, top: e.getBoundingClientRect().top,
+        states: [...e.querySelectorAll('rect.rg-seg')].map((r) => r.dataset.state),
+        labels: [...e.querySelectorAll('text.rg-inbar')].map((t) => t.textContent) }))""")
+    assert sorted(r["id"] for r in rows) == [f"ticket/{i}" for i in range(1, 9)], rows     # one row a ticket
+    for r in rows:
+        assert r["top"] < 900, r                                                          # within the first 900 px
+        n = int(r["id"].split("/")[1])
+        want = ["todo", "doing", "review", "doing"] if n == 1 else ["todo", "doing", "review"] if n % 2 else ["todo", "doing"]
+        assert r["states"] == want and r["labels"] == want, r                            # split by state, each named
+    tl, charts = pg.locator("section.sys-group:has(.rg-timeline)").first.evaluate(
+        "(e) => [e.querySelector('.rg-timeline').getBoundingClientRect().top, e.querySelector('.kind-flows').getBoundingClientRect().top]")
+    assert tl < charts, (tl, charts)                                                     # the mode's own drawing first
+    assert "relations:" not in pg.locator("#main").inner_text()
+    pg.goto(f"{desk}/items?view=graph")
+    said = "These items do not wait on one another, so there is no dependency graph."
+    pg.wait_for_function(f"() => document.body.innerText.includes({said!r})", timeout=20000)
+    top, charts = pg.locator("p.muted", has_text=said).first.evaluate(
+        "(e) => [e.getBoundingClientRect().top, e.closest('section').querySelector('.kind-flows').getBoundingClientRect().top]")
+    assert top < charts, (top, charts)                                                   # above the charts here too
+    assert "relations:" not in pg.locator("#main").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
 STAMP =re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+")
 EPOCH = re.compile(r"1,7\d\d,\d{3},\d{3}")
 WHEN_CELLS = """() => [...document.querySelectorAll('#main table')].filter((t) => t.rows[0]?.cells[0]?.textContent === 'when')
@@ -1710,6 +1881,114 @@ def test_the_side_panels_and_item_tables_are_captioned(browser, site):
     pg.evaluate("() => document.querySelector('#main').append(fieldView([{ step: 'a', took: 1 }, { step: 'b', took: 2 }]))")
     check("an item's list of objects")
     assert {"parts", "Recent", "params", "item-list", "sub"} <= seen, seen
+    assert not errors, errors
+    pg.close()
+
+
+# ---- the same on a project shaped like ticket-factory: tickets with relations declared, one waiting on another,
+# some finished, no system said (as ticket.yaml), and ergostat's own upkeep (messages, a built-in kind without
+# relations) unfinished beside them
+
+TICKETS = """name: tickets
+items:
+  ticket:
+    id: ticket/*
+    states: [todo, doing, review, done]
+    on:
+      ticket.filed: todo
+      ticket.started: doing
+      ticket.submitted: review
+      ticket.closed: done
+    relations:
+      blocked_by: ticket
+"""
+
+
+@pytest.fixture(scope="module")
+def tickets(tmp_path_factory):
+    """Eight tickets, ticket/2 blocked by ticket/1, three of them done (1, 3 and 5), and twelve of the owner's
+    messages, ten still open, in the built-in ``ergostat`` system (no relations: its Timeline is drawn too)."""
+    d = tmp_path_factory.mktemp("tickets") / "tickets"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(TICKETS)
+    home = d.parent / "home"
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+t = time.time() - 3000
+for i in range(1, 9):
+    waits = {{"blocked_by": ["ticket/1"]}} if i == 2 else {{}}
+    p.events.add("ticket.filed", item=f"ticket/{{i}}", data={{"title": f"ask {{i}}", **waits}}, at=t + i * 60)
+    p.events.add("ticket.started", item=f"ticket/{{i}}", at=t + i * 60 + 600)
+    if i in (1, 3, 5):
+        p.events.add("ticket.closed", item=f"ticket/{{i}}", at=t + i * 60 + 1500)
+for i in range(1, 13):
+    p.events.add("ergostat.message.received", item=f"ergostat.message/m{{i}}", data={{"text": f"note {{i}}"}}, at=t + i * 30)
+    p.events.add("ergostat.message.routed", item=f"ergostat.message/m{{i}}", at=t + i * 30 + 900)
+    if i <= 2:     # routed is left, so not a finished state: the other ten are unfinished
+        p.events.add("ergostat.message.delivered", item=f"ergostat.message/m{{i}}", at=t + i * 30 + 1200)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+def _ticket_rows(pg, n):
+    pg.wait_for_function(f"() => document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ticket/\"]').length >= {n}"
+                         " && document.querySelectorAll('.rg-timeline[data-drawn] .rg-row[data-id^=\"ergostat.message/\"]').length >= 10",
+                         timeout=20000)
+    return pg.locator('.rg-timeline .rg-row[data-id^="ticket/"]').evaluate_all("""els => els.map((e) => ({
+        id: e.dataset.id, top: e.getBoundingClientRect().top,
+        states: [...e.querySelectorAll('rect.rg-seg')].map((r) => r.dataset.state),
+        labels: [...e.querySelectorAll('text.rg-inbar')].map((t) => t.textContent) }))""")
+
+
+def test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkeep(browser, tickets):
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    # the Frontier and collapse off: every ticket, the finished too (on, the default, they are left out: below)
+    pg.goto(f"{tickets}/items?view=timeline&frontier=0&collapse=0")
+    rows = _ticket_rows(pg, 8)
+    assert sorted(r["id"] for r in rows) == [f"ticket/{i}" for i in range(1, 9)], rows     # one row a ticket
+    for r in rows:
+        assert r["top"] < 900, r                                                          # within the first 900 px
+        # split by state, each named (a finished ticket's bar ends where it was closed)
+        assert r["states"] == ["todo", "doing"] and r["labels"] == ["todo", "doing"], r
+    order = pg.locator("section.sys-group").evaluate_all("els => els.map((e) => e.dataset.system)")
+    # the project's before the upkeep, though the server lists ergostat's before "other", where the tickets are
+    assert order.index("other") < order.index("ergostat"), order
+    tl, charts = pg.locator('section.sys-group[data-system="other"]').evaluate(
+        "(e) => [e.querySelector('.rg-timeline').getBoundingClientRect().top, e.querySelector('.kind-flows').getBoundingClientRect().top]")
+    assert tl < charts, (tl, charts)                                                     # the mode's own drawing first
+    assert "relations:" not in pg.locator("#main").inner_text()
+    # the defaults: the Frontier shows the unfinished and what they wait on, so the finished drop out but ticket/1,
+    # which ticket/2 waits on, collapsed into its line
+    pg.goto(f"{tickets}/items?view=timeline")
+    rows = _ticket_rows(pg, 5)
+    assert sorted(r["id"] for r in rows) == ["ticket/2", "ticket/4", "ticket/6", "ticket/7", "ticket/8"], rows
+    assert all(r["top"] < 900 and r["labels"][:2] == ["todo", "doing"] for r in rows), rows
+    order = pg.locator("section.sys-group").evaluate_all("els => els.map((e) => e.dataset.system)")
+    assert order.index("other") < order.index("ergostat"), order
+    assert "relations:" not in pg.locator("#main").inner_text()
     assert not errors, errors
     pg.close()
 
@@ -2521,5 +2800,149 @@ def test_the_timeline_spans_each_milestone_over_all_its_gaps_under_frontier_and_
     ts = [t for x in ans["items"] if x["id"] in m0 for g in x.get("segments", []) + x.get("projected", []) for t in g[1:3]]
     assert len(m0) == 6 and sums["milestone/m0"]["span"] == [min(ts), max(ts)]
     assert any(abs(y - sums["milestone/m0"]["cy"]) < 0.2 for y in got["starts"])     # m0's arrow to m1 kept
+    assert not errors, errors
+    pg.close()
+
+
+# each milestone's progress on the gap kind's card (dev/records/milestone-progress-per-group.md): a record of its own,
+# the factory's gap and milestone kinds (ergostat.yaml) and three more kinds, 25 milestones
+GP_MORE = """
+  review:
+    id: review/*
+    states: [written, merge]
+    on: {review.approved: merge}
+  note:
+    id: note/*
+    states: [open, done]
+    on: {note.done: done}
+  idea:
+    id: idea/*
+    states: [new, kept]
+    on: {idea.kept: kept}
+"""
+
+
+@pytest.fixture(scope="module")
+def milestoned(tmp_path_factory):
+    """25 milestones: m01-m03 active, m04-m20 waiting (each on the one before), m21-m25 completed; two gaps each (the
+    first merged), two gaps in none; a few items of three other kinds."""
+    from tests.test_group_progress import factory_text
+    d = tmp_path_factory.mktemp("milestoned") / "m"
+    d.mkdir()
+    text = factory_text()
+    (d / "ergostat.yaml").write_text(text.replace("\nmessages:\n", GP_MORE + "\nmessages:\n", 1))
+    home = d.parent / "home"
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+ev, t = p.events, time.time() - 3000
+for n in range(1, 26):
+    m = f"milestone/m{{n:02}}"
+    ev.add("milestone.added", item=m, data={{"title": f"release {{n}}", "rank": n,
+                                             "depends_on": [f"milestone/m{{n - 1:02}}"] if 4 <= n <= 20 else []}}, at=t + n)
+    if n <= 3 or n >= 21:
+        ev.add("milestone.activated", item=m, at=t + 30 + n)
+    for x in "ab":
+        g = f"gap/g{{n:02}}{{x}}"
+        ev.add("gap.found", item=g, data={{"milestone": m, "title": g}}, at=t + 60 + n)
+        if x == "a" or n >= 21:
+            ev.add("gap.started", item=g, at=t + 100 + n)
+            ev.add("gap.merged", item=g, at=t + 200 + n)
+    if n >= 21:
+        ev.add("milestone.completed", item=m, at=t + 300 + n)
+for g in ("gap/n1", "gap/n2"):
+    ev.add("gap.found", item=g, data={{"title": g}}, at=t + 400)
+for i in range(3):
+    ev.add("review.written", item=f"review/r{{i}}", at=t + 500 + i)
+    ev.add("note.opened", item=f"note/n{{i}}", at=t + 500 + i)
+    ev.add("idea.had", item=f"idea/i{{i}}", at=t + 500 + i)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+GP_READ = """() => ({ rows: [...document.querySelectorAll('.gp-row')].map((r) => [r.dataset.group, r.querySelector('.gp-n').textContent,
+                                                                     r.querySelector('.gp-state').textContent]),
+  more: document.querySelector('.gp-more')?.textContent || null,
+  cards: [...document.querySelectorAll('.kind-flow')].map((c) => [c.querySelector('.kname').textContent, c.getBoundingClientRect().top,
+                                                             c.getBoundingClientRect().bottom]) })"""
+
+
+def test_twenty_five_milestones_fit_on_the_gap_card_without_pushing_the_kinds_below_the_fold(browser, milestoned):
+    """Done item 3: the active milestones and the gaps in none are rows, the other 22 one button; every kind's card
+    starts in the first screen; unfolded, all 26 rows, folded again by the same button."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{milestoned}/items")
+    pg.wait_for_selector(".gp-row")
+    pg.wait_for_function("() => document.querySelectorAll('.kind-flow').length >= 5")
+    got = pg.evaluate(GP_READ)
+    assert [r[0] for r in got["rows"]] == ["milestone/m01", "milestone/m02", "milestone/m03", ""]
+    assert [r[1] for r in got["rows"]] == ["1/2", "1/2", "1/2", "0/2"] and got["rows"][0][2] == "active"
+    assert got["more"] == "22 more (17 waiting, 5 completed)"
+    tops = {n.split("/")[0]: t for n, t, _ in got["cards"]}
+    mine = {n: t for n, t in tops.items() if n.startswith(("gapgap", "milestonemilestone", "reviewreview", "notenote", "ideaidea"))}
+    assert len(mine) == 5 and all(t < 1000 for t in mine.values()), tops      # every kind starts in the first screen
+    pg.click(".gp-more")
+    pg.wait_for_function("() => document.querySelectorAll('.gp-row').length === 26")
+    unfolded = pg.evaluate(GP_READ)
+    rows = unfolded["rows"]
+    # (the fold is why: unfolded, the 22 rows more push the next row of cards down by at least twenty rows' height)
+    row_h = pg.evaluate("() => document.querySelector('.gp-row').getBoundingClientRect().height")
+    pushed = {n.split("/")[0]: t for n, t, _ in unfolded["cards"]}
+    assert any(pushed[n] - mine[n] >= 20 * row_h for n in mine), (got["cards"], unfolded["cards"], row_h)
+    assert rows[3][0] == "milestone/m04" and rows[3][2] == "waiting · waits on m03" and rows[-1][0] == ""
+    assert rows[-2] == ["milestone/m25", "2/2", "completed"]
+    pg.click(".gp-more")
+    pg.wait_for_function("() => document.querySelectorAll('.gp-row').length === 4")
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_milestones_row_opens_exactly_its_gaps_in_the_list_graph_and_timeline(browser, milestoned):
+    """Done item 2, on the page: a row's click lists exactly its gaps (the set's chip, the table), and the Graph and
+    the Timeline under that address draw exactly them; the row for none, the gaps naming no milestone."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{milestoned}/items")
+    pg.wait_for_selector(".gp-row")
+    table = """() => [...document.querySelectorAll('section.sys-group table tbody tr td:first-child b')].map((b) => b.textContent).sort()"""
+    for group, want in (("milestone/m02", ["gap/g02a", "gap/g02b"]), ("", ["gap/n1", "gap/n2"])):
+        pg.click(f'.gp-row[data-group="{group}"]')
+        pg.wait_for_function("() => location.search.includes('where=milestone')")
+        pg.wait_for_function(f"(w) => JSON.stringify(({table})()) === JSON.stringify(w)", arg=want, timeout=20000)
+        assert pg.locator(f'.gp-row.on[data-group="{group}"]').count() == 1
+        here = pg.evaluate("() => location.pathname + location.search")     # the kind's own page, /items/gap?where=
+        assert here.startswith("/items/gap?"), here
+        for view, sel in (("graph", ".rg-graph[data-drawn] .rg-node"), ("timeline", ".rg-row")):
+            pg.goto(f"{milestoned}{here}&view={view}&frontier=0&collapse=0")
+            pg.wait_for_selector(sel, timeout=20000)
+            pg.wait_for_timeout(500)
+            ids = pg.evaluate(f"() => [...document.querySelectorAll('{sel}')].map((n) => n.dataset.id)"
+                              ".filter((x) => x && x.startsWith('gap/')).sort()")
+            assert ids == want, (group, view, ids)
+        pg.goto(f"{milestoned}/items")
+        pg.wait_for_selector(".gp-row")
     assert not errors, errors
     pg.close()
