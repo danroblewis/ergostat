@@ -6278,11 +6278,14 @@ def test_a_closed_module_draws_three_sparklines_after_its_structure_without_movi
         pg.on("pageerror", lambda e: errors.append(str(e)))
         asked: list[str] = []
         held: list = []
+        failing = [False]
 
         def hold(route):                                 # the first answer held until the boxes are measured
             asked.append(route.request.url)
             if len(asked) == 1:
                 held.append(route)
+            elif failing[0]:
+                route.fulfill(status=500, body="no")
             else:
                 route.continue_()
         pg.route(re.compile(r"/api/series\?.*measured=1"), hold)
@@ -6317,6 +6320,10 @@ def test_a_closed_module_draws_three_sparklines_after_its_structure_without_movi
         n = len(asked)
         _asked_again(pg, asked, n)                       # asked again on the page's interval
         assert len(asked) > n, asked
+        failing[0] = True                                # not answered: the last lines are not kept as if read now
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length === 0", timeout=30000)
+        failing[0] = False
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length === 4", timeout=30000)
         row = pg.locator(f'svg.canvas g.node[data-id="{DESK}"] .sd-spark[data-ref="stock.backlog"]').bounding_box()
         pg.mouse.click(row["x"] + row["width"] / 2, row["y"] + row["height"] / 2)
         pg.wait_for_function(TITLED, arg="reception-and-triage", timeout=10000)   # its panel, with the full charts
@@ -6330,3 +6337,19 @@ def test_a_closed_module_draws_three_sparklines_after_its_structure_without_movi
         assert pg.evaluate(SPARKS) == [], "a stock, a flow or an auxiliary drew one"
         pg.close()
         assert not errors, errors
+
+
+def test_an_examples_closed_modules_find_room_for_their_measures_and_nothing_read_is_no_line(browser, tmp_path):
+    """image-squeeze, served unrun (nothing read): every closed module with a show: draws at least one of its measures in
+    its box (room found in its own rows), each with no line and said as having no readings, and none outside its box."""
+    with served("image-squeeze", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        drawn(pg, url, "view=dynamics", 0)
+        pg.wait_for_function("() => document.querySelectorAll('svg.canvas .sd-spark').length > 0", timeout=30000)
+        got = pg.evaluate(SPARKS)
+        boxes = pg.evaluate("""() => S.graph.nodes.filter((n) => n.kind === 'system' && !n.upkeep && !n.remote &&
+          (n.charted || []).length && document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`)).map((n) => n.id)""")
+        drew = {b: len([x for x in got if x["box"] == b]) for b in boxes}
+        assert boxes and all(drew.values()), drew
+        assert all(x["inside"] and x["module"] and not x["d"] and x["texts"][2] == "no readings" for x in got), got
+        pg.close()

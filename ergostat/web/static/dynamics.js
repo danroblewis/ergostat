@@ -140,8 +140,9 @@ function sdSparks(svg, g) {
   const refs = [...new Set([...svg.querySelectorAll("g.node.k-system")].flatMap((el) => sdSparkRefs(g.nodes.find((n) => n.id === el.dataset.id))))];
   const c = S.sparks, win = sdSparkWindow();
   if (!refs.length || SNAP) return;
-  const fresh = c && c.win === win && refs.every((r) => r in c.data) && performance.now() - c.at < SPARK.every / (window.ERGOSTAT_POLL_SPEED || 1);
-  if (fresh || (c?.asking && c.askingFor === win + refs.join(","))) return;
+  const every = SPARK.every / (window.ERGOSTAT_POLL_SPEED || 1);
+  const fresh = c && c.win === win && refs.every((r) => r in c.data) && performance.now() - c.at < every;
+  if (fresh || (c?.asking && c.askingFor === win + refs.join(",")) || performance.now() - (S.sparkFailed ?? -Infinity) < every) return;
   const seq = (S.sparkSeq = (S.sparkSeq || 0) + 1);
   S.sparks = { ...(c && c.win === win ? c : { win, data: {}, at: 0 }), asking: true, askingFor: win + refs.join(",") };
   api("series", { refs: refs.join(","), points: SPARK.w, measured: 1 }).then((d) => {
@@ -151,7 +152,12 @@ function sdSparks(svg, g) {
     S.sparks = { win, data, at: performance.now(), asking: false };
     const now = document.querySelector("svg.canvas");
     if (now && S.graph?.kind === "dynamics") sdSparksPaint(now, S.graph);
-  }).catch(() => { if (seq === S.sparkSeq && S.sparks) S.sparks.asking = false; });   // (kept as it was; asked again next draw)
+  }).catch(() => {                                    // not answered: none drawn (never the last lines as if read now)
+    if (seq !== S.sparkSeq) return;
+    S.sparks = null; S.sparkFailed = performance.now();     // (asked again on the page's interval, not every redraw)
+    const now = document.querySelector("svg.canvas");
+    if (now && S.graph?.kind === "dynamics") sdSparksPaint(now, S.graph);
+  });
 }
 /* the zoom crossed the readable size: drawn again, or taken away (diagram.js's applyView) */
 function sdSparksZoomed(svg) {
