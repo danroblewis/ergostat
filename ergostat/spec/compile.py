@@ -468,7 +468,7 @@ class Compiler:
     # ---- sections
 
     def sensors(self, owner: Map, of: Ref, what: str) -> dict[str, Sensor]:
-        from ..library import bounds
+        from ..library import bounds, runs
         out = {}
         raw = {}
         if "sensor" in owner and "sensors" in owner:
@@ -557,7 +557,8 @@ class Compiler:
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
                                     description=self.text(s, "description"), where=s.where,
-                                    daemon=s.get("daemon"), push=s.get("push") is True)
+                                    daemon=s.get("daemon"), push=s.get("push") is True,
+                                    run_in=runs.OWNER if measure else runs.verdict(self.doc.uses, s.where, of, str(name)))
         return out
 
     def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
