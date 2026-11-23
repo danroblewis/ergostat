@@ -54,3 +54,14 @@ the browser tests: the unchanged-answer guard removed (the MutationObserver sees
 fails (no `taken`; the leased-state count is 0). Not run here: the unit suite, test_diagram_rendering.py,
 test_page_polling.py, test_page_refresh.py. Main had no new commits since the branch began, so there was nothing to
 merge.
+
+Round 2: main (a08e4b3e) merged in. The two test-file conflicts were both sides adding tests at the same spot; all
+are kept. Main's kind page (pages.js `paged()`) asked for the kind without the set's filters, so the line's link
+listed the whole kind (test_a_valves_leased_items_are_listed_live failed after the merge). A taken set is now not a
+plain kind page (one condition). items-list-hides-finished-by-default has landed: a taken set is answered by
+`item_sets.select`, before its rule hides anything, so its Items page lists every taken item, as many as the line
+counts, whatever their state (the rule's own case for a stock's link). After the fix: tests/test_item_sets.py 17
+passed; tests/test_items_page.py whole under the watchdog: 70 passed, 1 failed. The failure is
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (the header's project switcher never lists the
+other project; it failed three times, once alone). This branch changes nothing it reads (item_sets.py, itemsets.js, the
+Items page's set address, style.css). Running it on clean main was refused here, so it is reported, not fixed.

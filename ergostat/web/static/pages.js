@@ -641,7 +641,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
                              ...Object.fromEntries(Object.entries(pm).filter(([, v]) => v && v.length)),
                              ...(spanned() && movedSince ? { moved_since: movedSince } : {}), ...(spanned() && movedUntil ? { moved_until: movedUntil } : {}) });
   const dropSet = () => { where = []; moved = movedSince = movedUntil = null; pm = { by: null, through: null, followed: null, caused: [] }; };
-  const paged = () => !!kind && !SNAP && !where.length && !spanned();
+  const paged = () => !!kind && !SNAP && !where.length && !spanned() && !pm.taken;
   const chip = h("span", { class: "set-chip-place" });
   const compose = messageBox({ hint: "to the work in flight: routed to what it concerns, and delivered to it", done: () => refresh() });
   const rbox = h("div", { class: "item-systems remote-systems" });   // each remote's, asked on its own: never delaying ours
