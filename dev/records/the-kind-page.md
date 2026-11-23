@@ -183,3 +183,24 @@ branch does not touch. test_actions_say_per_class_asked_approved_denied_and_whet
 2 and 3, passes now. Not run: tests/test_diagram_rendering.py, the other browser files and the unit suite (the factory runs
 them). Commands refused in this session: a `python3 -` heredoc edit, a pytest run with output redirected to a file
 under /tmp, a run piped to `grep`, and `ps -A … | grep -cE …` to look for other suites.
+
+Round 5, 2026-11-23. Built on a1198300 (main 8a27f9e3 already merged in; `main` has nothing newer here).
+
+**The queue's findings.**
+- *tests/test_items_overview.py::test_the_overviews_script_asks_one_answer_and_draws_no_rows* (main's test). It reads
+  kinds.js as the overview's script and holds that it draws no table. The branch's *In the model* table
+  (`kindModel`) was in kinds.js, so the assertion `not table(` failed. The test is kept as it is. `kindModel`,
+  `kindDefinition` and their helpers (`partHref`, `listOf`, `termOf`, `kindUnread`, `groupedFlow`) moved unchanged
+  into a new static/kindpage.js, loaded right after kinds.js in index.html. kinds.js keeps `kindHref`, the one
+  `kindBar` and main's overview. This is the most reversible option: no code changed, only where it lives. Net
+  lines are about the same (a header comment more). The test now passes.
+- *tests/test_compute_output.py::test_ended_after_last_out*. The branch changes nothing under ergostat/compute, nor
+  that test (`git diff --stat main` lists only web, docs, scripts/demo_check.py and tests). It passed here when run
+  alone. Reported as unrelated (lesson-13) and left alone. It may depend on the machine's load or its pipe buffers.
+
+**Tests run.** ruff is clean. tests/test_items_overview.py, test_ended_after_last_out and tests/test_legend_memory.py
+(which globs every static script): 9 passed. tests/test_items_page.py as a whole, under the watchdog with Playwright:
+78 passed and 1 failed. Run alone, test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart also fails.
+It is the project-switcher failure reported in rounds 1 to 4, and the count matches round 4. The failing test's name
+in the whole-file run was not read, because piping that run to `grep` was refused. Not run: the unit suite,
+tests/test_diagram_rendering.py and the other browser files.
