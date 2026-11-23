@@ -135,6 +135,12 @@ def test_a_spec_naming_stock_nope_fails_check_with_unknown_ref_at_its_line(tmp_p
     ("{panel: chart, refs: [stock.queue, flow.closed], size: m}", "{panel: chart, refs: [goal.short-queue]}", "wrong-kind",
      ""),
     ("    window: 2h", "    window: 90d", "bad-dashboard", ""),
+    ("    window: 2h", "    window: .nan", "bad-duration", ""),
+    ("    title: The desk", "    title: [The, desk]", "bad-dashboard", ""),
+    ("{panel: items, kind: ticket, state: doing, size: m}", "{panel: items, kind: ticket, n: 501}", "bad-dashboard", ""),
+    ("{panel: cycle-time, kind: ticket, size: s}", "{panel: cycle-time, kind: ticket, size: xl}", "bad-dashboard", ""),
+    ("{panel: items, kind: ticket, state: doing, size: m}", "{panel: items, kind: ticket, moved: doing}", "bad-dashboard",
+     ""),
     ("    title: The desk", "    owner: me", "unknown-key", ""),
 ])
 def test_unknown_kinds_keys_and_references_are_errors_at_their_line(tmp_path, old, new, code, about):
@@ -143,6 +149,12 @@ def test_unknown_kinds_keys_and_references_are_errors_at_their_line(tmp_path, ol
     got = errors(tmp_path, text)
     line = next(i for i, x in enumerate(text.splitlines(), 1) if new.strip() in x)
     assert [(p.code, p.about, p.where.line if p.where else None) for p in got] == [(code, about, line)], got
+
+
+def test_more_than_24_panels_and_the_name_default_are_refused(tmp_path):
+    text = MODEL.replace("      - {panel: goals, size: full}\n", "      - {panel: goals, size: full}\n" * 18)
+    assert [p.code for p in errors(tmp_path, text)] == ["bad-dashboard"]
+    assert [p.code for p in errors(tmp_path, MODEL.replace("  ops:\n", "  default:\n"))] == ["bad-name"]
 
 
 def test_a_dashboard_in_a_system_s_file_is_named_by_that_system(tmp_path):
@@ -280,6 +292,8 @@ def test_a_moment_named_after_the_model_changed_is_answered_as_a_new_one(live):
     live.mtime = ("changed", live.mtime)
     again = api(live, "dashboard/ops", {"at": [str(first["at"])], "moment": [str(first["moment"])]})
     assert again["moment"] != first["moment"]
+    odd = api(live, "dashboard/ops", {"at": [str(first["at"])], "moment": ["x"]})     # not a number: a new moment,
+    assert odd["at"] == first["at"]                                                   # still at the moment asked
 
 
 @pytest.mark.serial

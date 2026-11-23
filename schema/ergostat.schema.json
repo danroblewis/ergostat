@@ -641,7 +641,7 @@
         "where": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
         "system": {"$ref": "#/$defs/name"},
         "points": {"type": "integer", "minimum": 2, "maximum": 1000},
-        "n": {"type": "integer", "minimum": 2, "maximum": 500},
+        "n": {"type": "integer", "minimum": 1, "maximum": 500},
         "replay": {"type": "boolean"},
         "fan": {"type": "boolean"},
         "moved": {"type": "string"}, "moved_since": {"type": "string"}, "moved_until": {"type": "string"},

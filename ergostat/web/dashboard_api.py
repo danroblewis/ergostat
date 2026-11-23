@@ -176,11 +176,15 @@ def answer(live, p, name: str | None, q: dict, wait: bool = False) -> dict | Non
         return None
     one = lambda k: (q.get(k) or [None])[0]       # noqa: E731
     window = _window(q) if one("since") else (d.window or _window({}))
+    at = asked = None
     try:
         at = float(one("at")) if one("at") else None
+    except ValueError:                             # as every answer reads it: not a time, now
+        pass
+    try:
         asked = int(one("moment")) if one("moment") else None
-    except ValueError:
-        at = asked = None
+    except ValueError:                             # not a moment's number: a new moment
+        pass
     board = _board(live)
     snap, seq = board.moment(live, p, window, at, asked)
     base = {"since": [str(window)], **({"at": [str(at)]} if at is not None else {})}

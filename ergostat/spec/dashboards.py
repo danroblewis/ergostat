@@ -4,6 +4,8 @@ the model has, or it is an error at its line, so a renamed stock is a finding in
 
 from __future__ import annotations
 
+import math
+
 from ..durations import DurationError, parse_duration
 from .ir import NAME, Dashboard, Panel, Ref
 from .load import Map, Problem
@@ -73,12 +75,16 @@ def check(c, spec, exists) -> None:
             c.err(f"{what}: a map of its keys (title, description, window, panels)", w, "not-a-map")
             continue
         c.keys(m, DASHBOARD_KEYS, what)
+        _words(c, m, ("title", "description"), what)
         window = None
         if m.get("window") is not None:
             try:
                 window = parse_duration(m["window"], f"{what}.window")
             except (DurationError, OverflowError, ValueError) as e:
                 c.err(f"{e} (like 1h, 1d, 7d)", m.at("window"), "bad-duration")
+            if window is not None and not math.isfinite(window):
+                c.err(f"{what}.window: {m['window']!r} is not a duration (like 1h, 1d, 7d)", m.at("window"), "bad-duration")
+                window = None
             if window is not None and window > spec.keep:
                 c.err(f"{what}.window: longer than keep: ({spec.keep / 86400:g}d): the record holds no more", m.at("window"),
                       "bad-dashboard")
@@ -108,6 +114,7 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
         c.err(f"{what}.panel: {kind!r} is not a kind of panel (known: {', '.join(KINDS)})", at("panel"), "bad-dashboard")
         return None
     c.keys(x, PANEL_KEYS | KINDS[kind], f"{what} ({kind})")
+    _words(c, x, ("title", "note"), what)
     size = x.get("size", "m")
     if size not in SIZES:
         c.err(f"{what}.size: one of {', '.join(SIZES)}", at("size"), "bad-dashboard")
@@ -126,9 +133,9 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
                 ok = False
                 continue
         elif k in ("points", "n"):
-            top = 1000 if k == "points" else 500
-            if isinstance(v, bool) or not isinstance(v, int) or not 2 <= v <= top:
-                c.err(f"{what}.{k}: a whole number from 2 to {top}", w, "bad-dashboard")
+            low, top = (2, 1000) if k == "points" else (1, 500)
+            if isinstance(v, bool) or not isinstance(v, int) or not low <= v <= top:
+                c.err(f"{what}.{k}: a whole number from {low} to {top}", w, "bad-dashboard")
                 ok = False
                 continue
         elif k in ("replay", "fan"):
@@ -154,6 +161,12 @@ def _panel(c, spec, exists, x, what: str, near) -> Panel | None:
         return None
     return Panel(kind, str(x.get("title") or ""), size if size in SIZES else "m", str(x.get("note") or ""), params,
                  getattr(x, "where", None) or near)
+
+
+def _words(c, m, keys: tuple, what: str) -> None:
+    for k in keys:
+        if m.get(k) is not None and not isinstance(m[k], str):
+            c.err(f"{what}.{k}: text", m.at(k) if isinstance(m, Map) else None, "bad-dashboard")
 
 
 def _refs(c, spec, exists, k: str, v, params: dict, what: str, w) -> bool:
