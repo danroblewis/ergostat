@@ -1809,7 +1809,15 @@ stand now):
   item across every state until it finishes, so a pool of three keeps at most three items between that take and their
   finish; an item that would need one while all are held waits in the queue, holding nothing (the record's runs given
   back for want of one, "put off ten seconds, not counted", are that wait, never runs; who holds which workspace now is
-  read from the workspaces' own events). A run's length is drawn from the block's run-time curve (Kaplan–Meier, the leases still held censored, so the
+  read from the workspaces' own events). A block's capacity is also never above its **measured concurrency**, when
+  that is lower: the 90th percentile, over the time items waited in its states in the two weeks before, of its runs
+  going at once (from the leases' taken and ended), so a control loop that admits fewer than the pool (an
+  implement-when gate) binds, in the estimates and the Timeline's levelled pass alike (both take it from
+  `etamodel.capacities`); its reason says so ("4 at once while items waited (the record, p90), under its pool of 20").
+  A block with no run on record, or whose items never waited, has none measured. A **refusal** (a run given back not
+  counted within 30 seconds: the run refusing on drain or a full machine) is the block's gate closed, not a run: left
+  out of its attempts and its run-time curve, its put-off still delaying the item, and said in the item's reason (the
+  share of takes refused and their put-off). A run's length is drawn from the block's run-time curve (Kaplan–Meier, the leases still held censored, so the
   long runs are not lost to those not yet ended), and how it ended from the recorded attempt nearest that long
   (bootstrapped per Monte Carlo run): moved on (to where), given back (its `after` kept: put off) or expired; a run
   past its lease's TTL expires at it. The last two return the item to the queue, its attempts counted, a dead letter

@@ -15,3 +15,37 @@ Acceptance tests: test_eta.py::test_uncounted_refusals_are_not_runs, ::test_meas
 Budget: 150 net lines.
 
 Milestone: timeline-real-schedule. Owner items: 17. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. 66 net lines outside tests and docs (etamodel.py +60, eta.py +6), within the 150.
+
+- (a) `etamodel._refusal`/`MIN_RUN`: an uncounted nack shorter than 30 s is out of a block's attempts and run curve,
+  kept as `BlockIn.refusals` (each one's put-off; the item's put-off still applies); `eta.reasons` says the share
+  refused and the median put-off. (b) `etamodel._measured`/`MEASURED`, called from `_capacity` (so from
+  `capacities`, the one function): the time-weighted p90 of the block's runs going at once while any item was in
+  its `takes.at` states over HISTORY; caps the lanes only when lower, with the source text of the definition; none
+  when the block has no run on record (a record moved by hand) or nothing waited. The run parse moved into `_runs`
+  so both read the same runs. (c) `eta_synthetic.gated_record`; table and verdict in docs/roadmap/overnight/eta.md.
+- Backtest on the gated record (3 truths, 3 cuts): p50 MAE 847 → 409 min (×0.48), p90 coverage 0.44 → 0.93.
+  (b) alone: 509 min, 0.95; (a) alone: worse (965 min, 0.22), so (a) is kept only with (b), where it lowers MAE.
+  Said as a cost: with both, the share finished by their p50 falls to 0.04–0.11 (about half with (b) alone).
+- The existing records: the owner's case and the steady records read identical inputs under both changes (pinned
+  for one of each in `test_backtest_gated_record_improves`), so their rows stand. **Not run:** the ticket-factory
+  demo record column, and done item 2 "on a copy of the factory record": no copy is in this container, and this
+  session could run only `scripts/named_tests.py` (a scratch `uv run python` script and `rm`/`git clean` of it were
+  refused; the untracked `.scratch_gated.py` at the root is that scratch file, not committed, to be deleted).
+- Decision taken alone (reversible): the gated record's model gives the admitted run a working state (`doing`, by
+  `ticket.started`), as the factory's gap kind has. Without one, precedence's levelled pass folds the run into
+  `new`'s wait and draws `review` (the state the take hands on to) in dev's lane by its carry-forward, so 8 reviews
+  "start" in dev's lanes in the first hour; that mapping is precedence's, outside this gap, and is left as it is.
+- Known limit (done item 1): a lease held at the moment estimated is run whatever the cap (as before, "their lanes
+  drawn too"), so a refusal in progress at that moment (its 2 s) is drawn as a run over the measured concurrency.
+  The tests' cut has none; on the factory, with many refusals, one can show for a cut.
+- Mutation checks: `MIN_RUN = 0` fails test_uncounted_refusals_are_not_runs (the backtest test still passes then,
+  (b) alone clearing the third); `MEASURED = 0` fails test_measured_concurrency_caps_a_gated_block,
+  test_backtest_gated_record_improves and test_levelled_pass_uses_measured_concurrency.
+- Tests run (named_tests, serially): tests/test_eta.py (26 passed), tests/test_precedence.py (11),
+  test_finished_states, test_lease_refused_cost, test_leased_workspaces (9), test_pool_now, test_take_order,
+  test_graph_cli_web (83); ruff clean. No page changed: no browser file run. The unit suite was not run here (the
+  factory runs it).

@@ -17,7 +17,7 @@ from ergostat.numbers.etamodel import Attempt, BlockIn, Inputs, ItemAt, KindIn, 
 from ergostat.numbers.survival import KM
 
 from .eta_backtest import backtest
-from .eta_synthetic import generate, project
+from .eta_synthetic import GATED_BATCH, gated_record, generate, project
 from .test_take_order import GATED, PAUSED
 from .test_take_order import project as take_project
 
@@ -257,6 +257,90 @@ def test_backtest_p90_coverage_on_a_synthetic_record(tmp_path):
     assert 0.3 <= mean("all", "p50") <= 0.7
     assert mean("path", "coverage") < 0.6                             # a median path with no pool: the owner's 17:43
     assert mean("all", "mae") < mean("path", "mae") * 0.6
+
+
+# ---- a gate under the pool (etamodel.MIN_RUN, etamodel._measured)
+
+
+BATCH = T0 + GATED_BATCH                                 # the gated record's batch brought in
+
+
+def old_model(monkeypatch):
+    """The model before refusals and measured concurrency: every give-back a run, the pool the capacity."""
+    from ergostat.numbers import etamodel
+    monkeypatch.setattr(etamodel, "MIN_RUN", 0.0)
+    monkeypatch.setattr(etamodel, "MEASURED", 0.0)
+
+
+def test_uncounted_refusals_are_not_runs(tmp_path, monkeypatch):
+    p = gated_record(tmp_path)
+    at = BATCH + 900
+    dev = next(b for b in read(p, p.model.spec, ["ticket"], at).blocks if b.name == "dev")
+    assert not any(a.how == "nack" and not a.counted and a.dur < 30 for a in dev.attempts)
+    assert len(dev.refusals) > len(dev.attempts) and set(dev.refusals) == {300.0}      # most takes refused
+    assert dev.run.quantile(0.5) == pytest.approx(3 * 3600, rel=0.15)                  # a run: about 3 h
+    why = eta.reasons(read(p, p.model.spec, ["ticket"], at))
+    waiting = next(x["why"] for i, x in why.items() if x["waits_in"] == "dev" and x["position"])
+    assert "of its takes refused (its gate closed), each put off about 5m" in waiting
+    old_model(monkeypatch)                                       # before: each refusal a run of 2 s
+    old = next(b for b in read(p, p.model.spec, ["ticket"], at).blocks if b.name == "dev")
+    assert not old.refusals and old.run.quantile(0.5) < 30
+
+
+def test_measured_concurrency_caps_a_gated_block(tmp_path, monkeypatch):
+    from ergostat.numbers import etamodel
+    p = gated_record(tmp_path)
+    at = BATCH + 900
+    caps = etamodel.capacities(p, {"at": at})
+    assert caps["dev"]["lanes"] == 4 and caps["merge"]["lanes"] == 1
+    said = "4 at once while items waited (the record, p90), under its pool of 20"
+    assert caps["dev"]["source"] == said and caps["merge"]["source"] == "its pool"     # (merge's pool binds: 1)
+    inp = read(p, p.model.spec, ["ticket"], at)
+    dev = next(b for b in inp.blocks if b.name == "dev")
+    assert dev.capacity() == 4 and dev.capacity({"dev": 20}) == 20                     # (the what-if overrides it)
+    assert any(f"busy in dev ({said})" in x["why"] for x in eta.reasons(inp).values())
+    for r in range(5):                                   # the simulation: never more than 4 runs at once
+        run = eta._Run(inp, eta.Flags(), random.Random(r), {}, {}, True)
+        run.go(eta.HORIZON)
+        spans = [(s[1], s[2]) for segs in run.segs.values() for s in segs if s[3] == "dev"]
+        assert max(sum(1 for a, z in spans if a <= t < z) for t, _ in spans) <= 4, r
+    g = eta.simulate(inp, runs=40)                       # the owner's picture: the simulated Timeline's first hour
+    first = [s[1] for segs in g["schedule"].values() for s in segs if s[3] == "dev" and s[1] < at + 3600]
+    assert g["limit"]["dev"] == 4 and 0 < len(first) <= 4
+    (tmp_path / "o").mkdir()                             # an ungated pool of 6: its pool stands, no measure said
+    assert not etamodel.capacities(owners_record(tmp_path / "o"), {"at": T0 + 86400 + 900})["dev"]["measured"]
+    old_model(monkeypatch)
+    assert etamodel.capacities(p, {"at": at})["dev"]["lanes"] == 20
+
+
+def test_backtest_gated_record_improves(tmp_path, monkeypatch):
+    # the gated record's three truths, cut 15 min, 2 h and 4 h after the batch: the p50's error falls by a third at least
+    got: dict[str, list] = {"new": [], "old": []}
+    for seed in range(3):
+        p = gated_record(tmp_path / str(seed), seed)
+        cuts = [BATCH + h * 3600 for h in (0.25, 2, 4)]
+        got["new"].append(backtest(p, p.model.spec, ["ticket"], cuts, {"all": eta.Flags()}, runs=60, budget=6)["all"])
+        with monkeypatch.context() as m:
+            old_model(m)
+            got["old"].append(backtest(p, p.model.spec, ["ticket"], cuts, {"all": eta.Flags()}, runs=60, budget=6)["all"])
+    mean = lambda k, f: sum(r[f] for r in got[k]) / 3                 # noqa: E731
+    table = {k: [(r["items"], r["unresolved"], round(r["mae"]), round(r["bias"]), round(r["p50"], 2), round(r["coverage"], 2))
+                 for r in v] for k, v in got.items()}
+    assert mean("new", "mae") <= mean("old", "mae") * 2 / 3, table
+    assert mean("new", "coverage") >= 0.8, table
+    assert all(r["unresolved"] == 0 for v in got.values() for r in v), table
+    # the records with no gate: the same inputs as before (no refusal, the pool measured as it is), so the same estimates
+    (tmp_path / "o").mkdir()
+    (tmp_path / "s").mkdir()
+    steady = project(tmp_path / "s", pool=3)
+    generate(steady, T0, 48, rate=6, pool=3, seed=7)
+    for p, at in ((owners_record(tmp_path / "o"), T0 + 86400 + 900), (steady, T0 + 16 * 3600)):
+        new = read(p, p.model.spec, ["ticket"], at)
+        with monkeypatch.context() as m:
+            old_model(m)
+            old = read(p, p.model.spec, ["ticket"], at)
+        assert [(b.capacity(), [a.dur for a in b.attempts]) for b in new.blocks] == \
+            [(b.capacity(), [a.dur for a in b.attempts]) for b in old.blocks] and not any(b.refusals for b in new.blocks)
 
 
 # ---- the calibration the Timeline says (etacheck.py, from the eta worker)

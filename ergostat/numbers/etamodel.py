@@ -20,6 +20,8 @@ HISTORY = 14 * 86400.0      # the record read before ``at``
 LATEST = 2000               # a kind's latest items read
 MIN_OBS = 5                 # a state's ended stays, at least, before its own curve is used (else its kind's, else all)
 MIN_RUNS = 5                # a block's attempts, at least, before they are sampled (else an assumed run, said so)
+MIN_RUN = 30.0            # an uncounted give-back shorter than this is a refusal (its gate closed), not a run
+MEASURED = 0.9            # the share of the time items waited that a block's measured concurrency covers (its p90)
 LEASE_TYPES = "ergostat.lease.taken,ergostat.lease.ended,ergostat.lease.expired"
 
 
@@ -50,6 +52,8 @@ class BlockIn:
     assumed: str = ""
     pool_said: str = ""            # why its pool is taken as 1 (its stock reads 0, or nothing)
     lanes: int = 0                 # its capacity, from ``capacities`` (0: worked out from pool and shared)
+    measured: str = ""             # its measured concurrency, said, when it binds (``capacities``)
+    refusals: list[float] = field(default_factory=list)   # its takes refused (the gate closed): each one's put-off
 
     def capacity(self, pools: dict | None = None) -> int:
         if self.lanes and self.name not in (pools or {}):
@@ -72,7 +76,50 @@ def _capacity(p, spec, b, at: float) -> dict:
     lanes, source = min([(pool, f"its pool now, from {b.pool_now}" if b.pool_now else "its pool"),
                          *((c, f"{n.split(':', 1)[1]}'s {'seats' if n.startswith('agent') else 'runs at once'}")
                            for n, c in shared)], key=lambda x: x[0])
-    return {"lanes": max(1, lanes), "source": source, "pool": pool, "shared": shared, "said": poolnow.said(b, level)}
+    lanes, got = max(1, lanes), _measured(p, spec, b, at)
+    binds = got is not None and got < lanes             # the control loop admits fewer than its capacity: that binds
+    if binds:
+        lanes, source = got, f"{got} at once while items waited (the record, p90), under {source} of {lanes}"
+    return {"lanes": lanes, "source": source, "pool": pool, "shared": shared, "said": poolnow.said(b, level),
+            "measured": binds}
+
+
+def _measured(p, spec, b, at: float) -> int | None:
+    """A block's effective concurrency at ``at``: the p90, over the time items waited in its states (HISTORY before
+    ``at``), of its runs going at once (the leases' taken/ended; a refusal is no run). 1 at least; None when it has no
+    run on record or no item waited (nothing measured: its capacity stands)."""
+    from ..spec.itemindex import index_for
+    ix = index_for(p.events, spec, False) if MEASURED else None      # (MEASURED 0: not measured)
+    if ix is None:
+        return None
+    since, steps = at - HISTORY, []
+    for r in _runs(p, spec, p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=at), ix).values():
+        if r["block"] == b.name and not _refusal(r) and (r["end"] is None or r["end"] > since):
+            steps += [(max(r["t"], since), 1, 0), (at if r["end"] is None else r["end"], -1, 0)]
+    if not steps:                                       # no run on record (moved by hand, or none taken): no measure
+        return None
+    with ix.lock:
+        got = {i.id: i for i in ix.items(b.takes.kind, n=LATEST)}
+        got.update({i.id: i for i in ix.items(b.takes.kind, list(b.takes.at))})
+    for it in got.values():
+        ms = [m for m in it.moves if m["time"] <= at]
+        for m, nx in zip(ms, [*ms[1:], None], strict=False):          # (no move by ``at``: none)
+            t1 = at if nx is None else nx["time"]
+            if m["to"] in b.takes.at and t1 > since:
+                steps += [(max(m["time"], since), 0, 1), (t1, 0, -1)]
+    weight: dict[int, float] = {}
+    run = wait = 0
+    last = since
+    for t, dr, dw in sorted(steps):
+        if wait > 0 and t > last:
+            weight[run] = weight.get(run, 0.0) + t - last
+        run, wait, last = run + dr, wait + dw, t
+    total, acc = sum(weight.values()), 0.0
+    for n in sorted(weight):
+        acc += weight[n]
+        if acc >= MEASURED * total * (1 - 1e-9):
+            return max(1, n)
+    return None
 
 
 def capacities(project, snapshot: dict) -> dict[str, dict]:
@@ -318,24 +365,17 @@ def gated_off(p, spec, at: float) -> dict[str, str]:
         return {}
 
 
+def _refusal(r: dict) -> bool:
+    """A take refused: given back uncounted within MIN_RUN (the run refusing on drain or a full machine)."""
+    return r["end"] is not None and r["how"] == "nack" and not r["counted"] and r["end"] - r["t"] < MIN_RUN
+
+
 def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
-    """Each block's attempts and its run-time curve; each open item's lease, attempts and put-off."""
-    from ..leases.fold import refused_expiries
+    """Each block's attempts and its run-time curve, and its refusals (not attempts: its gate closed); each open
+    item's lease, attempts and put-off."""
     from ..leases.terms import terms
-    evs = p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at)
-    void = refused_expiries(p.events, spec, evs, ix=ix)   # (renewed after it was judged: the run went on)
-    runs: dict[str, dict] = {}
+    runs = _runs(p, spec, p.events.query(n=50_000, type=LEASE_TYPES, since=since, until=out.at), ix)
     offs = gated_off(p, spec, out.at)
-    for e in evs:
-        if e["id"] in void:
-            continue
-        d = e.get("data") or {}
-        r = d.get("run")
-        if e["type"].endswith("taken"):
-            runs[r] = {"t": e["time"], "item": d.get("item") or e.get("item"), "block": d.get("block"), "end": None, "run": r}
-        elif r in runs and runs[r]["end"] is None:
-            runs[r].update(end=e["time"], how="expired" if e["type"].endswith("expired") else d.get("how") or "nack",
-                           to=d.get("state"), after=float(d.get("after") or 0.0), counted=d.get("count") is not False)
     acquired = _workspaces(p, spec, out, since)
     caps = capacities(p, {"at": out.at})
     by_block: dict[str, list[dict]] = {}
@@ -360,12 +400,14 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
         ws = ws if ws in spec.workspaces else None
         bi = BlockIn(b.name, b.takes.kind, list(b.takes.at), c["pool"], c["shared"],
                      bool(b.takes.unblocked), t["attempts"], float(t["ttl"]), ws, b.takes.order, offs.get(b.name, ""),
-                     pool_said=c["said"], lanes=c["lanes"])
+                     pool_said=c["said"], lanes=c["lanes"], measured=c["source"] if c.get("measured") else "")
         rs = by_block.get(b.name, [])
         if ws:                                          # a run given back for want of a workspace held nothing: a wait
             out.workspaces[ws] = spec.workspaces[ws].size
             rs = [r for r in rs if not (r["end"] is not None and r["how"] == "nack" and not r["counted"]
                                         and r["run"] not in acquired)]
+        bi.refusals = [r["after"] for r in rs if _refusal(r)]       # (MIN_RUN 0: none, every give-back a run)
+        rs = [r for r in rs if not _refusal(r)]
         bi.attempts = [Attempt(r["end"] - r["t"], r["how"], r.get("to"), r.get("after", 0.0), r.get("counted", True))
                        for r in rs if r["end"] is not None]
         if len(bi.attempts) >= MIN_RUNS:
@@ -380,6 +422,24 @@ def _leases(p, spec, out: Inputs, since: float, ix=None) -> None:
             bi.attempts, bi.run = [Attempt(dur, "ack")], KM([dur])
             bi.assumed = f"only {len(rs)} runs on record (at least {MIN_RUNS}): a run taken as {dur:.0f}s"
         out.blocks.append(bi)
+
+
+def _runs(p, spec, evs: list[dict], ix=None) -> dict[str, dict]:
+    """The runs in these lease events: run → {t, item, block, end (None: going), how, to, after, counted}."""
+    from ..leases.fold import refused_expiries
+    void = refused_expiries(p.events, spec, evs, ix=ix)   # (renewed after it was judged: the run went on)
+    runs: dict[str, dict] = {}
+    for e in evs:
+        if e["id"] in void:
+            continue
+        d = e.get("data") or {}
+        r = d.get("run")
+        if e["type"].endswith("taken"):
+            runs[r] = {"t": e["time"], "item": d.get("item") or e.get("item"), "block": d.get("block"), "end": None, "run": r}
+        elif r in runs and runs[r]["end"] is None:
+            runs[r].update(end=e["time"], how="expired" if e["type"].endswith("expired") else d.get("how") or "nack",
+                           to=d.get("state"), after=float(d.get("after") or 0.0), counted=d.get("count") is not False)
+    return runs
 
 
 def _workspaces(p, spec, out: Inputs, since: float) -> set[str]:
