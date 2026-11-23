@@ -1119,6 +1119,7 @@ class Compiler:
         compute.compute(self, spec)                          # compute: the pools of nodes runs may execute on (§12k)
         gated.actions(self, spec)                            # actions: what sessions may ask for, gated (SPEC §12k)
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
+        gated.operating(self, spec)                          # operating: when the owner reads as away (SPEC §12k)
         from ..inbox import config as notify
         notify.parse(self, spec)                             # notify: each channel a gated action notify.NAME (SPEC §12o)
         self.runs(spec)                                      # runs: whether a run outlives the engine (SPEC §9.1)

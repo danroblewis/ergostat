@@ -6836,6 +6836,43 @@ remote), and the same push through `git-push` after the owner's approval.
 - A `run:` wrapper that is not `ergostat session` is given `ERGOSTAT_SANDBOX` and must pass the flags itself; `check`
   refuses `tools:` or `actions:` on a block whose `run:` does not start `ergostat session`.
 
+### The operating state and the owner's presence
+
+The model is in one **operating state** at a time: `normal`, `maintenance`, `freeze` or `incident`. The owner is
+**present** or **away**. Both are read from the record, never kept anywhere else. Nothing is gated on them yet: what
+each state lets through comes with thresholds scheduled by regime.
+
+```
+ergostat operating                                   # the state now, the owner's presence, and why
+ergostat operating freeze --note "release week"      # or incident --note TEXT
+ergostat operating maintenance --for 2h --actions deploy,restart --note "upgrade"
+ergostat operating normal                            # ends the state in force
+```
+
+Each is an event from the owner: `ergostat.operating.STATE` about `ergostat.operating`, source `owner`, with only
+what that act said (`note`; for maintenance `until`, its end, and `actions`, each one of the model's `actions:`).
+
+- **Precedence.** `incident` over `freeze`, and `freeze` over `maintenance` and `normal`. Each of incident, freeze and
+  maintenance is held on its own, so a state entered under a stronger one waits beneath it. `normal` ends the
+  strongest state held: under an incident it ends the incident, and a freeze entered before it is in force again.
+  Only the owner's typed act ends an incident or a freeze.
+- **Maintenance is a lease** of more than 0 and at most 24 h (`--for 25h` is refused). Past its end it reads as lapsed,
+  with no event needed. A lapsed lease under a freeze leaves the freeze in force.
+- **Folded in `seq` order**, never by comparing `at` times: two acts in the same second, or one stamped earlier by a
+  clock set back, are read in the order the record took them. Entering a state again starts it clean. Its note, end
+  and action list are that act's alone, never carried from an earlier entry of the same state.
+- **Presence.** The owner is `away` when the record holds no event whose source is `owner` for `away-after`, and
+  `present` otherwise. The default is `operating: {away-after: 2h}` (top level, main file only). It must be at least
+  5m and at most 7d; any other value is `bad-value` at its line.
+- **Read as strict when unsure.** A record that cannot be read counts as `incident` and `away`, and says why. So does
+  an operating event of no known state, and a maintenance end that is not a number reads as `incident`.
+  `operating.read(p)` (`ergostat/actions/operating.py`) is the one function that answers: the state, the presence,
+  the seq of the event it was read from, and the reason (`--json` gives the same).
+- **Under the read-only fallback** (a broken model, §9.1) `ergostat operating` is refused as a command that acts,
+  showing the state included.
+- **Not covered.** The events are kept as the record's other loose events are. A state entered longer ago than the
+  model's `keep:` (30 days by default) is forgotten when its event is pruned, and then reads as `normal`.
+
 ### Compute pools
 
 `compute:` declares pools of **nodes**: machines a model's runs may later execute on (the plan is
