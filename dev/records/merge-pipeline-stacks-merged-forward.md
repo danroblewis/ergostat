@@ -83,3 +83,10 @@ sizes of the pytest temp folders. Checked in this gap's code and ruled out as a 
 No code was changed for it: with no failing test named, a change would be a guess. If the next build names a test, it
 is answered then. If it is cut off again with no summary, the cause may be the suite container (its 2 GB /tmp tmpfs
 or its 12 GB memory), which is outside this gap (lesson-13).
+
+Second build failure: cut off again, earlier (36 results, one `F`, no summary, no FAILED line). A run that stops at a
+different point each time points to the container, not to one test. Run again whole and serially here,
+tests/test_factory.py gave 204 passed, 2 skipped, rc 0. Running it under `-n 8 --dist worksteal`, listing /tmp and
+finding a log of the build were refused, so the failing test is still unnamed. The only change: a comment in
+tests/test_factory.py that this branch had changed by mistake (`-r:pytest's`) is back to main's text. No code was
+changed on a guess.

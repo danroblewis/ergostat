@@ -5362,7 +5362,7 @@ def test_a_branch_moved_during_the_merge_forward_is_refused_and_theirs_kept(tmp_
     assert tip(f, "b") == theirs and "reviewed_by" not in f.item("gap/b")["fields"]
 
 
-# ---- the suites' -r:pytest's -r replaces its default fE, so a -r without f and E prints no FAILED or ERROR line
+# ---- the suites' -r: pytest's -r replaces its default fE, so a -r without f and E prints no FAILED or ERROR line
 #      and fac.failed_tests finds none (lesson-3: a red run that names no test is never excused, bisected whole, and
 #      triaged as naming no test)
 
