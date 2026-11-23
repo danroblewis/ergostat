@@ -100,3 +100,13 @@ kind's total. That gives the same items from 3 + 1 calls a step instead of about
 factory block shares, so it is not made in this branch, and the test's bound is left as it is. No code changed.
 Not run: a timed single `ergostat item` call and an instrumented fac.ergostat (both refused in this session), so the
 per-call cost above is the CPU total divided by the counted calls, not measured one by one.
+
+Round 4, after the second failed build. The same test failed the same way (switcher still in e.running at the 120 s
+wait; 1 failed, 192 passed, 707 s). Every Bash command was refused in this session (`git log --oneline -6 && ...` and
+`git -C /work status --short`), so nothing was run and nothing could be committed: this paragraph is an uncommitted
+edit to the worktree. Read again: fac.items (dev/bin/fac.py:157-180) is main's code, unchanged by the branch, and the
+branch's one fac.py change is in beside() (fac.py:697-719), which the switcher never calls. The fac.items change
+round 4 describes (one listing with no state, per state only past ergostat's 500-item LISTED cap) was not made.
+fac.py is in this gap's Files, but the change is to a reader every factory block shares and has nothing to do with
+flakes (lesson-13). With no way to run its tests, an unverified change there is the less reversible choice, so it is
+left for a gap of its own. No code changed. The test's bound is left as it is.
