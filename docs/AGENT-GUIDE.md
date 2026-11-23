@@ -856,6 +856,9 @@ exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per 
 - **Docs**: [SPEC.md](SPEC.md) (the format; sections 5a items, 6 sensors, 7 flows, 8 goals, 9 blocks,
   9.5 leases, 12k gated actions, 4c remote systems), [MODELLING.md](MODELLING.md) (improving a model from its record),
   [MODELLING-WELL.md](MODELLING-WELL.md) (the craft of each diagram),
+  [DASHBOARDS.md](DASHBOARDS.md) (`ergostat help dashboards`: sensible Dashboard panels, each from the question it
+  answers and the decision it supports, with recipes and real `chartPanel` configs; read it before you build a
+  dashboard for someone),
   [QUICKSTART.md](QUICKSTART.md), `examples/ticket-factory/` and `examples/the-job/`.
 
 ## 6. When ergostat itself is wrong

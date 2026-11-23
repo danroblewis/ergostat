@@ -9,8 +9,9 @@ description: Use whenever an ergostat project (ergostat.yaml) gets a request for
 for turning a described workflow into a model of the right shape, the check-look-fix loop, common mistakes), and
 `ergostat help modelling-well` (the craft that makes each of the three diagrams look as a professional would draw
 it; section "Modelling well" below is its summary). Then, as needed: `ergostat help adding` (the templates and a worked example), `ergostat help modelling`
-(improving a model from its record), `ergostat help spec` (the whole format). An installed ergostat carries all
-of these; nothing else needs copying.
+(improving a model from its record), `ergostat help spec` (the whole format), and `ergostat help dashboards` (docs/DASHBOARDS.md: sensible Dashboard
+panels, from the question each answers and the decision it supports, when the owner asks for a dashboard of what you
+built). An installed ergostat carries all of these; nothing else needs copying.
 
 **Read first, before writing or changing a daemon** (a long-lived program that serves many sensors or many items
 instead of a `run:` process each; `daemon:` in the YAML): [daemons.md](daemons.md), beside this file. Its rules,
