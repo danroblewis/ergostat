@@ -66,6 +66,15 @@ def test_a_reading_is_written_under_its_name_labels_project_and_series(tmp_path,
     assert v._sel("sensor/queue.depth") == '{__name__=~"ergostat_.+",project="p1",series="sensor/queue.depth"}'
 
 
+def test_a_series_under_both_names_is_bucketed_whole_before_it_migrates(tmp_path, monkeypatch):
+    v = Victoria("http://127.0.0.1:9", tmp_path, project="p1")
+    two = {"status": "success", "data": {"resultType": "matrix", "result": [
+        {"metric": {"project": "p1", "series": "s"}, "values": [[100, "1"], [160, "2"]]},                  # the old name's
+        {"metric": {"project": "p1", "series": "s", "name": "s"}, "values": [[220, "3"], [280, "4"]]}]}}   # its labels'
+    monkeypatch.setattr(v, "_req", lambda *a, **k: json.dumps(two).encode())
+    assert v._range("last_over_time({x}[60s])", 100, 280, 60) == {100.0: 1.0, 160.0: 2.0, 220.0: 3.0, 280.0: 4.0}
+
+
 # ---- the built-in data source
 
 
@@ -356,10 +365,13 @@ def test_a_record_under_the_old_single_name_is_renamed_once(tmp_path, vm):
     try:
         dst._req("/api/v1/import", body="".join(json.dumps(x) + "\n" for x in lines).encode())
         dst._req("/internal/force_flush")
+        dst.add_many([("sensor/q.n", now - 1800, 4.0)])                  # (written after the upgrade, under its labels)
+        [s] = dst.series()
+        assert (s["n"], s["value"]) == (4, 4.0)                          # both names read, before it migrates
         assert migrate(tmp_path, dst)["renamed"] == 1
         assert migrate(tmp_path, dst) == {"series": 0, "readings": 0, "sent": 0, "renamed": 0}
         got = dst._export(None, 0, UNTIL, sel="{" + f'project="{dst.project}"' + "}")
-        assert [v for _, v in got["sensor/q.n"]] == [1.0, 2.0, 3.0]
+        assert [v for _, v in got["sensor/q.n"]] == [1.0, 2.0, 3.0, 4.0]
         assert dst._query(f'count({OLD_METRIC}{{project="{dst.project}"}})', now) == []
         assert dst.range("sensor/q.n", now - 7200) == got["sensor/q.n"]
     finally:

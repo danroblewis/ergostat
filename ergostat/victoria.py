@@ -157,8 +157,11 @@ class Victoria:
                                                           "step": f"{step:.3f}s", "nocache": "1", "latency_offset": "1ms"}))
         if d.get("status") != "success":
             raise VictoriaError(d.get("error", "query failed"))
-        res = d["data"]["result"]
-        return {float(t): float(v) for t, v in res[0]["values"]} if res else {}
+        out: dict[float, float] = {}
+        for r in d["data"]["result"]:     # (one series under two names, before ergostat migrate: their spans apart)
+            for t, v in r["values"]:
+                out.setdefault(float(t), float(v))
+        return out
 
     # ---- writing
 
@@ -307,9 +310,11 @@ class Victoria:
     def series(self) -> list[dict]:
         self._sync_reads()
         sel = self._sel()
-        n = {m["series"]: v for m, v in self._query(f"count_over_time({sel}[{FOREVER}])", time.time() + 86400)}
-        last = {m["series"]: v for m, v in self._query(f"tlast_over_time({sel}[{FOREVER}])", time.time() + 86400)}
-        val = {m["series"]: v for m, v in self._query(f"last_over_time({sel}[{FOREVER}])", time.time() + 86400)}
+        n = {m["series"]: v for m, v in self._query(f"sum by (series) (count_over_time({sel}[{FOREVER}]))", time.time() + 86400)}
+        last = {m["series"]: v for m, v in self._query(f"max by (series) (tlast_over_time({sel}[{FOREVER}]))", time.time() + 86400)}
+        val = {m["series"]: v for m, v in sorted(self._query(f"last_over_time({sel}[{FOREVER}])", time.time() + 86400),
+                                                 key=lambda x: bool(set(x[0]) - {"__name__", "project", "series"}))}
+        # (sorted so a series under its labels comes last, and its value is kept over the old name's)
         return [{"series": s, "n": int(n[s]), "last": last.get(s), "value": val.get(s)} for s in sorted(n)]
 
     def first_time(self) -> float | None:
