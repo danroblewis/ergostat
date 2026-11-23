@@ -65,6 +65,27 @@ Left, not in this gap:
 
 Overrun reason: the declared `dashboards:` schema could not hold a page draft (its kinds are endpoint panels; a draft's panels are query-engine forms), so done item 2 needed a `query` panel kind with its check and the page-side resolution (`sent`, about 60 lines), and "after Accept /dashboard draws it" needed the page to draw a declared dashboard, which the declaration gap left unbuilt (about 25 lines); with `numbers/display.py` (143 lines, its guard and docstrings) the branch is 261 net lines against 150.
 
+Implementor, 2026-11-23, round 2. The one finding of round 1 (blocking: `sent` expanded every reference whole and
+recursively, 2^n on a chain, and did not match the page) is answered:
+- `spec/dashboards.sent` now follows panels.js `queryPanels`' `send` step by step: `input`/`output` by id get the
+  other query as written (one level), `x.query` by id is sent as a query of its own and named by its new id, a
+  reference that leads nowhere or back along its path becomes `unknown:...` (refused), queries asked alike are sent
+  once as `q0`, `q1`, .... It returns the queries sent and each written id with the id it went as. A panel holds 1
+  to 64 queries (`MOST_QUERIES`, the engine's own ceiling), refused at check with its line, and `sent` reads no more,
+  so an `x.query` chain is at most 64 deep and costs at most 64². Differences from the page, said in the docstring
+  and SPEC §4f: every query is checked (a hidden one too), and no form's own `ask` is applied.
+- `dashboard_api._run` sends the flat list and gives each written query its answer under its own id.
+- A refused query's finding names the written id(s), not only the sent `qN`.
+- Test `test_a_long_chain_of_shared_references_is_sent_as_the_page_sends_it`: a 64-query chain, each naming the one
+  before as `input`, `output` and `x.query`, is sent in 64 queries of linear size, `x.query` by id, and Keep answers
+  it; 65 queries are refused. Seen to fail: with the input/output step changed back to a recursive expansion it hung
+  (stopped by the harness at its time limit), the old behaviour.
+- Ran: tests/test_dashboard_keep.py with tests/test_dashboards.py (41 passed), tests/test_improve.py (28 passed),
+  tests/test_dashboard_keep_page.py under the watchdog (1 passed, rc 0), ruff clean; `git merge main`: already up to
+  date. Not run: the whole unit suite and the four browser files.
+
+Overrun reason: as in round 1 (a `query` panel kind with its check, the page drawing a declared dashboard, and `numbers/display.py`), plus about 30 lines in round 2 to send the queries exactly as the page does with a ceiling; 293 net lines against 150.
+
 ## Entry
 
 section: Interface

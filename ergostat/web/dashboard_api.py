@@ -164,8 +164,13 @@ def _run(live, p, panel: Panel, q: dict, snap):
     if panel.panel == "note":
         return {"text": panel.params.get("text", "")}
     if panel.panel == "query":                     # a kept draft's panel: its queries, as the page asks them
-        asked = {"queries": sent(panel.params["queries"]),"since": float((q.get("since") or [86400])[0])}
-        return _answer(live, "query", {"q": [base64.urlsafe_b64encode(json.dumps(asked).encode()).decode()]}, p, snap)
+        flat, wanted = sent(panel.params["queries"])
+        asked = {"queries": flat, "since": float((q.get("since") or [86400])[0])}
+        got = _answer(live, "query", {"q": [base64.urlsafe_b64encode(json.dumps(asked).encode()).decode()]}, p, snap)
+        if isinstance(got, dict) and isinstance(got.get("results"), list):   # each written query's answer, by its id
+            by = {r.get("id"): r for r in got["results"] if isinstance(r, dict)}
+            got = {**got, "results": [{**by[went], "id": mine} for mine, went in wanted if went in by]}
+        return got
     got =_answer(live, PATHS[panel.panel], {**q, **query({k: v for k, v in panel.params.items() if k != "goals"})}, p, snap)
     if panel.panel == "goals" and isinstance(got, dict) and panel.params.get("goals"):
         got = {g: got[g] for g in names(panel.params["goals"]) if g in got}

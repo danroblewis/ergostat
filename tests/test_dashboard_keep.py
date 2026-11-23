@@ -71,6 +71,30 @@ def test_a_kept_draft_is_refused_when_check_would_fail(tmp_path):
     assert not pr.pending(p)
 
 
+def test_a_long_chain_of_shared_references_is_sent_as_the_page_sends_it(tmp_path):
+    from ergostat.query.parse import MOST_QUERIES
+    from ergostat.spec.dashboards import sent
+    chain = [{**QUERY, "id": "q-0"}] + [
+        {**QUERY, "id": f"q-{i}", "input": f"q-{i - 1}", "output": f"q-{i - 1}", "x": {"type": "query", "query": f"q-{i - 1}"}}
+        for i in range(1, MOST_QUERIES)]
+    flat, wanted = sent(chain)
+    # one level: each input/output is its neighbour as written (still naming the one before), never the whole chain
+    assert len(flat) == MOST_QUERIES and len(json.dumps(flat)) < 600 * MOST_QUERIES
+    last = flat[-1]
+    assert last["input"] == {k: v for k, v in chain[-2].items() if k not in ("id", "label", "hidden")}
+    assert last["x"]["query"] == flat[-2]["id"]                     # an x.query goes by id, a query of its own
+    assert [mine for mine, _ in wanted] == [x["id"] for x in chain]
+    assert sent([{**QUERY, "x": {"type": "query", "query": "nowhere"}}])[0][0]["x"]["query"] == "unknown:nowhere"
+    p = project(tmp_path)
+    draft = {**DRAFT, "panels": [{**DRAFT["panels"][0], "queries": chain}]}
+    try:                                                            # answered (refused or kept), not hung
+        display.keep(p, draft)
+    except pr.ProposalError:
+        pass
+    with pytest.raises(pr.ProposalError, match=f"1 to {MOST_QUERIES} queries"):
+        display.keep(p, {**DRAFT, "panels": [{**DRAFT["panels"][0], "queries": chain + [{**QUERY, "id": "more"}]}]})
+
+
 def test_a_display_change_is_passed_by_the_judge_without_a_replay(tmp_path, monkeypatch):
     p = project(tmp_path)
     x = display.keep(p, DRAFT)

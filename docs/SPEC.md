@@ -1450,7 +1450,7 @@ Each panel is its kind (`panel:`), its words (`title`, `note`), its `size` (`s`,
 | `states`, `cycle-time` | `GET /api/items-flow` | `kind` (needed), `points` |
 | `scope` | `GET /api/loop-scope` | `goal` (needed), `points` |
 | `items-graph`, `timeline` | `GET /api/items-graph` (with its estimates) | `kinds`, `system` |
-| `query` | `GET /api/query`: the Dashboard page's own panel, as a kept draft holds it | `queries` (needed: each checked by the query engine's parser as the page sends it, its own `label` and `hidden` left out; a query's `kind` must be the model's), `form`, `display`, `layout` |
+| `query` | `GET /api/query`: the Dashboard page's own panel, as a kept draft holds it | `queries` (needed: 1 to 64, checked by the query engine's parser in the shape the page's `send` gives them: their own `id`, `label` and `hidden` left out, an `input` or `output` naming another query by id replaced by that query as written (one level), an `x.query` by id sent as a query of its own, a reference that leads nowhere or back along its path refused, queries asked alike sent once; every query is checked, a hidden one too, and no form's own adjustment is applied; a query's `kind` must be the model's), `form`, `display`, `layout` |
 
 A list may be written as one string, as the address writes it (`refs: stock.a,stock.b`). `check` refuses an unknown
 kind of panel, size or a value of the wrong type (**bad-dashboard**), an unknown key (**unknown-key**), and a
