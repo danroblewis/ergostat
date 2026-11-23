@@ -21,6 +21,7 @@ from pathlib import Path
 
 from ..spec.ir import MODEL_CHANGE, Spec
 from . import proposals as pr
+from .modeller_spend import Capped
 
 GUIDE = Path(__file__).resolve().parent.parent / "library" / "templates" / "modelling" / "reviewer.md"
 VERDICTS = ("pass", "revise", "reject")
@@ -225,7 +226,11 @@ def run(p, model: str = "haiku", most: int = 3, left: float = 1.0, timeout: floa
             if not fits or out["cost"]["usd"] + dearest > left:     # its estimated most: none past the cap
                 out["verdicts"].append({"id": x["id"], "verdict": None, "why": "the day's allowance is spent"})
                 break
-            got = call(text, model, timeout)
+            try:
+                got = md.asked(p, text, model, timeout, call)
+            except Capped as e:                         # the day's budget said no: no process, no more this run
+                out["verdicts"].append({"id": x["id"], "verdict": None, "why": str(e)})
+                break
             usd = float(got.get("usd") or 0.0)
             out["cost"]["usd"] = round(out["cost"]["usd"] + usd, 6)
             out["cost"]["calls"] += 1
