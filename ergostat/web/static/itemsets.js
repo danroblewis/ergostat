@@ -92,3 +92,36 @@ function countsLines(d) {
             h("code", {}, l.kind), `: ${l.held} leased now. `, h("a", { href: itemsHref(l.set), class: "leased-link" }, "Show the leased items")))]
     .filter(Boolean);
 }
+
+/* a kind's progress per group (``/api/items-groups``, spec/grouptally.py), on its card: a compact row a group (a
+   gap's milestone), its bar done, in progress, waiting, stopped of its total, its state and what it waits on; the
+   active ones, and the members in no group, shown; the rest folded behind one button (``more``). A row's click opens
+   exactly its members (its set: ``where=REL:ID``) in the list, the Graph or the Timeline, whichever is shown */
+const GP_STACKS = ["done", "in progress", "waiting", "stopped"];
+function groupRows(g, { more = false, onMore, onPick, chosen = [] } = {}) {
+  if (!g) return null;
+  if (g.err) return h("p", { class: "note gp-err", key: "gp-err" }, `Progress per group not read: ${g.err.message || g.err}`);
+  const short = (a) => String(a).split("/").pop();
+  const shown = (r) => r.id == null || ["active", "queued"].includes(r.status);
+  const row = (r) => {
+    const c = r.counts, apart = [r.left ? `${r.left} closed as no work done, left out` : "", r.summaries ? `${r.summaries} split, counted as their parts` : ""].filter(Boolean);
+    const name = r.id == null ? `no ${g.by.replace(/_/g, " ")}` : r.title ? `${short(r.id)} · ${r.title}` : short(r.id);
+    const st = r.id == null ? "" : !r.item ? "no such item" : r.state + (r.waits_on.length ? ` · waits on ${r.waits_on.map(short).join(", ")}` : "");
+    const says = `${GP_STACKS.map((s) => `${c[s]} ${s}`).join(", ")}, of ${r.total}`;
+    const on = chosen.length && r.params.where.length === chosen.length && r.params.where.every((w) => chosen.includes(w));
+    return h("a", { href: itemsHref(r.params), class: `gp-row${on ? " on" : ""}`, key: `gp:${r.id ?? ""}`, "data-group": r.id ?? "",
+                    title: [r.id ?? name, st, says, ...apart].filter(Boolean).join("\n"), "aria-label": `${name}: ${says}${st ? `; ${st}` : ""}`,
+                    onclick: (ev) => { ev.preventDefault(); onPick(r); } },
+      h("span", { class: "gp-name" }, name),
+      h("span", { class: "gp-bar", "aria-hidden": "true" }, ...GP_STACKS.map((s) => h("span", { class: `gp-${s.replace(" ", "-")}`, style: `flex-grow: ${c[s]}` }))),
+      h("span", { class: "gp-n" }, `${c.done}/${r.total}`), h("span", { class: "gp-state" }, st));
+  };
+  const first = g.rows.filter(shown), rest = g.rows.filter((r) => !shown(r));
+  const n = {};
+  for (const r of rest) n[r.state || "no such item"] = (n[r.state || "no such item"] || 0) + 1;
+  return h("div", { class: "gp-rows", key: `gp:${g.kind}:${g.by}`, role: "group", "aria-label": `${g.kind} by ${g.by}` },
+    ...(more ? [...first.filter((r) => r.id != null), ...rest, ...first.filter((r) => r.id == null)] : first).map(row),
+    rest.length ? h("button", { class: "ghost gp-more", key: "gp-more", "aria-expanded": String(more), onclick: onMore },
+      more ? "Fold the rest" : `${rest.length} more (${Object.entries(n).map(([w, k]) => `${k} ${w}`).join(", ")})`) : null,
+    g.odd_n ? h("p", { class: "note", key: "gp-odd" }, `${g.odd_n} whose ${g.by} is not one id, in no row: ${g.odd.join(", ")}`) : null);
+}

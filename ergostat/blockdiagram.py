@@ -32,9 +32,11 @@ What each part of the model becomes:
   model) enters at the process: at a stock's summing junction, or as an input of the process.
 - A block the model runs that reads nothing and is commanded by nothing (the world: customers,
   arrivals) is where a disturbance comes from, not a block of the control system.
-- A **system** is a subsystem block when closed: Q(s) when every part inside is continuous, else Q
-  (an operator); open, its parts are drawn inside its frame, with a port mark where a signal crosses it;
-  drawn alone, what crosses its edge are its In and Out ports."""
+- A **system** is a subsystem block when closed, classified by the signals crossing its edge: C (it acts on
+  another system's process), P (it is acted on) or its own name (both, or neither); P(s) when every part inside is
+  continuous, else P (an operator), with its p outputs by m inputs, disturbances counted, the same open; open, its
+  parts are drawn inside its frame, with a port mark where a signal crosses it; drawn alone, what crosses its edge
+  are its In and Out ports."""
 
 from __future__ import annotations
 
@@ -1244,10 +1246,79 @@ def _hold(g) -> str:
     return f"{OPS.get(g.hold.op, g.hold.op)} {_num(g.hold.value)}"
 
 
-# ---- folded by the systems: closed ones as subsystem blocks Q(s), open ones as frames, one drawn alone
+# ---- folded by the systems: closed ones as subsystem blocks (C, P or named), open ones as frames, one drawn alone
 
 def _chain(spec: Spec, system: str | None) -> list[str]:
     return list(reversed(spec.chain(system)))         # outermost first
+
+
+def _effects(spec: Spec) -> dict[str, set[str]]:
+    """Each part's causal edges forward: a flow to the stocks it fills or drains, a part to what it drives."""
+    out: dict[str, set[str]] = {}
+    for f in spec.flows.values():
+        out.setdefault(f"flow.{f.name}", set()).update(f"stock.{x}" for x in (f.source, f.target) if x)
+    for k, t in (("flow", spec.flows), ("auxiliary", spec.auxiliaries)):
+        for x in t.values():
+            for r in x.driven_by:
+                out.setdefault(f"{r.kind}.{r.name}", set()).add(f"{k}.{x.name}")
+    return out
+
+
+def _classes(d: _Diagram) -> dict[str, dict]:
+    """Each system as one block, read from the wires crossing its border (docs/proposals/blocks-levels.md §1), the same
+    whether it is drawn closed or open: C when it sends u wires out and none in, P when it takes u wires in and sends
+    none out, else named by itself. A u wire is set by a controller inside its source and enters a part of its target
+    that reaches one of the target's goals; every other wire is a y wire. Its ports in order: inputs (references and
+    signals from other systems), outputs, disturbances (entering from outside or arising inside); p outputs by m inputs,
+    disturbances counted, at both levels."""
+    if getattr(d, "classes", None) is not None:
+        return d.classes
+    spec, nodes, fx = d.s, d.nodes, _effects(d.s)
+    within = lambda nid, s: s in spec.chain((nodes.get(nid) or {}).get("system"))          # noqa: E731
+    inside = lambda var, s: "." in var and spec.inside(Ref(*var.split(".", 1)), s)      # noqa: E731
+
+    def reaches(w: dict, t: str | None, outside: str) -> bool:      # rule (b): into t (None: anything not in outside)
+        part = lambda v: inside(v, t) if t else not inside(v, outside)                  # noqa: E731
+        b = w["target"][4:] if w["target"].startswith("blk:") else None
+        todo = [f"{x.kind}.{x.name}" for x in spec.blocks[b].targets()] if b in spec.blocks else [w["key"]]
+        todo = [y for v in todo for y in (v, *fx.get(v, ()))]       # a flow of the source may fill the target's stock
+        goals = {str(g.of) for g in spec.goals.values() if part(str(g.of))}
+        seen: set[str] = set()
+        while todo:
+            v = todo.pop()
+            if v in seen or not part(v):
+                continue
+            seen.add(v)
+            if v in goals:
+                return True
+            todo.extend(fx.get(v, ()))
+        return False
+
+    out: dict[str, dict] = {}
+    for s in spec.systems:
+        ports: dict[str, list[str]] = {"in": [], "out": [], "d": []}
+        u_in = u_out = False
+        for w in d.wires:
+            a, b, k = within(w["source"], s), within(w["target"], s), w["key"]
+            sg = d.sig.get(k) or d.signal(k)
+            if a and b and nodes[w["source"]].get("role") == "disturbance":
+                group = "d"
+            elif a == b:
+                continue
+            else:
+                group = "out" if a else "d" if sg.get("sym") == "d" else "in"
+                if sg.get("sym") == "u":
+                    tch = spec.chain(nodes[w["target"]].get("system"))
+                    t = next((x for x in tch if spec.within.get(x) in spec.chain(s)[1:] or not spec.within.get(x)), None)
+                    if reaches(w, s, s) if b else reaches(w, t, s):
+                        u_in, u_out = u_in or b, u_out or a
+            if k not in ports[group]:
+                ports[group].append(k)
+        letter = "C" if u_out and not u_in else "P" if u_in and not u_out else None
+        out[s] = {"letter": letter, "p": len(ports["out"]), "m": len(ports["in"]) + len(ports["d"]),
+                  "ports": [{"as": g, "key": k} for g in ("in", "out", "d") for k in ports[g]]}
+    d.classes = out
+    return out
 
 
 def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] | None = None) -> dict:
@@ -1276,7 +1347,13 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
 
     reps = {nid: rep(nid) for nid in nodes}
     mixed = {name for nid, n in nodes.items() if not _continuous(n) for name in spec.chain(n.get("system"))}
-    arg = lambda name: None if name in mixed else "s"          # noqa: E731  Q_lab: an operator, not a transfer function
+    arg = lambda name: None if name in mixed else "s"          # noqa: E731  P_lab: an operator, not a transfer function
+    cls = _classes(d)
+
+    def sysfn(name: str) -> dict:                              # the same at both levels: closed, and its frame open
+        c = cls[name]
+        return {"sym": c["letter"] or name, "sub": name if c["letter"] else None, "named": not c["letter"],
+                "arg": arg(name), "expr": f"{c['p']}×{c['m']}", "letter": c["letter"], "p": c["p"], "m": c["m"]}
     out: dict[str, dict] = {}
     boxes: dict[str, dict] = {}
     for nid, n in nodes.items():
@@ -1288,7 +1365,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
             inner = spec.inner_loops(name)
             boxes[r] = {"id": r, "kind": "block", "role": "subsystem", "system": spec.within.get(name), "label": name,
                         "ins": [], "outs": [], "parts": 0, "loops": [],
-                        "fn": {"sym": "Q", "sub": name, "arg": arg(name), "expr": "", "linear": None},
+                        "fn": {**sysfn(name), "linear": None}, "ports": cls[name]["ports"],
                         "says": (spec.systems.get(name) or "") and spec.systems.get(name) + ". ",
                         "subsystems": spec.subsystems(name), "inner": inner, "system_name": name,
                         "remote": remote_box(spec, name), "upkeep": upkeep(spec, name)}
@@ -1362,7 +1439,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
                               any(e["sourcePort" if io == "outs" else "targetPort"] == p["id"] for e in edges)]
             boxes[box][io].append({"id": pid, "side": "W" if io == "ins" else "E", "key": "vec", "n": len(keys), "keys": keys})
         edges.append({"key": f"vec:{a}>{b}", "source": a, "sourcePort": sp, "target": b, "targetPort": tp, "keys": keys})
-        d.sig[f"vec:{a}>{b}"] = {"key": f"vec:{a}>{b}", "sym": "y",          # a subsystem's outputs: y_i = Q_i(s) u_i
+        d.sig[f"vec:{a}>{b}"] = {"key": f"vec:{a}>{b}", "sym": "y",          # a subsystem's outputs, one vector
                                  "sub": a.split(":", 1)[1], "what": "vector", "n": len(keys)}
     for i, e in enumerate(edges):
         e["id"] = f"w{i}:{e['sourcePort']}>{e['targetPort']}"
@@ -1371,18 +1448,21 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
     # what each subsystem block computes, now that its inputs and outputs are known
     for b in boxes.values():
         name = b["system_name"]
-        nin, nout = len(b["ins"]), len(b["outs"])
-        width = lambda ps: sum(p.get("n", 1) for p in ps)          # noqa: E731
-        b["fn"]["expr"] = f"{width(b['outs'])}×{width(b['ins'])}" if nin and nout else ""
-        b["fn"]["bold"] = width(b["ins"]) > 1 or width(b["outs"]) > 1
-        q = sym("Q", name, b["fn"]["arg"], b["fn"]["bold"])
-        b["math"] = [eq(sym("y", name, None, b["fn"]["bold"]), row(q, sym("u", name, None, b["fn"]["bold"])) if b["fn"]["arg"]
-                        else row(q, mo("["), sym("u", name, None, b["fn"]["bold"]), mo("]"))),
-                     mt(f"the system {name} as one block: from its {width(b['ins'])} input{'s' if width(b['ins']) != 1 else ''} "
-                        f"to its {width(b['outs'])} output{'s' if width(b['outs']) != 1 else ''}, with the {len(b['loops'])} "
+        fn = b["fn"]
+        fn["bold"] = fn["m"] > 1 or fn["p"] > 1
+        q, L = (sym(fn["letter"], name, fn["arg"], fn["bold"]), fn["letter"]) if fn["letter"] else (mt(name), name)
+        ds = sum(p["as"] == "d" for p in b["ports"])
+        what = {"C": "a controller: it acts on another system's process, and nothing outside acts on it",
+                "P": "a process: another system acts on it, and it acts on none", None: "a named block: it acts on "
+                "another system and is acted on, or neither (it holds only its own loops)"}[fn["letter"]]
+        b["math"] = [eq(sym("y", name, None, fn["bold"]), row(q, sym("u", name, None, fn["bold"])) if fn["arg"]
+                        else row(q, mo("["), sym("u", name, None, fn["bold"]), mo("]"))),
+                     mt(f"the system {name} as one block, {what} (inferred from the signals crossing its edge): "
+                        f"{fn['p']} output{'s' if fn['p'] != 1 else ''} by {fn['m']} input{'s' if fn['m'] != 1 else ''} "
+                        f"({ds} of them disturbances), with the {len(b['loops'])} "
                         f"loop{'s' if len(b['loops']) != 1 else ''} inside closed. Not identified. " +
-                        ("Every part inside is continuous: a transfer function Q(s)." if b["fn"]["arg"] else
-                         "It holds sampled or nonlinear parts, so it is an operator Q[u], not a transfer function Q(s)."))]
+                        (f"Every part inside is continuous: a transfer function {L}(s)." if fn["arg"] else
+                         f"It holds sampled or nonlinear parts, so it is an operator {L}[u], not a transfer function {L}(s)."))]
         b["says"] = (b["says"] or "") + ("an inner loop: given a setpoint from outside, it holds it. " if b["inner"] else "")
         b["rows"] = [["system", name], ["loops inside", ", ".join(b["loops"])], ["inside", ", ".join(b["subsystems"])],
                      ["inputs", ", ".join(_portkey(p) for p in b["ins"])], ["outputs", ", ".join(_portkey(p) for p in b["outs"])]]
@@ -1404,7 +1484,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] 
             name = f.split(":", 1)[1]
             if f not in frames:
                 frames[f] = {"id": f, "kind": "frame", "frame": "system", "label": name, "parent": frame_of(spec.within.get(name)),
-                             "fn": {"sym": "Q", "sub": name, "arg": arg(name)}, "says": spec.systems.get(name, ""),
+                             "fn": sysfn(name), "ports": cls[name]["ports"], "says": spec.systems.get(name, ""),
                              "inner": spec.inner_loops(name)}
             f = frames[f]["parent"]
     for c in d.frames:
