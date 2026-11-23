@@ -52,3 +52,10 @@ Round 2: the queue's one finding was a conflict with main in ergostat/blockdiagr
 (dc8ad98d) keeps both: main's two functions as they are, and `fold(d, open_, focus, keep=None)` with the branch's
 docstring. No other finding was raised. After the merge: the three acceptance tests, test_blockdiagram.py and
 test_correspond.py pass; ruff is clean. Not run here: the whole unit suite and the four browser files.
+
+Round 3: the queue's one finding was a conflict with main (b7302db6) in tests/test_diagram_rendering.py. Both sides
+had added tests at the same place, the file's end: the branch's item=/kind= tests and main's closed-module sparkline
+tests. The merge (ddba6aae) keeps both blocks whole, the branch's first. No code changed. After the merge, these
+pass: the two acceptance tests in test_diagram_rendering.py, main's two sparkline tests (3 cases), and in
+test_items_page.py the link test and the lifecycle strip test. Ruff is clean. Not run here: the whole unit suite and
+the four browser files.
