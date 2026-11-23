@@ -6,9 +6,11 @@ engine left them: a gate's output (``block/NAME``), a goal's last crossing, a st
 from __future__ import annotations
 
 import ast
+import time
 
 from ..costs import budget
 from ..leases import TAKEN, poolnow
+from ..leases.terms import grace
 from ..spec import items as its
 from ..spec.ir import LEASED, Ref
 from . import ev, item_link, root
@@ -27,6 +29,10 @@ def engine_now(p, now: float) -> dict:
     return {"running": bool(pid) and not stale, "pid": pid, "beat": written,
             "said": "no engine holds the run lock" if not pid else
                     f"the engine (pid {pid}) has not passed since {_ago(now, written)}" if stale else f"pid {pid}"}
+
+
+def _at(t: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t))
 
 
 def _ago(now, t) -> str:
@@ -53,30 +59,50 @@ def holder(ctx, it) -> dict:
                     f"({a['fields'].get('action') or 'an action'}), asked {_ago(now, a['first'])}", "the owner",
                     "approve or deny it", f"ergostat inbox action/{a['id'].split('/', 1)[1]} --approve | --deny",
                     proof + [ev("the action asked", item_link(a["id"]), at=a["first"])], since=a["first"], who="the owner")
-    pid = _taken_pid(ctx, it)
-    eng = ctx.engine
-    gone = pid is not None and not budget.alive(pid)
-    if gone or not eng["running"]:
-        why = f"the process that took it (pid {pid}) is gone" if gone else f"no engine is running ({eng['said']})"
-        return root("lease", it.id, f"held by run {run} of {name}, but {why}: nothing renews or ends its lease",
-                    "the owner", "start the engine: its watchdog expires the lease and the item is taken again",
-                    "ergostat run", proof + [ev(f"engine: {eng['said']}", None, at=eng.get("beat"))], since=taken)
-    exp = lease.get("expires")
-    if isinstance(exp, int | float) and exp < now:
+    pid, eng = _taken_pid(ctx, it, lease), ctx.engine
+    exp, ttl = lease.get("expires"), lease.get("ttl")
+    ends = exp + grace(float(ttl)) if _num(exp) and _num(ttl) else None    # (the watchdog's grace past its expiry)
+    until = f"at {_at(ends)}" if ends is not None else "once past its expiry (its expiry or TTL is not recorded)"
+    if not eng["running"]:
+        return root("lease", it.id, f"held by run {run} of {name}, but no engine is running ({eng['said']}): nothing "
+                    "renews or ends its lease", "the owner", "start the engine: its watchdog ends the lease once past its "
+                    f"expiry ({until}), and the item is taken again", "ergostat run",
+                    proof + [ev(f"engine: {eng['said']}", None, at=eng.get("beat"))], since=taken, ends=ends)
+    watchdog = f"the running engine's watchdog (pid {eng.get('pid')})"
+    if pid is not None and not budget.alive(pid):     # (a running engine expires it by its TTL, never by its pid)
+        return root("lease", it.id, f"held by run {run} of {name}, but the process that took it (pid {pid}) is gone: "
+                    f"nothing renews the lease, and the running engine expires it only past its expiry, {until}",
+                    watchdog, f"wait: it expires the lease {until}; or give the item back by hand now",
+                    f"ERGOSTAT_ITEM={it.id} ERGOSTAT_LEASE={lease.get('fence')} ERGOSTAT_RUN={lease.get('holder')} "
+                    "ergostat lease --nack 'its process is gone' --no-count",
+                    proof + [ev(f"the process that took it, pid {pid}: not running", item_link(it.id), at=taken),
+                             ev(f"engine: {eng['said']}", None, at=eng.get("beat"))], since=taken, ends=ends)
+    if _num(exp) and exp < now:
         return root("lease", it.id, f"held by run {run} of {name}, whose lease expired {_ago(now, exp)} and has not been "
-                    "ended", f"the engine's watchdog (pid {eng.get('pid')})",
-                    "it expires the lease at its next look; if it does not, see the engine's log", "ergostat lease " + it.id,
-                    proof, since=exp)
+                    "ended", watchdog, "it expires the lease at its next look; if it does not, see the engine's log",
+                    "ergostat lease " + it.id, proof, since=exp, ends=ends)
     agent = ctx.spec.agents.get(b.agent or "") if b else None
     who = f"{name}" + (f" ({agent.kind} {agent.name})" if agent else "")
-    return root("work", it.id, f"being worked by {who}, run {run}, since {_ago(now, taken)}"
-                + (f"; its lease runs to {_ago(now, exp).replace(' ago', '')} from now" if isinstance(exp, int | float) else ""),
-                who, "let the run finish", f"ergostat lease {it.id}", proof, since=taken)
+    left = f"; its lease runs to {_ago(now, exp).replace(' ago', '')} from now" if _num(exp) else ""
+    if pid is None:                                   # (its taking records the process only under a budget)
+        unk = f"whether the process that took {it.id} (run {run} of {name}) still runs is not recorded: its {TAKEN} has no pid"
+        return root("unknown", it.id, f"held by run {run} of {name} since {_ago(now, taken)}{left}, but {unk}", watchdog,
+                    f"nothing, if the run is alive: it ends the lease; if its process is gone, the lease expires {until}",
+                    f"ergostat lease {it.id}", proof, since=taken, ends=ends, missing=unk)
+    return root("work", it.id, f"being worked by {who}, run {run}, its process (pid {pid}) running, since "
+                f"{_ago(now, taken)}{left}", who, "let the run finish", f"ergostat lease {it.id}",
+                proof + [ev(f"the process that took it, pid {pid}: running", item_link(it.id), at=taken)], since=taken)
 
 
-def _taken_pid(ctx, it):
+def _num(x) -> bool:
+    return isinstance(x, int | float) and not isinstance(x, bool) and x == x
+
+
+def _taken_pid(ctx, it, lease: dict):
+    """The pid its taking recorded (the engine process that took it), of this lease's own taking (its run and fence)."""
     got = ctx.p.events.query(n=1, item=it.id, type=TAKEN)
-    pid = (got[0].get("data") or {}).get("pid") if got else None
+    d = (got[0].get("data") or {}) if got else {}
+    pid = d.get("pid") if (d.get("run"), d.get("fence")) == (lease.get("holder"), lease.get("fence")) else None
     return pid if isinstance(pid, int) and not isinstance(pid, bool) else None
 
 
@@ -153,15 +179,18 @@ def _block(ctx, b, it) -> dict | None:
                 if isinstance(i.fields.get("lease"), dict) and i.fields["lease"].get("block") == b.name]
     if len(mine) >= pool:
         said = f" (from {b.pool_now}, " + ("which has no reading)" if pool == 0 else "now)") if b.pool_now else ""
+        unk = []
         for x, h in ctx.items(mine[:20]).items():          # a holder whose lease is dead holds the pool for nothing
             r = holder(ctx, h)
             if r["kind"] == "lease":
                 return {**r, "says": f"{b.name}'s pool is full ({len(mine)} of {pool}), and {x} holds a place in it: "
                         + r["says"], "item": x, "via": b.name}
+            unk += [r["missing"]] if r.get("missing") else []
         return root("pool-full", it.id, f"{b.name}'s pool is full: {len(mine)} of {pool} runs at once{said}"
                     + (f", holding {', '.join(mine[:5])}" + (f" and {len(mine) - 5} more" if len(mine) > 5 else "")
                        if mine else ""), b.name, "finish a run, or raise its pool", "ergostat lease",
-                    [ev(f"held by {b.name}", item_link(x)) for x in mine[:5]] + [ev(f"{b.name}'s pool", _blink(b.name))])
+                    [ev(f"held by {b.name}", item_link(x)) for x in mine[:5]] + [ev(f"{b.name}'s pool", _blink(b.name))],
+                    **({"missing": "; ".join(unk)} if unk else {}))
     ends = p.events.query(n=FAILS, item=b.name, type="agent.ran,agent.failed")
     if len(ends) == FAILS and all(e["type"] == "agent.failed" for e in ends):
         note = (ends[-1].get("data") or {}).get("note") or "failed"

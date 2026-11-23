@@ -313,6 +313,35 @@ def test_an_unfinished_items_page_says_why_it_is_not_done_at_its_top(browser, si
     pg.close()
 
 
+def test_an_idle_unfinished_items_page_is_left_untouched_and_a_finished_one_never_asks_why(browser, site):
+    """The why answer differs at every poll (its time, its durations); the page redraws only when what it says
+    changes, so an idle page is patched by no poll (util.js: unchanged answers, nothing touched). A finished item's
+    page shows no why block, and does not ask for one."""
+    import json
+    done = json.loads(urllib.request.urlopen(f"{site}/api/why?item=ergostat.model-change%2Fc3", timeout=30).read())
+    assert done["done"], done
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    whys: list[str] = []
+    pg.on("request", lambda r: whys.append(r.url) if "/api/why" in r.url else None)
+    pg.goto(f"{site}/item/hypothesis/1")
+    pg.wait_for_selector(".why")
+    pg.wait_for_timeout(5500)                          # (the first poll past: it may differ from the first draw)
+    pg.evaluate("() => { window.__patched = 0; const was = patch;"
+                " window.__stacks = [];"
+                " patch = function (...a) { window.__patched++; window.__stacks.push(new Error().stack);"
+                " return was.apply(this, a); }; }")
+    n = len(whys)
+    pg.wait_for_timeout(9500)                          # two polls and more (every 4 s)
+    assert len(whys) >= n + 2, "it still asks why at each poll"
+    assert pg.evaluate("() => window.__patched") == 0, pg.evaluate("() => window.__stacks")
+    whys.clear()
+    pg.goto(f"{site}/item/ergostat.model-change/c3")
+    pg.wait_for_selector(".meta")
+    pg.wait_for_timeout(5000)
+    assert pg.locator(".why").count() == 0 and not whys, whys
+    pg.close()
+
+
 def test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set(browser, site):
     """What is going through the wires (item_sets.py): the stock ideas lists the hypotheses proposed now, the flow
     proposed those that arrived in the window; each links to the Items page filtered to that set, shown as a chip

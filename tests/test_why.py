@@ -94,9 +94,11 @@ def dead_pid() -> int:
     return proc.pid
 
 
-def take(p, item, block, run="r1", pid=None, ttl=600.0, at=None, fence=1):
+def take(p, item, block, run="r1", pid=None, ttl=600.0, at=None, fence=1, budgeted=True):
+    """A taking as the dispatcher writes it: with the taking process's pid under a budget, none without."""
+    more = {"pid": pid or os.getpid()} if budgeted else {}
     p.events.add(TAKEN, item=item, source="ergostat", at=at or NOW - 60,
-                 data={"run": run, "block": block, "fence": fence, "ttl": ttl, "max": 2, "pid": pid or os.getpid()})
+                 data={"run": run, "block": block, "fence": fence, "ttl": ttl, "max": 2, **more})
 
 
 def gate_open(p, value=1.0):
@@ -213,9 +215,34 @@ def test_gate_with_no_reading_is_said_not_guessed(tmp_path):
 def test_dead_lease_its_process_gone(tmp_path):
     p = project(tmp_path)
     p.events.add("ticket.opened", item="ticket/1", at=NOW - 100)
-    take(p, "ticket/1", "worker", pid=dead_pid())
-    r = why(p, "ticket/1")["root"]
-    assert r["kind"] == "lease" and "is gone" in r["says"] and r["command"] == "ergostat run"
+    take(p, "ticket/1", "worker", run="r1aaaaaaaaaa", pid=dead_pid(), at=NOW - 60, ttl=600)
+    r = why(p, "ticket/1")["root"]                     # an engine runs: it expires the lease by its TTL, not its pid
+    assert r["kind"] == "lease" and "is gone" in r["says"] and "running engine's watchdog" in r["owner"], r
+    assert r["ends"] == pytest.approx(NOW - 60 + 600 + 30) and "wait: it expires the lease at " in r["action"]
+    assert r["command"] == ("ERGOSTAT_ITEM=ticket/1 ERGOSTAT_LEASE=1 ERGOSTAT_RUN=r1aaaaaaaaaa ergostat lease --nack "
+                            "'its process is gone' --no-count")
+    down = why(p, "ticket/1", DOWN)["root"]            # no engine: starting one is what ends it
+    assert down["kind"] == "lease" and down["command"] == "ergostat run" and "no engine is running" in down["says"]
+
+
+def test_a_lease_taken_with_no_pid_says_its_process_is_not_known(tmp_path):
+    """No budget declared: the taking records no pid, so whether its process runs is said to be unknown, not work."""
+    p = project(tmp_path, MODEL.replace("budget: {daily: 5, max-cost: 1}\n", ""))
+    p.events.add("ticket.opened", item="ticket/1", at=NOW - 100)
+    take(p, "ticket/1", "worker", budgeted=False)
+    a = why(p, "ticket/1")
+    r = a["root"]
+    assert r["kind"] == "unknown" and "still runs is not recorded" in r["says"] and "watchdog" in r["owner"], r
+    assert any("has no pid" in m for m in a["missing"]) and "being worked" not in a["summary"]
+
+
+def test_a_pid_of_another_taking_is_not_read_as_this_leases(tmp_path):
+    p = project(tmp_path, MODEL.replace("budget: {daily: 5, max-cost: 1}\n", ""))
+    p.events.add("ticket.opened", item="ticket/1", at=NOW - 300)
+    take(p, "ticket/1", "worker", run="r1", budgeted=False, at=NOW - 200)
+    take(p, "ticket/1", "worker", run="r2", at=NOW - 60)     # (refused: held; the latest taking, with a live pid)
+    a = why(p, "ticket/1")
+    assert a["root"]["kind"] == "unknown" and "run r1 " in a["root"]["says"], a["root"]
 
 
 def test_stale_lease_past_its_expiry(tmp_path):
@@ -427,7 +454,18 @@ def test_stall_queue_held_by_a_lease_whose_process_died(tmp_path):
     gap(p, "r", "defined", "started", "built", "approved", at=NOW - 1800)
     r = why(p, "gap/r")["root"]
     assert r["kind"] == "lease" and r["item"] == "gap/q" and r.get("via") == "queue"
-    assert "pool is full" in r["says"] and "is gone" in r["says"] and r["command"] == "ergostat run"
+    assert "pool is full" in r["says"] and "is gone" in r["says"] and "running engine's watchdog" in r["owner"]
+    assert "--nack" in r["command"] and "ERGOSTAT_ITEM=gap/q " in r["command"] and r["ends"] is not None
+    assert why(p, "gap/r", DOWN)["root"]["command"] == "ergostat run"
+
+
+def test_a_full_pool_whose_holder_has_no_pid_says_so(tmp_path):
+    p = project(tmp_path, FACTORY.replace("budget: {daily: 40, max-cost: 4}\n", ""))
+    gap(p, "q", "defined", "started", "built", "approved")
+    take(p, "gap/q", "queue", budgeted=False)
+    gap(p, "r", "defined", "started", "built", "approved", at=NOW - 1800)
+    a = why(p, "gap/r")
+    assert a["root"]["kind"] == "pool-full" and any("gap/q" in m and "not recorded" in m for m in a["missing"]), a
 
 
 def test_stall_every_build_refused_by_the_budget(tmp_path):

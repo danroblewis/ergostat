@@ -226,5 +226,7 @@ def answer(p, iid: str, now: float | None = None, engine: dict | None = None) ->
         out["evidence"] = [e for x in roots for e in x["evidence"]]
         if r["kind"] == "unknown":
             out["missing"].append(r["says"])
+        elif r.get("missing"):                       # (a root known, with a part of it the record cannot tell)
+            out["missing"].append(r["missing"])
     out["summary"] = summary(out)
     return out
