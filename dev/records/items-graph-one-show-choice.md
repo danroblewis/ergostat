@@ -16,3 +16,42 @@ Acceptance tests: unit (rgModel on a chain a->b->c->d, a-c finished, d unfinishe
 Budget: 120 net lines.
 
 Milestone: items-page-readable. Owner items: 3, 4. From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. About 20 net lines outside tests and docs (pages.js +26/-21, relations.js +23/-11, style.css +1).
+
+- **rgModel** takes `o.finished` (hide|waits|show; anything else is hide). hide: the old Frontier + Collapse done
+  (the unfinished and what they wait on are in scope; every finished one is collapsed, a chain through them one
+  line "via N finished"). waits: the same, but a finished item an unfinished one in scope waits on directly is not
+  collapsed. show: no frontier, nothing collapsed. It returns `unseen` (the finished not drawn, per kind), and the
+  legend says "N finished not drawn: KIND STATES; ...". Under show nothing is counted there; the RG.NODES note stays.
+- **The page**: the "Show finished" checkbox and the Frontier and Collapse done checkboxes are gone. One segmented
+  control, "Finished items: Hidden / Those waited on / Shown" (`.fin-seg`), is in the filters bar in all three
+  views. Timeline's default is waits; the list reads waits as hide.
+- **Choices taken alone (the reversible ones):**
+  - A finished parent that has unfinished children stays a hub under hide and waits, as it did under Collapse done.
+  - `finished=` is written only once a reader has chosen, or an old address has mapped. `hide` is written only on
+    the Timeline (so a reload keeps it).
+  - Old addresses: `frontier=0&collapse=0` maps to show, `collapse=0` alone or with `frontier=1` to waits, any other
+    to hide. Neither is written again.
+- **Not as the definition words it:**
+  - The roadmap test counts `.rg-graph .rg-node` and `.rg-timeline .rg-row`: the page has no `.rg-card` class, and
+    a card is `.rg-node`.
+  - The "unit" chain test is `tests/test_items_page.py::test_rg_model_draws_each_finished_choice_on_a_chain`, run
+    in the browser through `pg.evaluate`. No JS runtime (node) is on this machine, and a browser test kept in a
+    unit file would be skipped by every gate (lesson 9). So `tests/test_relations.py` is unchanged.
+- **Acceptance tests**: `test_rg_model_draws_each_finished_choice_on_a_chain` (items 2-4, plus the one-hop check on
+  the factory and milestone answers), `test_the_graph_draws_the_unfinished_with_the_finished_collapsed` (items 1,
+  2 and 4 on roadmap: Hidden < Those waited on < Shown cards; the legend line),
+  `test_the_timeline_draws_what_happened_and_what_is_projected` (item 2 for rows), and
+  `test_an_old_graph_address_opens_with_shown_and_the_choice_survives_a_view_switch` (item 5). SPEC §5a: the Graph
+  and Timeline rows and *Finished items* are updated (item 6).
+- **Failures not caused by this branch (left alone, lesson 13):**
+  - `tests/test_queue_batch_item.py::test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run` fails at
+    line 306, before anything this branch changed. The batch ended `partial`, a finished state, so the list leaves
+    it out by default (items-list-hides-finished-by-default). A scratch run showed "1 finished (partial) not shown",
+    with no page errors. The Timeline step after it, with the new Shown button, drew the six expected bars.
+  - `tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` times out
+    waiting for the header's project switcher (`/api/projects`, server.py `_LISTED`; util.js), which this branch
+    does not touch. It fails alone too. Not run on main here: extracting main into /tmp was refused.

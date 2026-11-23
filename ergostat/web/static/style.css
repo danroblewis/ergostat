@@ -983,6 +983,7 @@ td.bad, b.bad, .lease .bad { color: var(--bad); }
 
 /* the Items page's Graph and Timeline (relations.js): plain ink, a card's left bar its state (the chart's shade),
    its border its status; hue only for what needs it: active (the accent), the critical path and a dead letter (bad) */
+.fin-choice { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); }   /* the one finished choice */
 .rg-viewbar { display: inline-flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .rg-check { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
 .rg-graph, .rg-timeline { margin: var(--sp-1) 0 var(--sp-5); }
