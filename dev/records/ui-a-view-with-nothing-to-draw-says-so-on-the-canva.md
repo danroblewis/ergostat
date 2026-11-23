@@ -163,3 +163,17 @@ Built, 8 net lines outside tests (diagram.js +3, style.css +3 net of the two cha
   factory and the merge queue).
 - Refused here: a `python3 - <<'EOF' ... EOF` command that took out the conflict markers, followed by `git add` and
   `git commit`. The markers were taken out with the editor instead.
+
+## Where it stopped (round 5)
+
+- The queue's finding, a conflict with main in tests/test_graph_cli_web.py, is answered: main (ead497d1) is merged
+  in (26fa105f). Both sides had added a test at the same place (this gap's Process-view test and main's
+  `test_every_page_header_links_to_the_diagrams_waiting_for_you_heading`). Both are kept, one after the other.
+  No other findings recorded.
+- Code unchanged by the merge: `git diff main -- ergostat/` is the same 8 lines (diagram.js +5 −2, style.css +3).
+- Runs after the merge: tests/test_graph_cli_web.py 43 passed (11.5 s); the two browser acceptance tests pass with
+  Playwright under the watchdog (2 passed, rc 0, 5.0 s); `uv run ruff check ergostat tests scripts` is clean.
+  Not run: the unit suite, the rest of tests/test_diagram_rendering.py and the other browser files (left to the
+  factory and the merge queue).
+- Refused here: a compound command (a grep for conflict markers, `git add`, `git commit --no-edit`, `git status` and
+  `git diff --stat`, joined with `;` and `&&`). Each was run on its own instead.
