@@ -13,6 +13,7 @@ import math
 import time
 
 ORDER = ("auto", "approve", "deny")      # least to most strict
+COLUMNS = ("normal", "away", "maintenance", "freeze", "incident")      # what the operating state picks (SPEC §12k)
 NOVEL = 90 * 86400.0                     # how far back a run of the same action makes it known
 THRESHOLD = 8.0                          # T's default
 HIGHEST = 50.0                           # the largest score: S=5, c=1, n=1
@@ -80,14 +81,46 @@ def stricter(a: str | None, b: str | None) -> str:
     return ORDER[max(ORDER.index(g) if g in ORDER else len(ORDER) - 1 for g in (a, b))]
 
 
-def assess(p, action, block: str | None, aid: str | None = None) -> dict | None:
-    """The act's reading (None for an action without ``risk:``): its score, inputs and its gate, stepped."""
+def schedule(normal: str, written: dict | None = None) -> dict:
+    """Each column's gate, as written, else a default never looser than ``normal``'s: away and maintenance take it,
+    freeze is it one step stricter, incident is ``deny``."""
+    w = written or {}
+    return {"normal": normal, "away": w.get("away", normal), "maintenance": w.get("maintenance", normal),
+            "freeze": w.get("freeze", step(normal, 1.0, 1.0)), "incident": w.get("incident", "deny")}
+
+
+def column(action, o) -> str | None:
+    """The column the operating state ``o`` (``operating.read``) picks for ``action``. None: a state read as incident
+    because it was unsure, or one not known: ``deny``, whatever is written."""
+    from .operating import STATES
+    if o is None or o.unsure or o.state not in STATES:
+        return None
+    if o.state in ("freeze", "incident"):
+        return o.state
+    if o.state == "maintenance" and action.name in o.actions:
+        return "maintenance"
+    return "normal" if o.presence == "present" else "away"
+
+
+def cell(action, o) -> tuple[str, float, str]:
+    """The gate and threshold in force for ``action`` under ``o``, and the column they came from."""
+    col = column(action, o)
+    if col is None:
+        return "deny", action.threshold, "unsure"
+    g = (action.gates or schedule(action.gate)).get(col)
+    return g if g in ORDER else "deny", float((action.thresholds or {}).get(col, action.threshold)), col
+
+
+def assess(p, action, block: str | None, aid: str | None = None, gate: str | None = None,
+           threshold: float | None = None) -> dict | None:
+    """The act's reading (None for an action without ``risk:``): its score, inputs and its gate (``gate``: the
+    column's, else the action's), stepped at ``threshold``."""
     if action.severity is None:
         return None
+    gate, threshold = gate or action.gate, action.threshold if threshold is None else threshold
     got = inputs(p, action.name, block, aid)
     s = score(action.severity, got["c"], got["n"])
-    return {"score": s, "severity": action.severity, "threshold": action.threshold, **got,
-            "gate": step(action.gate, s, action.threshold)}
+    return {"score": s, "severity": action.severity, "threshold": threshold, **got, "gate": step(gate, s, threshold)}
 
 
 def note(risk: dict | None, base: str | None) -> str | None:

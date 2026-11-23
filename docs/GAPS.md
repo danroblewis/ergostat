@@ -322,8 +322,10 @@ review into *Done recently*). Newest decisions from the owner first within each 
   an action's `risk:` steps its gate one step stricter when the act scores at or above its threshold, at the request
   and again at the act. The operating state and the owner's presence, as a record, on `operating-state-record` (SPEC
   §12k): `ergostat operating` (normal, maintenance as a lease of at most 24 h, freeze, incident; present or away after
-  `operating.away-after`), folded in seq order, an unreadable record read as incident and away; nothing gated on it
-  yet. *Left*: thresholds scheduled by regime (the gates the operating state sets), reshaping an act, the staleness of
+  `operating.away-after`), folded in seq order, an unreadable record read as incident and away. Gates and thresholds
+  by operating state, on `regime-scheduled-gates` (SPEC §12k): `gate:` and `risk.threshold` as a map by column
+  (normal, away, maintenance, freeze, incident), unwritten cells never looser than normal's, chosen at the request and
+  again inside the run lock at the act, an unsure state read as `deny`. *Left*: reshaping an act, the staleness of
   the state an act was planned on, and keeping a state older than the record's `keep:` (pruned with its event).
 - **Observer staleness and estimated stocks** (done, `observer`; SPEC §9.6, `coordinator/06-observer.md`): a reading's
   age, `stale` goals, `on-stale: act | hold | off` per goal or block; a scalar Kalman estimate per stock with an adaptive

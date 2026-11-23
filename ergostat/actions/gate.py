@@ -61,9 +61,11 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
     where = str((spec.root / a.in_).resolve()) if a.in_ else str(ctx.get("workdir") or spec.root)
     aid = rec.new_id(name)
     from ..workspaces.leases import fence_of
-    risk = rk.assess(p, a, ctx.get("block"), aid)        # (read before the writes: the act reads it again, below)
-    g = risk["gate"] if risk else a.gate
-    data = {"action": name, "class": a.cls or name, "gate": a.gate, "args": args, "command": render(a, args, ctx),
+    g0, t, opr = in_force(p, a)                          # (read before the writes: the act reads both again, below)
+    risk = rk.assess(p, a, ctx.get("block"), aid, g0, t)
+    g = risk["gate"] if risk else g0
+    data = {"action": name, "class": a.cls or name, "gate": g0, "operating": opr, "args": args,
+            "command": render(a, args, ctx),
             "in": where, **{k: ctx.get(k) for k in ("block", "run", "session", "item", "workdir", "branch")},
             **({"lease": fence_of(ctx.get("lease"))} if fence_of(ctx.get("lease")) is not None else {}),
             "description": a.description, **({"asker": asker} if asker != "session" else {}),
@@ -73,12 +75,26 @@ def request(p, spec, name: str, args: dict, ctx: dict, asker: str = "session", k
     if why:
         rec.step(p, aid, "denied", {"denied_by": GATE, "note": why})
     elif g == "deny":
-        rec.step(p, aid, "denied", {"denied_by": GATE, "note": rk.note(risk, a.gate) or "its gate is deny: never run"})
+        under = "" if opr["column"] in ("normal", "away") else f" under {opr['column']} ({opr['why']})"
+        rec.step(p, aid, "denied", {"denied_by": GATE, "note": rk.note(risk, g0) or f"its gate is deny{under}: never run"})
     elif g == "auto":
         rec.step(p, aid, "approved", {"approved_by": GATE, "note": "its gate is auto: run at once"})
         if asker == "session":
             run_once(p, spec, aid)
     return rec.get(p, aid)
+
+
+def in_force(p, a: Action) -> tuple[str, float, dict]:
+    """The gate and threshold the operating state in force gives ``a`` (``risk.cell``), and what was read. A state
+    that cannot be read is ``deny``, whatever is written."""
+    from . import operating as op
+    try:
+        o = op.read(p)
+    except Exception as e:                              # noqa: BLE001 - unreadable is the strictest case (lesson-3)
+        o = op.Operating("incident", "away", None, f"the operating state cannot be read ({type(e).__name__})",
+                         unsure=True)
+    g, t, col = rk.cell(a, o)
+    return g, t, {"state": o.state, "presence": o.presence, "seq": o.seq, "why": o.reason, "column": col}
 
 
 def fenced(p, spec, a: dict) -> str | None:
@@ -191,14 +207,16 @@ def at_act(p, spec, a: dict) -> tuple[Action | None, dict]:
     act = spec.actions.get(a.get("action") or "")
     if act is None:
         return None, {"effective": "deny", "note": f"{a.get('action')} is no longer in the model: not run"}
-    risk = rk.assess(p, act, a.get("block"), a["id"])
-    mine = risk["gate"] if risk else act.gate
+    g0, t, opr = in_force(p, act)                     # the operating state read again, inside the run lock
+    risk = rk.assess(p, act, a.get("block"), a["id"], g0, t)
+    mine = risk["gate"] if risk else g0
     asked = (a.get("risk") or {}).get("gate") or a.get("gate")
-    return act, {**(risk or {}), "gate": mine, "asked": asked, "effective": rk.stricter(mine, asked)}
+    return act, {**(risk or {}), "gate": mine, "cell": g0, "operating": opr, "asked": asked,
+                 "effective": rk.stricter(mine, asked)}
 
 
 def _why(at: dict, act: Action) -> str:
-    stepped = rk.note(at, act.gate)
+    stepped = rk.note(at, at.get("cell", act.gate))
     return stepped if at["gate"] == at["effective"] and stepped else \
         f"its gate now is {at['gate']}, and was {at['asked']} at the request"
 

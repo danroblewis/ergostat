@@ -57,3 +57,57 @@ size: M (confidence: medium)
 - docs/roadmap/overnight/groomer-keeps-built-work.md mentions an operating-states-continued branch with 22 commits and 1,623 lines; its ref is not in this clone. Check it for overlapping work before starting from main.
 - The freeze-between-approval-and-act test should cover both an auto request approved by the gate and an approve request approved by the owner; only the second relies on the stricter rule.
 - The maintenance test should also show that an action the lease does not name, with a written looser maintenance cell, takes its normal column (or away while the owner is away).
+
+## Where it stopped
+
+Built, round 1. Every item of the definition is done. 83 net lines outside tests and docs (budget 140). The six
+acceptance tests pass, along with two more: `test_unsure_state_is_deny_whatever_is_written` and
+`test_unreadable_state_at_the_act_denies`. I broke each guard by hand and watched a test fail:
+- the act not reading the state again (both freeze cases and the unreadable-at-act test failed);
+- maintenance applied to every action (the maintenance test failed);
+- the freeze default left at normal's (the never-looser test failed);
+- `unsure` ignored (the unsure test failed);
+- the threshold column not passed to the score (the threshold test failed).
+
+Main had nothing new to merge (`HEAD..main` is empty).
+
+Answers to the plan review:
+- Plain-string readers. `Action.gate` and `Action.threshold` stay the `normal` column. New fields `Action.gates` and
+  `Action.thresholds` hold all five columns, defaults filled at compile time. When they are empty (an `Action` built
+  in memory, `inbox/config.py`'s notify actions), the defaults come from `gate` and `threshold`. `risk.cell(action,
+  operating) -> (gate, threshold, column)` picks the cell, and `rk.assess` takes that pair. The request records the
+  chosen column's gate as its `gate`, so `asked`, `rk.note` and `_why` compare against the gate in force (`_why`
+  reads `risk_at_act.cell`). program.py, server.py, cli/gated.py, impact_fields.py and the pages are unchanged and
+  still see a string.
+- Unreadable state and a written `incident: auto`. An unsure state is `deny` whatever is written, at the request and
+  at the act. Unsure means: the record cannot be read, an event names no known state, a maintenance end is not a
+  number, `operating.read` itself raises, or a state name is not known. Only an incident the owner entered uses the
+  `incident` column. To tell the two apart, `operating.Operating` gained `unsure`. `fold` returns a module constant
+  `UNSURE` for its strict-when-unsure cases, checked by identity so no event's data can set it. This is a small
+  change to `ergostat/actions/operating.py`, which is not in the files to touch. Tested with `incident: auto` written
+  and the fold or the read raising.
+- Thresholds. Every unwritten threshold cell takes normal's (written in SPEC). The never-looser test checks this
+  through `risk.cell` over every state, presence and named/unnamed case, and through the compiler.
+- The fold function. `operating.read(p) -> Operating(state, presence, seq, reason, note, until, actions, unsure)`.
+  It never raises and reads an unreadable record as incident and away. `gate.in_force` also catches a raising read,
+  as a second guard. The lease's named actions are `Operating.actions`.
+- operating-states-continued. Its ref is not in this clone (`git branch -a` shows only main and this branch), so it
+  could not be checked. Built from main.
+- The freeze test covers both cases (parametrized). With an auto request approved by the gate, the freeze default
+  (`approve`) holds it again for the owner. With an approve request approved by the owner, the freeze default
+  (`deny`) denies it. The command runs in neither.
+- Maintenance. The unnamed action `other` has a written looser `maintenance: auto`. It takes `normal` (approve, held)
+  while the owner is present, and `away` (deny) while they are away.
+
+Choices taken where nobody could be asked (each reversible):
+- A refused cell (unknown column or value) is `bad-value` and is then read as unwritten, so it takes its default.
+- `gate: ""` used to be read as `approve`. It is now `bad-value`. `risk: {threshold: null}` used to be refused. It is
+  now read as unwritten.
+- `operating` on the request also carries `column` (the cell used: one of the five, or `unsure`), besides
+  `{state, presence, seq, why}`.
+- `schema/ergostat.schema.json`'s `gate` now also takes a map by column. `risk:` was missing from the schema's action
+  before this gap, and it is still missing (outside this gap).
+- The threshold check no longer calls `math.isfinite`: the range test refuses NaN and ±inf, and a huge YAML integer no
+  longer overflows (lesson-3).
+
+Not run here: the unit suite and the four browser files; the factory runs them. No page changed.
