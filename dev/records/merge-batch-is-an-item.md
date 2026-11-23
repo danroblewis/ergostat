@@ -139,3 +139,14 @@ Left `slow`, it would start first and then idle its worker waiting for the lock.
 one-line change outside the Files list, in a file the branch already edits. This replaces round 2's "belongs to a gap
 of its own": the branch's own diff is what puts the test in its build. Run here: the test alone (passed, 154 s) and
 ruff (clean). Not proven: that the build is green now, because the build cannot be run here.
+
+Round 3, merge of main (28ad5c4ad880). It conflicted in dev/bin/queue.py, where main added an outage handler
+(`except Exception`: Docker or the AI service unreachable) right where the branch calls `batches.settled()`. Both
+are kept. The handler now also ends the batch `given-back` with `why` "outage: <cause>" before its nack. Without
+that line the `finally` would end it anyway, as "raised or stopped", because `batches.end()` keeps the first end
+said. The line only gives it the truer reason. Run here, serially, with rc 0 after the merge:
+tests/test_queue_batch_item.py (15 passed, 1 skipped without Playwright), tests/test_queue.py (17),
+tests/test_queue_halves.py (55), tests/test_queue_host.py (12), tests/test_factory_outage.py (4), and
+`ruff check ergostat tests scripts`. A shell `for` loop over the three queue files was refused, so each was run on its
+own. Not run here: the unit suite, the four browser files, the rest of tests/test_factory.py, and the browser test
+under Playwright since the merge.
