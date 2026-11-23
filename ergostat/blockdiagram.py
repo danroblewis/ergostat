@@ -1534,14 +1534,16 @@ def _top_loop(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict,
         return
     keys, dk = back.get("keys") or [back["key"]], [x["key"] for x in cls[P]["ports"] if x["as"] == "d"]
     n, m, at = len(goals), len(keys), boxes[p]["system"]
-    rid, sid, hid, oid, did = (f"{k}:top:{P}" for k in ("ref", "sum", "h", "out", "dist"))
+    cp = f"{C}>{P}"                                 # one loop per pair: two Cs on a P, or a C on two Ps, draw two loops
+    rid, sid, hid, oid, did, ep = (*(f"{k}:top:{cp}" for k in ("ref", "sum", "h", "out")), f"dist:top:{P}", f"{c}|in|e<{P}")
     hs = [(d.nodes.get((d.prod.get(k) or ("",))[0]) or {}).get("fn", {}).get("expr") or "1" for k in keys]
     H = hs[0] if m == 1 else f"diag({', '.join(hs)})"
     ys = ", ".join(_keyname(k).replace(" (measured)", "") for k in keys)
     sig = {"r": ("r", P, "reference", n), "e": ("e", None, "error", n), "y": ("y", P, "output", m),   # (e and y_m bare, as
            "ym": ("y", "m", "measured", m), "d": ("d", P, "disturbance", len(dk))}                    # the textbooks: by their Σ)
     for k, (s_, sub, what, w) in sig.items():
-        d.sig[f"top:{k}:{P}"] = {"key": f"top:{k}:{P}", "sym": s_, "sub": sub, "what": what, "n": w}
+        d.sig[f"top:{k}:{P if k == 'd' else cp}"] = {"key": f"top:{k}:{P if k == 'd' else cp}", "sym": s_, "sub": sub,
+                                                     "what": what, "n": w}
     node = lambda nid, ks=keys, **kw: out.setdefault(nid, {"id": nid, "system": at, "loops": list(goals),  # noqa: E731
                                                            "signals": list(ks), **kw})          # (correspond.py: what it is)
     node(rid, [f"goal.{g}.r" for g in goals], kind="input", role="reference", label=f"r {P}",
@@ -1566,15 +1568,15 @@ def _top_loop(d: _Diagram, cls: dict, boxes: dict, edges: list[dict], out: dict,
               (", diagonal: each reads its own output" if m > 1 else "") + ". H = 1 where a sensor adds no dynamics.")
     edges.remove(back)
     boxes[c]["ins"] = [x for x in boxes[c]["ins"] if x["id"] != back["targetPort"]] + [
-        {"id": f"{c}|in|e", "side": "W", **({"key": "vec", "n": m, "keys": keys} if m > 1 else {"key": keys[0]})}]
-    wire = lambda k, a, ap, b, bp, **kw: edges.append({"key": f"top:{k}:{P}", "source": a, "sourcePort": ap,  # noqa: E731
-                                                       "target": b, "targetPort": bp, "keys": keys, **kw})
+        {"id": ep, "side": "W", **({"key": "vec", "n": m, "keys": keys} if m > 1 else {"key": keys[0]})}]
+    wire = lambda k, a, ap, b, bp, **kw: edges.append({"key": f"top:{k}:{P if k == 'd' else cp}", "source": a,  # noqa: E731
+                                                       "sourcePort": ap, "target": b, "targetPort": bp, "keys": keys, **kw})
     wire("r", rid, f"{rid}|out|r", sid, f"{sid}|in|r", sign="+", keys=goals)
-    wire("e", sid, f"{sid}|out|e", c, f"{c}|in|e")
+    wire("e", sid, f"{sid}|out|e", c, ep)
     wire("y", p, back["sourcePort"], oid, f"{oid}|in|y")
     wire("y", p, back["sourcePort"], hid, f"{hid}|in|y", feedback=True)
     wire("ym", hid, f"{hid}|out|ym", sid, f"{sid}|in|y", sign="−", feedback=True)
-    if dk:
+    if dk and did not in out:                         # P's disturbance once, however many Cs act on it
         node(did, dk, kind="input", role="disturbance", label=f"d {P}", fn={"sym": "d", "sub": P, "bold": len(dk) > 1},
              ins=[], outs=[{"id": f"{did}|out|d", "side": "E"}], math=[sym("d", P, None, len(dk) > 1)],
              says=f"what enters {P} that no valve sets, {len(dk)}: {', '.join(_keyname(k) for k in dk)}.")

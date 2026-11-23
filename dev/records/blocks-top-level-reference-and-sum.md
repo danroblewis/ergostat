@@ -66,3 +66,24 @@ and the-job (valve-orientation-mismatch over its ceiling). These are Dynamics ru
 Not run here: the whole unit suite and the four browser files (the factory and the merge queue run them).
 In the opened product frame one of the four port marks has no room for its name. That view is unchanged by this
 branch, and the browser test checks only that each named mark is a u or y.
+
+Round 2. Main (278f54a4) is merged in. The conflict in tests/test_blockdiagram.py kept both sides: main's
+`test_a_systems_letter_carries_its_name_once_closed_and_open` and this branch's top-loop tests.
+
+The blocking finding is fixed. Each loop is now keyed by its (C, P) pair, not by P alone. Its r, Σ, H and y nodes are
+`{ref|sum|h|out}:top:C>P`. Its signals are `top:{r|e|y|ym}:C>P`. C's error port is `{c}|in|e<P`. So two Cs on one P
+draw two loops, each with its own goals, and one C on two Ps gets two e ports. P's disturbance stays per system
+(`dist:top:P`, port `{p}|in|d`) and is drawn once, however many Cs act on P. Two Cs on one P each draw their own y
+out of P. I kept this over merging every C on a P into one group: it is the smaller change and the easier one to
+undo. New test: `test_two_cs_on_one_p_and_one_c_on_two_ps_draw_one_loop_per_pair` (a, a2 → b; a → c). It checks
+that node ids and port ids are unique, that no wire appears twice, one junction per pair with one + and one − input,
+each junction's goals, two e wires into a, and one d into b. Seen failing on each defect the review named, one at a
+time: ids keyed by P (19 wires, 17 distinct), C's port `{c}|in|e` (sys:a has it twice), and d not held to one (sys:b
+has `|in|d` twice). The image-squeeze, correspondence and G6 browser tests now use the pair ids.
+
+Run in round 2: ruff clean; tests/test_blockdiagram.py 124 passed; tests/test_correspond.py 12 passed; the G6 browser
+test passed. `test_the_control_view_draws_every_example_cleanly_as_a_block_diagram` passed on 22 of 23. It failed 3
+times out of 3 on autoscaler, timing out in `Page.wait_for_function(READY)` (240 s) before any layout rule was read.
+Autoscaler declares no systems, so `_top_loops` draws nothing there. In round 1 it passed on this branch's blocks.js,
+so the new input is main's merge. Not checked on clean main: `git worktree add --detach /tmp/mainwt main` was refused
+in this session. Left for the factory's rerun on main (lesson 13).

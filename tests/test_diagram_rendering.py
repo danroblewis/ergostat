@@ -1933,10 +1933,11 @@ TOP_LOOP = """() => {
     S.graph.edges.some((x) => x.sourcePort === e.sourcePort && by[x.target]?.kind === "output");
   const net = (e) => [...document.querySelectorAll("svg.canvas text.bd-sig")].some((t) => t.dataset.net === e.sourcePort);
   const node = (id) => document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(id)}"]`)?.textContent || "";
-  return { sum: at("sum:top:product"), c: at("sys:factory"), p: at("sys:product"), h: at("h:top:product"),
-           signs: [...document.querySelectorAll('svg.canvas text.bd-sign[data-sum="sum:top:product"]')].map((t) => t.textContent).sort(),
+  const sid = "sum:top:factory>product";
+  return { sum: at(sid), c: at("sys:factory"), p: at("sys:product"), h: at("h:top:factory>product"),
+           signs: [...document.querySelectorAll(`svg.canvas text.bd-sign[data-sum="${sid}"]`)].map((t) => t.textContent).sort(),
            unlabelled: S.graph.edges.filter((e) => !(said(e) || net(e))).map((e) => e.id),
-           names: ["ref:top:product", "out:top:product", "h:top:product", "dist:top:product"].map(node) };
+           names: ["ref:top:factory>product", "out:top:factory>product", "h:top:factory>product", "dist:top:product"].map(node) };
 }"""
 
 

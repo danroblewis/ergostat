@@ -113,7 +113,8 @@ def test_closed_systems_are_subsystem_blocks_and_vectors_join_them():
     g = drawn(spec)
     boxes = [n for n in g["nodes"] if n["role"] == "subsystem"]           # (and a C-P loop's r, Σ, H, y and d)
     assert {n["id"] for n in boxes} == {"sys:service", "sys:rollout", "sys:lab", "sys:benchmark", "sys:modelling"}
-    assert {n["id"] for n in g["nodes"]} - {n["id"] for n in boxes} <= {f"{k}:top:service" for k in ("ref", "sum", "h", "out", "dist")}
+    rest = {n["id"] for n in g["nodes"]} - {n["id"] for n in boxes}
+    assert all(re.fullmatch(r"(ref|sum|h|out):top:[a-z-]+>service|dist:top:service", i) for i in rest), rest
     for n in boxes:
         assert n["fn"]["sym"] == (n["fn"]["letter"] or n["label"]) and n["fn"]["expr"] == f"{n['fn']['p']}×{n['fn']['m']}"
     assert any(e["signal"].get("n", 1) > 1 for e in g["edges"])
@@ -734,6 +735,59 @@ def test_a_two_system_spec_draws_junction_r_e_u_y_and_h_on_the_return_at_the_top
     assert [sym(x) for x in d] == [("d", "b")]
 
 
+THREE = """
+    systems:
+      a: {description: it controls b and c}
+      a2: {description: it also controls b}
+      b: {description: controlled twice}
+      c: {description: controlled by a}
+    stocks:
+      work: {system: b, unit: x, sensor: {run: echo 1, every: 1m}}
+      work2: {system: b, unit: x, sensor: {run: echo 1, every: 1m}}
+      load: {system: c, unit: x, sensor: {run: echo 1, every: 1m}}
+    flows:
+      fill: {system: b, to: work}
+      spill: {system: b, from: work}
+      fill2: {system: b, to: work2}
+      fill-c: {system: c, to: load}
+    goals:
+      work-low: {system: b, stock: work, hold: "<= 5"}
+      work2-low: {system: b, stock: work2, hold: "<= 5"}
+      load-low: {system: c, stock: load, hold: "<= 5"}
+    blocks:
+      pusher: {system: a, type: program, run: echo 1, every: 1m, in: stock.work, out: flow.fill}
+      pusher-c: {system: a, type: program, run: echo 1, every: 1m, in: stock.load, out: flow.fill-c}
+      pusher2: {system: a2, type: program, run: echo 1, every: 1m, in: stock.work2, out: flow.fill2}
+    """
+
+
+def test_two_cs_on_one_p_and_one_c_on_two_ps_draw_one_loop_per_pair(tmp_path):
+    (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(THREE))
+    g = drawn(load(tmp_path / "ergostat.yaml"))
+    n = {x["id"]: x for x in g["nodes"]}
+    assert {s: n[f"sys:{s}"]["fn"]["letter"] for s in ("a", "a2", "b", "c")} == {"a": "C", "a2": "C", "b": "P", "c": "P"}
+    ids = [x["id"] for x in g["nodes"]]
+    assert len(ids) == len(set(ids))
+    for x in g["nodes"]:                                       # no port id twice on any node, nor on two nodes
+        ps = [p["id"] for p in x.get("ins", []) + x.get("outs", [])]
+        assert len(ps) == len(set(ps)), (x["id"], ps)
+    every = [p["id"] for x in g["nodes"] for p in x.get("ins", []) + x.get("outs", [])]
+    assert len(every) == len(set(every))
+    assert len({(e["sourcePort"], e["targetPort"]) for e in g["edges"]}) == len(g["edges"])   # no wire twice
+    sums = {x["id"]: x for x in n.values() if x["kind"] == "sum"}
+    assert set(sums) == {"sum:top:a>b", "sum:top:a2>b", "sum:top:a>c"}   # one junction per pair
+    for sid in sums:
+        c = "sys:" + sid.split(":")[2].split(">")[0]
+        into = [e for e in g["edges"] if e["target"] == sid]
+        assert sorted(e["sign"] for e in into) == ["+", "−"], sid                 # one r, one return
+        assert [e["target"] for e in g["edges"] if e["source"] == sid] == [c], sid
+    goals = lambda sid: next(e for e in g["edges"] if e["target"] == sid and e["sign"] == "+")["keys"]  # noqa: E731
+    assert (goals("sum:top:a>b"), goals("sum:top:a2>b"), goals("sum:top:a>c")) == (["work-low"], ["work2-low"], ["load-low"])
+    assert len([e for e in g["edges"] if e["target"] == "sys:a" and e["source"].startswith("sum:")]) == 2
+    d = [e for e in g["edges"] if e["target"] == "sys:b" and n[e["source"]].get("role") == "disturbance"]
+    assert len(d) == 1 and [x for x in n if x.startswith("dist:")] == ["dist:top:b"]
+
+
 def test_every_wire_at_the_top_level_has_a_label_and_software_factory_closes_its_loop():
     g = drawn(load(ROOT / "examples" / "software-factory" / "ergostat.yaml"))
     n = {x["id"]: x for x in g["nodes"]}
@@ -757,8 +811,8 @@ def test_the_top_loop_stands_for_its_goals_and_signals_in_the_correspondence():
     spec = load(ROOT / "examples" / "software-factory" / "ergostat.yaml")
     sh = blocks_shapes(drawn(spec), spec)
     assert {p for x in sh.values() for p in x["is"] if "top:" in p} == set()
-    assert "goal.no-live-bugs" in sh["sum:top:product"]["is"] and "goal.no-live-bugs.r" in sh["ref:top:product"]["is"]
-    assert "stock.bugs-live" in sh["h:top:product"]["is"] and "stock.bugs-live" in sh["out:top:product"]["is"]
+    assert "goal.no-live-bugs" in sh["sum:top:factory>product"]["is"] and "goal.no-live-bugs.r" in sh["ref:top:factory>product"]["is"]
+    assert "stock.bugs-live" in sh["h:top:factory>product"]["is"] and "stock.bugs-live" in sh["out:top:factory>product"]["is"]
     assert sh["dist:top:product"]["is"] == ["auxiliary.ops-broken-per-ticket"]
 
 
