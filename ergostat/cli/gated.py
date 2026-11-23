@@ -40,6 +40,41 @@ def register(sub, common) -> None:
     ws.add_argument("name", nargs="?", metavar="POOL", help="one pool")
     ws.add_argument("--free", type=int, metavar="N", help="with POOL: free its quarantined workspace N (its worktree removed)")
     ws.set_defaults(fn=cmd_workspaces)
+    from ..actions.operating import STATES
+    op = sub.add_parser("operating", parents=[common], help="The operating state (normal, maintenance, freeze, incident) "
+                        "and the owner's presence; STATE: the owner enters it (normal ends the one in force)",
+                        description="The operating state (SPEC §12k). ergostat operating [freeze | incident --note TEXT "
+                        "| maintenance --for DUR [--actions A,B] [--note TEXT] | normal]")
+    op.add_argument("state", nargs="?", choices=STATES, metavar="STATE", help=", ".join(STATES))
+    op.add_argument("--for", dest="lease", metavar="DUR", help="maintenance: how long its lease runs (at most 24h)")
+    op.add_argument("--actions", metavar="A,B", help="maintenance: the actions it is for")
+    op.add_argument("--note", help="why")
+    op.set_defaults(fn=cmd_operating)
+
+
+def cmd_operating(args) -> int:
+    from ..actions import operating as ops
+    from ..durations import DurationError, human, parse_duration
+    p = open_project(args)                               # (a broken model: refused, as every act is)
+    if args.state:
+        try:
+            lease = parse_duration(args.lease, "--for") if args.lease else None
+            acts = [a.strip() for a in (args.actions or "").split(",") if a.strip()]
+            known = getattr(getattr(p.model, "spec", None), "actions", {})
+            if unknown := [a for a in acts if a not in known]:
+                raise ops.OperatingError(f"--actions: {', '.join(unknown)}: not one of the actions: in the model")
+            ops.enter(p, args.state, args.note, lease, acts)
+        except (ops.OperatingError, DurationError, OverflowError) as e:
+            print(f"refused: {e}")
+            return 2
+    o = ops.read(p)
+    if args.json:
+        return out_json(o._asdict())
+    print(f"{c(o.state, 'bold')}  ·  owner {o.presence}" + (f"  ·  {o.note}" if o.note else ""))
+    if o.until is not None:
+        print(f"  lapses in {human(max(o.until - time.time(), 0))}" + (f", for {', '.join(o.actions)}" if o.actions else ""))
+    print(c(f"  {o.reason}", "dim"))
+    return 0
 
 
 def _spec(p):

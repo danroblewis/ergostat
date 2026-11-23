@@ -893,6 +893,9 @@ class Relation:
     there: str = ""                 # the kind's name at that remote (incident)
     # precedence: the target's states (not finished) in which it no longer blocks; the CPM stays finish-to-start
     starts_at: list[str] = field(default_factory=list)
+    # a group's: a finished state of the item's: the fields it counts as done work in, for each group's progress
+    # (spec/grouptally.py); an item in that state that does not match leaves its group's total
+    done_when: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -928,8 +931,10 @@ class ItemKind:
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
     sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
+    finished: list[str] = field(default_factory=list)   # its finished states, when messages: done: does not name it
     about: str | None = None   # the field naming the model's parts it is about (goal.x, stock.y), folded by replace
     moves_from: dict[str, tuple] = field(default_factory=dict)   # event type → the only states it moves an item out of
+    if_unchanged: tuple = ()   # event types applied only to the item as read: their data's `read` is its event count then
     attention: str | None = None   # the field whose words, on the latest item having them, go on the attention list
 
     def matches(self, id: str) -> bool:
@@ -945,6 +950,7 @@ class Source:
     where: Where | None = None
     token_file: str = ""       # an ergostat source (a remote, SPEC §4c): the file holding its token
     tls: dict | None = None    # and its mutual TLS (cert, key, ca), as its remotes: entry says
+    options: dict = field(default_factory=dict)   # a panel data source's own connection keys (ergostat/datasources)
 
 
 @dataclass
@@ -1042,6 +1048,7 @@ class Spec:
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
+    away_after: float = 7200.0       # operating.away-after: no event from the owner this long reads as away (SPEC §12k)
     dashboards: dict[str, Dashboard] = field(default_factory=dict)     # the shared, named dashboards (SPEC §4f)
     outlive_engine: bool = False            # runs: outlive_engine: a run kept by its keeper, never stopped with us (§9.1)
 
