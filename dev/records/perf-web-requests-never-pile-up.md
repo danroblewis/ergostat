@@ -45,3 +45,12 @@ Overrun reason: about 215 net lines against 140 (raw diff of ergostat/, comments
 - The non-blocking finding from the other gap (docs/GAPS.md:234, a-reviewer-in-the-modelling) belongs to that gap's entry, not this one, and is left alone.
 
 Run in round 2: tests/test_web_lanes.py (11 passed), tests/test_web_access.py (26 passed), tests/test_page_polling.py with Playwright under suite_watch (18 passed, rc 0, none skipped), and ruff (clean). Not run: the full unit suite, the other three browser files and demo_check (no example touched). Nothing to merge: main has not moved since the clone.
+
+### Round 3: main merged in
+
+Main (2a97eafb2781) conflicted in the three web files, and the branch now holds it. Each side's change is kept:
+- `server_close` calls main's `stop_lister(self)` and then the branch's stop of the reception and both lanes.
+- /api/status keeps the branch's `web` field on main's new answer.
+- `refreshProjects` keeps the header's `kept` fetch (it belongs to no page, so it is not aborted) and main's re-ask when the list is not ready yet (`ps.at == null`).
+- Main now answers /api/projects from its lister at the top of `_answer`, before any snapshot. That makes the branch's own early `projects` answer (which called `projects.known()`) dead code, so it is removed. The fast lane still takes /api/projects, and it is still cheap: main's answer reads the lister's last list and takes no lock.
+No review findings were listed for this round other than the merge conflicts, so nothing else changed.
