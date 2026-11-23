@@ -96,3 +96,16 @@ waits for `.action-classes`, which only the kind's list page (pages.js) draws, w
 `/items` to the overview. That routing is main's, and this branch leaves the actions and the router alone. Not run
 on clean main here (a worktree of main was refused in round 1), so this rests on reading the code: the factory's
 rerun on clean main decides. Not run: the other three browser files, the unit suite.
+
+Round 4. The one finding (conflict with main in ergostat/web/static/pages.js) is fixed: main (f086f76e) is merged
+in, both sides kept. In the list's `tick`, main's new lines (the page clamped past the end, the "N matches, M
+finished" line) come first, then the branch's `flowsWere` that also holds the group rows (`[flows, gps]`), so a
+change in a milestone's counts still redraws the list. No other code changed this round.
+Run here: tests/test_group_progress.py, tests/test_items_overview.py, tests/test_milestones.py (65 passed),
+tests/test_relations.py, tests/test_spec_schema.py, tests/test_milestone_frames.py (66 passed), ruff clean.
+tests/test_items_page.py under the watchdog: 61 passed, 2 failed, the same two named in round 3, at the same places:
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (line 1874, the project switcher never lists
+the second site) and `test_actions_say_per_class_asked_approved_denied_and_whether_held` (line 620, waits on bare
+`/items` for `.action-classes`, which main's router sends to the overview). This branch touches neither the header,
+the switcher, the actions nor the router; the factory's rerun on clean main decides. Not run: the other three
+browser files, the unit suite.
