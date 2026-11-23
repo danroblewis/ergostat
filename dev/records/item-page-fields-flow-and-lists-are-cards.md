@@ -89,3 +89,29 @@ the branch's new top-level names (isShort, isScalar, pageFieldView, recordView, 
 in another script. The merge brought 84 changed files under ergostat/, among them diagram.js, details.js, relations.js
 and server.py. Not proved: running them on main was refused (`git checkout main -- <the branch's 3 files>` and
 `git worktree add --detach /tmp/mainwt main`), so whether main fails them alone was not seen.
+
+## Where it stopped
+
+Continued, round 2 (2026-11-23): main (f086f76e) merged in. Conflicts and how each was resolved:
+- ergostat/web/server.py: both sides added a function at one place; main's `_kind_now` and the branch's `_sizes`, both kept.
+- ergostat/web/static/pages.js: main changed `when` to `stamp` (util.js), added `whyBox`, and made `fieldOf(name, v)`
+  show a time field as a stamp. The branch's Changes section, field grid and cards are kept, and they now use main's
+  pieces: `when = stamp`, the grid's values and the Changes rows go through `fieldOf` with the field's name,
+  and so do a card's keys, a dl's keys and a record table's cells. The record table (a list sharing at most 6
+  scalar keys) now has main's `tableCaption` and `headRow`, as main's own captioned-tables test requires of a `table.sub`.
+- tests/test_items_page.py: both sides added tests at the same place; both kept, the branch's card test with its own
+  teardown again. Main's new test_every_time_is_one_stamp_with_its_date_and_zone reads its fields from
+  `table.fields tr` and its changes from a disclosure on each field, which this gap removes. It now reads the
+  `.field-grid` cells and opens the Changes section before counting the "when" cells (still at least 2 + 3).
+Runs after the merge: ruff clean. tests/test_spec_items.py: 8 passed. tests/test_items_page.py: 63 passed, 2 failed (the
+first of two runs was the same 63 and 2). tests/test_page_refresh.py: 8 passed, 2 failed, the same two in each of
+two runs. The branch's item-page tests and main's stamp test pass. The failures:
+- test_actions_say_per_class_asked_approved_denied_and_whether_held (/items, `.action-classes` never appears) and
+  test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (the header's project switcher). Each fails alone too.
+- test_page_refresh's test_the_items_page_changes_only_the_new_row (`table.items tr` never appears on /items) and
+  test_other_pages_left_open_change_nothing (the diagram param, which mutates between refreshes; it failed in round 1 too).
+Why I take them to be unrelated: the branch's diff against main (`git diff f086f76e HEAD -- ergostat`) touches only
+fieldView's neighbours (the new pageFieldView, recordView, fileFold), fileView/md's heading demotion, historyView and
+pageItem in pages.js; its CSS; and `_sizes` and the item answer in server.py. It does not touch pageItems (the /items
+tables and action classes), the header or the diagram. If a new top-level name clashed with another script's,
+every page would fail to load, the item page too. Not proved on main: in round 1, running main's code here was refused.
