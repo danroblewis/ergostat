@@ -1355,17 +1355,21 @@ function legendBox(view) {
 /* what waits on the owner (SPEC §12o), answered where it is listed: an event from the owner, as everywhere */
 function inboxAnswer(a) {
   if (SNAP || S.at) return null;
-  const said = h("span", { class: "note", "aria-live": "polite" });
+  const said = h("span", { class: "note", "aria-live": "polite", tabindex: "-1" });
   const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
   const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": "Why" }) : null;
-  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async () => {
+  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async (ev) => {
+    // the row on the page, found from the button pressed: a refresh keeps the old nodes, and this scope's are let go
+    const row = ev.currentTarget.closest(".inbox-act"), said = row.querySelector(".note");
+    const n = row.querySelector('input[type="number"]'), why = row.querySelector('input[aria-label="Why"]');
+    // answered from the keyboard: focus goes to the reply, not with the disabled button to the body, so the list holds
+    if (ev.currentTarget.matches(":focus-visible")) said.focus();
     for (const b of row.querySelectorAll("button")) b.disabled = true;
     const q = { ...(n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
     try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
     catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
   } }, { approve: "Approve", deny: "Deny", done: "Done" }[verb]);
-  const row = h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), why, said);
-  return row;
+  return h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), why, said);
 }
 
 /* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
@@ -1422,8 +1426,19 @@ function renderSide(side, g, view) {
     const m = /ergostat event --type (\S+?)\)?$/.exec(says);
     return m ? [op(says.slice(0, m.index)), h("a", { href: `/record?type=${encodeURIComponent(m[1])}` }, `the record of ${m[1]}`), says.endsWith(")") ? ")" : ""] : op(says);
   };
-  const list = (xs, none) => {
-    const att = h("div", { class: "att" });
+  // the reader in a list: it holds still, and a request gone meanwhile says so in its row, until they leave
+  const hold = (att, cls) => {
+    const held = out.querySelector(`.att.${cls}`);
+    if (!heldStill(held)) return att;
+    holdStill(held, att, () => { held.__persist = false; S.redrawSide(); });
+    for (const r of held.querySelectorAll("[data-inbox]")) {
+      const said = r.querySelector(".inbox-act .note");
+      if (said && !said.textContent && !problems.some((a) => a.what === r.dataset.inbox)) said.textContent = " no longer waiting: answered or withdrawn";
+    }
+    return live(held);
+  };
+  const list = (xs, none, cls) => {
+    const att = h("div", { class: `att ${cls}` });
     if (!xs.length) att.append(h("div", { class: "none" }, none));
     xs.forEach((a, i) => {
       if (i && a.modelling && !xs[i - 1].modelling) att.append(h("hr", { class: "att-rule" }));   // modelling's goals after
@@ -1431,18 +1446,19 @@ function renderSide(side, g, view) {
       const what = h("b", { class: a.level === "bad" ? "lvl-bad" : "lvl-warn" }, a.what);   // an item's: a link to its page
       const href = a.link || (a.item ? `/item/${encodeURIComponent(a.item)}` : null), goal = /^loop (\S+)$/.exec(a.what)?.[1];
       const said = h("span", { class: "att-word" }, `${word} · `);
-      if (a.answer && a.first) { att.append(h("div", { "data-inbox": a.what }, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
-      att.append(h("div", a.answer ? { "data-inbox": a.what } : {}, said,
+      const keys = { key: a.what, "data-row": a.what, ...(a.answer ? { "data-inbox": a.what } : {}) };   // each row its own
+      if (a.answer && a.first) { att.append(h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
+      att.append(h("div", keys, said,
         href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
         linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
     });
-    return att;
+    return hold(att, cls);
   };
-  side.append(h("h3", { class: "att-head" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you."));
-  side.append(h("h3", { class: "att-head" }, "Goals off", count(off)), list(off, "No goal is off."));
+  side.append(h("h3", { class: "att-head" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you.", "needs"));
+  side.append(h("h3", { class: "att-head" }, "Goals off", count(off)), list(off, "No goal is off.", "goals-off"));
   const house = h("details", { class: "housekeeping", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
-      h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy."));
+      h("h3", { class: "att-head" }, "Model housekeeping", count(rest))), list(rest, "Nothing to tidy.", "house"));
   side.append(house);
   if (hints.length) {
     // open when a loop is off: then the suggestions are the diagnosis, not an aside

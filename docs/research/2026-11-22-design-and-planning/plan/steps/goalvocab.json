@@ -1,0 +1,5 @@
+[{"goto":"http://127.0.0.1:8791/loops"},{"wait":2500},{"shot":"plan-goalvocab-8791-loops.png","full":true},{"text":"css=header"},{"text":"css=main"},
+{"goto":"http://127.0.0.1:8791/diagram"},{"wait":4000},{"shot":"plan-goalvocab-8791-diagram.png"},{"text":"css=aside"},
+{"goto":"http://127.0.0.1:8797/loops"},{"wait":3000},{"shot":"plan-goalvocab-8797-loops.png","full":true},{"text":"css=header"},
+{"goto":"http://127.0.0.1:8792/diagram?view=blocks"},{"wait":4000},{"shot":"plan-goalvocab-8792-blocks.png"},
+{"size":[390,844]},{"goto":"http://127.0.0.1:8792/"},{"wait":3000},{"shot":"plan-goalvocab-8792-phone-home.png","full":true}]

@@ -469,7 +469,10 @@ goal, parameter or block turns one off or goes round it (`coordinator/08-modes-a
   loads), served by `outer-watcher` (`watcher.py`, kept running by `ergostat run --service`: launchd or systemd). It
   fills by `heartbeat-aged` (time passing, its rises) and drains by `heartbeat-renewed`. The stock `restarts`
   (`ergostat.upkeep.restarts`: `ergostat.engine.restarted` events over the last day) fills by `restarts-made`, which
-  the outer watcher moves, and has no goal.
+  the outer watcher moves. It is held at `<= ${restarts-most}` (3 by default, 0 to 100, checked when the model
+  loads) by `few-restarts`, served by `restarts-keeper`, a person: the owner, the last layer, asked to mend the cause
+  or stop the engine on purpose (`ergostat run --stop`), and so drawn commanding `outer-watcher`. Ergostat never acts
+  on restarts itself, and no goal changes the watcher or the watchdog.
 - With `leases: true` (default false): the stocks `overdue-leases` and `expired-leases` (`ergostat.leases.overdue`,
   `.expired`), the goal `no-overdue-leases` (`<= 0`), and the external block `lease-expiry` (`leases/dispatch.py`).
 - With `pool: NAME` (default none): the stocks `free-workspaces` and `quarantined-workspaces`
@@ -486,8 +489,13 @@ time, so a model without the template, or one the template was taken out of, wri
 180 and says nothing (the normal case without the template); malformed or out of range, it uses 180 and says so in
 `run.log`, once for each value in a watcher process. So `stale` lets the watched engine relax the outer watcher's
 limit to at most 3600 s, or tighten it to 60 s; it never turns the watcher off, and it never changes whether the
-engine's own watchdog runs. The heartbeat the run writes as it starts carries no `stale`, so 180 applies until the
-watchdog's first beat.
+engine's own watchdog runs. The heartbeat the run writes as it starts, before the model is read, carries the previous
+file's `stale` when that passes the same test and is at least 180 s, so the last model's limit holds until the
+watchdog's first beat writes the current one's; a previous file missing, unreadable or not JSON, or a `stale` missing,
+a bool, NaN, out of range, not a number or under 180, leaves it out (180) and does not stop the start. So a start only
+ever gets a longer limit than 180, which comes after the 120 s startup deadline: a short limit carried from the last
+model would let the watcher stop a slow start before the engine's own watchdog has recorded why it was slow. A shard engine's `heartbeat.SHARD.json` takes it from
+its own file only.
 
 **No controller reads what it manages.** The watcher still reads only `run.pid`, `heartbeat.json` and `stopped`
 (and, when it restarts, its own back-off, `restarts.json`, and `run.log`). The engine's sensor of `heartbeat-age` is
@@ -876,7 +884,13 @@ its age (`sensor.failed`), its box says *not answering for 2m · readings 3m old
 in the remote's clock; one older than three of its sensor's periods (two minutes at least), more than 5 s in
 the remote's future, with no `time`, in an answer with no `now`, or marked `unreachable` is not taken. A
 `now` or `time` that is not a finite number (JSON's `NaN` or `Infinity`) counts as none, and a middle keeps
-no age for it, so it serves that reading on as `time: null`.
+no age for it, so it serves that reading on as `time: null`. When the model answers but its last readings
+request got no answer (`read_ok` false in `status.json`, what the box reads), the Check page and `check`
+carry **remote-stale**: *remote incidents: its readings fail (WHY) since 5m ago; its measures here are 10m
+old* (or *none of its measures has been read here*). A remote whose readings were never asked for, or whose
+last request was answered, has none; one that is remote-unreachable is never remote-stale too at the same
+load. A reading refused as stale (too old, in the remote's future, untimed) from an answered request is not
+remote-stale: that sensor's `sensor.failed` says it.
 
 **Drawn.** In Dynamics and Blocks a remote is one box, closed by default (even alone at its level),
 its outline dashed, saying where it runs, the version of its model and how old its readings are; it opens
@@ -1937,7 +1951,7 @@ flows:
 | `query` | map | | A query against a source (section 11): `source` and the source's own fields |
 | `daemon` | map, or a name under `daemons:` | | Read by a long-lived process (section 9.7): each reading asked as a line on its schedule, no process started per reading; several sensors may name one daemon |
 | `push` | bool | false | With `daemon`: the daemon sends its readings by itself (`{"reading": V, "sensor": "STOCK.SENSOR"}`); none is asked for |
-| `manual` | bool | | Readings recorded by a person |
+| `manual` | bool | | Readings recorded by a person (`ergostat sensor STOCK.SENSOR --read V`, recorded at the present time). `--read` with `--at` is refused (exit 2, nothing written): `--at` views the past and records nothing |
 | `items` | item kind | | Counted from the record: on a stock, the items in `state` (any state when left out); on a flow, the items `entering` or `leaving` a state per hour, over `over` |
 | `state` | state or list | any | On a stock: which states count |
 | `measure` | `count`, `oldest` or `age` | `count` | On a stock: how many; the hours the oldest of them has been in its state; or the hours since the oldest of them was first seen, whatever states it passed through (an item taken, given back and taken again keeps its age: a commitment's clock) |
@@ -3895,7 +3909,11 @@ never a list of everything in it.
 **Drawn** (the dynamics view, `ergostat/dynamics.py`): each loop is labelled as Sterman numbers them,
 R1, B1 (the shortest first, the ones the model names before others of their length), with its name
 beneath. Only loops of known polarity are marked on the diagram, each inside the loop as drawn; the
-others are one entry beside it, "+N of unknown polarity", that opens to list them. A goal is drawn
+others are one entry beside it, "+N of unknown polarity", that opens to list them. A loop's panel lists
+every link around it (through closed systems too) by plain names, each with the one sign its connector is
+drawn with; a flow's into its stock, and a stock's and a desired level's into its gap, are signed by
+definition. A link still without a sign (or signs that disagree with the model's) makes its marker read `?`
+and the panel name the link; loops drawn alike share one marker, "N alike", its title naming the others. A goal is drawn
 as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
 for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
 actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel
@@ -4238,7 +4256,18 @@ readings that drift together are fewer independent ones). That is how far the in
 from now; when it arrives within the horizon (its timing, a burst) is not sampled. For each goal: the probability that
 it is off at the horizon, at each point ahead, and its expected time off ("work-waiting: off at +8h with p≈0.3; 1h12m
 off expected over the 8h"); a run that is not valid (it blew up) counts as off for every goal, and the line says how
-many ("3 of 100 runs not valid, counted as off"). For each part, the half and nine in ten of the valid runs, drawn as
+many ("3 of 100 runs not valid, counted as off"). The page says it in words (`ergostat/numbers/forecast_words.py`,
+one function for every surface): "Likely to stay within its bound for the next 8 minutes (about 9 in 10)", "Likely to
+cross its bound around 14:10 (about 7 in 10)", "Expected back within its bound by 14:25", "Likely to stay outside its
+bound for the next 3 hours (about 8 in 10)". The chance is of whole runs: the share that leave the bound (or, off now,
+come back within it) at some moment ahead, not the worst single moment's share, and a time is when half the runs have.
+The odds are rounded half up to N in 10 ("under 1 in 10" and "over 9 in 10" at the ends, with no "about"). When runs
+that were not valid change what the sentence says, it says how many ("4 of 10 runs not valid, counted as off"); when
+none was valid there is no estimate. It says a clock time today as 14:10, another day as "Tue 14:10"; it has a
+short form for the goal row ("within, 9 in 10"); the raw p, the runs, the horizon and the method in the sentence's
+title and in a closed "How this was worked out" disclosure. A goal with no forecast says why ("No estimate: the loops
+are held (open loop)", "No estimate: nothing here is worked out by the model" when none of the parts asked for
+is modelled). For each part, the half and nine in ten of the valid runs, drawn as
 the strip's fan. Bounded: 100 runs by default, at most 400; at most 4,000 integration steps a run; a horizon of at
 most 30 days; a watchdog stops it at 8 seconds of wall time on the page (60 at the command line) and says how many runs
 it made. The draws come from a fixed seed (`--seed`): the same model and record give the same answer when every run is
@@ -6093,6 +6122,47 @@ remote), and the same push through `git-push` after the owner's approval.
 - A `run:` wrapper that is not `ergostat session` is given `ERGOSTAT_SANDBOX` and must pass the flags itself; `check`
   refuses `tools:` or `actions:` on a block whose `run:` does not start `ergostat session`.
 
+### Compute pools
+
+`compute:` declares pools of **nodes**: machines a model's runs may later execute on (the plan is
+`docs/proposals/compute-systems.md`). **So far a pool is declared and checked only**: nothing connects to a node,
+reads a secret's file or runs anywhere but on the engine's own machine, and a model without `compute:` compiles to
+the same model as before. A block names no pool yet (`runs-on:` is a later change).
+
+```yaml
+compute:
+  farm:
+    nodes: [{ssh: node-1}, {ssh: node-2}]   # Host names of your ~/.ssh/config
+    backend: docker
+    image: ergostat-run:1
+    slots: 4
+    limits: {cpus: 2, memory: 4g, pids: 512, disk: 10g, wall: 30m, network: none, log: 64m}
+    repos: {main-repo: .}
+    secrets: {API_TOKEN: ~/.config/ergostat/api.token}
+    labels: {arch: x86_64}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `nodes` | required | 1 to 64 entries, each `{ssh: HOST}` (a `Host` of the owner's `~/.ssh/config`: letters, digits, `.`, `_`, `-`, never a user, an address or a port) or `{connect: [COMMAND, ARG, ...]}` (a command whose standard input and output reach a worker) |
+| `backend` | `process` | `process` or `docker` |
+| `image` | none | What each run's container is made from; required with `docker` |
+| `slots` | 1 | Runs at once on each node, 1 to 64 |
+| `limits` | `log: 64m` | Each run's: `cpus` (a number above 0), `memory`, `disk` and `log` (sizes: `512m`, `4g`, `1GiB`, or bytes; multiples of 1024), `pids` (a whole number), `wall` (a duration), `network` (`none` or `host`) |
+| `repos` | none | A name → the repository's path here |
+| `secrets` | none | An environment variable's name (`API_TOKEN`) → the file its value is read from; the model holds the file's name only |
+| `labels` | none | A label → the text a node must say for it |
+
+`check` refuses, each with its code and where it was written: an unknown key (`unknown-key`), in the pool or its
+`limits:`; a bad size (`bad-size`) or duration (`bad-duration`); a pool of more than 64 nodes, or more than 64 over
+all pools (`too-many-nodes`); more than 64 slots (`too-many-slots`); nodes × slots past 256 summed over all pools
+(`too-many-runs`); `wall` over a day (`wall-over-a-day`); `log` over 1 GiB (`log-over-cap`); `network: none` on the
+`process` backend, which cannot hold a run off the network and does not pretend to (`network-on-process`); `docker`
+without `image` (`docker-needs-image`); a node's `ssh:` naming a user (`node-names-user`: `@`) or an address
+(`node-names-address`: all digits and dots, or a `:`, `[` or `]`); and any other malformed entry (`bad-node`,
+`bad-backend`, `bad-number`, `bad-network`, `bad-image`, `bad-repos`, `bad-secrets`, `bad-labels`, `missing-key` for
+no `nodes`). A library template may not declare `compute:` (§2a).
+
 ## 12l. Coherence: the three views held against each other
 
 One system is drawn three ways: the **Process** view (§5b), how the items really moved, read from the record; the
@@ -6329,7 +6399,11 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
 - The page: the entries are listed in *Needs attention* (the side panel) after its problems and before its warnings,
   each with Approve / Deny, or a number and Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N`
-  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own.
+  (`note=`); `GET /api/inbox`. The item pages keep their own buttons. No page or panel of its own. Every entry is
+  listed, however many come before it. While the pointer or the focus is in one of the side panel's lists (*Waiting
+  for you*, *Goals off*, *Model housekeeping*; and likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its
+  top how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or
+  gone meanwhile stays in its place and says so in its row until then.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 

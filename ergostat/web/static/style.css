@@ -221,6 +221,10 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .more, .att .none { color: var(--muted); }
 .att .inbox-act { display: flex; gap: var(--sp-2); align-items: center; margin-top: var(--sp-1); flex-wrap: wrap; }
 .att .inbox-act input { width: 6em; }
+/* a list held still while the reader is in it: what waits for them to leave, above it, moving none of its rows */
+:has(> .waiting) { position: relative; }
+.waiting { position: absolute; right: 0; top: 0; transform: translateY(-100%); font-size: var(--text-sm); color: var(--muted); background: var(--bg); }
+.waiting:empty { display: none; }
 .att .ask { white-space: pre-line; }
 .att details.cmd pre, .claim details.cmd pre { white-space: pre-wrap; margin: var(--sp-1) 0 0; }
 .att .att-word { color: var(--ink-2); }
