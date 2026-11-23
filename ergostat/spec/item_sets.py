@@ -281,7 +281,8 @@ def of_part(spec, kind: str, name: str, since: float, until: float, model=None) 
         how = f"counted by its sensor {s.name}: the {k} items " + (f"in {' or '.join(states)}" if s.items.get("state") else "in any state")
         if s.items.get("measure") == "oldest":
             how += "; its value is the hours the oldest of them has been in its state"
-        return {"set": x.params(), "says": x.says(), "how": how}
+        # counting every state, its set is its kind alone: its link says to list the finished too (SPEC §5a)
+        return {"set": {**x.params(), **({} if x.states else {"finished": ["show"]})}, "says": x.says(), "how": how}
     f = spec.flows.get(name)
     if f is None:
         return {"none": "not a stock or a flow"}

@@ -202,7 +202,7 @@ stocks:
 Each event is a changeset to the item's fields. Its `data` replaces each field it names, unless
 the kind folds that field otherwise (`fold: {notes: append, hours: sum, labels: union}`; also
 `min`, `max`, `merge`, `first`). Or it carries a JSON Patch in place of `data`, applied whole or
-refused with why: `{"event": "ticket.tagged", "item": "ticket/12", "patch": [{"op": "add", "path":
+refused with why (a refused patch does not move the item's state either): `{"event": "ticket.tagged", "item": "ticket/12", "patch": [{"op": "add", "path":
 "/labels/-", "value": "bug"}]}` (`ergostat event --add ... --patch '[...]'`), or the whole document,
 `"set": {...}`.
 

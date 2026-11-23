@@ -107,6 +107,17 @@ TOOLS = [
      "refused, and its events.",
      "inputSchema": _obj({"kind": {"type": "string"}, "state": {"type": "string"}, "id": {"type": "string"},
                           "n": {"type": "integer"}})},
+    {"name": "why", "description": "Why an item is not done: its state and for how long (unusual or not for its kind), "
+     "the cause followed to its root (what it waits on, what that waits on: unfinished work, a person, a full pool, a "
+     "gate or budget refusing runs, a dead or stale lease, a block failing or not running, a closed goal or intake, a "
+     "parked or dead item, nothing taking its state, a cycle, a missing item), who must act and the command, the evidence "
+     "with links, what the record cannot tell, and a one-paragraph summary. The same as `ergostat why ITEM --json`.",
+     "inputSchema": _obj({"item": {"type": "string"}}, ["item"])},
+    {"name": "held_up", "description": "What holds the work up: every unfinished item grouped by its root cause (as why "
+     "finds it), the roots ranked by what they hold (items, hours of waiting, the items its block takes first), each "
+     "a stall, held on purpose, queueing or unknown, with its next step; the goals off because of a root folded under "
+     "it; and line, the biggest constraint in words, or that nothing is stuck. The same as `ergostat held-up --json`.",
+     "inputSchema": _obj({})},
     {"name": "context", "description": "A starting context, as Markdown: a projection recipe the model names under "
      "contexts: (its parts in order, each within its budget: decisions, corrections, the owner's words, an item's history, "
      "the state now, a session's turns, documents, the model's parts), rendered for item when given; or the built-ins "
@@ -268,6 +279,12 @@ class Server:
             from .durations import parse_duration
             got = co.of_project(p, spec, parse_duration(a["since"], "since") if a.get("since") else co.WINDOW)
             return _text({"scores": [co.score_line(k, x) for k, x in got["kinds"].items()], **got})
+        if name == "why":
+            from .why import answer
+            return _text(answer(p, str(a.get("item") or "")))
+        if name == "held_up":
+            from .why import held
+            return _text(held.answer(p))
         if name == "explain":
             from .spec.explain import explain
             return _text(explain(spec, a.get("part") or None, p))

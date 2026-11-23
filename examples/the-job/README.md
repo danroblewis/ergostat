@@ -56,7 +56,7 @@ and `rm -rf run outbox`.
 ## Where to look
 
 - **Diagram, Dynamics** (the stock-and-flow view): `job` open, each domain a closed module
-  with the number of feedback loops inside, and the influences between domains (an unreviewed
+  that says what it is (its description; its panel counts its feedback loops), and the influences between domains (an unreviewed
   flag ramp raising alerts). The side panel says what needs attention: the goals that are off.
   **Open** a domain to see its stocks, flows and loops in place (R and B mark the reinforcing
   and balancing loops), or go **Into** it to draw it alone.
@@ -68,6 +68,12 @@ and `rm -rf run outbox`.
   item's page shows its draft (`brief`, `nudge`, `reply`, `comment`, `ticket`, `plan`,
   `explanation`, `draft`) rendered. `day/<date>` (the simulated week starts on this week's Monday) shows that day's **morning brief** and its
   **ledger**.
+- **The equations**: each rate another rate sets (the alerts and outages that follow the ramps that
+  break, the actions each postmortem files, the next document each approval opens) is an equation
+  with units, in its domain's file; *The numbers*, below, gives each. `ergostat check` finds no
+  error or finding in the model, only notes of the kinds `tests/test_the_job_model.py` lists (blocks
+  and watchers with no description, the flows a block moves with no decision rule written, and a few
+  more).
 - **`outbox/`**: the same files, for an editor: `review-2041.md`, `alert-703.md`,
   `brief-<date>.md`, `ledger-<date>.md`, ...
 
@@ -138,7 +144,8 @@ search is the open review whose author is Ben and whose title says search). Then
   lists it ("What I said that reached no work") until I route it, `ergostat messages ID --about review/2049`.
 
 `messages` is a system like the others: what I said (`notes-said`), routed and waiting (`messages-awaiting`),
-delivered, unrouted (`messages-unrouted`, held at 0 by `notes-reach-work`, which nothing but I can answer), missed
+delivered, unrouted (`messages-unrouted`, held at 0 by `notes-reach-work`, which only I can answer: its person
+block, `route-notes`, asks me), missed
 (`messages-missed`: a note about an item a preparer was already working on, or that waited for me, which finished
 before the note reached it, and was followed up), and the follow-ups the brief puts in front of me.
 
@@ -171,15 +178,20 @@ document at once (`paper-trail`, the one reinforcing loop), until the board appr
 
 ## The numbers
 
-Where the world's code makes a rate known, the model writes it as an equation (docs/SPEC.md §7b),
-in the world's own terms. A ramp that goes ahead unreviewed breaks its service at 45% a tenth to
+Every rate that another rate sets is written as an equation (docs/SPEC.md §7b), in the world's own
+terms, and its units agree (`tests/test_the_job_model.py` lists the six: `alerts-fired`,
+`outages-noticed`, `ramps-broke`, `ramps-proved-fine`, `actions-filed`, `docs-needed`). The rest stay
+what their sensors read: the arrivals, and the flows a block or I move. A ramp that goes ahead unreviewed breaks its service at 45% a tenth to
 half a working day later, or is called fine after exactly half a day: two material delays of the
 ramps that went ahead (`DELAY3(break-share * flow.ramps-went-ahead, time-to-break /
 workdays-per-hour)`), whose stages together are the ramps live unreviewed. A ramp that breaks starts
 one outage, so outages are a coflow of the breaks (`workdays-per-hour * outages-base +
 outages-per-break * flow.ramps-broke`), and every outage pages three to five times, so alerts are a
 coflow of the outages (`workdays-per-hour * alerts-base + alerts-per-outage *
-flow.outages-noticed`). The values come from `world/traffic.py`; those marked `estimate: true` are
+flow.outages-noticed`). Each postmortem files two or three actions at once (`actions-per-postmortem *
+flow.postmortems`, 2.5 each), and each approval but the board's opens the change's next document
+(`workdays-per-hour * changes-base + next-docs-per-approval * flow.docs-approved`, 0.75 a document).
+The values come from `world/traffic.py`; those marked `estimate: true` are
 fitted from the record. The watchers count arrivals over the last ten minutes (`averages: 10m` on
 their sensors), and the model's rates are read through the same ten minutes before they are
 compared. The Fit page shows how well each equation and each stock follows the record, and
