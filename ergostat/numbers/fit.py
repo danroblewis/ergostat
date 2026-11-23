@@ -23,7 +23,8 @@ Two tests, each shown as itself (Homer, "Partial-model testing", 2012):
 - the **replay**: every stock integrated from its flows. The stocks an equation moves are the
   **model fit**, and they alone make the total and its history; a stock moved only by measured
   flows tests no equation, and is **accounting**: its error is a question about a measurement or a
-  missing flow (the residuals), not about the model's equations.
+  missing flow (the residuals), not about the model's equations. A remote's stock (SPEC §4c) is neither:
+  it is listed under ``remote`` and left out of the total, whatever replay is compared.
 
 A series is judged only on enough record: ``MIN_POINTS`` points, over at least ``COVER`` of the
 slowest time constant the replay met in it. Computed on the reference window (``observe.reference``),
@@ -207,10 +208,14 @@ def moved_by_equation(spec: Spec, run: sim.Run, stock: str) -> bool:
 
 def compare(spec: Spec, data: ob.Data, run: sim.Run, partial: sim.Run | None = None) -> dict:
     """The replay's stocks (the model fit, and accounting), its equations, and the partial test of
-    each equation, against the record."""
-    stocks, accounting, eqs, part, judged_by = {}, {}, {}, {}, {}
+    each equation, against the record. A remote's stock is only listed, under ``remote`` (ref → its remote)."""
+    from ..remote import remote_of
+    stocks, accounting, eqs, part, judged_by, theirs = {}, {}, {}, {}, {}, {}
     for ref in run.how:
         if not ref.startswith("stock."):
+            continue
+        if (remote := remote_of(spec, ref)) is not None:
+            theirs[ref] = remote
             continue
         name = ref[6:]
         tc = run.time_constants.get(ref)
@@ -232,7 +237,7 @@ def compare(spec: Spec, data: ob.Data, run: sim.Run, partial: sim.Run | None = N
             if pg is not None:
                 part[ref] = pg
     return {"stocks": stocks, "accounting": accounting, "equations": eqs, "partial": part, "judged_by_stock": judged_by,
-            "total": total(stocks) if run.valid else None, "invalid": list(run.invalid),
+            "total": total(stocks) if run.valid else None, "invalid": list(run.invalid), "remote": theirs,
             "span": data.grid.until - data.grid.since}
 
 

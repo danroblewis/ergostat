@@ -6,16 +6,20 @@ from __future__ import annotations
 
 import math
 import random
+import time
+from pathlib import Path
 
 import pytest
 
 from ergostat import precedence as pr
-from ergostat.numbers import eta
-from ergostat.numbers.etamodel import Attempt, BlockIn, Inputs, ItemAt, KindIn, fundamental, read
+from ergostat.numbers import eta, etacheck
+from ergostat.numbers.etamodel import Attempt, BlockIn, Inputs, ItemAt, KindIn, _unscheduled, fundamental, read
 from ergostat.numbers.survival import KM
 
 from .eta_backtest import backtest
 from .eta_synthetic import generate, project
+from .test_take_order import GATED, PAUSED
+from .test_take_order import project as take_project
 
 T0 = 1_790_000_000.0
 
@@ -92,6 +96,30 @@ def test_capacity_is_never_exceeded():
     g = eta.simulate(seats, runs=20)
     assert g["capacity"]["dev"] == 2
     assert g["kinds"]["t"]["p50"] - T0 == pytest.approx(30 / 2 * 600, rel=0.05)
+
+
+def test_the_take_order_holds_from_the_start_and_the_parked_are_not_scheduled():
+    """At the start every item is queued before any is taken, so the block's order holds over the oldest first (the
+    Timeline's waterfall); a parked item and what waits on it in its first state are not scheduled, said why, and
+    left out of their kind's last finish."""
+    inp = inputs(n=9, pool=3)
+    inp.blocks[0].order = ["rank"]
+    for i in range(9):
+        inp.items[f"t/{i}"].fields = {"rank": 9 - i}              # the newest ranked first
+    run = eta._Run(inp, eta.Flags(arrivals=False), random.Random(1), {}, {}, False)
+    run.go(eta.HORIZON)
+    assert {i for i, t in run.start.items() if t == T0} == {"t/8", "t/7", "t/6"}, run.start
+    inp.kinds["t"].states.append("parked")
+    inp.kinds["t"].paused = {"parked"}
+    inp.items["t/0"].state = "parked"
+    inp.items["t/1"].preds, inp.items["t/2"].preds = ["t/0"], ["t/1"]
+    _unscheduled(inp)
+    assert {i: x.unscheduled for i, x in inp.items.items() if x.unscheduled} == {
+        "t/0": "paused in parked", "t/1": "waits on t/0, which is parked",
+        "t/2": "waits on t/1, which waits on t/0, which is parked"}
+    g = eta.simulate(inp, runs=20)
+    assert g["items"]["t/2"]["unscheduled"] and "unscheduled" not in g["items"]["t/3"]
+    assert g["kinds"]["t"]["unscheduled"] == 3 and g["kinds"]["t"]["p50"] == pytest.approx(T0 + 2 * 600)
 
 
 def test_dependencies_are_respected():
@@ -219,6 +247,7 @@ def test_the_owners_case_100_tickets_6_leases(tmp_path):
     at = T0 + 86400 + 60
     inp = read(p, p.model.spec, ["ticket"], at)
     assert sum(1 for i in inp.items if i.startswith("ticket/b")) == 100
+    assert not any(x.unscheduled for x in inp.items.values())        # (each can move: the run is as it was)
     g = eta.simulate(inp, runs=60)
     # each ticket's dev work, its runs' mean (median 20 min, σ 0.6) over the runs it needs (failed 1 in 10, sent back
     # by review 1 in 10), six at once: 100 / 6 × that, and the review and merge of the last after it
@@ -252,3 +281,221 @@ def test_backtest_p90_coverage_on_a_synthetic_record(tmp_path):
     assert 0.3 <= mean("all", "p50") <= 0.7
     assert mean("path", "coverage") < 0.6                             # a median path with no pool: the owner's 17:43
     assert mean("all", "mae") < mean("path", "mae") * 0.6
+
+
+# ---- the calibration the Timeline says (etacheck.py, from the eta worker)
+
+
+def test_calibration_of_last_weeks_estimates_on_the_owners_record(tmp_path):
+    # now 1.75 days after the batch's first 15 minutes: the week's last cut lands there, the three before the record
+    p = owners_record(tmp_path)
+    now = T0 + 86400 + 900 + 1.75 * 86400
+    assert etacheck.cuts(now)[-1] == T0 + 86400 + 900
+    cal = etacheck.calibration(p, p.model.spec, ["ticket"], now)["ticket"]
+    assert cal["items"] >= 100 and 0.8 <= cal["coverage"] <= 1.0, cal
+    assert cal["mae"] > 0 and cal["since"] == now - etacheck.WEEK
+    assert "finished by their p90" in cal["said"] and f"({cal['items']} tickets)" in cal["said"]
+    from ergostat.web.eta_api import merge
+    est = {"at": now, "runs": 1, "kinds": {}, "capacity": {}, "schedule": {}, "items": {"ticket/x": {}},
+           "calibration": {"ticket": cal}}
+    assert merge({"items": []}, est)["eta"]["calibration"]["ticket"] == cal
+    worse = etacheck.said("ticket", {"items": 41, "coverage": 0.79})   # rounded down: never said better than it was
+    assert worse == "last week's estimates: 7 in 10 tickets finished by their p90 (41 tickets)"
+
+
+def test_calibration_with_three_finished_says_too_few(tmp_path):
+    p = project(tmp_path, pool=3)
+    generate(p, T0, 10, rate=0, pool=3, backlog=3, fail=0.0, rework=0.0, seed=2)
+    now = T0 + 600 + 1.75 * 86400                                        # the last cut 10 minutes in
+    cal = etacheck.calibration(p, p.model.spec, ["ticket"], now)["ticket"]
+    assert cal["items"] <= 3
+    assert cal["said"] == "tickets: too few finished last week to check"
+
+
+def test_calibration_counts_an_item_open_at_every_cut_once(monkeypatch):
+    # three items open at all four cuts, each finished an hour after the last: 3 items, not 12 judgements, so too few
+    now = T0 + 2 * 86400
+    at = etacheck.cuts(now)
+
+    def three(p, spec, kinds, t, truth=False):
+        inp = inputs(n=3, pool=3, at=t)
+        inp.finished_at = {i: at[-1] + 3600 for i in inp.items}
+        return inp
+    monkeypatch.setattr(etacheck, "read", three)
+    monkeypatch.setattr(eta, "simulate", lambda inp, *a, **k: {"runs": 5, "items": {
+        i: {"p50": inp.at + 600, "p90": inp.at + 1200 if inp.at < at[-1] else at[-1] + 7200, "mean": inp.at + 700}
+        for i in inp.items}})
+
+    class P:
+        class events:
+            query = staticmethod(lambda **k: [{"time": now}])
+    cal = etacheck.calibration(P, None, ["t"], now)["t"]
+    assert cal["items"] == 3 and cal["coverage"] == 1.0                    # each by its latest cut: by its p90
+    assert cal["said"] == "ts: too few finished last week to check"
+    every = etacheck.score([three(None, None, None, t) for t in at], now)["kinds"]["t"]
+    assert every["items"] == 12 and every["coverage"] == 0.25             # (the backtest's: each estimate judged)
+
+
+def test_calibration_is_worked_out_by_the_worker_never_on_a_request(tmp_path, monkeypatch):
+    # the calibration held up in the worker: the estimates come first, a request is not slowed, and once it is
+    # worked out it is given beside them; asked again within the hour, it is not worked out again
+    import threading
+    import time
+    from collections import OrderedDict
+
+    from ergostat.web import eta_api
+    for name in ("_CACHE", "_WANT", "_CAL", "_CAL_WANT"):
+        monkeypatch.setattr(eta_api, name, OrderedDict())
+    p = project(tmp_path, pool=3)
+    generate(p, time.time() - 3 * 3600, 3, rate=4, pool=3, backlog=10, seed=5)
+    held, calls = threading.Event(), []
+
+    def slow(p_, spec, kinds, now):
+        calls.append(now)
+        held.wait(30)
+        return {"ticket": {"coverage": 0.5, "items": 20, "mae": 60.0, "since": now - etacheck.WEEK, "said": "said"}}
+    monkeypatch.setattr(etacheck, "calibration", slow)
+    try:
+        first = eta_api.estimates(p, p.model, wait=30)
+        assert first and first["items"] and "calibration" not in first     # the estimates, not held up by it
+        deadline = time.monotonic() + 10
+        while not calls and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert calls                                                          # begun, and held
+        t = time.monotonic()
+        again = eta_api.estimates(p, p.model)
+        assert time.monotonic() - t < 0.5 and "calibration" not in again
+    finally:
+        held.set()
+    deadline = time.monotonic() + 10
+    while "calibration" not in (eta_api.estimates(p, p.model) or {}) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert eta_api.estimates(p, p.model)["calibration"]["ticket"]["coverage"] == 0.5
+    assert len(calls) == 1
+
+
+# ---- what cannot move is not scheduled; a failure is said
+
+
+def test_an_open_run_on_an_item_moved_on_by_its_own_events(tmp_path):
+    p, evs = project(tmp_path), []
+    for n in range(6):                                    # five runs ended; the sixth's item moved on with it open
+        i, t = f"ticket/{n}", T0 + n * 100
+        evs += [{"at": t, "type": "ticket.opened", "item": i},
+                {"at": t + 1, "type": "ergostat.lease.taken", "item": i, "data": {"item": i, "run": f"r{n}", "block": "dev"}},
+                {"at": t + 50, "type": "ticket.implemented", "item": i}]
+        if n < 5:
+            evs.append({"at": t + 51, "type": "ergostat.lease.ended", "item": i,
+                        "data": {"item": i, "run": f"r{n}", "how": "ack", "state": "review"}})
+    p.events.add_many(evs)
+    inp = read(p, p.model.spec, ["ticket"], T0 + 1000)    # (was: KeyError: 'how')
+    dev = next(b for b in inp.blocks if b.name == "dev")
+    assert len(dev.attempts) == 5 and dev.run.n - dev.run.events == 1   # the open run: going (censored)
+    assert inp.items["ticket/5"].state == "review" and inp.items["ticket/5"].lease is None
+
+
+def paused_inputs(n=20):
+    inp = inputs(n=n, pool=2)
+    k = inp.kinds["t"]
+    k.states.insert(1, "parked")
+    k.paused, k.arrivals, k.arrive_at = {"parked"}, 6.0, [("todo", 1.0)]
+    k.km["parked"] = KM([60.0])
+    inp.items["t/0"].state = "parked"
+    return inp
+
+
+def test_paused_item_does_not_hold_the_run():
+    inp = paused_inputs()
+    _unscheduled(inp)
+    t = time.monotonic()
+    g = eta.simulate(inp, runs=200)
+    assert g["runs"] == 200 and time.monotonic() - t < 1.0      # (was: every run to the 90-day horizon)
+    assert g["kinds"]["t"]["p50"] is not None and g["kinds"]["t"]["unscheduled"] == 1
+    assert g["items"]["t/0"] == {"unscheduled": True, "why": "paused in parked", "p50": None, "p90": None,
+                                 "mean": None, "start": None, "dead": 0.0, "runs": 200}
+    assert g["items"]["t/1"]["p50"] is not None and "t/0" not in g["schedule"]
+
+
+def test_an_item_paused_partway_through_a_run_does_not_hold_it():
+    inp = paused_inputs()
+    b = inp.blocks[0]                                     # a third of the runs leave the item parked
+    b.attempts = [Attempt(600.0, "ack", "done")] * 2 + [Attempt(600.0, "ack", "parked")]
+    inp.items["t/9"].preds = ["t/1"]
+    inp.items["t/0"].lease = ("dev", T0 - 10)             # a paused item holding a lease: run, its slot held
+    _unscheduled(inp)
+    assert not inp.items["t/0"].unscheduled
+    t = time.monotonic()
+    g = eta.simulate(inp, runs=200)
+    assert g["runs"] == 200 and time.monotonic() - t < 1.0      # (was: a run to the horizon whenever one parks)
+    assert g["kinds"]["t"]["p50"] is not None                   # (was: inf, the counted out in the kind's last)
+    outs = [x for x in g["items"].values() if x.get("out")]
+    assert outs and all(x["why"].startswith("counted out in ") and x["p50"] is not None for x in outs)
+    run = eta._Run(inp, eta.Flags(), random.Random(3), {}, {}, False)
+    run.go(eta.HORIZON)
+    assert run.open == 0 and run.gone and "t/0" in run.start
+    assert ("t/1" not in run.gone) or "t/9" in run.gone         # waiting on one parked: counted out with it
+
+
+def test_waiting_on_a_paused_item_is_unscheduled(tmp_path):
+    inp = paused_inputs()
+    inp.items["t/1"].preds, inp.items["t/2"].preds = ["t/0"], ["t/1"]
+    _unscheduled(inp)
+    assert inp.items["t/1"].unscheduled == "waits on t/0, which is parked"
+    assert inp.items["t/2"].unscheduled == "waits on t/1, which waits on t/0, which is parked"
+    assert not inp.items["t/3"].unscheduled
+    assert eta.simulate(inp, runs=20)["kinds"]["t"]["unscheduled"] == 3
+    nofin = inputs(n=2)
+    nofin.kinds["t"].finished = set()
+    _unscheduled(nofin)
+    assert nofin.items["t/0"].unscheduled == "has no finished state (t)"
+    p = take_project(tmp_path, PAUSED)                    # from the record: read marks them
+    ev, t = p.events, time.time() - 600
+    ev.add("ticket.opened", item="ticket/a", at=t)
+    ev.add("ticket.held", item="ticket/a", at=t + 1)
+    ev.add("ticket.opened", item="ticket/b", data={"blocked_by": "ticket/a"}, at=t + 2)
+    got = read(p, p.model.spec, ["ticket"], time.time()).items
+    assert got["ticket/a"].unscheduled == "paused in held"
+    assert got["ticket/b"].unscheduled == "waits on ticket/a, which is held"
+
+
+def test_off_block_items_unscheduled(tmp_path, monkeypatch):
+    from collections import OrderedDict
+
+    from ergostat.web import eta_api
+    p = take_project(tmp_path, GATED)
+    p.events.add("ticket.opened", item="ticket/a", at=time.time() - 60)
+    inp = read(p, p.model.spec, ["ticket"], time.time())
+    assert inp.items["ticket/a"].unscheduled == "waits for dev, switched off"
+    x = eta.simulate(inp, runs=20)["items"]["ticket/a"]
+    assert x["unscheduled"] and x["p50"] is None and x["why"] == "waits for dev, switched off"
+    monkeypatch.setattr(eta_api, "_CACHE", OrderedDict())     # the Items list: reasons' words kept, after the cause
+    why = eta_api.estimates(p, p.model, wait=10.0)["items"]["ticket/a"]["why"]
+    assert why.startswith("not scheduled: waits for dev, switched off; waits for dev, which is switched off now (by")
+    on = inputs(n=2)                                      # one block of two off: the other takes it
+    on.blocks.append(BlockIn("dev2", "t", ["todo"], 1, [], False, 9, off="gate", attempts=on.blocks[0].attempts,
+                             run=on.blocks[0].run))
+    _unscheduled(on)
+    assert not on.items["t/0"].unscheduled
+    on.blocks[0].off = "gate"
+    _unscheduled(on)
+    assert on.items["t/0"].unscheduled == "waits for dev and dev2, switched off"
+
+
+def test_a_failed_simulation_is_said(tmp_path, monkeypatch):
+    from collections import OrderedDict
+
+    from ergostat.web import eta_api
+    p = take_project(tmp_path)
+    p.events.add("ticket.opened", item="ticket/a", at=time.time() - 60)
+
+    def boom(*a, **k):
+        raise KeyError("how")
+    monkeypatch.setattr(eta, "simulate", boom)
+    monkeypatch.setattr(eta_api, "_CACHE", OrderedDict())     # (none kept past the test under a reused id)
+    est = eta_api.estimates(p, p.model, wait=10.0)
+    assert est["error"] == "KeyError: 'how'"                  # kept, not None (was: a silent unlevelled Timeline)
+    got = eta_api.merge({"items": [{"id": "ticket/a"}], "edges": []}, est)
+    assert got["eta"] is None and got["eta_error"] == "KeyError: 'how'"
+    assert eta_api.merge({"items": []}, None)["eta_error"] is None
+    js = (Path(eta_api.__file__).parent / "static" / "relations.js").read_text()
+    assert "the simulation failed: ${d.eta_error}" in js and "Working out the schedule: a simulation of" in js

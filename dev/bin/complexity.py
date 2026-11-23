@@ -166,10 +166,12 @@ class Snap:
             self.rows.append(row)
 
     def text(self, path: str) -> str:
-        blob = self._blob[path]
-        if blob not in self._texts:
-            self._texts.update(read(self.ctx, [blob]))
-        return self._texts[blob].decode(errors="replace")
+        return self.texts([path])[path]
+
+    def texts(self, paths) -> dict[str, str]:
+        """These files' text, the blobs not read yet read in one git child."""
+        self._texts.update(read(self.ctx, [self._blob[p] for p in paths if self._blob[p] not in self._texts]))
+        return {p: self._texts[self._blob[p]].decode(errors="replace") for p in paths}
 
     def git(self, *args: str) -> str:
         return self.ctx.git(*args).decode()

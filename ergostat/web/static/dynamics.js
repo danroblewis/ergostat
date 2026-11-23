@@ -4,7 +4,7 @@
    stocks, flows with their valves, clouds, auxiliaries, each
    goal as a desired level and a gap, a decision where a rule reads several things and moves several,
    and connectors with their polarity. This file draws its parts, its connectors (thin curved arrows,
-   + or − at the head), its loop markers (R, B or ? in a circular arrow, inside each loop), its legend
+   + or − beside the head, ? where not known; dashed where declared with driven-by), its loop markers (R, B or ? in a circular arrow, inside each loop), its legend
    and its panels. Black on white (or its dark equivalent); colour only for what is pointed at. */
 "use strict";
 
@@ -21,17 +21,27 @@ function sdValue(n) {                                   // a stock's or an auxil
   const v = n.valueText && n.valueText !== "?" ? n.valueText : "–";
   return n.unit ? `${v} ${n.unit}` : v;
 }
+const sdNoUnit = (n) => n.kind === "stock" && !n.bare && !(n.unit || "").trim();   // check's no-unit: 'unit ?', muted
 function sdSize(n) {
-  if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n)) + 28), SD_STOCK_H];
+  if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n) + (sdNoUnit(n) ? " unit ?" : "")) + 28), SD_STOCK_H];
   if (n.kind === "auxiliary") {                         // its name is the part: as wide as that, with its value under it
     const lines = sdAuxLines(n);
     return [Math.max(...lines.map((t) => textWidth(t) * (t === lines[0] ? 1.02 : 0.92))) + 10, 6 + lines.length * 14];
   }
   return SD_SIZE[n.kind] || [40, 40];
 }
+/* a flow's rate over the window, in its panel: not measured, or 0 with how long nothing moved (a declared 0 is declared) */
+function sdRateSaid(now, rate, unit, flow) {
+  const r = now?.rate !== undefined ? now.rate : rate;
+  if (r == null) return "not measured";
+  if (r !== 0 || now?.how === "declared") return rateText(r, unit, flow);
+  const span = Math.min(S.status?.window ?? Infinity, S.status?.recorded ?? Infinity);
+  return `${rateText(0, unit, flow)}: ${span === 0 ? "nothing recorded yet" : `no movement in ${Number.isFinite(span) ? dur(span) : "the window"}`}`;
+}
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
-  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "–" : n.rateText];
+  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText,
+    ...(n.attempts ? [`${n.attempts} attempt${n.attempts === 1 ? "" : "s"}`] : [])];      // an item's: the runs that took it
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   if (n.kind === "cloud" && n.from) return [`from ${n.from}`];        // an inflow from outside: where it comes from, where the model knows it
   return [];
@@ -53,7 +63,10 @@ function sdStock(n, w, hgt) {
   g.append(s("rect", { class: "hit sd-stock", width: w, height: hgt, "stroke-dasharray": n.outside ? "5 4" : null }));
   const v = sdValue(n);
   g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
-  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v));
+  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v,
+    sdNoUnit(n) ? s("tspan", { class: "sd-nounit" }, " unit ?") : null));
+  if (n.path?.length) g.append(s("text", { x: 4, y: 11, class: "t-sub sd-path", "data-path": n.path.join(",") },   // an item's steps here, in move order
+    n.path.join(", ")));
   return g;
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
@@ -83,11 +96,12 @@ function sdCloud(n, w, hgt) {                           // (a cloud a flow leave
 /* a system closed: a module (Stella) or a view (Vensim): its name, and its ports, what crosses its edge */
 function sdSystem(n, w, hgt) {
   const g = s("g", n.remote ? { class: `sys-remote remote-${n.remote.state}` } : {});
-  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote ? { "stroke-dasharray": "9 5" } : {}) }));
+  g.append(s("rect", { class: "hit sd-module", width: w, height: hgt, rx: 8, ...(n.remote || n.upkeep ? { "stroke-dasharray": n.upkeep ? "6 4" : "9 5" } : {}) }));
   g.append(s("text", { x: 16, y: 24, class: "t-label sys-title" }, n.label));
   // under its name, what it is (its description, in at most two lines; its loops are counted on its panel)
   const said = n.remote ? [n.remote.says] : sdWrap(n.description || "a module: open it to see its structure", Math.floor((w - 32) / CH), 2);
   said.forEach((t, i) => g.append(s("text", { x: 16, y: 42 + i * 14, class: "t-sub sys-desc" + (n.remote ? " live" : "") }, t)));
+  if (n.upkeep) g.append(s("text", { x: 16, y: 44 + said.length * 14, class: "t-sub sys-upkeep" }, UPKEEP));   // apart from the system it models
   const btn = (x, label, title, fn) => s("g", { class: "sys-btn", transform: `translate(${x},10)`, onclick: (ev) => { ev.stopPropagation(); fn(); } },
     s("rect", { width: textWidth(label) + 14, height: 20, rx: 4 }), s("text", { x: 7, y: 14 }, label));
   const into = "Into", open = "Open";
@@ -109,6 +123,119 @@ function sdSystem(n, w, hgt) {
       p.both ? "⇄ " : "", p.label, p.value ? s("tspan", { class: "live", dx: 6, opacity: 0.75 }, p.value) : null));
   }
   return g;
+}
+/* a closed module's headline measures (``charted``: its show:, else its goals' measures), the first three, each as its
+   name, its value now and a sparkline of its behaviour over the page's window on its own scale (its low–high written
+   after it): put where they fit in the free middle of the box's existing rows (the description's second line, the port
+   rows), drawn after the structure from one answer for every box (series?measured=1: the measurement store alone),
+   asked again on the page's interval, and never moving or sizing a box. A bucket with no reading is a gap. Not drawn
+   while the line would be too small to read (under SPARK.px pixels high on the screen). Stocks, flows and auxiliaries
+   draw none */
+const SPARK = { w: 44, h: 12, most: 3, px: 7, every: 2500, pad: 10 };
+const sdSparkRefs = (n) => (n?.kind === "system" && !n.remote && !n.upkeep
+  ? [...new Set((n.charted || []).map((x) => x.part.replace(":", ".")))].slice(0, SPARK.most) : []);
+const sdSparkWindow = () => JSON.stringify([S.since, S.at || null]);
+const sdSparkReadable = () => (S.view?.k || 1) * SPARK.h >= SPARK.px;
+/* after each draw of the main canvas: what is held drawn at once, and the boxes' measures asked again when due */
+function sdSparks(svg, g) {
+  if (!svg.classList.contains("canvas")) return;
+  sdSparksPaint(svg, g);
+  const refs = [...new Set([...svg.querySelectorAll("g.node.k-system")].flatMap((el) => sdSparkRefs(g.nodes.find((n) => n.id === el.dataset.id))))];
+  const c = S.sparks, win = sdSparkWindow();
+  if (!refs.length || SNAP) return;
+  const every = SPARK.every / (window.ERGOSTAT_POLL_SPEED || 1);
+  const fresh = c && c.win === win && refs.every((r) => r in c.data) && performance.now() - c.at < every;
+  if (fresh || (c?.asking && c.askingFor === win + refs.join(",")) || performance.now() - (S.sparkFailed ?? -Infinity) < every) return;
+  const seq = (S.sparkSeq = (S.sparkSeq || 0) + 1);
+  S.sparks = { ...(c && c.win === win ? c : { win, data: {}, at: 0 }), asking: true, askingFor: win + refs.join(",") };
+  api("series", { refs: refs.join(","), points: SPARK.w, measured: 1 }).then((d) => {
+    if (seq !== S.sparkSeq || sdSparkWindow() !== win) return;        // a later ask, or the window changed: not this one
+    const data = Object.fromEntries(refs.map((r) => [r, undefined]));  // asked and not answered (cut past the server's
+    for (const x of d.series || []) data[x.ref.replace(/^auxiliary\./, "stock.")] = data[x.ref] = x;   // ceiling, or
+    // unknown to it): nothing drawn, never "no readings", for that is not known (the answer's ``cut`` names the first)
+    S.sparks = { win, data, at: performance.now(), asking: false };
+    const now = document.querySelector("svg.canvas");
+    if (now && S.graph?.kind === "dynamics") sdSparksPaint(now, S.graph);
+  }).catch(() => {                                    // not answered: none drawn (never the last lines as if read now)
+    if (seq !== S.sparkSeq) return;
+    S.sparks = null; S.sparkFailed = performance.now();     // (asked again on the page's interval, not every redraw)
+    const now = document.querySelector("svg.canvas");
+    if (now && S.graph?.kind === "dynamics") sdSparksPaint(now, S.graph);
+  });
+}
+/* the zoom crossed the readable size: drawn again, or taken away (diagram.js's applyView) */
+function sdSparksZoomed(svg) {
+  const r = sdSparkReadable();
+  if (r === S.sparkReadable) return;
+  S.sparkReadable = r;
+  if (S.graph?.kind === "dynamics" && svg.classList.contains("canvas")) sdSparksPaint(svg, S.graph);
+}
+function sdSparksPaint(svg, g) {
+  S.sparkReadable = sdSparkReadable();
+  const c = S.sparks?.win === sdSparkWindow() ? S.sparks : null;
+  for (const el of svg.querySelectorAll("g.node.k-system")) {
+    el.querySelector(":scope > .sd-sparks")?.remove();
+    const n = g.nodes.find((x) => x.id === el.dataset.id), refs = sdSparkRefs(n), box = el.querySelector("rect.sd-module");
+    if (!c || !S.sparkReadable || !refs.length || !box) continue;
+    const w = +box.getAttribute("width"), hgt = +box.getAttribute("height");
+    const sg = s("g", { class: "sd-sparks" });
+    el.append(sg);
+    const bands = sdSparkBands(el, n, w, hgt);
+    for (const ref of refs) {
+      const ser = c.data[ref], m = (n.charted || []).find((x) => x.part.replace(":", ".") === ref);
+      if (ser === undefined || !m) continue;
+      for (let i = 0; i < bands.length; i++) {
+        if (sdSparkRow(sg, m, ser, bands[i])) { bands.splice(i, 1); break; }
+      }
+    }
+  }
+}
+/* each existing row's widest free stretch, [y, from, to]: the rows a closed box already has (its description's second
+   line, each port row), less what is written in them */
+function sdSparkBands(el, n, w, hgt) {
+  const taken = [...el.querySelectorAll(":scope > g > text")].map((t) => {
+    const b = t.getBBox();                            // (one hidden now, a port in Flows only: where it shows again, widely)
+    if (b.width || !t.textContent) return b;
+    const x = +t.getAttribute("x"), wd = textWidth(t.textContent), a = t.getAttribute("text-anchor");
+    return { x: a === "end" ? x - wd : a === "middle" ? x - wd / 2 : x, y: +t.getAttribute("y") - 10, width: wd, height: 13 };
+  });
+  const ys = [56];
+  for (let y = sysTop(n); y + SPARK.h / 2 + 3 <= hgt; y += SYS_ROW) ys.push(y);
+  return ys.map((y) => {
+    const xs = taken.filter((b) => b.y < y + 7 && b.y + b.height > y - 7).map((b) => [b.x - SPARK.pad, b.x + b.width + SPARK.pad]).sort((a, b) => a[0] - b[0]);
+    let at = SPARK.pad, best = [y, 0, 0];
+    for (const [a, b] of [...xs, [w - SPARK.pad, w]]) {
+      if (a - at > best[2] - best[1]) best = [y, at, a];
+      at = Math.max(at, b);
+    }
+    return best;
+  }).filter(([, a, b]) => b > a);
+}
+/* one measure in one free stretch: its name, its value now, its line, its scale; false (and nothing left) if it does
+   not fit there */
+function sdSparkRow(sg, m, ser, [y, from, to]) {
+  const values = ser?.values || [], { d, lo, hi } = sparkPath(values, SPARK.w, SPARK.h);
+  const v = m.missing || !m.value || m.value === "?" ? "–" : m.value, bare = v.split(" ")[0];   // (a rate's has its unit)
+  const full = ser?.unit && ser.kind !== "flow" && v !== "–" ? `${v} ${ser.unit}` : v;
+  const span = !d ? "no readings" : `${fmt(lo)}–${fmt(hi)}`;
+  for (const said of [...new Set([full, bare])]) {
+    const row = s("g", { class: "sd-spark", "data-ref": ser?.ref || m.part, role: "img",
+                         "aria-label": `${m.label}: ${said} now; ${d ? `from ${fmt(lo)} to ${fmt(hi)}` : "nothing read"} over the window, on its own scale` });
+    sg.append(row);
+    const name = s("text", { y: y + 4, class: "t-sub sd-spark-name" }, m.label);
+    const now = s("text", { y: y + 4, class: "t-sub sd-spark-value live" + (m.stale ? " sd-spark-stale" : "") }, said);
+    const scale = s("text", { y: y + 4, class: "t-sub sd-spark-scale live" }, span);
+    row.append(name, now, scale);
+    const nw = name.getComputedTextLength(), vw = now.getComputedTextLength(), cw = scale.getComputedTextLength();
+    if (nw + 4 + vw + 6 + SPARK.w + 4 + cw > to - from) { row.remove(); continue; }
+    now.setAttribute("x", from + nw + 4);
+    const lx = from + nw + 4 + vw + 6;
+    name.setAttribute("x", from);
+    scale.setAttribute("x", lx + SPARK.w + 4);
+    if (d) row.append(s("path", { class: "sd-spark-line live", d, transform: `translate(${lx},${y - SPARK.h / 2})` }));
+    return true;
+  }
+  return false;
 }
 function sdWrap(text, room, max) {                      // words in lines of ``room`` characters, ``max`` at most (the last cut with …)
   const lines = [""];
@@ -147,14 +274,15 @@ function sdCurve(pts, blocked) {
   });
   const q = (a, c, b) => (t) => ({ x: (1 - t) * (1 - t) * a.x + 2 * (1 - t) * t * c.x + t * t * b.x,
                                    y: (1 - t) * (1 - t) * a.y + 2 * (1 - t) * t * c.y + t * t * b.y });
+  const poly = (segs) => segs.flatMap((sg) => [0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => sg(i / 8)));   // (its way, for its sign)
   if (n === 2) {
     const [a, b] = pts, L = Math.hypot(b.x - a.x, b.y - a.y);
     const bow = L > 60 ? Math.min(0.1 * L, 18) : 0;
     for (const k of bow ? [1, -1] : []) {
       const c = { x: (a.x + b.x) / 2 - ((b.y - a.y) / L) * bow * k, y: (a.y + b.y) / 2 + ((b.x - a.x) / L) * bow * k };
-      if (!hits([q(a, c, b)])) return { d: `M${a.x},${a.y} Q${c.x},${c.y} ${b.x},${b.y}`, tail: c, tip: b, mid: q(a, c, b)(0.5) };
+      if (!hits([q(a, c, b)])) return { d: `M${a.x},${a.y} Q${c.x},${c.y} ${b.x},${b.y}`, tail: c, tip: b, mid: q(a, c, b)(0.5), poly: poly([q(a, c, b)]) };
     }
-    return { d: `M${a.x},${a.y} L${b.x},${b.y}`, tail: a, tip: b, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+    return { d: `M${a.x},${a.y} L${b.x},${b.y}`, tail: a, tip: b, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, poly: [a, b] };
   }
   const m = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
   let d = `M${pts[0].x},${pts[0].y}`, from = pts[0];
@@ -165,8 +293,8 @@ function sdCurve(pts, blocked) {
     segs.push(q(from, pts[i], to));
     from = to;
   }
-  if (!hits(segs)) return { d, tail: pts[n - 2], tip: pts[n - 1], mid: segs[Math.floor(segs.length / 2)](0.5) };
-  return { d: roundedPath(pts, 6), tail: pts[n - 2], tip: pts[n - 1], mid: pts[Math.floor(n / 2)] };   // (its corners only eased)
+  if (!hits(segs)) return { d, tail: pts[n - 2], tip: pts[n - 1], mid: segs[Math.floor(segs.length / 2)](0.5), poly: poly(segs) };
+  return { d: roundedPath(pts, 6), tail: pts[n - 2], tip: pts[n - 1], mid: pts[Math.floor(n / 2)], poly: pts };   // (its corners only eased)
 }
 
 /* what a drawing's geometry alone decides (where each loop marker goes, each connector's curve), kept on its
@@ -206,21 +334,76 @@ function sdEdgeContent(e, pts, lay) {
   }
   const memo = sdMemo(lay), ck = `${e.source}>${e.target}:${pts.map((q) => `${q.x},${q.y}`).join(" ")}`;
   const c = memo.curves[ck] ||= sdCurve(pts, sdBlocked(lay, e));
-  out.push(s("path", { d: c.d, class: "info sd-connector" }));
-  const head = arrowHead([c.tail, c.tip], "head sd-head", 7);
-  out.push(head);
-  const sign = sdSign(e.polarity);
-  if (sign) {
-    const L = Math.hypot(c.tip.x - c.tail.x, c.tip.y - c.tail.y) || 1;
-    const ux = (c.tip.x - c.tail.x) / L, uy = (c.tip.y - c.tail.y) / L;
-    // beside the head; where another sign is already, on its other side or further back
-    const taken = (S.sdSigns ||= []);
-    const at = [[14, 9], [14, -9], [26, 9], [26, -9], [38, 9]].map(([b, o]) => ({ x: c.tip.x - ux * b - uy * o, y: c.tip.y - uy * b + ux * o }));
-    const p = at.find((q2) => !taken.some((t) => Math.hypot(t.x - q2.x, t.y - q2.y) < 12)) || at[0];
-    taken.push(p);
-    out.push(s("text", { x: p.x, y: p.y + 4.5, "text-anchor": "middle", class: "polarity", "paint-order": "stroke" }, sign));
-  }
+  out.push(Object.assign(s("path", { d: c.d, class: "info sd-connector" + (e.drivenBy ? " driven-by" : "") }), { poly: c.poly }));
+  out.push(arrowHead([c.tail, c.tip], "head sd-head", 7));
+  // its sign, or ? where its polarity is not known: placed beside its own head once all are drawn (sdPlaceSigns)
+  out.push(s("text", { x: c.tip.x, y: c.tip.y, "text-anchor": "middle", class: "polarity" + (sdSign(e.polarity) ? "" : " unknown"),
+                       "paint-order": "stroke", "data-edge": e.id }, sdSign(e.polarity) || "?"));
   return out;
+}
+/* each connector's sign beside its own head: back along its own curve 13 px or more, beside it or on it, where it
+   is nearer its own line than any other and its box 10 px and more from every other sign's (the most hemmed in
+   placed first); kept while the lines stay where they are */
+function sdPlaceSigns(root) {
+  const paths = [...root.querySelectorAll(".edge path.sd-connector")], K = 24, grid = new Map();
+  const signs = paths.map((p) => p.parentNode.querySelector("text.polarity"));
+  const key = paths.map((p) => p.getAttribute("d")).join("|");
+  if (S.sdSignsAt?.key !== key) {
+    const way = paths.map((p) => {                        // each line from its head back, a point every 3 px or less
+      const P = p.poly || [], out = [];
+      for (let i = P.length - 1; i > 0; i--) {
+        const a = P[i], b = P[i - 1], L = Math.hypot(b.x - a.x, b.y - a.y);
+        for (let d = 0; d < L; d += 3) out.push({ x: a.x + ((b.x - a.x) * d) / L, y: a.y + ((b.y - a.y) * d) / L });
+      }
+      return P.length ? [...out, P[0]] : out;
+    });
+    way.forEach((w, i) => w.forEach((q) => { const k = `${Math.floor(q.x / K)},${Math.floor(q.y / K)}`; (grid.get(k) || grid.set(k, []).get(k)).push({ ...q, p: paths[i] }); }));
+    const apart = (c, p, m) => {                          // no other line within c.o + m of it
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const q of grid.get(`${Math.floor(c.x / K) + i},${Math.floor(c.y / K) + j}`) || [])
+        if (q.p !== p && Math.hypot(q.x - c.x, q.y - c.y) <= c.o + m) return false;
+      return true;
+    };
+    const box = signs.map((t) => { const b = t.getBBox(); return { w: Math.max(b.width, 9), h: Math.max(b.height, 17), dy: b.height ? b.y + b.height / 2 - +t.getAttribute("y") : -4.5 }; });
+    const tries = paths.map((p, i) => {
+      const w = way[i], tip = w[0] || { x: 0, y: 0 }, out = [], L = w.reduce((a, q, k) => a + (k ? Math.hypot(q.x - w[k - 1].x, q.y - w[k - 1].y) : 0), 0);
+      for (let k = 1, b = 0; k < w.length && b < 160; k++) {
+        const q = w[k], r = w[k - 1], d = Math.hypot(q.x - r.x, q.y - r.y), n = d || 1, nx = -(r.y - q.y) / n, ny = (r.x - q.x) / n;
+        if ((b += d) >= 13 && b <= L - 8) for (const o of [9, -9, 0, 5, -5]) out.push({ x: q.x + nx * o, y: q.y + ny * o, o: Math.abs(o) });
+      }
+      const free = (m) => out.filter((c) => Math.hypot(c.x - tip.x, c.y - tip.y) >= 13 && apart(c, p, m));
+      const all = [...new Set([...free(2), ...free(0.5)])];   // (a little nearer the others only where there is no room)
+      return all.length ? all : out.length ? out : [tip];
+    });
+    const place = (order) => {                            // in this order, each at its first place clear of those before
+      const at = [], done = [];
+      const near = (i, j, c) => j !== i && Math.abs(at[j].x - c.x) < 10.5 + (box[i].w + box[j].w) / 2 &&
+                                Math.abs(at[j].y - c.y) < 10.5 + (box[i].h + box[j].h) / 2;
+      const hits = (i, c) => done.filter((j) => near(i, j, c));
+      const put = (i, c) => (at[i] = { ...c, dy: box[i].dy });
+      for (const i of order) {
+        put(i, tries[i].find((c) => !done.some((j) => near(i, j, c))) || tries[i][0]);
+        done.push(i);
+      }
+      for (const i of done.filter((i) => hits(i, at[i]).length)) {   // no room: one sign in the way moved aside, if it can be
+        const was = at[i];
+        for (const c of tries[i]) {
+          const [j, more] = hits(i, c);
+          if (more !== undefined) continue;
+          put(i, c);
+          if (j === undefined) break;
+          const c2 = tries[j].find((c2) => !hits(j, c2).length);
+          if (c2) { put(j, c2); break; }
+          at[i] = was;
+        }
+      }
+      return { at, misses: done.filter((i) => hits(i, at[i]).length).length };
+    };
+    const ix = paths.map((_, i) => i), hemmed = ix.slice().sort((a, b) => tries[a].length - tries[b].length);
+    let best = place(hemmed);                             // (where some had no room, other orders too, in a small drawing)
+    for (const o of [ix, ix.slice().reverse(), hemmed.slice().reverse()]) if (best.misses && ix.length <= 80) best = [best, place(o)].reduce((a, b) => (b.misses < a.misses ? b : a));
+    S.sdSignsAt = { key, at: best.at };
+  }
+  signs.forEach((t, i) => { const c = S.sdSignsAt.at[i]; t.setAttribute("x", c.x); t.setAttribute("y", c.y - c.dy); });
 }
 function sdPipeHead(pts, cls) {                         // a flow's head: hollow, as wide as the pipe and more, at its very end
   const a = pts[pts.length - 2], b = pts[pts.length - 1];
@@ -377,14 +560,18 @@ function sdLoopGroups(g, box = null, all = false) {
     return { rep: loops[0], loops };
   });
 }
+/* a loop's links that have no sign (all of them when the graph does not give its links); its polarity only when
+   every link has one and their signs agree with it */
+const sdUnsigned = (c) => (c.around ? c.around.filter((r) => !r.sign) : [{ fromName: "?", toName: "?" }]);
+const sdPol = (c) => (sdUnsigned(c).length || (c.around.filter((r) => r.sign === "-").length % 2 ? "B" : "R") !== c.polarity ? null : c.polarity);
 function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
-  const label = c.label || (c.polarity || "?");
+  const label = sdPol(c) ? c.label : "?";
   const r = sdMarkerRadius(label), start = clockwise ? -60 : -120, end = clockwise ? 240 : -60;   // a gap at the top, the head at its end
   const P = (deg) => [r * Math.cos((deg * Math.PI) / 180), r * Math.sin((deg * Math.PI) / 180)];
   const [x0, y0] = P(start), [x1, y1] = P(end), rad = (end * Math.PI) / 180;
   const dx = clockwise ? -Math.sin(rad) : Math.sin(rad), dy = clockwise ? Math.cos(rad) : -Math.cos(rad);   // the way it turns, at the end
   const tip = [x1 + dx * 6, y1 + dy * 6], base = [x1 - dx * 2, y1 - dy * 2], px = -dy * 5, py = dx * 5;   // a clear arrowhead
-  const g = s("g", { class: `loop-marker pol-${c.polarity || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
+  const g = s("g", { class: `loop-marker pol-${sdPol(c) || "unknown"}`, "data-loop": c.name, "data-loops": loops.map((x2) => x2.name).join("|"),
                      "data-act": "loop", "data-x": x, "data-y": y, transform: `translate(${x},${y})`,
                      onclick: (ev) => { ev.stopPropagation(); sdToggle(c.name, loops); },
                      onpointerenter: () => { if (!S.dragging) sdHover(c.name); }, onpointerleave: () => sdHover(null) },
@@ -392,7 +579,8 @@ function sdMarker(c, x, y, clockwise, lines, loops = [c]) {
     s("path", { class: "marker-arc", d: `M${x0},${y0} A${r},${r} 0 1 ${clockwise ? 1 : 0} ${x1},${y1}` }),
     s("path", { class: "marker-head", d: `M${tip[0]},${tip[1]} L${base[0] + px},${base[1] + py} L${base[0] - px},${base[1] - py} Z` }),
     s("text", { class: "marker-letter", y: 4, "text-anchor": "middle" }, label),
-    loops.length > 1 ? s("text", { class: "marker-more", x: r + 4, y: 4, "text-anchor": "start" }, `+${loops.length - 1}`) : null,
+    loops.length > 1 ? s("text", { class: "marker-more", x: r + 4, y: 4, "text-anchor": "start" }, `${loops.length} alike`,
+      s("title", {}, `Drawn alike here with ${loops.slice(1).map((x2) => `${x2.label} ${x2.name}`).join(", ")}`)) : null,
     ...lines.map((t, i) => s("text", { class: "marker-name", y: r + 14 + i * 13, "text-anchor": "middle" }, t)));
   return g;
 }
@@ -427,7 +615,7 @@ function sdApply(name) {
 
 /* ------------------------------------------------------------------ the side panel, the legend */
 
-function sdLoopList(side, g) {
+function sdLoopList(panel, g) {
   const order = { R: 0, B: 1 };
   const num = (c) => parseInt(c.label.slice(1)) || 0;
   const sort = (xs) => xs.sort((a, b) => (order[a.polarity] ?? 2) - (order[b.polarity] ?? 2) || num(a) - num(b));
@@ -435,13 +623,17 @@ function sdLoopList(side, g) {
   const unknown = sort(sdLoopGroups(g, null, true).flatMap((x) => x.loops).filter((c) => !c.polarity));
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
   const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
-  side.append(h("h3", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
-  const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
+  // folded, its count in the summary (the legend comes first)
+  const side = h("details", { class: "loops", key: "loops" }, h("summary", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
+  panel.append(side);
+  const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
-    h("div", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label), h("span", {}, c.name)),
-    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[c.polarity] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
+    h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
+    h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`,
+      ((gs) => gs.length ? `, serves goal${gs.length > 1 ? "s" : ""} ${gs.join(", ")}` : "")(      // (the goals it closes)
+        [...new Set(c.nodes.filter((x) => x.startsWith("gap:")).map((x) => x.slice(4)))])));
   if (!known.length && !unknown.length && !modules.length) side.append(h("div", { class: "muted" }, "No feedback loops drawn here."));
-  const counts = ["R", "B"].map((p) => [p, known.filter((c) => c.polarity === p).length]).filter(([, n]) => n);
+  const counts = ["R", "B"].map((p) => [p, known.filter((c) => sdPol(c) === p).length]).filter(([, n]) => n);
   if (counts.length) side.append(h("div", { class: "note" }, counts.map(([p, n], i) => `${n} ${{ R: i ? "reinforcing" : "Reinforcing", B: i ? "balancing" : "Balancing" }[p]}`).join(", ")));
   for (const c of known) side.append(row(c));
   if (unknown.length) {                                 // not on the canvas: a sign along each is not known
@@ -451,7 +643,7 @@ function sdLoopList(side, g) {
     side.append(d);
   }
   for (const [n, xs] of modules)                        // as many as the module's own caption says
-    side.append(h("div", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
+    side.append(h("button", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
       h("div", {}, h("b", {}, n.label), `: ${xs.length} feedback loop${xs.length > 1 ? "s" : ""} inside`),
       h("div", { class: "sub" }, "Open it to see them")));
 }
@@ -465,7 +657,8 @@ const SD_LEGEND = {
   exo: '<text x="13" y="9" font-size="9" text-anchor="middle" fill="var(--sd-ink)">name</text><text x="13" y="17" font-size="6.5" font-style="italic" text-anchor="middle" fill="var(--sd-muted)">(exog.)</text>',
   plus: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/><text x="15" y="18" font-size="10" font-weight="700" fill="var(--sd-ink)">+</text>',
   minus: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/><text x="15" y="18" font-size="11" font-weight="700" fill="var(--sd-ink)">−</text>',
-  plain: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/>',
+  plain: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/><text x="15" y="18" font-size="10" font-weight="700" fill="var(--sd-ink)">?</text>',
+  dashed: '<path d="M1 14 Q12 2 22 9" fill="none" stroke="var(--sd-ink)" stroke-width="1.1" stroke-dasharray="4 3"/><path d="M25 11 L18 10 L21 5 Z" fill="var(--sd-ink)"/>',
   loopR: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-ink)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-ink)">R</text>',
   loopB: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-ink)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-ink)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-ink)">B</text>',
   loopQ: '<path d="M17.5 3.2 A7 7 0 1 1 8.5 3.2" fill="none" stroke="var(--sd-muted)" stroke-width="1.2"/><path d="M6 1.5 L10.5 3 L7 6.5 Z" fill="var(--sd-muted)"/><text x="13" y="12.5" font-size="8" font-weight="700" text-anchor="middle" fill="var(--sd-muted)">?</text>',
@@ -473,6 +666,7 @@ const SD_LEGEND = {
   sector: '<rect x="1" y="1" width="24" height="16" rx="3" fill="var(--sd-hull)"/><text x="3" y="7" font-size="5" fill="var(--sd-muted)">NAME</text>',
   stub: '<path d="M1 9 H17" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink)"/><text x="21" y="12" font-size="8" fill="var(--sd-muted)">x</text>',
   shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-muted)">&lt;x&gt;</text>',
+  nounit: '<text x="13" y="13" font-size="8" text-anchor="middle" fill="var(--sd-muted)">unit ?</text>',
 };
 function sdLegend() {
   const g = S.graph || { nodes: [], edges: [] };
@@ -481,6 +675,7 @@ function sdLegend() {
   const pols = new Set((g.causalLoops || []).map((c) => c.polarity || "?"));
   return h("div", { class: "legend sd-legend" },
     row("stock", "stock (level): what accumulates; it changes only by its flows"),
+    has(sdNoUnit) && row("nounit", "unit ?: the stock's value has no unit; the model says none (ergostat check: no-unit)"),
     row("flow", "flow (rate): a pipe with its valve, into or out of a stock; the head shows which way"),
     g.edges.some((e) => e.twoWay) && row("biflow", "biflow: a flow that may run either way"),
     has((n) => n.kind === "cloud") && row("cloud", "source or sink: outside the model's boundary"),
@@ -492,7 +687,8 @@ function sdLegend() {
     has((n) => n.role === "decision") && row("aux", "decision: what it reads, joined to the flows it sets"),
     row("plus", "connector, +: the cause rises, the effect rises above what it would have been"),
     row("minus", "connector, −: the cause rises, the effect falls below what it would have been"),
-    g.edges.some((e) => e.kind === "connector" && !e.polarity) && row("plain", "connector, no sign: the polarity is not known"),
+    g.edges.some((e) => e.kind === "connector" && !e.polarity) && row("plain", "connector, ?: the polarity is not known"),
+    g.edges.some((e) => e.drivenBy) && row("dashed", "connector, dashed: a cause declared with driven-by, not a formula"),
     pols.has("R") && row("loopR", "reinforcing loop: a change comes back amplified"),
     pols.has("B") && row("loopB", "balancing loop: a change comes back opposed (it seeks a desired level)"),
     has((n) => n.kind === "system") && row("module", "module: a system closed; its connection points are what crosses its edge (Open draws its parts in place; Into draws it alone)"),
@@ -604,16 +800,23 @@ async function openNodeSD(n) {
   const kind = sdNodeKind(n);
   const rows = [];
   let chart = null, numbers = null, found = null, items = null, counts = [];
+  // its panel at once, titled, and filled when its numbers come; another panel opened meanwhile (or this one
+  // closed) leaves the late answer unshown
+  const wait = h("p", { class: "muted" }, "…");
+  showDetail(h("div", { class: "kind" }, n.kind === "valve" || n.kind === "disturbance" ? "Valve" : (SD_WHAT[kind] || [kind])[0]),
+    h("h2", {}, n.flow || n.label), wait);
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
     rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
-              [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.valueText || "not known yet"}` : null],
+              [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.offBy || "not known yet"}` : null],
               ["switching", n.switching || null],
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
     let d = null;
+    const loading = panelLoading("Valve", n.flow || n.label);        // (it replaces `wait`: the late-answer guard is this)
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
+    if (!loading.isConnected) return;
     const m = d?.model || {}, now = d?.now || {};
-    rows.push(["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, n.flow || n.label) : n.rateText],
+    rows.push(["rate, over the window", sdRateSaid(d?.now, n.rate, d?.unit, n.flow || n.label)],
               ["how it is known", now.how || n.how],
               ["inputs", join(causes) || h("span", { class: "muted" }, "none drawn: nothing in the model points into it")],
               ["equation", d?.numbers?.equation_tree ? null : n.equation || d?.equation || "not known"]);
@@ -626,14 +829,20 @@ async function openNodeSD(n) {
     return;
   } else {
     let d = null;
+    const loading = panelLoading((SD_WHAT[kind] || [kind])[0], n.label);
     try { d = await api(`part/stock/${encodeURIComponent(n.label)}`); } catch (err) { d = null; }
+    if (!loading.isConnected) return;
     const m = d?.model || {}, now = d?.now || {};
     rows.push(["description", m.description || n.description], ...(d?.inferred ? [inferredRow(d.inferred)] : []),
               ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],
               ["measured", now.at ? ago(now.at) : null]);
     if (n.kind === "stock") rows.push(["inflow", now.inflow != null ? rateText(now.inflow, "", sdStockFlow(n.label, "in")) : null],
                                       ["outflow", now.outflow != null ? rateText(now.outflow, "", sdStockFlow(n.label, "out")) : null]);
-    for (const gl of n.goals || []) rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint}${gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)"}`]);
+    for (const gl of n.goals || []) {                     // the goal, and what serves it wherever it is in the model
+      const by = (gl.by || []).map((b) => b.system ? `${b.block} in ${b.system}` : b.block).join(", ");
+      rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint} (${gl.name})` +
+        (by ? `, served by ${by}` : gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)")]);
+    }
     if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });
     found = findingsNote(d);
     counts = countsLines(d);                              // what it counts, first (itemsets.js)
@@ -670,7 +879,7 @@ function sdOpenSystem(n) {
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   const inside = (S.graph?.causalLoops || []).filter((c) => c.nodes.includes(n.id) && sdVisible(c, S.graph).length < 2);
   showDetail(h("div", { class: "kind" }, n.remote ? "Module, remote" : "Module"), h("h2", {}, n.label),
-    moduleCharts(n),
+    quietLine(n), moduleCharts(n),
     n.description ? h("p", { class: "muted" }, n.description) : null,
     remoteNote(n.remote), remoteMeasures(n), n.size ? dl([["size", n.size]]) : null, sdAggregate(n.label),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),
@@ -691,8 +900,9 @@ async function openEdgeSD(e) {
   const inLoops = loopsPara(loopsOf((c) => (e.causal || []).includes(c.name)));
   if (e.kind === "pipe") {
     let d = null;
+    panelLoading("Flow", e.flow);
     try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
-    const m = d?.model || {}, now = d?.now || {};
+    const m = d?.model || {};
     const valve = Object.values(byId).find((n) => (n.kind === "valve" || n.kind === "disturbance") && (n.flow === e.flow));
     const unit = d?.unit || m.unit || "";
     showDetail(h("div", { class: "kind" }, "Flow"),
@@ -700,7 +910,7 @@ async function openEdgeSD(e) {
       causesStrip(`flow.${e.flow}`),
       dl([["what moves", [unit, m.description].filter(Boolean).join(": ") || "not said (no unit or description)"],
           ["from", m.source ? link(`stock:${m.source}`) : "a source outside the model"], ["to", m.target ? link(`stock:${m.target}`) : "a sink outside the model"],
-          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, e.flow) : valve?.rateText],
+          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", sdRateSaid(d?.now, valve?.rate, d?.unit, e.flow)],
           ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));
   } else {
@@ -718,38 +928,23 @@ async function openEdgeSD(e) {
   trace(S.selKey);
 }
 
-/* a feedback loop: its label and name, its polarity, its parts in order as drawn here, and the sign of each
-   line between them as drawn (a module where it runs inside a closed system, a shadow where it leaves) */
+/* a feedback loop: its label and name, its polarity (only when every link has a sign), and every link around it
+   by plain names (a link to each part drawn here), each with the sign its connector has wherever it is drawn */
 function openCausal(name) {
   const c = (S.graph?.causalLoops || []).find((x) => x.name === name);
   if (!c) return;
   const { link, byId } = sdGraphLinks();
-  const word = { R: "reinforcing", B: "balancing" }[c.polarity] || "polarity not known";
-  const g = S.graph;
-  const part = (id) => {
-    const n = byId[id];
-    if (n?.kind === "system") return h("span", {}, "module ", link(id));
-    if (n?.kind === "terminal") return h("span", { class: "muted" }, `<${n.label}>`);
-    return n ? link(id) : h("span", { class: "muted" }, id.split(":").slice(1).join(":"));
-  };
-  const sign = (a, b) => {                              // the drawn line from a to b: a connector's sign, a pipe's way
-    const e = g.edges.find((x) => (x.from ?? x.source) === a && (x.to ?? x.target) === b);
-    if (e && e.kind === "connector") return sdSign(e.polarity) || "?";
-    if (e && e.kind === "pipe") return "+";                // a flow fills the stock it runs into
-    const back = g.edges.find((x) => x.kind === "pipe" && (x.from ?? x.source) === b && (x.to ?? x.target) === a);
-    return back ? MINUS : "";                               // a stock drains by its outflow
-  };
-  const ns = c.nodes, rows = ns.map((a, i) => [a, ns[(i + 1) % ns.length]]).filter(([a, b]) => a !== b);
-  const signs = rows.map(([a, b]) => sign(a, b));
-  const minus = signs.filter((x) => x === MINUS).length, unknown = signs.filter((x) => x === "?").length;
+  const pol = sdPol(c), word = { R: "reinforcing", B: "balancing" }[pol] || "polarity not known";
+  const part = (id, plain) => (byId[id] && !["system", "terminal", "cloud"].includes(byId[id].kind) ? link(id) : h("span", { class: "muted" }, plain));
+  const rows = c.around || [], minus = rows.filter((r) => r.sign === "-").length, unsigned = sdUnsigned(c);
   showDetail(h("div", { class: "kind" }, `Feedback loop, ${word}`),
-    h("h2", {}, h("span", { class: `loop-tag pol-${c.polarity || "unknown"}` }, c.label)), h("div", { class: "subtitle" }, c.name),
-    h("p", {}, c.polarity && (!rows.length || signs.some((x) => x === "")) ? `${word[0].toUpperCase()}${word.slice(1)} by the signs of its links in the model; not all of them are drawn in this view (open its system to see them).`
-      : c.polarity ? `${minus} negative link${minus === 1 ? "" : "s"} around it as drawn: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
-                          : `${unknown || "a"} link${unknown === 1 ? "" : "s"} along it ${unknown === 1 ? "has" : "have"} no known sign, so whether it reinforces or balances is not known.`),
+    h("h2", {}, h("span", { class: `loop-tag pol-${pol || "unknown"}` }, pol ? c.label : "?")), h("div", { class: "subtitle" }, c.name),
+    h("p", {}, pol ? `${minus} negative link${minus === 1 ? "" : "s"} around it: ${minus % 2 ? "an odd number, so it balances" : "an even number, so it reinforces"}.`
+      : unsigned.length ? `No sign on ${unsigned.map((r) => `${r.fromName} → ${r.toName}`).join(", ")}, so whether it reinforces or balances is not known.`
+      : `Its links' signs (${minus} negative) and the model's ${c.polarity ? `${c.polarity === "R" ? "reinforcing" : "balancing"} disagree` : "not knowing differ"}, so it is not called either.`),
     h("h3", {}, "Around the loop"),
-    h("table", { class: "parts" }, rows.map(([a, b], i) => h("tr", {}, h("td", {}, part(a)), h("td", { class: "muted" }, "→"), h("td", {}, part(b)),
-      h("td", { class: "num" }, signs[i])))),
+    h("table", { class: "parts" }, rows.map((r) => h("tr", {}, h("td", {}, part(r.from, r.fromName)), h("td", { class: "muted" }, "→"),
+      h("td", {}, part(r.to, r.toName)), h("td", { class: "num" }, r.sign ? sdSign(r.sign) : "?")))),
     h("h3", {}, "When it drives the behaviour"), loopDominance(c.name),
     (() => {                                            // the loops drawn alike here share its marker
       const grp = sdLoopGroups(S.graph, null, true).find((x) => x.loops.includes(c));

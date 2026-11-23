@@ -152,7 +152,7 @@ for it.
 | A lag in moving | Material delay; pipeline; conveyor | Transport delay (dead time) | Valve delay ("opens 42s after") |
 | How fast it corrects | Adjustment time | Time constant (and gain) | Back in (recovery time) |
 | Outside the model | Source and sink (clouds); model boundary | Outside the plant; exogenous inputs | Outside (`from`/`to` left out) |
-| A goal-seeking loop | Balancing loop (B, negative) | Negative feedback loop (closed loop) | Loop (holding, off) |
+| A goal-seeking loop | Balancing loop (B, negative) | Negative feedback loop (closed loop) | Goal (holding, off), served by a control loop |
 | A self-amplifying loop | Reinforcing loop (R, positive) | Positive feedback (unstable) | — |
 | No feedback | Open loop (no information link back) | Open loop | Open loop (`open_loop`) |
 | Acting on the disturbance itself | — (a decision reading an input flow) | Feedforward | Feedforward |
@@ -170,6 +170,18 @@ for it.
 | What can be changed | — | Controllability | A goal no controller serves (missing feedback) |
 | Amplification along a chain | Bullwhip effect | Noise or disturbance amplification | Loops in series; work piling up |
 | Who does the work | — | — (machines are outside the theory) | Agent (person, ai, program, rule) |
+
+In ergostat's own words, "loop" alone is never a goal: what is held or off is a **goal**, a
+**control loop** (sensor, controller, valve) serves it, and a **feedback loop** (R or B) is a cycle of
+causes in the dynamics view.
+
+## Items and leases
+
+Three words, fixed for what follows:
+
+- a goal is **holding** (or off);
+- an item a block has leased is **taken**, or **being worked by** that block, never "held";
+- an item the estimates leave out is **not scheduled**.
 
 ## Prior art: the two combined
 
