@@ -104,6 +104,8 @@ def test_the_inbox_aggregates_every_kind(tmp_path):
     assert all(e["age"] >= 0 and e["summary"] for e in es.values())
     att = st.attention(st.snapshot(p), False, p.model)
     assert [a["what"] for a in att[:5]] == [e["id"] for e in entries.entries(p)]       # first, and answerable
+    objects = {a["what"].split("/")[0]: a["object"] for a in att[:5]}                 # what each answer is about
+    assert objects["action"] == "push" and objects["person"] == "reviewer" and objects["advise"] == "pusher"
     assert measures.measure(p, "ergostat.inbox.waiting") == 5.0 and measures.measure(p, "inbox.asked") == 5.0
 
 

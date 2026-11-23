@@ -48,6 +48,7 @@ def _requests(project) -> list[tuple[str, dict]]:
         reqs.append(("dominance", pts))                  # which feedback loops drive the behaviour, for every loop's panel
         reqs += [("loop-control", {"goal": n}) for n in m.spec.goals]   # each loop as a control engineer reads it
     reqs += [("items-flow", {"kind": k, **pts}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]
+    reqs += [(f"kinds/{_q(k)}", {}) for k in (getattr(getattr(m, "spec", None), "items", None) or {})]   # what each touches
     for kind, table in m.tables().items():
         for n in table:
             k = "disturbance" if kind == "flow" and getattr(table[n], "disturbance", False) else kind
