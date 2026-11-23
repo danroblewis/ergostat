@@ -76,7 +76,7 @@ elif args[0] == "event" and args[1] == "--add" and args[args.index("--item") + 1
     db.setdefault("flakes_said", []).append(args[2])
     rec.write_text(json.dumps(db))
 elif args[0] == "lease":
-    if "--nack" in args:                                           # (a lease given back, as its run would: drain.py)
+    if "--nack" in args:                                           # (a lease given back, as its run would)
         import os
         db.setdefault("nacks", []).append({k: os.environ.get(f"ERGOSTAT_{k.upper()}") for k in ("item", "lease", "run")}
                                           | {"count": "--no-count" not in args})

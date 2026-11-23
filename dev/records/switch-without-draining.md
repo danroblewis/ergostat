@@ -85,5 +85,5 @@ Not run here: the unit suite and the four browser files (the factory runs them);
 was refused as a command, so `test_check_on_the_root_model_reports_no_errors` stands in for it (passes). Run one
 file at a time, all pass: test_switch_without_draining.py (3), test_runs_adopted.py (23), test_runs_outlive_engine.py
 (11), test_ai_limit_hold.py (5), test_factory_resources.py (12), test_milestones.py::test_the_milestone_model_raises_no_check_finding,
-test_code_health_measures.py::test_check_on_the_root_model_reports_no_errors, and test_factory.py (RESULT). ruff is
+test_code_health_measures.py::test_check_on_the_root_model_reports_no_errors, and test_factory.py (204 passed, 2 skipped: the two Docker tests, which need the agent image). ruff is
 clean. Local `main` has nothing the branch lacks.
