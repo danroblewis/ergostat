@@ -6193,6 +6193,26 @@ def test_an_approved_branch_that_adds_an_entry_only_in_its_record_lands_with_it_
     assert "gaps_md_carried" not in run and "gaps_md" not in run
 
 
+def test_a_record_only_entry_whose_render_failed_is_drawn_by_the_next_landing(tmp_path):
+    f = Factory(tmp_path)
+    commit_files(f, GAPS_RECORDS)
+    zeta = "# zeta: its definition\n\nDone means.\n\n## Entry\n\nsection: Modelling\n\n- **Zeta** (open): only its record.\n"
+    approved_editing(f, "zeta", {f"{NEW}/zeta.md": zeta, f"{NEW}/bad.md": "## Entry\n\nsection: Modelling\n"})
+    head, run = landed_head(f, "zeta")                                  # the render fails: GAPS.md as it was
+    assert "bad: malformed Entry" in run["gaps_md"] and "Zeta" not in git(f.checkout, "show", f"{head}:docs/GAPS.md")
+    approved_editing(f, "mend", {f"{NEW}/bad.md": "# bad: its definition\n"})
+    set_action(f, "ran")                                                # the first push runs
+    said, _ = f.run("queue.py", "gap/mend")
+    assert "gap.merged" in said and "gap.push-asked" in said
+    head, it = git(f.checkout, "rev-parse", "main"), f.item("gap/mend")["fields"]
+    assert it["main_sha"] == head and any(f"sha={head}" in a for a in f.db()["acts"])  # the head pushed
+    run = it["queue_runs"][0]
+    assert git(f.checkout, "show", f"{head}:docs/GAPS.md") == GAPS.replace(
+        "stopped.\n", "stopped.\n- **Zeta** (open): only its record.\n").strip()     # drawn on the pushed head
+    assert git(f.checkout, "show", f"{head}:{NEW}/zeta.md") == zeta.strip()            # its Entry kept
+    assert "gaps_md" not in run and not any("zeta" in c for c in run.get("gaps_md_carried", []))
+
+
 def test_no_record_change_makes_no_commit_and_a_malformed_record_lands_without_one(tmp_path):
     for name, files in (("plain", {"plain.txt": "x\n"}),
                         ("bad", {"docs/GAPS.md": CARRIED, f"{NEW}/bad.md": "## Entry\n\nsection: Modelling\n"})):

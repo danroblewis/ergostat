@@ -1276,7 +1276,8 @@ def gaps_md(repo, pre: str, merged: str) -> tuple[str, dict]:
     commits nothing, leaves main at ``merged`` and says `gaps_md: why`; the batch lands all the same."""
     wrote: list[str] = []
     try:
-        got = gapsdoc.regenerate(repo, gapsdoc.rendered_at(repo, pre))
+        before = fac.git(repo, "show", f"{pre}:docs/GAPS.md", check=False) + "\n"   # (unread: "", so none removed)
+        got = gapsdoc.regenerate(repo, gapsdoc.rendered_at(repo, pre), before)
         wrote = got["files"]
         fac.git(repo, "add", "--", *wrote)
         if not fac.git_ok(repo, "diff", "--cached", "--quiet"):

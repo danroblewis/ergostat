@@ -402,3 +402,40 @@ finding is fixed. The review listed no other findings.
   imports. Grep was used instead.
 
 Overrun reason: dev/bin is 243 net lines against 130 by `git diff --shortstat main -- dev/bin` (266 insertions, 23 deletions). This round adds 5 lines to gapsdoc.py, the `was` set and its comment, so that only an entry `pre` drew can be removed. The other reasons are the ones given in the earlier rounds.
+
+## Where it stopped
+
+Built, in round 7 of the second continuation. The review's one finding is fixed. It listed no other findings. main
+has not moved since the last merge (2f08c24e), so there was nothing to merge.
+
+- **The finding: `was` was read from the records' render at `pre`, not from the GAPS.md main held.** When a
+  landing's render failed, a record-only Entry added in that batch was in the records but not in GAPS.md. The next
+  landing that rendered cleanly then read that Entry as deleted and removed it. Now `gapsdoc.carry` and `regenerate`
+  take `before`, the GAPS.md main held at `pre`, and `queue.gaps_md` reads it with `git show pre:docs/GAPS.md`. `was`,
+  the set of records a removal may touch, is built from `before`. When `before` cannot be read it is empty, so
+  nothing is removed: in the worst case an Entry is kept, never dropped. `before=None` (the unit tests' calls) still
+  means `pre`.
+  - What carry takes as the batch's own edit (`have`) still uses the records' render at `pre`, as before. So a
+    GAPS.md edit left by an earlier failed render is still carried at the next landing.
+  - Choice made alone, the more reversible one: when a batch deletes an entry from GAPS.md and its render fails, the
+    next landing does not take that as a deletion, because main's GAPS.md at `pre` no longer shows the entry. The
+    record keeps its Entry and the render draws it again. Nothing is lost. To remove the entry, remove the record's
+    Entry.
+- New tests:
+  - `tests/test_gapsdoc.py::test_a_record_only_entry_kept_out_of_gaps_md_by_a_failed_render_is_drawn_at_the_next_landing`
+  - `tests/test_factory.py::test_a_record_only_entry_whose_render_failed_is_drawn_by_the_next_landing`: two real
+    landings. The first adds `zeta.md` with a record-only Entry and a malformed `bad.md`. Its render fails and
+    GAPS.md stays as it was. The second mends `bad.md`. Zeta is on the pushed head's GAPS.md, zeta.md keeps its
+    Entry, and main_sha is the pushed head.
+  - With `was` built from the render again, both fail: the gapsdoc test with "nobody-s-gap: its Entry removed", and
+    the landing test with Zeta missing from the pushed GAPS.md.
+- Tests run (`scripts/named_tests.py`):
+  - tests/test_gapsdoc.py, tests/test_gaps_doc.py and tests/test_queue.py: 67 passed.
+  - The landing tests in tests/test_factory.py (the edit, the deletion, the record-only one): 3 passed.
+  - The no-change/malformed landing test and the new landing test: 2 passed.
+  - Not run here: the whole unit suite and the browser files.
+- ruff is clean on ergostat, tests and scripts and on dev/bin/gapsdoc.py and dev/bin/queue.py.
+- Refused in this session: a `python3 - <<'EOF'` heredoc, a bash heredoc append to this file (done with Edit
+  instead), and an `until ... sleep` wait loop.
+
+Overrun reason: dev/bin is 247 net lines against 130 by `git diff --shortstat main -- dev/bin` (270 insertions, 23 deletions). This round adds 4 lines: the `before` parameter of carry() and regenerate(), and queue.py reading main's GAPS.md at `pre`, so a removal is judged against the GAPS.md main held. The other reasons are the ones given in the earlier rounds.

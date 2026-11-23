@@ -496,6 +496,24 @@ def test_a_new_or_retitled_entry_written_only_in_its_record_is_kept_and_drawn(tm
     assert NOBODY in text and "- **Remote instances**" in text and "- **Remote systems**" not in text
 
 
+def test_a_record_only_entry_kept_out_of_gaps_md_by_a_failed_render_is_drawn_at_the_next_landing(tmp_path):
+    shown = tree(tmp_path, {"remote-systems": UMBRELLA})                 # docs/GAPS.md as main holds it
+    rec = tmp_path / "dev" / "records"
+    new = f"# nobody-s-gap: a new gap\n\nIts definition.\n\n## Entry\n\nsection: Remote\n\n{NOBODY}"
+    (rec / "nobody-s-gap.md").write_text(new)                           # the first batch: a record-only Entry ...
+    (rec / "no-date.md").write_text(MALFORMED["no-date"])               # ... and a malformed record
+    with pytest.raises(ValueError, match="no-date: malformed Entry"):
+        gapsdoc.regenerate(tmp_path, shown, shown)
+    assert (tmp_path / "docs" / "GAPS.md").read_text() == shown and NOBODY not in shown   # lands without the render
+    (rec / "no-date.md").unlink()                                       # the next batch mends it
+    records = {p.stem: p.read_text() for p in rec.glob("*.md") if p.stem != "GAPS-head"}
+    pre = gapsdoc.render(records, HEAD)[0]                              # rendered_at(pre): it draws the new entry
+    assert NOBODY in pre
+    got = gapsdoc.regenerate(tmp_path, pre, shown)                      # judged against the GAPS.md main held
+    assert got["carried"] == [] and got["unplaced"] == []
+    assert (rec / "nobody-s-gap.md").read_text() == new and NOBODY in (tmp_path / "docs" / "GAPS.md").read_text()
+
+
 def test_an_entry_moved_to_another_section_moves_its_record_and_is_drawn_once():
     records = {"remote-systems": UMBRELLA}
     pre = gapsdoc.render(records, HEAD)[0]

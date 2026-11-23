@@ -228,7 +228,8 @@ def with_entry(record: str, e: dict | None) -> str:
     return ("\n".join(lines).rstrip("\n") + "\n\n" if "".join(lines).strip() else "") + "\n".join(body) + "\n"
 
 
-def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple[dict, list[str], list[str], str]:
+def carry(pre: str, head: str, records: dict[str, str], gaps_head: str,
+          before: str | None = None) -> tuple[dict, list[str], list[str], str]:
     """The entry text and done lines a batch added to GAPS.md (``head``) that neither the records before it rendered
     (``pre``) nor the records (at head) render, put in them: ({record: its new text}, what was carried, by record, the
     entries it could not place, whole, and GAPS-head.md). An entry goes to the record of its title whose drawn block the
@@ -237,8 +238,9 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
     there is none), its section and bullet replacing that Entry's; each done line (as done_lines() draws it) is added
     to the record it names in backticks. An entry with any part that cannot be placed (another title's Entry, a
     sub-gap's under another umbrella) is placed in no part. A block whose text a record draws, moved to another section,
-    goes back to that record with the new section. A record whose block ``pre`` showed and the batch removed (never a
-    record-only Entry the batch added or retitled), when no block of its
+    goes back to that record with the new section. A record whose block GAPS.md showed before the batch (``before``,
+    the file main held at pre; None: ``pre``) and the batch removed (never a record-only Entry added or retitled, nor
+    one an earlier failed render kept out of GAPS.md), when no block of its
     title was left unplaced or stale (not carried), has its Entry removed, and its sub-gaps' too, said by name (a record
     left empty is deleted by regenerate()). When the batch changed GAPS.md outside the entries (its
     head, as split() cuts it), GAPS-head.md becomes that head, each `@entry` naming the record that draws (or now
@@ -259,7 +261,7 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
     cut = split(head)
     shown = {"\n".join(r.split("\n")[4:-1]) for r in cut["records"].values()}
     gone = {n for t, n in drawn.items() if t not in shown}   # records whose drawn block the batch changed or removed
-    drew = {"\n".join(r.split("\n")[4:-1]) for r in split(pre)["records"].values()}
+    drew = {"\n".join(r.split("\n")[4:-1]) for r in split(pre if before is None else before)["records"].values()}
     was = {n for t, n in drawn.items() if t in drew}         # records whose block GAPS.md showed before the batch
     for slot, rec in cut["records"].items():
         lines = rec.split("\n")
@@ -308,8 +310,8 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
         out, at[slot] = trial, name
         gone.discard(name)
         said += [f"{name}: {block[0][:80]}"]
-    # the batch removed the entry: its Entry goes too. Only a block ``pre`` drew: a record's Entry the batch added or
-    # retitled, never in GAPS.md, is not one it removed.
+    # the batch removed the entry: its Entry goes too. Only a block GAPS.md showed before it: a record's Entry never in
+    # GAPS.md (added or retitled in the record, or kept out by a failed render) is not one it removed.
     for name in sorted(n for n in gone & was if title[n] not in keep):
         for who in [name, *kids.get(name, [])]:                    # (with its sub-gaps' done lines, drawn under it)
             out[who] = with_entry(out.get(who, records[who]), None)
@@ -337,16 +339,17 @@ def rendered_at(repo: Path, ref: str) -> str:
     return render(files, files.pop(HEAD.stem))[0] if HEAD.stem in files else ""
 
 
-def regenerate(root: Path, pre: str) -> dict:
+def regenerate(root: Path, pre: str, before: str | None = None) -> dict:
     """Inside a landing (queue.py): the batch's own GAPS.md edits (from ``pre``: GAPS.md as the records rendered it
-    before the batch, rendered_at()) carried into the records under ``root`` (carry()), then docs/GAPS.md rendered
+    before the batch, rendered_at(); ``before``: the GAPS.md main held then, what a removal is judged against) carried
+    into the records under ``root`` (carry()), then docs/GAPS.md rendered
     from them; written only when render() loses nothing
     (no problem but a BENIGN one), else ValueError and nothing written. {files: written, relative to root, carried,
     unplaced: kept in GAPS-unplaced.md, problems}."""
     where, gaps = root / fac.DEFS, root / "docs" / "GAPS.md"
     head = (where / HEAD.name).read_text()
     records = {p.stem: p.read_text() for p in sorted(where.glob("*.md")) if p.name not in (HEAD.name, UNPLACED.name)}
-    changed, carried, unplaced, new_head = carry(pre, gaps.read_text(), records, head)
+    changed, carried, unplaced, new_head = carry(pre, gaps.read_text(), records, head, before)
     text, problems = render({**records, **changed}, new_head)
     if bad := [p for p in problems if not BENIGN.search(p)]:
         raise ValueError("; ".join(bad))
