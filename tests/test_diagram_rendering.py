@@ -991,6 +991,32 @@ def test_open_frames_the_system_opened_or_says_which_way_the_rest_lies(browser, 
         assert not errors, errors
 
 
+def test_the_edge_hint_pans_when_the_drawing_runs_past_every_side(browser, tmp_path):
+    """Zoomed in on the middle, the rest lies every way and the hint names all four; clicked, the view still moves
+    (on each axis, towards the side with more beyond it), never the two ways cancelling out."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1280, "height": 800})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "system=modelling", 0)
+        fit(pg)
+        for _ in range(8):
+            pg.get_by_role("button", name="Zoom in", exact=True).click()
+        hint = pg.evaluate("""() => {                     // the drawing's middle put on the canvas's middle
+          const svg = document.querySelector('svg.canvas'), c = svg.getBoundingClientRect();
+          const b = svg.querySelector('#viewport').getBoundingClientRect();
+          S.view.x += (c.left + c.width / 2) - (b.left + b.width / 2); S.view.y += (c.top + c.height / 2) - (b.top + b.height / 2);
+          applyView(svg);
+          const h = document.getElementById('panhint'); return h.hidden ? '' : h.textContent; }""")
+        assert all(w in hint for w in ("to the left ←", "to the right →", "above ↑", "below ↓")), hint
+        before = pg.evaluate("() => [S.view.x, S.view.y]")
+        pg.locator("#panhint").click()
+        after = pg.evaluate("() => [S.view.x, S.view.y]")
+        assert abs(after[0] - before[0]) > 100 and abs(after[1] - before[1]) > 100, (before, after)
+        pg.close()
+        assert not errors, errors
+
+
 # the page's answers from the paths matching window.__slow (a pattern) held back 2.5s: a slow server, made on purpose
 SLOW_FETCH = """(() => { const f = window.fetch;
   window.fetch = async (u, o) => {

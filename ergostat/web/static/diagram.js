@@ -871,9 +871,10 @@ function applyView(svg) {
     const ways = Object.keys(way).filter((w) => way[w] > 2), arrow = { left: "←", right: "→", above: "↑", below: "↓" };
     hint.hidden = !ways.length;
     hint.textContent = "More " + ways.map((w) => (w === "left" || w === "right" ? "to the " + w : w) + " " + arrow[w]).join(" and ");
-    hint.onclick = () => {                            // a pan most of a screen that way, no further than the edge
-      const by = (w, room) => Math.min(Math.max(way[w], 0) + 60, room * 0.8);
-      S.view.x += by("left", r.width) - by("right", r.width); S.view.y += by("above", r.height) - by("below", r.height);
+    hint.onclick = () => {                            // on each axis, a pan most of a screen the way more lies, no further than the edge
+      const by = (a, b, room) => { const w = way[a] > way[b] ? a : b, s = w === a ? 1 : -1;
+        return way[w] > 2 ? s * Math.min(way[w] + 60, room * 0.8) : 0; };
+      S.view.x += by("left", "right", r.width); S.view.y += by("above", "below", r.height);
       applyView(svg);
     };
   }
