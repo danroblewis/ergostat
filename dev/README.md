@@ -149,7 +149,8 @@ outside the entries goes to `dev/records/GAPS-head.md`; one it cannot place, suc
 another title's record, goes to `dev/records/GAPS-unplaced.md` and is said as `gaps_md_unplaced`), then
 writes GAPS.md from the records and commits it as `docs/GAPS.md from the records` (a render that fails says
 `gaps_md: why` on the run and lands the batch without it), and the implementor refuses, uncounted, a branch whose own
-commits change GAPS.md. Every reader still reads GAPS.md. A gap that is not in GAPS.md is asked for as an
+commits change GAPS.md. The dependency reader reads the entries from main's records (`gapsdoc.entries`; GAPS.md
+only before the split); the other readers still read GAPS.md. A gap that is not in GAPS.md is asked for as an
 event, its definition a file in `run/defs/` (a branch is lowercase words and dashes; nothing else is taken):
 
 ```sh
@@ -211,7 +212,9 @@ the suites again. Its reviews are numbered past the branch's earlier ones (`revi
 
 **Dependencies.** A gap waits on others named by `depends-on: [name, ...]` in its definition (the template is
 `dev/prompts/definition.md`), `"depends_on": ["gap/..."]` in its request, or `after `name``, `needs `name` first` and a
-"Depends on" table column in GAPS.md. It is built only once each is merged (a parked one holds it, with `blocked_reason`); the implementor takes the unblocked first,
+"Depends on" table column in GAPS.md, as main's records render it. It is built only once each is merged (a parked one
+holds it, with `blocked_reason`; so does its own record when main's cannot be read, said by name); the implementor
+takes the unblocked first,
 the critical first. A name that is no gap, or a link that would close a cycle, is refused and said (the goal
 `dependencies-sound`); a gap waiting on any unfinished one names it and its state (`blocked_reason`), and one whose
 branch is already merged into main and whose own definition file is in main's tree (so a branch made from main with no
