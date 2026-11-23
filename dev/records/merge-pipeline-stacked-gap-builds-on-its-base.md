@@ -133,3 +133,26 @@ or a Docker restart, like the one at 17:01). No test failed. Run again serially
 agent image). ruff is clean on ergostat, tests and scripts, and on the three dev/bin files this gap touches. No code
 changed: nothing in the tail points to the branch's code. The `-n 8` run was not reproduced here, because the
 house rules allow only serial runs of named files.
+
+## Where it stopped
+
+Build step failure again, the same way (2026-11-23): `affected_tests` picks tests/test_factory.py, xdist prints
+"bringing up nodes..." twice, then 13 dots, then nothing. There is no FAILED or ERROR line, no pytest summary and no
+suite_watch JSON line, and the whole log is shorter than the 3000-character tail. So the suite container was
+stopped from outside the pytest run. Had suite_watch's own limits killed it, or a worker been killed alone, it would
+have printed a line. What was checked here:
+- Run serially (`scripts/named_tests.py tests/test_factory.py`), the file passes: 190 passed, 2 skipped (both need
+  Docker and the agent image), in 418 s. It used 323 MB of /tmp, so the suite container's 2 GB /tmp tmpfs is not
+  filling up.
+- None of this gap's changes in dev/bin (fac.stack_base, implement.stack, the merge, finish's held shas) sends a
+  signal or kills a process or process group. Its five tests make small git repositories and run implement.py,
+  nothing more.
+- tests/test_factory.py, which comes from main and is not this gap's, has no test that runs the real build or unit
+  command on the worktree, so there is no nested suite, and no test kills a PID it made up. The tests that kill
+  `$PPID` kill only the queue.py they start themselves.
+No code changed: no fault in the branch could be found, and a change made only to have something to show would be a
+guess. Not checked: the `-n 8` run in the factory's suite container (4 CPUs, 12 GB, a 2 GB /tmp), because the house
+rules allow the implementor only serial runs of named files. For the factory to look at: the build log's exit code
+and the container's (137, or OOMKilled in `docker inspect`). A cut that happens twice in the same place points to
+the container or the host, not to a test. This is very likely the first time tests/test_factory.py itself has run
+under `[suites] build`, because only a gap that edits that file selects it.
