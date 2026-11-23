@@ -232,7 +232,8 @@ def test_a_kind_no_relation_names_has_no_place(tmp_path):
 def test_the_goal_is_in_the_factory_model_read_by_the_watch_and_charted():
     spec, g = goal()
     assert g.hold.value == 120 and g.tolerance == 30
-    assert "main-moving" in {r.name for r in spec.blocks["pipeline-watch"].reads() if r.kind == "goal"}
+    assert g.system == "landing"                  # beside its measure: no read across managing's boundary
+    assert "main-moving" not in {r.name for r in spec.blocks["pipeline-watch"].reads() if r.kind == "goal"}
     for m in ("main-still-minutes", "batch-runs", "batch-first-green", "crash-lost-minutes", "gaps-landed-per-hour"):
         (s,) = spec.auxiliaries[m].sensors.values()
         assert s.run == f"python3 dev/bin/measure.py {m}", m

@@ -90,11 +90,6 @@ goals:
     hold: "<= 0"
     tolerance: 0
     description: the merge pipeline never broken past [manager] broken_minutes (its reading is the minutes past that, so the goal follows the setting)
-  main-moving:                       # here, beside merge-pipeline-flowing, so the watch reading it stays inside managing
-    auxiliary: main-stalled-minutes
-    hold: "<= 120"
-    tolerance: 30
-    description: main moves within two hours (a batch's suites and its halves) while gaps wait; never off while none waits. Off, its reason names the current batch, its run and the cause (measure.py main-stalled-why), which the pipeline watch puts in its broken no-merge condition
   situations-looked-at:
     stock: situations-raised
     hold: "<= 0"
@@ -157,7 +152,7 @@ blocks:
     every: 5m
     timeout: 4m
     # read, not commanded: a goal: here would take it off its schedule (schedule-removed)
-    in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing, goal.main-moving,
+    in: [goal.no-stuck-gaps, goal.merge-pipeline-flowing,
          goal.ready-short, goal.queued-short, goal.replan-short, goal.planned-short, goal.leased-short,
          goal.queue-failed-short, goal.loop-short]
     out: flow.situations-found

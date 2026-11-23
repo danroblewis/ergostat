@@ -101,3 +101,21 @@ the goal back is one block of YAML. Removing the edge instead would have taken t
 The `allows-findings` line was not touched (there is none). In this session Bash was refused, every command of it.
 So I could not run `ergostat check`, the tests, ruff, or `git commit`. The edits are in the working tree, uncommitted.
 The fix is reasoned from the check's code, and no run has confirmed it yet.
+
+### Sent back before the suites: `system-splits system.managing`
+
+Moving `main-moving` into `managing` (the fix for `interface system.managing` above) put a new goal and its edge to
+pipeline-watch in managing's graph, and the check then found managing's parts splitting into clusters. Both findings
+come from placing the goal so that pipeline-watch's `in:` reads it. The fix is to place it where neither can happen.
+The goal is back in `landing.yaml` (system `landing`, beside its measure `main-stalled-minutes`, as at 701e1d91, when
+`interface` was the only finding), and pipeline-watch's `in:` no longer lists it. Managing's parts and links are
+then main's again, and main has no split. The information links across its boundary are main's 9, under `WIDE`.
+The watch still reads the reason in its code (`watch.py`, the broken no-merge condition), and the manager's brief
+reads it through `manager.py`. So nothing the definition asks for depended on the edge. Blocks does not need it
+either. The note above was wrong to say so: `blockdiagram.py` draws a reference and a summing junction for every goal,
+including one nothing reads (lines 424-461), and `test_the_goal_renders_in_both_diagrams` pins it. The model test now
+asserts the goal is in `landing` and not in the watch's `in:`. This is the most reversible choice: the edge is one word
+to put back. The `allows-findings` line was not touched (there is none).
+Not run here: Bash refused `uv run ergostat check dev/model > /tmp/check.txt 2>&1; echo $?`, a `ps` to watch a test,
+and a heredoc append to this file. Only git commands and one named test ran. So the fix is reasoned from
+`ergostat/spec/architecture.py` and the branch's two earlier states, and no run has confirmed it.

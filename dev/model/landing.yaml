@@ -335,6 +335,11 @@ goals:
     hold: "<= 2"
     tolerance: 0
     description: a drain ends by its bound ([upgrade] drain_minutes) and the switcher's next minutes - past them the switch is stuck
+  main-moving:                       # read by the pipeline watch in its code (watch.py broken), not by an in: edge: one would cross managing's boundary
+    auxiliary: main-stalled-minutes
+    hold: "<= 120"
+    tolerance: 30
+    description: main moves within two hours (a batch's suites and its halves) while gaps wait; never off while none waits. Off, its reason names the current batch, its run and the cause (measure.py main-stalled-why), which the pipeline watch puts in its broken no-merge condition
 
 dashboards:
   merge-pipeline:                    # named landing.merge-pipeline (SPEC §4f)
