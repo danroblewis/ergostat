@@ -7059,8 +7059,12 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
 - The page: the entries are listed under *Waiting for you*, at the top of the Diagram's side panel (only when one
   waits; more than 3 fold into one line, "N wait for you", that opens them, though never while the reader is in the
   list), each with Approve / Deny, or a number and
-  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. The item pages keep
-  their own buttons. No page or panel of its own. Every entry is listed, however many come before it. While the
+  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. Each box has a
+  label above it and no placeholder, as wide as the row: a number names its unit and flow (the flow's unit, else its
+  stock's: "Jobs done, along reviewed (number)"), a reason that it is required ("Reason for denying (required)": Deny
+  waits for it), as is a fold's ("Reason for denying all (required)", over its Deny all). Every person ask gets a number, even one whose outputs are two named ends: the number moves its
+  first flow only ("Ramps done, along ramps-approved"), and nothing in a block says its answer is yes or no. The
+  item pages keep their own buttons. No page or panel of its own. Every entry is listed, however many come before it. While the
   pointer or the focus is in one of the side panel's lists (*Waiting for you*, *Goals off*, *Model housekeeping*; and
   likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its top
   how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or gone
