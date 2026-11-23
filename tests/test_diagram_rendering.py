@@ -4859,9 +4859,14 @@ def test_the_diagram_has_one_caption_naming_its_type_the_models_purpose_and_its_
             assert got["id"] and got["label"] == got["id"], got
             assert got["visible"] and got["under"] and got["line"], got
             seen[view] = got["text"]
-        # off: the server's count (state.goals_off), of every goal and of the controlled ones
-        assert seen["dynamics"].endswith(f"{len(st['loops'])} goals, {st['goals_off']['system']} off"), seen["dynamics"]
-        assert seen["blocks"].endswith(f"{len(st['controlled'])} control loops, {st['controlled_off']} off"), seen
+        # the system's goals and the server's count of them off (state.goals_off), model upkeep apart (an upkeep goal
+        # off: tests/test_items_page.py::test_every_surface_prints_the_servers_one_count_of_goals_off)
+        def said(names, g, word):
+            up = sum(g["own"].values())
+            return (f"{sum(not st['loops'][x].get('upkeep') for x in names)} {word}, {g['system']} off"
+                    + (f" · model upkeep {up}" if up else ""))
+        assert seen["dynamics"].endswith(said(st["loops"], st["goals_off"], "goals")), seen["dynamics"]
+        assert seen["blocks"].endswith(said(st["controlled"], st["controlled_off"], "control loops")), seen
         assert f" · {st['top']} system" in seen["blocks"], seen["blocks"]
         assert "system dynamics" not in seen["blocks"] and "(control)" not in seen["dynamics"], seen
         pg.close()

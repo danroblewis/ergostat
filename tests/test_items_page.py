@@ -1432,6 +1432,18 @@ def test_every_surface_prints_the_servers_one_count_of_goals_off(browser, tmp_pa
         assert pg.locator("#upkeep").inner_text().strip() == "· model upkeep 2"
         heads = [x.strip() for x in pg.locator(".side h3.att-head").all_inner_texts()]
         assert heads[1] == f"Goals off {off} · model upkeep 2", heads
+        # the caption: the system's goals, their off, and model upkeep apart, so no goal off is lost from it
+        mine = [x for x, lp in st["loops"].items() if not lp.get("upkeep")]
+        assert len(mine) == len(st["loops"]) - 2, mine                     # requests-handled, model-fits apart
+        cap = pg.locator("h1").inner_text()
+        assert cap.endswith(f" · {len(mine)} goals, {off} off · model upkeep 2"), cap
+        kept = [x for x in st["controlled"] if st["loops"][x].get("upkeep")]
+        assert kept == ["model-fits", "requests-handled"] and {st["loops"][x]["status"] for x in kept} == {"off"}, kept
+        pg.click(".toolbar .seg[aria-label='View'] button:text-is('Blocks')")
+        pg.wait_for_function("() => /control loop/.test(document.querySelector('h1')?.textContent || '')", timeout=30000)
+        n, cap = len(st["controlled"]) - 2, pg.locator("h1").inner_text()
+        assert cap.endswith(f" · {n} control loop{'' if n == 1 else 's'}, {st['controlled_off']['system']} off"
+                            " · model upkeep 2"), cap
         pg.goto(f"{urls['small']}/loops")
         pg.wait_for_function("() => / · goals off /.test(document.querySelector('h1')?.textContent || '')", timeout=30000)
         assert pg.locator("h1").inner_text() == f"Loops · goals off {off} · model upkeep 2"

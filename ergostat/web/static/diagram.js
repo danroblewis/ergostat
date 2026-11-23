@@ -1059,9 +1059,11 @@ function captionText(st, view) {
   if (st.top) parts.push(n(st.top, "system"));
   // (the process map draws how items moved: it holds no goal; a count not sent, as in an old snapshot, is not shown)
   if (view !== "process" && st.loops && (view !== "blocks" || st.controlled)) {
-    const names = view === "blocks" ? st.controlled : Object.keys(st.loops);   // off: the server's count (state.goals_off)
-    const off = view === "blocks" ? st.controlled_off ?? "?" : goalsOff(st).off;
-    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off`);
+    // the system's goals and their off, the model's upkeep apart, as the header: the server's count (state.goals_off)
+    const names = (view === "blocks" ? st.controlled : Object.keys(st.loops)).filter((x) => !st.loops[x]?.upkeep);
+    const { off, upkeep } = goalsOff({ goals_off: view === "blocks" ? st.controlled_off : st.goals_off });
+    parts.push(`${n(names.length, view === "blocks" ? "control loop" : "goal")}, ${off} off` +
+      (upkeep ? ` · model upkeep ${upkeep}` : ""));
   }
   return parts.join(" · ");
 }

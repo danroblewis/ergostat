@@ -85,3 +85,21 @@ Left, on main and not this gap's to fix: tests/test_items_page.py::test_the_head
 times out at line 1331 for the same reason (it serves both projects with `ergostat web`). The branch does not change
 that test, the lister, `projects.running` or `refreshProjects`. Running it on a clean worktree of main was refused here
 (`git worktree add --detach /tmp/main-check main`), so the claim that it fails on main rests on reading the code.
+
+## Where it stopped
+
+Round 2: the review's one finding is answered. The diagram's caption counted every goal, upkeep goals included, but
+its "N off" counted only the system's goals, so upkeep goals that were off dropped out of it ('3 off' became '1 off'
+over the same total). The caption now says what the header says. Its total is the system's goals (Dynamics: those
+with no `upkeep`; Blocks: the controlled ones with no `upkeep`), its off comes from the one function, and
+"· model upkeep N" is shown apart. In `/api/status`, `controlled_off` is now the whole `state.goals_off` answer for
+the controlled goals (it was only the `system` number), so the Blocks caption shows upkeep the same way. SPEC §8 says
+so. Why this choice: it is the reviewer's first suggested fix and matches the header, the side list and the Loops
+heading, so every surface prints one form, and nothing is removed.
+
+Test: tests/test_items_page.py::test_every_surface_prints_the_servers_one_count_of_goals_off now reads both captions
+on its fixture, where both modelling goals are off and both are controlled. It counts the expected total from the
+loops' `upkeep` field, not from the server's count: "10 goals, N off · model upkeep 2" and "… control loops, N off ·
+model upkeep 2". Seen to fail with the upkeep figure dropped ("10 goals, 9 off") and with the total counting upkeep
+goals again ("12 goals, 9 off · model upkeep 2"). The caption test in tests/test_diagram_rendering.py now expects the
+new form.
