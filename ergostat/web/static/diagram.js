@@ -1108,6 +1108,7 @@ async function pageDiagram(main, q) {
   const pq = { kinds: q.get("kinds") || "", by: q.get("by") || "", paths: q.get("paths") || "", show: q.get("show") || "" };
   S.pmShow = pq.show;
   const system = q.get("system") || "";
+  S.here = system;                                               // (Escape by keyboard goes back out of it: keys.js)
   const around = q.get("around") || "";
   const openQ = q.has("open") ? q.get("open") : null;          // the systems opened; absent: the server's default
   const proposal = view !== "process" ? q.get("proposal") || "" : "";   // a change waiting, drawn as it would leave the model

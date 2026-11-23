@@ -188,6 +188,13 @@ The control diagram is the product's main view. Conventions:
   and titled in that discipline's words: a stock as "output y_quality of P_service", a flow a controller
   moves as "actuating signal u_tuner", a reference as "reference r = 0.93 and its summing junction". A
   part's panel opens at the click, its name first, and fills when its numbers come.
+- **By keyboard.** The diagram is one tab stop: the part last on in that view (else the first of the first
+  chain) takes it. The arrows follow the structure: in Dynamics Right and Left along the pipe (stock, valve,
+  stock), Down and Up through the connectors into and out of the part (each named with its other end and its
+  sign); in Blocks Right and Left along the signal (Σ, C, the actuator, P, through P's own summing point),
+  Down along the return path. Down enters a closed box's goal rows; Shift and an arrow steps through every
+  part in drawing order; Home goes to the first part. Enter opens the panel with the focus in it and Escape
+  gives it back; I goes Into a system, Escape or Backspace back out onto it. The ring is the accent.
 - **Parts put by hand.** In the Dynamics and the Blocks view alike, a part dragged (a block, a summing
   junction, a sensor, a stock, anything drawn) moves, with the others chosen if it is one of them; an open
   system dragged by its top (its outline, or its frame in the block diagram) moves with everything in it.
