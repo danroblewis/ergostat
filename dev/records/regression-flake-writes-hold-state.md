@@ -100,3 +100,16 @@ test_a_batch_failing_on_a_test_that_also_fails_on_main_sends_no_gap_back now rea
 f.flakes_said() (written at once) rather than from the printed lines. All of tests/test_factory.py passes (190
 passed; 2 skipped for want of Docker). Nothing is left. `uv run ergostat check` was refused in this session; the test
 fixture asserts the root model checks with no errors in every test.
+
+## Where it stopped
+
+After the build failed (2026-11-23): its log stopped after eight dots, with no FAILED line, no pytest summary and no
+closing line from suite_watch. An unboxed build has no stall or wall limit (dev/bin/fac.py:478), so the suite
+container was most likely stopped from outside with suite_watch inside it, not by a failing test. That is the same
+kind of stop as the Docker restart above. Run again here serially (`scripts/named_tests.py tests/test_factory.py`):
+190 passed, 2 skipped (both need Docker and the agent image), in 441 s. The build's own xdist command (pytest -n 8
+under suite_watch) was refused in this session, so it was not run. I read the branch's code for anything that could
+block a worker and found nothing: the flakes lock is held for at most two `fac.ergostat` calls of 300 s each, the
+real-ergostat tests set ERGOSTAT_NO_SOCKET (no daemon), and the race test joins its thread. No code was changed.
+Left: run `[suites] build` again. If it stops the same way, look at the suite container's exit (OOM, pids limit or a
+Docker restart) before looking at this branch.
