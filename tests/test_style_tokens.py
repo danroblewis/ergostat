@@ -140,6 +140,19 @@ def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
     assert not low, low
 
 
+def test_the_diagram_left_while_another_opens_is_dimmed_and_cannot_be_clicked():
+    """Into, Open (ui-open-into-and-every-panel-link-show-that-somethi): the diagram left stays on the screen, dimmed,
+    under 'Opening …', with its side list; neither may take a click meant for the diagram being opened."""
+    _, rules = split()
+    for sel in ("svg.canvas g.was", ".diagram.opening > .side"):
+        block = next((b for s, b in re.findall(r"([^{}]+)\{([^{}]*)\}", rules)
+                      if sel in [x.strip() for x in s.split(",")]), None)
+        assert block is not None, f"no rule for {sel}"
+        decl = dict(declarations("{" + block + "}"))
+        assert float(decl.get("opacity", "1")) < 1, f"{sel} is not dimmed"
+        assert decl.get("pointer-events") == "none", f"{sel} still takes clicks"
+
+
 def test_the_dark_tokens_stand_aside_while_a_picture_is_exported():
     """A saved picture is drawn light whatever the theme: each dark-theme rule excludes the class export.js sets on
     <html> while it reads the drawing's styles, and export.js sets and then clears that very class."""
