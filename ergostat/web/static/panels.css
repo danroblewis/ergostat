@@ -32,6 +32,8 @@
 .panel-plot { position: relative; flex: 1 1 0; min-height: 0; min-width: 0; }
 .panel-canvas { position: absolute; inset: 0; overflow: hidden; }
 .panel-mount { position: absolute; inset: 0; }
+.panel-warning { flex: none; max-height: calc(var(--sp-7) * 1.1); margin: 0; padding-top: var(--sp-1); overflow: auto; color: var(--warn);
+  font-size: var(--canvas-sm); line-height: var(--leading); overflow-wrap: anywhere; }
 .panel-keys { display: flex; flex: none; flex-wrap: wrap; gap: 0 var(--sp-3); padding-top: var(--sp-1); color: var(--muted); font-size: var(--canvas-sm); }
 .panel-key { display: inline-flex; align-items: center; gap: var(--sp-1); white-space: nowrap; }
 .panel-key-note { white-space: normal; }

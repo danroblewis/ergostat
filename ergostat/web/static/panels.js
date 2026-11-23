@@ -242,6 +242,8 @@
     const first = results[0].times || [];
     const same = results.every((r) => (r.times || []).length === first.length && (r.times || []).every((t, i) => t === first[i]));
     if (same) return { times: first, at: null };
+    /* several grids on one axis: a query holds a value only at its own times. undefined there (no bucket of its own) is
+       joined across by the line; null (its bucket, empty) stays a gap. Nothing is filled in */
     const times = [...new Set(results.flatMap((r) => r.times || []))].sort((a, b) => a - b);
     return { times, at: new Map(times.map((t, i) => [t, i])) };
   }
@@ -262,7 +264,7 @@
         const key = `${r.id}\u0000${one.name ?? ""}`;
         let values = one.values || [];
         if (at) {
-          const placed = new Array(times.length).fill(null);
+          const placed = new Array(times.length).fill(undefined);
           (r.times || []).forEach((t, i) => { placed[at.get(t)] = values[i] ?? null; });
           values = placed;
         }
@@ -271,7 +273,7 @@
         items.push({ key, name, values, other, slot: other ? 0 : slots.get(key), unit: r.unit });
       }
     }
-    return { times, items, failed, capped: good.reduce((sum, r) => sum + (r.capped || 0), 0) };
+    return { times, items, failed, mixed: !!at, capped: good.reduce((sum, r) => sum + (r.capped || 0), 0) };
   }
 
   /* ------------------------------------------------ drawing on the plot */
@@ -279,7 +281,9 @@
   function stackedValues(times, items, off) {
     const running = new Array(times.length).fill(0);
     const any = times.map((_, t) => items.some((it) => !off.has(it.key) && it.values[t] != null));
+    const shared = times.map((_, t) => items.every((it) => off.has(it.key) || it.values[t] !== undefined));   // a sum needs them all
     return items.map((it) => times.map((_, t) => {
+      if (!shared[t]) return undefined;
       if (!any[t]) return null;
       if (!off.has(it.key)) running[t] += it.values[t] ?? 0;
       return running[t];
@@ -290,7 +294,7 @@
     const n = rows[0]?.length || 0;
     const totals = new Array(n).fill(0);
     rows.forEach((r, k) => { if (!off(k)) r.forEach((v, i) => { if (v != null) totals[i] += Math.abs(v); }); });
-    return rows.map((r) => r.map((v, i) => (v == null ? null : totals[i] ? v / totals[i] * 100 : 0)));
+    return rows.map((r) => r.map((v, i) => (v == null ? v : totals[i] ? v / totals[i] * 100 : 0)));
   }
   function barPaths(st) {
     return (u, si, i0, i1) => {
@@ -423,6 +427,7 @@
       const X = (i) => (i / n * 100).toFixed(2), Y = (v) => (29 - (v - st.min) / span * 26).toFixed(2);
       let d = "", area = "", open = false, start = 0, lastI = 0;
       values.forEach((v, i) => {
+        if (v === undefined) return;                     // no bucket of its own here: the line carries on
         if (v == null) { if (open) area += `L${X(lastI)} 32L${X(start)} 32Z`; open = false; return; }
         if (!open) { start = i; d += `M${X(i)} ${Y(v)}`; area += `M${X(i)} 32L${X(i)} ${Y(v)}`; open = true; }
         else { d += `L${X(i)} ${Y(v)}`; area += `L${X(i)} ${Y(v)}`; }
@@ -454,7 +459,8 @@
     const stats = h("div", { class: "panel-stats" });
     const tableBox = h("div", { class: "panel-table" });
     const message = h("div", { class: "panel-message" });
-    const body = h("div", { class: "panel-body" }, chartArea, stats, tableBox, message);
+    const warning = h("p", { class: "panel-warning", role: "note", hidden: true });
+    const body = h("div", { class: "panel-body" }, chartArea, stats, tableBox, message, warning);
     const el = h("section", { class: "panel" }, head, body);
 
     /* the plot */
@@ -492,8 +498,8 @@
       return plot;
     }
     function plotData() {
-      const filledIn = (v) => (v == null && st.form === "line" && st.options.nulls === "zero" ? 0 : v);
-      const shownValue = (v) => (st.logScale && v != null && v <= 0 ? null : v == null ? null : v * st.factor);
+      const filledIn = (v) => (v === null && st.form === "line" && st.options.nulls === "zero" ? 0 : v);
+      const shownValue = (v) => (v == null ? v : st.logScale && v <= 0 ? null : v * st.factor);
       let scaled = st.items.map((it) => it.values.map((v) => shownValue(filledIn(v))));
       if (st.percent) scaled = sharesOf(scaled, (k) => st.off.has(st.items[k].key));
       if (st.stacked) {
@@ -705,8 +711,7 @@
       const failedSaid = failed.length ? `${failed.length} of ${drawn.length} queries failed: ${failed.map((r) => r.error).join("; ")}` : "";
       if (failedSaid) { flag.classList.add("is-error"); flag.textContent = "Partial"; flag.title = failedSaid; }
       keys.replaceChildren();
-      const said = [...(result.capped ? [`${result.capped} more not drawn`] : []), ...good.flatMap((r) => r.notes || (r.note ? [r.note] : []))];
-      if (said.length) keys.append(h("span", { class: "panel-key panel-key-note" }, said.join("; ")));
+      if (result.capped) keys.append(h("span", { class: "panel-key panel-key-note" }, `${result.capped} more not drawn`));
       keys.hidden = !keys.childElementCount;
       result.meta = meta;
       const key = JSON.stringify([st.form, st.options, st.display, result.shape]);
@@ -879,10 +884,31 @@
       setBody("message");
     }
 
+    /* what the answer says about itself (only part of the record was read, say), under the plot in every family */
+    function said(words) {
+      if (!words || warning.__lines.includes(words)) return;
+      warning.__lines.push(words);
+      warning.textContent = warning.__lines.join(" ");
+      warning.title = warning.textContent;
+      warning.hidden = false;
+    }
+    function sayNotes(results) {
+      warning.__lines = [];
+      warning.textContent = "";
+      warning.hidden = true;
+      const shown = shownQueries(st.cfg);
+      for (const r of results) {
+        const q = shown.find((x) => x.id === r.id);
+        if (!q || r.error) continue;
+        const words = r.note || (r.truncated ? "Only part of the record was read, so this chart is incomplete." : "");
+        if (words) said(`${shown.length > 1 ? `${queryWord(q)}: ` : ""}${words.charAt(0).toUpperCase()}${words.slice(1)}${/[.!?]$/.test(words) ? "" : "."}`);
+      }
+    }
     function draw() {
       st.dirty = false;
       if (!st.last) return;
       const { results, meta } = st.last;
+      sayNotes(results || []);
       if (st.form !== "stat" && st.form !== "table" && !FORM_REGISTRY.has(st.form)) {
         dropView();
         setState("error", `This panel asks for a chart form that is not available: ${st.form}.`);
@@ -915,6 +941,11 @@
       st.items = answer.items;
       st.times = answer.times;
       st.step = meta?.step || (answer.times.length > 1 ? answer.times[1] - answer.times[0] : 60);
+      if (answer.mixed) st.step = Math.min(...answer.times.slice(1).map((t, i) => t - answer.times[i]));   // bars side by side, none over another
+      if (answer.mixed && st.stacked) {
+        const shared = answer.times.filter((_, t) => answer.items.every((it) => it.values[t] !== undefined)).length;
+        said(`These queries have different time steps: stacked only at the ${shared} of ${answer.times.length} times they share.`);
+      }
       st.x0 = meta?.since ?? answer.times[0];
       st.x1 = meta?.until ?? answer.times[answer.times.length - 1];
       if (st.form === "bar") st.x1 = Math.max(st.x1, answer.times[answer.times.length - 1] + st.step);
@@ -978,7 +1009,7 @@
       const asked = JSON.stringify(st.cfg.queries || []);
       applyConfig(cfg);
       if (asked !== JSON.stringify(cfg.queries || [])) {   // what is on the panel no longer answers it
-        st.last = null; st.dirty = false; st.hasData = false; readout.textContent = ""; chip.textContent = ""; chip.hidden = true;
+        st.last = null; st.dirty = false; st.hasData = false; readout.textContent = ""; warning.hidden = true; chip.textContent = ""; chip.hidden = true;
         if (allHidden(cfg)) setState("empty", ALL_HIDDEN); else setState("loading");
         return;
       }
@@ -1069,6 +1100,7 @@
       const r = await fetch(`/api/query?q=${q}`, { signal });
       if (!r.ok) throw new Error(`the query answered ${r.status}`);
       answer = await r.json();
+      await askAgainWhenBusy(answer, [...asked.values()], points, signal);
     }
     const meta = { now: answer.now, since: answer.since, until: answer.until, step: answer.step };
     const byId = new Map((answer.results || []).map((r) => [r.id, r]));
@@ -1078,6 +1110,36 @@
       out.get(w.panel).results.push(r ? { ...r, id: w.id } : { id: w.id, error: "the answer left this query out" });
     }
     return out;
+  }
+  /* the server reads the event log for only a few charts at once and refuses the rest at once. Those are asked for again,
+     alone, on the same window, a few times with a growing pause: what was read is kept there, so each round gets further */
+  const BUSY = /(^|: )busy:/, BUSY_PAUSES = [500, 1000, 2000];
+  const paused = (ms, signal) => new Promise((done, no) => {
+    if (signal?.aborted) { no(new DOMException("gave up", "AbortError")); return; }
+    const t = setTimeout(done, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); no(new DOMException("gave up", "AbortError")); }, { once: true });
+  });
+  async function askAgainWhenBusy(answer, sent, points, signal) {
+    const byId = new Map(sent.map((x) => [x.id, x]));
+    for (const pause of BUSY_PAUSES) {
+      const busy = (answer.results || []).filter((r) => BUSY.test(r.error || "")).map((r) => r.id);
+      if (!busy.length) return;
+      await paused(pause * (0.75 + Math.random() / 2), signal);
+      const wanted = new Set(busy);
+      for (const id of busy) if (byId.get(id)?.x?.query != null && byId.has(byId.get(id).x.query)) wanted.add(byId.get(id).x.query);
+      const q = encodeQuery({ since: answer.until - answer.since, until: answer.until, points, queries: sent.filter((x) => wanted.has(x.id)) });
+      let again;
+      try {
+        const r = await fetch(`/api/query?q=${q}`, { signal });
+        if (!r.ok) return;                               // what was answered stands, and the rest says busy
+        again = await r.json();
+      } catch (e) {
+        if (e?.name === "AbortError") throw e;
+        return;
+      }
+      const fresh = new Map((again.results || []).map((r) => [r.id, r]));
+      answer.results = answer.results.map((r) => (busy.includes(r.id) && fresh.has(r.id) ? fresh.get(r.id) : r));
+    }
   }
   let fieldsAsked = null;
   function queryFields() {

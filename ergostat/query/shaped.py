@@ -93,8 +93,8 @@ def paired(a: Asking, q: Query) -> dict:
     for s in yr["series"]:
         xs, ys = axes.paired(_x_for(xr, s["name"], "group both alike, or give X one series"), s["values"])
         out.append({"name": s["name"], "xs": xs, "values": ys, "times": yr["times"], "ids": None})
-    got = _base(q, _x_meta("query", label(xq), xr["unit"]), out, yr["unit"], yr["capped"],
-                yr["read_log"] or xr["read_log"], [n for n in (yr.get("note"), xr.get("note")) if n])
+    got = _carried(_base(q, _x_meta("query", label(xq), xr["unit"]), out, yr["unit"], yr["capped"],
+                         yr["read_log"] or xr["read_log"], []), yr, xr)
     got["step"] = yr["step"]
     return got
 
@@ -281,6 +281,16 @@ def _binned(q: Query, name_rows: list[tuple[str, list, list]], bins: int, x_meta
     return _base(q, {**x_meta, "edges": e}, out, unit, left, read_log, notes)
 
 
+def _carried(got: dict, *read: dict) -> dict:
+    """What the answers it was made from say about themselves: a chart of part of the record says so."""
+    said = [n for n in (got.get("note"), *(r.get("note") for r in read)) if n]
+    if said:
+        got["note"] = "; ".join(dict.fromkeys(said))
+    if any(r.get("truncated") for r in read):
+        got["truncated"] = True
+    return got
+
+
 def binned(a: Asking, q: Query) -> dict:
     from ..spec.itemnumbers import unit_of
     x = q.x
@@ -300,12 +310,12 @@ def binned(a: Asking, q: Query) -> dict:
     if x.query is None:
         r = _time(a, own)
         rows = [(s["name"], s["values"], s["values"]) for s in r["series"]]
-        return _binned(q, rows, x.bins, _x_meta("bins", label(q), r["unit"]), "buckets" if q.agg == "count" else r["unit"],
-                       r["capped"], r["read_log"], notes)
+        return _carried(_binned(q, rows, x.bins, _x_meta("bins", label(q), r["unit"]), "buckets" if q.agg == "count" else r["unit"],
+                                r["capped"], r["read_log"], notes), r)
     yr, xr = _both(a, own, x.query)
     rows = [(s["name"], _x_for(xr, s["name"], "group both alike, or give X one series"), s["values"]) for s in yr["series"]]
-    return _binned(q, rows, x.bins, _x_meta("bins", label(x.query), xr["unit"]), "buckets" if q.agg == "count" else yr["unit"],
-                   yr["capped"], yr["read_log"] or xr["read_log"], notes)
+    return _carried(_binned(q, rows, x.bins, _x_meta("bins", label(x.query), xr["unit"]), "buckets" if q.agg == "count" else yr["unit"],
+                            yr["capped"], yr["read_log"] or xr["read_log"], notes), yr, xr)
 
 
 def sources_agg(q: Query) -> str:
@@ -343,6 +353,7 @@ def ohlc(a: Asking, q: Query, first_time) -> dict:
         rows = {n: candles.from_readings([(t, v) for t, v, _ in r if axes.finite(v)], g) for n, r in kept.items()}
         at = {n: i for i, n in enumerate(read.order)}
         order, folded, unit, log_read = sorted(rows, key=lambda n: (n == OTHER, at.get(n, len(at)), n)), len(rest), read.unit, read.read_log
+        notes += [read.note] if read.note else []
         if q.source == "items":
             from ..spec.itemnumbers import unit_of
             unit = unit_of(q.field)
@@ -350,14 +361,16 @@ def ohlc(a: Asking, q: Query, first_time) -> dict:
            "series": [{"name": n, **candles.columns(rows[n], g.n)} for n in order]}
     if notes:
         got["note"] = "; ".join(notes)
+    if read.truncated:
+        got["truncated"] = True
     return got
 
 
-def _signal(a: Asking, q: Query, side: str, step: float) -> tuple[list, str, bool]:
+def _signal(a: Asking, q: Query, side: str, step: float) -> tuple[list, str, bool, dict]:
     r = _time(a, replace(q, bucket=step), FINE)
     if len(r["series"]) != 1:
         raise Unanswerable(f"the {side} has {len(r['series'])} series: a response needs one (filter it, or drop group_by)")
-    return r["series"][0]["values"], r["unit"], r["read_log"]
+    return r["series"][0]["values"], r["unit"], r["read_log"], r
 
 
 def response(a: Asking, q: Query) -> dict:
@@ -368,8 +381,8 @@ def response(a: Asking, q: Query) -> dict:
             raise Unanswerable(f"the {side} must be a plain query in time")
     step = _common(a, (replace(q.input, bucket=None), replace(q.output, bucket=None)), FINE)   # one grid, whatever answers each
     g: Grid = grid(a.since, a.until, FINE, step)
-    xs, xu, xl = _signal(a, q.input, "input", step)
-    ys, yu, yl = _signal(a, q.output, "output", step)
+    xs, xu, xl, xr = _signal(a, q.input, "input", step)
+    ys, yu, yl, yr = _signal(a, q.output, "output", step)
     lo = 1 if g.spans[0] < g.step else 0          # a bucket cut by the window holds part of its sum: not a sample
     hi = g.n - 1 if g.spans[-1] < g.step else g.n
     try:
@@ -377,8 +390,8 @@ def response(a: Asking, q: Query) -> dict:
         got = fr.estimate(ux, uy, dt, q.segments)
     except fr.Refused as e:
         raise Unanswerable(str(e)) from e
-    return {"id": q.id, **got, "method": "empirical", "unit": "" if xu == yu else f"{yu}/{xu}" if xu else yu,
-            "read_log": xl or yl}
+    return _carried({"id": q.id, **got, "method": "empirical", "unit": "" if xu == yu else f"{yu}/{xu}" if xu else yu,
+                     "read_log": xl or yl}, xr, yr)
 
 
 def _model(a: Asking, q: Query) -> dict:

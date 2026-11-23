@@ -994,3 +994,117 @@ def test_stat_and_table_options(site):
     assert site.page.locator(".panel-data-table thead th").all_inner_texts()[:2] == ["Series", "Max"]
     assert site.page.locator(".panel-data-table tbody tr").first.inner_text().startswith("x")
     assert site.page.locator("td.panel-cell-bar").count() == 2
+
+
+COARSE = {"id": "a", "times": [NOW + 1200 * i for i in range(4)], "unit": "items", "series": [{"name": "slow", "values": [10, 20, None, 40]}]}
+FINE = {"id": "b", "times": [NOW + 720 * i for i in range(5)], "unit": "items", "series": [{"name": "fast", "values": [1, 2, 3, 4, 5]}]}
+MIXED_META = {"now": NOW + 3600, "since": NOW, "until": NOW + 3600, "step": 720}
+
+
+def mixed(form="line", options=None):
+    return {**config(form, options or {}), "queries": [{"id": "a", "source": "series", "series": "slow"}, {"id": "b", "source": "moves", "kind": "k"}]}
+
+
+def mount_two(site, cfg, *results):
+    mounting = "([c, r, m]) => { window.last = chartPanel(c); document.getElementById('page').append(last); last.update(r, m); }"
+    site.page.evaluate(mounting, [cfg, list(results), MIXED_META])
+    site.page.wait_for_function("() => last.dataset.state !== 'loading'")
+
+
+def test_queries_on_different_steps_each_keep_their_real_points(site):
+    mount_two(site, mixed(), COARSE, FINE)
+    site.page.wait_for_selector(".u-over")
+    got = site.page.evaluate("""() => { const u = [...PLOTS].at(-1);
+      const shown = (row) => Array.from(row, (v) => v === undefined ? 'none' : v);
+      return { t: [...u.data[0]], a: shown(u.data[1]), b: shown(u.data[2]) }; }""")
+    # union of 0, 1200, 2400, 3600 and 0, 720, 1440, 2160, 2880
+    assert [x - NOW for x in got["t"]] == [0, 720, 1200, 1440, 2160, 2400, 2880, 3600]
+    assert got["a"] == [10, "none", 20, "none", "none", None, "none", 40], "its own values, its empty bucket a gap, nothing invented"
+    assert got["b"] == [1, 2, "none", 3, 4, "none", 5, "none"]
+
+
+def test_the_coarser_line_is_drawn_between_its_own_points_and_not_across_its_gap(site):
+    mount_two(site, mixed(), COARSE, {**FINE, "series": [{"name": "fast", "values": [1, 1, 1, 1, 1]}]})
+    site.page.wait_for_selector(".u-over")
+    site.page.wait_for_timeout(50)
+    inked = """([from, to]) => { const u = [...PLOTS].at(-1), r = devicePixelRatio, hex = u.series[1].stroke();
+      const want = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      const t = u.data[0][0] + (from + to) / 2, v = u.data[1][u.data[0].indexOf(u.data[0][0] + from)];
+      const w = u.data[1][u.data[0].indexOf(u.data[0][0] + to)] ?? v, x = Math.round(u.valToPos(t, 'x', true));
+      const y = Math.round(u.valToPos((v + w) / 2, 'y', true)), d = u.ctx.getImageData(x - 2 * r, y - 5 * r, 4 * r, 10 * r).data;
+      const near = (i) => Math.abs(d[i] - want[0]) + Math.abs(d[i + 1] - want[1]) + Math.abs(d[i + 2] - want[2]) < 60;
+      for (let i = 0; i < d.length; i += 4) if (near(i)) return true;
+      return false; }"""
+    assert site.page.evaluate(inked, [0, 1200]), "joined between its own buckets, across the other query's times"
+    assert not site.page.evaluate(inked, [1200, 3600]), "its empty bucket stays a gap"
+
+
+def test_stacking_different_steps_sums_only_where_they_share_a_time_and_says_so(site):
+    mount_two(site, mixed("line", {"fill": "area", "stack": "stacked"}), COARSE, FINE)
+    site.page.wait_for_selector(".u-over")
+    top = site.page.evaluate("() => Array.from([...PLOTS].at(-1).data[2], (v) => v === undefined ? 'none' : v)")
+    assert top == [11, "none", "none", "none", "none", "none", "none", "none"]
+    assert "1 of 8 times" in site.page.locator(".panel-warning").inner_text()
+
+
+@pytest.mark.parametrize("family", FAMILIES)
+def test_what_an_answer_says_of_itself_is_shown_beside_the_plot(browser, family):
+    s = Site(browser)
+    try:
+        said = "only the latest 19971 of 90677 events were read"
+        s.mount(config(family), {**DATA[family](), "note": said, "truncated": True})
+        words = s.page.locator(".panel-warning")
+        words.wait_for()
+        assert "19971 of 90677" in words.inner_text()
+        over = s.page.evaluate("""() => { const w = document.querySelector('.panel-warning').getBoundingClientRect();
+          const p = document.querySelector('.plot-frame, .uplot, .panel-stats, .panel-table').getBoundingClientRect();
+          return Math.min(w.bottom, p.bottom) - Math.max(w.top, p.top) > 0.5; }""")
+        assert not over, "never over the plot"
+        assert s.page.evaluate(NO_SCROLL)
+        s.page.evaluate("([r, m]) => last.update([r], m)", [DATA[family](), meta_for(family)])
+        assert s.page.locator(".panel-warning").is_hidden(), "gone when the answer no longer says it"
+    finally:
+        s.close()
+
+
+def test_a_truncated_answer_with_no_note_still_says_so(site):
+    site.mount(config("line"), {**time_result(), "truncated": True})
+    assert "Only part of the record" in site.page.locator(".panel-warning").inner_text()
+
+
+def test_busy_queries_are_asked_again_until_they_answer(browser):
+    s = Site(browser)
+    try:
+        calls: list[list[str]] = []
+        def serve(route):
+            q = parse_qs(urlparse(route.request.url).query)["q"][0]
+            body = json.loads(base64.urlsafe_b64decode(q + "=" * (-len(q) % 4)))
+            ids = [x["id"] for x in body["queries"]]
+            calls.append(ids)
+            refused = {"error": "events: busy: the event log is being read"}
+            results = [{**time_result(i), "id": i} if n < 4 else {"id": i, **refused} for n, i in enumerate(ids)]
+            route.fulfill(json={**META, "results": results})
+        s.page.route("**/api/query?*", serve)
+        got = s.page.evaluate("""async () => { const c = Array.from({ length: 6 }, (_, i) => ({ id: `p${i}`, form: 'line',
+          queries: [{ id: 'a', source: 'events', type: `t${i}` }] }));
+          const m = await queryPanels(c, {}); return [...m.values()].map((v) => v.results[0].error || 'ok'); }""")
+        assert got == ["ok"] * 6 and [len(c) for c in calls] == [6, 2], "only the refused are asked for again"
+    finally:
+        s.close()
+
+
+def test_a_query_still_busy_after_the_retries_says_so(browser):
+    s = Site(browser)
+    try:
+        calls = []
+        def serve(route):
+            calls.append(1)
+            q = parse_qs(urlparse(route.request.url).query)["q"][0]
+            body = json.loads(base64.urlsafe_b64decode(q + "=" * (-len(q) % 4)))
+            route.fulfill(json={**META, "results": [{"id": x["id"], "error": "events: busy: try again"} for x in body["queries"]]})
+        s.page.route("**/api/query?*", serve)
+        got = s.page.evaluate("""async () => (await queryPanels([{ id: 'p', form: 'line',
+          queries: [{ id: 'a', source: 'events' }] }], {})).get('p').results[0].error""")
+        assert "busy" in got and len(calls) == 4, "bounded: the first and three more"
+    finally:
+        s.close()

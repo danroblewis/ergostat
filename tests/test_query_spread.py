@@ -64,3 +64,12 @@ def test_it_reads_no_event_log(p, monkeypatch):
 )
 def test_what_has_no_spread_is_refused_in_words(p, query, word):
     assert word in _ask(p, query)[0]["error"]
+
+
+def test_a_set_alone_needs_no_snapshot_and_counts_past_its_page(p, monkeypatch):
+    from ergostat.web.server import Live, api
+
+    live = Live(p)
+    monkeypatch.setattr(live, "snapshot", lambda *a, **k: pytest.fail("the whole state was worked out"))
+    got = api(live, "items", {"kind": ["ticket"], "state": ["doing"], "alone": ["1"], "n": ["2"]})
+    assert got["total"] == 5 and len(got["items"]) == 2 and got["kinds"] == []

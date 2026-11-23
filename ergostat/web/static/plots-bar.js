@@ -17,7 +17,9 @@
                  colours: series.map((x) => x.colour), latest: true };
       }
       const when = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
-      return { cats: series[0].xs.map(when), rows: series.map((x) => x.values), series };
+      const times = [...new Set(series.flatMap((x) => x.xs))].sort((a, b) => a - b), at = new Map(times.map((t, i) => [t, i]));
+      const rows = series.map((x) => { const r = new Array(times.length).fill(null); x.xs.forEach((t, i) => { r[at.get(t)] = x.values[i] ?? null; }); return r; });
+      return { cats: times.map(when), rows, series };
     }
     const cats = [...new Set(series.flatMap((x) => x.xs))];
     const at = new Map(cats.map((c, i) => [c, i]));

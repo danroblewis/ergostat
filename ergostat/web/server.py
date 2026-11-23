@@ -320,6 +320,18 @@ def _window(q) -> float:
         return st.WINDOW
 
 
+def _set_alone(p, spec, q, one, at: float) -> dict:
+    """A set of items and nothing of the page (the side panel's list, a chart's "still waiting"): from the index, as of
+    ``at``, without the whole state, whose first estimate on a long record takes many seconds."""
+    from ..spec import item_sets
+    from ..spec import items as its
+    want = item_sets.parse(q, at)
+    n, offset = max(1, min(int(one("n") or its.LISTED), its.LISTED)), int(one("offset") or 0)
+    got = item_sets.select(p.events, spec, want, until=at, n=n, offset=offset)
+    k = spec.items[want.kind]
+    return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))), "kinds": []}
+
+
 def _tail(path, n: int) -> list[str]:
     """The last ``n`` lines of a file, read from its end."""
     try:
@@ -575,6 +587,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
             at = float(one("at"))
         except ValueError:
             at = None
+    if head == "items" and name is None and one("alone") and one("kind") and "search" not in q:
+        return _set_alone(p, getattr(m, "spec", None), q, one, time.time() if at is None else at)
     snap = live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates
@@ -810,12 +824,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                               search=one("search"))
             return _as_listed(got, None, 0, bool(one("shown")))
         want = item_sets.parse(q, snap["at"]) if one("kind") and (one("state") or one("alone") or item_sets.asked(q)) else None
-        if want is not None and (item_sets.asked(q) or one("alone")):   # a set the listing does not serve (SPEC §5a)
+        if want is not None and item_sets.asked(q):   # a set the listing does not serve (SPEC §5a)
             got = item_sets.select(p.events, spec, want, until=snap["at"], n=n, offset=offset)
-            if one("alone"):                              # the side panel's list: the set, and nothing of the page
-                k = spec.items[want.kind]
-                return {**_as_listed({**got, "kinds": [{"name": k.name, "show": k.show}]}, None, 0, bool(one("shown"))),
-                        "kinds": []}
             page = its.listing(p.events, spec, kind=want.kind, state="\0", until=snap["at"], n=1)   # its kinds and counts
             return _as_listed({**page, **got}, one("q"), int(one("per_kind") or 0), bool(one("shown")), one("hide"))
         got = its.listing(p.events, spec, kind=one("kind"), state=one("state"), until=snap["at"], n=n, offset=offset)

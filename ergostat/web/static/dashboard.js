@@ -475,10 +475,10 @@ async function dashStill(n) {
   for (const p of DASH.draft?.panels || []) {
     const still = p.display?.still, c = DASH.cells.get(p.id);
     if (!still || !c) continue;
-    const got = await api("items", { kind: still.kind, state: still.state, n: DASH_STILL_MOST }).catch(() => null);
+    const got = await api("items", { kind: still.kind, state: still.state, n: DASH_STILL_MOST, alone: 1 }).catch(() => null);
     if (n !== DASH.asked || !got || !DASH.cells.has(p.id)) return;
     const note = dashStillWords((got.items || []).filter((i) => i.kind === still.kind && i.state === still.state),
-                                got.matched?.[still.kind] ?? 0, S.at || nowS());
+                                got.total ?? got.matched?.[still.kind] ?? 0, S.at || nowS());
     if (note !== c.still) { c.still = note; c.panel.setConfig?.({ ...p, note }); }
   }
 }

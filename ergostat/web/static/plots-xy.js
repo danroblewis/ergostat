@@ -47,7 +47,12 @@
   const runsOf = (rows) => {
     const runs = [];
     let cur = null;
-    for (const r of rows) { if (r == null) { cur = null; continue; } if (!cur) runs.push(cur = []); cur.push(r); }
+    for (const r of rows) {
+      if (r === undefined) continue;
+      if (r === null) { cur = null; continue; }
+      if (!cur) runs.push(cur = []);
+      cur.push(r);
+    }
     return runs;
   };
 
@@ -56,8 +61,8 @@
     const xs = [...new Set(series.flatMap((x) => x.xs.filter((v) => v != null)))].sort((a, b) => a - b);
     const at = new Map(xs.map((x, i) => [x, i]));
     const rows = series.map((x) => {
-      const row = new Array(xs.length).fill(null);
-      x.xs.forEach((v, i) => { if (v != null && x.values[i] != null) row[at.get(v)] = x.values[i]; });
+      const row = new Array(xs.length).fill(undefined);    // undefined: no point of its own here; null: its point is empty
+      x.xs.forEach((v, i) => { if (v != null) row[at.get(v)] = x.values[i] ?? null; });
       return row;
     });
     return { xs, rows };
@@ -67,9 +72,11 @@
     const o = opts.options, d = config.display || {};
     return F.view(target, first, opts, (result, off) => {
       const shown = result.series.filter((x) => !off.has(x.key));
-      const { xs, rows: raw } = aligned(shown);
-      let rows = raw.map((r) => r.map((v) => (v == null && o.nulls === "zero" ? 0 : v)));
       const stacking = o.stack !== "none", percent = o.stack === "percent";
+      const all = aligned(shown);
+      const keep = all.xs.map((_, i) => i).filter((i) => !stacking || all.rows.every((r) => r[i] !== undefined));   // a sum needs them all
+      const xs = keep.map((i) => all.xs[i]), raw = all.rows.map((r) => keep.map((i) => r[i]));
+      let rows = raw.map((r) => r.map((v) => (v === null && o.nulls === "zero" ? 0 : v)));
       if (percent) {
         const totals = xs.map((_, i) => rows.reduce((a, r) => a + Math.abs(r[i] ?? 0), 0));
         rows = rows.map((r) => r.map((v, i) => (v == null ? null : totals[i] ? v / totals[i] * 100 : 0)));
@@ -90,7 +97,7 @@
         const { box, X, Y } = plot;
         hits = [];
         F.clipTo(ctx, box, () => shown.forEach((one, k) => {
-          const pixel = (v, i) => (v == null || (yr.log && v <= 0) || (xr.log && xs[i] <= 0) ? null : [X.at(xs[i]), Y.at(v)]);
+          const pixel = (v, i) => (v === undefined ? undefined : v === null || (yr.log && v <= 0) || (xr.log && xs[i] <= 0) ? null : [X.at(xs[i]), Y.at(v)]);
           const present = rows[k].map(pixel);
           const runs = o.nulls === "connect" ? [present.filter(Boolean)] : runsOf(present);
           for (const run of runs) {
