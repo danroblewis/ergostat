@@ -454,6 +454,37 @@ def _remote_events(spec, name, n, glob) -> dict:
             "events": evs[-n:]}
 
 
+def _scoped(ask: dict, scope: dict) -> dict | None:
+    """One question with the page's own ``item``/``machine``/``source`` added; None when the two cannot both hold."""
+    for k, v in scope.items():
+        o = ask.get(k)
+        if o is None or o == v or (k == "machine" and v.startswith(o + "/")):
+            ask = {**ask, k: v}
+        elif not (k == "machine" and o.startswith(v + "/")):
+            return None
+    return ask
+
+
+def _record_rows(p, m, snap, about, match, n, skip, span, scope=None) -> list[dict]:
+    """The Record narrowed: the events of a goal (``about``: it, its controller's and valves' agents, its valves) or
+    those whose type (a glob), item or source is ``match`` (both: the goal's that match), newest ``n``, in seq order;
+    every question also holds to ``scope`` (the address's item, machine, source), so a scoped link stays scoped."""
+    lp = snap["loops"].get(about) if about else None
+    names = [about] if about else [match]
+    if lp:
+        valves = [v for v in lp["valves"] if v in m.valves]
+        c = m.controllers.get(about)
+        names += [*valves, *(x for x in (c and c.agent, *(m.valves[v].agent for v in valves)) if x)]
+    names = list(dict.fromkeys(names))
+    asks = [{k: v} for v in names for k in ("item", "machine")] + ([] if about else [{"type": match}])
+    if about and match:          # the match asked inside each question, so none is capped at n before it is matched
+        asks = [{k: v, **w} for v in names for k, o in (("item", "machine"), ("machine", "item"))
+                for w in ({"type": match}, {o: match})] + ([{"item": match}, {"machine": match}] if match in names else [])
+    asks = [a for a in (_scoped(a, scope or {}) for a in asks) if a is not None]
+    got = {e["id"]: e for a in asks for e in p.events.query(n=n, skip=skip, **a, **span)}
+    return sorted(got.values(), key=lambda e: e["seq"])[-n:]
+
+
 def api(live: Live, path: str, q: dict):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
     shape is, and which shapes stand for each part, so one selection is lit in every view."""
@@ -629,7 +660,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
                               "max": m.valves[v].max, "last": p.events.last_opening(v, snap["at"])})
             return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
-                    "crossings": in_window[-20:], "crossings_total": len(in_window),
+                    "crossings": [{**e, "off_by_words": st.off_by_words(e["data"].get("setpoint") or c.setpoint, e["data"].get(
+                        "error"), c.tolerance, getattr(m.stocks.get(c.holds), "unit", ""),
+                        e["type"] == "loop.off")} for e in in_window[-20:]],
+                    "crossings_total": len(in_window),
                     "description": c.description, "parts": parts,
                     "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
                     "decisions": st.decisions(p, name, since, snap["at"]),
@@ -688,14 +722,20 @@ def _answer(live: Live, path: str, q: dict, project=None):
         if name:                                  # one event, by id
             return p.events.get(name)
         after = one("after")
-        skip = () if one("runs") or one("type") else ("agent.started", "agent.ran")   # as `ergostat event`
-        if not one("type") and not one("item"):   # a transcript's lines are on its item's page, asked by type or item
+        typed = one("type") or one("match")
+        skip = () if one("runs") or typed else ("agent.started", "agent.ran")   # as `ergostat event`
+        if not typed and not one("item"):   # a transcript's lines are on its item's page, asked by type or item
             skip = (*skip, "claude.*")
         before = one("before")
-        return p.events.query(n=max(1, min(int(one("n") or 100), EVENTS_MOST)), type=one("type"), item=one("item"),
+        n = max(1, min(int(one("n") or 100), EVENTS_MOST))
+        span = {"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}
+        span |= {k: float(one(w)) for k, w in (("since", "from"), ("until", "to")) if one(w)}
+        if one("about") or one("match"):          # the Record's filter box, or a crossing's goal (details.js)
+            return _record_rows(p, m, snap, one("about"), one("match"), n, skip, span,
+                                {k: one(k) for k in ("item", "machine", "source") if one(k)})
+        return p.events.query(n=n, type=one("type"), item=one("item"),
                               source=one("source"), machine=one("machine"), after_seq=int(after) if after else None,
-                              before_seq=int(before) if before else None, skip=skip,
-                              **({"since": snap["at"] - snap["window"], "until": snap["at"]} if one("window") else {}))
+                              before_seq=int(before) if before else None, skip=skip, **span)
     if head == "items":
         from ..spec import items as its
         spec = getattr(m, "spec", None)

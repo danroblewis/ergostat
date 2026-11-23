@@ -1,0 +1,6 @@
+[
+ {"goto": "http://127.0.0.1:8798/item/gap%2Fregression-guarantees-proposal"}, {"wait": 240000},
+ {"shot": "plan-ks-live-item-top.png"},
+ {"shot": "plan-ks-live-item-full.png", "full": true},
+ {"text": "css=main"}
+]
