@@ -9,6 +9,7 @@ import json
 import textwrap
 import threading
 import types
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -192,6 +193,38 @@ def test_a_type_offers_query_and_nothing_else():
         own = {n for n, v in vars(mod).items() if not n.startswith("_") and callable(v)
                and getattr(v, "__module__", None) == mod.__name__}
         assert own == {"query"}, name
+
+
+PUBLIC = "dash.example.org"
+
+
+def test_an_anonymous_public_reader_is_refused_a_source_and_nothing_is_sent(tmp_path, prom):
+    from ergostat.web import serve
+    (tmp_path / "ergostat.yaml").write_text(f"name: ds\nstocks:\n  queue: {{unit: tickets}}\nsources:\n"
+                                            f"  prom: {{type: prometheus, url: \"{prom}\"}}\n"
+                                            f"web:\n  names: [{PUBLIC}]\n  open: read\n")
+    server, url = serve(Project(mdl.load(tmp_path)), free_port())
+    try:
+        body = {"since": 480.0, "until": T + 480, "points": 4,
+                "queries": [{"id": "0", "source": "prom", "text": "up"}, {"id": "1", "source": "counts"}]}
+        q = base64.urlsafe_b64encode(json.dumps(body).encode()).decode().rstrip("=")
+
+        def get(path, host=None):
+            req = urllib.request.Request(url + path, headers={"Host": host} if host else {})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.loads(r.read())
+        Stub.seen.clear()
+        src, own = get(f"/api/query?q={q}", PUBLIC)["results"]
+        assert src["error_kind"] == "refused" and "public name" in src["error"] and "series" not in src
+        assert "error" not in own                                            # the model's own data is still read
+        assert Stub.seen == []                                               # nothing was sent to the source
+        assert get("/api/query/fields", PUBLIC)["datasources"] == []
+        src, _ = get(f"/api/query?q={q}")["results"]                          # the owner, on this machine, as before
+        assert "error" not in src and len(Stub.seen) == 1
+        assert get("/api/query/fields")["datasources"] == [{"name": "prom", "type": "prometheus", "language": "PromQL"}]
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_prometheus_is_asked_by_get_on_query_range_only(p):

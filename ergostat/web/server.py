@@ -580,10 +580,11 @@ def _record_rows(p, m, snap, about, match, n, skip, span, scope=None) -> list[di
     return sorted(got.values(), key=lambda e: e["seq"])[-n:]
 
 
-def api(live: Live, path: str, q: dict):
+def api(live: Live, path: str, q: dict, reader: bool = False):
     """An answer; a graph's with its correspondence (``correspond.py``): which model parts each
-    shape is, and which shapes stand for each part, so one selection is lit in every view."""
-    got = _answer(live, path, q)
+    shape is, and which shapes stand for each part, so one selection is lit in every view. ``reader``: asked by
+    anyone under a public name (``open: read``), who may not ask a data source (SPEC §4d, §4e)."""
+    got = _answer(live, path, q, reader=reader)
     if path.strip("/") == "graph" and isinstance(got, dict):
         from ..correspond import table
         shown = got.pop("_model", None) or live.get().model       # a proposal drawn: its model's parts
@@ -608,7 +609,7 @@ def _held_up(p) -> dict:
     return headline(p)
 
 
-def _answer(live: Live, path: str, q: dict, project=None):
+def _answer(live: Live, path: str, q: dict, project=None, reader: bool = False):
     if path.strip("/") == "projects":             # the last list the lister made: no model, snapshot or lock here
         got = _LISTED
         return dict(got, age=None if got["at"] is None else max(0.0, time.time() - got["at"]))
@@ -623,7 +624,7 @@ def _answer(live: Live, path: str, q: dict, project=None):
     head, name = parts[0], unquote(parts[1]) if len(parts) > 1 else None
     if head == "query":                           # every chart's numbers, read-only, without a snapshot (ergostat/query)
         from ..query import answer, fields
-        return fields(live, p) if name == "fields" else answer(live, p, one("q")) if name is None else None
+        return fields(live, p, reader) if name == "fields" else answer(live, p, one("q"), reader) if name is None else None
     if head == "items-query":                     # near, path, about (SPEC §5a, Graph queries), as the record is now
         from ..spec import itemgraph as ig
         asked = [k for k in ("near", "path", "about") if one(k) is not None]
@@ -1322,7 +1323,7 @@ def handler(project):
                 try:
                     q = parse_qs(u.query)                   # (a blank search kept, to be refused: never "list all")
                     q.update({"search": [""]} if "search" not in q and "search" in parse_qs(u.query, True) else {})
-                    data = api(live, u.path.removeprefix("/api/"), q)
+                    data = api(live, u.path.removeprefix("/api/"), q, reader=who == self.READER)
                 except BadSet as e:                     # an Items filter that is not one: said, as the asker's
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except RemoteRefused as e:              # a remote not named, not answering, or asked enough (SPEC §4c)

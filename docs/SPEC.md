@@ -1189,7 +1189,10 @@ web:
 | any other `Host` | 403 |
 
 `open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
-login: anyone who reaches the name reads everything the page shows, and nothing is changed there. The tunnel must
+login: anyone who reaches the name reads everything the page shows, and nothing is changed there. Such a reader may
+not ask a data source (section 4e, *Data sources*): each of their `{source, text}` queries is refused with
+`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists no `datasources` to them; the
+owner, and a login under a name with `access:`, may ask. The tunnel must
 keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
@@ -1249,6 +1252,9 @@ reads the event log.
   and `error_kind: limit`. An unreachable source is `error_kind: unreachable` (never with its address), a query the source
   refuses `refused` with the source's own words. It is asked again each time, nothing kept. `/api/query/fields` lists these
   sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
+  Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
+  `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
+  is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
 
 ## 5. Stocks
 

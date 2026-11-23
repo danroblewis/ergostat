@@ -68,3 +68,25 @@ Run here, one file at a time:
 - ruff is clean.
 - Not run here: the whole unit suite and the four browser files (the factory's). No example was touched, so no
   `demo_check`. `main` has not moved since the clone, so there was nothing to merge.
+
+### Round 2
+
+The one finding (blocking): an anonymous public reader (`web: open: read`) could make the server forward any PromQL to
+every `prometheus` source. Fixed. About 15 net lines more, so about 285 (budget 600).
+- The server's gate already knows who asks. It now passes `reader` (anyone under an `open: read` name) through `api` to
+  `ergostat/query`. For a reader, each `{source, text}` query is refused in its own result (`error_kind: refused`,
+  "a data source is not asked for anyone under a public name ..."), so the panel says so. Nothing is sent to the
+  source. `/api/query/fields` lists `datasources` to them as `[]`. Their other queries are answered as before.
+- The owner on this machine, and a Cloudflare Access login under a name with `access:` (an email the owner listed),
+  may still ask. This is a choice taken without asking, and the most reversible one: the finding names only the
+  anonymous reader.
+- SPEC §4d (*open: read*) and §4e (*Data sources*, "Who may ask") say so.
+- Test: `tests/test_data_sources.py::test_an_anonymous_public_reader_is_refused_a_source_and_nothing_is_sent`
+  (a real server, a public `open: read` name, the stub Prometheus). It checks the refusal, that the stub saw no
+  request, the empty `datasources`, and that the owner is still answered. I saw it fail with the gate's flag forced
+  to `False`, and again with the empty `datasources` removed.
+- `ergostat snapshot` (an owner's CLI that calls `api` itself) is unchanged: it is the owner asking.
+
+Run here, round 2, one file at a time: test_data_sources, test_query_engine, test_web_access, test_query_fixes and
+test_numbers all passed. test_data_source_panels passed under the watchdog, with none skipped. ruff is clean. Not
+run here: the whole unit suite and the four browser files. `main` has still not moved.

@@ -292,8 +292,12 @@ def _from_source(p, q: SourceQuery, since: float, until: float, points: int, wor
     return {"id": q.id, **got}
 
 
-def answer(live, p, raw: str | None) -> dict:
-    """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its result."""
+READER_REFUSED = "a data source is not asked for anyone under a public name (web: open: read); the owner or a login may ask"
+
+
+def answer(live, p, raw: str | None, reader: bool = False) -> dict:
+    """``GET /api/query``: a malformed request raises ``BadQuery``; a query that is malformed or unanswerable says so in its
+    result. ``reader``: anyone under a public name, whose data source queries are each refused, never sent (SPEC §4d, §4e)."""
     asked = parse(decode(raw))
     now = time.time()
     until = asked.until if asked.until is not None else now // LIVE_EVERY * LIVE_EVERY
@@ -305,6 +309,8 @@ def answer(live, p, raw: str | None) -> dict:
     plain = lambda q: q.x is None and q.source != "frequency" and q.agg != "ohlc"   # noqa: E731
     return {"now": now, "since": since, "until": until, "step": grid(since, until, asked.points).step,
             "results": [{"id": q.id, "error": q.error, "read_log": False} if isinstance(q, Refused)
+                        else {"id": q.id, "error": f"{q.source}: {READER_REFUSED}", "error_kind": "refused",
+                              "read_log": False} if isinstance(q, SourceQuery) and reader
                         else _from_source(p, q, since, until, asked.points, work) if isinstance(q, SourceQuery)
                         else _one(live, p, q, since, until, asked.points, first, work) if plain(q)
                         else _shaped(live, p, q, by_id, refused, since, until, asked.points, first, work)
