@@ -100,7 +100,8 @@ def _transformed(q: Query, read: Read, values: list, g: Grid) -> list:
     if q.transform != "rate":
         return values
     if q.source == "series" and q.agg == "last":
-        return tf.counter_rate(values, g.spans, read.before)
+        cut = g.spans[0] < g.step and read.before_t is not None
+        return tf.counter_rate(values, g.spans, read.before, g.since - read.before_t if cut else 0.0)
     if q.source == "counts":
         return tf.plain_rate(tf.delta(values), g.spans)
     return tf.plain_rate(values, g.spans)

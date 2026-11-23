@@ -28,6 +28,7 @@ class Read:
     order: list[str] = field(default_factory=list)   # groups in their natural order (a kind's states), when they have one
     unit: str = ""
     before: float | None = None                   # a series' last reading ahead of the window
+    before_t: float | None = None                 # ... and when it was
     truncated: bool = False
     read_log: bool = False
     note: str | None = None
@@ -210,9 +211,9 @@ def series(p, spec, q: Query, g: Grid) -> Read:
     unit = _series_unit(p, q.series)
     if q.agg.startswith("p"):
         rows = [(t, v, v) for t, v in m.sampled(q.series, g.since, g.until, points=READINGS_MOST // 2)]
-        return Read(rows={q.series: rows} if rows else {}, unit=unit, before=before and before[1],
+        return Read(rows={q.series: rows} if rows else {}, unit=unit, before=before and before[1], before_t=before and before[0],
                     note="percentiles over rolled-up spans read their buckets' means")
-    return Read(levels={q.series: _rolled(m, q, g)}, unit=unit, before=before and before[1])
+    return Read(levels={q.series: _rolled(m, q, g)}, unit=unit, before=before and before[1], before_t=before and before[0])
 
 
 def _rolled(m, q: Query, g: Grid) -> list:

@@ -18,12 +18,13 @@ def plain_rate(values: list, spans: list[float]) -> list:
     return [None if v is None or s <= 0 else v / s for v, s in zip(values, spans, strict=True)]
 
 
-def counter_rate(values: list, spans: list[float], before: float | None) -> list:
+def counter_rate(values: list, spans: list[float], before: float | None, lead: float = 0.0) -> list:
     """Per second, of a counter's last reading in each bucket: its increase since the reading before (``before``: the
     last one ahead of the window), a fall being a reset, counted from zero. Over a gap, the increase is spread over
-    the whole time since that reading; a bucket with no reading has no rate."""
+    the whole time since that reading; a bucket with no reading has no rate. ``lead``: seconds from the reading before
+    to the window's start, when the first bucket is cut by the window (its increase built up over them too)."""
     out: list = []
-    prev, elapsed = before, 0.0
+    prev, elapsed = before, lead
     for v, s in zip(values, spans, strict=True):
         elapsed += s
         if v is None:

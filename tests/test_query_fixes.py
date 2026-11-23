@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ergostat.query.buckets import grid
+from ergostat.query import transforms as tf
 from ergostat.query.sources import series_grid
 from ergostat.store import Measurements
 
@@ -45,3 +46,9 @@ def test_a_store_with_nothing_rolled_keeps_the_asked_step(tmp_path):
     m = Measurements(tmp_path, raw=DAY, tiers=[(600.0, 1e9)])
     m.add("s", 1.0, at=BASE)
     assert series_grid(m, "s", BASE, BASE + DAY, 120, None).step == 720
+
+
+def test_a_counters_rate_in_a_cut_first_bucket_is_over_the_time_it_built_up():
+    # 10 more since a reading 55 s before the window, whose first bucket is cut to 5 s: 10 over 60 s, not over 5 s
+    assert tf.counter_rate([110.0, 130.0], [5.0, 60.0], 100.0, 55.0) == [10 / 60, 20 / 60]
+    assert tf.counter_rate([110.0], [60.0], 100.0) == [10 / 60]
