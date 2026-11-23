@@ -15,6 +15,7 @@ kill_after = 6                       # failed gates (reviews, queue conflicts, r
 build_failures = 6                   # the implementor's failed fast suites that park a gap (main's own failures
                                      # are not counted: dev/bin/onmain.py)
 build_hours = 12                     # the implementor's hours on a gap, over its rounds, that park it
+mend_most = 5                        # main-broken tests main-mend runs again a run, oldest first (1-20; dev/bin/mend.py)
 plan_budget_most = 600               # the plan lint's most size budget for one branch (net lines)
 scratch_patterns = [".scratch*", "scratch*", "tmp*", "_probe*", "*_probe*.py", "*.orig", "*.rej", "test_zz*",
                     "*_tmp.py", "*.tail", ".bench*", ".mut*"]

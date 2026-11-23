@@ -727,6 +727,134 @@ def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
     assert d["state"] == "main-broken" and d["fields"]["main_broken_at"] == 10.0 and d["fields"]["times"] == 2
 
 
+# ---- main-mend: out of main-broken after two passes alone on the pushed main (dev/records/regression-flake-main-fixed.md)
+
+BROWSER_TEST = "tests/test_items_page.py::test_b"
+
+
+def mend_record(tmp_path, monkeypatch, says: dict, most=5, quarantined=()):
+    """flake_record, and dev/bin/mend.py on it: a repository whose main is c1 then c2 (c3 off c1, never on main), main
+    as pushed c2, and each suite run played by ``says`` ({test: [what run 1 prints, run 2]}: PASSED, FAILED or None,
+    no line). The suite runs made, as (command, tests, box), in the list returned."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q", "-b", "main")
+    shas = {}
+    for n in ("c1", "c2"):
+        (repo / n).write_text(n)
+        git(repo, "add", n)
+        git(repo, "commit", "-q", "-m", n)
+        shas[n] = git(repo, "rev-parse", "HEAD")
+    git(repo, "checkout", "-q", "-b", "side", shas["c1"])
+    (repo / "c3").write_text("c3")
+    git(repo, "add", "c3")
+    git(repo, "commit", "-q", "-m", "c3")
+    shas["c3"] = git(repo, "rev-parse", "HEAD")
+    (tmp_path / "factory.toml").write_text(textwrap.dedent(f"""\
+        [paths]
+        run = "{tmp_path / 'run'}"
+        checkout = "{repo}"
+        worktrees = "{tmp_path / 'wt'}"
+        [gates]
+        mend_most = {json.dumps(most)}
+        [suites]
+        browser = "uv run pytest -q tests/test_items_page.py tests/test_page_refresh.py"
+        """))
+    monkeypatch.setitem(sys.modules, "flakes", flakes)
+    mend = module("mend")
+    ran: list[tuple] = []
+
+    def suite(cfg, name, cwd, log, box="", tests=(), **_):
+        tests = [t for t in tests if t != "-rA"]
+        n = sum(1 for r in ran if r[0] == name)
+        ran.append((name, tuple(tests), box))
+        log.write_text("".join(f"{says[t][n]} {t}\n" for t in tests if says[t][n]) + "1 passed in 0.1s\n")
+        return 0, 0.1
+    monkeypatch.setattr(mend.fac, "suite", suite)
+    monkeypatch.setattr(mend.fac, "wait_quiet", lambda cfg, why="": 0.0)
+    monkeypatch.setattr(mend.fac, "quarantine", lambda repo, ref: list(quarantined) if ref == shas["c2"] else [])
+    monkeypatch.setattr(mend, "pushed", lambda cfg: shas["c2"])
+    monkeypatch.setattr(mend, "tree", lambda cfg, sha: repo)
+    return flakes, mend, shas, ran
+
+
+def test_main_mend_clears_only_a_test_passing_twice_on_the_pushed_main(tmp_path, monkeypatch):
+    """Two PASSED lines on main as pushed clear it (fixed, with passed_on, main_fixed_at, fixed_by); a failure, a run
+    with no line for it (skipped, not collected), or a quarantine at that commit leaves it main-broken. A browser
+    file's test runs with `rerun` (Playwright), the rest with `alone`, each with -rA, in a suite container."""
+    says = {"tests/test_a.py::test_ok": ["PASSED", "PASSED"], "tests/test_a.py::test_once": ["PASSED", "FAILED"],
+            "tests/test_a.py::test_skip": ["PASSED", None], "tests/test_a.py::test_held": ["PASSED", "PASSED"],
+            BROWSER_TEST: ["PASSED", "PASSED"]}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, quarantined=["tests/test_a.py::test_held"])
+    for n, t in enumerate(says):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0 + n)
+    assert mend.main() == 0
+    state = {t: flake_now(flakes, t) for t in says}
+    assert {t: d["state"] for t, d in state.items()} == {
+        "tests/test_a.py::test_ok": "fixed", "tests/test_a.py::test_once": "main-broken",
+        "tests/test_a.py::test_skip": "main-broken", "tests/test_a.py::test_held": "main-broken", BROWSER_TEST: "fixed"}
+    f = state["tests/test_a.py::test_ok"]["fields"]
+    assert f["passed_on"] == shas["c2"] and f["fixed_by"] == "main-mend" and f["main_fixed_at"] > 10.0
+    alone = ("tests/test_a.py::test_ok", "tests/test_a.py::test_once", "tests/test_a.py::test_skip")
+    assert sorted(ran) == sorted([("alone", alone, "mend")] * 2 + [("rerun", (BROWSER_TEST,), "mend")] * 2)
+
+
+def test_main_mend_writes_only_where_the_items_main_is_the_commit_run_on_or_an_ancestor(tmp_path, monkeypatch):
+    """A main-broken written on a commit main as pushed does not hold (c3, off main) is not cleared by passes on c2."""
+    says = {"tests/test_a.py::test_old": ["PASSED", "PASSED"], "tests/test_a.py::test_off": ["PASSED", "PASSED"],
+            "tests/test_a.py::test_now": ["PASSED", "PASSED"]}
+    flakes, mend, shas, _ = mend_record(tmp_path, monkeypatch, says)
+    for t, at in zip(says, ("c1", "c3", "c2"), strict=True):
+        flakes.say("flake.main-broken", t, main=shas[at], gaps=["gap/a"], main_broken_at=10.0)
+    assert mend.main() == 0
+    assert [flake_now(flakes, t)["state"] for t in says] == ["fixed", "main-broken", "fixed"]
+
+
+def test_a_newer_break_written_in_between_refuses_main_fixed_and_its_move(tmp_path, monkeypatch):
+    """lesson-1: a newer main written on the item after main-mend read it (by a writer outside flakes.py's lock) fails
+    the patch's first op, a test of /main as read: the whole event is refused, its move to fixed too."""
+    t = "tests/test_a.py::test_ok"
+    flakes, mend, shas, _ = mend_record(tmp_path, monkeypatch, {t: ["PASSED", "PASSED"]})
+    flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0)
+    iid, real = f"flake/{flakes.fac.slug(t, 80)}", flakes.read
+
+    def read_then_break(i):
+        got = real(i)
+        flakes.fac.add("flake.measured", iid, main=shas["c2"])     # (broken again on c2, between the read and the write)
+        return got
+    monkeypatch.setattr(flakes, "read", read_then_break)
+    assert mend.main() == 0
+    d = flake_now(flakes, t)
+    assert d["state"] == "main-broken" and d["fields"]["main"] == shas["c2"] and "passed_on" not in d["fields"]
+    assert d["refused"] and d["refused"][-1]["type"] == "flake.main-fixed" and "test /main" in d["refused"][-1]["why"]
+
+
+def test_main_mend_takes_at_most_mend_most_a_run_oldest_first(tmp_path, monkeypatch):
+    """lesson-4: [gates] mend_most tests a run, the oldest main-broken first; held to 1..20, 5 when not a number."""
+    says = {f"tests/test_a.py::test_{n}": ["PASSED", "PASSED"] for n in range(7)}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, most=3)
+    for n, t in enumerate(says):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=100.0 - n)
+    assert mend.main() == 0
+    oldest = ("tests/test_a.py::test_6", "tests/test_a.py::test_5", "tests/test_a.py::test_4")
+    assert ran == [("alone", oldest, "mend")] * 2
+    assert sorted(t for t in says if flake_now(flakes, t)["state"] == "fixed") == sorted(oldest)
+    assert [mend.most({"gates": {"mend_most": v}}) for v in (500, 0, "9", True, 7)] == [20, 1, 5, 5, 7]
+    assert mend.most({}) == 5
+
+
+def test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed():
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert not [p for p in problems if p.level == "error"]
+    b = spec.blocks["main-mend"]
+    assert (b.every, b.pool, b.timeout, b.lease.ttl) == (1800.0, 1, 1800.0, 1800.0) and b.takes is None
+    assert "dev/bin/mend.py" in json.dumps(b.params, default=str)
+    assert spec.items["flake"].on["flake.main-fixed"] == "fixed"
+    assert "main-mend" in (ROOT / "dev" / "README.md").read_text()
+    assert tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["gates"]["mend_most"] == 5
+
+
 def pools_module():
     sys.modules.setdefault("fac", module("fac"))       # (pools.py imports fac and risk from beside it)
     sys.modules.setdefault("risk", module("risk"))

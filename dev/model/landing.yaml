@@ -354,6 +354,14 @@ blocks:
     timeout: 1h
     in: block.triage-when
     out: [flow.flakes-retried, flow.sent-back-by-triage, flow.parked-in-triage]
+  main-mend:
+    type: program
+    description: the way out of main-broken - on the pushed main, once the machine is quiet, the oldest main-broken tests ([gates] mend_most, at most 20) run alone twice in a suite container; each passing both is flake.main-fixed, a patch testing the item's main as read (dev/bin/mend.py)
+    run: python3 dev/bin/mend.py
+    every: 30m
+    pool: 1
+    lease: {ttl: 30m, attempts: 1}
+    timeout: 30m
 
   main-watch:
     type: program

@@ -224,8 +224,19 @@ Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) g
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
-the gaps and times said, `main_fixed_at`, `fixed_by` and `green_passes` removed). An item it cannot read is written as
-said, the failure on stderr.
+the gaps and times said, `main_fixed_at`, `fixed_by`, `green_passes` and `passed_on` removed). An item it cannot read
+is written as said, the failure on stderr.
+
+**Out of main-broken: main-mend.** The block `main-mend` (dev/model/landing.yaml; every 30 minutes, pool 1, a lease,
+timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
+quiet machine (`fac.wait_quiet`), and takes the oldest `main-broken` tests (by `main_broken_at`), at most
+`[gates] mend_most` (default 5, held to 1-20). It runs them alone twice on that commit, in `<worktrees>/.mend` and a
+suite container (`[suites] alone` with `-rA`; a test of a browser suite file with `rerun`, which has Playwright), and
+reads each result from the whole log (`fac.outcomes`). A test passing both runs is `flake.main-fixed` (state `fixed`;
+`passed_on`, `main_fixed_at`, `fixed_by: main-mend`). Failed, skipped, not collected, quarantined at that commit, or a
+run that stalled or left no log: unknown, and it stays main-broken. The write is decided under `run/flakes.lock` on the
+item read there, only when its `main` is the commit run on or an ancestor of it, and is a patch whose first op tests
+that `main`: a newer break written in between refuses the whole event, and a refused patch moves no state (SPEC §5a).
 
 ## The backlog: ranked, groomed
 

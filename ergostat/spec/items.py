@@ -175,6 +175,8 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
             ahead = it.state not in kind.states or kind.states.index(it.state) < kind.states.index(want) \
                 if want in kind.states else False
             to = want if ahead else None
+        if why is not None and form_of(e) in ("patch", "set"):   # a refused patch or set moves nothing either: its
+            to = None                                            # `test` is a precondition of the whole event (§5a)
         if to and to != it.state and kind and it.state not in kind.moves_from.get(e["type"], (it.state,)):
             why = f"moves only from {', '.join(kind.moves_from[e['type']])}, not from {it.state}: ignored"
             it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "from", "why": why})
