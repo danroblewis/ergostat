@@ -7699,11 +7699,13 @@ closed, the worker ends (0).
 
 Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`), and the
 run's output by offset with `attach`, `ack`, `ended` and `done` (`output.py`), both registered in `serve.HANDLERS` once
-`hello` is said, and each run's readings, `ended`'s `resources` (`sampler.py`, below). Still to come: the keeper's
-wall and lease deadlines, and the runs listed in `hello` (`backends` stays `[]` until then).
+`hello` is said, each run's readings, `ended`'s `resources` (`sampler.py`, below), and the keeper's wall and lease
+deadlines (`deadline.py`, section 12s.5). Still to come: the lease's renewals, and the runs listed in `hello`
+(`backends` stays `[]` until then).
 
-**`start`** `{"run", "command", "input", "env", "block", "limits"}`: `command` a non-empty string, `input` (the
-run's standard input) a string, `env` an object of strings, else an `error`. It is answered `refused` with `why`:
+**`start`** `{"run", "command", "input", "env", "block", "limits", "lease"}`: `command` a non-empty string, `input`
+(the run's standard input) a string, `env` an object of strings, `lease` absent or `{"left", "ttl"}` (seconds to its
+expiry and its TTL, each a positive number within a day), else an `error`. It is answered `refused` with `why`:
 
 - `bad name`: `run` is not exactly 32 lower-case hex digits, or a run of that id has a folder here already (never
   made again over it);
@@ -7716,7 +7718,8 @@ run's standard input) a string, `env` an object of strings, else an `error`. It 
 - `no keeper`: the folder's files could not be written or the keeper could not be started; the folder is removed.
 
 Each refusal makes no folder and no process. Else the worker makes `runs/RUN/` in the root with `run.json` (the
-run id, block, backend `process`, command, env and limits), `in` and an empty `cwd/`, starts the keeper
+run id, block, backend `process`, command, env and limits), the first `deadline` (section 12s.5), `in` and an empty
+`cwd/`, starts the keeper
 (`python3 -I WORKER --keep RUN --root ROOT`, the same folder or zipapp, in a session of its own, standard input
 from `/dev/null`, its output to `runs/RUN/keeper.log`, SIGHUP ignored), and answers `started` with `run` and
 `keeper` (its pid). The worker reaps its keepers; nothing ties a keeper to the worker, so closing the worker's
@@ -7880,7 +7883,25 @@ pool's list (from 1), and never by its host.
 
 ### 12s.5 The lease on a node
 
-(To be filled: the lease in `start`, `renew`, the keeper's kill at the expiry, a node lost after three beats missed.)
+**The keeper's deadlines** (`ergostat/compute/worker/deadline.py`). A run on a node ends by its wall and its lease
+whether or not its worker, its session or its engine is still there: its keeper holds both. `runs/RUN/deadline` is
+`{"wall": T, "lease": T or null, "kill": K}`, each `T` in seconds on the keeper's clock, which counts time
+suspended and never reads the time of day: `CLOCK_BOOTTIME` on Linux, `CLOCK_MONOTONIC` elsewhere (on macOS the
+continuous clock, which counts sleep). `start` writes the first: the wall at now plus `limits.wall` (a day, the most
+a run may have, when none is given), the lease at now plus its `left` (`null` without one), and `K` grace(ttl)/4
+(grace(ttl) = max(1, min(0.1 × ttl, 30)), as `leases/terms.py`), or 2 seconds without a lease.
+
+The keeper reads the file at its start (one it can't read, or not of that shape, and the run is not started:
+`how` `not started`) and again each quarter second until it stops the run. A file
+that can't be read or is garbage (not JSON, not that object, a time that is not a finite number or is more than a day
+from now, `K` not 0 to 600) keeps the last values. Of a well-formed one, the wall is taken only when earlier (it never
+moves later, whatever the file says), the lease is taken as written (its renewals, still to come, are the engine's
+word and may move it either way), but a `null` lease never drops one held; `K` is taken. At the earlier deadline the
+keeper sends SIGTERM to the run's group, SIGKILL `K` seconds later if any of it is left, and writes `exit` with `how`
+`wall` or `lease` (a stop file seen first is a stop, as for `kill`). A deadline moved earlier takes effect within
+half a second.
+
+(Still to be filled: `renew`, which rewrites the file; a node lost after three beats missed.)
 
 ### 12s.6 Runs that outlive the connection
 
