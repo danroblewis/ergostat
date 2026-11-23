@@ -198,7 +198,8 @@ blocks:
       pool: stock.implementor-pool
       room: auxiliary.session-headroom
       full: block.machine-full         # (no session fits, a resource past its goal, or the headroom stale)
-    expr: max(ready, fixes) * min(open, 1) * (1 - over) * (busy < min(pool, busy + room)) * (1 - full)
+      held: goal.ai-not-held.off       # (the provider's usage limit, till its reset: dev/bin/aihold.py)
+    expr: max(ready, fixes) * min(open, 1) * (1 - over) * (busy < min(pool, busy + room)) * (1 - full) * (1 - held)
     out: block.implementor
   implementor:
     type: ai
@@ -228,7 +229,8 @@ blocks:
       pool: stock.reviewer-pool
       room: auxiliary.session-headroom
       full: block.machine-full
-    expr: waiting * (1 - over) * (busy < min(pool, busy + room)) * (1 - full)
+      held: goal.ai-not-held.off
+    expr: waiting * (1 - over) * (busy < min(pool, busy + room)) * (1 - full) * (1 - held)
     out: block.reviewer
   reviewer:
     type: ai

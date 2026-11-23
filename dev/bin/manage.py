@@ -32,6 +32,7 @@ import uuid
 sys.dont_write_bytecode = True
 import agents  # noqa: E402
 import fac  # noqa: E402
+import flakes  # noqa: E402
 import onmain  # noqa: E402
 import runs  # noqa: E402
 
@@ -228,7 +229,7 @@ def moved(cfg: dict, a, got: dict, said: str, bad: list[dict]) -> None:
 def do_flake(cfg: dict, a) -> str:
     if not re.fullmatch(r"[\w./-]+\.py::\S+", a.test):
         raise Refused(f"{a.test!r} is not a test id (path.py::name)")
-    record("flake.seen", f"flake/{fac.slug(a.test, 80)}", test=a.test, times=1, seen_at=time.time(), by=BY[0], why=a.why)
+    flakes.say("flake.seen", a.test, as_=BY[0], times=1, seen_at=time.time(), by=BY[0], why=a.why)
     intervene("flake", a.test, a.why, a.cls)
     return f"{a.test} recorded as a flake"
 
