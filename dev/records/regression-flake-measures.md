@@ -65,7 +65,9 @@ most reversible one (a YAML edit undoes it):
 - `flakes-fixed` counts every move to `fixed`, main-mend's included. `flake-fix-hours` counts a `seen` stay only when
   it goes straight to `fixed`. A seen flake that went to `main-broken` is counted in `main-repair-hours` from that
   move.
-- Net lines outside tests/, docs/ and dev/: 0 (everything is under dev/).
+- Net lines outside tests/, docs/ and dev/: 0 (everything is under dev/). Read as this definition writes it
+  (outside tests/), the change is 126 net: flakes.py +50, guarantees-flakes.yaml 64, dev/README.md +12.
+Overrun reason: only under the definition's "outside tests/" reading: the new model file is 64 lines of the parts the Change lists (with descriptions and the comment on the per-item choice), and flakes.py's readings are 50; the factory's rule counts none of it (all under dev/).
 - Not run here: the whole unit suite and the four browser files (the factory's). `ruff check dev/bin` names two
   findings in files this gap does not touch (dev/bin/plan.py B023, dev/bin/review.py E501). ruff on dev/bin/flakes.py
   and on `ergostat tests scripts` is clean.
