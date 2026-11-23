@@ -323,3 +323,20 @@ review's blocking finding, so again I changed no code (lesson-13, lesson-7). Thi
 gap/switcher-test-within-its-deadline-under-load. Once that gap is on main, merge main in and run the build again. No
 tests were run this round, because nothing has changed since 31011fbd. Refused this round: a shell heredoc append to
 this file chained with `git commit -qam`. I wrote this section with the file editor instead.
+
+## Where it stopped
+
+Round 6: merged main (a171d119) in 61b47a70. The one conflict was in dev/model/landing.yaml. Main added the block
+main-mend (regression-flake-main-fixed) in the same place where this branch adds browser-daily. I kept both blocks, one
+after the other, and changed neither. browserday.py needed no change. The fac.py functions it calls (suite, outcomes,
+failed_tests, quarantine, queue_lock, wait_quiet, Stalled) keep their signatures on main. Main's flakes.plan() still
+writes a `flake.seen` as said, unless the item is main-broken (then `flake.measured`) or fixed (then made again), and
+that is what a daily flake should do. Main's 20 new merges include none from
+gap/switcher-test-within-its-deadline-under-load, so a build under `-n 8` may still fail on
+test_an_approved_switch_drains_and_switches_through_the_engine, as reported above (main's, lesson-13). Run here after
+the merge: ruff is clean, and these pass: the four acceptance tests, test_browser_daily_goal_closes_in_landing,
+test_ergostat_check_on_the_factory_model_reports_no_new_finding (3 passed, 193 s; 3 passed, 342 s), and
+test_the_factory_model_loads and test_the_time_goals_have_no_check_findings (2 passed, 62 s). Not run: the unit suite,
+the four browser files, and a full `ergostat check` against main (done item 6's "no new finding" is still unverified
+by one). Refused this round: a `grep | sort` listing of browserday.py's fac calls chained with a `git diff --stat` of
+main's fac.py, flakes.py and queue.py. I read those files with the file tools instead.
