@@ -50,3 +50,13 @@ test_an_unstacked_gap_builds_as_before's 120 s bound per implement.py run (about
 Why implement.py takes about 60 s is outside this gap (lesson 13) and belongs in its own gap. Not run on clean main
 here. A note on process: a stray single-test run was started while the whole-file run was going and was stopped after
 10 s, and a first whole-file run was stopped by its own 600 s limit at 34% (its last F was the test it was killed in).
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-23 03:01).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 8: nack queue: the push of 166e5ae0fd95 (gap/graph-draws-every-dependency) is requested
+- attempt 9: nack queue: the push of 76e1a9ab1945 (gap/perf-segments-item-span-first) is requested
+- attempt 10: nack queue: the push of 2985c7826921 (gap/milestone-kind-and-lifecycle) is requested
+- attempt 11: nack the fast suites failed (build: tests/test_factory.py::test_an_approved_switch_drains_and_switches_through_the_engine)
