@@ -2,8 +2,9 @@
 `resources.py line` the status line.
 
 Every reading comes from one snapshot (run/resources/snapshot.json), taken under a lock at most every 25 s, and the
-slow ones (Docker's disk, the factory's folders: slow.json) at most every 10 minutes; each command under a timeout, a
-reading it cannot give left out (its sensor then fails, and goes stale). macOS (sysctl, vm_stat, iostat, top) or Linux (/proc).
+slow ones (Docker's disk, the factory's folders, the Docker VM's open files: slow.json) at most every 10 minutes;
+each command under a timeout, a reading it cannot give left out (its sensor then fails, and goes stale). macOS (sysctl, vm_stat, iostat,
+top, lsof) or Linux (/proc).
 Sizes are in GB of 2^30 bytes, CPU in cores, utilisation a share.
 
 session-headroom is how many more sessions fit: the least, over host CPU, host memory, the Docker VM's CPU and memory,
@@ -161,6 +162,28 @@ def docker(info: str, stats: str) -> dict:
             "factory-memory": round(sum(c["memory"] for c in mine.values()), 3)}
 
 
+VM = "com.apple.Virtualization.VirtualMachine"
+
+
+def open_files(lsof: str) -> int | None:
+    """`lsof -n -P -F f -p <pids>`: the most files any one of those processes holds open (its limit is per process);
+    None when no process is listed."""
+    counts = []
+    for x in lsof.splitlines():
+        if x.startswith("p"):
+            counts.append(0)
+        elif x.startswith("f") and counts:
+            counts[-1] += 1
+    return max(counts) if counts else None
+
+
+def vm_open_files() -> int | None:
+    """The open files of Docker Desktop's VM (macOS only: none elsewhere, nor while no VM runs): its file sharing keeps
+    one for every file a container read through a bind mount (dev/records/suites-copy-their-checkout-into-the-container.md)."""
+    pids = sh("pgrep", "-f", VM).split() if sys.platform == "darwin" else []
+    return open_files(sh("lsof", "-n", "-P", "-F", "f", "-p", ",".join(pids), timeout=90)) if pids else None
+
+
 def disk_free(cfg: dict) -> float | None:
     """The least free on the volumes holding <live> and Docker's data."""
     where = [fac.path(cfg, "live"), Path.home() / "Library/Containers/com.docker.docker/Data", Path("/var/lib/docker")]
@@ -170,7 +193,7 @@ def disk_free(cfg: dict) -> float | None:
 
 # ---- the snapshot
 
-SLOW_READINGS = ("docker-disk", "sessions-disk", "installs-disk", "factory-disk")
+SLOW_READINGS = ("docker-disk", "sessions-disk", "installs-disk", "factory-disk", "vm-open-files")
 
 
 def take(cfg: dict) -> dict:
@@ -182,7 +205,7 @@ def take(cfg: dict) -> dict:
 def take_slow(cfg: dict) -> dict:
     import cleanup
     return {"docker-disk": docker_df(sh("docker", "system", "df", "--format", "{{json .}}", timeout=30)),
-            **cleanup.sizes(cfg)}
+            "vm-open-files": vm_open_files(), **cleanup.sizes(cfg)}
 
 
 def kept(cfg: dict, name: str, fresh: float, measure) -> dict:
