@@ -1414,7 +1414,10 @@ def test_flakes_few_names_the_oldest(tmp_path):
     p.events.add("flake.fixed", item="flake/t5", at=now - 3600)
     for event, hours in (("flake.seen", 30), ("flake.main-broken", 20), ("flake.main-fixed", 2)):   # seen, main's, fixed
         p.events.add(event, item="flake/t6", data={"test": "t6"}, at=now - hours * 3600)
-    p.events.add("flake.fixed", item="flake/t4", at=now - 5 * 3600)          # main-broken to fixed: never seen
+    p.events.add("flake.fixed", item="flake/t4", at=now - 5 * 3600)          # main-broken first, then fixed
+    p.events.add("flake.main-broken", item="flake/t5", data={"test": "t5"}, at=now - 1800)   # a remake, from fixed
+    for event, hours in (("flake.seen", 10), ("flake.main-broken", 5)):     # seen, then main's, not fixed yet
+        p.events.add(event, item="flake/t7", data={"test": "t7"}, at=now - hours * 3600)
     value, breaking, n = worst(p.model.spec, p.model.spec.goals["flakes-few"], None, p.events, now)
     assert [b["item"] for b in breaking] == ["flake/t3", "flake/t1"] and n == 2 and round(value) == 80
     counted = {}
@@ -1422,8 +1425,11 @@ def test_flakes_few_names_the_oldest(tmp_path):
         q = next(iter(spec.flows[name].sensors.values())).items
         key, state = ("to", q["entering"]) if q.get("entering") else ("from", q["leaving"])
         counted[name] = len(moves_of(p.events, p.model.spec, "flake", key, state, 0.0, now + 1, q.get("where")))
-    assert counted == {"flakes-seen": 5, "flakes-fixed": 2}                   # t6 left seen once; t4 was never in
-    assert in_states(p.events, p.model.spec, "flake", ["seen"], until=now + 1)[0] == 5 - 2
+    # t6 and t7 left seen once each (t7 not fixed: a sensor entering fixed would miss it); t4, main-broken first, is
+    # drawn as arriving in seen and leaving it at once (the kind's first state); t5's remake from fixed straight into
+    # main-broken is neither: 7 in, 4 out, 3 seen
+    assert counted == {"flakes-seen": 7, "flakes-fixed": 4}
+    assert in_states(p.events, p.model.spec, "flake", ["seen"], until=now + 1)[0] == 7 - 4
 
 
 def pools_module():

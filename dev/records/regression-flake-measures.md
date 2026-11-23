@@ -175,3 +175,30 @@ allows-findings: [missing-feedback goal.flakes-few: unserved until regression-gu
   not what it was seen to find. The commit was refused too, so this round's edits are not committed.
 
 Overrun reason: only under the definition's "outside tests/" reading: about 124 net lines (guarantees-flakes.yaml 61, flakes.py 50, dev/README.md 13, guarantees.yaml 0), each the parts the Change lists with their descriptions; the factory's rule counts none of it (all under dev/).
+
+Answering the six check findings sent back in round 3 (implementor, 2026-11-23, a later session). The model is not
+changed, and the `allows-findings` line was not edited. The six (`kind-enters-many-times items.flake`,
+`missing-feedback` on both goals, `parameter-unused` on both setpoints, `stock-without-flows stock.flakes-open-hours`)
+are what round 3 left on purpose to answer the review's blocking finding. The review asked for the person blocks, the
+loops and the guarantees.yaml rerouting to come out, with the findings left under an appended `allows-findings` line.
+That line is above, and it names all six. The gate did not see it in this run, because dev/bin/implement.py:251 reads
+the definition once at the run's start, before round 3's session appended the line. Making the six go again would
+mean putting back the blocks that ask the coordinator and the rerouting that the review failed. `missing-feedback`
+needs a block that reads the goal (ergostat/spec/findings.py:27-32), and `kind-enters-many-times` needs
+`main-tests-broken` to start from `flakes-open`. So I chose the most reversible option and kept the review's shape.
+If the owner wants the findings cleared instead, the round-2 model (2e876eb1..6689b810) is the way back. Reading the
+definition again after each round is a change to implement.py, so it would be its own gap (lesson 13).
+- First run of round 3's test, which no earlier session ran: `test_flakes_few_names_the_oldest` failed on the
+  flows' counts (6 in and 3 out, against the 5 and 2 the test expected). The model was right and the test was wrong.
+  The record draws a flake whose first event is `main-broken` (t4) as arriving in `seen`, the kind's first state, and
+  leaving it at once (seen through `ergostat.spec.items.moved_items`). So `flakes-seen` and `flakes-fixed` still add up
+  to `flakes-open`. The test now expects that. It also adds a remake from `fixed` straight into `main-broken` (t5),
+  which neither flow counts, and a flake that goes `seen` to `main-broken` and is not fixed yet (t7): 7 in, 4 out,
+  3 seen. With the old sensor (`entering: fixed`) put back, the test failed (`flakes-fixed` 3, not 4). With
+  `leaving: seen` restored, it passed.
+- Run here and passing: the four acceptance tests, `test_the_guarantees_model_checks_clean`,
+  `test_main_green_stale_is_off`. `uv run ruff check ergostat tests scripts dev/bin/flakes.py` is clean.
+  Refused: `uv run ergostat check --json --no-coherence` (Bash denied). The findings were read through
+  `ergostat.spec.read` in the test (no errors, and nothing on this gap's parts outside the allows-findings line).
+  Not run: the whole unit suite and the four browser files (the factory's).
+- Size unchanged: this round changed only tests/test_factory.py and this record.
