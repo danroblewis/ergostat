@@ -1401,7 +1401,7 @@ function inboxAnswer(a) {
     try {
       const r = await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q);
       ANSWERED.set(a.what, { ...r, what: a.what, note: q.note, time: Date.now() / 1000 });
-      row.parentElement?.replaceWith(answeredRow(ANSWERED.get(a.what)));
+      said.replaceChildren(" ", ...answeredSays(ANSWERED.get(a.what)).flat().filter(Boolean));   // in its row while held; then answeredRow
       refreshHeader();
     }
     catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
@@ -1433,15 +1433,16 @@ function showGoal(name) {
   if (box && !(S.graph?.open || []).includes(box)) S.toggleSystem?.(box);
   openLoop(name);
 }
-/* what the owner answered here, in place of its row until the page is next opened: what was done, by whom, when */
+/* what the owner answered here, said in its row and then in place of it until the page is next opened: what was
+   done, by whom, when */
 const ANSWERED = new Map();
-function answeredRow(x) {
+function answeredSays(x) {
   const at = new Date(x.time * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
   const to = x.item ? `/item/${encodeURIComponent(x.item)}` : x.link;
-  return h("div", { key: `answered ${x.what}`, "data-answered": x.what }, h("b", {}, x.what), " ",
-    `${{ approve: "Approved", deny: "Denied", done: "Done" }[x.verb]} by you at ${at} (${x.said})`, x.note ? `, reason: ${x.note}` : "",
-    to ? [" · see ", h("a", { href: to }, x.item || x.what)] : null);
+  return [`${{ approve: "Approved", deny: "Denied", done: "Done" }[x.verb]} by you at ${at} (${x.said})`, x.note ? `, reason: ${x.note}` : "",
+    to ? [" · see ", h("a", { href: to }, x.item || x.what)] : null];
 }
+const answeredRow = (x) => h("div", { key: `answered ${x.what}`, "data-answered": x.what }, h("b", {}, x.what), " ", answeredSays(x));
 
 function renderSide(side, g, view) {
   const st = S.status || { attention: [], loops: {} };
@@ -1463,9 +1464,9 @@ function renderSide(side, g, view) {
   // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
   // colour is not the only cue.
   const ask = (a) => (Array.isArray(a.answer) && a.kind !== "request") || a.waiting;
-  const waiting = problems.filter(ask);
+  const waiting = problems.filter((a) => ask(a) && !ANSWERED.has(a.what));   // (answered here: drawn as answered)
   const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
-  const rest = problems.filter((a) => !waiting.includes(a) && !off.includes(a));
+  const rest = problems.filter((a) => !ask(a) && !off.includes(a));
   const count = (xs) => h("span", { class: "muted" }, ` ${xs.length}`);
   // a command the CLI would suggest becomes a link to the same view here
   const linked = (says) => {

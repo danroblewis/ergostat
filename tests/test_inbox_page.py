@@ -435,9 +435,12 @@ def test_a_denied_row_says_by_whom_and_links_its_item_whose_page_shows_it(ticket
         row.wait_for(timeout=20000)
         row.locator('input[aria-label="Why"]').fill("not on a Friday")
         row.locator('button[data-verb="deny"]').click()
+        note = row.locator(".inbox-act .note")          # while the reader is in the list: said in the row held
+        pg.wait_for_function("(el) => el.textContent.includes('Denied by you at')", arg=note.element_handle(), timeout=20000)
+        assert note.locator('a[href="/item/ticket%2FSCRUM-2"]').count() == 1, note.inner_text()
+        leave(pg)                                       # the list let go: the row drawn again as answered
         done = pg.locator(f'[data-answered="action/{short}"]')
         done.wait_for(timeout=20000)
-        leave(pg)                                       # the list let go, so it is drawn again from the record
         for _ in range(2):                              # the side list drawn again from the record: still there
             with pg.expect_response(lambda r: "/api/" in r.url, timeout=20000):
                 pass

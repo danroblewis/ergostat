@@ -496,9 +496,9 @@ function actionsAbout(as, done) {
   const said = (a) => (a.state === "denied" ? `${a["approved by"]}${at(a, "denied")}`
     : `approved by ${a["approved by"]}${at(a, "approved")}` + (a.state === "approved" ? "" : `, ${a.state}${at(a, a.state)}`));
   return h("div", {}, as.map((a) => h("div", { class: "claim" },
-    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : ": ",
+    h("p", {}, h("a", { href: `/item/${encodeURIComponent(a.id)}`, class: "plain" }, h("b", {}, actionSays(a))), a.state === "requested" ? " " : `: asked by ${a.by}, `,
       h("span", { class: a.state === "requested" ? "s-open" : a.state === "denied" || a.state === "failed" ? "s-off" : "status" }, a.state === "requested" ? "waiting for approval" : said(a)),
-      h("span", { class: "muted" }, a.state === "requested" ? ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}` : `, asked by ${a.by}`)),
+      a.state === "requested" ? h("span", { class: "muted" }, ` ${ago(a.time)}, gate ${a.gate}, asked by ${a.by}`) : null),
     commandBox(a.command),
     actionAnswer(a, done))));
 }

@@ -49,3 +49,28 @@ Built, within the budget (about 30 net lines outside `tests/`).
 Test: `tests/test_inbox_page.py::test_a_denied_row_says_by_whom_and_links_its_item_whose_page_shows_it`. I broke the
 code three ways and the test failed each time: answered rows not drawn again (it failed at the "still there" check),
 "approved by" dropped from the item line, and the item dropped from the answer.
+
+## Where it stopped (round 2)
+
+Main (52c675fe) is merged in. It conflicted in `diagram.js`, `pages.js`, `tests/test_inbox.py` and
+`tests/test_inbox_page.py`. Built, within the budget (25 net lines in `ergostat/`, counted against `main`).
+
+- `/diagram` side list: main now splits the list into three groups and holds it still while the reader is in it.
+  An answered row now stays in its place, with its reply in the row, until the reader leaves. The branch now follows
+  that rule. On Approve, Deny or Done, the row's reply becomes the confirmation (`Denied by you at HH:MM (denied),
+  reason: … · see <item>`, with the link). The row is no longer swapped out at once, because that broke main's
+  hold-still tests. When the reader leaves, the row is drawn again as the `data-answered` row at the top of "Waiting
+  for you". It stays there until the page is loaded again. An entry answered here is left out of the waiting group
+  (and is not moved into housekeeping), so a late graph answer can't draw it twice.
+- `/item/…` Gated actions: the line now uses main's `actionSays` and `commandBox`. Who answered comes from main's
+  `record.who` text (`approved by`), so a gate's own denial, and an approval a later denial overrode, read the way
+  the record words them. An answered line reads `<action>: asked by writer, approved by owner (offline stand-in)
+  03:24, ran 03:24` or `…: asked by …, denied by owner (reason) 04:02`. Main's
+  `tests/test_agents_page.py` checks for `asked by writer, approved by owner (offline stand-in)`, so "asked by" comes
+  first. Round 1 left out the brief's "(offline stand-in)". It now shows when the record holds it as the answer's
+  note, as main records it.
+- Tests: kept both sides. In `tests/test_inbox_page.py`, main's `pushes` fixtures sit next to the branch's
+  `ticket_site`. The acceptance test now checks the reply in the held row first ('Denied by you at' and the item
+  link), then the `data-answered` row after the reader leaves.
+- Checked that the test can fail, three ways: the confirmation not put in the row (failed), answered rows not drawn
+  again (failed), "approved by" dropped from the item line (failed).
