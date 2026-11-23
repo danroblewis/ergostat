@@ -711,7 +711,8 @@ def test_a_fixed_flake_seen_again_is_made_anew(tmp_path, monkeypatch):
         d = flake_now(flakes, test)
         assert d["state"] == again.split(".")[1] and not d["refused"], d["refused"]
         assert d["fields"]["times"] == 1 and d["fields"]["gaps"] == ["gap/b"] and d["fields"]["main_broken_at"] == 9.0
-        assert not {"main_fixed_at", "fixed_by", "green_passes"} & set(d["fields"])
+        assert not {"main_fixed_at", "fixed_by"} & set(d["fields"])
+        assert d["fields"].get("green_passes") == (0 if again == "flake.seen" else None)   # (3 gone: counted anew)
 
 
 def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
@@ -734,6 +735,75 @@ def test_two_flake_writers_at_once_never_lose_a_state(tmp_path, monkeypatch):
     other[0].join(timeout=60)
     d = flake_now(flakes)
     assert d["state"] == "main-broken" and d["fields"]["main_broken_at"] == 10.0 and d["fields"]["times"] == 2
+
+
+# ---- a seen flake fixed after green queue runs (dev/records/regression-flake-fixed-after-green.md)
+
+def green_run(tmp_path, n: int, unit: str, browser: str | None = None, over: dict | None = None) -> dict:
+    """A green run's suites as queue.suites records them: unit (and browser) green, each with its log (``over``:
+    a suite's entry otherwise)."""
+    over = over or {}
+    got = {}
+    for name, text in (("unit", unit), ("browser", browser)):
+        if text is not None:
+            (tmp_path / f"{name}-{n}.txt").write_text(text)
+            got[name] = {"rc": 0, "seconds": 1, "log": str(tmp_path / f"{name}-{n}.txt")} | over.get(name, {})
+    return got
+
+
+PASSED = f"....\nPASSED {FLAKY}\nPASSED tests/test_x.py::test_other\n2 passed in 0.1s\n"
+
+
+def test_n_consecutive_green_runs_naming_the_test_passed_fix_it(tmp_path, monkeypatch):
+    flakes = flake_record(tmp_path, monkeypatch)
+    (tmp_path / "factory.toml").write_text(f'[paths]\nrun = "{tmp_path / "run"}"\n[gates]\nflake_fixed_after = 3\n')
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    for i in (1, 2):
+        assert flakes.green(green_run(tmp_path, i, "", PASSED), f"m{i}") == []           # (in the browser log)
+        d = flake_now(flakes)
+        assert d["state"] == "seen" and d["fields"]["green_passes"] == i and not d["refused"], d["refused"]
+    assert flakes.green(green_run(tmp_path, 3, PASSED), "m3") == [f"flake/{flakes.fac.slug(FLAKY, 80)}"]
+    d = flake_now(flakes)
+    assert d["state"] == "fixed" and d["fields"]["fixed_by"] == "green-runs" and d["fields"]["fixed_on"] == "m3"
+    assert d["fields"]["green_passes"] == 3
+    assert flakes.green(green_run(tmp_path, 4, PASSED), "m4") == []                     # (fixed: no longer seen)
+
+
+def test_a_seen_between_green_runs_restarts_the_count(tmp_path, monkeypatch):
+    flakes = flake_record(tmp_path, monkeypatch)
+    (tmp_path / "factory.toml").write_text(f'[paths]\nrun = "{tmp_path / "run"}"\n[gates]\nflake_fixed_after = 2\n')
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    flakes.green(green_run(tmp_path, 1, PASSED), "m1")
+    assert flake_now(flakes)["fields"]["green_passes"] == 1
+    flakes.say("flake.seen", FLAKY, gaps=["gap/b"], times=1, seen_at=2.0)
+    assert flake_now(flakes)["fields"]["green_passes"] == 0
+    assert flakes.green(green_run(tmp_path, 2, PASSED), "m2") == []                     # (one in a row, not two)
+    d = flake_now(flakes)
+    assert d["state"] == "seen" and d["fields"]["green_passes"] == 1
+    assert flakes.green(green_run(tmp_path, 3, PASSED), "m3") and flake_now(flakes)["state"] == "fixed"
+
+
+def test_a_test_absent_from_the_log_never_counts(tmp_path, monkeypatch):
+    """Unknown changes nothing: a deleted or renamed test (no PASSED line), a suite not run in that batch, a red,
+    stopped or unreadable one, a FAILED line beside a PASSED one, a quarantined flake; and a flake_fixed_after past
+    its ceiling is refused, never read as some other count."""
+    flakes = flake_record(tmp_path, monkeypatch)
+    flakes.say("flake.seen", FLAKY, gaps=["gap/a"], times=1, seen_at=1.0)
+    gone = "PASSED tests/test_x.py::test_y_renamed\nSKIPPED [1] tests/test_x.py:3: no\n1 passed in 0.1s\n"
+    for i, run in enumerate((green_run(tmp_path, 1, gone), {"ruff": {"rc": 0}}, {"unit": {"rc": 0}},
+                             green_run(tmp_path, 2, PASSED, over={"unit": {"rc": 1}}),
+                             green_run(tmp_path, 3, PASSED, over={"unit": {"stopped_by": "browser"}}),
+                             {"unit": {"rc": 0, "log": str(tmp_path / "missing.txt")}},
+                             green_run(tmp_path, 4, PASSED, f"FAILED {FLAKY} - boom\n"))):
+        assert flakes.green(run, f"m{i}") == []
+        assert flake_now(flakes)["fields"]["green_passes"] == 0, run
+    flakes.fac.add("flake.measured", f"flake/{flakes.fac.slug(FLAKY, 80)}", quarantined=True)
+    flakes.green(green_run(tmp_path, 5, PASSED), "m5")
+    assert flake_now(flakes)["fields"]["green_passes"] == 0
+    for bad in (0, 51, "5", 2.5, True):
+        with pytest.raises(ValueError, match="flake_fixed_after"):
+            flakes.fixed_after({"gates": {"flake_fixed_after": bad}})
+    assert flakes.fixed_after({}) == 5 and flakes.fixed_after({"gates": {"flake_fixed_after": 50}}) == 50
 
 
 # ---- a flake said fixed by hand, and the quarantine's release (dev/records/regression-flake-fixed-by-hand.md)
@@ -5958,6 +6028,11 @@ def test_a_failing_browser_test_is_named(tmp_path):
     fac = module("fac")
     now = run(pytest_args(suites["browser"]))
     assert fac.failed_tests(now) == ["test_b.py::test_bad", "test_b.py::test_broken"]
+    assert now.index("\nPASSED test_b.py::") < now.index("\nFAILED test_b.py::")  # (p first: the FAILED lines stay
+    #                                                                              in the 2000-char tail a failure keeps)
+    assert fac.outcomes(now, ["test_b.py::test_ok", "test_b.py::test_skipped", "test_b.py::test_bad"]) == {
+        "test_b.py::test_ok": "pass", "test_b.py::test_skipped": "unknown", "test_b.py::test_bad": "fail"}
+    assert report_chars(pytest_args(suites["unit"])) == report_chars(pytest_args(suites["browser"])) == "pfEs"
     old = run([("-rs" if a.startswith("-r") else a) for a in pytest_args(suites["browser"])])
     assert fac.failed_tests(old) == []                                          # what -rs gave: no test named
     unit = tmp_path / "unit.txt"
