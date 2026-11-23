@@ -121,7 +121,11 @@ items:
                                      # one whose fast suites failed only on main's own failures, by waits_on_main
       parent: gap                    # a sub-gap of a split (plan.py)
       duplicates: gap                # closed as a duplicate of another (backlog.py close --duplicate-of)
+      milestone: {kind: milestone, group: true, precedence: false, inverse: gaps}
+                                     # the milestone it is finished with (milestones.py assign); folded by replace, so a
+                                     # gap is in one, and the old free-text labels (not ids) stay as they were written
     fold:
+      milestone: replace
       rounds: sum
       reviews_n: sum
       fix_rounds: sum
@@ -159,6 +163,20 @@ items:
     # gap.groomed (no state): the backlog's rank, value, size, risk, why and links (dev/bin/backlog.py)
     # gap.need-met (no state): the coordinator or owner records a needs park's action done (need_met: what was done)
     # gap.resumed (no state): a park resumed (resumed_as, resumed_for, resumed_by, cleared: the condition; parks.py)
+
+  milestone:
+    id: milestone/*
+    description: a group of gaps finished together (the owner, 2026-11-22) - waiting on the milestones it depends on, active (at most [milestones] active_max at once, in rank order; an upkeep one always), completed once it has gaps and every one is merged or closed, or an upkeep one at the end of its cycle (dev/bin/milestones.py)
+    states: [waiting, active, completed]
+    final: [completed]               # no event moves a completed milestone out of it
+    on:
+      milestone.added: waiting       # milestones.py add
+      milestone.activated: active    # milestones.py pass: its dependencies completed, and room under the limit
+      milestone.completed: completed
+    show: [title, rank, upkeep, upkeep_ends]
+    # milestone.changed (no state): its dependencies (milestones.py depends)
+    relations:
+      depends_on: milestone          # precedence: active only once every milestone it names is completed
 
   review:
     id: review/*
@@ -262,12 +280,15 @@ items:
 
   research:
     id: research/*
-    description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report
-    states: [asked, answered]
+    description: a question for the researcher (dev/bin/ask.py, or a planner's) - asked, then answered with a report whose sources were checked (dev/bin/research.py); an answer with none checked is asked again once, then dead
+    states: [asked, unsourced, answered, dead]
     on:
       research.asked: asked
-      research.answered: answered
-    show: [question, gap, summary, report]
+      research.unsourced: unsourced  # no source checked: given back (counted), asked again with the why in its brief
+      research.answered: answered    # at least one source checked (sources_checked; the rest in sources_unchecked)
+      research.dead-lettered: dead   # unsourced a second time: its lease's last attempt, a dead letter
+    show: [question, gap, summary, report, sources_checked, sources_unchecked, unsourced_why]
+    fold: {unsourced: sum}           # how many answers had no source checked
 
   lesson:
     id: lesson/*
@@ -296,7 +317,7 @@ items:
     show: [kind, title, file, areas, about, carried, text]
 
 messages:
-  done: {gap: [merged, closed], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
+  done: {gap: [merged, closed], milestone: [completed], situation: [handled, failed, superseded], upgrade: [healthy, reverted, superseded, failed], research: [answered],
          lesson: [requested, applied, denied, retired], knowledge: [retired]}   # (finished, for the estimates)
   paused: {gap: [parked]}          # parked is paused, not done (the owner): continued by hand, never projected to move,
                                    # its dependents blocked by it. A dead letter stays its own status (dead.py parks it)

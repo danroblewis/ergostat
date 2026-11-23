@@ -68,7 +68,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "
                "description", "averages"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about"}
+ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -91,7 +91,7 @@ TYPE_KEYS = {
     "ai": MACHINE_COMMON | LAW_KEYS | {"prompt", "model", "run", "parse", "goal", "until", "context", "review",
                                        "workdir", "workspace", "read", "tools", "actions", "read-only", "network"},
     "person": MACHINE_COMMON | LAW_KEYS | {"ask", "goal", "until", "review"},
-    "external": {"agent", "identify"},
+    "external": {"agent", "identify", "law"},
     "judge": {"every", "accept", "threshold", "hold-out", "windows", "warm-up", "reviewed",              # judge: model (SPEC §12e)
               "judge", "kinds", "model", "max-cost", "held", "within"},                      # judge: intent (SPEC §12i)
     "onoff": {"goal", "until", "min-on", "min-off"},
@@ -468,7 +468,7 @@ class Compiler:
     # ---- sections
 
     def sensors(self, owner: Map, of: Ref, what: str) -> dict[str, Sensor]:
-        from ..library import bounds
+        from ..library import bounds, runs
         out = {}
         raw = {}
         if "sensor" in owner and "sensors" in owner:
@@ -557,7 +557,8 @@ class Compiler:
                                     timeout=self.duration(s, "timeout", sw, 120.0 if measure else 30.0),
                                     parse=str(parse) if parse is not None else None, unit=self.text(s, "unit"),
                                     description=self.text(s, "description"), where=s.where,
-                                    daemon=s.get("daemon"), push=s.get("push") is True)
+                                    daemon=s.get("daemon"), push=s.get("push") is True,
+                                    run_in=runs.OWNER if measure else runs.verdict(self.doc.uses, s.where, of, str(name)))
         return out
 
     def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
@@ -572,8 +573,8 @@ class Compiler:
         for k in ("entering", "leaving"):
             if s.get(k) is not None:
                 q[k] = str(s[k])
-        if of.kind != "flow":
-            for k in ("entering", "leaving", "over", "sum"):
+        if of.kind != "flow" and not (of.kind == "auxiliary" and ("entering" in q or "leaving" in q)):
+            for k in ("entering", "leaving", "over", "sum"):   # (an auxiliary may count the moves over a window)
                 if s.get(k) is not None:
                     self.err(f"{sw}.{k}: a stock counts the items in a state (state:); entering:, leaving:, over: and "
                              f"sum: measure a flow", s.at(k), "items-on-stock")
@@ -692,10 +693,16 @@ class Compiler:
                      f"(goal.x, stock.y), folded by replace: an event that sets it replaces the list", m.at("about"),
                      "bad-about")
             about = None
+        final = m.get("final") or []                 # states no event moves an item out of (SPEC §5a)
+        final = [final] if isinstance(final, str) else final
+        if not isinstance(final, list) or not all(isinstance(s, str) and s in states for s in final):
+            self.err(f"{what}.final: a list of its states that no event moves an item out of ([completed])",
+                     m.at("final") or m.where, "bad-final")
+            final = []
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
-                        join=joins.compile_join(self, m, what), about=about)
+                        join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final})
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""
@@ -1473,6 +1480,15 @@ class Compiler:
             else:
                 got = {k: self.ref(idf[k], w, f"{what}.identify.{k}", ("stock", "flow", "auxiliary")) for k in idf}
                 params["identify"] = got if all(got.values()) else None
+        known, raw = None, params.pop("law", None)
+        if t == "external" and raw is not None:   # a known law, declared (control/laws.py, SPEC §12d)
+            from ..control import laws
+            known, bad = laws.check(raw)
+            if m.get("identify") is None:
+                known, bad = None, [*bad, (None, "a law is declared of what it reads and sets: write identify: with it")]
+            for key, why in bad:
+                at = raw.at(key) if key is not None and isinstance(raw, Map) else m.at("law")
+                self.err(f"{what}.law{'' if key is None else f'.{key}'}: {why}", at, "bad-law")
         if m.get("until") is not None:
             sp = Setpoint.parse(m["until"])
             if sp is None:
@@ -1549,7 +1565,7 @@ class Compiler:
                      every=self.duration(m, "every", what), cron=self.cron(m, "cron", what),
                      timeout=self.duration(m, "timeout", what, 300.0), max=self.number(m, "max", what) if t in MACHINE else None,
                      min=self.number(m, "min", what) if t in MACHINE else None, mode=mode, where=m.where,
-                     on_stale=self.on_stale(m, what))
+                     on_stale=self.on_stale(m, what), law=known)
 
     def references(self, spec: Spec) -> None:
         """Every reference resolves, to the right kind of thing; one actuator per flow; no algebraic

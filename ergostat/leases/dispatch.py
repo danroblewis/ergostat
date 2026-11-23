@@ -367,9 +367,7 @@ class Dispatcher:
                 except Exception as e:                         # the watchdog ends it later
                     self.e.say(f"{b.name}: ending the lease on {item['id']}: {type(e).__name__}: {e}")
             with self.e.lock:
-                for s in self.e.after_acting(moved):
-                    self.e.read_cause[s.series] = run
-                    self.e.read_soon(s)
+                self.e._read_moved(moved, run)              # (its shard's; another's reads them itself)
                 self.e.running.discard(f"{b.name} {item['id']}")
                 self.e.finished[b.name] = time.time()
         self.e.poke(b.name)

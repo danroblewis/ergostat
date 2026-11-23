@@ -355,17 +355,49 @@ def daily_cap() -> float:
     return float(m.group(1))
 
 
+def run_alive(cfg: dict, run: str) -> bool:
+    """Whether a run's process is still there, from the engine's record of it (written before the run starts, removed
+    when it ends). A record that cannot be read counts as alive: the cap fails closed."""
+    import live
+    try:
+        pid = int(json.loads((live.state_dir(cfg) / "runs" / f"{run}.json").read_text())["pid"])
+        os.kill(pid, 0)
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    except (OSError, ValueError, KeyError, TypeError):
+        return True
+    return True
+
+
 def spent_today(cfg: dict) -> float:
-    """Dollars the factory's sessions cost over the last 24 hours, from its ledger. An unreadable line raises."""
+    """Dollars the factory's sessions cost over the last 24 hours, from its ledger. A reservation with no settlement is
+    held in full while its run is alive. A run that died (killed by a restart) never settles and what it spent is not
+    known, so it is charged twice the day's mean session, at most what it reserved, rather than holding the whole
+    reservation against the cap. An unreadable line raises."""
     ledger = run_dir(cfg) / "costs.jsonl"
     if not ledger.exists():
         return 0.0
-    since, total = time.time() - 86400, 0.0
+    since, total, unsettled, spends = time.time() - 86400, 0.0, {}, []
     for line in ledger.read_text().splitlines():
         if line.strip():
             e = json.loads(line)
-            if float(e["at"]) >= since:
-                total += float(e["usd"])
+            at, usd, run = float(e["at"]), float(e["usd"]), e.get("run")
+            if run and e.get("kind") == "reserved":
+                unsettled.setdefault(run, []).append((at, usd))
+                continue
+            if at >= since:
+                total += usd
+                if e.get("kind") == "settled" and "spent" in e:
+                    spends.append(float(e["spent"]))
+            if run and e.get("kind") == "settled" and unsettled.get(run):
+                was_at, was = unsettled[run].pop(0)
+                total += was if was_at >= since else 0.0
+    typical = 2 * sum(spends) / len(spends) if spends else None
+    for run, held in unsettled.items():
+        held = [(at, usd) for at, usd in held if at >= since]
+        if held:
+            alive = typical is None or run_alive(cfg, run)
+            total += sum(usd if alive else min(usd, typical) for _, usd in held)
     return total
 
 
@@ -395,7 +427,7 @@ class OverBudget(RuntimeError):
 def reserve(cfg: dict, usd: float, **what) -> float:
     """Charge a session's most (its --max-budget-usd) before it starts, under a lock, so two sessions never pass the
     cap together; refused (OverBudget) when it would. ``settle`` gives back what it did not spend, once its cost is
-    known: a session that times out, crashes or is killed keeps its whole reservation. Returns its time."""
+    known; a session that dies unsettled is charged as spent_today says. Returns its time."""
     with open(run_dir(cfg) / "costs.lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
@@ -742,7 +774,7 @@ STANDIN = {
                'It works.\n\n## Files to touch\n\n- `x.py` (new)\n- `standin/work.txt` (new)\n\n## Risks\n\n- none.\n\n'
                '## Acceptance tests\n\n- `tests/test_x.py::test_it`: it works.\n\n## Size budget\n\n'
                'size: M (confidence: medium)\n\n100 net lines.\n</definition>',
-    "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- none\n</report>\n"
+    "researcher": "<report>\n# The stand-in's answer\n\nNothing was read.\n\n## Sources\n\n- `docs/GAPS.md:1`: the gaps\n</report>\n"
                   "<summary>The stand-in's answer.</summary>",
     "librarian": "```json\n[]\n```", "groomer": "```json\n{}\n```",
     "pipeline_manager": '```json\n{"calls": [], "summary": "The stand-in looked and did nothing."}\n```'}

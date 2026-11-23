@@ -1395,19 +1395,32 @@ function inboxAnswer(a) {
   if (SNAP || S.at) return null;
   const said = h("span", { class: "note", "aria-live": "polite", tabindex: "-1" });
   const n = a.answer.includes("done") ? h("input", { type: "number", min: "0", step: "any", placeholder: "how many", "aria-label": "How much was done" }) : null;
-  const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": "Why" }) : null;
-  const go = (verb) => h("button", { class: verb === "deny" ? "ghost" : "", "data-verb": verb, onclick: async (ev) => {
-    // the row on the page, found from the button pressed: a refresh keeps the old nodes, and this scope's are let go
-    const row = ev.currentTarget.closest(".inbox-act"), said = row.querySelector(".note");
-    const n = row.querySelector('input[type="number"]'), why = row.querySelector('input[aria-label="Why"]');
-    // answered from the keyboard: focus goes to the reply, not with the disabled button to the body, so the list holds
-    if (ev.currentTarget.matches(":focus-visible")) said.focus();
-    for (const b of row.querySelectorAll("button")) b.disabled = true;
-    const q = { ...(n?.value ? { n: n.value } : {}), ...(why?.value ? { note: why.value } : {}) };
-    try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
-    catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; }
-  } }, { approve: "Approve", deny: "Deny", done: "Done" }[verb]);
-  return h("div", { class: "row inbox-act" }, n, ...a.answer.map(go), why, said);
+  // each button names what it answers, seen ("Approve the push") and heard (with the entry's id, unique in the list)
+  const thing = { action: `the ${a.object}`, person: `${a.object}'s ask`, advise: `${a.object}'s command`,
+                  breaker: `the reset of ${a.object}'s breaker`, steptest: "the step test", change: "the model change",
+                  request: "the modelling request" }[a.what.split("/")[0]] || a.what;
+  // read from the row on the page, not the one built: a refresh patches this row into the one there
+  const ready = (row) => { const d = row.querySelector('button[data-verb="deny"]'), w = row.querySelector('input[type="text"]');
+                           if (d) d.disabled = !w?.value.trim(); };
+  const why = a.answer.includes("deny") ? h("input", { type: "text", placeholder: "why (to deny)", "aria-label": `Why deny ${thing}`,
+                                                       oninput: (ev) => ready(ev.currentTarget.closest(".inbox-act")) }) : null;
+  const go = (verb) => {
+    const says = `${{ approve: "Approve", deny: "Deny", done: "Done with" }[verb]} ${thing}`;
+    return h("button", { "data-verb": verb, "aria-label": `${says} (${a.what})`, disabled: verb === "deny" && !typed ? "" : null, onclick: async (ev) => {
+      // the row on the page, found from the button pressed: a refresh keeps the old nodes, and this scope's are let go
+      const row = ev.currentTarget.closest(".inbox-act"), said = row.querySelector(".note");
+      const nv = row.querySelector('input[type="number"]')?.value, wv = row.querySelector('input[type="text"]')?.value;
+      // answered from the keyboard: focus goes to the reply, not with the disabled button to the body, so the list holds
+      if (ev.currentTarget.matches(":focus-visible")) said.focus();
+      for (const b of row.querySelectorAll("button")) b.disabled = true;
+      const q = { ...(nv ? { n: nv } : {}), ...(wv ? { note: wv } : {}) };
+      try { said.textContent = ` ${(await apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, q)).said}`; refreshHeader(); }
+      catch (e) { said.textContent = ` ${e.message}`; for (const b of row.querySelectorAll("button")) b.disabled = false; ready(row); }
+    } }, says);
+  };
+  // the keyboard's order: the reason before the answers, so a denial can say why; Deny waits for the reason
+  const typed = document.querySelector(`[data-inbox="${CSS.escape(a.what)}"] .inbox-act input[type="text"]`)?.value.trim();
+  return h("div", { class: "row inbox-act" }, n, why, ...a.answer.map(go), said);
 }
 
 /* an entry waiting on the owner read as a sentence (what, to what, for which item, who asks, why), linked to its page;
@@ -1454,7 +1467,7 @@ function renderSide(side, g, view) {
   // then modelling's after a rule: as many as the header's "loops off"); the rest, the model's housekeeping (folded,
   // unless a fault is in it; modelling's held requests go there). Each entry starts with its state or kind word, so
   // colour is not the only cue.
-  const ask = (a) => (Array.isArray(a.answer) && a.kind !== "request") || a.waiting;
+  const ask = waitsOnYou;                                     // (util.js: the header's "N wait for you" counts the same)
   const waiting = problems.filter(ask);
   const off = problems.filter((a) => a.state === "off").sort((a, b) => !!a.modelling - !!b.modelling);
   const rest = problems.filter((a) => !waiting.includes(a) && !off.includes(a));
@@ -1488,11 +1501,12 @@ function renderSide(side, g, view) {
       if (a.answer && a.first) { att.append(h("div", keys, said, ...inboxBody(a, href), inboxAnswer(a))); return; }
       att.append(h("div", keys, said,
         href ? h("a", { href, class: "plain" }, what) : goal ? goalButton(goal, what) : what, " ",
-        linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null));
+        linked(a.answer ? a.says.replace(/\. ergostat inbox .*$/, "") : a.says), a.answer ? inboxAnswer(a) : null,
+        a.diagnosis_in ? h("span", { class: "muted" }, ` · diagnosis in ${dur(a.diagnosis_in)}`) : null));   // its suggestion, once due
     });
     return hold(att, cls);
   };
-  side.append(h("h3", { class: "att-head" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you.", "needs"));
+  side.append(h("h3", { class: "att-head", id: "waiting", tabindex: "-1" }, "Waiting for you", count(waiting)), list(waiting, "Nothing waits on you.", "needs"));
   side.append(h("h3", { class: "att-head" }, "Goals off", count(off)), list(off, "No goal is off.", "goals-off"));
   const house = h("details", { class: "housekeeping", open: S.houseOpen ?? rest.some((a) => a.level === "bad") ? "" : null },
     h("summary", { onclick: (ev) => { S.houseOpen = !ev.currentTarget.parentElement.open; } },
@@ -1506,7 +1520,7 @@ function renderSide(side, g, view) {
     const d = h("details", { class: "suggest", open: open ? "" : null },
                 h("summary", { onclick: (ev) => { S.suggestOpen = !ev.currentTarget.parentElement.open; } }, `Suggestions (${hints.length})`));   // the reader's own choice
     for (const a of hints) {
-      const loop = /^loop (\S+)/.exec(a.says)?.[1];
+      const loop = /^loop (\S+)/.exec(a.what)?.[1];
       d.append(h("div", { class: "hint" }, loop ? goalButton(loop, h("b", {}, a.what)) : h("b", {}, a.what), " ", op(a.says), " ",
         loop ? h("a", { href: "#", onclick: (ev) => { ev.preventDefault(); showGoal(loop); } }, "Evidence") : null));
     }
@@ -1540,6 +1554,7 @@ function renderSide(side, g, view) {
   }
   side.append(legendBox(view));
   patch(out, [...panel.childNodes]);
+  if (S.toWaiting) toWaiting();                            // the header's "N wait for you", followed
 }
 
 try { if (localStorage.getItem("ergostat.loops") === "0") document.body.classList.add("no-loops"); } catch (e) { /* shown */ }
