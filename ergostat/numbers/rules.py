@@ -2,8 +2,9 @@
 it can answer (``requests.py``, ``tier: rule``), a mechanical change that is safe and certain, proposed like any
 block's (checked on a scratch copy, judged, written as the judge's policy allows):
 
-- **a stock's unit** (``no-unit``), carried along its flows from the stocks they join, or, for a stock that counts the
-  items of a kind, that kind's name in the plural, when exactly one unit is said.
+- **a stock's unit** (``no-unit``, a check finding it reads itself: ``unitless``), carried along its flows from the
+  stocks they join, or, for a stock that counts the items of a kind, that kind's name in the plural, when exactly one
+  unit is said.
 
 A queue's goal with a tolerance and a process nobody identified are control: held for the owner (``requests.OWNER``).
 
@@ -65,6 +66,20 @@ def unit(spec: Spec, r: dict) -> dict:
     edits = _set(spec, {"part": f"stock.{name}", "set": {"unit": u}})
     how = "the kind it counts" if counts and u == craft.plural(next(iter(counts)).split(".")[-1]) else "the stocks its flows join"
     return _raw("unit", f"{name}: unit {u}", [f"stock.{name}"], edits, r, f"stock {name} has no unit; {how} say {u}")
+
+
+def unitless(p) -> list[dict]:
+    """The stocks check finds with no unit (a finding, no request: ``requests.CHECK_ONLY``), as the rule tier takes
+    them, but those a change already cites (waiting, or decided: never proposed again, unless only superseded)."""
+    from ..spec import read
+    from ..spec.ir import template_made
+    from . import proposals as pr
+    from .requests import CHECK_ONLY, _citing
+    _, problems = read(p.model.path, extremes=False)
+    cites = _citing(pr.changes(p))
+    return [{"id": f"{x.code}@{x.about}", "source": "check", "code": x.code, "about": x.about, "says": x.message,
+             "tier": "rule", "check": True} for x in problems if x.code in CHECK_ONLY and not template_made(x.where)
+            and not any(c["state"] != "superseded" for c in cites.get(f"finding:{x.code}@{x.about}", []))]
 
 
 def _answered(p, spec: Spec, raw: dict, requests: list[dict]) -> list[dict]:

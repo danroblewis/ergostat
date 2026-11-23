@@ -9,8 +9,8 @@
    done: the finished vanish, and a chain through them is one dashed line, "via N done".
 
    Timeline: a Gantt chart. One row an item; its bar its states over time, from its moves (what happened), and for
-   the unfinished, faint bars ahead: what the kind's medians project, each after what it waits on (the critical
-   path method's forward pass). Arrows from each item to what waits on it; a now line, scrolled into view at load;
+   the unfinished, faint bars ahead: what the kind's medians project, each after what it waits on and each block at
+   most its capacity at once (the levelled forward pass; the simulation's run once worked out). Arrows from each item to what waits on it; a now line, scrolled into view at load;
    ctrl or cmd and the wheel zoom it, a drag moves it.
 
    Both are kept across refreshes: drawn again only when what they show changed, in place, with the reader's pan
@@ -299,14 +299,13 @@ function relTimeline(open) {
     const parts = [];
     const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 604800];
     const step = steps.find((x) => ((x1 - x0) / ((b - a) / x)) >= 80) || steps[steps.length - 1];
-    const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", ...(step < 60 ? { second: "2-digit" } : {}) });
+    const tick = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", ...(step < 60 ? { second: "2-digit" } : {}) });
+    const clock = (t) => rgClock(t, d.now, step < 60), stamp = (t) => rgClock(t, d.now);
     const nx = X(d.now);
-    const stamp = (t) => (new Date(t * 1000).toDateString() === new Date(d.now * 1000).toDateString() ? clock(t)
-      : new Date(t * 1000).toLocaleString([], { hour12: false, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }));
     for (let t = Math.ceil(a / step) * step; t <= b; t += step) {
       const x = X(t);
       parts.push(s("line", { class: "rg-grid", x1: x, x2: x, y1: RG.AXIS - 4, y2: H }));
-      if (Math.abs(x - nx) > 40 && x < width - 30) parts.push(s("text", { class: "rg-tick", x, y: 14, "text-anchor": "middle" }, step >= 86400 ? new Date(t * 1000).toLocaleDateString() : clock(t)));
+      if (Math.abs(x - nx) > 40 && x < width - 30) parts.push(s("text", { class: "rg-tick", x, y: 14, "text-anchor": "middle" }, step >= 86400 ? new Date(t * 1000).toLocaleDateString() : tick(t)));
     }
     const at = {};                                         // where each row's bar starts and ends, for the arrows
     rows.forEach((x, i) => {
@@ -335,20 +334,20 @@ function relTimeline(open) {
         s("text", { class: "rg-sub", x: 19 + (x.depth || 0) * 12 + Math.min(18, x.id.length) * 6.6 + 6, y: y + 4 }, rgClip(x.title || "", Math.max(0, 22 - (x.depth || 0) * 2 - Math.min(18, x.id.length) / 2))));
       row.append(lab);
       let lo = Infinity, hi = -Infinity;
-      const seg = (st, t0, t1, proj) => {
+      const seg = (st, t0, t1, proj, block = null) => {
         const xa = Math.max(x0, X(t0)), xb = Math.min(x1, X(t1));
         lo = Math.min(lo, X(t0)); hi = Math.max(hi, X(t1));
         if (xb - xa < 0.5) return;
-        row.append(s("rect", { class: proj ? "rg-proj" : "rg-seg", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, fill: proj && x.summary ? "none" : rgShade(kinds, x.kind, st) },
-          s("title", {}, `${x.id}: ${st}${proj ? " (projected)" : ""}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
+        row.append(s("rect", { class: proj ? "rg-proj" : "rg-seg", x: xa, y: y - RG.BAR / 2, width: xb - xa, height: RG.BAR, fill: proj && x.summary ? "none" : rgShade(kinds, x.kind, st), ...(block ? { "data-block": block } : {}) },
+          s("title", {}, `${x.id}: ${st}${proj ? ` (projected${block ? ` in ${block}` : ""})` : ""}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
       };
       for (const [st, t0, t1] of x.segments || []) seg(st, t0, t1, false);
-      for (const [st, t0, t1, , lane] of x.projected || []) {
+      for (const [st, t0, t1, block, lane] of x.projected || []) {
         if (lane === "wait") {                             // waiting in a block's queue: a thin line, not work
           const xa = Math.max(x0, X(t0)), xb = Math.min(x1, X(t1));
           lo = Math.min(lo, X(t0)); hi = Math.max(hi, X(t1));
           if (xb - xa >= 0.5) row.append(s("line", { class: "rg-wait", x1: xa, x2: xb, y1: y, y2: y }, s("title", {}, `${x.id}: queued in ${st}, ${clock(t0)} to ${clock(t1)} (${dur(t1 - t0)})`)));
-        } else seg(st, t0, t1, true);
+        } else seg(st, t0, t1, true, block);
       }
       if (x.eta?.p50 != null && x.status !== "done") {   // the estimate: a tick at the p50, a whisker to the p90
         const xa = X(x.eta.p50), xb = x.eta.p90 != null ? X(x.eta.p90) : x1;
@@ -402,9 +401,10 @@ function relTimeline(open) {
     setText(said, (rows.length > RG.BARS ? `${RG.BARS} of ${rows.length} items drawn: narrow it with the search, or choose a kind. ` : "")
       + (d.eta ? `Projected bars: one of ${d.eta.runs} runs of the simulation (levelled: no block more at once than its capacity); the tick its p50, the whisker its p90. Not modelled: a goal that switches a block off, a capacity no block declares.`
         + (Object.keys(d.eta.assumed || {}).length ? ` Assumed: ${Object.entries(d.eta.assumed).map(([b, w]) => `${b}, ${w}`).join("; ")}.` : "")
-        : (d.eta_error ? `No estimates: the simulation failed: ${d.eta_error}. The bars are each item's median times, unlevelled. `
-          : Math.abs(Date.now() / 1000 - d.now) < 5 && rows.some((x) => x.status !== "done") ? "No estimates yet: the simulation is being worked out; the bars are each item's median times, unlevelled. " : "")
-        + (d.assumed ? `No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : "")));
+        : (d.eta_error ? `No estimates: the simulation failed: ${d.eta_error}. `
+          : d.eta_pending && !SNAP ? "No estimates yet: the simulation is being worked out. " : "")
+        + `Projected bars: levelled by each block's capacity, median times${d.eta_pending && !SNAP ? "; the simulation replaces it when worked out" : ""}.`
+          + (d.assumed ? ` No item has finished a state yet: projected at ${dur(d.assumed)} each, assumed.` : "")));
     draw(); toNow();
     el.dataset.drawn = String((+el.dataset.drawn || 0) + 1);
   };
@@ -431,22 +431,26 @@ function relTimeline(open) {
   return el;
 }
 
-/* a moment as a clock time, rounded up to the minute (never earlier than it); its date too when not today */
-const rgClock = (t, now) => {
-  const c = new Date(Math.ceil(t / 60) * 60 * 1000), hm = c.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
-  return c.toDateString() === new Date(now * 1000).toDateString() ? hm : `${c.toLocaleDateString([], { month: "short", day: "numeric" })} ${hm}`;
+/* every time the Timeline prints: a clock time, rounded up to the minute (or the second; never earlier than it); its
+   date and zone too when not today */
+const rgClock = (t, now, secs = false) => {
+  const c = new Date((secs ? Math.ceil(t) : Math.ceil(t / 60) * 60) * 1000);
+  const hm = c.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", ...(secs ? { second: "2-digit" } : {}) });
+  return c.toDateString() === new Date(now * 1000).toDateString() ? hm
+    : `${c.toLocaleDateString([], { month: "short", day: "numeric" })} ${hm} ${c.toLocaleTimeString([], { timeZoneName: "short" }).split(" ").pop()}`;
 };
 /* when the last open item drawn is done, in one sentence: its kind's last finish (p50, p90), never before the
-   critical path's end; while the first estimate is worked out, said so */
+   levelled finish; before the estimates (and at a moment travelled to), the levelled finish itself */
 function rgFinish(d) {
   const key = (txt, title = "") => h("span", { class: "rg-key rg-eta", key: "eta", title }, txt);
-  if (!d.eta) return d.eta_pending && !SNAP ? key("the last item's finish: being worked out") : null;
+  if (!d.eta) return d.end > d.now ? key(`done about ${rgClock(d.end, d.now)}, levelled by each block's capacity, median times`
+    + (d.eta_pending && !SNAP ? "; the simulation replaces it when worked out" : ""), "The last projected bar's end: each item after what it waits on, each block at most its capacity at once (pool, seats, daemon), each state its kind's median time") : null;
   const last = d.items.filter((x) => x.eta && x.status !== "done").reduce((a, x) => (a && (a.eta.p50 ?? Infinity) >= (x.eta.p50 ?? Infinity) ? a : x), null);
   if (!last) return null;
   const e = d.eta.kinds[last.kind] || last.eta, lo = Math.max(e.p50 ?? Infinity, d.end), who = `last ${last.kind} (${last.id.split("/").pop()})`;
   return key(e.p50 == null ? `${who} beyond the horizon` : `${who} expected ${rgClock(lo, d.now)}, `
       + (e.p90 != null ? `by ${rgClock(Math.max(e.p90, lo), d.now)} at worst (9 in 10)` : `no worst case under 20 runs (${d.eta.runs})`),
-    `When the last open ${last.kind} is done: the p50 (expected) and the p90 (at worst) of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework; never before the critical path's end (${rgClock(d.end, d.now)}). Not modelled: a goal that switches a block off, a capacity no block declares`
+    `When the last open ${last.kind} is done: the p50 (expected) and the p90 (at worst) of ${d.eta.runs} runs of a simulation of every open item, each block at most its capacity at once (pool, seats, daemon), from the record's run times, failures and rework; never before the levelled finish (${rgClock(d.end, d.now)}). Not modelled: a goal that switches a block off, a capacity no block declares`
       + (e.visits && Object.keys(e.visits).length ? `\nExpected visits per state, from the first: ${Object.entries(e.visits).map(([st, v]) => `${st} ${v.toFixed(2)}`).join(", ")}` : ""));
 }
 
@@ -459,8 +463,8 @@ function relLegend(m, d, pick = null, chosen = null) {
       class: `rg-key rg-${st}${pick ? " ghost" : ""}${chosen === st ? " on" : ""}`, key: st,
       ...(pick ? { title: chosen === st ? "Show every status again" : `Show only the ${RG_WORD[st]}`, "aria-pressed": String(chosen === st), onclick: () => pick(st) } : {}) },
       h("i", {}), `${n[st]} ${RG_WORD[st]}`)),
-    crit ? h("span", { class: "rg-key rg-critkey", key: "crit", title: "The longest chain of unfinished work, by the kinds' median times: nothing on it can slip without moving the end" },
-      h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}` + (d.eta || (d.eta_pending && !SNAP) ? "" : `, ends about ${rgClock(d.end, d.now)}`)) : null,
+    crit ? h("span", { class: "rg-key rg-critkey", key: "crit", title: "The longest chain of unfinished work, by the kinds' median times, as if every block could take all of it at once: not when it is done (that is the finish beside it)" },
+      h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}: the longest chain of waits, ignoring capacity`) : null,
     rgFinish(d),
     d.eta?.whatif?.length ? h("span", { class: "rg-key whatif-said", key: "whatif" }, `what if ${d.eta.whatif.join(" and ")} (not saved)`) : null,
     d.cycles.length ? h("span", { class: "rg-key bad", key: "cycle" }, `${d.cycles.length} cycle${d.cycles.length > 1 ? "s" : ""}: ${d.cycles.map((c) => c.join(" → ")).join("; ")}`) : null,
