@@ -54,3 +54,47 @@ size: L (confidence: medium)
 - Library sensors: ergostat/library/trust.py:82-106 is an allowlist of sensor keys, so an untrusted library's journal: sensor is refused today, which is safe. The plan says 'no new trust paths', but an untrusted library that reads the owner's files into the record would be one. Add "journal": (NO, "reads files in the owner's folder into the record") explicitly, say so in SPEC, and do not claim library journal sensors work.
 - Ids include the file's name, so a journal rotated by renaming to another *.jsonl name (x.jsonl -> x.1.jsonl) has every line recorded again. Either leave the file name out of the id when the identity (dev, inode) is unchanged, or say this limit in SPEC next to the identical-line limit (lesson-8).
 - test_value_line_reading_and_stop_on_reload should assert thread.is_alive() is False after close(), within a bound. Put the thread's join in Engine.close() (engine.py:2008) before ergostat.stopped is recorded, using a stop Event the poll waits on (not time.sleep), so the stop is not delayed by up to one interval.
+
+## Where it stopped
+
+Built, round 1. Every definition-of-done point is in the code, and all eight acceptance tests pass. Each of these
+breaks was seen to fail a test (lesson-9), and then put back:
+- no tail-hash check: the grows-past case fails;
+- ids from the offset alone: the rewrite test fails;
+- refusals under fresh ids: three tests fail;
+- a corrupt state read as "at the end": the unreadable-state test fails;
+- no join in close(): the stop test fails;
+- no refresh in swap(): the reload test fails.
+
+Overrun reason: 253 net lines against 190. The plan review's notes, all taken, added code the estimate did not count: the module's own observer path (cite check, message refusal, ids for each refusal and each once-said notice), per-engine ownership through own() wired into start_all, swap and close instead of the lead alone, and the device, inode and tail-hash rewrite check. The new module, journal_source.py, is 217 of the 253 lines, and about a fifth of those are docstrings and comments.
+
+Answers to the plan review:
+- Own observer path: `Journals.line` records each seen event under the reader's id (a line's own `cite:` id wins and
+  is checked by `mirror.valid`). Each refusal's id is made from sensor, file, offset, line bytes, "refused" and its
+  index. Each once-said notice's id is made from sensor, file and kind (went-back adds the old inode, offset and
+  tail). The tests for unreadable state and for bad lines count `sensor.refused` across a re-read.
+- Ownership: each engine reads the journal sensors it owns, through `own()`. There is one thread per engine that owns
+  any. It starts in start_all, is refreshed in swap() and ends in close(). Its state file is per shard
+  (`journals-SHARD.json`). "lead" is not claimed in SPEC. Not tested with a sharded model.
+- Rewrite past the old size: the state keeps (st_dev, st_ino) and a hash of the 4,096 bytes before the offset. A
+  change in either counts as went back, and the test covers the grows-past case.
+- Kind branches: SENSOR_KEYS and the kinds list and message include journal. read_sensor says why a journal sensor
+  is not read on demand. changeset `_signature` counts `journal` as a source. The pass (journal sensors are not
+  `measured`, so they are not scheduled) and cli/spec_cmds.py backfill (a journal sensor records a value, so a
+  backfill is allowed as for run:) needed no change.
+- Library: trust.py has `"journal": (NO, "reads files in the owner's folder into the record")`, and SPEC §2a says
+  so. Library journal sensors are not claimed to work. No test pins this refusal: it rests on trust.py's allowlist.
+- Rename rotation: this limit is said in SPEC §6 next to the identical-line limit (the more reversible choice). The
+  agent guide says to rotate to a name not ending in `.jsonl`.
+- Stop: the poll waits on a stop Event. Engine.close() joins the thread (at most 5 s) before `ergostat.stopped`. The
+  test asserts `thread.is_alive()` is False, within 5 s.
+
+Decided alone (no one to ask), each reversible:
+- A message line in a journal is refused. A re-read would relay it again, since messages carry no id. This is the
+  same rule as a sandboxed run's messages.
+- A `{"value": N}` line read again (lost state, went back) is taken as a reading again at the time it is read. SPEC
+  says so.
+- The folder cap is said once per sensor (one notice naming the first file left out), not once per file left out.
+
+Not run here: the whole unit suite and the browser files (the factory runs them; no page changed). Local `main` has
+not moved since the clone, so there was nothing to merge.
