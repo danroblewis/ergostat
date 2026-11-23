@@ -74,6 +74,8 @@ def test_an_outage_on_the_last_attempt_is_given_back_uncounted_not_parked(fac, m
         rc, stopped, lines = guarded(fac, e)
         assert rc == 0 and not stopped, "parked on an outage"
         assert nacks(lines)[-1]["count"] is False and "Docker is unreachable" in nacks(lines)[-1]["why"]
+        measured = [x["data"] for x in lines if x.get("event") == "gap.measured"]
+        assert measured and not any("build_hours" in d for d in measured), "its hours counted toward the kill rule"
     monkeypatch.setattr(outage, "docker_down", lambda: None)
     rc, stopped, lines = guarded(fac, RuntimeError("claude: error_during_execution: API Error: Connection error."))
     assert rc == 0 and not stopped and "the AI service is unreachable" in nacks(lines)[-1]["why"]

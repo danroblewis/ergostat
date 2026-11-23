@@ -845,10 +845,11 @@ def guarded(given: dict, began: float, measured: str, stop) -> int:
     (Docker or the AI service unreachable, outage.py) is neither: given back uncounted, put off, tried again."""
     import traceback
     e = sys.exc_info()[1]
-    say("gap.measured", **{measured: round((time.time() - began) / 3600, 3)}, last_error=f"{type(e).__name__}: {e}"[:500])
-    if why := _outage().of(e):
+    if why := _outage().of(e):                           # (its hours not counted toward the kill rule's either)
+        say("gap.measured", last_error=f"outage: {why}"[:500])
         nack(f"outage: {why}", after=_outage().AFTER, count=False)
         return 0
+    say("gap.measured", **{measured: round((time.time() - began) / 3600, 3)}, last_error=f"{type(e).__name__}: {e}"[:500])
     if last_attempt(given):
         stop(f"Stopped on its last attempt by {type(e).__name__}: {e}\n\n```\n{traceback.format_exc()[-1500:]}\n```")
         return 0
