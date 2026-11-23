@@ -72,6 +72,13 @@ auxiliaries:
     description: AI sessions whose refused tool calls are unknown (a timeout, a crash, a result silent on them)
     driven-by: [+stock.gaps-building]
     sensor: {run: python3 dev/bin/measure.py tool-denials-unknown, every: 10m, timeout: 1m, description: the factory's measures}
+  refused-commands-per-session:
+    unit: calls/session
+    description: >-
+      the mean Bash calls refused per AI session (chained commands, a program not allowed), over the sessions that said
+      what they were refused; the others are left out, and with none that said there is no value
+    driven-by: [+stock.gaps-building]
+    sensor: {run: python3 dev/bin/measure.py refused-commands-per-session, every: 10m, timeout: 1m, description: the factory's measures}
   size-accuracy:
     unit: share
     description: of merged gaps the planner sized, the share whose merged lines fell inside their size class (S/M/L/XL)

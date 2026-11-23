@@ -19,6 +19,8 @@ when nothing in the window to measure, but for the twelve named at the end, whic
                       result (a timeout, a crash) or a result silent on them is left out and counted on stderr, and
                       with none that said there is no value (exit 1)
   tool-denials-unknown  the sessions left out of tool-denials
+  refused-commands-per-session  the mean Bash calls refused per session (its `denied` list), over the sessions that
+                      said; the others left out and counted on stderr, and with none that said no value (exit 1)
   interventions-trend the coordinator's interventions over the last 7 days less the 7 before
   lessons-per-brief   review lessons carried per first implementor brief (knowledge.py)
   first-pass-with-lessons  first-pass-yield, of the gaps whose first brief carried review lessons
@@ -131,6 +133,8 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
             if len(unknown) == len(rows):
                 raise SystemExit("tool-denials: no value (no session in the window said what it was refused)")
         return float(sum(int(r["tool_denials"] or 0) for r in rows if "tool_denials" in r))
+    if name == "refused-commands-per-session":
+        return refused_commands([r["fields"] for r in recent(fac.items("session"), "started", since)])
     if name in KNOWLEDGE:
         return knowledge_reading(name, since)
     if name in ("size-accuracy", "size-accuracy-high"):
@@ -182,6 +186,19 @@ def reading(name: str, now: float | None = None, kind: str = "") -> float:
                    if isinstance(g.get("suites_queue"), dict) and g["suites_queue"].get("excused")}
         return round((sum(int(g.get("retries") or 0) for g in queued) + len(excused)) / len(runs), 3)
     raise SystemExit(f"measure.py: no measure {name!r}")
+
+
+def refused_commands(rows: list[dict]) -> float:
+    """The mean Bash calls refused per session (its `denied` list, sessions.py), over the sessions that said; one whose
+    list is missing or not a list (a timeout, a crash, a result silent on them) is left out and counted on stderr, and
+    with none that said there is no value."""
+    said = [r["denied"] for r in rows if isinstance(r.get("denied"), list)]
+    if len(said) < len(rows):
+        print(f"refused-commands-per-session: left out, {len(rows) - len(said)} session(s) whose refusals are unknown",
+              file=sys.stderr)
+    if not said:
+        raise SystemExit("refused-commands-per-session: no value (no session in the window said what it was refused)")
+    return round(sum(sum(str(d).startswith("Bash:") for d in ds) for ds in said) / len(said), 3)
 
 
 KNOWLEDGE = ("lessons-per-brief", "first-pass-with-lessons", "lessons-recurring", "plan-risks-held", "splits-clean")
