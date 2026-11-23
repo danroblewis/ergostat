@@ -107,3 +107,15 @@ Round 2. The review's one finding, answered:
 - Runs: tests/test_dashboard_page.py whole, 48 passed. Ruff clean. main (59600738) was already merged in; no newer
   main in this clone. The four browser files, the unit suite and demo_check were not run here (the house rule); what
   round 1 said about test_diagram_rendering.py stands, unchanged.
+
+Round 3. The review's one finding, answered:
+- `drawGraph` (panels.js): when `/api/items-graph` failed, the panel showed the error and took the drawing out of the
+  page, but kept the last good answer in `asked`. So the next answer, if it was the same, returned early and the error
+  stayed on screen until the items changed. Now the error clears `asked`, so the next answer draws the graph again. +0
+  net lines (the line was changed, not added).
+- New test `test_an_items_graph_panel_comes_back_after_one_failed_poll`: one good answer, then a 500 on the next poll
+  (the panel shows data-state="error" with no .rg-node), then the same good answer: both .rg-node boxes come back with
+  data-state="drawn". The only console error allowed is the planted 500. Lesson 9: with `asked = ""` removed it fails
+  at the last wait (the panel stays on the error).
+- Runs: tests/test_dashboard_page.py whole, 49 passed. Ruff clean. main is already an ancestor of the branch. The four
+  browser files, the unit suite and demo_check were not run here (the house rule).

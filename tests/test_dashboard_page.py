@@ -940,3 +940,32 @@ def test_an_items_graph_panel_is_drawn_by_relgraph_when_on_screen(browser, facto
     pg.locator('[data-panel-id="d0"] .panel-body').click()                         # (the Items page then reads the fakes)
     pg.wait_for_function("() => location.pathname === '/items/widget'")
     ctx.close()
+
+
+def test_an_items_graph_panel_comes_back_after_one_failed_poll(browser, factory):
+    """One poll answered 500 between two equal answers: the panel says the error, then draws the graph again
+    (review of round 2: the last good answer was kept, so an unchanged one after the error was never drawn)."""
+    ctx = context(browser)
+    answers, down = [], []
+
+    def answer(r):
+        answers.append("500" if down else "ok")
+        if down:
+            down.clear()
+            r.fulfill(status=500, body="down for a moment")
+        else:
+            r.fulfill(json=RELATED)
+    ctx.route("**/api/items-graph*", answer)
+    pg = watched(ctx, f"{factory}/dashboard?draft={diagrams('/items/widget?view=graph', tall=False)}")
+    cell = '[data-panel-id="d0"]'
+    pg.locator(cell).scroll_into_view_if_needed()
+    pg.wait_for_selector(f'{cell}[data-state="drawn"] .rg-node')
+    down.append(True)                                                              # the next answer only
+    pg.evaluate("() => dashRefresh()")
+    pg.wait_for_selector(f'{cell}[data-state="error"]')
+    assert pg.locator(f"{cell} .rg-node").count() == 0
+    pg.evaluate("() => dashRefresh()")
+    pg.wait_for_selector(f'{cell}[data-state="drawn"] .rg-node', timeout=5000)
+    assert "500" in answers and answers[-1] == "ok" and pg.locator(f"{cell} .rg-node").count() == 2
+    assert [e for e in pg.errors if "500" not in e] == []                          # only the planted failure said
+    ctx.close()

@@ -1125,7 +1125,7 @@
     async function drawGraph() {                         // the Items Graph, by relGraph; drawn again only when it changed
       const mine = ++n, d = await api("items-graph", at.ask).catch((e) => ({ err: e }));
       if (mine !== n || !el.isConnected) return;
-      if (d.err) { body.replaceChildren(h("p", { class: "panel-message-text" }, String(d.err.message || d.err))); el.dataset.state = "error"; return; }
+      if (d.err) { asked = ""; /* the drawing is gone: the next answer draws it again */ body.replaceChildren(h("p", { class: "panel-message-text" }, String(d.err.message || d.err))); el.dataset.state = "error"; return; }
       const text = JSON.stringify(d);
       if (text === asked) return;
       asked = text;
