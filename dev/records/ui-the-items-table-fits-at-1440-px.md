@@ -88,3 +88,14 @@ same place; both are kept whole. `tests/test_style_tokens.py`'s static check loo
   not fixed (lesson 13).
 Neither failure has been confirmed on clean main here: `git worktree add --detach /tmp/mainwt main` was refused in
 this session.
+
+Round 4: main (dc47a763) merged. The one conflict was in `pages.js`, at the kinds' table call: main added a pager and
+a longer caption (`, sorted among the newest N of M` when paged). The resolution takes main's side whole (pager,
+caption) and puts back the branch's three changes: `keep` on the 'in state' cell, 'latest' without `nowrap`, and
+class `items kind-items`. Nothing else changed. After the merge: ruff clean; `tests/test_style_tokens.py` 12 passed;
+`tests/test_items_page.py` with Playwright under the watchdog 60 passed, 2 failed (rc 1). Those are the two failures
+from round 3 (`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`,
+`test_actions_say_per_class_asked_approved_denied_and_whether_held`), with the same timeouts. This branch does not
+touch either, so they are reported and left alone (lesson 13). `test_the_items_table_fits_at_1440_px` passes. Not run:
+`tests/test_page_refresh.py`, the unit suite, the other browser files. `node --check` on pages.js was refused in this
+session. A syntax error would stop pages.js from loading at all, and the 60 page tests that passed all load it.
