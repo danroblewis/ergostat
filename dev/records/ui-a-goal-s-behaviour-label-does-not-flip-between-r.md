@@ -169,3 +169,19 @@ Its runs failed past their attempts (a dead letter):
 - attempt 31: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 32: nack the run ended with gap/ui-a-goal-s-behaviour-label-does-not-flip-between-r still parked
 - attempt 33: nack the implementor pool is full (run/pools.json): waits its turn
+
+## Where it stopped (continued, round 1)
+
+The merge of main (63998238) conflicted in two files. Both are resolved, and both sides are kept:
+- `pages.js`: main replaced the Loops row's error column (`e = r − y`) with 'how far' (`off_by_words`, `data-off`).
+  The branch writes time off through `shareText` ('<1%'). Kept: main's 'how far' cell, and time off through
+  `shareText`.
+- `details.js`: main replaced the loop detail's 'error' row with 'how far'. The branch writes time off through
+  `shareText` and adds `flapping: N crossings`. Kept: main's 'how far' row, and the branch's time off.
+No net lines added. No review findings were open.
+
+Run: `test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named`,
+`test_a_goals_behaviour_holds_across_refreshes_of_an_open_page` and main's
+`test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks` (3 passed, rc 0, under the watchdog);
+`tests/test_graph_cli_web.py` (41 passed); ruff clean. Not run: the whole unit suite and the four browser files in
+full (left to the factory and the merge queue).
