@@ -803,7 +803,8 @@ The defaults need no services; a project names another backend in `storage:` (ma
 storage:
   events: segments                 # or sqlite
   measurements:
-    backend: sqlite                # or victoriametrics, with url: http://127.0.0.1:8428
+    backend: sqlite                # or victoriametrics, with url: http://127.0.0.1:8428 (unnamed: see "The default")
+    run: victoria-metrics ...      # victoriametrics: the command ergostat runs and supervises (the daemon victoriametrics)
     raw: 2d                        # raw readings kept this long (never: kept until keep)
     tiers: {1m: 14d, 10m: 90d, 1h: 2y}   # then buckets of each width, each kept this long
   rollup:
@@ -928,22 +929,62 @@ buckets, a few hours of record per transaction; a source is forgotten only once 
 taken it. A reading that arrives for a span already rolled up is merged into its buckets. Every
 read stitches the sources: raw where it is kept, buckets before that; a bucketed read (a chart's
 points) takes the coarsest tier no wider than its own buckets; a read of readings one by one gets
-each old bucket's last reading. `victoriametrics` keeps every reading as
-`ergostat_reading{project, series}` in the server, which compresses and keeps them for its own
+each old bucket's last reading. `victoriametrics` keeps every reading under its series' name and bounded labels,
+with `project` (the state directory's name) and `series` (its ergostat name) beside them, in the server, which
+compresses and keeps them for its own
 `-retentionPeriod` (the open-source server does not downsample): buckets are computed by the
 server (MetricsQL over `query_range`), raw readings exported when there are few (20,000 at most),
 and old spans bucketed otherwise; a reading set aside (`forget`) is kept in
 `measurements.forgotten.json`, and the ledger of backfilled readings (section 6) in
 `measurements.backfilled.db` beside it (with `sqlite`, it is in `measurements.db`).
 
+**Names and labels in PromQL** (`victoria.promql_name`). Each label's value is a part, block or measure the model
+declares, so the labels are bounded by the model; nothing with a generated id (an item, a run) is ever a label, which
+stays in the event log.
+
+| Series | Metric and labels |
+|---|---|
+| `sensor/STOCK.SENSOR` (a sensor; `sensor/PART.set`, a setting) | `ergostat_sensor{part="STOCK", sensor="SENSOR"}` |
+| `sensor/NAME` | `ergostat_sensor{part="NAME"}` |
+| `run/BLOCK/MEASURE` (`cost_usd`, `tokens`, `cpu`, `memory`, `seconds`) | `ergostat_run_MEASURE{block="BLOCK"}` |
+| `observer/NAME/MEASURE` | `ergostat_observer_MEASURE{observer="NAME"}` |
+| `valve/NAME` | `ergostat_valve_position{valve="NAME"}` |
+| `block/NAME` | `ergostat_block_output{block="NAME"}` |
+| `KIND/REST`, any other | `ergostat_KIND{name="REST"}` |
+| `NAME` (no `/`) | `ergostat_series{name="NAME"}` |
+
+A record written before these names holds every series as `ergostat_reading{project, series}`; it is still read
+(every selector takes `ergostat_.+`) until `ergostat migrate` renames it.
+
+**Moving the readings to VictoriaMetrics** (`ergostat migrate [--url URL] [--dry-run]`, `ergostat/migrate.py`). Every
+reading the SQLite store answers (raw, and each old bucket's last reading) is copied to the server under its name and
+labels, and a series under the old single name is renamed (written under its labels, then the old name deleted). It
+is idempotent: for each series only the readings the server does not already hold under the new name, at the same
+millisecond with the same value, are sent, so a second run sends nothing and changes nothing, and a run after more
+readings were written sends only those. `measurements.db` is only read. The ledger of backfills is not copied: a file
+backfilled before is sent again by a later `--backfill`.
+
+**The default** when the YAML names no backend: a record that has one keeps it (`measurements.db`: an existing SQLite
+install, until it migrates and names `victoriametrics`; or `measurements.backend`, the mark a new record's choice
+leaves, so a server that is away is never read as "use SQLite"). A new record takes `victoriametrics` when one answers
+at `http://127.0.0.1:8428` (`/health`, within half a second) as it is first opened, and `sqlite` when none does.
+`ERGOSTAT_DEFAULT_MEASUREMENTS` (`sqlite` or `victoriametrics`) decides instead of asking (the tests set `sqlite`).
+Ergostat starts no server of its own accord: one runs because the owner runs it, or names it in `run:`.
+
+**Supervised** (`run:`, with `backend: victoriametrics`). The command becomes the daemon `victoriametrics` (section
+9.7): started with the engine although no block or sensor names it, restarted after a back-off when it exits, given up
+past `restart: max`, its process group stopped with ergostat. It serves no run and no reading (it never reads the
+protocol on its standard input). A `daemons:` entry of that name is an error. While it starts, the engine's writes
+fail as they do whenever the server is away.
+
 **Chosen by measurement** (`scripts/loadtest.py`, the demos' records tiled to 1, 7 and 30 days;
 the numbers in `docs/proposals/harness-parity-plan.md`, section 4). The segmented log is the
 default for events: a fifth of SQLite's size for the same record (110 MB against 557 MB for a week
-of image-squeeze), written faster, and read as fast or faster by every page. SQLite stays the
-default for measurements: VictoriaMetrics holds them in almost nothing and answers the pages as
-well, but every reading the engine reads is a request to the server, and the engine kept to under
-one reading a second where it makes six; it is for a project that already runs one, until the
-engine reads through a cache.
+of image-squeeze), written faster, and read as fast or faster by every page. For measurements the
+owner chose VictoriaMetrics as the default for new installs (2026-11-23: dashboards are PromQL, and SQLite answers
+none), against what was measured here: VictoriaMetrics holds the readings in almost nothing and answers the pages as
+well, but every reading the engine reads is a request to the server, and the engine kept to under one reading a
+second where it makes six, until the engine reads through a cache. That measurement was not repeated for this choice.
 
 **Upkeep.** The engine rolls items up, forgets what is past `keep`, and rolls the measurements into
 their tiers every `rollup.every` (an hour). `ergostat compact` does it now (`--dry-run` says what
@@ -1376,6 +1417,21 @@ reads the event log.
   sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
   A refusal the source places in the text (Prometheus's `2:3: parse error: ...`, or `at char 5`) also has `error_at`,
   `[line, column]` from 1, the column in UTF-8 bytes as Prometheus counts it (the page turns it into a place in the text).
+- **The built-in source `ergostat`.** ergostat's own readings, as a `prometheus` source no model declares (one the model
+  declares under that name is its own instead). Over `victoriametrics` (section 4b) it asks the server that holds them,
+  with `extra_label=project=<state key>` on each query and suggestion, so the server answers only this project's series
+  whatever the text says; the names and labels are section 4b's (*Names and labels in PromQL*), e.g.
+  `sum by (block) (increase(ergostat_run_cost_usd[1d]))`. It is listed in `datasources` and offered by the editor. Over
+  `sqlite` it is not listed, and a panel naming it is refused in its own result (`error_kind: refused`) with what it
+  needs: VictoriaMetrics, `storage: measurements: victoriametrics` and `ergostat migrate`; the page's other panels are
+  answered as before. **`rate()` and `increase()` differ from Prometheus's.** Prometheus takes the samples inside the
+  window, at least two, and extrapolates their change toward the window's edges (not past where a counter was zero), so
+  an integer counter's increase can be fractional and a window with one sample has no answer. VictoriaMetrics counts
+  from the last sample before the window and does not extrapolate, so the increase of an integer counter is a whole
+  number and a window with one sample is answered. One rise by one in five minutely samples: Prometheus says 1.125,
+  VictoriaMetrics 1 (`tests/test_metrics_store_labels.py::test_rate_and_increase_differ_from_prometheus_as_recorded`,
+  which runs against a real binary; Prometheus's side is its algorithm, written in the test). VictoriaMetrics's side is
+  what its documentation says (MetricsQL); it has not yet been seen to pass, since no binary was where it was written.
 - **The query editor.** A language with an editor of its own gets it in place of the text field (`static/promql.js` for
   PromQL, registered as `queryEditors.PromQL`; the panel editor picks by the source's language and names none). The PromQL
   one highlights the text as it is written (functions, keywords, metrics, labels, strings, numbers), completes PromQL's
