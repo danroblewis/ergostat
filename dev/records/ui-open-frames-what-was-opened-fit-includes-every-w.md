@@ -141,3 +141,18 @@ Round 1 (continued), after the factory merged main (af4bc34a):
   - `test_parts_chosen_with_a_box_…` (the parts do not move when dragged), `test_every_part_opens_its_panel_…` (no panel for a clicked stock) and `test_needs_attention_…` (a wait_for_function timeout) fail alone too. They kept failing with the branch's framing turned off for the run (`bars` at a fixed 60, `showSystem` returning at once, `drawnBox` giving the layout's box). The only branch code left on was the hint's text and its click. So I take these as coming with main's merge or this machine, not from the branch (lesson-13).
   - Not shown: that they fail on clean main. Refused: `git worktree add -q --detach /tmp/mainwt main && cd /tmp/mainwt && uv run ... named_tests.py ...` (Bash denied). Also refused: a background run writing to `/tmp/dr.log`. The other 28 failures were not looked at one by one.
 - Left: the factory should run these failing tests again on clean main, and hold this gap until main is fixed or they are shown to pass there. Not run here: the other three browser files and the unit suite.
+
+## Where it stopped
+
+Round 2 (continued), after the factory merged main (7a905955):
+- The merge conflicted in `ergostat/web/static/diagram.js` (the zoom bar's first two buttons) and `tests/test_graph_cli_web.py` (two tests added at the same place). I kept the branch's edge hint, which is a button, and added main's `aria-label` to Zoom out. I kept both tests (39c0e998). The code is still 39 net lines in `diagram.js` (+51, -12 against main).
+- The review's finding: the record said the demos on :8797 and :8791 are not in this clone. That was wrong. :8797 is `examples/big` (api is `examples/big/systems/api.yaml`) and :8791 is `examples/ticket-factory`, which declares `modelling`. I take that back. The tests now check those demos (d756e954):
+  - `test_fit_shows_every_line_and_label_and_no_edge_hint` runs on `ticket-factory` with `system=modelling` in Blocks and in Dynamics, and still on software-factory: 4 cases.
+  - `test_open_frames_the_system_opened_or_says_which_way_the_rest_lies[big]` opens api from its box on big. The `[software-factory]` case is the old test, with Into still checked on its `factory`.
+- Breaking the code to show the tests can fail:
+  - `showSystem` returning at once: `[big]` fails. api lands at zoom 1.0 with its bottom past the canvas (b 848 of 800) and no hint. `[software-factory]` fails too.
+  - `bars` giving no room for the toolbars: all 4 Fit cases fail. The drawing runs under the zoom bar.
+  - `drawnBox` giving the layout's box: all 4 Fit cases still pass. Since main's merge, the layout's box takes in every line and label on these demos, so the drawn box makes no difference that a test can see here. In round 1, Fit[blocks] on software-factory failed with this break. It no longer does. The drawn box stays as a safeguard. No browser test now fails without it. Only the text check in `tests/test_graph_cli_web.py` does (lesson-9).
+- Ruff: clean. `tests/test_graph_cli_web.py`: 48 passed. With Playwright, under the watchdog: the Fit, Open and `test_opening_and_closing_a_system_keeps_it_on_the_screen_and_keeps_the_pins` tests, 7 passed, rc 0.
+- Refused: a Bash call that resolved the conflicts with a python heredoc and grep. I resolved them with the editor instead. Also refused: running the named tests wrapped in `cd /work; timeout 590 ...`. The plain form from the brief ran.
+- `tests/test_diagram_rendering.py` run whole, with Playwright, under the watchdog: started in the background; its result is below if it finished in this session.
