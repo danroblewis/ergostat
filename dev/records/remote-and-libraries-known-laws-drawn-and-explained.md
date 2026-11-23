@@ -21,3 +21,18 @@ nobody to ask (each the most reversible one):
 - When the record also identifies a law for the block, the identified law is drawn (evidence over assumption) and the
   declared one stays in the block's rows. Swapping the order would be a one-line change.
 - The golden is a sha256 of the whole Blocks answer for the no-law model, taken from this branch's base before any change.
+
+Round 2: the one finding answered. The browser test is moved out of tests/test_known_laws.py (where the unit run,
+without Playwright, always skipped it) into tests/test_diagram_rendering.py as
+`test_the_blocks_view_draws_a_declared_law_cleanly_with_its_mark`, on that file's `browser` fixture and `served`, so
+it runs in the browser suite. tests/test_known_laws.py now holds the two unit tests, not three (a departure from the
+Files list's count, made because the review asked for it). No code changed this round.
+
+- Run under the watchdog with Playwright 1.63.0 (`scripts/suite_watch.py -- uv run --with playwright==1.63.0
+  python scripts/named_tests.py tests/test_diagram_rendering.py::test_the_blocks_view_draws_a_declared_law_cleanly_with_its_mark`):
+  1 passed, rc 0, not skipped.
+- Broken to check it can fail: with blocks.js's mark line put back to main's (writes only "identified"), the same
+  command failed at `assert mark == ["declared kubernetes-hpa"]` (AssertionError: []), rc 1; the line restored, it passes.
+- tests/test_known_laws.py: 6 passed. ruff clean.
+- Not run: the whole of tests/test_diagram_rendering.py (the command to run it was refused in this session) and the
+  other three browser files; they run in the merge queue.

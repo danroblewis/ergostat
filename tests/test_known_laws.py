@@ -9,8 +9,6 @@ import io
 import json
 import textwrap
 
-import pytest
-
 from ergostat.control import laws
 from ergostat.numbers import extlaw as el
 from ergostat.spec import load, read
@@ -192,28 +190,3 @@ def test_explain_says_a_declared_law_in_words_and_the_mcp_tool_says_the_same(tmp
     assert got == text, got
     alert = explain(load(model(tmp_path, "law: {kind: alert-rule, threshold: 5, side: below, for: 0}\n")), "hpa")
     assert "declared alert-rule: fires as soon as utilisation is below 5, resolves as soon as it is back" in alert, alert
-
-
-def test_the_blocks_view_draws_a_declared_law_cleanly_with_its_mark(tmp_path):
-    """A page test (Playwright): the Blocks view of a model whose external block declares a law draws the law inside
-    the block and its mark where an identified law's is, and passes the Blocks view's own drawing audit."""
-    pw = pytest.importorskip("playwright.sync_api")
-    from tests.test_diagram_rendering import AUDIT, BLOCK_LABELS, BLOCKS_DOM, drawn, served
-
-    def edit(d):
-        (d / "ergostat.yaml").write_text(model(tmp_path, HPA).read_text())
-    with pw.sync_playwright() as p, served("ticket-factory", tmp_path, edit) as url:
-        b = p.chromium.launch()
-        pg = b.new_page(viewport={"width": 1600, "height": 1000})
-        errors: list[str] = []
-        pg.on("pageerror", lambda e: errors.append(str(e)))
-        drawn(pg, url, "view=blocks", 0)
-        audit, dom, labels = pg.evaluate(AUDIT), pg.evaluate(BLOCKS_DOM), pg.evaluate(BLOCK_LABELS)
-        mark = pg.evaluate("() => [...document.querySelectorAll('g[data-id=\"blk:hpa\"] text.bd-ident')]"
-                           ".map((t) => t.textContent)")
-        b.close()
-    assert not errors, errors
-    assert not [x for k in ("through", "overlap", "netCrossings", "partOverlap") for x in audit[k]] and not dom, (audit, dom)
-    assert mark == ["declared kubernetes-hpa"], mark
-    got = {x["id"]: x for x in labels}["blk:hpa"]
-    assert "u = ⌈u x / 0.6⌉" in got["main"], got

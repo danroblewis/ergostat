@@ -1878,6 +1878,32 @@ def test_every_block_carries_a_function_with_the_agents_name_as_its_caption(brow
         [b for b in got if b["id"].startswith("sen:")]
 
 
+def test_the_blocks_view_draws_a_declared_law_cleanly_with_its_mark(browser, tmp_path):
+    # Blocks, the ticket factory's copy with its model replaced by one whose external block declares a kubernetes-hpa
+    # law (tests/test_known_laws.py): the law is drawn inside the block as its function, its mark where an identified
+    # law's is written, and the view passes its own drawing audit
+    from tests.test_known_laws import HPA, model
+    (tmp_path / "law").mkdir()
+    text = model(tmp_path / "law", HPA).read_text()
+
+    def edit(d):
+        (d / "ergostat.yaml").write_text(text)
+    with served("ticket-factory", tmp_path, edit) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks", 0)
+        audit, dom, labels = pg.evaluate(AUDIT), pg.evaluate(BLOCKS_DOM), pg.evaluate(BLOCK_LABELS)
+        mark = pg.evaluate("() => [...document.querySelectorAll('g[data-id=\"blk:hpa\"] text.bd-ident')]"
+                           ".map((t) => t.textContent)")
+        pg.close()
+    assert not errors, errors
+    assert not [x for k in ("through", "overlap", "netCrossings", "partOverlap") for x in audit[k]] and not dom, (audit, dom)
+    assert mark == ["declared kubernetes-hpa"], mark
+    got = {x["id"]: x for x in labels}["blk:hpa"]
+    assert "u = ⌈u x / 0.6⌉" in got["main"], got
+
+
 def test_the_control_view_nests_a_cascades_inner_loop_and_opens_a_blocks_definition(browser, tmp_path):
     from tests.test_spec_systems import MODEL
     d = tmp_path / "cascade"
