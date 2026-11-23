@@ -376,7 +376,7 @@ blocks:
     pool: 1
     lease: {ttl: 30m, attempts: 1}
     timeout: 30m
-    in: stock.flakes-main-broken
+    in: +stock.flakes-main-broken
     out: flow.flakes-mended
 
   main-watch:
