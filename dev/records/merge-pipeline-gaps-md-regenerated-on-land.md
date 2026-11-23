@@ -314,3 +314,53 @@ has not moved since the last merge, so there was nothing to merge.
   and a bash pipe through awk to count net lines (`git diff --shortstat` was used instead).
 
 Overrun reason: dev/bin is about 221 net lines against 130 (219 before this round): the stacked comparison names what it compares with in the brief, which takes 2 lines; fac.items' revert removed nothing counted against the gap's own size. The other reasons are the ones given in the earlier rounds.
+
+## Where it stopped
+
+Built, in round 5 of the second continuation. The factory's merge of main (b7302db6) is finished (af448493). The
+review's one finding is fixed (886ff922). The review listed no other findings.
+
+- **The merge.** `tests/test_factory.py` was the only conflict. Main added the daily browser run's tests and the
+  branch added this gap's tests at the same place. Both are kept whole, one after the other.
+- **The finding: a deleted entry was drawn again, and a moved one was drawn twice.** Both are fixed in
+  `gapsdoc.carry`.
+  - *Deleted.* A record whose drawn block the batch's GAPS.md no longer shows, and which no block of the batch
+    replaced, has its `## Entry` removed. Its sub-gaps' Entries go too, because their done lines were drawn under it.
+    Each one is named on the run in `gaps_md_carried` (`NAME: its Entry removed, as the batch removed it from
+    GAPS.md`). A record that holds nothing else is left empty, and `regenerate()` deletes that file. The queue's
+    `git add --` stages the deletion, and its failure path (`reset --hard`) puts the file back.
+  - *Not removed.* A record is never removed when a block of its title was left unplaced, or was left stale. Stale
+    means the batch's GAPS.md still shows a text that no record draws now, for example a batch that edited the
+    record and not GAPS.md. In either case which record the block belongs to is not known, so nothing of that title
+    is removed. A block that a record still draws protects only that record. So deleting one of two records that
+    share a title removes only that record's Entry.
+  - *Moved.* A block whose text a record still draws, but which sits under another section, goes back to that same
+    record with the new section. It no longer makes a `<branch>-2` record. GAPS-head.md's slot follows it.
+- New tests:
+  - tests/test_gapsdoc.py:
+    - `test_an_entry_the_batch_deleted_loses_its_entry_in_the_records_and_stays_gone`: an umbrella with a sub-gap,
+      and an Entry-only record whose file is deleted.
+    - `test_one_of_two_records_of_a_title_deleted_removes_only_its_entry`
+    - `test_an_entry_the_batch_left_stale_or_unplaced_is_never_removed`
+    - `test_an_entry_moved_to_another_section_moves_its_record_and_is_drawn_once`
+  - tests/test_factory.py:
+    - `test_an_approved_branch_that_deleted_a_gaps_md_entry_lands_with_it_gone_from_the_records`: through the
+      landing, the pushed head's GAPS.md is the batch's, delta.md is gone and its slot is gone.
+- Seen to fail when broken:
+  - Never removing an Entry failed 2 tests.
+  - Removing past the guard failed the stale test.
+  - Dropping the moved-block path failed the move test.
+- Checked once on the live tree with a scratch test, deleted and never committed: carrying main's GAPS.md into the
+  branch's records (the first landing, with no GAPS-head.md at `pre`) removes no Entry and places every block. The
+  render equals docs/GAPS.md. The only problems are the two benign slug pairs (*External event logs*, and the two
+  *The day's AI budget, P3* entries).
+- Tests run (`scripts/named_tests.py`):
+  - tests/test_gapsdoc.py: 37 passed.
+  - tests/test_gaps_doc.py together with tests/test_gapsdoc.py: 46 passed.
+  - The three landing tests in tests/test_factory.py (the deletion, the edit, and no change or a malformed record):
+    3 passed.
+  - Not run here: the whole unit suite and the browser files.
+- ruff is clean on ergostat, tests and scripts and on dev/bin/gapsdoc.py.
+- Refused in this session: a `sed -i` to drop the conflict markers. They were removed with Edit instead.
+
+Overrun reason: dev/bin is 238 net lines against 130 by `git diff --shortstat main -- dev/bin` (261 insertions, 23 deletions). This round adds 24 lines to gapsdoc.py so that carry() removes the Entry of an entry a batch deleted (with its sub-gaps, its guard against stale or unplaced blocks, and deleting a record left empty) and keeps a moved entry in its own record. The review asked for both. The other reasons are the ones given in the earlier rounds.
