@@ -160,6 +160,8 @@ def fan(spec: Spec, data: ob.Data, horizon: float, points: int, inputs: str = "h
     _, moved = touched(spec, {u["name"] for u in unc})
     moved |= {r[6:] for t in (spec.flows, spec.auxiliaries) for x in t.values() if x.equation
               for r in x.equation.refs if r.startswith("stock.")}
+    from ..remote import remote_parts
+    moved -= {r[6:] for r in remote_parts(spec) if r.startswith("stock.")}   # an input here (SPEC §4c)
     for d in sets:
         pl = sim.plan(spec, {**(base or {}), **d}, integrate=moved)
         proj = sim.project(spec, data, run, horizon, pl, points=points, inputs=inputs, rescale=was, held=held)

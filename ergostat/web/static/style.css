@@ -957,9 +957,25 @@ input.reason { min-width: 24em; min-height: var(--sp-5); padding: 0 var(--sp-2);
 ul.plain { margin: var(--sp-1) 0; padding-left: var(--sp-4); }
 ul.plain li { margin: var(--sp-0) 0; }
 
-/* an item's field: its history, a disclosure under its value */
-details.history { margin-top: var(--sp-2); }
-details.history > summary { font-size: var(--text-sm); color: var(--muted); }
+/* an item's fields: the short ones in a flowing grid, the name small above the value; every other a full-width block,
+   a list of records as cards, a file in one behind a disclosure; its changes in one section at the page's end */
+.field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: var(--sp-2) var(--sp-4); }
+.field-grid .field { min-width: 0; overflow-wrap: anywhere; }
+.field-name { font-size: var(--text-sm); color: var(--muted); }
+.field-block { min-width: 0; margin-top: var(--sp-4); overflow-wrap: anywhere; }
+.field-block > h3 { margin: 0 0 var(--sp-1); }
+.field-block .rule, .field-name .rule { font-weight: normal; }
+.cards { display: flex; flex-direction: column; gap: var(--sp-2); }
+.card { min-width: 0; padding: var(--sp-2) var(--sp-3); border: var(--hair) solid var(--line); border-radius: var(--radius); }
+.card p, .card dl { margin: 0 0 var(--sp-1); }
+.card dl { display: grid; grid-template-columns: max-content 1fr; gap: 0 var(--sp-3); font-size: var(--text-sm); }
+.card dd { margin: 0; min-width: 0; }
+.chip { display: inline-block; margin: 0 var(--sp-1) var(--sp-0) 0; padding: 0 var(--sp-1); border-radius: var(--radius); background: var(--chrome); font-size: var(--text-sm); }
+details.file-fold > summary, details.earlier > summary { color: var(--muted); cursor: pointer; }
+details.file-fold .file-view { max-width: none; overflow-x: auto; }
+details.earlier > .card { margin-top: var(--sp-2); }
+details.changes { margin-top: var(--sp-4); }
+details.changes > summary h2 { display: inline; }
 details.history table.history td { font-size: var(--text-sm); vertical-align: top; }
 details.history table.history td.cell { max-width: 22em; overflow-wrap: anywhere; }
 table.fields th .rule { font-weight: normal; }
