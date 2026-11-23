@@ -688,9 +688,9 @@ async function openNodeSD(n) {
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
     let d = null;
-    panelLoading("Valve", n.flow || n.label);
+    const loading = panelLoading("Valve", n.flow || n.label);        // (it replaces `wait`: the late-answer guard is this)
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
-    if (!wait.isConnected) return;
+    if (!loading.isConnected) return;
     const m = d?.model || {}, now = d?.now || {};
     rows.push(["rate, over the window", sdRateSaid(d?.now, n.rate, d?.unit, n.flow || n.label)],
               ["how it is known", now.how || n.how],
@@ -705,9 +705,9 @@ async function openNodeSD(n) {
     return;
   } else {
     let d = null;
-    panelLoading((SD_WHAT[kind] || [kind])[0], n.label);
+    const loading = panelLoading((SD_WHAT[kind] || [kind])[0], n.label);
     try { d = await api(`part/stock/${encodeURIComponent(n.label)}`); } catch (err) { d = null; }
-    if (!wait.isConnected) return;
+    if (!loading.isConnected) return;
     const m = d?.model || {}, now = d?.now || {};
     rows.push(["description", m.description || n.description], ...(d?.inferred ? [inferredRow(d.inferred)] : []),
               ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],

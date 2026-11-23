@@ -61,3 +61,18 @@ After the factory's `build` step: it failed with rc 5 because nothing ran. Its o
 No test had failed. The `recorded` field added to `/api/status` now has a unit check in
 `tests/test_graph_cli_web.py::test_the_web_api_serves_what_the_cli_shows` (0 ≤ recorded ≤ window). It was seen to fail
 (KeyError) with the field removed. That file passes (32), and ruff is clean.
+
+Round 2: main (bf6dbebf) merged in. The conflicts in `ergostat/web/server.py` and `tests/test_graph_cli_web.py` came
+from main adding the same `recorded` field to `/api/status` and its own check. Main's line and main's assertion were
+kept, so the branch's duplicate is gone. After the merge the acceptance test failed: on main the Dynamics valve and
+stock panels never fill. One commit added the `wait` late-answer guard (`if (!wait.isConnected) return`), another
+(c2d3deac) added `panelLoading`, which replaces `wait`. Each passed alone, and together the panel stays at "Loading…".
+The fix is in this gap's own flow panel (`dynamics.js`, 0 net lines): the guard now checks the node `panelLoading`
+returns. With the guard removed,
+`test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_its_words` was seen to fail (the late
+valve answer painted over the Blocks panel), so the late-answer guard is kept. The acceptance test passes now. So do
+`test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves`,
+`test_every_part_opens_its_panel_when_clicked_even_mid_redraw` and `tests/test_graph_cli_web.py` (40), and ruff is clean.
+`test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` still fails at "Nothing waiting." on
+the /model page (`pages.js`, not touched here), as in round 1. Running it on clean main in a scratch worktree
+(`git worktree add -q --detach /tmp/main-check main`) was refused.
