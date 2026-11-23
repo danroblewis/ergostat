@@ -212,3 +212,34 @@ Ruff clean. The two failures, both main's new tests, are left alone (lesson 13):
   table markup built after the data comes, not when it comes. A fixed wait in the test, not a race in ergostat.
 - The once-failed goal-button case ('.suggest .hint button.name' not visible): the test opens `details.suggest` by
   setting `open` directly, leaving S.suggestOpen unset. A likely cause, not shown: a refresh redrew it closed.
+
+## Where it stopped
+
+Continued, round 2 (main 76e1a9ab merged in, c6536682). Conflicts resolved by keeping main's change and putting the
+branch's names on it:
+- `details.js` eventsTable: main's folded runs (showRun, ×N) inside the branch's caption, headRow and tbody.
+- `diagram.js` view buttons: main's carryPanel() on Dynamics and Blocks, with the branch's aria-pressed.
+- `pages.js` /loops table: main's lp.points and word(lp.perf), with the branch's caption argument ('Loops').
+- `tests/test_diagram_rendering.py` zoom test: main's exact 'Fit', and 'Zoom in' (exact) for this gap's name of '+'.
+The branch is still 21 net lines against main (72 added, 51 removed under `ergostat/`).
+
+Tests run (Playwright, under the watchdog): tests/test_page_names_source.py (9 passed); ruff clean;
+tests/test_items_page.py (36 passed, 7 failed, twice, the same 7); tests/test_agents_page.py and
+tests/test_view_switch_words.py (8 passed, 1 failed: the same agents 'Loading…' test as round 1, above);
+test_diagram_rendering.py's zoom test (passed), keyboard test and panel-carry test (both failed).
+
+Waits on main (lesson 13, not fixed here). main's `dynamics.js` openNodeSD (lines 677-706, same on main as on this
+branch, which does not touch dynamics.js) first shows a panel holding `wait`, then calls panelLoading(), which
+replaces the panel's children; the next line `if (!wait.isConnected) return;` is then always true, so no stock or
+flow panel in the Dynamics view ever gets past 'Loading…'. Two of main's changes merged together (lesson 7). It fails:
+- test_items_page.py: test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set,
+  test_the_model_changes_are_found_by_heading_search_and_panel, test_a_valves_leased_items_are_listed_live,
+  test_a_snapshot_lists_a_parts_items_and_opens_its_set, test_a_set_left_out_of_a_snapshot_says_so, and this gap's
+  own test_the_side_panels_and_item_tables_are_captioned (no flow's params table ever appears; its loop and agent
+  checks before that passed);
+- test_diagram_rendering.py: test_a_panel_open_on_what_is_chosen_stays_open_across_a_switch_of_view_in_its_words
+  ('rate, over the window' never shown) and test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard
+  (the first showDetail takes S.keyHead's focus, then panelLoading replaces that heading).
+The fix is main's (drop the panelLoading calls in openNodeSD, or take `wait` from them); this gap waits for it, then
+its acceptance test should be run again. The seventh test_items_page.py failure is the header switcher test of
+round 1 above (the 60 s lister), unchanged. Not run on clean main: no second checkout in this session.
