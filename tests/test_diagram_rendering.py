@@ -2352,6 +2352,33 @@ def test_an_open_systems_frame_dragged_in_the_blocks_view_takes_its_parts_and_it
         pg.close()
 
 
+def test_a_system_is_drawn_c_p_or_named_with_the_same_p_by_m_closed_and_open(browser, tmp_path):
+    """dev/records/blocks-subsystems-classified-c-p.md: no block drawn Q; each closed block's letter, name and p × m
+    drawn again in its frame's title when it is opened; the legend defines C, P and p × m."""
+    no_q = "() => [...document.querySelectorAll('svg.canvas tspan.bd-mi')].filter((t) => t.textContent === 'Q').length"
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, "view=blocks&open=-", 0)
+        boxes = pg.evaluate("""() => S.graph.nodes.filter((n) => n.role === 'subsystem').map((n) => [n.label,
+            (n.fn.sym || '') + (n.fn.sub || ''), n.fn.expr,
+            document.querySelector(`svg.canvas g.node[data-id="${n.id}"]`)?.textContent])""")
+        assert {b[0]: b[1] for b in boxes} == {"factory": "Cfactory", "product": "Pproduct", "modelling": "modelling"}, boxes
+        assert pg.evaluate(no_q) == 0
+        legend = pg.evaluate("() => document.querySelector('.bd-legend')?.textContent || ''")
+        assert "C_name" in legend and "P_name" in legend and "p × m" in legend and not re.search(r"\bQ\b", legend), legend
+        for i, (name, head, dims, text) in enumerate(boxes, 1):
+            assert text and head in text and dims in text, (name, text)          # drawn in the closed block
+            drawn(pg, url, f"view=blocks&open={name}", i)
+            title = pg.evaluate("(id) => document.querySelector(`svg.canvas g.hull[data-hull='${id}'] > text`)?.textContent",
+                                f"frame:{name}")
+            assert title and title.startswith(head) and title.endswith(dims), (name, head, dims, title)
+            assert pg.evaluate(no_q) == 0
+        assert not errors, errors
+        pg.close()
+
+
 SD_CHECK = """() => {
   // the system dynamics view as drawn: no sensor, controller or agent; every loop that shows here (two of its
   // parts drawn as themselves) has its marker; every connector shows its polarity (? where not known) at its head;
@@ -2845,6 +2872,7 @@ BD_LEGEND_DRAWN = {
     "a block's tier": ".bd-tier", "not linear": '.bd-node:not(.bd-collector):not([data-id^="zoh:"]) text.bd-name',
     "a summing junction": ".bd-sum", "a take-off point": ".bd-dots .bd-dot", "a vector of signals": ".bd-vec, .bd-mux, .bd-demux",
     "an inner loop": ".bd-frame-cascade", "reference (its value)": ".bd-sig", "a loop's state": ".bd-sig .bd-state",
+    "a system as one block": ".bd-subsystem, .bd-frame-system",
 }
 
 
@@ -3996,6 +4024,111 @@ def test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junct
         pg.wait_for_function(TITLED, arg="short-backlog", timeout=20000)
         pg.close()
         assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
+PHONE_GOALS = """
+name: phone
+stocks:
+  queue:
+    sensor:
+      manual: true
+  requests-handled:
+    sensor:
+      manual: true
+goals:
+  short-queue:
+    stock: queue
+    hold: "<= 5"
+  requests-handled:
+    stock: requests-handled
+    hold: "<= 0"
+flows:
+  draining:
+    from: queue
+  handling:
+    from: requests-handled
+blocks:
+  drainer:
+    type: program
+    run: echo 1
+    goal: short-queue
+    out: flow.draining
+  handler:
+    type: program
+    run: echo 1
+    goal: requests-handled
+    out: flow.handling
+"""
+
+
+def test_on_a_phone_each_goal_is_a_card_its_value_against_its_bound_and_how_long_off(browser, tmp_path, monkeypatch):
+    """At 390x844, in light and dark, the Loops page is one card per goal, off goals first: its name and status, then
+    its value against its bound, how long it has been off and how soon it is usually back; nothing scrolls sideways."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = tmp_path / "phone"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(PHONE_GOALS)
+    monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    for t in (now - 3600, now - 30):                       # an hour of record
+        p.measurements.add("sensor/queue.main", 3, at=t)
+        p.measurements.add("sensor/requests-handled.main", 36, at=t)
+    p.events.add("loop.off", item="requests-handled", data={"value": 4}, at=now - 3000)     # an earlier spell, 30s long
+    p.events.add("loop.holding", item="requests-handled", data={"value": 0}, at=now - 2970)
+    p.events.add("loop.off", item="requests-handled", data={"value": 36}, at=now - 2160)    # off these 36 minutes
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(300):
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        for scheme in ("light", "dark"):
+            pg = browser.new_page(viewport={"width": 390, "height": 844}, color_scheme=scheme)
+            errors: list[str] = []
+            pg.on("pageerror", lambda e, errors=errors: errors.append(str(e)))
+            pg.goto(url + "/loops")
+            pg.wait_for_function("() => document.querySelectorAll('table.loops td.card').length === 2", timeout=20000)
+            got = pg.evaluate("""() => [...document.querySelectorAll('table.loops td.card')].map((c) => {
+                const r = c.getBoundingClientRect();
+                return {text: c.innerText, left: r.left, right: r.right, shown: r.width > 0 && r.height > 0};
+            })""")
+            assert [c["text"].split("\n")[0] for c in got] == ["requests-handled · off", "short-queue · holding"], (scheme, got)
+            assert got[0]["text"].split("\n")[1] == "36 against ≤ 0 · off 36m · usually back in 30s", (scheme, got)
+            assert all(c["shown"] and c["left"] >= 0 and c["right"] <= 390 for c in got), (scheme, got)
+            hidden = pg.evaluate("() => [...document.querySelectorAll('table.loops th, table.loops td:not(.card)')]"
+                                 ".filter((x) => x.getBoundingClientRect().width > 0).length")
+            assert hidden == 0, (scheme, hidden)
+            widths = pg.evaluate("() => [document.documentElement, document.querySelector('main'), "
+                                 "document.querySelector('.table-wrap')].map((x) => [x.scrollWidth, x.clientWidth])")
+            assert all(sw == cw for sw, cw in widths), (scheme, widths)
+            pg.close()
+            assert not errors, errors
+        # at a past moment, half an hour ago (as the time slider sets it): off 6 minutes then, not to the clock now
+        pg = browser.new_page(viewport={"width": 390, "height": 844})
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelectorAll('table.loops td.card').length === 2", timeout=20000)
+        pg.evaluate(f"() => {{ S.at = {now - 1800}; route(); }}")
+        pg.wait_for_function("() => / off 6m /.test(document.querySelector('table.loops td.card')?.innerText || '')",
+                             timeout=20000)
+        assert pg.locator("table.loops td.card").first.inner_text().split("\n")[1] == \
+            "36 against ≤ 0 · off 6m · usually back in 30s"
+        pg.close()
+        pg = browser.new_page(viewport={"width": 1200, "height": 844})       # wider: the table as it was, no cards
+        pg.goto(url + "/loops")
+        pg.wait_for_function("() => document.querySelectorAll('table.loops tr.click').length === 2", timeout=20000)
+        assert pg.evaluate("() => [...document.querySelectorAll('table.loops td.card')].every((c) => !c.offsetWidth)")
+        assert pg.locator("table.loops th").first.is_visible()
+        pg.close()
     finally:
         proc.terminate()
         proc.wait(10)
