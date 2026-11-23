@@ -9,6 +9,7 @@ It needs Playwright and a Chromium, so the usual run skips it:
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -138,7 +139,7 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
-NAV = ["/diagram", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
+NAV = ["/diagram", "/dashboard", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
 
 
 @pytest.fixture(scope="module")
@@ -1543,6 +1544,82 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         events._kept.clear()
 
 
+STAMP =re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \S+")
+EPOCH = re.compile(r"1,7\d\d,\d{3},\d{3}")
+WHEN_CELLS = """() => [...document.querySelectorAll('#main table')].filter((t) => t.rows[0]?.cells[0]?.textContent === 'when')
+  .flatMap((t) => [...t.rows].slice(1).map((r) => r.cells[0].textContent))"""   # each table's "when" column
+DONE_DATA = """() => [...document.querySelectorAll('#main tr:has(> td.data)')]
+  .filter((r) => [...r.cells].some((c) => c.textContent === 'ticket.done')).map((r) => r.querySelector('td.data').textContent)"""
+
+
+def test_every_time_is_one_stamp_with_its_date_and_zone(browser, tmp_path):
+    """On the Record, an item's page and a goal's Crossings, a time reads '2026-11-22 04:03:55 PST' (the browser's
+    zone, by its short name); a *_at, raised or since field is one too, whether epoch seconds or ISO text; no
+    epoch seconds are printed as a number; and an event's data is shown unrounded, as the field holds it."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    d = tmp_path / "first-loop"
+    shutil.copytree(ROOT / "examples" / "first-loop", d, ignore=shutil.ignore_patterns("run", "__pycache__"))
+    p = Project(mdl.load(d))
+    now = time.time()
+    done = round(now - 100) + 0.4567                       # a fraction: rounded to 6 digits, it read 1795350000
+    raised = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 500))
+    p.events.add("ticket.found", item="ticket/SCRUM-2", data={"title": "a ticket", "raised": raised, "since": int(now - 400)},
+                 at=now - 300)
+    p.events.add("ticket.done", item="ticket/SCRUM-2", data={"done_at": done}, at=now - 60)
+    p.events.add("loop.off", item="inbox-short", data={"value": 30, "error": 10}, at=now - 200)
+    p.events.add("loop.on", item="inbox-short", data={"value": 12}, at=now - 120)
+    server, url = web_serve(p, free_port())
+    pg = browser.new_page(viewport={"width": 1400, "height": 1000}, timezone_id="America/Los_Angeles")
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+
+    def stamps(cells: list[str], least: int) -> None:
+        assert len(cells) >= least, cells
+        bad = [c for c in cells for s in c.split("–")                # a folded run: its first and last stamp
+               if not STAMP.fullmatch(s.strip()) or not re.search(r" P[SD]T$", s.strip())]
+        assert not bad, bad
+
+    def no_epoch() -> None:
+        cells = [c for c in pg.evaluate("() => [...document.querySelectorAll('td')].map((td) => td.textContent)") if EPOCH.search(c)]
+        assert not cells, cells
+
+    try:
+        pg.goto(f"{url}/item/ticket%2FSCRUM-2")
+        pg.wait_for_selector("tr[data-field=done_at]")
+        pg.wait_for_function("() => document.querySelectorAll('#main td.data').length >= 2")
+        fields = pg.evaluate("""() => Object.fromEntries([...document.querySelectorAll('table.fields tr[data-field]')]
+          .map((r) => [r.dataset.field, r.querySelector('td')?.firstChild?.textContent ?? '']))""")
+        stamps([fields["done_at"], fields["raised"], fields["since"]], 3)
+        stamps(pg.evaluate(WHEN_CELLS), 2 + 3)              # Events, and each field's history
+        no_epoch()
+        held = json.loads(urllib.request.urlopen(f"{url}/api/items/ticket%2FSCRUM-2").read())["fields"]["done_at"]
+        assert held == done
+        assert [json.loads(x)["done_at"] for x in pg.evaluate(DONE_DATA)] == [held]     # Events: the field's value
+
+        pg.goto(f"{url}/record")
+        pg.wait_for_function("() => document.body.innerText.includes('ticket.done')")
+        stamps(pg.evaluate(WHEN_CELLS), 2)
+        no_epoch()
+        assert [json.loads(x)["done_at"] for x in pg.evaluate(DONE_DATA)] == [held]
+
+        pg.goto(f"{url}/")
+        pg.wait_for_function("() => typeof openLoop === 'function' && S.status")
+        pg.evaluate("() => openLoop('inbox-short')")
+        pg.wait_for_function("() => [...document.querySelectorAll('#detail h3')].some((x) => x.textContent.startsWith('Crossings'))")
+        crossed = pg.evaluate("""() => {
+          const h = [...document.querySelectorAll('#detail h3')].find((x) => x.textContent.startsWith('Crossings'));
+          return [...h.nextElementSibling.rows].map((r) => r.cells[0].textContent); }""")
+        stamps(crossed, 2)
+        no_epoch()
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
 def test_the_side_panels_and_item_tables_are_captioned(browser, site):
     """Acceptance, the tables a page opens later (ui-the-current-page-view-and-mode-are-announced-tab): a loop's parts,
     an agent's recent runs, a flow's parameters and items, a stock's items, an item's list of objects; each has a
@@ -1684,10 +1761,43 @@ from pathlib import Path
 from ergostat import model as mdl
 from ergostat.store import Project
 p = Project(mdl.load(Path(sys.argv[1])))
-for stock, value in (("inbox", 10), ("model-error", 0.5), ("unanswered-requests", 3)):   # inbox-short holds; the two
-    s = next(iter(p.model.spec.stocks[stock].sensors.values()))                         # modelling goals are off
+inbox = float(sys.argv[2]) if len(sys.argv) > 2 else 10                                 # 10: inbox-short holds
+for stock, value in (("inbox", inbox), ("model-error", 0.5), ("unanswered-requests", 3)):   # the two modelling
+    s = next(iter(p.model.spec.stocks[stock].sensors.values()))                            # goals are off
     p.measurements.add(s.series, value, at=time.time())
 """
+
+
+def test_the_headers_tooltip_names_the_goals_its_count_counts(browser, tmp_path):
+    """Done item 3 of goal-row-one-renderer: with inbox-short off and the two modelling goals off, the header says
+    '1 goal off' and its tooltip names that one goal by goalWord, not the upkeep goals counted apart."""
+    d, env = tmp_path / "first-loop", {**os.environ, "ERGOSTAT_HOME": str(tmp_path / "home")}
+    shutil.copytree(ROOT / "examples" / "first-loop", d)
+    subprocess.run([sys.executable, "-c", UPKEEP_SEED, str(d), "100"], env=env, check=True, capture_output=True)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    try:
+        for _ in range(150):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=1)
+                break
+            except Exception:
+                time.sleep(0.2)
+        else:
+            pytest.fail("the page never came up")
+        pg.goto(f"http://127.0.0.1:{port}/items")
+        st = pg.evaluate("() => fetch('/api/status').then((r) => r.json())")
+        assert sorted(n for n, lp in st["loops"].items() if lp["word"] == "off") == [
+            "inbox-short", "model-fits", "requests-handled"]
+        pg.wait_for_function("() => / off/.test(document.querySelector('#running').textContent)")
+        assert re.match(r"^1 goal off\b", pg.locator("#running").inner_text())
+        assert pg.locator("#running").get_attribute("title") == "inbox-short: off"
+    finally:
+        pg.close()
+        proc.terminate()
+        proc.wait(timeout=10)
 
 
 def test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart(browser, tmp_path):

@@ -37,6 +37,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .. import mirror
 from .. import runner as old
+from ..compute.worker import keeper
 from ..costs import ai as costs_ai
 from ..costs import budget
 from ..costs import record as costs_record
@@ -161,6 +162,7 @@ class Engine:
         self.daemons = Supervisor(self)               # the long-lived runners blocks and sensors hand work to (SPEC §9.7)
         from .joins import Joins
         self.joins = Joins(self)                      # parents moved on by their children (SPEC §5a, Join)
+        self.compute = None                           # the sessions with the pools' nodes, once a model has pools (§12s.4)
         # the loop (``_schedule``): readings asked for, taken a batch at a time; commands and queries read by a fixed
         # pool, counts of items from what the fold keeps (counts.py); then one pass over what changed (scale.md #1, #4)
         from .counts import Counts
@@ -1033,6 +1035,7 @@ class Engine:
         if "command" in ctx:
             env["ERGOSTAT_COMMAND"] = f"{ctx['command']['amount']:g}"
         env.pop("ERGOSTAT_EVENT", None)
+        env.pop("ERGOSTAT_JOURNAL", None)                        # (a kept run's own, below: never one inherited)
         reserve = budget.reserve_of(spec, b) if spec.budget is not None else None
         env.pop("ERGOSTAT_MAX_COST", None)                       # its cap (T1, SPEC §9.9), never one inherited
         if reserve is not None:
@@ -1099,36 +1102,56 @@ class Engine:
                     killed = self.killing.pop(begun["id"], None)
                 note = f"killed: {killed}" if killed else note or (f"exited {code}" if code else "")
             else:
-                files, proc = runrecord.files(self.p.dir, begun["id"]), None   # its input, output, exit, record
+                kept = spec.outlive_engine                   # held by a keeper, never stopped with us (SPEC §9.1)
+                name = begun["id"] if not kept or keeper.RUN.fullmatch(begun["id"]) else uuid.uuid4().hex
+                files, proc = runrecord.files(self.p.dir, name), None   # its input, output, exit, record
+                if kept:
+                    files["out"] = files["out"].with_suffix(".jsonl")    # its journal: what it prints, appended
+                    env["ERGOSTAT_JOURNAL"] = str(files["out"])
                 try:
                     if refused:
                         raise OSError(refused)
-                    files["in"].write_text(stdin or "", encoding="utf-8")
-                    with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
-                        proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
-                                        stderr=lf, start_new_session=True)
+                    if kept:
+                        os.close(os.open(files["out"], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600))
+                        proc = keeper.launch(str(self.p.dir.resolve()), name,
+                                             "exec " + shlex.join(runrecord.command(cmd, files)), stdin or "",
+                                             str(cwd), env, str(files["out"]), lf.fileno(), b.timeout)
+                    else:
+                        files["in"].write_text(stdin or "", encoding="utf-8")
+                        with open(files["in"], "rb") as fin, open(files["out"], "wb") as fout:
+                            proc = Measured(runrecord.command(cmd, files), cwd=cwd, env=env, stdin=fin, stdout=fout,
+                                            stderr=lf, start_new_session=True)
                     runrecord.write(files, proc.pid, begun["id"], b.name, item, fence)
                 except OSError as e:
                     note = refused or f"could not start: {e}"
                     if proc is not None:                         # started, but its record not written: stopped
                         old._kill(proc)
                         proc.wait()
+                        if kept:
+                            proc.release()
                     runrecord.remove(files)
                 else:
-                    old.LIVE.add(proc)
+                    if not kept:                                 # (kill_all's: a kept run is left going)
+                        old.LIVE.add(proc)
                     with self.lock:
                         self.procs[b.name] = proc
                         self.live[begun["id"]] = proc
                         stopping = self.stop.is_set()            # (set under this lock: close's kill missed this run;
                     if stopping:                                 # not STOPPING: process-wide)
                         old._kill(proc)
-                    tracked = SAMPLER.track(proc)                    # its process tree's CPU and memory, sampled
+                    tracked, left = SAMPLER.track(proc), False      # its process tree's CPU and memory, sampled
                     try:
                         proc.watch = reap.Watch(proc.pid)            # what it starts, for a lease kill (leases/kill.py)
-                        if stream.follow(proc, files["out"], b.timeout, take):
-                            note = f"stopped after its timeout of {b.timeout:g}s"
+                        got = (stream.follow(proc, files["out"], b.timeout, take, self.stop) if kept
+                               else stream.follow(proc, files["out"], b.timeout, take))    # (off: the call as before)
+                        left = got is None                           # we stop, it goes on: its end is not ours
+                        if got or kept and not left and proc.how() == "timeout":   # (its keeper's, should that
+                            note = f"stopped after its timeout of {b.timeout:g}s"     # come first)
                     finally:
-                        runrecord.remove(files)                      # read to its end: nothing left to take again
+                        if not left:
+                            runrecord.remove(files)                  # read to its end: nothing left to take again
+                            if kept:
+                                proc.release()
                         resources = SAMPLER.finish(tracked)
                         if getattr(proc, "watch", None):
                             proc.watch.close(look=False)         # (its run is over: no last ps)
@@ -1140,6 +1163,9 @@ class Engine:
                             self.stopping_runs.discard(b.name)
                             self.live.pop(begun["id"], None)
                             killed = self.killing.pop(begun["id"], None)
+                    if left:                                     # no agent.ran: its journal and its keeper's exit
+                        self.say(f"{b.name}: its run {begun['id'][:8]} goes on without us ({files['out']})")
+                        return []                                # are what is left of it (SPEC §9.1)
                     code = proc.returncode
                     if killed:                                       # its lease expired: stopped (leases/kill.py)
                         note = f"killed: {killed}"
@@ -1831,6 +1857,7 @@ class Engine:
         steptest.resume(self)                                   # a test approved just before, or cut off by a stop
         self._listen()
         self.daemons.sync(self.spec)                             # (after the socket: its path is in their environment)
+        self._connect()
         self.looping = True                                      # readings go to the loop from now (no thread each)
         threading.Thread(target=self._schedule, name="ergostat-loop", daemon=True).start()
         threading.Thread(target=self._follow, args=(seq,), daemon=True).start()
@@ -1855,6 +1882,15 @@ class Engine:
         except OSError as e:                                     # the commands do what they did before
             self.calls, self.socket = None, None
             self.say(f"socket: {type(e).__name__}: {e}")
+
+    def _connect(self) -> None:
+        """The sessions with the model's compute nodes (SPEC §12s.4): one per node per engine process, so the lead's."""
+        pools = self.spec.compute if self.leads() else {}
+        if self.compute is None and pools:
+            from ..compute.connection import Pools
+            self.compute = Pools(self.p, self.say)
+        if self.compute is not None:
+            self.compute.sync(pools)
 
     def _record_follow(self) -> None:
         """The loop woken when the record is written (``notify.py``): counts of items read at once (``_readings``)."""
@@ -1980,6 +2016,7 @@ class Engine:
             self.version = version
             self.full = True                                     # the next pass works out everything, under the new model
         self.daemons.sync(new)                                   # a daemon whose definition changed: drained, replaced
+        self._connect()                                          # a pool changed or removed: its sessions closed
         self.wake.set()
         self._ingest()
         finishing = {k: v for k, v in finishing.items() if v}   # what runs once more, under its old definition
@@ -2029,8 +2066,11 @@ class Engine:
                 if got:
                     self.lock.release()
             for proc in mine:
-                old._kill(proc)
+                if not isinstance(proc, keeper.Kept):    # (one its keeper holds goes on: SPEC §9.1)
+                    old._kill(proc)
         self.daemons.close()
+        if self.compute is not None:
+            self.compute.close()                # every session ended: no ssh or worker child left
         deadline = time.monotonic() + 5
         while self.running and time.monotonic() < deadline:
             time.sleep(0.05)

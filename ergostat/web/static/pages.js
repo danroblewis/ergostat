@@ -7,7 +7,6 @@ function page(main, title) {
   main.append(p);
   return p;
 }
-const RANK = { off: 0, open: 1, unknown: 2, holding: 3 };   // the loops that need someone first
 const windowNote = () => {
   const st = S.status, recorded = recordedShort();       // the header's own measure of it
   return st?.window ? (recorded != null ? `over the ${dur(recorded)} recorded` : `over the last ${dur(st.window)}`) : "";
@@ -28,27 +27,16 @@ async function pageLoops(main) {
     ans.begin();
     // every loop in one answer: its stock's trend, and how it is doing (control.js), worked out on the server in the background
     const loops = await ans.api("loops", { perf: 1 }), systems = await ans.api("systems").catch(() => []);
-    const word = (s) => (s == null || s.not_analysed ? "" : s.working ? "being worked out" : s.failed ? "could not be worked out" : performanceWord(s));
     const w = windowNote();
     setText(cap, w ? `Time off and back in: ${w}. Back in: typically, from going off to holding again.` : "");
     if (!force && !ans.changed) return;                  // nothing changed: nothing touched
     // each system whose goals all hold says so (state.quiet): until the rows are grouped by system, a line of its own
     patch(qbox, ...(systems || []).filter((s) => s.quiet).map((s) => h("p", { class: "quiet-line", key: s.name, "data-system": s.name },
       h("b", {}, s.name), `: ${s.quiet}`)));
-    const rows = Object.entries(loops).sort((a, b) => (RANK[a[1].status] ?? 2) - (RANK[b[1].status] ?? 2));
+    const rows = Object.entries(loops).map(([name, lp]) => ({ name, ...lp })).sort((a, b) => goalRank(a) - goalRank(b));
+    const columns = ["goal", "status", "measure", "value", "bound", "far", "timeOff", "backIn", "spark", "performance", "acted"];
     patch(box, table(["loop", "status", "holds", ["now", "num"], ["r", "num"], ["how far", "num"], ["time off", "num"], ["back in", "num"], "trend", "behaviour", "acted"],
-      rows.map(([n, lp]) => h("tr", { class: "click", key: n, onclick: () => openLoop(n) },
-        h("td", { class: "nowrap" }, h("button", { class: "name", type: "button", onclick: (ev) => { ev.stopPropagation(); openLoop(n); } }, h("b", {}, n)), lp.open_loop ? h("span", { class: "muted", title: "Acts on its schedule, reads nothing" }, " open loop") : null),
-        h("td", {}, statusEl(lp.status)), h("td", { class: "nowrap" }, lp.stock), h("td", { class: "num" }, fmt(lp.value)),
-        h("td", { class: "num nowrap" }, holdText(lp.setpoint, lp.band)),
-        h("td", { class: "num nowrap", "data-off": n, title: `How far it is from its ${isLimit(lp.setpoint) ? "limit" : "setpoint"}` }, lp.off_by_words || ""),
-        h("td", { class: "num", title: "The share of the window the loop spent off" }, lp.off_share ? `${Math.round(lp.off_share * 100)}%` : "0%"),
-        h("td", { class: "num", title: lp.back_in != null ? `Typically holding again this long after going off (slowest ${dur(lp.back_in_slowest)}, ${lp.times_off} times); its valve opens ${lp.answers_in != null ? dur(lp.answers_in) : "?"} after` : "It has not gone off and come back in the window" },
-          lp.back_in != null ? dur(lp.back_in) : "–"),
-        h("td", { class: "spark-cell", title: "Its scope: r and y, u, e over the window" },
-          (lp.points || []).length > 1 ? sparkSvg(lp.points, 120, 24, setpointOf(lp.setpoint)) : ""),
-        h("td", { class: "nowrap", "data-perf": n, title: "Oscillating, saturated, or its Harris index: from its scope, over the last day of record" }, word(lp.perf)),
-        h("td", { title: "In the window, its sensor read and its controller decided or its valve opened" }, lp.observed ? "yes" : h("span", { class: "muted" }, "no")))), "", "Loops"));
+      rows.map((g) => h("tr", { class: "click", key: g.name, onclick: () => openLoop(g.name) }, goalRow(g, { columns }))), "", "Loops"));
   }
   await tick();
   S.timer = poll(() => tick(false), 3000, p);
@@ -130,7 +118,7 @@ async function pageRecord(main, q) {
   const machine = q.get("machine") || "", inWindow = q.get("window") === "1", item = q.get("item") || "";
   const remote = q.get("remote") || "";                // a remote's events, read there (SPEC §4c): never the local record's
   const about = q.get("about") || "", from = q.get("from") || "", to = q.get("to") || "";   // a goal's, from its crossing
-  const at = (t) => new Date(t * 1000).toLocaleString([], { hour12: false });
+  const at = stamp;                                   // one time format (util.js)
   const scope = machine || inWindow || item || remote || about || from || to ? h("span", { class: "muted" }, [item ? `about ${item}` : "", about ? `of goal ${about}` : "", machine ? `from ${machine}` : "", remote ? `of remote ${remote}` : "", inWindow ? "in the window" : "", from ? `from ${at(from)}` : "", to ? `to ${at(to)}` : ""].filter(Boolean).join(", "),
     " ", h("a", { href: "/record" + (filt.value ? "?match=" + encodeURIComponent(filt.value) : "") }, "Show all")) : null;
   const kept = () => Object.fromEntries([["match", filt.value], ["runs", runs.checked ? "1" : ""], ["about", about], ["from", from], ["to", to],
@@ -177,6 +165,7 @@ function formatOf(path, declared) {                      // how a file is shown:
   return IMAGE.test(path) ? "image" : ext === "md" ? "markdown" : ext === "json" ? "json" : CODE[ext] ? "code" : "text";
 }
 const LIST_SHOWN = 40;      // a long list (a session's messages) shows its latest; the API and the CLI give all of it
+const fieldOf = (name, v, ...rest) => timeField(name, v) ?? fieldView(v, ...rest);   // a time field as a stamp (util.js)
 function fieldView(v, small = false, depth = 0, declared = null, there = "") {
   if (v == null || v === "") return h("span", { class: "muted" }, "–");
   // a remote's file: is a file in its own project, never ours: text, never fetched from our /file/ (SPEC §4c)
@@ -198,11 +187,11 @@ function fieldView(v, small = false, depth = 0, declared = null, there = "") {
       const shown = v.slice(-LIST_SHOWN), cols = [...new Set(shown.flatMap((x) => Object.keys(x)))];
       return h("div", {}, v.length > shown.length ? h("p", { class: "note" }, `The latest ${shown.length} of ${v.length}.`) : null,
         h("table", { class: "sub" }, tableCaption(cols.join(", ")), headRow(cols.map((c) => h("th", {}, c))),
-          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldView(x[c], false, depth + 1, null, there)))))));
+          shown.map((x) => h("tr", {}, cols.map((c) => h("td", {}, fieldOf(c, x[c], false, depth + 1, null, there)))))));
     }
     return v.length ? v.map((x, i) => [i ? ", " : "", fieldView(x, false, depth + 1, null, there)]) : h("span", { class: "muted" }, "none");
   }
-  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldView(x, false, depth + 1, null, there)))));
+  return h("table", { class: "sub" }, Object.entries(v).map(([k, x]) => h("tr", {}, h("th", {}, k), h("td", {}, fieldOf(k, x, false, depth + 1, null, there)))));
 }
 
 /* a file's contents, shown as what they are: one view of each file, kept across refreshes and asked for again
@@ -768,7 +757,7 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
         ...(leased ? ["leased by", ["expires in", "num"], ["attempts", "num"]] : []), ...(movedCol ? [["moved", "num"]] : []), ...(etaCol ? [["done by", "num"]] : []), ["in state", "num"], ["events", "num"], "latest", "last"],
         its.slice(0, limit).map((i) => h("tr", { class: "click", key: i.id, ...rowLink(`/item/${encodeURIComponent(i.id)}`) },
           h("td", { class: "nowrap" }, h("a", { href: `/item/${encodeURIComponent(i.id)}`, class: "plain" }, h("b", {}, i.id))), h("td", { class: "nowrap" }, stateWord(i.state)),
-          show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldView(i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
+          show.map((f) => h("td", { class: nums.has(f) ? "num" : "cell", title: val(i.fields[f]) }, fieldOf(f, i.fields[f], true, 0, (kindOf[i.kind]?.formats || {})[f]))),
           ...(leased ? leaseCells(i.fields.lease, i.state) : []),
           ...(movedCol ? [h("td", { class: "num nowrap", title: (i.moved_at || []).map(when).join("\n") },
                               (i.moved_at || []).length ? when(i.moved_at[i.moved_at.length - 1]) + (i.moved_at.length > 1 ? ` (${i.moved_at.length}\u00d7)` : "") : "")] : []),
@@ -841,11 +830,9 @@ async function pageItems(main, q, only = false) {     // only: a kind's own page
 }
 
 /* an item's completion estimate (SPEC §5a, Completion estimates): when, by the p50; the p90 and why on hover */
-const etaWhen = (t) => (t == null ? "beyond the horizon" : new Date(t * 1000).toLocaleString([], { hour12: false, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }));
-/* a p90 after its p50: the time alone on the same day, else with its date; not said under twenty runs */
-const etaP90 = (e) => (e.p90 == null && e.runs != null && e.runs < 20 ? `p90 not worked out (${e.runs} runs)`
-  : e.p90 == null || e.p50 == null || new Date(e.p90 * 1000).toDateString() !== new Date(e.p50 * 1000).toDateString() ? `p90 ${etaWhen(e.p90)}`
-  : `p90 ${new Date(e.p90 * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" })}`);
+const etaWhen = (t) => (t == null ? "beyond the horizon" : stamp(t));
+/* a p90 after its p50; not said under twenty runs */
+const etaP90 = (e) => (e.p90 == null && e.runs != null && e.runs < 20 ? `p90 not worked out (${e.runs} runs)` : `p90 ${etaWhen(e.p90)}`);
 const ordinal = (n) => n + (n % 100 > 10 && n % 100 < 14 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
 function etaCell(e) {
   if (!e) return h("td", {}, "");
@@ -880,7 +867,7 @@ function leaseView(l, state) {
 }
 
 /* a field's history: each change, oldest first, with the event that made it (a click opens it) */
-const when = (t) => new Date(t * 1000).toLocaleString([], { hour12: false });
+const when = (t) => stamp(t);
 // why an unfinished item is not done (/api/why: SPEC §5a): the summary, who acts and how, the evidence linked
 function whyBox(w) {
   if (!w || !w.known || w.done) return null;
@@ -900,11 +887,11 @@ function eventLink(eid, type, d) {
 function recordLinkItem(id) {
   return h("a", { href: `/record?item=${encodeURIComponent(id)}` }, "all of them in the Record");
 }
-function historyView(cs, total, d) {
+function historyView(cs, total, d, f) {
   if (!total) return null;
   const how = (c) => c.op === "rolled up" ? `${c.count} change${c.count > 1 ? "s" : ""} from ${when(c.first.time)}, rolled up`
     : c.op === "refused" ? "refused" : c.op + (c.rule && c.rule !== "replace" ? ` (${c.rule})` : "") + (c.form !== "data" ? ` by ${c.form}` : "");
-  const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldView(v, true));
+  const val = (v) => (v == null ? h("span", { class: "muted" }, "–") : fieldOf(f, v, true));
   const rows = cs.slice().reverse().map((c, i) => h("tr", { key: c.event ? `${c.event}|${c.path || "/"}|${c.op}` : `${c.time}|${i}` }, h("td", { class: "nowrap" }, when(c.time)), h("td", { class: "nowrap" }, how(c)),
     h("td", { class: "mono small" }, c.path || "/"), h("td", { class: "cell" }, c.op === "refused" ? c.why : val(c.before)),
     h("td", { class: "cell" }, c.op === "refused" ? "" : val(c.after)), h("td", { class: "nowrap" }, eventLink(c.event, c.type, d))));
@@ -946,7 +933,7 @@ async function pageRemoteItem(main, id, name) {
     patch(body, remoteSaid(name, d), h("div", { class: "meta" }, pair("Remote", name), pair("Kind", it.kind_of?.name || it.kind || "–"),
       pair("State", stateWord(it.state)), pair("Events", String(it.events ?? evs.length))),
       h("h2", {}, "Fields"), Object.keys(f).length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, Object.keys(f).sort().map((k) =>
-        h("tr", { key: k }, h("th", {}, k), h("td", {}, fieldView(f[k], false, 0, null, name)))))) : h("p", { class: "muted" }, "No fields."),
+        h("tr", { key: k }, h("th", {}, k), h("td", {}, fieldOf(k, f[k], false, 0, null, name)))))) : h("p", { class: "muted" }, "No fields."),
       h("h2", {}, "How it moved"), (it.moves || []).length ? table(["when", "from", "to", "by event"], it.moves.map((m) => h("tr", { key: `${m.time}|${m.to}` },
         h("td", { class: "nowrap" }, when(m.time)), h("td", {}, m.from || "arrived"), h("td", {}, m.to), h("td", { class: "muted" }, m.type)))) : h("p", { class: "muted" }, "No moves."),
       h("h2", {}, "Events"), eventsTable(evs, true));
@@ -1002,7 +989,7 @@ async function pageItem(main, id, q) {
     const track = k && k.states.length ? h("div", { class: "track" }, path.map((st, i) => [i ? h("span", { class: "arrow", "aria-hidden": "true" }, "→") : null, box(st)]),
       rest.length ? h("span", { class: "alt" }, ended ? "could also have ended:" : "its other states:", rest.map(box)) : null) : null;
     const moves = d.moves.length ? table(["when", "from", "to", "by event", ["after", "num"]],
-      d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, new Date(m.time * 1000).toLocaleString([], { hour12: false })), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
+      d.moves.map((m, i) => h("tr", { key: `${m.time}|${m.to}` }, h("td", { class: "nowrap" }, when(m.time)), h("td", { class: m.from ? "" : "muted" }, m.from || "arrived"), h("td", {}, m.to),
         h("td", { class: "muted" }, m.type), h("td", { class: "num muted" }, i ? dur(m.time - d.moves[i - 1].time) : "")))) : h("p", { class: "muted" }, "Its kind has no states.");
     // its kind's chosen fields first, in their order, then the rest by name
     const first = (k?.show || []).filter((f) => f in d.fields);
@@ -1011,8 +998,8 @@ async function pageItem(main, id, q) {
     const lease = d.fields.lease && typeof d.fields.lease === "object" ? [h("h2", {}, "Lease"), leaseView(d.fields.lease, d.state)] : [];
     const fields = order.length ? h("div", { class: "table-wrap" }, h("table", { class: "fields" }, order.map((f) => h("tr", { "data-field": f, key: f },
       h("th", {}, f, k?.fold?.[f] ? h("span", { class: "muted small rule", title: "how its events' data folds into it" }, ` ${k.fold[f]}`) : null),
-      h("td", {}, f in d.fields ? fieldView(d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
-        historyView(hist[f] || [], (d.changes || {})[f] || 0, d))))))
+      h("td", {}, f in d.fields ? fieldOf(f, d.fields[f], false, 0, (k?.formats || {})[f]) : h("span", { class: "muted" }, "removed"),
+        historyView(hist[f] || [], (d.changes || {})[f] || 0, d, f))))))
       : h("p", { class: "muted" }, "No fields: its events carry no data.");
     const refused = (d.refused || []).length ? [h("h2", {}, "Refused"), h("p", { class: "note" }, "Events recorded that changed nothing: their changeset could not apply, so none of it did."),
       table(["when", "event", "as", "why"], d.refused.slice().reverse().map((r) => h("tr", { key: r.event }, h("td", { class: "nowrap" }, when(r.time)),
@@ -1126,7 +1113,7 @@ async function pageModel(main) {
     patch(notes, ...d.notes.map((n) => h("p", { class: "muted small" }, n)));
     const why = Object.entries(d.not_proposed || {});
     const q = d.queue || [];
-    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length, x.state])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed +
+    const sig = JSON.stringify(q.map((x) => [x.id, x.diff?.hash, x.conflicts.length, x.state])) + (d.estimated_at || "") + JSON.stringify(why) + d.loops_analysed + d.held +
       JSON.stringify([d.redesigns?.asked, d.redesigns?.last?.id, d.redesigns?.last?.result]);
     if (sig !== propSig && !answering()) {
       propSig = sig;
@@ -1142,7 +1129,8 @@ async function pageModel(main) {
       const all = h("button", { onclick: () => simulateAll(sims, allBox, all), disabled: sims.length < 1 ? "" : null }, "Simulate all pending");
       const kinds = {};
       for (const x of q) kinds[x.what] = (kinds[x.what] || 0) + 1;
-      qHead.replaceChildren("Changes to review", h("span", { class: "muted" }, q.length ? ` ${q.length} waiting` : ""));
+      const held = d.held ? h("p", { class: "muted" }, `${d.held} modelling request${d.held > 1 ? "s" : ""} held for you: answered in `, h("a", { href: "/diagram" }, "Needs attention"), ".") : null;
+      qHead.replaceChildren("Changes to review", h("span", { class: "muted" }, q.length + (d.held || 0) ? ` ${q.length + (d.held || 0)} waiting` : ""));
       qActions.replaceChildren(...[SNAP ? null : all, SNAP ? null : btn, SNAP ? null : pick,
         h("span", { class: "muted small" }, d.to_estimate.length
           ? `${d.to_estimate.length} parameter${d.to_estimate.length > 1 ? "s" : ""} to estimate${d.estimated_at ? `, last calibrated ${ago(d.estimated_at)}` : ", not calibrated yet"}`
@@ -1150,7 +1138,7 @@ async function pageModel(main) {
         d.loops_analysed < d.loops ? h("span", { class: "muted small" }, `loops analysed for proposals: ${d.loops_analysed} of ${d.loops}`) : null,
         said, redesignAsk(d.redesigns, () => { propSig = null; setTimeout(tick, 600); })].filter(Boolean));
       queueBox.replaceChildren(...(q.length ? q.map((x) => reviewEntry(x, { onDone: () => { propSig = null; allBox.replaceChildren(); setTimeout(tick, 600); } }))
-        : [h("p", { class: "muted" }, "Nothing waiting.")]));
+        : held ? [] : [h("p", { class: "muted" }, "Nothing waiting.")]), ...(held ? [held] : []));
       whyBox.replaceChildren(...(why.length ? [h("h3", {}, "Estimates not proposed"),
         table(["parameter", "why"], why.map(([n, w]) => h("tr", {}, h("td", {}, h("b", {}, n)), h("td", { class: "small" }, w))), "can")] : []),
         ...(d.open_loops?.length ? [h("p", { class: "muted small" }, `Every stock integrated still leaves open ${d.open_said}, since the replay takes what a decision sets as measured.`)] : []));
