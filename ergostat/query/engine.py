@@ -12,7 +12,7 @@ from collections import OrderedDict
 from . import transforms as tf
 from .buckets import Grid, grid
 from .parse import RATE_PER, Query, decode, parse
-from .sources import READERS, Read, Unanswerable, bucketed
+from .sources import READERS, Read, Unanswerable, bucketed, series_grid
 
 MOST_GROUPS = 12
 OTHER = "other"
@@ -144,7 +144,8 @@ def _version(p, q: Query) -> tuple:
 
 
 def _one(live, p, q: Query, since: float, until: float, points: int, first: float | None) -> dict:
-    g = grid(since, until, points, q.bucket)
+    g = series_grid(p.measurements, q.series, since, until, points, q.bucket) if q.source == "series" else \
+        grid(since, until, points, q.bucket)
     kept = _kept(live)
     key = (q, g.since, g.until, g.step, getattr(live, "mtime", None), _version(p, q))
     if (got := kept.get(key)) is not None:

@@ -3,12 +3,13 @@ aggregated in their buckets) or ``Levels`` (one value per bucket already). Only 
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from ..spec import items as its
 from ..spec import numberreads
 from . import labels
-from .buckets import Grid, aggregate
+from .buckets import Grid, aggregate, grid
 from .parse import Query
 
 EVENTS_MOST = 20_000        # events one query may read from the log
@@ -180,6 +181,22 @@ def counts(p, spec, q: Query, g: Grid) -> Read:
             levels[name] = row
     note = None if q.agg == "last" else "counts are the level at each bucket's end: the aggregation does not apply"
     return Read(levels=levels, order=order if by == "state" else [], unit="items", note=note)
+
+
+def series_grid(m, name: str, since: float, until: float, points: int, asked: float | None) -> Grid:
+    """The grid for a series: its step a whole multiple of every roll-up tier that answers the window, so that each
+    roll-up row lies wholly in one bucket (a 600 s row cannot be shared out among 720 s buckets: it holds no times)."""
+    g = grid(since, until, points, asked)
+    if not hasattr(m, "_sources"):
+        return g
+    for _ in range(4):
+        with m._c() as c:
+            parts = m._sources(c, name, g.since, g.until, fine=g.step)
+        tiers = {int(e) for e, _, _ in parts if 0 < e <= g.step}
+        if not tiers or g.step % (unit := math.lcm(*tiers)) == 0:
+            return g
+        g = grid(since, until, points, float(math.ceil(g.step / unit) * unit))
+    return g
 
 
 def series(p, spec, q: Query, g: Grid) -> Read:
