@@ -571,7 +571,7 @@ one, `person-gate`) (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`; a held modelling request is denied with `--deny --note WHY`,
-  dismissed until its part changes, and approved back to the AI tier), from the page's *Needs attention* (Approve / Deny inline) or by
+  dismissed until its part changes, and approved back to the AI tier), from the Diagram's *Waiting for you*, at the top of its side panel (Approve / Deny inline), or by
   the MCP `answer` tool when they tell you to (recorded as `owner via mcp`: never evidence for graduating). Set up
   `notify:` with the channels they use: `macos` on their own machine; `email` with `to:`; `slack` or `discord` with the
   webhook's URL in an environment variable (`url-env:`) or a file (`url-file:`), never in the YAML. Each channel is a
@@ -810,6 +810,10 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
   those whose fields' string values contain every word (1 to 8 words; a plain substring, case ignored, no ranking and
   no fuzzy match; only the first 65,536 characters of an item's text are read; as of now, never with `--at`).
   `--json` on each; `/api/items?search=WORDS` is the same list.
+- **Why an item is not done**: `ergostat why ID [--json]` (MCP `why`, `/api/why?item=ID`) follows what it waits on to
+  the root (a lease, a full pool, the budget, a gate and which of its inputs is 0, a parked or missing dependency, a
+  cycle, nothing taking its state, ...), names who must act and the command, and links the evidence. Ask it before
+  guessing why work has stalled; when it says `unknown`, the record lacks what it needs (SPEC §5a).
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.
