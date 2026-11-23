@@ -1193,7 +1193,10 @@ web:
 | any other `Host` | 403 |
 
 `open: read` (`web: {names: [dev.example.org], open: read}`) is for an instance whose owner wants it seen without a
-login: anyone who reaches the name reads everything the page shows, and nothing is changed there. The tunnel must
+login: anyone who reaches the name reads everything the page shows, and nothing is changed there. Such a reader may
+not ask a data source (section 4e, *Data sources*): each of their `{source, text}` queries is refused with
+`error_kind: refused`, nothing is sent to the source, and `/api/query/fields` lists no `datasources` to them; the
+owner, and a login under a name with `access:`, may ask. The tunnel must
 keep the declared name as the `Host`: a request through Cloudflare by the local name is still refused.
 
 The token is verified with the standard library: RS256 only, against the team's keys
@@ -1251,6 +1254,21 @@ reads the event log.
 - **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
   refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
   in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+- **Data sources.** A query `{"id": "a", "source": "prom", "text": "sum by (job) (rate(http_requests_total[5m]))"}` names
+  a source under the model's `sources:` (section 11) and is text in that source's own language (PromQL for `prometheus`);
+  it takes no other key and cannot be an X, an input or an output. The server asks the source (the browser never holds
+  its address or credentials) over the request's window, one value per bucket, and answers in the same shape as the rest
+  (`times`, `step`, `series`). It is bounded whatever the source's type: at most 4,000 characters of text, 50 series, 1,000
+  points, a 400-day window and 10 s (less what the request has used); past one it is refused with `error` naming the bound
+  and `error_kind: limit`. The time bound is the whole request's: connecting, the TLS handshake of an `https` source,
+  waiting for the answer and reading it, over http or https, however slowly the source sends (the connection, or its
+  TLS socket, is cut at the bound). Only looking up the source's host name is left
+  to the system's resolver, which ergostat cannot interrupt. An unreachable source is `error_kind: unreachable` (never with its address), a query the source
+  refuses `refused` with the source's own words. It is asked again each time, nothing kept. `/api/query/fields` lists these
+  sources as `datasources`: name, type and language only. The panel editor offers them under Source, with a text field.
+  Who may ask: the owner, and a login under a name with `access:` (section 4d). Anyone under a name declared
+  `open: read` may not: each such query is refused in its own result (`error_kind: refused`, the panel saying so), it
+  is never sent, and `datasources` is listed to them empty; their other queries are answered as before.
 
 ## 4f. Dashboards: shared, named, and checked
 
@@ -3993,7 +4011,12 @@ spends more than its reserve is charged what it spent.
   `program` or `rule`; one with no `kind` (read as `program` everywhere else) is charged. A refusal starts no
   process and writes no `agent.started`, only `budget.refused` (item: the agent); `ergostat agent NAME --now`
   prints `refused: budget: …` and exits 1, and the runner logs it. A run that raises after its `agent.started`
-  and before its end is closed there, cost null. The toml runner (`ergostat run`) runs recovery when it starts
+  and before its end is closed there, cost null. A command whose first word is `claude` gets `--max-budget-usd` at
+  its reserve, put right after that word. Any `--max-budget-usd` it had in that claude call (up to its first unquoted
+  `|`, `&`, `;`, `(`, `)`, backquote or line end) is removed. What follows in the shell line (`| jq`, `&& git`, more
+  lines) is left as it was. A claude that is not the first word (`cd x && claude …`) gets no cap, though its run is
+  still charged its reserve. `ERGOSTAT_MAX_COST` and the T1 kill on a reported cost are not given to these
+  runs. The toml runner (`ergostat run`) runs recovery when it starts
   and on its schedule loop, at most once a minute. In a toml project ergostat's own calls (below) read this
   `[budget]`: a call whose caller gave no reserve reserves `max-cost`, and `ergostat.budget.left` reads it too.
 - **Only ergostat writes them.** `budget.*` is among ergostat's own types: no run's output, `ergostat event --add`
@@ -4140,7 +4163,15 @@ sources:
 | `command` | none | (the same as `run`) |
 | `ergostat` | `url`, `token-file`, `tls` | another ergostat's reading (section 4c): `series` (a measurement there, `sensor/open.main`) or `ref` (a part's reading as it reckons it, `stock.open`); every sensor of one source is read in one request a period |
 
-More types (Datadog, CloudWatch, SQL) can follow the same shape.
+A `prometheus` source is also a dashboard data source: a panel's query is PromQL, asked as a range query
+(`GET /api/v1/query_range`, the only request it makes) through the server (section 4e, *Data sources*).
+
+More types (Datadog, CloudWatch, SQL) can follow the same shape. A panel data source type is one module in
+`ergostat/datasources/`, found by its name: `TYPE`, `KEYS` (its connection keys, which `check` then accepts under
+`sources:`), `LANGUAGE` and `query(source, text, window)`, returning each series' name and its `(time, value)` points; a
+type offering any other public function or class is refused, so the one operation ergostat can call on a source is
+`query` (a type's `query` must itself only read; the `prometheus` one sends only that GET). Panels need no change for a new type (the
+model's JSON schema lists the types by name, so a new one is added there too).
 
 ## 12. What ergostat derives and checks
 
@@ -7028,8 +7059,12 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
 - The page: the entries are listed under *Waiting for you*, at the top of the Diagram's side panel (only when one
   waits; more than 3 fold into one line, "N wait for you", that opens them, though never while the reader is in the
   list), each with Approve / Deny, or a number and
-  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. The item pages keep
-  their own buttons. No page or panel of its own. Every entry is listed, however many come before it. While the
+  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. Each box has a
+  label above it and no placeholder, as wide as the row: a number names its unit and flow (the flow's unit, else its
+  stock's: "Jobs done, along reviewed (number)"), a reason that it is required ("Reason for denying (required)": Deny
+  waits for it), as is a fold's ("Reason for denying all (required)", over its Deny all). Every person ask gets a number, even one whose outputs are two named ends: the number moves its
+  first flow only ("Ramps done, along ramps-approved"), and nothing in a block says its answer is yes or no. The
+  item pages keep their own buttons. No page or panel of its own. Every entry is listed, however many come before it. While the
   pointer or the focus is in one of the side panel's lists (*Waiting for you*, *Goals off*, *Model housekeeping*; and
   likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its top
   how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or gone
@@ -7664,11 +7699,13 @@ closed, the worker ends (0).
 
 Built so far: `start` and `kill`, the run's folder, and the per-run keeper's process control (`keeper.py`), and the
 run's output by offset with `attach`, `ack`, `ended` and `done` (`output.py`), both registered in `serve.HANDLERS` once
-`hello` is said, and each run's readings, `ended`'s `resources` (`sampler.py`, below). Still to come: the keeper's
-wall and lease deadlines, and the runs listed in `hello` (`backends` stays `[]` until then).
+`hello` is said, each run's readings, `ended`'s `resources` (`sampler.py`, below), and the keeper's wall and lease
+deadlines (`deadline.py`, section 12s.5). Still to come: the lease's renewals, and the runs listed in `hello`
+(`backends` stays `[]` until then).
 
-**`start`** `{"run", "command", "input", "env", "block", "limits"}`: `command` a non-empty string, `input` (the
-run's standard input) a string, `env` an object of strings, else an `error`. It is answered `refused` with `why`:
+**`start`** `{"run", "command", "input", "env", "block", "limits", "lease"}`: `command` a non-empty string, `input`
+(the run's standard input) a string, `env` an object of strings, `lease` absent or `{"left", "ttl"}` (seconds to its
+expiry and its TTL, each a positive number within a day), else an `error`. It is answered `refused` with `why`:
 
 - `bad name`: `run` is not exactly 32 lower-case hex digits, or a run of that id has a folder here already (never
   made again over it);
@@ -7681,7 +7718,8 @@ run's standard input) a string, `env` an object of strings, else an `error`. It 
 - `no keeper`: the folder's files could not be written or the keeper could not be started; the folder is removed.
 
 Each refusal makes no folder and no process. Else the worker makes `runs/RUN/` in the root with `run.json` (the
-run id, block, backend `process`, command, env and limits), `in` and an empty `cwd/`, starts the keeper
+run id, block, backend `process`, command, env and limits), the first `deadline` (section 12s.5), `in` and an empty
+`cwd/`, starts the keeper
 (`python3 -I WORKER --keep RUN --root ROOT`, the same folder or zipapp, in a session of its own, standard input
 from `/dev/null`, its output to `runs/RUN/keeper.log`, SIGHUP ignored), and answers `started` with `run` and
 `keeper` (its pid). The worker reaps its keepers; nothing ties a keeper to the worker, so closing the worker's
@@ -7845,7 +7883,25 @@ pool's list (from 1), and never by its host.
 
 ### 12s.5 The lease on a node
 
-(To be filled: the lease in `start`, `renew`, the keeper's kill at the expiry, a node lost after three beats missed.)
+**The keeper's deadlines** (`ergostat/compute/worker/deadline.py`). A run on a node ends by its wall and its lease
+whether or not its worker, its session or its engine is still there: its keeper holds both. `runs/RUN/deadline` is
+`{"wall": T, "lease": T or null, "kill": K}`, each `T` in seconds on the keeper's clock, which counts time
+suspended and never reads the time of day: `CLOCK_BOOTTIME` on Linux, `CLOCK_MONOTONIC` elsewhere (on macOS the
+continuous clock, which counts sleep). `start` writes the first: the wall at now plus `limits.wall` (a day, the most
+a run may have, when none is given), the lease at now plus its `left` (`null` without one), and `K` grace(ttl)/4
+(grace(ttl) = max(1, min(0.1 × ttl, 30)), as `leases/terms.py`), or 2 seconds without a lease.
+
+The keeper reads the file at its start (one it can't read, or not of that shape, and the run is not started:
+`how` `not started`) and again each quarter second until it stops the run. A file
+that can't be read or is garbage (not JSON, not that object, a time that is not a finite number or is more than a day
+from now, `K` not 0 to 600) keeps the last values. Of a well-formed one, the wall is taken only when earlier (it never
+moves later, whatever the file says), the lease is taken as written (its renewals, still to come, are the engine's
+word and may move it either way), but a `null` lease never drops one held; `K` is taken. At the earlier deadline the
+keeper sends SIGTERM to the run's group, SIGKILL `K` seconds later if any of it is left, and writes `exit` with `how`
+`wall` or `lease` (a stop file seen first is a stop, as for `kill`). A deadline moved earlier takes effect within
+half a second.
+
+(Still to be filled: `renew`, which rewrites the file; a node lost after three beats missed.)
 
 ### 12s.6 Runs that outlive the connection
 

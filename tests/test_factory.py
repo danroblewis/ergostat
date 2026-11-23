@@ -221,8 +221,8 @@ class Factory:
             if "event" not in line:
                 continue
             fold_line(db, self.kinds, line, about)
-            if not line["event"].startswith("session."):          # (each AI session's own item: sessions.py)
-                said.append(line["event"])
+            if not line["event"].startswith(("session.", "batch.")):   # (each AI session's own item: sessions.py; each
+                said.append(line["event"])                              # queue batch's: batches.py)
         self.record.write_text(json.dumps(db))
         return said
 
@@ -1018,6 +1018,114 @@ def test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed():
     assert spec.items["flake"].on["flake.main-fixed"] == "fixed"
     assert "main-mend" in (ROOT / "dev" / "README.md").read_text()
     assert tomllib.loads((ROOT / "dev" / "factory.toml").read_text())["gates"]["mend_most"] == 5
+
+
+# ---- the guarantees: main's failing tests a stock, held at zero by main-green (dev/records/regression-guarantees-model.md)
+
+def test_the_guarantees_model_checks_clean():
+    """The system and its file; check finds no error and no missing feedback for main-green, whose loop closes through
+    the coordinator (fix-main, a block of its own), and is drawn balancing under the name main-repair. No block
+    outside the system moves what its loop uses: check finds no `interface` on it."""
+    from ergostat.spec import causal
+    spec, problems = read(ROOT / "ergostat.yaml")
+    assert [p for p in problems if p.level == "error"] == []
+    assert [p for p in problems if p.code == "missing-feedback" and p.about == "goal.main-green"] == []
+    assert [p for p in problems if p.code == "interface" and p.about == "system.guarantees"] == []
+    assert "guarantees" in spec.systems and spec.within["guarantees"] == "oversight"
+    g = spec.goals["main-green"]
+    assert (g.of.kind, g.of.name, g.hold.op, g.hold.value, g.critical, g.on_stale, g.system) == (
+        "stock", "main-failing-tests", "<=", 0, True, "off", "guarantees")
+    assert spec.blocks["fix-main"].system == "guarantees"
+    lp = spec.loop("main-green")
+    assert lp.closes, lp
+    assert (lp.actuators, lp.valves, lp.disturbances) == (["fix-main"], ["main-tests-fixed"], ["main-tests-broken"])
+    # the cycle, by the links ergostat draws (their signs its own), named and signed as check names and signs loops
+    # (causal.loops stops at its first 300, and in the factory's model this one was past them: it is walked here)
+    drawn = {(x.source, x.target): x for x in causal.links(spec)}
+    parts = ["stock.main-failing-tests", "goal.main-green", "block.fix-main", "flow.main-tests-fixed"]
+    cycle = [drawn[(a, b)] for a, b in zip(parts, parts[1:] + parts[:1], strict=True)]
+    (lp,) = causal._named(spec, [cycle])
+    assert (lp.name, lp.polarity) == ("main-repair", "B"), [(x.source, x.target, x.sign) for x in cycle]
+
+
+def guarantees_project(tmp_path, every: str):
+    """The flake fixture's project (the root model's flake kind) with dev/model/guarantees.yaml's stock, flows,
+    parameter and goal added as written, its sensors every ``every``: a project ergostat runs on."""
+    import yaml
+
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    parts = yaml.safe_load((ROOT / "dev" / "model" / "guarantees.yaml").read_text())
+    for table in ("stocks", "flows"):
+        for p in parts[table].values():
+            p["sensor"]["every"] = every
+    extra = {k: parts[k] for k in ("stocks", "flows", "parameters", "goals")}
+    with (tmp_path / "ergostat.yaml").open("a") as out:
+        out.write(yaml.safe_dump(extra, sort_keys=False))
+    p = Project(mdl.load(tmp_path))
+    assert not [x for x in p.model.problems if x.level == "error"], p.model.problems
+    return p
+
+
+def main_green_off(p, want: float, within: float = 20.0) -> None:
+    """The real engine on the project, its sensors running, till main-green's .off is ``want``."""
+    from ergostat.spec.engine import Engine
+    e = Engine(p, say=lambda s: None)
+    e.start_all()
+    deadline = time.monotonic() + within
+    try:
+        while e.signals.get("goal.main-green.off") != want and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert e.signals.get("goal.main-green.off") == want, e.signals.get("stock.main-failing-tests")
+        assert e.signals.get("stock.main-failing-tests") == (1 if want else 0)
+    finally:
+        e.close()
+
+
+def test_main_green_goes_off_and_holds_again(tmp_path, monkeypatch):
+    """A test found failing on main (flake.main-broken, by flakes.say) turns main-green off; main-mend seeing it pass
+    twice alone on the pushed main (flake.main-fixed) turns it holding again."""
+    t = "tests/test_a.py::test_ok"
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, {t: ["PASSED", "PASSED"]})
+    p = guarantees_project(tmp_path, "0.2s")
+    main_green_off(p, 0.0)                                                     # nothing failing: holding
+    flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0)
+    main_green_off(p, 1.0)
+    assert p.events.query(n=None, type="loop.off", item="main-green")
+    assert mend.main() == 0
+    assert flake_now(flakes, t)["state"] == "fixed" and flake_now(flakes, t)["fields"]["fixed_by"] == "main-mend"
+    main_green_off(p, 0.0)
+    assert p.events.query(n=None, type="loop.holding", item="main-green")
+
+
+def test_main_green_stale_is_off(tmp_path, monkeypatch):
+    """main-green's policy is off: a stale reading of main-failing-tests counts as off (its .off 1 at a value of 0), and
+    reading again makes it hold. An items sensor is never stale (SPEC §9.6: the engine reads the item index itself), so
+    the reading here is made stale as a periodic sensor's would be: what main-green does then is its own on-stale."""
+    from ergostat.spec import observer
+    from ergostat.spec.engine import Engine
+    flake_record(tmp_path, monkeypatch)
+    p = guarantees_project(tmp_path, "1m")
+    assert observer.stale_by(next(iter(p.model.spec.stocks["main-failing-tests"].sensors.values())), 0.0) is None
+    monkeypatch.setattr(observer, "stale_by", lambda s, last: last + observer.STALE_AFTER * s.every)
+    clock = [1_800_000_000.0]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    e = Engine(p, say=lambda s: None)
+    e.start = lambda b, why: None                                              # (nothing runs)
+    series = next(iter(p.model.spec.stocks["main-failing-tests"].sensors.values())).series
+    p.measurements.add(series, 0, clock[0])
+    e.evaluate(tick=True)
+    assert e.signals["goal.main-green.off"] == 0 and not e.stale
+    clock[0] += 600                                                            # 10 min unread, its sensor every 1m
+    e.evaluate(tick=True)
+    assert "main-green" in e.stale and e.signals["goal.main-green.off"] == 1
+    went = p.events.query(n=None, type="ergostat.goal.stale", item="main-green")
+    assert len(went) == 1 and went[0]["data"]["on_stale"] == "off"
+    clock[0] += 1
+    p.measurements.add(series, 0, clock[0])
+    e.evaluate(tick=True)
+    assert not e.stale and e.signals["goal.main-green.off"] == 0
 
 
 def pools_module():
@@ -2844,7 +2952,9 @@ def test_batch_of_one_is_todays_queue(tmp_path):
     assert f.item("gap/b")["state"] == "approved"                              # b ranks higher, but is not this run's
     said, _ = f.run("queue.py", "gap/b")
     assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and merges(f) == ["b"]
-    assert {x.get("item") for x in lines if "event" in x} <= {None, "gap/a"}
+    assert {x.get("item") for x in lines if "event" in x and not x["event"].startswith("batch.")} <= {None, "gap/a"}
+    (own,) = {x["item"] for x in lines if x.get("event", "").startswith("batch.")}    # and its own batch item, a's
+    assert own.startswith("batch/a-")
 
 
 def main_moves(f: Factory, path: str) -> None:
@@ -4649,7 +4759,7 @@ def test_a_paced_block_raises_no_modelling_request(tmp_path):
     assert [r for r in got if r["code"] == "schedule-removed"] == []
 
 
-@pytest.mark.slow
+@pytest.mark.serial            # (each switcher run is ~43 CPU-s against its 120 s bound: it holds on a quiet machine)
 def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, monkeypatch):
     from ergostat.actions import gate
     f = Factory(tmp_path)
