@@ -318,6 +318,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                                   **({"setpoint": f"{g.hold.op} {r:g}"} if r is not None else {}))
         loops[lp.name]["off_by_words"] = off_by_words(loops[lp.name]["setpoint"], error, c.tolerance,
                                                       getattr(m.stocks.get(c.holds), "unit", ""), status == "off")
+        loops[lp.name].update(goal_row(loops[lp.name], getattr(m.stocks.get(c.holds), "unit", "")))
 
     contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
     for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
@@ -624,6 +625,17 @@ LEVELS = {"bad": 0, "warn": 1, "hint": 2}
 UNKNOWN_GRACE = 120.0          # a loop with no reading this long after the record starts is a problem
 
 
+WORDS = ("holding", "off", "open", "unknown", "stale")     # the words a reader sees for a goal's state
+
+
+def goal_row(lp: dict, unit: str = "") -> dict:
+    """A goal's one word and its row's columns, said once here for every surface that lists it (goalrow.js draws
+    them). The word is its status for now; trend and expected are filled by later work, never by a page."""
+    return {"word": lp["status"] if lp["status"] in WORDS else "unknown",
+            "row": {"measure": lp["stock"], "value": lp["value"], "unit": unit,
+                    "bound_words": f"{lp['setpoint']}{lp.get('band') or ''}", "trend": None, "expected": None}}
+
+
 def off_by_words(setpoint: str, error, tolerance: float = 0.0, unit: str = "", off: bool = False) -> str | None:
     """How far a goal is from its bound, the one phrase every surface outside Blocks prints (Blocks says
     e = r − y with its sign): ``off by 36 tickets`` past a <= or >= bound, ``28 short of 180`` below a
@@ -658,6 +670,23 @@ def goals_off(snap: dict, names: bool = False) -> dict:
             out[{"off": "system"}.get(s, s)].append(name)
     return out if names else {**{k: len(out[k]) for k in ("system", "unknown", "open")},
                               "own": {t: len(v) for t, v in out["own"].items()}}
+
+
+def quiet(project, snap: dict, system: str) -> str | None:
+    """A quiet system's sentence: every goal of ``system`` or of a system within it (as its closed box folds them in;
+    the goals in ``snap["loops"]``, as /api/loops has them) holding, and how many items their blocks hold leases on
+    now; None when one is off, open, stale or unknown, or it has none (SPEC §8, a quiet system)."""
+    spec = getattr(project.model, "spec", None)
+    inside = (lambda s: system in spec.chain(s)) if spec is not None else (lambda s: s == system)
+    said = [lp["status"] for lp in snap["loops"].values() if lp.get("system") and inside(lp["system"])]
+    if not said or any(s != "holding" for s in said):
+        return None
+    from .spec import items as its
+    from .spec.ir import LEASED
+    n = sum(its.in_states(project.events, spec, b.takes.kind, [LEASED], {"lease.block": b.name}, until=snap["at"])[0]
+            for b in (spec.blocks.values() if spec is not None else ()) if b.takes and b.system and inside(b.system))
+    return (f"all {len(said)} goal{'s' * (len(said) != 1)} holding, "
+            + (f"{n} item{'s' * (n != 1)} being worked" if n else "nothing being worked"))
 
 
 def setpoint_text(lp: dict) -> str:
@@ -785,6 +814,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
     from .inbox import entries as en
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
+             **{k: e[k] for k in ("fold", "about", "system") if e.get(k)},
              "object": e.get("action") or e.get("block") or "",                         # what the answer is about
              "says": f"{e['summary']}, waiting {human(e['age'])}" + (f" (why: {e['why']})" if e.get("why") else "")
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")

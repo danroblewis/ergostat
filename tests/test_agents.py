@@ -222,12 +222,30 @@ def test_missing_browser_stops_the_round_rather_than_skipping(tmp_path):
     assert fast["failed"] == "browser" and fast["browser"]["rc"] == 0 and fast["browser"]["skipped"] == 1
 
 
-def test_a_rerun_is_timed_by_the_suite_that_failed():
-    sys.modules.setdefault("fac", module("fac"))
-    sys.modules.setdefault("agents", module("agents"))
-    room, soon = module("onmain").room, time.time() + 200
+def test_a_rerun_is_timed_by_the_suite_that_failed(monkeypatch):
+    # onmain imports agents, fac and flakes from beside it: each given fresh here (undone after the test), so no
+    # module an earlier test in this worker left in sys.modules (a stub, a patched fac.git) or on sys.path decides it
+    for name in ("fac", "agents", "flakes"):                 # (fac first: agents and flakes import it)
+        monkeypatch.setitem(sys.modules, name, module(name))
+    onmain = module("onmain")
+    assert onmain.fac is sys.modules["fac"] and onmain.flakes.fac is onmain.fac and callable(onmain.agents.clone)
+    room, soon = onmain.room, time.time() + 200
     took = {"unit": {"seconds": 10}, "browser": {"seconds": 400}}
     assert not room({**took, "failed": "browser"}, soon) and room({**took, "failed": "unit"}, soon)
+
+
+def test_room_holds_after_another_test_left_a_stub_fac(monkeypatch):
+    """An earlier test in the worker left stand-ins: a fac and an agents lacking what onmain uses, no flakes module,
+    and dev/bin not on sys.path. The rerun test still loads onmain on its own fresh modules, and leaves the stubs."""
+    import types
+    stub_fac, stub_agents = types.ModuleType("fac"), types.ModuleType("agents")
+    monkeypatch.setitem(sys.modules, "fac", stub_fac)
+    monkeypatch.setitem(sys.modules, "agents", stub_agents)
+    monkeypatch.delitem(sys.modules, "flakes", raising=False)
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if Path(p or ".").resolve() != BIN.resolve()])
+    with pytest.MonkeyPatch.context() as inner:
+        test_a_rerun_is_timed_by_the_suite_that_failed(inner)
+    assert sys.modules["fac"] is stub_fac and sys.modules["agents"] is stub_agents and "flakes" not in sys.modules
 
 
 @pytest.mark.slow
