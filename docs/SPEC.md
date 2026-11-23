@@ -8281,7 +8281,8 @@ blocks:
 
 With many gaps building, their suites alone could fill every slot and hold the queue off for good. So the builders
 keep one slot for it: while `approved-gaps-landed` is off and no queue run holds its slot, a builder's suite waits
-before taking the last free one (`dev/bin/slots.py`), and the queue's own wait is for that kept slot. The builders'
+before taking the last free one (`dev/bin/slots.py`), and the queue's own waits (its run's, and its check of a main held
+red) are for that kept slot. The builders'
 suites alone are then at most `slots - 1`, inside `machine-quiet`'s hold, so only threads, memory, a waiting push or
 suites outside the factory hold the queue. One held past `[manager] broken_minutes` raises a broken situation whose
 text names the readings that hold it (`suites-running`, `threads`, `memory` or `push-waiting`); dev/README.md has the

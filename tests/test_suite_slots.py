@@ -102,7 +102,10 @@ def test_the_slots_have_a_ceiling_and_the_queue_waits_only_for_the_kept_one(fx, 
     state["running"] = 5                                     # implementors at most slots - 1: the queue's wait passes
     assert fac.wait_quiet(cfg, most=fac.slot_count(cfg)) < 1.0
     text = (ROOT / "dev" / "bin" / "queue.py").read_text()
-    assert "fac.wait_quiet(cfg, most=fac.slot_count(cfg))" in text
+    waits = re.findall(r"fac\.wait_quiet\([^)]*\)+", text)  # every wait in the queue: main_red's check of main too
+    assert len(waits) == 2 and all(w == "fac.wait_quiet(cfg, most=fac.slot_count(cfg))" for w in waits), waits
+    red = text[text.index("def main_red("):]
+    assert "fac.wait_quiet(cfg, most=fac.slot_count(cfg))" in red[:red.index("\ndef ")]
     hold = re.search(r"machine-quiet:\s*\n\s*auxiliary: suites-running\s*\n\s*hold: \"<= (\d+)\"",
                      (ROOT / "dev" / "model" / "interlock.yaml").read_text())
     assert hold and int(hold[1]) >= fac.SLOTS - 1           # implementor suites alone keep machine-quiet on

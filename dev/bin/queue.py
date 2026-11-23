@@ -1078,7 +1078,7 @@ def main_red(cfg: dict, repo) -> str | None:
         return None
     head = fac.git(repo, "rev-parse", "HEAD")
     if tests := [t for t in r["tests"] if t not in fac.quarantine(repo, head) and not lacks(repo, head, t)]:
-        fac.wait_quiet(cfg)
+        fac.wait_quiet(cfg, most=fac.slot_count(cfg))   # (the kept slot is the queue's, here too: slots.py)
         try:
             got = named(cfg, repo, f"main-{head[:12]}-{int(time.time())}", fac.run_dir(cfg, "queue"),
                         {"failed": r["suite"], "tests": tests})

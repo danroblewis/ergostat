@@ -58,3 +58,15 @@ a fault in the branch, so no code changed. Main (b7302db6) is merged in: dev/REA
 paragraph and main's usage-limit and outage paragraphs; in fac.suite, main's `group.add(boxed)` is kept with the
 branch's `slotted` gate. The three acceptance tests pass again after the merge, and ruff on ergostat, tests and scripts
 is clean. The unit suite and the four browser files were not run here; they run in the merge queue.
+
+## Where it stopped
+
+Built, continued round 2. The one finding (blocking): `main_red()` (dev/bin/queue.py:1081), which runs inside take()
+before `running` is written, so while the gate does not keep the slot, still waited for fewer than `[load]
+most_suites` suites. It now waits with `most=fac.slot_count(cfg)` as the run's wait at 1203 does (0 net lines; the
+budget stays 120). test_the_slots_have_a_ceiling_and_the_queue_waits_only_for_the_kept_one now finds every
+`fac.wait_quiet(...)` call in queue.py, requires exactly the two and both with the kept-slot limit, and requires one
+inside main_red(). With 1081 put back to the bare call, the test was seen to fail (`['fac.wait_quiet(cfg)', ...]`).
+dev/README and SPEC now say that both queue waits, the run's and main_red()'s, are for the kept slot. The three
+acceptance tests and tests/test_suite_slots.py pass, and ruff on ergostat, tests and scripts is clean. Not run here:
+the unit suite and the four browser files.

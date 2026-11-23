@@ -101,9 +101,9 @@ counts as approved gaps waiting. The suites taken are the ones ps sees (`fac.sui
 factory's own suites that passed in the last minute (a file each in `run/slots/`), looked at and written under
 `run/slots.lock`, so two sessions looking at once never both take it. Implementor suites alone are then at most
 `slots - 1`, inside machine-quiet's hold (`suites-running <= 6`), so they never hold queue-when off by themselves;
-threads, memory and push-waiting still do. The queue's own wait in its run is for that kept slot: fewer than `slots`
-suites running, not `[load] most_suites`. The slot command stays the cap on the slots themselves; the kept slot is only
-kept by the factory's own suites, not by anyone else's on the machine.
+threads, memory and push-waiting still do. The queue's own waits (in its run, and in `main_red()`'s check of a main held
+red, before `running` is written) are for that kept slot: fewer than `slots` suites running, not `[load] most_suites`.
+The slot command stays the cap on the slots themselves; the kept slot is only kept by the factory's own suites, not by anyone else's on the machine.
 
 **A usage-limit stop is a pause, not a failure** (`dev/bin/aihold.py`). A session whose result is the provider's
 usage-limit message ("You've hit your weekly limit · resets Nov 25, 3pm (UTC)"; or a failed session whose output holds
