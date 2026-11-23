@@ -196,9 +196,13 @@ class Site:
                                 stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                 start_new_session=True, cwd=str(self.dir))
 
-    def address_kept(self):
-        """`ergostat web` writes its address where the factory's page is named: the front's stays there."""
+    def address_kept(self, port: int):
+        """`ergostat web` writes its address where the factory's page is named, just after it starts answering: once it
+        has, the front's goes back there."""
         f = lv.state_dir(self.cfg) / "web.json"
+        end = time.time() + 5
+        while time.time() < end and f":{port}" not in (f.read_text() if f.exists() else ""):
+            time.sleep(0.05)
         tmp = f.with_suffix(".ui")
         tmp.write_text(json.dumps({"url": self.keep_address}))
         tmp.replace(f)
@@ -216,7 +220,7 @@ class Site:
             new.terminate()
             print(f"{self.name}: the new server did not answer; the old one stays", flush=True)
             return False
-        self.address_kept()
+        self.address_kept(port)
         old, self.proc, self.port = self.proc, new, port
         if old:
             time.sleep(2)                        # requests under way on the old server finish
