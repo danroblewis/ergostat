@@ -229,3 +229,15 @@ fix (drain.py's per-kind, per-state CLI calls, each one loading the whole model)
 run the test again. It needs a gap of its own: the switcher test is too slow under `-n 8` on main's drain.py. Until
 that gap lands, this one waits on it. Refused this round: a heredoc append to this file followed by `git commit -qam`
 in one shell command. I wrote this section with the file editor instead.
+
+## Where it stopped
+
+Round 4, with no review findings to answer. Main (7a905955) is already merged into the branch (8761273b), and `git
+diff main --stat` shows only this gap's five files, so there was nothing to merge and I changed no code. After that
+merge, ruff is clean and these pass, run on this branch: the four acceptance tests,
+test_browser_daily_goal_closes_in_landing and test_ergostat_check_on_the_factory_model_reports_no_new_finding (two runs
+of three tests: 3 passed in 189 s, 3 passed in 375 s). Main's d3f08d49 isolates the rerun-timing test. Nothing on main
+since 5411f137 addresses the switcher test's 120 s wait (test_an_approved_switch_drains_and_switches_through_the_engine),
+so a build under `-n 8` may still fail on it, as reported above. That failure is outside this gap. I did not run the
+unit suite or the four browser files (the factory's and the queue's steps). `uv run ergostat check` was refused again,
+so done item 6's "no new finding" against main is still unverified by a full check.
