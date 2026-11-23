@@ -157,5 +157,24 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   untried item behind first and clears it. Seen to fail with the early `remember` taken out. Passed: all seven
   main-mend tests. Ruff (`ergostat tests scripts`, dev/bin/mend.py) is clean. Not run: tests/test_factory.py whole
   (about 943 s serially; the build step runs it).
+- Round 7, answering the one finding (a batch killed by the 30 m timeout came round again whole, so with the stock
+  at most mend_most one hanging test stopped its batch-mates from ever being cleared). Of the three fixes the finding
+  offers, the one taken is "after an interrupted try, run its items one at a time": it is the most reversible, and it
+  keeps the normal run at four container runs at most (one container per test always would be 40 at mend_most 20,
+  past the 30 m timeout). tried.json's entry is now `[when, main, ended]`. The pick's early write has `ended` false, and
+  the write once the results are known has it true. When any picked item's last try on its present break never
+  ended, the run takes its tests one at a time. Each test is written as tried (not ended) just before it starts, and
+  its result is written (the mend, then ended) right after its two runs. A test that hangs is therefore the one
+  stamped latest, and the next run puts it behind its batch-mates; items the dead run never reached keep the pick's
+  earlier stamp and go first. An old two-field entry reads as ended. Unreadable still reads as untried, and nothing
+  clears without two passes (lesson-3). New test `test_a_hanging_test_that_kills_every_run_does_not_hold_back_its_batch_mates`
+  (an eighth): three items with mend_most 5, and one test that kills every run it is in. After three runs the other
+  two are fixed and the hanging one stays main-broken. Seen to fail two ways: with one-at-a-time off (the first
+  assertion), and with the stamp as each test starts taken out (the two stay main-broken). The round-6 test's check
+  `ran[-1]` became `ran[1]`, because in one-at-a-time mode the run after the kill ends on the other item. Passed: all
+  eight main-mend tests. Ruff (`ergostat tests scripts`, dev/bin/mend.py) is clean. Not run: tests/test_factory.py
+  whole (about 943 s serially; the build step runs it). Main (f086f76e) was already merged (e962458b). Refused this
+  session: a `python3 - <<EOF` script editing mend.py (done with the editor instead), and one compound call that ran
+  two `named_tests.py` invocations in a row (run as two calls instead).
 
-Overrun reason: 202 net lines against 150 (170 in mend.py, 24 in landing.yaml, 3 in fac.py, 5 elsewhere); the stock, flow and parameter the block's in/out must name (about 10), the round-5 rotation of the pick (tried.json, about 37, asked by review), its round-6 write before the suites run (2, asked by review) and fac.items' one listing (3, asked by the build) were not in the definition's estimate.
+Overrun reason: 215 net lines against 150 (183 in mend.py, 24 in landing.yaml, 3 in fac.py, 5 elsewhere); round 7's one-at-a-time try after a killed run (13, asked by review), 24 in landing.yaml, 3 in fac.py, 5 elsewhere); the stock, flow and parameter the block's in/out must name (about 10), the round-5 rotation of the pick (tried.json, about 37, asked by review), its round-6 write before the suites run (2, asked by review) and fac.items' one listing (3, asked by the build) were not in the definition's estimate.

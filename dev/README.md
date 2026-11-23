@@ -231,7 +231,7 @@ is written as said, the failure on stderr.
 timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
 quiet machine (`fac.wait_quiet`), and takes the `main-broken` tests not tried since they broke, oldest
 first (by `main_broken_at`), then the least lately tried (`run/mend/tried.json`), at most `[gates] mend_most` (default
-5, held to 1-20), so tests that stay unknown run after run give up their place to those behind them. It runs them alone twice on that commit, in `<worktrees>/.mend` and a
+5, held to 1-20), so tests that stay unknown run after run give up their place to those behind them. It runs them alone twice on that commit (together; after a run that died, killed by its timeout with one of them picked, one at a time, each counted tried as it starts, so a hanging test goes behind the others), in `<worktrees>/.mend` and a
 suite container (`[suites] alone` with `-rA`; a test of a browser suite file with `rerun`, which has Playwright), and
 reads each result from the whole log (`fac.outcomes`). A test passing both runs is `flake.main-fixed` (state `fixed`;
 `passed_on`, `main_fixed_at`, `fixed_by: main-mend`). Failed, skipped, not collected, quarantined at that commit, or a

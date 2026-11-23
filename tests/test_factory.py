@@ -877,7 +877,31 @@ def test_a_main_mend_run_killed_after_the_pick_still_counts_its_items_tried(tmp_
         mend.main()
     assert ran == [("alone", tuple(hang), "mend")]
     monkeypatch.setattr(mend.fac, "suite", played)
-    assert mend.main() == 0 and ran[-1][1][0] == new and flake_now(flakes, new)["state"] == "fixed"
+    assert mend.main() == 0 and ran[1][1][0] == new and flake_now(flakes, new)["state"] == "fixed"
+
+
+def test_a_hanging_test_that_kills_every_run_does_not_hold_back_its_batch_mates(tmp_path, monkeypatch):
+    """lesson-3, lesson-6: a stock within mend_most is picked whole every run; one test that hangs past the block's
+    timeout kills each run it is in (SIGTERM: sys.exit(143)). After a run that died, its items run one at a time,
+    each stamped tried as it starts, so the hanging test goes behind the others and they are cleared."""
+    hang, ok = "tests/test_a.py::test_hang", ["tests/test_a.py::test_0", "tests/test_a.py::test_1"]
+    says = {hang: ["FAILED"] * 9, **{t: ["PASSED"] * 9 for t in ok}}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, most=5)
+    for n, t in enumerate([hang, *ok]):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0 + n)
+    played = mend.fac.suite
+
+    def hangs(cfg, name, cwd, log, box="", tests=(), **kw):
+        if hang in tests:
+            ran.append((name, tuple(t for t in tests if t != "-rA"), box))
+            raise SystemExit(143)
+        return played(cfg, name, cwd, log, box=box, tests=tests, **kw)
+    monkeypatch.setattr(mend.fac, "suite", hangs)
+    for _ in range(3):
+        with pytest.raises(SystemExit):
+            mend.main()
+    assert ran[0] == ("alone", (hang, *ok), "mend") and ran[1] == ("alone", (hang,), "mend")
+    assert [flake_now(flakes, t)["state"] for t in [hang, *ok]] == ["main-broken", "fixed", "fixed"]
 
 
 def test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed():
