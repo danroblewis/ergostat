@@ -558,6 +558,8 @@ async function route(keep = false) {             // keep: the window changed; th
   oldAddress();
   const { path, q } = parseRoute();
   const top = path.split("/").slice(0, 2).join("/");
+  const w = Object.hasOwn(WINDOWS, q.get("window") || "") ? q.get("window") : "1h";   // the address's window is the one shown
+  if (!SNAP && q.get("window") !== "1" && w !== S.since) { S.since = w; S.graphSig = ""; showAt(); refreshHeader(); }   // (back, forward)
   for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", routeOfHref(a.getAttribute("href")) === top);
   S.timer?.stop?.();
   if (!keep) closeDetail();

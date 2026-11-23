@@ -4944,6 +4944,19 @@ def test_the_address_holds_what_is_chosen_and_the_window(browser, tmp_path):
         tab.locator("#detail button.close").click()                  # closed by hand: no longer in the address
         tab.wait_for_function("() => !location.search.includes('select=')", timeout=5000)
         tab.close()
+        # back and forward: each entry's address names the window it shows, and the page shows that window
+        agree = "() => [S.since, new URLSearchParams(location.search).get('window'), document.querySelector('#when .menu-btn').textContent]"
+        pg.evaluate("() => setWindow('1d')")
+        pg.evaluate("() => navigate('/items')")
+        assert "window=1d" in pg.url, pg.url
+        pg.evaluate("() => setWindow('1h')")
+        assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
+        pg.go_back()
+        pg.wait_for_function("() => location.pathname === '/loops'", timeout=5000)
+        assert pg.evaluate(agree) == ["1d", "1d", "Last 1d"]
+        pg.go_forward()
+        pg.wait_for_function("() => location.pathname === '/items'", timeout=5000)
+        assert pg.evaluate(agree) == ["1h", None, "Last 1h"]
         # the diagram: a stock chosen is in the address, and a reload rings it
         pg.goto(url + "/diagram")
         pg.wait_for_function(READY, timeout=DRAWN_S * 1000)

@@ -211,3 +211,33 @@ ergostat/web/static`), but that command was refused, so whether it also fails on
 
 Not run: the rest of tests/test_diagram_rendering.py, tests/test_page_polling.py, tests/test_page_refresh.py, and the
 unit suite (no Python changed outside tests). The merge queue runs them.
+
+## Where it stopped
+
+Round 6. Main (ead497d1) was merged in (cd52eabd). It conflicted in three files, each resolved by keeping both sides:
+- pages.js, Loops: main moved each loop's performance word to the server (`loops?perf=1`) and renamed the column
+  `r`. Main's version is kept, and its row and name button call the branch's pick (writes select=, opens the loop).
+- tests/test_graph_cli_web.py and tests/test_diagram_rendering.py: both sides added tests at the same place. All are
+  kept. The branch's test has its own `assert not errors` / `finally` closing again.
+
+The review finding (route() never read `?window=`, so after Back or Forward the address and the page's window could
+differ) was true. Fixed in util.js route(): when the address names one of WINDOWS, that is S.since. With no
+`window=`, S.since is 1h. The Record's `window=1` leaves S.since as it is. When S.since changes, the header is
+redrawn (showAt, refreshHeader) and the graph signature is cleared. Not in a snapshot. That is 2 lines.
+`git diff main --stat -- ergostat/` is 54 insertions and 18 deletions (about 36 net, within 60).
+The test gains the finding's step: choose 1d on /loops, navigate to /items (its address gets window=1d), choose 1h,
+Back, then Forward. Each time S.since, the address's window= and the header's label agree. With route()'s new lines
+disabled, the test failed (`['1h', '1d', 'Last 1h'] != ['1d', '1d', 'Last 1d']`). Restored, it passes.
+
+Run here: ruff clean. tests/test_graph_cli_web.py, 43 passed. Under the watchdog with Playwright: the acceptance
+test and main's two new tests in tests/test_diagram_rendering.py, 3 passed, rc 0.
+tests/test_items_page.py: 32 passed and 1 failed, test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart.
+That is the same timeout on the header's #project list that round 5 reported as not this branch's.
+tests/test_page_refresh.py: 8 passed and 1 failed,
+test_other_pages_left_open_change_nothing[diagram?view=process&by=events] (6 mutations: a DIV's class and an H1's
+title, across refreshes with nothing new). It fails the same way with this round's route() lines disabled. The
+branch changes no class or title that a refresh sets on the process view, and that view is opened with no select=
+or window=. Reported as not this branch's (lesson 13). It was not run on main: earlier rounds' attempts to check out
+main were refused, and this round a command writing a log to /tmp and one listing failed tests were refused too.
+Not run: the rest of tests/test_diagram_rendering.py, tests/test_page_polling.py, and the unit suite (no Python
+changed). The merge queue runs them.
