@@ -1281,8 +1281,9 @@ reads the event log.
   `GET /api/v1/label/NAME/values`). A data source query is sent `vars` (name to the values chosen, only those its text
   names), and the server writes them in by the source's language, so no value can change what the query means: inside
   a string literal a value is that literal's content, escaped for it (a raw `` ` `` string refuses a value holding a
-  backtick); in PromQL a string after `=~` or `!~` takes each value escaped as a literal regular expression, several as
-  `(?:a|b)`, and any other string exactly one value; outside a string a value must be one plain name or number or
+  backtick); in PromQL a string after `=~` or `!~`, and `label_replace`'s regex (its 5th argument), takes each value
+  escaped as a literal regular expression, several as `(?:a|b)`; `label_replace`'s replacement (3rd) takes one value
+  with each `$` written `$$`, so it names no group; and any other string exactly one value; outside a string a value must be one plain name or number or
   duration (never a keyword), else the query is refused (`error_kind: refused`); a comment is left as written. The
   `analysis` and `model` call languages have the same rules without regular expressions; a language with no rules
   refuses every variable used in it. In the older query forms a field takes a variable's one value, and a list element

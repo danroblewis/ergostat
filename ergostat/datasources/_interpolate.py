@@ -3,7 +3,8 @@
 
 - Inside a string literal, a value is the string's content, escaped for that literal: it cannot end the string.
 - In PromQL, a string after ``=~`` or ``!~`` is a regular expression: each value is escaped as a literal (RE2), and
-  several are ``(?:a|b)``. Anywhere else a string takes exactly one value.
+  several are ``(?:a|b)``; so is ``label_replace``'s regex (5th argument). Its replacement (3rd) takes one value with
+  each ``$`` written ``$$``, so no value names a group. Anywhere else a string takes exactly one value.
 - Outside a string a value must be a bare name or a number or duration (not a keyword), and only one: anything else is
   refused, never written in.
 - A PromQL comment is left as it is.
@@ -28,11 +29,13 @@ _RE2_SPECIAL = set("\\.+*?()|[]{}^$")
 
 
 class Rules:
-    def __init__(self, quotes: str, comment: str | None, regex: bool, bare: re.Pattern):
+    def __init__(self, quotes: str, comment: str | None, regex: bool, bare: re.Pattern, args: dict | None = None):
         self.quotes, self.comment, self.regex, self.bare = quotes, comment, regex, bare
+        self.args = args or {}                      # function: {argument index: "regex" or "replacement"}
 
 
-PROMQL = Rules("\"'`", "#", True, _METRIC)
+# label_replace(v, dst, replacement, src, regex): the regex is anchored RE2, and the replacement expands $1, ${name}
+PROMQL = Rules("\"'`", "#", True, _METRIC, {"label_replace": {2: "replacement", 4: "regex"}})
 CALLS = Rules("\"'", None, False, _IDENT)
 LANGUAGES = {"promql": PROMQL, "analysis": CALLS, "model": CALLS}
 
@@ -76,7 +79,25 @@ def _one(name: str, values: list) -> str:
     return values[0]
 
 
-def _value(name: str, values: list, quote: str | None, regex: bool, rules: Rules) -> str:
+def _name_before(text: str, at: int) -> str | None:
+    """The function name just before the ``(`` at ``at``, if any."""
+    j = at
+    while j > 0 and text[j - 1] in " \t\r\n":
+        j -= 1
+    k = j
+    while k > 0 and (text[k - 1].isascii() and (text[k - 1].isalnum() or text[k - 1] == "_")):
+        k -= 1
+    return text[k:j] if k < j and _IDENT.match(text[k:j]) else None
+
+
+def _arg(rules: Rules, frames: list) -> str | None:
+    """What the innermost open call's current argument is to its function: "regex", "replacement" or None."""
+    if not frames or frames[-1][0] is None:
+        return None
+    return rules.args.get(frames[-1][0].lower(), {}).get(frames[-1][1])
+
+
+def _value(name: str, values: list, quote: str | None, kind: str | None, rules: Rules) -> str:
     if not values:
         raise SourceError("refused", f"${name} has no value selected")
     if quote is None:
@@ -85,9 +106,11 @@ def _value(name: str, values: list, quote: str | None, regex: bool, rules: Rules
             raise SourceError("refused", f"${name}'s value {v[:60]!r} is not a plain name or number, so it can only "
                                          "go inside quotes")
         return v
-    if regex:
+    if kind == "regex":
         parts = [_regex(v) for v in values]
         return _literal(parts[0] if len(parts) == 1 else "(?:" + "|".join(parts) + ")", quote)
+    if kind == "replacement":                       # a replacement expands $1 and ${name}; $$ is a plain $
+        return _literal(_one(name, values).replace("$", "$$"), quote)
     return _literal(_one(name, values), quote)
 
 
@@ -101,7 +124,8 @@ def interpolate(language: str, text: str, given: dict) -> str:
     if rules is None:
         raise SourceError("refused", f"variables cannot be used in {language}: there are no rules yet to write a "
                                      "value in safely")
-    out, i, quote, regex, n = [], 0, None, False, len(text)
+    out, i, quote, kind, n = [], 0, None, None, len(text)
+    frames: list = []                               # each open ( { [ outside a string: [function or None, argument]
     while i < n:
         c = text[i]
         if quote is None and rules.comment and c == rules.comment:
@@ -116,17 +140,24 @@ def interpolate(language: str, text: str, given: dict) -> str:
             continue
         if c in rules.quotes and (quote is None or c == quote):
             if quote is None:
-                quote, regex = c, rules.regex and _matcher_before(text, i)
+                quote = c
+                kind = "regex" if rules.regex and _matcher_before(text, i) else _arg(rules, frames)
             else:
                 quote = None
             out.append(c)
             i += 1
             continue
+        if quote is None and c in "([{":
+            frames.append([_name_before(text, i) if c == "(" else None, 0])
+        elif quote is None and c in ")]}" and frames:
+            frames.pop()
+        elif quote is None and c == "," and frames:
+            frames[-1][1] += 1
         m = NAME.match(text, i) if c == "$" else None
         if m and (m.group(1) or m.group(2)) in given:
             name = m.group(1) or m.group(2)
             values = [str(v) for v in given[name]]
-            out.append(_value(name, values, quote, regex, rules))
+            out.append(_value(name, values, quote, kind, rules))
             i = m.end()
             continue
         out.append(c)

@@ -60,10 +60,34 @@ def lex(text: str, quotes: str = "\"'`", comment: str | None = "#"):
     return "".join(out), lits
 
 
+def expand(template: str, groups: dict) -> str:
+    """A label_replace replacement as Prometheus writes it (Go's regexp Expand): ``$$`` is ``$``, ``$name`` and
+    ``${name}`` are the group's text (empty when there is no such group), and any other ``$`` is itself."""
+    out, i = [], 0
+    while i < len(template):
+        if template[i] != "$":
+            out.append(template[i])
+            i += 1
+            continue
+        if template[i + 1:i + 2] == "$":
+            out.append("$")
+            i += 2
+            continue
+        m = re.match(r"\{(\w+)\}|(\w+)", template[i + 1:])
+        if not m:
+            out.append("$")
+            i += 1
+            continue
+        out.append(groups.get(m.group(1) or m.group(2), ""))
+        i += 1 + m.end()
+    return "".join(out)
+
+
 @pytest.mark.parametrize("value", HOSTILE)
 def test_a_value_with_quotes_or_regex_characters_cannot_change_a_querys_meaning(value):
     """Done 2: each hostile value, in each place a value may go, leaves the query's shape as it was, and is read back
-    as exactly itself (an equality's string) or as matching exactly itself (a regex's)."""
+    as exactly itself (an equality's string, or label_replace's replacement once Prometheus expands its ``$``) or as
+    matching exactly itself (a regex's, label_replace's regex among them)."""
     g = {"kind": [value], "other": ["zzz"]}
     for template, quotes, comment, lang in [
             ('sum(rate(ergostat_items{kind="$kind", state="review"}[5m]))', "\"'`", "#", "PromQL"),
@@ -75,12 +99,17 @@ def test_a_value_with_quotes_or_regex_characters_cannot_change_a_querys_meaning(
         shape, lits = lex(got, quotes, comment)
         want_shape, want_lits = lex(template, quotes, comment)
         assert shape == want_shape, (template, value, got)
+        if template.startswith("label_replace"):
+            lits[1] = expand(lits[1], {"1": "SRC", "0": "SRC", "other": "SRC"})
         assert lits == [x.replace("${kind}", value).replace("$kind", value) for x in want_lits], (template, got)
-    for template in ('up{kind=~"$kind"}', "up{kind!~'$kind'}", "up{kind=~`$kind`}"):
+    for template in ('up{kind=~"$kind"}', "up{kind!~'$kind'}", "up{kind=~`$kind`}",
+                     'label_replace(up, "d", "x", "s", "$kind")', "label_replace(sum by (a, b) (up), 'd', 'x', 's', '${kind}')",
+                     "label_replace(up{c='1', e=\"2\"}, 'd', 'x', 's', '${kind}')"):
         if "`" in value and "`" in template:
             continue                                          # (refused: the next test)
         got = interpolate("PromQL", template, {"kind": [value, "b.c"]})
-        shape, [pattern] = lex(got)
+        shape, lits = lex(got)
+        pattern = lits[-1]
         assert shape == lex(template)[0], got
         for s in (value, "b.c"):
             assert re.fullmatch(pattern, s), (pattern, s)
@@ -92,7 +121,8 @@ def test_a_value_with_quotes_or_regex_characters_cannot_change_a_querys_meaning(
 def test_a_value_that_cannot_go_where_it_is_used_is_refused():
     refused = [("sum by ($l) (up)", ["a) or (b"]), ("sum by ($l) (up)", ["or"]), ("up offset $l", ["5m or up"]),
                ('up{k="$l"}', ["a", "b"]), ('up{k="$l"}', []), ("up{k=`$l`}", ["a`b"]), ("up{k=~`$l`}", ["`"]),
-               ('psd(A, detrend="$l")', ["a", "b"]), ("psd($l)", ["A, evil()"])]
+               ('psd(A, detrend="$l")', ["a", "b"]), ("psd($l)", ["A, evil()"]),
+               ('label_replace(up, "d", "$l", "s", "(.*)")', ["a", "b"])]
     for text, values in refused:
         with pytest.raises(datasources.SourceError) as e:
             interpolate("PromQL" if "psd" not in text else "analysis", text, {"l": values})
@@ -101,6 +131,9 @@ def test_a_value_that_cannot_go_where_it_is_used_is_refused():
         "sum by (job) (up[5m]) offset 5m"
     assert interpolate("PromQL", 'up{k="$nope"} # $l', {"l": ["x)"]}) == 'up{k="$nope"} # $l'   # unknown, a comment
     assert uses('up{a="$a", b="${b}"} $c_d $1') == {"a", "b", "c_d"}
+    lr = 'label_replace(up, "$l", "$l-$1", "s", "$l(.*)") + label_join(up, "d", "$l", "s")'
+    assert interpolate("PromQL", lr, {"l": ["a.$b"]}) == \
+        'label_replace(up, "a.$b", "a.$$b-$1", "s", "a\\\\.\\\\$b(.*)") + label_join(up, "d", "a.$b", "s")'
 
 
 def test_a_language_with_no_rules_refuses_every_variable():

@@ -94,3 +94,41 @@ Run here, one file at a time:
   `demo_check`. `main` (a08e4b3e) has not moved since the clone, so there was nothing to merge.
 - Refused here: inline `python -c`, heredocs and `sed -i` through the shell. Edits went through the editor, and checks
   went through test files.
+
+### Round 2
+
+Built. The review's two findings were both blocking, and both are answered. About 405 net lines of code outside tests
+and docs (round 1's 370, plus 35 more; budget 600).
+
+- Finding 1 (`_interpolate.py`: `label_replace`'s regex and replacement): fixed. While it reads PromQL, the lexer now
+  keeps track of each open `(`, `{` and `[` outside a string, with the function name before a `(` and how many commas
+  have passed at that level. In `label_replace`, the 5th argument (the regex) is escaped as RE2 like a string after
+  `=~`, and several values become `(?:a|b)`. The 3rd argument (the replacement) takes one value, with each `$` written
+  as `$$`, so a value cannot name a capture group. `label_join` does not expand `$`, so it keeps the plain rule, and a
+  test pins that. No other PromQL function takes a regular expression or expands `$`. SPEC §4e and the module
+  docstring now say this.
+- Finding 2 (the test could not fail): fixed. `expand()` in the test copies Go's `regexp.Expand` (`$$`, `$name`,
+  `${name}`, an unknown group gives empty text, a stray `$` stays as it is). It runs on the replacement literal before
+  the literal is compared with the value, so the hostile `$other` now has to come back as `$other`. The regex
+  templates now include `label_replace`'s 5th argument three ways: plain, after a nested `sum by (a, b) (up)`, and
+  after a selector with a comma (`up{c='1', e="2"}`). Each regex must match exactly the values chosen. The refusal
+  test also checks that several values in the replacement are refused, and it pins one exact rewritten text.
+- Seen to fail when the code they guard was broken:
+  - No `$$` in the replacement: 2 failed.
+  - The regex argument treated as a plain string (the round-1 behaviour): 16 failed.
+  - Only `(` tracked, so a comma inside `{}` was counted as one of label_replace's: 15 failed. At first this break
+    went unseen, because the commas sat inside an inner `rate(`. The template was then changed so that it fails.
+- Choice taken without asking: a function name is matched without regard to case, so in doubt a value gets more
+  escaping, not less.
+- Run here:
+  - Unit files, one at a time: test_dashboard_variables (19), test_data_sources (18) and test_query_engine (52), all
+    passed.
+  - Under the watchdog: test_dashboard_variables_page (3) passed, rc 0, none skipped.
+  - ruff is clean.
+  - `main` is already an ancestor of HEAD (merged at 8b336442), so there was nothing new to merge.
+  - Not run: the whole unit suite and the four browser files (the factory's job). No JS or example was touched.
+- Refused here:
+  - A `grep`/`sed` chain over SPEC and the record. The Grep and Read tools were used instead.
+  - `git -C /work log --oneline -1 main; git -C /work merge-base --is-ancestor main HEAD && echo merged`. It was
+    run again without `-C` and without the `log`.
+  - The watchdog command piped to `tail` with `echo rc=$?`. It was run again without the pipe.
