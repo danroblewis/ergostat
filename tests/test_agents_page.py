@@ -261,6 +261,40 @@ def test_the_agents_page_shows_costs_and_an_agents_panel_draws_their_history(sit
     pg.close()
 
 
+@pytest.mark.slow
+def test_the_agents_table_holds_still_while_the_pointer_is_on_a_row(site, browser):
+    """Each answer of /api/agents comes in the other order (as rows re-sort when runs end): hovering a row for 20 s
+    leaves the order as it was, the table saying what waits; off the table, the newer order is drawn."""
+    import json
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    n = [0]
+
+    def turned(route):
+        resp = route.fetch()
+        body = resp.json()
+        n[0] += 1
+        route.fulfill(response=resp, body=json.dumps(dict(reversed(list(body.items()))) if n[0] % 2 else body))
+    pg.route("**/api/agents?*", turned)
+    pg.goto(f"{site['url']}/agents")
+    pg.wait_for_selector("tr[data-row=reviewer]")
+    order = "() => [...document.querySelectorAll('tr[data-row]')].map((tr) => tr.dataset.row).join(' ')"
+    pg.hover("tr[data-row=reviewer] td:nth-child(3)")
+    was, seen = pg.evaluate(order), n[0]
+    for _ in range(20):
+        pg.wait_for_timeout(1000)
+        assert pg.evaluate(order) == was
+    assert n[0] >= seen + 4, n                                   # (the answers kept coming, in turns)
+    # what waits is said once an answer in the other order is the last built (every other one): not at a fixed moment
+    pg.wait_for_function("() => document.querySelector('.waiting')?.textContent.includes('updates waiting')", timeout=10000)
+    assert pg.evaluate(order) == was
+    pg.mouse.move(700, 20)                                       # off the table: the newest drawn
+    pg.wait_for_function(f"() => ({order})() !== {json.dumps(was)}", timeout=20000)
+    assert not errors, errors
+    pg.close()
+
+
 def test_an_agents_recent_runs_name_the_item_the_outcome_and_the_actions_asked_and_fit_the_panel(site, browser):
     pg = browser.new_page(viewport={"width": 1440, "height": 900})
     errors: list[str] = []
@@ -337,6 +371,7 @@ def test_the_agents_page_lists_the_daemons(site, browser):
     assert "running" in row and "sensor.pages.main" in row and "2" in row and "1 of 10" in row
     assert "1.5s" in row and "21 MB" in row and "ago" in row
     assert "wall time only" in pg.inner_text(".page")
+    assert "SPEC §" not in pg.inner_text(".page")            # what a daemon is, said; not where SPEC says it
     assert not errors, errors
     pg.close()
 
