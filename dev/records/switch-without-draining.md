@@ -87,3 +87,30 @@ file at a time, all pass: test_switch_without_draining.py (3), test_runs_adopted
 (11), test_ai_limit_hold.py (5), test_factory_resources.py (12), test_milestones.py::test_the_milestone_model_raises_no_check_finding,
 test_code_health_measures.py::test_check_on_the_root_model_reports_no_errors, and test_factory.py (204 passed, 2 skipped: the two Docker tests, which need the agent image). ruff is
 clean. Local `main` has nothing the branch lacks.
+
+### Round 2
+
+Main (b7302db6) merged first. It conflicted in `dev/model/landing.yaml`: main's `batch-run-percent`,
+`batch-run-failures` and goal `browser-main-green` were kept, and the drain's sensors and goal stay removed. It also
+conflicted in `tests/test_factory.py`: main's `serial` mark is kept on the branch's renamed
+`test_an_approved_switch_switches_through_the_engine`.
+
+The review's one finding, which blocked the branch: the handover onto this version was read as a failed switch. The
+first switch onto this version is run by main's switcher and live.py, which mark it under way in `run/drain.json`
+(`switch_started`). The new switcher read only `run/switch.json`, so its first step recorded `upgrade.failed` and an
+intervention for that switch while it was still running. Fixed in `dev/bin/drain.py`: `flags()` reads both files.
+`run/drain.json` with `switch_started` (or unreadable: begun when written) is a switch under way, given up only after
+`STALE` (30 minutes), as the new switcher's own flag is. A `run/drain.json` that is only draining is not read, because
+nothing reads the drain now. Test: `tests/test_factory.py::test_the_switch_the_draining_switcher_runs_onto_this_version_is_under_way_not_failed`.
+The new engine's first step says "switching", records nothing and leaves the flag. Once main's live.py removes the
+flag and records `upgrade.switched`, nothing is failed. A stale mark is failed 30 minutes on and removed. An
+unreadable one counts as under way, and one that is only draining counts as no switch. With `run/drain.json` unread,
+the test was seen to fail (`upgrade.failed` at the first step). dev/README.md, *Upgrade and revert*, now says this.
+
+Run one at a time after the merge, all pass: test_factory.py (218 passed, 2 skipped: the Docker tests),
+test_switch_without_draining.py (3), test_runs_adopted.py (23),
+test_code_health_measures.py::test_check_on_the_root_model_reports_no_errors and
+test_milestones.py::test_the_milestone_model_raises_no_check_finding. ruff is clean. Not run here: the unit suite and
+the four browser files (the factory runs them), and test_runs_outlive_engine.py, test_ai_limit_hold.py and
+test_factory_resources.py, which this round did not touch. A first run of test_factory.py was stopped at the tool's
+10-minute background limit and run again with a longer one.

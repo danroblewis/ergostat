@@ -14,7 +14,8 @@ run/switch.lock:
 - a switch it started that recorded no outcome (live.py failed before it stopped the engine: its flag gone and the
   upgrade still approved with its switch begun, or the flag still there 30 minutes on) is recorded `failed`, with an
   intervention, and never begun again. (An upgrade left `draining` by the switcher before this one, which drained, is
-  read the same way.)
+  read the same way, and so is its flag: run/drain.json marked `switch_started` is a switch under way, the first one
+  onto this version, run by that switcher's live.py, which removes it once the switch ends.)
 
     drain.py              the step (the block)
     drain.py approve SHA  the action's command: the approval is the record's, read by the next step
@@ -41,9 +42,29 @@ def flag_path(cfg: dict):
     return fac.run_dir(cfg) / "switch.json"
 
 
+def old_flag_path(cfg: dict):
+    """The draining switcher's flag (the version before this one): its live.py marks the switch it runs there
+    (``switch_started``) and removes it once the switch ends, so the first switch onto this version is under way
+    while it is there."""
+    return fac.run_dir(cfg) / "drain.json"
+
+
+def flags(cfg: dict) -> list[dict]:
+    """The switches under way, this switcher's and the draining one's (a drain.json only draining is none: nothing
+    reads it now); one that cannot be read counts as begun when the file was written."""
+    out = []
+    for p in (flag_path(cfg), old_flag_path(cfg)):
+        st = read_flag(p)
+        if st is not None and (p == flag_path(cfg) or st.get("switch_started")):
+            out.append({**st, "path": p})
+    return out
+
+
 def flag(cfg: dict) -> dict | None:
-    """The switch under way; one that cannot be read counts as begun when the file was written."""
-    p = flag_path(cfg)
+    return (flags(cfg) or [None])[0]
+
+
+def read_flag(p) -> dict | None:
     try:
         st = json.loads(p.read_text())
     except FileNotFoundError:
@@ -102,15 +123,15 @@ def step(cfg: dict, now: float | None = None) -> str:
     repo = fac.path(cfg, "checkout")
     older = lambda a, b: a != b and fac.git_ok(repo, "merge-base", "--is-ancestor", a, b)  # noqa: E731
     with locked(cfg):
-        st = flag(cfg)
-        if st and st.get("switch_started"):         # (first: nothing is withdrawn while a switch runs)
+        for st in flags(cfg):                       # (first: nothing is withdrawn while a switch runs)
             try:
                 fresh = now - float(st["switch_started"]) < STALE
-            except (TypeError, ValueError):
+            except (KeyError, TypeError, ValueError):
                 fresh = False                       # (a start that is not a time: never fresh, given up)
             if fresh:
                 return f"switching to {str(st.get('sha'))[:12]}"
-            flag_path(cfg).unlink(missing_ok=True)  # (its upgrade, still approved, is recorded failed below)
+        for st in flags(cfg):
+            st["path"].unlink(missing_ok=True)      # (its upgrade, still approved or draining, is recorded failed below)
         running = live.target(live.live(cfg) / "current") or ""
         waiting = [u for u in fac.items("upgrade") if u["state"] in WAITING]
         for u in [u for u in waiting if u["state"] != "installed" and begun(u)]:

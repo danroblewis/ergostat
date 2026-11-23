@@ -4408,6 +4408,37 @@ def test_an_upgrade_the_draining_switcher_left_is_read_as_before(tmp_path):
     assert switcher(f, NOON + 60)[::2] == (["upgrade.switch-begun"], [c])
 
 
+def test_the_switch_the_draining_switcher_runs_onto_this_version_is_under_way_not_failed(tmp_path):
+    """The handover: the first switch onto this version is run by the switcher and live.py before it, which mark it
+    under way in run/drain.json (switch_started) and record upgrade.drained, then start this version's engine, whose
+    switcher steps at once, before that live.py records upgrade.switched. That switch is under way, not failed."""
+    f = Factory(tmp_path)
+    _, b = versions(f, 2)
+    uid = asked(f, b, "ran")
+    old = f.model / "run" / "drain.json"
+    old.parent.mkdir(exist_ok=True)
+    f.fold([{"event": "upgrade.switch-approved", "item": uid, "data": {"approved_at": NOON - 900}},
+            {"event": "upgrade.draining", "item": uid, "data": {"drain_began_at": NOON - 600, "drained_at": None}},
+            {"event": "upgrade.drained", "item": uid, "data": {"drained_at": NOON - 20}}], None)
+    old.write_text(json.dumps({"sha": b, "since": NOON - 600, "switch_started": NOON - 20}))
+    assert switcher(f, NOON) == ([], f"switching to {b[:12]}", [])               # the new engine's first step
+    assert f.item(uid)["state"] == "draining" and old.exists()
+    old.unlink()                                                                 # live.py before: switched, its flag
+    f.fold([{"event": "upgrade.switched", "item": uid, "data": {}}], None)       # removed
+    assert switcher(f, NOON + 60)[::2] == ([], []) and f.item(uid)["state"] == "switched"
+    # one whose live.py never ended it: given up 30 minutes on, as this switcher's own
+    old.write_text(json.dumps({"sha": b, "since": NOON - 600, "switch_started": NOON - 20}))
+    f.fold([{"event": "upgrade.draining", "item": uid, "data": {"drained_at": None}},
+            {"event": "upgrade.drained", "item": uid, "data": {"drained_at": NOON - 20}}], None)
+    assert switcher(f, NOON + 25 * 60)[::2] == ([], [])
+    said, _, started = switcher(f, NOON + 30 * 60)
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == [] and not old.exists()
+    old.write_text("not json")                                                   # unreadable: begun when written
+    assert switcher(f, time.time())[1].startswith("switching to")
+    old.write_text(json.dumps({"sha": b, "since": NOON}))                        # only draining: no switch under way
+    assert switcher(f, NOON + 31 * 60)[1] == "no switch waiting"
+
+
 def test_a_switch_that_records_no_outcome_is_failed_and_never_begun_again(tmp_path):
     f = Factory(tmp_path)
     a, b = versions(f, 2)

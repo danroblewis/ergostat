@@ -1080,6 +1080,10 @@ session_keep_hours` (24) on, past any run's timeout, for the runs that still use
 from the instance's `dev/` (a module imported late, another script) is the new version's: the instance's model is
 placed whole. A run of a journal format the new engine cannot read (`runs/RUN.json`'s `journal`) is refused and named
 (`run.refused`), its keeper told to stop it and its lease released uncounted, so its item is taken again.
+The first switch onto this version is still the draining switcher's (the version before runs it): its live.py marks
+the switch under way in `run/drain.json` (`switch_started`) and removes it when the switch ends, so the new switcher
+reads that mark as its own `run/switch.json` (a switch under way, failed only 30 minutes on), not as a switch that
+recorded nothing.
 
 The switcher reads the goal `upgrades-switched-to` (`in:`) rather than naming it (`goal:`): a goal named would command
 it, and a commanded block leaves its `every:` (`ergostat check` says `schedule-removed`); the pipeline watch reads
