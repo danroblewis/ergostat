@@ -119,7 +119,9 @@ def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int
         mine = gaps_of(mid, gaps)
         if upkeep(m):
             ends = number(m["fields"].get("upkeep_ends"))
-            ends = ends if ends is not None else (number(m.get("entered")) or now) + days * 86400
+            if ends is None:                            # (activated by hand): its cycle pinned once, from when it began
+                ends = (number(m.get("entered")) or now) + days * 86400
+                out.append(("milestone.changed", mid, {"upkeep_ends": ends}))
             if now < ends:
                 continue
             nxt = successor(m, ms, now)

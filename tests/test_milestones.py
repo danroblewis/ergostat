@@ -212,6 +212,19 @@ def test_an_upkeep_cycle_that_stopped_part_way_is_finished_with_the_same_success
     assert [i for e, i in got if e == "milestone.activated"] == ["milestone/upkeep-x"]   # activated once
 
 
+def test_an_upkeep_milestone_activated_by_hand_has_its_cycle_pinned_once(ms):
+    ms.p.events.add("milestone.added", item="milestone/fixes", data={"upkeep": True})
+    ms.p.events.add("milestone.activated", item="milestone/fixes")             # no upkeep_ends written
+    began = ms.fields("milestone/fixes").get("upkeep_ends")
+    assert began is None
+    t0 = time.time()
+    assert ms.passes(t0) == [("milestone.changed", "milestone/fixes")]
+    ends = ms.fields("milestone/fixes")["upkeep_ends"]
+    assert ends == pytest.approx(t0 + 7 * DAY, abs=60)
+    assert ms.passes(t0 + DAY) == []                                         # pinned: not moved on by later passes
+    assert ("milestone.completed", "milestone/fixes") in ms.passes(ends + 1)
+
+
 def test_assign_refuses_a_completed_milestone(ms):
     ms.mod.add(ms.cfg, "m")
     ms.gap("a", "gap.merged", milestone="milestone/m")

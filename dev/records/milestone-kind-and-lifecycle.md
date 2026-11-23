@@ -57,3 +57,54 @@ Its runs failed past their attempts (a dead letter):
 - attempt 2: nack exited 1
 - attempt 3: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 4: nack the run ended with gap/milestone-kind-and-lifecycle still parked
+
+## Where it stopped
+
+Built (implementor, 2026-11-23), round 1 carried on from the parked branch. Nothing of the definition is left.
+
+What is built: the kind `milestone` in ergostat.yaml (waiting, active, completed; `depends_on: milestone`, precedence;
+`messages: done` counts completed), a gap's `milestone` relation (`group: true`, `inverse: gaps`),
+dev/model/milestones.yaml (three stocks, three flows, the block `milestones`, every 1m), `[milestones] active_max` and
+`upkeep_days` in dev/factory.toml, dev/bin/milestones.py (`pass`, `add`, `depends`, `assign`, `pull`, `unpull`,
+`status`), the section *Milestones* in dev/README.md, and tests/test_milestones.py (25 tests).
+
+Choices made alone, each the most reversible I saw:
+- "completed is final" needed a way to say so in YAML. The item fold already honours `ItemKind.final` (the built-in
+  action kind uses it), so the compiler now reads a kind's `final: [STATE, ...]` (ergostat/spec/compile.py; error code
+  `bad-final`; SPEC §5a's key table and the schema say it). A move out of a final state is ignored and recorded in the
+  item's `refused`. `final` also joins the item index's kinds key, so a model that adds it refolds once.
+- The gap's `milestone` relation folds by `replace` (a fold relations allow), not the default set-union. The old
+  free-text labels stay exactly as written (a string), a later label still replaces an earlier one as before, and
+  `assign` replaces a label with the milestone's id, keeping the old value in `milestone_was`. `status` lists the labels
+  not yet assigned. A label is a link to no item; nothing refuses or reports it.
+- `pull GAP` / `unpull GAP` are not defined anywhere I could find. I built them as a mark only (`pulled: true` with
+  `pulled_at`, cleared by unpull), shown in `status`. Nothing here acts on it, since what the implementor takes is
+  `milestone-limits-what-is-built`'s work. That gap should read the mark, or redefine it.
+- Limits: `active_max` 1-20, `upkeep_days` 1-90. Anything else (not a number, a bool, NaN, a fraction for active_max)
+  refuses the run; nothing is clamped. A dependency that is no milestone keeps its dependent waiting.
+- An upkeep milestone is activated whatever it depends on. Its cycle's end is `upkeep_ends`, written when the pass
+  activates it (one activated by hand has it pinned once, from when it entered active). Its successor is
+  `milestone/upkeep-<date>` (the first free name, then `-2`, ... up to 20), marked `follows`. A pass that stopped part
+  way reuses the successor already made for it. The successor has no rank and no dependencies.
+- `depends` also refuses a completed milestone (final) and a self-dependency. `add` refuses a name already used (an id
+  is never made again) and checks for a cycle too (an existing milestone may already name the new one).
+- Within one pass, completions come first, so a milestone whose last dependency completes is activated in the same pass.
+
+Limits of the claims: the lock (run/milestones.lock) makes the pass and the commands wait for each other. Other blocks
+move gaps' states without it, so a pass sees them as they were when it read them (a gap leaving merged or closed between
+the read and the completion is not seen; the factory's flow never leaves either state). Grouping gaps under a
+milestone makes it a summary in the Items page's critical path, as the definition asks. Suppose gap X (in milestone A)
+depends on gap Y, and Y's milestone depends on A. Then the three form a cycle there, and precedence leaves such items
+untaken. Only assignments the coordinator makes can do that.
+
+Tests run here, one file at a time: tests/test_milestones.py (25 passed). Each rule was seen to fail with its code
+broken: final removed from the compiler, the lock removed, `room > 0` removed, the empty-milestone guard removed with
+parked counted as done, the cycle check removed, assign's completed check removed, the successor reuse removed, the
+carrying of gaps removed. Also passing: tests/test_spec_schema.py, tests/test_spec_structure.py,
+tests/test_item_index.py, tests/test_relations.py, tests/test_spec_items.py, tests/test_precedence.py,
+tests/test_item_search_gaps.py, tests/test_interface_stability.py, test_factory.py's two model-loading tests and
+test_factory_join.py's first. Not run here: the unit suite and the four browser files (the factory runs them). Ruff is
+clean. main had no commits past this branch's base, so there was nothing to merge.
+
+Size: 32 net lines outside tests/, docs/ and dev/ (ergostat.yaml 18, compile.py 6, itemindex.py 1, the schema 7), and
+about 430 more in dev/ (milestones.py, its model file, the settings, the README section).
