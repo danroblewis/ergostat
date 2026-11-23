@@ -71,3 +71,16 @@ which this branch does not touch (the branch changes only `eventsTable`/`showRun
 in pages.js, and one CSS rule). So it is reported, not fixed here (lesson 13). Not confirmed on clean main: making a
 worktree of main under /tmp was refused here. Not run: the unit suite, tests/test_diagram_rendering.py,
 tests/test_page_polling.py, tests/test_page_refresh.py (left to the factory and the merge queue).
+
+Round 3: main (2a97eafb) merged in. The conflict in tests/test_items_page.py was the branch's fold test and main's
+new `add_record`/`record_rows` helpers and crossing test, all in the same place; all three were kept, one after the
+other. No page code conflicted, and both Record calls in pages.js still pass `fold`. main's crossing test seeds events
+that each have different data, so the fold leaves its rows alone. tests/test_graph_cli_web.py: 41 passed. ruff is
+clean. With Playwright under the watchdog, tests/test_items_page.py has 28 passed and 1 failed, rc 1. The fold test
+and main's crossing test both pass. The failure is again
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart, from main. This time it timed out at line 1286
+(`wait_for_function` for the other project's `#project` option). That is the header's project switcher, which this
+branch does not touch, so it is reported, not fixed (lesson 13). Two commands were refused here: writing the
+test-file log to /tmp, and a shell heredoc to append this section (so it was added with the editor instead). Not run:
+the unit suite, tests/test_diagram_rendering.py, tests/test_page_polling.py, tests/test_page_refresh.py (left to the
+factory and the merge queue).
