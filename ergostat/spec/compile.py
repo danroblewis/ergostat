@@ -1077,6 +1077,12 @@ class Compiler:
         gated.blocks(self, spec)  # ai: workdir, workspace, read, tools, actions; program: workspace, actions
         from ..inbox import config as notify
         notify.parse(self, spec)                             # notify: each channel a gated action notify.NAME (SPEC §12o)
+        if (r := self.doc.runs) is not None:                 # runs: whether a run outlives the engine (SPEC §9.1)
+            if isinstance(r, Map):
+                self.keys(r, {"outlive_engine"}, "runs")
+                spec.outlive_engine = self.flag(r, "outlive_engine", "runs")
+            else:
+                self.err("runs: a map (outlive_engine: true or false)", None, "not-a-map")
         if spec.actions:
             spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
         if spec.workspaces:
