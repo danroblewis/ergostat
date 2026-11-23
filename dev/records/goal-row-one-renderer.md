@@ -15,3 +15,39 @@ Acceptance tests: unit: word and row for holding, off, open and unknown goals; b
 Budget: 120 net lines.
 
 Milestone: goals-not-loops. Owner items: Decision: goal, not loop (one row for the Goals page the owner renamed, the box rows of R1, the Dashboard's goals panel of item 18; R6 piece 8). From the owner's list and the design review of 2026-11-22.
+
+## Where it stopped
+
+Built, round 1. What is in the branch:
+- `state.goal_row` (ergostat/state.py), called in `snapshot` for every goal: `word` and `row` {measure, value, unit,
+  bound_words, trend: null, expected: null}. /api/loops spreads the snapshot's entry, so it carries them with no
+  change to server.py; the snapshot file's `loops` answers carry them the same way.
+- ergostat/web/static/goalrow.js: `goalWord`, `goalRow(goal, {columns})`, `goalLine` (the side list's sub line),
+  `goalRank` (the order: off first), `exceptional` (moved from util.js) and `GOAL_WORDS`. pageLoops draws its rows
+  with goalRow, the same eleven columns as before.
+- Callers moved to goalWord: the Blocks side list's lines (word and sub line), the diagram caption's off count, the
+  suggestions' open-when-off, the header's off count, a goal's panel heading and status (details.js openLoop) and the
+  comparator line's status (details.js). The header gains a tooltip naming each goal off by its word (item 3: the
+  header had no goal tooltip before).
+- blockdiagram.py passes `word` into the Blocks graph's loops, so the side list reads the server's word.
+
+Choices made alone (the most reversible, each one place to change):
+- `stale` is kept as a word: status can be `stale` today and the Goals page showed it, so dropping it would change
+  what readers see. The set is `state.WORDS`; anything else is `unknown`.
+- bound_words is today's: the setpoint and its band (`<= 80 (+2)`); goalrow.js applies `op()` for ≤/≥ as before.
+  Filed Q23's writing has not landed.
+- The performance word stays as control.js's `performanceWord`, called from goalrow.js (`goalPerf`), not moved to the
+  server: the loops answer carries `perf`, and the page's wording of it is unchanged.
+- goalWord falls back to the status when an answer has no `word` (a snapshot file made before this, or the Dynamics
+  graph's loops, which do not carry it); that mapping exists only in goalrow.js.
+- The grep test (tests/test_graph_cli_web.py, test_no_page_script_words_a_goals_state_but_goalrow) allows two lines by
+  name: openSystem's system status (a system box's state, not a goal's) and the Items lease line `x.how || "holding"`.
+  The tone maps (`{off: ..., holding: ...}[x.status]` colours) are styling and do not match its patterns.
+- Not moved: diagram.js's colour maps (styling); the Dynamics side list's "Goals off" lines, which the server words
+  (state.attention).
+
+Tests: unit test_each_goal_says_its_word_and_its_row_once (tests/test_runner_and_state.py, fixture FOUR_GOALS in
+tests/conftest.py); test_every_examples_loops_answer_carries_each_goals_word_and_row and
+test_no_page_script_words_a_goals_state_but_goalrow (tests/test_graph_cli_web.py); browser
+test_the_goals_page_says_each_goals_word_as_the_server_does_live_and_from_a_snapshot (tests/test_diagram_rendering.py),
+which was seen to fail when goalRow's status cell was broken for open goals. Net code lines: +66 −33.
