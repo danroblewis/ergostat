@@ -221,8 +221,8 @@ class Factory:
             if "event" not in line:
                 continue
             fold_line(db, self.kinds, line, about)
-            if not line["event"].startswith("session."):          # (each AI session's own item: sessions.py)
-                said.append(line["event"])
+            if not line["event"].startswith(("session.", "batch.")):   # (each AI session's own item: sessions.py; each
+                said.append(line["event"])                              # queue batch's: batches.py)
         self.record.write_text(json.dumps(db))
         return said
 
@@ -2834,7 +2834,9 @@ def test_batch_of_one_is_todays_queue(tmp_path):
     assert f.item("gap/b")["state"] == "approved"                              # b ranks higher, but is not this run's
     said, _ = f.run("queue.py", "gap/b")
     assert said == ["gap.queued", "gap.merged", "gap.push-asked"] and merges(f) == ["b"]
-    assert {x.get("item") for x in lines if "event" in x} <= {None, "gap/a"}
+    assert {x.get("item") for x in lines if "event" in x and not x["event"].startswith("batch.")} <= {None, "gap/a"}
+    (own,) = {x["item"] for x in lines if x.get("event", "").startswith("batch.")}    # and its own batch item, a's
+    assert own.startswith("batch/a-")
 
 
 def main_moves(f: Factory, path: str) -> None:
@@ -4639,7 +4641,7 @@ def test_a_paced_block_raises_no_modelling_request(tmp_path):
     assert [r for r in got if r["code"] == "schedule-removed"] == []
 
 
-@pytest.mark.slow
+@pytest.mark.serial            # (each switcher run is ~43 CPU-s against its 120 s bound: it holds on a quiet machine)
 def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, monkeypatch):
     from ergostat.actions import gate
     f = Factory(tmp_path)
