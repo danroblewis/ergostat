@@ -313,3 +313,15 @@ Traceback (most recent call last):
 RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3am (UTC)
 
 ```
+
+### Round 5: continued after the reviewer's usage limit
+
+The last park was not a review finding. The reviewer's session hit a usage limit and stopped before it judged the
+branch, so there was nothing to answer and no code changed in this round. `git merge main`: already up to date
+(main is at bf6dbebf, merged in 32dcb5af). After that, these pass: `tests/test_library_fetch.py` (19);
+`tests/test_cli_fallback.py`, `tests/test_templates.py` and `tests/test_modelling_template.py`, unchanged (60);
+`tests/test_spec_schema.py`, `tests/test_spec_structure.py` and `tests/test_compute_worker_protocol.py` (50). Ruff is
+clean. Not run here: the whole unit suite, the four browser files (no page changed), `demo_check` (no example
+touched), and anything on macOS (this session runs on Linux).
+
+Overrun reason: 754 net lines against 560 (`git diff main --shortstat -- ergostat schema`: 778 added, 24 removed). Round 5 adds none, and the reasons from rounds 1 to 3 stand.
