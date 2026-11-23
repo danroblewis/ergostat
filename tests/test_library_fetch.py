@@ -525,3 +525,41 @@ def test_sources_are_whole_matches():
         assert field(version=bad) == "libraries.a.version", bad
     for bad in ("/abs", "a//b", "a/", "a/../b", "a\n"):
         assert field(path=bad) == "libraries.a.path", bad
+
+
+def test_interrupted_git_is_killed(tmp_path, capsys, calls, monkeypatch):
+    """An interrupt (Ctrl-C) while fetch polls a git: git is in a session of its own, so the signal never reaches it;
+    its group is killed on the way out and the temporary folder removed."""
+    up = upstream(tmp_path)
+    d = model(tmp_path, {"a": lib(up)})
+    real = fetch.argv
+    monkeypatch.setattr(fetch, "argv", lambda *a: ["sh", "-c", "sleep 60 & sleep 60"] if a[0] == "fetch" else real(*a))
+
+    def interrupt(_):                                     # (only once the stalled fetch runs, not git init before it)
+        if any(a[0] == "fetch" for a, _ in calls):
+            raise KeyboardInterrupt
+        return 0
+    monkeypatch.setattr(fetch, "_size", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        run_fetch(d, capsys)
+    _gone([c for c in calls if c[0][0] == "fetch"])
+    _clean(d)
+
+
+def test_path_fetches_its_folder_and_a_missing_one_is_reported(tmp_path, capsys):
+    """``path:`` takes one folder of the repository (nested too); a path not in the commit makes git archive write
+    nothing: said as git's failure for that library, and the libraries after it are still fetched."""
+    up = upstream(tmp_path, {"lib/sub/greet.yaml": GREET, "top.yaml": OTHER})
+    d = model(tmp_path, {"a": lib(up, path="nope", trust="owner"), "b": lib(up, path="lib/sub", trust="owner"),
+                         "c": lib(up, path="lib", trust="owner")})
+    rc, _, err = run_fetch(d, capsys)
+    assert rc == 1 and "library a: not fetched: git archive failed" in err and "Traceback" not in err, err
+    assert set(entries(d)) == {"b", "c"} and entries(d)["b"]["path"] == "lib/sub"
+    assert sorted(os.listdir(d / ".libraries" / "b")) == ["greet.yaml"]
+    assert sorted(os.listdir(d / ".libraries" / "c")) == ["sub"]
+    assert [x for x in os.listdir(d / ".libraries") if x.startswith(".tmp-")] == []
+    (d / "ergostat.yaml").write_text(yaml.safe_dump({"name": "lf", "libraries": {"b": lib(up, path="lib/sub",
+                                                                                          trust="owner")}, "uses": USES}))
+    spec, ps = read(d / "ergostat.yaml")
+    assert not [p for p in ps if p.level == "error"], ps
+    assert "hi-waiting" in spec.stocks

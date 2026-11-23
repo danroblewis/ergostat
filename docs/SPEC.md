@@ -424,11 +424,12 @@ libraries:
 
 Every rule is an allowlist matched whole (`ergostat/library/sources.py`); anything else is **bad-library-source**,
 naming the field. NAME is `[a-z][a-z0-9-]{0,63}`. `git:` is `https://HOST[:PORT]/PATH` (HOST letters, digits, `.` and
-`-`, starting with a letter or digit) or `file:///PATH`, PATH only `[A-Za-z0-9._~/-]` with no `..` part, with no user,
-query or fragment: `ssh`, `http`, `ext::` and `host:path` are refused. `version:` is a commit, or a ref name of
-`[A-Za-z0-9._/-]`, at most 200, not starting with `-`, without `..`, `//` or `@{`, not starting or ending with `/` or
-`.`, not ending `.lock` (`fetch` also asks `git check-ref-format`). `path:` is relative, `[A-Za-z0-9._/-]`, with no
-`..` or empty part.
+`-`, starting with a letter or digit) or `file:///PATH`, PATH 1 to 32 parts of `[A-Za-z0-9._~-]` (at most 128 each,
+none `.` or `..`), with no user, query or fragment: `ssh`, `http`, `ext::` and `host:path` are refused. `version:` is a
+commit, or a ref name of `[A-Za-z0-9._/-]`, at most 128, starting with a letter or digit, without `..` or `//`, no part
+starting with `.` or `-` or ending `.lock`, not ending with `/` or `.` (`fetch` also asks `git check-ref-format`).
+`path:` is relative: 1 to 16 parts of `[A-Za-z0-9._-]`, each starting with a letter, digit or `_`. `trust:` is only
+`owner`.
 
 `ergostat library fetch [NAME...] [--update]` reads the main file's `libraries:` live (never the last good model:
 a main file that does not read stops it with rc 2, before any git process) and, holding an exclusive lock on
@@ -440,11 +441,15 @@ Git runs with ergostat's own git environment, `https` and `file` only, no redire
 URL and ref after `--end-of-options`, one process at a time, each in its own process group with a 100 MB cap on any
 file it writes (`RLIMIT_FSIZE`). The clone's folder is summed every 0.25 s and the group killed past 100 MB (it can
 overshoot by what arrives in one poll) or 120 s; `git archive` has the same 120 s and group kill. The archive is
-extracted into a new folder: folders, regular files (their exec bit kept) and relative links whose target, walked a step at a time,
-never goes above the copy's top or through another link (names compared as a case- and normalization-insensitive
-disk such as APFS sees them, so `x/s` is `x/S`), and which, once made, resolves (`realpath`) inside the copy; at most
-2,000 entries and 20 MB (by the headers' sizes before a member is read, and by the bytes written); hard links,
-devices, FIFOs, absolute names, `..` and anything under a link are refused. The old copy is moved aside, the new one
+extracted into a new folder: folders, regular files (their exec bit kept) and relative links whose target, walked a
+step at a time, never goes above the copy's top or onto any link (names compared as a case- and
+normalization-insensitive disk such as APFS sees them, so `x/s` is `x/S`; walked as each link arrives and again once
+all are there), and which, once made, resolves (`realpath`) inside the copy; at most 2,000 entries and 20 MB (by the
+headers' sizes before a member is read, and by the bytes written); hard links, devices, FIFOs, absolute names, `.`,
+`..` or empty parts, two names that fold the same, and anything under a link or file are refused. Folders are entered
+by handles opened without following links, and files made `O_EXCL|O_NOFOLLOW`, so nothing is written through a link.
+A `path:` that is not in the commit makes `git archive` write nothing: that library is not fetched, with git's own
+message, and the next is. The old copy is moved aside, the new one
 put in its place, and `libraries.lock` (JSON: `{"libraries": {NAME: {git, version, path, commit, tree}}}`, `tree`
 `sha256:` of the copy) rewritten whole with only NAME's entry changed; on any failure the old copy and its entry stay.
 Fetch refuses when `.libraries` or `.libraries/NAME` is a link, and deletes only the temporary folder it made.
@@ -453,9 +458,9 @@ Every time the model loads, each library is checked, in order, and the first fai
 library and why): **library-unlocked** (no `libraries.lock`, no entry, an entry without `commit` or `tree`, or whose
 `git`, `version` or `path` is not the config's), **library-lock-unreadable** (the lock is not JSON of that shape:
 every library refused), **library-missing** (no copy), **library-altered** (an entry not a folder, regular file or
-link, a cap passed, or a tree hash not the lock's). The copy is walked without following links, its files read under
-the same caps, and hashed: each entry in sorted path order, its kind (`dir`, `file`, `exec`, `link`), its path and its
-bytes or link target, each length-prefixed. Templates (`*.yaml`, `*.yml`, `*/template.yaml`, never a link) are parsed
+link, a cap passed, more than 64 folders deep, or a tree hash not the lock's). The copy is walked without following
+links, its files read under the same caps, and hashed: each entry in byte order of its path, its path, its kind
+(`dir`, `file`, `exec`, `link`) and its bytes or link target, each length-prefixed. Templates (`*.yaml`, `*.yml`, `*/template.yaml`, never a link) are parsed
 from the bytes hashed. They are found after the owner's folders and `$ERGOSTAT_LIBRARY`, before ergostat's own, in
 the order written. A use of one from a library without `trust: owner` is **library-untrusted**: it is listed, never
 expanded. A use naming a template that is not there names every refused library and why. `check` says which uses come

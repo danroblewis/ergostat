@@ -231,9 +231,11 @@ whole before any git process starts (https and file only, no user, query or frag
 after `--end-of-options`; git runs with no system or global config, no credential helper, no ssh, no redirects and
 `GIT_ALLOW_PROTOCOL=https:file`. Each git process runs in its own process group under a 100 MB cap on any file the
 kernel lets it write; the clone's folder is summed every 0.25 s and the group killed past 100 MB or 120 s, so the total
-can overshoot by what arrives in one poll. The archive is extracted with a positive list (folders, regular files,
-relative links whose target, walked step by step, never goes above the copy or through another link, names compared case- and
-normalization-insensitively as APFS does, and which, once made, resolves inside the copy on disk; at most 2,000 entries and 20 MB) into a new folder, never over the old copy, and fetch refuses
+can overshoot by what arrives in one poll; an interrupted fetch kills the group it was waiting on. The archive is
+extracted with a positive list (folders, regular files, relative links whose target, walked step by step, never goes
+above the copy or onto another link, names compared case- and normalization-insensitively as APFS does, and which,
+once made, resolves inside the copy on disk; at most 2,000 entries and 20 MB) into a new folder, never over the old
+copy, through folder handles that do not follow links, and fetch refuses
 when `.libraries` or `.libraries/NAME` is a link. Every load checks the copy against `libraries.lock` (commit and tree
 hash, links hashed by their target, never followed, FIFOs and devices refused unopened) and parses the very bytes it
 hashed. What this does not cover: a library with `trust: owner` is trusted wholesale, as any folder you mark so; the

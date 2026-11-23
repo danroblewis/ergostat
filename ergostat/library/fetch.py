@@ -98,13 +98,16 @@ def _git(tmp: str, *args: str, out: bool = False) -> tuple[int, str]:
     with open(path, "wb") as fo:
         p = _start(list(args), tmp, fo if out else subprocess.DEVNULL)
     end = time.monotonic() + TIMEOUT
-    while not _exited(p):
-        why = f"took longer than {TIMEOUT:g}s" if time.monotonic() > end else \
-            f"passed the {CEILING}-byte ceiling" if _size(tmp) > CEILING else None
-        if why:
-            _kill(p)
-            raise FetchError(f"git {args[0]} {why}, and was stopped")
-        time.sleep(POLL)
+    try:
+        while not _exited(p):
+            why = f"took longer than {TIMEOUT:g}s" if time.monotonic() > end else \
+                f"passed the {CEILING}-byte ceiling" if _size(tmp) > CEILING else None
+            if why:
+                raise FetchError(f"git {args[0]} {why}, and was stopped")
+            time.sleep(POLL)
+    except BaseException:                          # (stopped, or interrupted: Ctrl-C reaches only this process)
+        _kill(p)
+        raise
     rc = _kill(p)
     with open(path, encoding="utf-8", errors="replace") as f:
         return rc, f.read(4096).strip()
@@ -126,8 +129,9 @@ def _archive(tmp: str, commit: str, path: str) -> None:
     timer = threading.Timer(TIMEOUT, lambda: (late.append(True), _kill(p)))
     timer.start()
     try:
-        tree.extract(p.stdout, os.path.join(tmp, "copy"), tree.ENTRIES, tree.BYTES, path)
-        p.stdout.read()
+        if p.stdout.peek(1):                       # (nothing written: git failed, e.g. a path: not in the commit)
+            tree.extract(p.stdout, os.path.join(tmp, "copy"), tree.ENTRIES, tree.BYTES, path)
+            p.stdout.read()
         _exited(p, block=True)
     except BaseException:
         _kill(p)

@@ -325,3 +325,56 @@ clean. Not run here: the whole unit suite, the four browser files (no page chang
 touched), and anything on macOS (this session runs on Linux).
 
 Overrun reason: 754 net lines against 560 (`git diff main --shortstat -- ergostat schema`: 778 added, 24 removed). Round 5 adds none, and the reasons from rounds 1 to 3 stand.
+
+### Round 6: the merge of main, and the review's two findings
+
+**The merge (6d2c7c1d).** Main (a08e4b3e) had landed `library-fetch-tree`, a cut-down rewrite of this branch's
+`sources.py`, `tree.py` and `files.tree` with its own API and its own tests (`tests/test_library_tree.py`). It
+conflicted in `sources.py`, `tree.py`, `uses.py`, `load.py` and SPEC, and `files.py` merged with two `tree` functions.
+I resolved it onto main's modules and API, and adapted this branch's `fetch.py`, `fetched.py`, `cli/library.py` and
+tests to them, so one walker, one hash and one extractor remain:
+- `sources.py` is main's `check`/`SourceError(code, field)`, plus `trust:` (only `owner`) and `SHA`. NAME is narrowed
+  to this definition's `[a-z][a-z0-9-]{0,63}` (main allowed `_`), and `+` is dropped from the URL and version
+  allowlists (the definition's character sets have none). Main's version cap of 128 is kept (it is within "at most
+  200"). The `git:` check stays main's single anchored regex, not `urlsplit`. It refuses everything the definition
+  lists, and `test_bad_name_and_scheme_refused` and `test_sources_are_whole_matches` still pass.
+- `files.tree` is main's walker (folder handles opened `O_NOFOLLOW`, `TreeError`, a `DEPTH` of 64), wrapped in this
+  branch's noting. The walker records the listing in `Reads.trees` and the bytes in `Reads.files`, and replay answers
+  from the snapshot. Main's version raised `NotKept` on every replay. That contradicts this definition's
+  `test_fallback_reads_library_from_snapshot`, so the definition wins. Main's `test_not_read_while_replaying` still
+  passes, because an empty snapshot has no such tree.
+- `tree.py` is main's extractor, plus a `strip` for `path:`. Folders at or above the path are skipped, and a member
+  outside it is refused. I also added `hashed(listing)`, the one hash. `digest(root)` and `read(root)` both use it, so
+  load still hashes the bytes it parses. Two of main's rules are stricter than this branch was. A link that lands on any
+  link is refused, even as its last step (this branch kept `x/y -> s`; the test's kept case is now `x/s -> ..`). Links
+  are made as they arrive, not last. Nothing can be written through one, because folders are entered by `O_NOFOLLOW`
+  handles and a member under a link is refused.
+- One line of main's `tests/test_library_tree.py` changed: the refused-key message now reads "git, version, path and
+  trust only". Two asserts are added there for `trust:`. In `tests/test_library_fetch.py`, only the expected messages
+  and names changed (`tree.Refused` is now `files.TreeError`, `MAX_BYTES` is now `BYTES`, and so on).
+  `test_sources_are_whole_matches` now goes through `sources.check`.
+
+**Finding 1, `_git` without a kill on interrupt (blocking).** The poll loop is now in `try/except BaseException`, which
+kills the group and re-raises. New test `test_interrupted_git_is_killed`: the fetch git stalls
+(`sh -c 'sleep 60 & sleep 60'`), and a `KeyboardInterrupt` is raised from inside the poll. The test asserts the group
+is gone and no `.tmp-` folder, copy or lock is left. With the fix removed, it fails: `DID NOT RAISE ProcessLookupError`.
+
+**Finding 2, a `path:` not in the commit (blocking).** After the merge, main's `tree.extract` turns a `tarfile` error
+into `TreeError`, and `run()` now catches `TreeError` and `tarfile.TarError`, so a refusal no longer crashes the
+fetch. Also, `_archive` first `peek`s the pipe. If git wrote nothing, nothing is extracted, git is waited for, and its
+non-zero exit becomes `git archive failed: <git's own message>`. New test
+`test_path_fetches_its_folder_and_a_missing_one_is_reported` uses three libraries: `path: nope` (not fetched, said as
+git's failure, no traceback); then `lib/sub` and `lib` (both fetched and locked, so the run goes on past the failure).
+`lib/sub` holds only that folder's contents, and its template loads. With the `peek` removed, it fails (`bad-library-tree: '': empty file`).
+
+Tests run after the merge, each file through `scripts/named_tests.py`: `tests/test_library_fetch.py` (21),
+`tests/test_library_tree.py` (6), and `tests/test_cli_fallback.py`, `tests/test_templates.py` and
+`tests/test_modelling_template.py`, all passing and unchanged. The other five `tests/test_library_*.py` files pass
+(4 skipped: bwrap cannot make namespaces in this container). `tests/test_spec_schema.py`, `tests/test_spec_structure.py`
+and `tests/test_compute_worker_protocol.py` pass. Ruff is clean. Not run here: the whole unit suite, the four
+browser files (no page changed), `demo_check` (no example touched), and anything on macOS.
+
+Size: `git diff main --shortstat -- ergostat schema` gives 556 added and 48 removed, so 508 net against main, within
+560. That is only because about 257 lines of this gap (`sources.py`, `tree.py` and `files.tree`) are now on main
+through `library-fetch-tree`. Counted whole, the gap is about 765 lines, and the reasons from rounds 1 to 3 stand for
+that.
