@@ -48,3 +48,32 @@ Round 1: built. About 95 net lines of code (`web/graph_parts.py` +59, `relations
   - One fails: `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`. It times out waiting for the other project's entry in the header's project switcher (`#project option`), which reads the projects under `ERGOSTAT_HOME`. This change touches neither the header, the switcher nor `/api/status`, so I take it to be unrelated. I could not prove it fails on main: `git checkout main -- ergostat/web/relations_api.py ergostat/web/static/relations.js` was refused in this session.
   - Not run here: the other three browser files, the whole unit suite, `demo_check` (no example was touched), and the real factory record (none is in the clone). ELK's layout time at 600 cards was not measured.
 - `main` merged in: already up to date.
+
+## Where it stopped
+
+Parked by the factory (reviewer, 2026-11-22 17:03).
+
+Stopped on its last attempt by RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/review.py", line 143, in main
+    return judge(cfg, given["item"], began)
+  File "/Users/user/ergostat-live/instance/dev/bin/review.py", line 195, in judge
+    got = fac.session(cfg, "reviewer", text, wt)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 678, in session
+    out = agents.session(cfg, role, brief, work, keep=kept)
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 204, in session
+    egress(cfg)
+    ~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 117, in egress
+    _egress(cfg)
+    ~~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 124, in _egress
+    docker("network", "create", "--internal", NET)
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 106, in docker
+    raise RuntimeError(f"docker {args[0]}: {r.stderr.strip()[-300:]}")
+RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
