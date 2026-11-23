@@ -107,5 +107,27 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   (41), tests/test_factory_manager.py (34), and the switcher test. Ruff is clean. The cost is main's, not this
   branch's (lesson-13), but this branch's build cannot go green without it. Not run: tests/test_factory.py whole,
   or under `-n 8`.
+- Round 5, answering both findings. (1) dev/bin/fac.py:171-175 is reverted. fac.py is now the same as main's
+  (`git diff main -- dev/bin/fac.py` is empty), so the branch no longer changes fac.items for its ~80 callers. The
+  switcher test's cost under `-n 8`
+  (`test_an_approved_switch_drains_and_switches_through_the_engine`, about 30 cold `ergostat item` starts per
+  drain.py step) is the same on main. It is main's, for triage or a gap of its own, not this branch's (lesson-13).
+  If the build fails on it again, that is why. (2) dev/bin/mend.py's pick now rotates. `<run>/mend/tried.json` holds,
+  per item, when main-mend last ran it and the `main` it was broken on then. The pick order is: untried items first
+  (oldest `main_broken_at` first), then the least lately tried. So items that stay unknown (deleted, quarantined,
+  still failing) give up their place to the ones behind them. A try counts only for the break it was made on. It is
+  keyed on `main`, not `main_broken_at`, because a second break keeps `main_broken_at` (flakes.py:47) but moves
+  `main`. Fixed items, and items no longer main-broken, are dropped from the file, so it is bounded by the
+  main-broken stock. An unreadable file reads as "nothing tried", which means oldest first as before. It can never
+  clear an item, so this is not fail-open (lesson-3). No lock is needed: pool 1 and a lease mean one main-mend at a
+  time, and the file is written by tmp and rename. New test
+  `test_main_mend_items_left_unknown_give_up_their_place` (a sixth, beyond the definition's five): with mend_most 2,
+  two items that fail every run are passed by the newer item in the next run, which is cleared. An item broken again
+  on a newer main is picked as untried. Seen to fail: (a) with the tried order ignored, the newer item is never run;
+  (b) with the "same break" check removed, the re-broken item is not put first. Passed: all six main-mend tests,
+  tests/test_fac_items.py (8). Ruff (`ergostat tests scripts`, and dev/bin/mend.py) is clean. Not run:
+  tests/test_factory.py whole (about 943 s serially). Refused this session: `git checkout main -- dev/bin/fac.py`
+  (the revert was done by hand-editing instead, and is checked equal to main), and one compound `uv run … ; git diff
+  … | awk …; wc -l …` call.
 
-Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.
+Overrun reason: 197 net lines against 150 (168 in mend.py, 24 in landing.yaml, 5 elsewhere); the stock, flow and parameter the block's in/out must name (about 10) and the round-5 rotation of the pick (tried.json, about 37, asked by review) were not in the definition's estimate.

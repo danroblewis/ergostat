@@ -843,6 +843,22 @@ def test_main_mend_takes_at_most_mend_most_a_run_oldest_first(tmp_path, monkeypa
     assert mend.most({}) == 5
 
 
+def test_main_mend_items_left_unknown_give_up_their_place(tmp_path, monkeypatch):
+    """mend_most items that stay unknown run after run (still failing) do not hold the front: the next run takes the
+    untried item behind them first and clears it, and a try counts only for the break it was made on."""
+    bad, new = ["tests/test_a.py::test_0", "tests/test_a.py::test_1"], "tests/test_a.py::test_2"
+    says = {**{t: ["FAILED"] * 6 for t in bad}, new: ["PASSED"] * 6}
+    flakes, mend, shas, ran = mend_record(tmp_path, monkeypatch, says, most=2)
+    for n, t in enumerate([*bad, new]):
+        flakes.say("flake.main-broken", t, main=shas["c1"], gaps=["gap/a"], main_broken_at=10.0 + n)
+    assert mend.main() == 0 and ran[-1] == ("alone", tuple(bad), "mend")
+    assert mend.main() == 0 and new in ran[-1][1] and flake_now(flakes, new)["state"] == "fixed"
+    assert set(json.loads((tmp_path / "run" / "mend" / "tried.json").read_text())) <= {
+        f"flake/{flakes.fac.slug(t, 80)}" for t in bad}
+    flakes.say("flake.main-broken", bad[0], main=shas["c2"], gaps=["gap/a"], main_broken_at=50.0)   # (again, on c2)
+    assert mend.main() == 0 and ran[-1][1] == (bad[0], bad[1])     # (tried last run, but untried since this break)
+
+
 def test_main_mend_is_a_scheduled_block_and_main_fixed_moves_to_fixed():
     spec, problems = read(ROOT / "ergostat.yaml")
     assert not [p for p in problems if p.level == "error"]

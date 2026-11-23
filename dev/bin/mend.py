@@ -1,6 +1,7 @@
 """main-mend: the way out of main-broken. Every 30 minutes (dev/model/landing.yaml): main as pushed (the checkout's
-<remote>/<base>, fetched), once the machine is quiet (fac.wait_quiet), the oldest main-broken tests (at most
-`[gates] mend_most`, default MOST, never past CEILING) run alone twice on that commit, in a worktree of its own
+<remote>/<base>, fetched), once the machine is quiet (fac.wait_quiet), the main-broken tests not yet tried since
+they broke, oldest first, then the least lately tried (<run>/mend/tried.json; at most `[gates] mend_most`, default
+MOST, never past CEILING) run alone twice on that commit, in a worktree of its own
 (<worktrees>/.mend) and a suite container ([suites] alone, `-rA`; a browser file's test with [suites] rerun, which
 has Playwright). Each result is read from the whole log (fac.outcomes): pass only on a PASSED line and no FAILED or
 ERROR one. A test passing both runs is `flake.main-fixed` (passed_on, main_fixed_at, fixed_by: main-mend); failed,
@@ -44,10 +45,43 @@ def since(it: dict) -> float:
     return v if math.isfinite(v) else 0.0
 
 
+def broke(it: dict) -> str:
+    """The commit it was last found broken on (its `main`)."""
+    return str((it.get("fields") or {}).get("main") or "")
+
+
+def tried(cfg: dict) -> dict:
+    """<run>/mend/tried.json: {item id: [when main-mend last ran it, its `main` then]}.
+    Unreadable: {} (every item untried, so oldest first again; nothing is cleared without its two passes)."""
+    try:
+        got = json.loads((fac.run_dir(cfg, "mend") / "tried.json").read_text())
+        return got if isinstance(got, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def oldest(cfg: dict) -> list[dict]:
-    """The main-broken flakes naming a test, oldest first, at most most(cfg)."""
+    """The main-broken flakes naming a test, at most most(cfg): those not tried since they broke first, oldest first,
+    then the least lately tried, so items that stay unknown (deleted, quarantined, still broken) give up their place.
+    A try counts only for the break it was made on (its `main` as then; a second break keeps main_broken_at, so that
+    is not it): an item broken again on a newer main is untried."""
     got = [i for i in fac.items("flake", "main-broken") if isinstance((i.get("fields") or {}).get("test"), str)]
-    return sorted(got, key=lambda i: (since(i), i["id"]))[:most(cfg)]
+    was = tried(cfg)
+
+    def last(i):
+        v = was.get(i["id"])
+        ok = isinstance(v, list) and len(v) == 2 and v[1] == broke(i) and isinstance(v[0], (int, float))
+        return float(v[0]) if ok and math.isfinite(v[0]) else 0.0
+    return sorted(got, key=lambda i: (last(i), since(i), i["id"]))[:most(cfg)], {i["id"] for i in got}
+
+
+def remember(cfg: dict, picked: list[dict], broken: set[str], fixed: set[str]) -> None:
+    """This run's try of each picked item not fixed; kept only for items main-broken now (main-mend runs one at a
+    time, pool 1 and a lease, so nothing else writes the file)."""
+    was = {**tried(cfg), **{i["id"]: [time.time(), broke(i)] for i in picked}}
+    f = fac.run_dir(cfg, "mend") / "tried.json"
+    f.with_suffix(".tmp").write_text(json.dumps({k: v for k, v in was.items() if k in broken and k not in fixed}))
+    f.with_suffix(".tmp").replace(f)
 
 
 def pushed(cfg: dict) -> str:
@@ -109,7 +143,7 @@ def mend(iid: str, sha: str, repo: Path) -> str:
 def main() -> int:
     fac.stop_on_term()                                  # (stopped: its suite's container killed by name, fac.suite)
     cfg = fac.config()
-    picked = oldest(cfg)
+    picked, broken = oldest(cfg)
     if not picked:
         print("main-mend: no main-broken test", file=sys.stderr)
         return 0
@@ -121,9 +155,12 @@ def main() -> int:
     wt, logs, tag = tree(cfg, sha), fac.run_dir(cfg, "mend"), f"{sha[:12]}-{int(time.time())}"
     for name, ts in by_suite(cfg, [t for t in tests if t not in held]).items():
         said |= twice(cfg, wt, name, ts, logs, tag)
+    fixed = set()
     for t, iid in tests.items():
         got = mend(iid, sha, repo) if said[t] == "pass" else f"stays main-broken ({said[t]})"
+        fixed |= {iid} if got == "fixed" else set()
         print(f"main-mend: {t} on {sha[:12]}: {got}", file=sys.stderr)
+    remember(cfg, picked, broken, fixed)
     return 0
 
 

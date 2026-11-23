@@ -229,8 +229,9 @@ is written as said, the failure on stderr.
 
 **Out of main-broken: main-mend.** The block `main-mend` (dev/model/landing.yaml; every 30 minutes, pool 1, a lease,
 timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
-quiet machine (`fac.wait_quiet`), and takes the oldest `main-broken` tests (by `main_broken_at`), at most
-`[gates] mend_most` (default 5, held to 1-20). It runs them alone twice on that commit, in `<worktrees>/.mend` and a
+quiet machine (`fac.wait_quiet`), and takes the `main-broken` tests not tried since they broke, oldest
+first (by `main_broken_at`), then the least lately tried (`run/mend/tried.json`), at most `[gates] mend_most` (default
+5, held to 1-20), so tests that stay unknown run after run give up their place to those behind them. It runs them alone twice on that commit, in `<worktrees>/.mend` and a
 suite container (`[suites] alone` with `-rA`; a test of a browser suite file with `rerun`, which has Playwright), and
 reads each result from the whole log (`fac.outcomes`). A test passing both runs is `flake.main-fixed` (state `fixed`;
 `passed_on`, `main_fixed_at`, `fixed_by: main-mend`). Failed, skipped, not collected, quarantined at that commit, or a
