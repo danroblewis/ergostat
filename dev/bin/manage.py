@@ -38,7 +38,8 @@ import runs  # noqa: E402
 
 BY = ["coordinator"]                      # who acts: the coordinator by hand, the pipeline manager from its run
 SITUATION = [""]
-CLASSES = {"continue": "parked-continued", "reapprove": "environment-defect", "flake": "flake", "file-gap": "missing-gap",
+CLASSES = {"continue": "parked-continued", "reapprove": "environment-defect", "flake": "flake", "flake-fixed": "flake",
+           "file-gap": "missing-gap",
            "remedy": "remedied", "measure-runs": "operator-decision", "close": "groom", "park": "stuck", "pool": "operator-decision",
            "change": "factory-change", "propose": "velocity", "ask": "velocity-research"}
 MEASURED_PARKS = ("needs", "defect")      # the park kinds a measurement may clear (manage.measurable)
@@ -234,6 +235,23 @@ def do_flake(cfg: dict, a) -> str:
     return f"{a.test} recorded as a flake"
 
 
+def do_flake_fixed(cfg: dict, a) -> str:
+    """A person's word, by hand (not in __doc__, the manager's tool list): refused from the pipeline manager's run."""
+    if BY[0] != "coordinator":
+        raise Refused(f"flake-fixed is said by a person, by hand, not by {BY[0]}")
+    iid = f"flake/{fac.slug(a.test, 80)}"
+    with flakes.held():                              # (read, decided and written under the flake writers' one lock)
+        f = flakes.read(iid)
+        if f is None:
+            raise Refused(f"{iid} could not be read")
+        if f.get("state") not in ("seen", "main-broken") or f["fields"].get("test") != a.test:
+            raise Refused(f"{a.test} is {f.get('state') or 'no flake recorded'} (as {iid}, test "
+                          f"{(f.get('fields') or {}).get('test')}): only a seen or main-broken flake is fixed")
+        record("flake.fixed", iid, fixed_by=BY[0], why=a.why)
+    intervene("flake-fixed", a.test, a.why, a.cls)
+    return f"{a.test} fixed"
+
+
 def file_gap(cfg: dict, title: str, text: str, depends_on: str = "", branch: str = "", why: str = "", cls: str = "",
              **more) -> str:
     known = {g["id"] for g in fac.items("gap")}
@@ -374,7 +392,8 @@ def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="manage.py", description=__doc__, formatter_class=argparse.RawTextHelpFormatter,
                                  exit_on_error=False)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, args in (("continue", "gap --depends-on"), ("reapprove", "gap"), ("flake", "test"), ("remedy", "intervention"),
+    for name, args in (("continue", "gap --depends-on"), ("reapprove", "gap"), ("flake", "test"), ("flake-fixed", "test"),
+                       ("remedy", "intervention"),
                        ("file-gap", "--title! --definition-text! --depends-on --branch"), ("close", "gap"),
                        ("propose", "--title! --definition-text! --depends-on --branch"), ("ask", "question"),
                        ("park", "gap"), ("pool", "role n"), ("change", "--what!")):
@@ -409,7 +428,8 @@ def run(cfg: dict, argv: list[str]) -> dict:
         if a.cmd == "measure-runs" and a.asked_as:
             BY[0] = "pipeline-manager"                           # (its asker; the coordinator approved it)
             return asked(cfg, a, argv)
-        do = {"continue": do_continue, "reapprove": do_reapprove, "flake": do_flake, "remedy": do_remedy,
+        do = {"continue": do_continue, "reapprove": do_reapprove, "flake": do_flake, "flake-fixed": do_flake_fixed,
+              "remedy": do_remedy,
               "measure-runs": do_measure_runs, "propose": do_propose, "ask": do_ask,
               "file-gap": lambda c, a: file_gap(c, a.title, a.definition_text, a.depends_on, a.branch, a.why, a.cls)}
         return {"call": argv, "ok": True, "said": do[a.cmd](cfg, a)}
