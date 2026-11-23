@@ -7,8 +7,9 @@
    accent, breathing), queued for a block's next step (the accent, dotted), unblocked (ink), blocked (dashed), paused (dotted on a fill), done (faint,
    ticked), a dead letter (bad). A set's where on a relation (a milestone's row on the kind's card) narrows both to
    its items and what they wait on. The critical path is
-   drawn heavier, in the bad hue. Frontier: the unfinished items and what they wait on, however far back; collapse
-   done: the finished vanish, and a chain through them is one dashed line, "via N done".
+   drawn heavier, in the bad hue. The page's one finished choice (o.finished, SPEC §5a): hide, the unfinished and paused
+   only, a chain through finished items one dashed line, "via N finished"; waits, and the finished an unfinished one
+   waits on directly (one link); show, every item in the window.
 
    Timeline: a Gantt chart. One row an item; its bar its states over time, from its moves (what happened), and for
    the unfinished, faint bars ahead: what the kind's medians project, each after what it waits on and each block at
@@ -35,8 +36,8 @@ function rgShade(kinds, kind, state) {
 const rgClip = (t, n) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
 const rgTimes = (x) => [...(x.segments || []), ...(x.projected || [])].flatMap((g) => [g[1], g[2]]);   // a row's times
 
-/* what is drawn, from the answer and the reader's choices: which items (frontier, the search), which done
-   ones collapse into "via N done", the parents as hubs, and every line */
+/* what is drawn, from the answer and the reader's choices: which items (the finished choice, the search), which
+   finished ones collapse into "via N finished", the parents as hubs, and every line */
 function rgModel(d, o) {
   const byId = Object.fromEntries(d.items.map((x) => [x.id, x]));
   const kinds = Object.fromEntries(d.kinds.map((k) => [k.name, k]));
@@ -66,7 +67,7 @@ function rgModel(d, o) {
   const wh = {};
   for (const w of o.where || []) { const i = w.indexOf(":"), f = w.slice(0, i); if (i > 0 && d.kinds.some((k) => k.asked && k.relations?.[f])) (wh[f] ||= []).push(w.slice(i + 1)); }
   const fits = (x) => Object.entries(wh).every(([f, vs]) => { const have = x.links?.[f] || []; return vs.some((v) => (v === "" || v === "null" ? !have.length : have.includes(v))); });
-  for (const x of d.items) if ((!asked.size || asked.has(x.kind)) && (!o.frontier || !done(x.id)) && fits(x)) chain(x.id);
+  for (const x of d.items) if ((!asked.size || asked.has(x.kind)) && (o.finished === "show" || !done(x.id)) && fits(x)) chain(x.id);
   for (const id of [...scope]) { const g = parentOf(id); if (g) scope.add(g); }
   const q = (o.q || "").trim().toLowerCase();
   if (q) for (const id of [...scope]) { const x = byId[id]; if (![x.id, x.title, x.state, x.kind, x.status].join(" ").toLowerCase().includes(q)) scope.delete(id); }
@@ -79,7 +80,10 @@ function rgModel(d, o) {
   for (const id of scope) { const g = parentOf(id); if (g && scope.has(g)) (kids[g] ||= []).push(id); }
   const hub = (id) => o.group !== "kind" && !!kids[id];
   const collapsed = new Set();
-  if (o.collapse) for (const id of scope) if (done(id) && !(kids[id] || []).some((c) => !done(c))) collapsed.add(id);
+  const fin = o.finished === "show" || o.finished === "waits" ? o.finished : "hide", collapse = fin !== "show";
+  const waited = new Set();                              // waits: what an unfinished item drawn waits on directly
+  if (fin === "waits") for (const id of scope) if (!done(id)) for (const p of preds[id] || []) waited.add(p);
+  if (collapse) for (const id of scope) if (done(id) && !waited.has(id) && !(kids[id] || []).some((c) => !done(c))) collapsed.add(id);
   let folded = new Set();                                // frames with nothing drawn in them: each drawn as one card
   const memo = {};
   const eff = (id, stack = new Set()) => {              // {drawn ancestor: how many done between}
@@ -130,12 +134,12 @@ function rgModel(d, o) {
   const edges = [];
   let lost = 0;                                          // dependency lines the bound left out, for the note
   for (const id of every) {
-    const ps = o.collapse ? eff(id) : Object.fromEntries((preds[id] || []).filter((p) => scope.has(p)).map((p) => [p, 0]));
+    const ps = collapse ? eff(id) : Object.fromEntries((preds[id] || []).filter((p) => scope.has(p)).map((p) => [p, 0]));
     if (!drawn.has(id)) { lost += Object.keys(ps).length; continue; }
     const shown = Object.entries(ps).filter(([p]) => drawn.has(p));
     lost += Object.keys(ps).length - shown.length;
     for (const [p, via] of shown)
-      edges.push({ id: `p:${p}>${id}`, from: p, to: id, cls: via ? "via" : "dep", label: via ? `via ${via} done` : "", critical: !via && crit.has(p + "\n" + id) });
+      edges.push({ id: `p:${p}>${id}`, from: p, to: id, cls: via ? "via" : "dep", label: via ? `via ${via} finished` : "", critical: !via && crit.has(p + "\n" + id) });
     const g = parentOf(id);
     if (!shown.length && g && drawn.has(g) && (hub(g) || o.group === "kind")) edges.push({ id: `g:${g}>${id}`, from: g, to: id, cls: "member", label: "" });
   }
@@ -145,7 +149,10 @@ function rgModel(d, o) {
   const counts = {};
   for (const x of d.items) counts[x.status] = (counts[x.status] || 0) + 1;
   const framed = Object.fromEntries(ids.map((id) => [id, inFrame(id)]).filter(([, f]) => f));
-  return { nodes, edges, kinds, counts, capped, lost, byId, scope, frameOf: framed, frameInfo, folded, members };
+  // the finished the choice leaves undrawn, per kind (the legend's); under show, any left out are the bound's
+  const unseen = {};
+  if (collapse) for (const x of d.items) if (done(x.id) && !drawn.has(x.id) && (!asked.size || asked.has(x.kind) || scope.has(x.id))) unseen[x.kind] = (unseen[x.kind] || 0) + 1;
+  return { nodes, edges, kinds, counts, capped, lost, byId, scope, frameOf: framed, frameInfo, folded, members, finished: fin, unseen };
 }
 
 /* a frame's title (rgModel): its name and state, then its members' tally: done of all, working, ready, and blocked
@@ -513,7 +520,7 @@ function relTimeline(open) {
       // a click on the triangle opens or folds it); frames and the rest in the order they start, the schedule's
       const byF = {}, loose = [];
       for (const x of order) if (m.frameOf[x.id]) (byF[m.frameOf[x.id]] ||= []).push(x); else loose.push(x);
-      // a frame's span: every member the answer holds, drawn or collapsed (under Frontier + Collapse done a completed
+      // a frame's span: every member the answer holds, drawn or collapsed (with the finished hidden a completed
       // milestone's are all collapsed); none with times, the milestone's own
       const all = m.members || {}, span = {};
       for (const f of Object.keys(fr)) { span[f] = (all[f] || []).flatMap(rgTimes); if (!span[f].length && m.byId[f]) span[f] = rgTimes(m.byId[f]); }
@@ -617,15 +624,20 @@ function rgFinish(d) {
       + (e.visits && Object.keys(e.visits).length ? `\nExpected visits per state, from the first: ${Object.entries(e.visits).map(([st, v]) => `${st} ${v.toFixed(2)}`).join(", ")}` : ""));
 }
 
-/* the legend: how many of each status, the critical path and when the last item is expected done, any cycle */
+/* the legend: how many of each status, the finished not drawn and what finished is (each kind's finished states),
+   the critical path and when the last item is expected done, any cycle */
 function relLegend(m, d, pick = null, chosen = null) {
   const n = m.counts;
   const crit = d.critical.length;
+  const un = Object.entries(m.unseen || {}), unN = un.reduce((a, [, c]) => a + c, 0);
+  const finOf = (k) => `${k} ${(m.kinds[k]?.finished || []).join(", ") || "finished"}`;
   return h("div", { class: "rg-legend" },
     ...RG_STATUS.filter((st) => n[st]).map((st) => h(pick ? "button" : "span", {
       class: `rg-key rg-${st}${pick ? " ghost" : ""}${chosen === st ? " on" : ""}`, key: st,
       ...(pick ? { title: chosen === st ? "Show every status again" : `Show only the ${RG_WORD[st]}`, "aria-pressed": String(chosen === st), onclick: () => pick(st) } : {}) },
       h("i", {}), `${n[st]} ${RG_WORD[st]}`)),
+    unN ? h("span", { class: "rg-key rg-unseen", key: "unseen", title: m.finished === "waits" ? "Finished, and no unfinished item waits on it directly" : "Finished: hidden by the page's Finished items choice" },
+      `${unN} finished not drawn: ${un.map(([k]) => finOf(k)).join("; ")}`) : null,
     crit ? h("span", { class: "rg-key rg-critkey", key: "crit", title: "The longest chain of unfinished work, by the kinds' median times, as if every block could take all of it at once: not when it is done (that is the finish beside it)" },
       h("i", {}), `critical path ${crit} item${crit === 1 ? "" : "s"}: the longest chain of waits, ignoring capacity`) : null,
     rgFinish(d),
