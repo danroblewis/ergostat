@@ -83,6 +83,8 @@ RuntimeError: claude: success: You've hit your weekly limit · resets Nov 24, 3a
 
 ```
 
+## Where it stopped (continued by the branch after the park)
+
 ### Continued (the park was the reviewer's session limit, not a finding)
 
 Merged main (2f08c24e05a8). Two conflicts, each resolved by keeping both sides. In `ergostat/library/uses.py`, the
@@ -128,3 +130,10 @@ Overrun reason: the owner-field skip that finding 2 asked for (the owner's field
 Left: the diagrams (library-diagram-text-marked). Tests run: `tests/test_library_model_marks.py` (8 passed),
 `tests/test_library_trust.py` and `tests/test_library_provenance.py` (103 passed), ruff clean. Main (2f08c24e) is
 already merged. The unit suite and browser files were not run here (house rule: the factory runs them).
+
+### Round 4 (answering the size finding)
+
+- **Size (138 net lines, no reason found).** The round-3 `Overrun reason:` line was written, but it sat under the
+  factory's "Parked by the factory" section, which the size gate (`dev/bin/review.py` `stopped()`) leaves out. The
+  branch's continuation now has its own `## Where it stopped` heading, so the gate reads that reason. No code
+  changed in this round, and the size is still 138 net lines.
