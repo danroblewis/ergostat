@@ -679,7 +679,10 @@ def _answer(live: Live, path: str, q: dict, project=None):
                               "max": m.valves[v].max, "last": p.events.last_opening(v, snap["at"])})
             return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
-                    "crossings": in_window[-20:], "crossings_total": len(in_window),
+                    "crossings": [{**e, "off_by_words": st.off_by_words(e["data"].get("setpoint") or c.setpoint, e["data"].get(
+                        "error"), c.tolerance, getattr(m.stocks.get(c.holds), "unit", ""),
+                        e["type"] == "loop.off")} for e in in_window[-20:]],
+                    "crossings_total": len(in_window),
                     "description": c.description, "parts": parts,
                     "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
                     "decisions": st.decisions(p, name, since, snap["at"]),

@@ -551,10 +551,23 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
     return {"kinds": [{"name": k.name, "title": TITLES.get(k.name), "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "relations": {r: x.kinds for r, x in k.relations.items()},
-                       "counts": counts.get(k.name, {})} for k in kinds.values()],
+                       "counts": counts.get(k.name, {}), **finishes(events, spec, k.name)} for k in kinds.values()],
             "systems": systems, "unkinded": unkinded,
             "total": total, "offset": offset,
             "items": [_listed(i, kinds, where) for i in page]}
+
+
+def finishes(events, spec, kind: str) -> dict:
+    """A kind's finished and paused states as the listing gives them (``finished.finish_of``), from the states its
+    items have left by now (none known for a record kept nowhere on disk)."""
+    from .finished import finish_of
+    ix = _index(events, spec, False)
+    if ix is not None:
+        with ix.lock:
+            left = set(ix.left(kind))
+    f = finish_of(spec, kind, left if ix is not None else set())
+    return {"finished": f["finished"], "paused": f["paused"], "dead": f["dead"], "finished_from": f["from"],
+            "lives_on": f["lives_on"]}
 
 
 def _paged(events, spec, kind: str | None, state: str | None, until: float | None, n: int, offset: int, ws=()):
