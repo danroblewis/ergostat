@@ -7,7 +7,11 @@ waiting, active, completed (final: no event moves one out of it).
                             the end of its cycle ([milestones] upkeep_days, default 7), its unfinished gaps moved to a
                             new upkeep milestone, active at once. Then each waiting milestone whose dependencies are all
                             completed becomes active, in rank order, while fewer than [milestones] active_max (default
-                            3) are active; an upkeep one is always active and never counts toward the limit.
+                            3) are active; an upkeep one is always active and never counts toward the limit. Then, with
+                            [milestones] enforce on (default off), each unfinished gap with no milestone, or a completed
+                            one, is placed (homes): a sub-gap of a split or a continued gap keeps its parent's; one
+                            whose milestone completed, or one the factory filed itself, joins the current upkeep
+                            milestone; any other joins the first active milestone by rank.
   milestones.py add NAME [--title T] [--rank N] [--upkeep] [--depends M,...]
   milestones.py depends MILESTONE ON [ON ...]     (refuses a cycle, a name that is no milestone, a completed one)
   milestones.py assign GAP MILESTONE              (refuses a completed milestone, and a cycle)
@@ -17,7 +21,8 @@ waiting, active, completed (final: no event moves one out of it).
                             change that puts an item on a cycle it was not on is refused.
   milestones.py pull GAP | unpull GAP             (marks a gap pulled ahead of its milestone, or clears it: only said
                                                    here; what the implementor takes is not decided by this program)
-  milestones.py status                            (each milestone, its state, what it waits on, its gaps by state)
+  milestones.py status                            (each milestone, its state, what it waits on, its gaps by state, and
+                                                   the number of unfinished gaps with no milestone)
 
 A gap names its milestone in its field `milestone` (a relation, folded by replace). The old free-text labels some gaps
 still hold there (names, not milestone ids) are left as written, and listed by status until they are assigned.
@@ -47,8 +52,18 @@ class Refused(Exception):
     pass
 
 
+def enforced(cfg: dict) -> bool:
+    """[milestones] enforce (default false): the pass places every unfinished gap with no milestone, or a completed
+    one. Anything but true or false is refused."""
+    v = (cfg.get("milestones") or {}).get("enforce", False)
+    if not isinstance(v, bool):
+        raise ValueError(f"[milestones] enforce = {v!r}: true or false")
+    return v
+
+
 def settings(cfg: dict) -> tuple[int, float]:
     """(active_max, upkeep_days). One not a number, below 1 or past its ceiling is refused, never clamped."""
+    enforced(cfg)
     got = cfg.get("milestones") or {}
     out = []
     for key, (default, most) in LIMITS.items():
@@ -102,7 +117,7 @@ def waits_on(m: dict, ms: dict[str, dict]) -> list[str]:
 def successor(m: dict, ms: dict[str, dict], now: float) -> str:
     """The upkeep milestone that follows ``m``: one already made for it (a pass that stopped part way), else a new
     name from today's date, the first not taken."""
-    made = [x["id"] for x in ms.values() if x["fields"].get("follows") == m["id"]]
+    made = [x["id"] for x in ms.values() if x["fields"].get("follows") == m["id"] and x["state"] != "completed"]
     if made:
         return sorted(made)[0]
     base = f"milestone/upkeep-{time.strftime('%Y-%m-%d', time.localtime(now))}"
@@ -113,10 +128,13 @@ def successor(m: dict, ms: dict[str, dict], now: float) -> str:
     raise RuntimeError(f"no free name for the upkeep milestone after {m['id']} ({base} and {SUCCESSORS_MOST - 1} more)")
 
 
-def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int, days: float) -> list[tuple]:
+def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int, days: float,
+         enforce: bool = False) -> list[tuple]:
     """The events one pass records, in order: (event, item, data)."""
     out: list[tuple] = []
     state = {mid: m["state"] for mid, m in ms.items()}
+    ends_of = {mid: number(m["fields"].get("upkeep_ends")) for mid, m in ms.items() if upkeep(m)}   # each upkeep one's
+    moved: dict[str, str] = {}
     for mid, m in sorted(ms.items()):
         if m["state"] != "active":
             continue
@@ -126,6 +144,7 @@ def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int
             if ends is None:                            # (activated by hand): its cycle pinned once, from when it began
                 ends = (number(m.get("entered")) or now) + days * 86400
                 out.append(("milestone.changed", mid, {"upkeep_ends": ends}))
+                ends_of[mid] = ends
             if now < ends:
                 continue
             nxt = successor(m, ms, now)
@@ -134,8 +153,9 @@ def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int
                                                      "upkeep": True, "follows": mid, "added_by": "milestones"}))
             if (ms.get(nxt) or {}).get("state") != "active":
                 out.append(("milestone.activated", nxt, {"activated_at": now, "upkeep_ends": now + days * 86400}))
-                state[nxt] = "active"
+                state[nxt], ends_of[nxt] = "active", now + days * 86400
             left = [g["id"] for g in mine if g["state"] not in DONE]
+            moved.update({g: nxt for g in left})
             out += [("gap.milestone-set", g, {"milestone": nxt, "milestone_was": mid, "assigned_by": "milestones"})
                     for g in left]
             out.append(("milestone.completed", mid, {"completed_at": now, "completed_for": "its upkeep cycle ended",
@@ -150,9 +170,82 @@ def plan(ms: dict[str, dict], gaps: dict[str, dict], now: float, active_max: int
     for m in sorted((m for m in ms.values() if state[m["id"]] == "waiting"), key=rank_key):
         if upkeep(m):
             out.append(("milestone.activated", m["id"], {"activated_at": now, "upkeep_ends": now + days * 86400}))
+            state[m["id"]], ends_of[m["id"]] = "active", now + days * 86400
         elif room > 0 and not waits_on(m, done):
             out.append(("milestone.activated", m["id"], {"activated_at": now}))
+            state[m["id"]] = "active"
             room -= 1
+    if enforce:
+        for gid, (to, was, why) in sorted(homes(ms, gaps, state, ends_of, moved).items()):
+            out.append(("gap.milestone-set", gid, {"milestone": to, "milestone_was": was, "assigned_by": "milestones",
+                                                   "assigned_for": why}))
+    return out
+
+
+# The gaps the factory files itself (an allowlist: any other is a request): the simplifier's, the pipeline manager's
+# file-gap, and the lessons once filed as gaps (gap/knowledge-*, before the knowledge queue).
+FACTORY_SOURCES = ("simplifier",)
+FACTORY_BY = ("pipeline-manager",)
+
+
+def filed_by_factory(g: dict) -> bool:
+    f = g["fields"]
+    return (f.get("source") in FACTORY_SOURCES or f.get("requested_by") in FACTORY_BY
+            or g["id"].startswith("gap/knowledge-"))
+
+
+def kept_from(g: dict, gaps: dict[str, dict]) -> str | None:
+    """The gap whose milestone it keeps: its split parent, else the gap it continues (whose resumed_as names it)."""
+    for p in ids_of(g["fields"].get("parent")):
+        if p in gaps and p != g["id"]:
+            return p
+    return next((x for x in sorted(gaps) if x != g["id"] and g["id"] in ids_of(gaps[x]["fields"].get("resumed_as"))),
+                None)
+
+
+def homes(ms: dict[str, dict], gaps: dict[str, dict], state: dict[str, str], ends_of: dict[str, float | None],
+          moved: dict[str, str]) -> dict[str, tuple[str, object, str]]:
+    """Each unfinished gap with no milestone (none, or a name that is no milestone) or a completed one, and where it
+    goes: {gap: (milestone, what it named before, why)}. ``state`` is each milestone's after this pass, ``ends_of``
+    each upkeep one's cycle end, ``moved`` the gaps this pass carried already. A sub-gap or a continued gap keeps its
+    parent's (the parent placed first when it has none); one whose kept or own milestone completed, and one the factory
+    filed itself, joins the current upkeep milestone (the active upkeep one whose cycle ends last, read from its pinned
+    upkeep_ends, not from when an event was stamped); any other joins the first active milestone by rank, else the
+    current upkeep one. Never a completed one: with none to go to, it is left as it is (and counted by status)."""
+    ups = sorted((mid for mid in ends_of if state.get(mid) == "active"),    # (one with no end yet: the least current)
+                 key=lambda mid: (ends_of[mid] is not None, ends_of[mid] or 0.0, mid))
+    up = ups[-1] if ups else None
+    first = next((m["id"] for m in sorted(ms.values(), key=rank_key)
+                  if state.get(m["id"]) == "active" and not upkeep(m)), None)
+    out: dict[str, tuple[str, object, str]] = {}
+
+    def placed(gid: str, seen: frozenset) -> str | None:
+        """The milestone ``gid`` is in after this pass (a completed one included), placing it if it must be."""
+        if gid in out:
+            return out[gid][0]
+        g = gaps[gid]
+        named = [moved[gid]] if gid in moved else ids_of(g["fields"].get("milestone"))
+        have = next((x for x in named if x in state), None)
+        if g["state"] in DONE or (have and state[have] != "completed"):
+            return have
+        src = kept_from(g, gaps)
+        kept = placed(src, seen | {gid}) if src and src not in seen else None
+        if kept and state.get(kept) != "completed":
+            to, why = kept, f"kept from {src}"
+        elif kept or have:
+            to, why = up, "its milestone completed: the current upkeep milestone"
+        elif filed_by_factory(g):
+            to, why = up, "filed by the factory: the current upkeep milestone"
+        elif first:
+            to, why = first, "requested: the first active milestone"
+        else:
+            to, why = up, "requested, and no other milestone active: the current upkeep milestone"
+        if to:
+            out[gid] = (to, g["fields"].get("milestone"), why)
+        return to
+
+    for gid in sorted(gaps):
+        placed(gid, frozenset())
     return out
 
 
@@ -163,9 +256,10 @@ def record(events: list[tuple]) -> None:
 
 def run_pass(cfg: dict, now: float | None = None) -> list[tuple]:
     active_max, days = settings(cfg)                    # (refused before anything is read)
+    enforce = enforced(cfg)
     with held(cfg):
         ms, gaps = read()
-        got = plan(ms, gaps, time.time() if now is None else now, active_max, days)
+        got = plan(ms, gaps, time.time() if now is None else now, active_max, days, enforce)
         record(got)
     return got
 
@@ -383,6 +477,11 @@ def status(cfg: dict) -> str:
     if old:
         lines.append("not yet a milestone (old labels, or a name that is no milestone): " +
                      ", ".join(f"{k} ({v} gaps)" for k, v in sorted(old.items())))
+    homeless = sorted(g["id"].split("/", 1)[1] for g in gaps.values() if g["state"] not in DONE and not any(
+        (ms.get(x) or {}).get("state") in ("waiting", "active") for x in ids_of(g["fields"].get("milestone"))))
+    lines.append(f"unfinished gaps with no milestone (none, an old label, or a completed one): {len(homeless)}" + (
+        f" ({', '.join(homeless[:20])}{', ...' if len(homeless) > 20 else ''}; "
+        f"{'the next pass places them' if enforced(cfg) else '[milestones] enforce is off'})" if homeless else ""))
     loops = {n.removesuffix(END) for n in in_cycles(pairs_of(ms, gaps))}     # (one deps.py closed: it knows no milestone)
     if loops:
         lines.append("on a precedence cycle (never taken): " + ", ".join(sorted(loops)))

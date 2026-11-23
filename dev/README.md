@@ -267,6 +267,17 @@ unfinished gaps move to a new upkeep milestone (`follows` it), which is active a
 is not decided here: `pull` only marks a gap `pulled`. The old free-text labels in some gaps' `milestone` stay as
 written; `status` lists them until they are assigned.
 
+With `[milestones] enforce = true` (off by default) the pass, under the same lock, then places every unfinished gap
+with no milestone (none, an old label, a name that is no milestone) or a completed one, recording `gap.milestone-set`
+with `milestone_was` and `assigned_for`: a sub-gap of a split, or a continued gap (the parked gap's `resumed_as` names
+it), keeps its parent's milestone; one whose milestone completed joins the current upkeep milestone (the active upkeep
+one whose cycle ends last, by its `upkeep_ends`), and so does one the factory filed itself (`source: simplifier`, the pipeline manager's `file-gap`, a
+`gap/knowledge-*`); any other joins the first active milestone by rank, or the upkeep one when no other is active. So
+a gap is placed at most a pass (a minute) after it is requested, by whatever path. No path assigns a completed
+milestone: `assign` refuses it, an upkeep cycle never carries to a completed successor, and a gap that names one anyway
+(a raw event) is moved out by the next pass. `status` ends with the number of unfinished gaps with no milestone (0
+after a pass with enforcement on, unless no milestone is active to place them in).
+
 A milestone with gaps is a summary in the precedence graph the implementor's take reads (its start before its gaps,
 its end after them), and so is a split parent with its sub-gaps (`parent` is a group too), so a milestone dependency
 with a gap dependency, or with a split across two milestones, can close a cycle, and a gap on a cycle is never taken. `add`, `depends` and `assign` refuse a change that would put an unfinished gap or milestone on a cycle
