@@ -124,3 +124,14 @@ and test_the_loops_row_writes_shares_through_share_text_and_names_flapping_at_tw
 Not run: the whole of tests/test_diagram_rendering.py, the other three browser files and the unit suite. The
 round-4/5 failure of test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction[False] (the
 diagram's Suggestions fold, which this branch does not touch) was not checked again.
+
+Round 7. The one finding, a conflict with main in ergostat/web/static/pages.js, is resolved in the merge of main
+(a08e4b3e, merge commit 91b7d3e8). Main now puts the chosen loop in the address: each row's click and its name button
+go through `pick` (`onclick: () => pick(g.name)`, `goalRow(..., { columns, open: pick })`). That line is kept whole.
+The branch adds only `"card"` to the columns and the table's `loops` class, as before. No other code changed, so net
+lines outside tests stay at 14.
+After the merge: ruff is clean, and these pass under the watchdog with Playwright (5 in all): the phone-card test,
+test_the_goals_page_says_each_goals_word_as_the_server_does_live_and_from_a_snapshot,
+test_the_address_holds_what_is_chosen_and_the_window, test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named
+and test_no_page_script_words_a_goals_state_but_goalrow.
+Not run: the whole of tests/test_diagram_rendering.py, the other three browser files and the unit suite.
