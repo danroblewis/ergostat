@@ -1,0 +1,25 @@
+list: diagrams
+description: diagram types drawn or wished (conformance-stock.md section 6); the unmet held (diagram-options.md:3-7)
+cases:
+  stock-and-flow:
+    description: the Dynamics view draws a node for each of a model's stocks and flows
+    from: docs/DISCIPLINES.md:12
+    check: python3 dev/conformance/checks/diagrams.py stock-and-flow
+  block-diagram:
+    description: the Blocks view draws a block per block and a summing junction per goal served
+    from: docs/DISCIPLINES.md:15
+    check: python3 dev/conformance/checks/diagrams.py block-diagram
+  process-map:
+    description: the Process view draws a node per state entered and a line per move seen
+    from: docs/DISCIPLINES.md:37
+    check: python3 dev/conformance/checks/diagrams.py process-map
+  service-map:
+    description: a service map (the Map view) of what passed between blocks, with rate, failures and delay per edge
+    from: docs/proposals/diagram-options.md:59-64
+    asked: false
+    check: python3 dev/conformance/checks/diagrams.py service-map
+  sequence-diagram:
+    description: an item's page answers its causedby chain as lifelines and ordered messages
+    from: docs/DISCIPLINES.md:36
+    asked: false
+    check: python3 dev/conformance/checks/diagrams.py sequence-diagram
