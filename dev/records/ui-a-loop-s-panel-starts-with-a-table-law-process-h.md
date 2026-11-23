@@ -148,3 +148,11 @@ Round 5 (answering the review's two blocking findings):
 - About 1 net line less outside tests and docs this round (5 added, 6 removed). The total is still about 40, within the 60 budget.
 - Run: ruff clean; `tests/test_graph_cli_web.py` 41 passed; with Playwright under the watchdog, the acceptance test and `test_no_panel_shows_a_leftover_ellipsis` 2 passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
 - Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.
+
+## Where it stopped
+
+Round 6 (the factory's merge of main, ead497d1f4bc):
+- Resolved the conflict in `tests/test_graph_cli_web.py`. Main's new test (`test_every_page_header_links_to_the_diagrams_waiting_for_you_heading`) and this branch's test were in the same place. Both are kept as they were. The merge is committed.
+- After the merge the browser acceptance test failed: its `get_by_role("button", name="fit")` now matched six elements. Main brought in a `model-fits` loop, whose blocks have "fit" in their names. The test now clicks `name="Fit", exact=True`, like every other test in the file. No page code changed this round.
+- Run: ruff clean; `tests/test_graph_cli_web.py` 43 passed; with Playwright under the watchdog, the acceptance test and `test_no_panel_shows_a_leftover_ellipsis` 2 passed (rc 0). Not run: the unit suite and the four browser files (left to the merge queue).
+- Still outside the gap and unchanged: "follows −128% held out" in `ergostat/control/ident.py`, a follow-up gap of its own.

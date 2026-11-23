@@ -1950,7 +1950,7 @@ def test_a_loops_controller_panel_starts_with_its_table_and_its_math_stays_insid
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "view=blocks&open=*", 0)
-        pg.get_by_role("button", name="fit").click()
+        pg.get_by_role("button", name="Fit", exact=True).click()
         pg.locator('g.node[data-id="blk:tuner"] .hit').first.click()
         pg.wait_for_function(SETTLED, timeout=60000)
         got = pg.evaluate(LOOP_PANEL)
