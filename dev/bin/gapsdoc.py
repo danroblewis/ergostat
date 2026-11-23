@@ -228,12 +228,14 @@ def with_entry(record: str, e: dict) -> str:
 def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple[dict, list[str], list[str], str]:
     """The entry text and done lines a batch added to GAPS.md (``head``) that neither the records before it rendered
     (``pre``) nor the records (at head) render, put in them: ({record: its new text}, what was carried, by record, the
-    entries it could not place, whole, and GAPS-head.md). An entry goes to the record whose Entry has its title, else to
-    the record its branch names (the gap id cut to 32; made when there is none), its section and bullet replacing that
-    Entry's; each done line (as done_lines() draws it) is added to the record it names in backticks. An entry with any
-    part that cannot be placed (another title's Entry, a sub-gap's under another umbrella) is placed in no part. When
-    the batch changed GAPS.md outside the entries (its head, as split() cuts it), GAPS-head.md becomes that head, each
-    `@entry` naming the record that draws (or now holds) the entry there; an entry no record holds loses its slot."""
+    entries it could not place, whole, and GAPS-head.md). An entry goes to the record of its title whose drawn block the
+    batch changed (two such: placed nowhere, as which it replaces is not known), else, when every record of its title
+    still has its block, to a new `<branch>-N`, else to the record its branch names (the gap id cut to 32; made when
+    there is none), its section and bullet replacing that Entry's; each done line (as done_lines() draws it) is added
+    to the record it names in backticks. An entry with any part that cannot be placed (another title's Entry, a
+    sub-gap's under another umbrella) is placed in no part. When the batch changed GAPS.md outside the entries (its
+    head, as split() cuts it), GAPS-head.md becomes that head, each `@entry` naming the record that draws (or now
+    holds) the entry there; an entry no record holds loses its slot."""
     drawn: dict[str, str] = {}
     have = set(split(pre)["records"].values()) | set(split(render(records, gaps_head, drawn)[0])["records"].values())
     tops, out, said, lost, at = {}, {}, [], [], {}     # at: {split()'s name for a block of head: the record holding it}
@@ -243,14 +245,20 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
         except ValueError:
             continue
         if e and not e["entry_of"]:
-            tops[gap_id(ENTRY.match(e["bullet"][0]).group(1))] = name
+            tops.setdefault(gap_id(ENTRY.match(e["bullet"][0]).group(1)), []).append(name)
     cut = split(head)
+    shown = {"\n".join(r.split("\n")[4:-1]) for r in cut["records"].values()}
+    gone = {n for t, n in drawn.items() if t not in shown}   # records whose drawn block the batch changed or removed
     for slot, rec in cut["records"].items():
         lines = rec.split("\n")
         section, block, bullet, done = lines[2].removeprefix("section: "), lines[4:-1], [], []
         gid = gap_id(ENTRY.match(block[0]).group(1))
+        same = tops.get(gid, [])                       # (two records may hold entries of one title: never one of them)
         if rec in have:
-            at[slot] = drawn.get("\n".join(block)) or tops.get(gid)
+            at[slot] = drawn.get("\n".join(block)) or (same[0] if len(same) == 1 else None)
+            continue
+        if len(ns := [n for n in same if n in gone]) > 1:   # which of them it replaces is not known: kept, said
+            lost.append("\n".join(block))
             continue
         for ln in block:
             if m := DONE_AT.match(ln):
@@ -259,7 +267,9 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
                 done[-1][2] += " " + ln.strip()
             else:
                 bullet.append(ln)
-        name, trial = tops.get(gid) or fac.slug(gid, 32), dict(out)
+        base, taken, trial = fac.slug(gid, 32), set(records) | set(out), dict(out)
+        name = ns[0] if ns else base if base not in taken or not same else next(    # another of a title: its own record
+            n for k in itertools.count(2) if (n := f"{base}-{k}") not in taken)
         try:
             for who, d, s in [(name, None, None)] + [(w, d, s) for d, w, s in done]:
                 if not fac.SAFE.match(who):
@@ -280,6 +290,7 @@ def carry(pre: str, head: str, records: dict[str, str], gaps_head: str) -> tuple
             lost.append("\n".join(block))
             continue
         out, at[slot] = trial, name
+        gone.discard(name)
         said += [f"{name}: {block[0][:80]}"]
     new_head = gaps_head
     if cut["head"] != split(pre)["head"]:            # the batch's edits outside the entries: kept, in GAPS-head.md

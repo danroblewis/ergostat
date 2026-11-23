@@ -387,6 +387,38 @@ def test_an_entry_whose_branch_names_another_titles_record_is_kept_unplaced():
     assert changed == {} and lost == [other.strip()]                   # never written over the other title's Entry
 
 
+TWIN = UMBRELLA.replace("(open; `remote-systems`): a system run by another instance.\n  - *Left*: the IR.",
+                        "(mirroring done): the second entry.\n  - *Left*: nothing.").replace(
+    "done: 2026-11-18 The read-only remote API.\n", "")
+
+
+@pytest.mark.parametrize("line, owner", [("  - *Left*: the IR.", "remote-systems"),
+                                         ("  - *Left*: nothing.", "remote-systems-2")])
+def test_two_records_of_one_title_each_keep_their_entry_when_either_is_edited(line, owner):
+    # (dev/records/external-event-logs.md and external-event-logs-2.md: one title, two entries)
+    records = {"remote-systems": UMBRELLA, "remote-systems-2": TWIN}
+    pre = gapsdoc.render(records, HEAD)[0]
+    assert pre.count("- **Remote systems**") == 2
+    batch = pre.replace(line, line[:-1] + ", edited.")
+    changed, carried, lost, head = gapsdoc.carry(pre, batch, records, HEAD)
+    assert list(changed) == [owner] and lost == [] and len(carried) == 1
+    assert carried[0].startswith(f"{owner}: - **Remote systems**")
+    assert gapsdoc.render({**records, **changed}, head)[0] == batch    # both entries, the edit in its own record
+
+
+def test_two_edits_of_one_entry_keep_the_first_in_its_record_and_the_other_said_never_lost():
+    records = {"remote-systems": UMBRELLA}
+    pre = gapsdoc.render(records, HEAD)[0]
+    block = "\n".join(gapsdoc.split(pre)["records"]["remote-systems"].split("\n")[4:-1])
+    one, two = block.replace("the IR.", "the IR, one."), block.replace("the IR.", "the IR, two.")
+    changed, _, lost, _ = gapsdoc.carry(pre, pre.replace(block, f"{one}\n{two}"), records, HEAD)   # a union merge's
+    assert gapsdoc.parse(changed["remote-systems"])["bullet"][1] == "  - *Left*: the IR, one."
+    assert lost == [two]                                               # not written over the first: kept, said
+    new = TWIN.replace("the second entry", "a third entry")            # another entry of the title: its own record
+    changed, _, lost, _ = gapsdoc.carry(pre, pre + "\n".join(new.split("\n")[6:]), records, HEAD)
+    assert list(changed) == ["remote-systems-2"] and lost == [] and "a third entry" in changed["remote-systems-2"]
+
+
 def test_regenerate_writes_the_records_and_gaps_md_and_keeps_what_it_cannot_place(tmp_path):
     pre = tree(tmp_path, {"remote-systems": UMBRELLA, "remote-mtls": MTLS})
     (tmp_path / "docs" / "GAPS.md").write_text(edited(pre) + STRAY)   # the batch's merge, as main holds it
