@@ -319,10 +319,10 @@ def test_the_goals_page_and_its_old_address(browser, site):
     pg.evaluate(f"() => openBlock({ctl})")
     pg.wait_for_function("() => document.querySelector('#detail .kind')", timeout=20000)
     assert "control loop" in pg.locator("#detail").inner_text()
-    assert "Goals and their control loops" in pg.locator(".side").first.inner_text()
+    assert pg.locator(".side details.loops > summary").first.inner_text().startswith("Goals and their control loops")
     pg.goto(f"{site}/diagram?view=dynamics&open=*")
-    pg.wait_for_function("() => [...document.querySelectorAll('.side h3')].some((x) => x.textContent.startsWith('Feedback loops'))",
-                         timeout=60000)
+    pg.wait_for_function("() => [...document.querySelectorAll('.side details.loops > summary')]"
+                         ".some((x) => x.textContent.startsWith('Feedback loops'))", timeout=60000)
     pg.close()
 
 
