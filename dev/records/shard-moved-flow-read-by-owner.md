@@ -41,3 +41,39 @@ size: S (confidence: low)
 - Both the event's `moved` and its values come from the record: a non-dict `moved`, a non-number or NaN amount, or a flow or stock the model lacks must each be skipped inside the loop, never raised. An exception in _ask's caller (:1718-1720) would skip the `seq` advance for the rest of that batch. Treat negative amounts on two-way flows as moved (only 0 is skipped, as `if v` does at :1205).
 - shard-daemons-file-each (ready) edits the same SPEC §9.8 'Not yet by shard' paragraph (docs/SPEC.md:3394-3397), the same GAPS 'Left' clause and tests/test_engine_shard.py. After merging main, reread that paragraph and that GAPS entry as whole sentences, for splices and a duplicated Left clause.
 - test_moved_flow_read_by_owner must fail with today's after_acting: assert that shard a's engine made no read of b's sensor (e.g. record read_soon calls per engine). A check that b's series got a reading is not enough. In test_moved_flow_read_once_each, call the follower step twice across a newer event and count the reads per series.
+
+## Where it stopped
+
+Built, round 1. Net code lines: +52 -24 (28 net) in `ergostat/`, within the 50 budget.
+
+- `Engine._read_moved(flows, cause, spec)` is the one rule: the sensors `after_acting` names, kept only where
+  `own(sensor key)` (all with `shard=None`; a key in no shard of the plan: not read), each with its cause and
+  `read_soon`. `_run`, the leased-item run (`leases/dispatch.py`) and the step test (`control/steptest.py`) all use it,
+  so no shard engine reads another shard's sensor after acting. `after_acting` itself is unchanged (it also feeds the
+  pacing and `fresh_for`, which keep reading across shards); it only takes an optional `spec`.
+- `Engine._moved(e)` follows a run's ended event: nothing with `shard=None`, nothing for a block the engine `follows`
+  (its own runs, read in `_run`), else `_read_moved` of the flows with a non-zero int/float amount (NaN, bool, strings
+  skipped; negatives read), cause `e["causedby"]` (the begun id), under the one `self.spec` read for the event.
+- `_follow`'s look is now `_follow_once(seq) -> seq` (so a test can step it); a shard engine also queries
+  `agent.ran,agent.failed`. Each event is handled inside a try: one event's fault is said and the rest of the batch,
+  and the `seq` advance, go on (an `_ask` that raised used to end the follow thread; now it is said instead).
+
+Answers to the plan review's notes:
+- Failed runs: both `agent.ran` and `agent.failed` are queried (`test_moved_flow_read_once_each` uses a failed one;
+  seen to fail with `agent.ran` alone).
+- Cause: `e["causedby"]`, set under `self.lock` in `_read_moved`, as `_run` did.
+- One rule: `_read_moved`, above. Swap between run and follow (the most reversible choice, no new field in the
+  record): the new owner follows the block now and skips the run, so its stocks are read at their schedule, by neither
+  engine at once, never twice. Said in `_moved`'s docstring and SPEC §9.8; no test pins it.
+- Malformed record values are skipped in `_moved`, never raised (`test_moved_flow_unknown_reads_nothing`: unknown flow,
+  0, "3", True, NaN, a list, a string, no `moved`, `data` None; then a stop ask is still answered).
+- shard-daemons-file-each: not on `main` in this clone (main has no new commits past the base), so no merge was needed;
+  the 'Not yet by shard' paragraph and the GAPS entry were reread as whole sentences after the edit.
+- Lesson-9, seen to fail: the `own` filter removed in `_read_moved` (today's `after_acting` behaviour) fails
+  `test_moved_flow_read_by_owner` and `test_moved_flow_read_once_each`; the `follows` skip removed fails both
+  (a's stock read twice); the NaN check removed fails `test_moved_flow_unknown_reads_nothing`; `agent.failed` not
+  queried fails `test_moved_flow_read_once_each`.
+
+Files beyond the definition's list: `ergostat/leases/dispatch.py` and `ergostat/control/steptest.py` (one line each:
+they read after acting too, and would otherwise read another shard's sensor), and the fake engines in
+`tests/test_control.py` and `tests/test_rga.py` (they stubbed `after_acting`; now `_read_moved`).
