@@ -188,6 +188,7 @@ SOURCE = {k: (T, why) for k, why in (("type", "the kind of source"), ("url", "wh
 ALLOWED = {"systems": SYSTEM, "items": ITEM, "parameters": PARAMETER, "auxiliaries": AUXILIARY, "stocks": STOCK,
            "flows": FLOW, "goals": GOAL, "blocks": BLOCK, "uses": USE, "sources": SOURCE}
 REFUSED = {"agents": "who acts, and on which rung", "workspaces": "folders and repositories runs work in",
+           "compute": "the machines runs execute on",
            "actions": "outward acts a session may ask for",
            "claims": "commands that check claims", "contexts": "what an AI session is given to read",
            "leases": "terms of work queues", "daemons": "processes kept running", "loops": "loops declared by hand",

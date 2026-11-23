@@ -12,7 +12,10 @@ function sliderSpan() {
   return [lo, now];
 }
 const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
-function whenLabel() { return S.at ? `${S.since} to ${clock(S.at)}` : `Last ${S.since}`; }
+function whenLabel() {                                 // and how much is recorded, when less than the window
+  const r = S.status?.window === WINDOWS[S.since] ? recordedShort() : null;
+  return (S.at ? `${S.since} to ${clock(S.at)}` : `Last ${S.since}`) + (r != null ? ` (${dur(r)} recorded)` : "");
+}
 const whenMenu = menu(whenLabel(), () => {
   const [lo, hi] = sliderSpan();
   const readout = h("span", { class: "muted small", id: "atlabel" }, S.at ? `${clock(S.at)}, ${ago(S.at)}` : "Live");
@@ -27,7 +30,7 @@ const whenMenu = menu(whenLabel(), () => {
   slider.addEventListener("change", () => { refreshHeader(); route(); });
   return [
     h("div", { class: "menu-label" }, "Window"),
-    ...Object.keys(WINDOWS).map((k) => ({ label: WINDOW_WORDS[k], checked: S.since === k, onclick: () => { S.since = k; S.graphSig = ""; showAt(); route(); } })),
+    ...Object.keys(WINDOWS).map((k) => ({ label: WINDOW_WORDS[k], checked: S.since === k, onclick: () => { S.since = k; S.graphSig = ""; showAt(); route(); refreshHeader(); } })),
     { sep: true },
     h("div", { class: "menu-block" }, h("div", { class: "menu-label" }, "Moment"), slider, readout),
     S.at ? { label: "Back to live", onclick: () => { S.at = null; showAt(); refreshHeader(); route(); } } : null,
@@ -35,7 +38,7 @@ const whenMenu = menu(whenLabel(), () => {
 }, { right: true, title: "The window the page looks over, and the moment it shows" });
 $("#when").append(whenMenu);
 function showAt() {
-  whenMenu.button.textContent = whenLabel();
+  if (whenMenu.button.textContent !== whenLabel()) whenMenu.button.textContent = whenLabel();
   whenMenu.button.classList.toggle("past", !!S.at);
 }
 window.addEventListener("popstate", route);                  // back and forward

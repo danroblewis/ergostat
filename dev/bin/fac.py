@@ -76,16 +76,29 @@ def nack(why: str, after: str | None = None, count: bool = True) -> None:
     print(json.dumps({"nack": n}), flush=True)
 
 
+def _aihold():
+    """dev/bin/aihold.py, found beside this file when fac was loaded by path (dev/bin not on sys.path)."""
+    if str(HERE / "bin") not in sys.path:
+        sys.path.append(str(HERE / "bin"))
+    import aihold
+    return aihold
+
+
 def draining(cfg: dict) -> bool:
     """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
-    review) waits for its next turn instead of starting."""
-    return (run_dir(cfg) / "drain.json").exists()
+    review) waits for its next turn instead of starting; so it does while the AI is held (aihold.py)."""
+    aihold = _aihold()
+    return (run_dir(cfg) / "drain.json").exists() or aihold.held(cfg) is not None
 
 
 def drain_holds(cfg: dict) -> bool:
-    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), an AI run takes no new
-    item: it gives it back uncounted, to be taken again after the switch."""
-    if not draining(cfg):
+    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), or the AI is held for the
+    provider's usage limit (aihold.py), an AI run takes no new item: it gives it back uncounted, to be taken again
+    after the switch, or at the reset."""
+    aihold = _aihold()
+    if aihold.holds(cfg):
+        return True
+    if not (run_dir(cfg) / "drain.json").exists():
         return False
     nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
     return True
@@ -142,9 +155,45 @@ def add(event: str, item: str, **data) -> None:
 
 
 def items(kind: str, state: str | None = None) -> list[dict]:
-    """The items of a kind (in a state), from the record (at most 5,000: the factory's kinds are small)."""
-    args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", state] if state else [])
-    return json.loads(ergostat(*args).stdout).get("items", [])
+    """The items of a kind (in a state), from the record. One listing carries at most 500 items (spec/items.py
+    LISTED), so with no state each state is listed on its own and the lists joined (past 500 gaps the
+    intake read merged and closed gaps as new and opened them again)."""
+    def one(st):
+        args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", st] if st else [])
+        got = json.loads(ergostat(*args).stdout)
+        if len(got.get("items", [])) < int(got.get("total") or 0):    # (a state past the cap: said, as before)
+            print(f"items({kind!r}, {st!r}): {got.get('total')} items, the listing carries "
+                  f"{len(got.get('items', []))}", file=sys.stderr)
+        return got.get("items", [])
+    if state:
+        return one(state)
+    head = [ln for ln in ergostat("item", "--kind", kind).stdout.splitlines() if ln.startswith(f"{kind} ")]
+    states = re.findall(r"([a-z][a-z-]*) \d+", head[0].split("  ", 2)[-1]) if head else []
+    if not states:
+        return one(None)
+    out, seen = [], set()
+    for st in states:
+        for i in one(st):
+            if i["id"] not in seen:
+                seen.add(i["id"])
+                out.append(i)
+    return out
+
+
+STACKABLE = ("approved", "queued", "push-pending")      # a dependency reviewed and not yet on main: one to build on
+
+
+def stack_base(cfg: dict, gap: dict) -> list[dict] | None:
+    """The bases a gap is built on: when every dependency not yet merged or closed is in STACKABLE, each one's reviewed
+    head ({gap, sha, branch}; sha "" when none is recorded, which no branch tip equals), in rank order. None for any
+    other gap (no unfinished dependency, or one not found or not reviewed): it builds on main, as before."""
+    deps = ids(gap["fields"].get("depends_on"))
+    gaps = {g["id"]: g for g in items("gap")} if deps else {}
+    left = [gaps.get(d) for d in deps if (gaps.get(d) or {}).get("state") not in ("merged", "closed")]
+    if not left or any(g is None or g["state"] not in STACKABLE for g in left):
+        return None
+    left.sort(key=lambda g: (g["fields"].get("rank") or 10**9, g["id"]))
+    return [{"gap": g["id"], "sha": str(g["fields"].get("reviewed_head") or ""), "branch": branch_of(g)} for g in left]
 
 
 def act(name: str, key: str, **args) -> tuple[int, str]:
@@ -588,6 +637,26 @@ def outcomes(text: str, tests: list[str]) -> dict[str, str]:
     return {t: said.get(t, "unknown") for t in tests}
 
 
+# pytest's summary line, -q or not, xdist's too: `1 failed, 3 passed, 2 warnings in 2.10s (0:00:02)`, `no tests ran in`
+SUMMARY = re.compile(r"^=*\s*((?:\d+ [a-z]+, )*\d+ [a-z]+|no tests ran) in \d+(?:\.\d+)?s(?: \([\d:]+\))?\s*=*\s*$", re.M)
+COUNTS = ("passed", "failed", "skipped", "deselected", "errors")
+COUNTED_AS = {**{k: k for k in COUNTS}, "error": "errors"}
+
+
+def counts(text: str) -> dict[str, int] | None:
+    """A pytest log's counts (passed, failed, skipped, deselected, errors) from its last summary line, anywhere in the
+    whole log; None without one (killed, stopped, not pytest): unknown, never zeros. Other words (warnings, xfailed)
+    are not counted."""
+    found = SUMMARY.findall(re.sub(r"\x1b\[[0-9;]*m", "", text))
+    if not found:
+        return None
+    got = dict.fromkeys(COUNTS, 0)
+    for n, word in re.findall(r"(\d+) ([a-z]+)", found[-1]):
+        if word in COUNTED_AS:
+            got[COUNTED_AS[word]] += int(n)
+    return got
+
+
 def beside(tests: list[str], log: Path, run) -> dict[str, str]:
     """The quarantined ``tests`` run once beside a suite (``run(tests)`` writes ``log``), never blocking it: each
     result said on its item flake/<test> (`last_run`). A run that fails to start or leaves no log records unknown. A
@@ -619,7 +688,9 @@ def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = Non
     (--max-budget-usd) is reserved first and what it did not spend given back once its cost is known; a session that
     fails keeps its whole reservation. Returns Claude Code's result message, and prints it so the run is charged.
     Its conversation is kept as the item session/<item>-<role>-<n> (sessions.py; ``item``: the gap, research or
-    review it works for, else the run's own)."""
+    review it works for, else the run's own). One that ends on the provider's usage limit holds the AI till its reset
+    and ends the run, its lease given back uncounted (aihold.py)."""
+    aihold = _aihold()
     import sessions
     model, usd = cfg["ai"][f"{role}_model"], float(cfg["ai"][f"{role}_session_usd"])
     who = dict(role=role, model=model, item=os.environ.get("ERGOSTAT_ITEM", ""), run=os.environ.get("ERGOSTAT_RUN", ""))
@@ -639,12 +710,16 @@ def session(cfg: dict, role: str, brief: str, work: Path, item: str | None = Non
                 out = agents.session(cfg, role, brief, work, keep=kept)
     except BaseException as e:
         error = f"{type(e).__name__}: {e}"
-        raise
+        if isinstance(e, SystemExit) or not aihold.limited(str(e), anywhere=True):
+            raise
+        aihold.stop(cfg, str(e))                         # (the usage limit: the run given back uncounted, ended)
     finally:
         kept.ended(out, error)
     if out.get("total_cost_usd") is not None:
         settle(cfg, usd, float(out["total_cost_usd"]), at, **who)
     print(json.dumps({k: v for k, v in out.items() if k != "result"} | {"type": "result"}), flush=True)
+    if aihold.limited(str(out.get("result"))):
+        aihold.stop(cfg, str(out.get("result")))
     if out.get("is_error"):
         raise RuntimeError(f"claude: {out.get('subtype')}: {str(out.get('result'))[:300]}")
     return out
