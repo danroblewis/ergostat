@@ -97,6 +97,18 @@ order. A reset time that cannot be read (no time, an unknown zone, a date that d
 or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit again or
 not. A switch's drain nacks are uncounted too (`count: false`), whether a run gives its item back or the switcher does.
 
+**An outage is a pause, not a failure** (`dev/bin/outage.py`). A run that fails because Docker or the AI service cannot
+be reached gives its item back uncounted, put off 10 minutes, and is taken again after it, as often as the outage
+lasts: no attempt, nothing toward the kill rule, never parked or a dead letter. Docker's is told by its words naming
+Docker (a container that did not start, exit 125, `docker ...`), confirmed by `docker info` failing or not answering in
+30 s (a factory with no `docker` installed has no Docker outage); a queue suite whose container fails while `docker info`
+fails is one too, never a red suite. The AI service's is told by a connection error in what the session said (refused,
+no route, a name not resolved, a request timed out); an answer of the API's (a 4xx, a 5xx) is the service reached.
+This covers the implementor and the reviewer (`fac.guarded`) and the merge queue's batch (main undone, no gap blamed).
+The engine gives back a lease whose run's process is gone, uncounted too (SPEC §9.5, *A run gone*), and a kind's
+`attention:` field puts the pipeline manager's latest finding (`finding`, on its handled situation) on the page's
+attention list.
+
 ## Submit a gap
 
 A GAPS.md entry is taken in by itself (`gap.found`, open). It is **ready** once it has a definition of done:
@@ -224,8 +236,20 @@ Every writer of a flake's state (onmain, the queue, triage, `manage.py flake`) g
 reads the item again under `run/flakes.lock` and records at once (`ergostat event --add`): a flake seen on a
 `main-broken` test is `flake.measured` (counted; it stays main-broken), a second `flake.main-broken` moves `main` and
 adds its gaps but keeps the first `main_broken_at`, and either on a `fixed` test makes it again (a patch: `times` 1,
-the gaps and times said, `main_fixed_at`, `fixed_by` and `green_passes` removed). An item it cannot read is written as
-said, the failure on stderr.
+the gaps and times said, `main_fixed_at`, `fixed_by`, `green_passes` and `passed_on` removed). An item it cannot read
+is written as said, the failure on stderr.
+
+**Out of main-broken: main-mend.** The block `main-mend` (dev/model/landing.yaml; every 30 minutes, pool 1, a lease,
+timeout 30 minutes) runs `dev/bin/mend.py`: it fetches main as pushed (the checkout's `<remote>/<base>`), waits for a
+quiet machine (`fac.wait_quiet`), and takes the `main-broken` tests not tried since they broke, oldest
+first (by `main_broken_at`), then the least lately tried (`run/mend/tried.json`), at most `[gates] mend_most` (default
+5, held to 1-20), so tests that stay unknown run after run give up their place to those behind them. It runs them alone twice on that commit (together; after a run that died, killed by its timeout with one of them picked, one at a time, each counted tried as it starts, so a hanging test goes behind the others), in `<worktrees>/.mend` and a
+suite container (`[suites] alone` with `-rA`; a test of a browser suite file with `rerun`, which has Playwright), and
+reads each result from the whole log (`fac.outcomes`). A test passing both runs is `flake.main-fixed` (state `fixed`;
+`passed_on`, `main_fixed_at`, `fixed_by: main-mend`). Failed, skipped, not collected, quarantined at that commit, or a
+run that stalled or left no log: unknown, and it stays main-broken. The write is decided under `run/flakes.lock` on the
+item read there, only when its `main` is the commit run on or an ancestor of it, and is a patch whose first op tests
+that `main`: a newer break written in between refuses the whole event, and a refused patch moves no state (SPEC §5a).
 
 ## The backlog: ranked, groomed
 
@@ -253,6 +277,59 @@ nothing and says so in the proposal.
 
 A GAPS.md entry whose head (its opening parenthetical, or the clause after its colon) begins with "done" or
 "superseded by" is never found as open, and one the record holds not yet started is closed.
+
+## Milestones: groups of gaps finished together
+
+A `milestone` item (ergostat.yaml) is `waiting`, `active` or `completed`, and `completed` is final (`final:`: no event
+moves it out). It may depend on other milestones (`depends_on`); a gap names its milestone in `milestone` (a group
+relation: with kind `gap` chosen, the Items page's Graph draws a milestone's gaps in its frame, titled with what is
+done, working, ready and blocked on what, and the Timeline gives it a summary row). The block `milestones` (`milestones.py pass`, every
+minute, no AI) completes an active milestone with at least one gap once every one is merged or closed (a parked one
+holds it open; an empty one never completes), then activates waiting ones whose dependencies all completed, by rank,
+while fewer than `[milestones] active_max` (3; at most 20) are active. An `upkeep` milestone, for the factory's own
+repairs, is always active and outside the limit; after `[milestones] upkeep_days` (7; at most 90) it completes, its
+unfinished gaps move to a new upkeep milestone (`follows` it), which is active at once. The old free-text labels in
+some gaps' `milestone` stay as written; `status` lists them until they are assigned.
+
+With `[milestones] enforce = true` (false by default, and then nothing about dispatch changes) the planner and the
+implementor take only the work of active milestones. The pass, and each command once it has written, keeps on every
+unfinished gap the derived field `waits_on_milestone` (as deps.py keeps `waits_on_parked`): empty when its milestone is
+active or it is `pull`ed (the owner's exception: taken as if its milestone were active), otherwise the milestone it
+waits for, after the pass's placements (for a gap the pass left: an old label as written, `unassigned` for none). A
+sub-gap of a split with no milestone of its own takes its parent's, and is pulled when its parent is (the pass places a
+sub-gap in its parent's milestone; a pulled parent still pulls it there, but not one moved to another milestone). Their `takes: where` asks it empty; review and the merge queue ask nothing
+of it, so what was built keeps landing. Turning enforcement off clears the field on the next pass.
+
+With `[milestones] enforce = true` (off by default) the pass, under the same lock, then places every unfinished gap
+with no milestone (none, an old label, a name that is no milestone) or a completed one, recording `gap.milestone-set`
+with `milestone_was` and `assigned_for`: a sub-gap of a split, or a continued gap (the parked gap's `resumed_as` names
+it), keeps its parent's milestone; one whose milestone completed joins the current upkeep milestone (the active upkeep
+one whose cycle ends last, by its `upkeep_ends`), and so does one the factory filed itself (`source: simplifier`, the pipeline manager's `file-gap`, a
+`gap/knowledge-*`); any other joins the first active milestone by rank, or the upkeep one when no other is active. So
+a gap is placed at most a pass (a minute) after it is requested, by whatever path. No path assigns a completed
+milestone: `assign` refuses it, an upkeep cycle never carries to a completed successor, and a gap that names one anyway
+(a raw event) is moved out by the next pass. Each placement is checked for a cycle as `assign` checks one, against the
+graph with the pass's earlier placements in it: one that would close a cycle (say the gap depends on a gap in a
+milestone that waits on the one it would join) tries the upkeep milestone instead, and failing that the gap is left.
+`status` gives the number of unfinished gaps with no milestone and how many of them the next pass places (all of
+them after a pass with enforcement on, unless no milestone is active, or each would close a cycle).
+
+A milestone with gaps is a summary in the precedence graph the implementor's take reads (its start before its gaps,
+its end after them), and so is a split parent with its sub-gaps (`parent` is a group too), so a milestone dependency
+with a gap dependency, or with a split across two milestones, can close a cycle, and a gap on a cycle is never taken. `add`, `depends` and `assign` refuse a change that would put an unfinished gap or milestone on a cycle
+it was not on, naming the path, and the pass never places a gap where it would; `status` names any on one (deps.py
+records gap dependencies without knowing milestones, so it can still close one). One such cycle is said by name: a gap depending on a gap of a milestone that can only finish
+after its own (one that depends on it, at any depth), so both would wait forever. `assign` and `depends` refuse it and
+`status` lists any. Pulling the needed gap does not lift the refusal: the link is still a cycle in the take's graph,
+which takes neither gap, pulled or not.
+
+```sh
+python3 dev/bin/milestones.py add NAME --title "..." --rank 1 [--depends A,B] [--upkeep]   # refuses a name in use
+python3 dev/bin/milestones.py depends NAME ON [ON ...]     # refuses a cycle, or a completed NAME
+python3 dev/bin/milestones.py assign GAP NAME              # refuses a completed milestone, or a cycle
+python3 dev/bin/milestones.py pull GAP                     # or: unpull GAP
+python3 dev/bin/milestones.py status                       # each one, its state, what it waits on, its gaps by state
+```
 
 ## Plans, research and what the factory knows
 
@@ -545,12 +622,12 @@ bwrap cannot make its namespaces and there is no kqueue: `tests/test_repair2.py`
 (the AI repair sandbox's tests) and `tests/test_notify.py`'s kqueue test skip there. `[suites] host` runs those three
 files on the Mac, outside any container, after unit and browser and before demo, under the queue's lock: a required
 step like the others (its log `run/queue/<run>-host.txt`, its result `host` in the gap's `suites_queue`; red fails the
-batch and bisects, and flake triage reruns its tests on the Mac too). It is held to the same `stall_minutes` and
+batch and is split, and flake triage reruns its tests on the Mac too). It is held to the same `stall_minutes` and
 `wall_minutes` as the boxed suites, in the queue and in triage's rerun: a host run that stops writing is a stall (the
 run undone, no gap blamed until `STALLS_MOST`). `host = ""` turns the step off. Exit 126 or 127 from the outer shell
 (the step's first command not found or not runnable) is a step that did not start, in the queue and in triage's
 rerun: the run fails and is undone, no gap blamed, never read as a pass. A pytest missing behind `suite_watch.py` or
-`uv` exits 1 with no test named, so it counts as a real host failure: red, the batch bisected. A test the host step
+`uv` exits 1 with no test named, so it counts as a real host failure: red, the batch split. A test the host step
 skips that the same run's unit suite skipped too (by `path:line` in their `-rfEs` summary) ran nowhere, and fails the
 step, unless its reason is one of the stated needs outside the machine in use (an `ERGOSTAT_…_URL`, "spends money",
 "no Chromium to drive", playwright not importable, "needs Docker and the agent image", "no N free ports in"), matched
@@ -576,13 +653,18 @@ a change to main's list (which a reviewer reads in the diff); nothing in this co
 **Batches.** The queue merges up to `batch` approved gaps onto main in turn (in rank order) and runs the suites once.
 The batch is 1 to start (`[pools] batch = 1`: one gap a run, the queue as it always was). A green batch asks for one
 push, of its last merge, so one approval lands the batch, and a denial sends every gap of it back. A red batch is
-bisected (the suites again on the first half of the merges, and so on) to the first merge that fails; that gap goes to
-flake triage with its failures, the merges before it land, and those after it are merged again and run once more.
+handled by the first of two paths that applies, and any part still red takes them again. **By name:** the red run named
+at most 10 tests, did not crash, and they fail alone on its tree: they run on every prefix at once, the first failing
+prefix's last merge goes to flake triage, and one full run lands the survivors. **By halves:** anything else (no test
+named, a crash, failures that pass alone, too many): two halves, stacks kept whole, each built from the current base and
+run through the full suites at the same time (`dev/bin/halves.py`). A green half lands as the very commit tested and is
+the new base; a red one is split again on it. A crash (pytest exit 3, `INTERNALERROR`, a full disk, a lost xdist worker)
+names no test and proves no merge bad: both halves crashing, or one merge alone, is a stall.
 When the red run named its failing tests (`FAILED`/`ERROR` lines), those are first run alone, serially
 (`[suites] rerun`, `-rA`), on the whole red tree. **A flake lands:** when it named 1 to 3 tests, none in
 `tests/test_page_polling.py`, and its failed suite skipped none, they are run alone there twice; each passing both
 times (a PASSED line, rc 0), the suites the red run did not finish (stopped by its failure, or never reached) run, and
-green there the batch lands with no bisect, each test a flake seen (`flake.seen` on `flake/<test>`: the run, the suite,
+green there the batch lands with no split, each test a flake seen (`flake.seen` on `flake/<test>`: the run, the suite,
 `passed_alone`, the log; `excused` in each gap's `suites_queue`). **A failure that is main's blames no gap:** before
 any gap is blamed or sent back, the named tests (only those: seconds, not a suite) run alone on main as the batch
 found it (`pre`), in the same container and settings. Failing there and again on a re-run (or a re-run that cannot
@@ -595,30 +677,14 @@ batch until they pass or none is left; it then records the intervention remedied
 intervention themself (`manage.py remedy`): the next run clears `main_red` without checking. A check that cannot tell,
 or whose container does not start, keeps the hold. If any one named test fails on main twice the whole batch is
 held, so a test a gap really broke beside it is found only once main is fixed. A test that fails on main and
-passes on its re-run is a flake seen (`failed_on_main`), not main's, and the batch bisects. The check is made once per
-run, before its first finding; a failure the red run did not name (a sibling suite stopped by the first failure) is
-not checked on main. Only if one fails alone does each bisecting step run only those:
-red when one of them fails, green only when the run passes and each says PASSED; a step that cannot tell (a test not
-found on that prefix, a run that never started) runs every suite instead. A failure that shows only in the full run
-(order, pollution, load), one the rerun cannot tell, and one naming no test (ruff, demo_check, a collection error, a
-killed run) are bisected with every suite, as before. A green on the named tests alone never lands anything: the
-merges before the failing one are merged again with those after it, and the lot lands only on a full green run of
-that very tree; the failing gap's `pre` is then main's head before them, so its triage runs it on main alone. When
-the named tests fail alone on the red tree (or ruff failed), the bisect is made in **parallel rounds** instead of
-steps: the named tests (or ruff) run on every prefix of the batch at once (`dev/bin/prefixes.py`, each in a worktree
-and container of its own, `[suites] prefix_most` at a time). The first failing prefix's last merge is the failing one;
-it goes to triage (its stacked descendants given back with it), the others are merged again without it, and another
-round runs at once only if a later prefix failed a test the failing one did not (a second failing merge); then the
-full suites run once on the survivors: green lands them, red starts again. A prefix that cannot tell (unknown) is
-never a pass: that round goes back to the serial steps, from the prefixes that passed up to the first that failed.
-The allowance is checked before each round, and the prefixes a round passed land only on a full green run. Each run
-says `batch_rounds` and `prefix_runs` in its gaps' `suites_queue`. A test that fails only when two merges are both in
-blames the later one, as the serial steps do; a later merge failing the same test as the one found is caught by the
-full run. **Cost per failing merge:** in rounds, one round (minutes: a few tests on each prefix) and a share of the
-one full run on the survivors, so a batch of 8 with one failing merge is the red run, its tests on its tree, the
-check on main, one round and one full run; with k independent ones, k rounds and one full run. Serially, at most
-`2 + 2 ceil(log2 m)` runs (the red run, the rerun on its tree, and each step, two when a named run cannot tell), most
-of them its failing tests rather than the suites. A
+passes on its re-run is a flake seen (`failed_on_main`), not main's, and the batch is split. The check is made until
+something settles, once for each test; a failure the red run did not name is not checked on main. A named run never
+lands anything: only a tree a full run passed does. When both halves pass, the first lands and the other is tested on
+it; a tree already proven red is not run again. **Cost of one failing merge of m:** by name, 2 full runs and a round of
+its tests; by halves, one full run and at most `ceil(log2 m)` rounds of two at once, the first landing a half. Two half
+runs each get half of `[agents] queue_cpuset` (12-17 and 18-23: unit 4 and browser 2 CPUs, half the pytest workers), and
+twice the stall and wall limits up to their ceilings, as each may take twice as long. Each gap's `suites_queue` says `batch_rounds` and `rounds` (each round's
+base, and each half's gaps and result). A
 batch's other gaps stay `approved` until their merge lands (or is sent back), and the run's start is kept in
 `run/queue.json`, so a queue killed part way strands nothing: the next run puts main back and takes them again.
 
@@ -630,10 +696,9 @@ unless it is sent back: the last slot is kept for it, however low it ranks, and 
 batch-mate the walk is made again with the own gap first, so the batch-mate is the one left `approved`. Its lease is
 never given back while others land, since the batch's push is asked under it. When the own gap is sent back, the walk
 is made again in rank order, so gaps passed over for its slot fill the batch. Whether a gap conflicts is git's exit
-code, not the files it names. The real merges then make the batch's first run: when they all succeed, their tree must
-be the dry-merged one, or the run stops before any suite. A real merge that conflicts (one merged again after
-bisecting, or one where the dry merge was clean) is undone and sent back as a failed gate, and the rest go on to the
-suites, so what is tested is still what lands. If git cannot make a dry merge at all, the run fails there: gaps
+code, not the files it names. The batch's first run is built the same way, as commits of its own: its tree must
+be the dry-merged one, or the run stops before any suite. A merge that conflicts on a new base (after the other
+half landed) goes back to `approved` uncounted with what stacks on it, and the next run decides it against main. If git cannot make a dry merge at all, the run fails there: gaps
 already sent back stay sent back, the rest stay `approved`.
 
 A batch that comes back empty says why, and picks() gives the reason from its walk. Either the own gap was sent back
@@ -657,7 +722,7 @@ stack. A method or a parametrized case is named by its file and function only. W
 the log names, or null. Each hung test's dump grows the log once, so it stops the suite up to half a stall limit
 later. A stall also halves the next run's batch (at least 1), so a gap that hangs tends to come to run alone. This is
 not guaranteed: any run that settles a gap clears the halving, and a stall in a batch of more than one counts on no
-gap. A stall during a bisect throws away a green prefix that run already found. Gaps that run already sent on (to
+gap. A stall after a half landed keeps that half and gives the stalled merges back. Gaps that run already sent on (to
 triage, or back for a conflict) keep that outcome, though `stalled_batch` still lists them. A stall
 with the gap alone in its batch is counted on it (`stalls`). The clocks start once `[suites] slot` (triage's suites)
 is held, so a wait for the slot is never a stall. Its third (`STALLS_MOST` in fac.py) is no longer given
@@ -678,7 +743,7 @@ To raise it: approve the pool tuner's `raise-pool` (role `batch`; it asks while 
 `run/pools.json`, which wins over `[pools] batch`; `set batch 1` goes back). At most `[pools] batch_max` (8, never
 past 32). A run starts no suite run once `[pools] batch_minutes` (120; a value of 0 or less, over 150 or NaN is refused,
 and the queue takes no gap) have passed since it began, the wait for the lock and a quiet machine and the dry merges
-included: it stops bisecting, the prefix a full green run proved lands, and the gaps not yet settled go back to
+included: it stops splitting, what a full green run proved has landed, and the gaps not yet settled go back to
 `approved` uncounted, for the next run. A run that settled none of its batch leaves the next one half as many
 (`cap` in `run/queue.json`, cleared by the first run that settles one), down to a batch of 1, which is one suite run.
 So, whatever the batch, the block's 3 hour timeout is reached only by a suite run begun inside the allowance that

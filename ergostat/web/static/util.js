@@ -12,7 +12,7 @@ const S = { since: "1h", route: "", graphSig: "", layout: null, view: { x: 0, y:
    opened with no server) the same path is kept in the hash instead, as #/items. UI_PAGES are the first parts
    of the paths the page answers (the server's UI_PAGES, the same list) */
 const HASHED = !!window.SNAPSHOT || location.protocol === "file:";
-const UI_PAGES = ["diagram", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
+const UI_PAGES = ["diagram", "dashboard", "loops", "agents", "items", "item", "record", "model", "check", "guide", "fit", "residuals"];
 function isPagePath(path) { return path === "/" || UI_PAGES.includes(String(path).split(/[/?#]/)[1]); }
 function appHref(v) { return HASHED && typeof v === "string" && v.startsWith("/") && isPagePath(v) ? "#" + v : v; }
 
@@ -32,6 +32,14 @@ function h(tag, attrs = {}, ...kids) {
   }
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   return el;
+}
+/* a data table's name, for those who hear it (each data table has one) */
+const tableCaption = (text) => h("caption", { class: "sr-only" }, text);
+/* a data table's header row, in its thead: each th a column's header, a sorted column's order on it */
+function headRow(...ths) {
+  const row = h("tr", {}, ...ths);
+  for (const th of row.children) { th.setAttribute("scope", "col"); const by = th.querySelector("[data-sort]"); if (by) th.setAttribute("aria-sort", by.dataset.sort); }
+  return h("thead", {}, row);
 }
 function s(tag, attrs = {}, ...kids) {
   const el = document.createElementNS(NS, tag);
@@ -177,6 +185,11 @@ function keepAnchor(a) {
   if (Math.abs(dy) >= 1) a.sc.scrollTop += dy;
 }
 
+/* a share as a percentage: one that is not zero is never written '0%' ('<1%') */
+const shareText = (x) => (x > 0 && x < 0.005 ? "<1%" : `${Math.round((x || 0) * 100)}%`);
+/* a goal that went off this many times in the window or more is flapping: past its bound and back, again and again */
+const FLAP_AT = 20;
+
 /* the one number formatter: integers as they are (thousands separated from 10,000), others to three
    significant figures, a real minus */
 function fmt(x) {
@@ -215,9 +228,9 @@ const ofRecorded = (x) => { const r = recordedShort(); return r == null ? x : St
 /* a condition or setpoint as it is written in print: <= as ≤, >= as ≥, == as =, != as ≠; a share of the time, of what is recorded */
 const op = (x) => x == null ? "" : ofRecorded(String(x)).replaceAll("<=", "\u2264").replaceAll(">=", "\u2265").replaceAll("!=", "\u2260").replaceAll("==", "=")
   .replace(/(^|[\s(=:])-(?=\.?\d)/g, "$1\u2212");                // and a negative number's real minus
-/* raw data, shown: every float to the precision that means something (the event's panel keeps it whole) */
-const tidy = (v) => typeof v === "number" && !Number.isInteger(v) ? +v.toPrecision(6)
-  : Array.isArray(v) ? v.map(tidy) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, tidy(x)])) : v;
+/* a goal's reference as control names it: one-sided, a limit ("limit ≤ 20"); two-sided, a setpoint ("setpoint 0.93 ±0.01") */
+const isLimit = (sp) => /^\s*[<>]/.test(sp ?? "");
+const holdText = (sp, band = "") => `${isLimit(sp) ? "limit" : "setpoint"} ${op(sp).replace(/^\s*=\s*/, "")}${(band || "").replace(/^ \((±.*)\)$/, " $1")}`;
 /* K_p, y_m, x_{ab}: a subscript as a subscript, in HTML or in an SVG text */
 const SUB = /([A-Za-z\u0370-\u03ff])_(\{[^}]+\}|[A-Za-z0-9]+)/g;
 function rich(text) {
@@ -241,6 +254,21 @@ function richSvg(textEl, text) {                    // (dy, not baseline-shift: 
   }
   textEl.append(s("tspan", { dy: down ? -3 : null }, str.slice(at)));
   return textEl;
+}
+/* the one time formatter: "2026-11-22 04:03:55 PST", in the browser's zone, said by its short name */
+const ZONE = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" });
+function stamp(t) {
+  if (t == null || !Number.isFinite(+t)) return "–";
+  const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
+  const zone = ZONE.formatToParts(d).find((x) => x.type === "timeZoneName")?.value || "UTC";
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${zone}`;
+}
+/* a field that holds a time (*_at, raised, since, started): its epoch seconds, or its ISO text, as a stamp; else null */
+const TIME_FIELD = /(^|_)at$|^(raised|since|started)$/;
+function timeField(name, v) {
+  if (!TIME_FIELD.test(String(name))) return null;
+  const t = typeof v === "number" ? v : typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) ? Date.parse(v) / 1000 : NaN;
+  return Number.isFinite(t) && t > 1e8 && t < 1e11 ? stamp(t) : null;
 }
 function dur(x) {                                      // seconds, said shortly
   if (x == null) return "?";
@@ -272,8 +300,7 @@ function rungDot(r, cx, cy, rad = 5.5) {              // the kind's colour, and 
     s("text", { x: cx, y: cy + rad * 0.55, "text-anchor": "middle", class: "rung-letter", style: `font-size:${rad * 1.45}px` }, RUNG_LETTER[r] ?? "?"));
 }
 /* a loop's state, as a word: quiet when it holds, coloured only when it needs someone */
-const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");
-const exceptional = (st) => st && st !== "holding";
+const statusEl = (st) => h("span", { class: `status s-${st || "unknown"}` }, st || "unknown");   // (exceptional: goalrow.js)
 
 /* a menu: a button and what it holds, opened under it (or above, near the bottom of the screen).
    items: [{label, onclick, checked, hint, disabled}] or nodes, or a function giving them, called on each opening */
@@ -313,8 +340,21 @@ function snapKey(path, params) {
   return path + (kept.length ? "?" + kept.map(([k, v]) => `${k}=${v}`).join("&") : "");
 }
 
+/* the page shown's fetches, aborted when its page element leaves the document (route() replaces it, leavePage()):
+   the server then drops what it has not begun (web/server.py left()). The left page's fetch fails with an
+   AbortError (``pageLeft(e)``), so its callers' ``finally`` still runs; one no caller catches is not reported
+   as an error. The header's (``kept``) are no page's */
+let PAGE = { el: null, c: null };
+function pageSignal() {
+  const el = document.querySelector("#main > *");
+  if (el !== PAGE.el) { leavePage(); PAGE = { el, c: el ? new AbortController() : null }; }
+  return PAGE.c?.signal;
+}
+function leavePage() { if (PAGE.el && !PAGE.el.isConnected) PAGE.c?.abort(); }
+const pageLeft = (e) => e?.name === "AbortError";
+window.addEventListener("unhandledrejection", (ev) => { if (pageLeft(ev.reason)) ev.preventDefault(); });
 /* an answer as its text, and the address it came from */
-async function apiText(path, params = {}) {
+async function apiText(path, params = {}, kept = false) {   // ``kept``: true (the header's), or an AbortSignal of the page's own, to let it go sooner
   if (SNAP) {
     const k = snapKey(path, params);
     if (!(k in SNAP.data)) throw new Error(`${path}: not in this snapshot`);
@@ -323,11 +363,14 @@ async function apiText(path, params = {}) {
   const q = new URLSearchParams({ since: S.since, ...(S.at ? { at: String(S.at) } : {}) });
   for (const [k, v] of Object.entries(params)) { q.delete(k); for (const x of [].concat(v)) q.append(k, x); }   // a list: the key repeated
   const url = `/api/${path}?${q}`;
-  const r = await fetch(url);
+  const own = kept instanceof AbortSignal ? kept : null;
+  const page = kept === true ? undefined : pageSignal();
+  const signal = own && page ? AbortSignal.any([own, page]) : own || page;
+  const r = await fetch(url, { signal });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return [url, await r.text()];
 }
-async function api(path, params = {}) { return JSON.parse((await apiText(path, params))[1]); }
+async function api(path, params = {}, kept = false) { return JSON.parse((await apiText(path, params, kept))[1]); }
 /* a page's answers, remembered: ``changed`` says whether any asked since ``begin()`` differed from the last
    time it was asked (an unchanged answer is a 304, given as the same body): a refresh that changed nothing
    then draws nothing */
@@ -336,8 +379,8 @@ function answers() {
   const a = {
     changed: true,
     begin() { a.changed = false; },
-    async api(path, params = {}) {
-      const [key, text] = await apiText(path, params);
+    async api(path, params = {}, signal = null) {   // ``signal``: an AbortController's, to let it go
+      const [key, text] = await apiText(path, params, signal);
       if (last.get(key) !== text) { last.set(key, text); a.changed = true; }
       return JSON.parse(text);
     },
@@ -365,9 +408,20 @@ async function apiSend(path, body) {
 
 /* ------------------------------------------------------------------ header and routing */
 
+/* an entry that waits on a person: the side list's first group, and the header's "N wait for you" */
+const waitsOnYou = (a) => a.level !== "hint" && ((Array.isArray(a.answer) && a.kind !== "request") || !!a.waiting);
+/* the header's link followed: the Diagram's "Waiting for you" scrolled to and focused, once it is drawn (renderSide) */
+function toWaiting() {
+  const hd = $("#waiting");
+  if (!hd) return;
+  S.toWaiting = false;
+  hd.scrollIntoView({ block: "start" });
+  hd.focus({ preventScroll: true });
+}
+
 async function refreshHeader() {
   try {
-    const st = await api("status");
+    const st = await api("status", {}, true);
     S.status = st;
     const sel = $("#project");
     if (!sel.dataset.filled) {
@@ -382,32 +436,54 @@ async function refreshHeader() {
       refreshProjects(sel);
     }
     // the system's goals off, and the model's own upkeep (its modelling goals) off counted apart, muted, never red:
-    // the server's one count (state.goals_off); a status without it counts every goal off, as before
-    const g = st.goals_off || { system: Object.values(st.loops).filter((l) => l.status === "off").length, own: {} };
-    const off = g.system, upkeep = Object.values(g.own || {}).reduce((a, b) => a + b, 0);
+    // the server's one count (state.goals_off); a status without it (an old snapshot) shows "?", never its own count
+    const { off, upkeep } = goalsOff(st);
     setText($("#upkeep"), upkeep ? ` · model upkeep ${upkeep}` : "");
     const run = $("#running");
     const edited = !SNAP && st.edited;                 // the edited model has errors: the last good version still runs
     const cls = "runstate" + (off || edited ? " bad" : !SNAP && !st.running ? " warn" : "");
     if (run.className !== cls) run.className = cls;
     const open = document.querySelector('meta[name="ergostat-public"]') ? " · public, read only, no login" : "";   // web: open: read
-    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here" : "";
+    const tip = edited ? st.edited.errors.join("\n") : open ? "This address is public and read only: anyone who reaches it reads this page, and nothing can be changed here"
+      : Object.entries(st.loops || {}).filter(([, l]) => goalWord(l) === "off" && !l.upkeep)   // the goals the count counts
+        .map(([n, l]) => `${n}: ${goalWord(l)}`).join("\n");                                  // (upkeep apart), each by its word
     if (run.title !== tip) run.title = tip;
     setText(run, (SNAP ? `Snapshot, ${new Date(SNAP.at * 1000).toLocaleString([], { hour12: false, dateStyle: "short", timeStyle: "short" })}${off ? `, ${off} off` : ""}`
       : edited ? st.edited.banner.charAt(0).toUpperCase() + st.edited.banner.slice(1)
       : off || upkeep ? `${off} goal${off === 1 ? "" : "s"} off${st.running ? "" : ", not running"}` : st.running ? "Running" : "Not running") + open);
+    const waits = $("#waits"), n = (st.attention || []).filter(waitsOnYou).length;   // the side list's "Waiting for you"
+    if (waits.hidden !== !n) waits.hidden = !n;          // (only when it changed: a refresh with nothing new writes nothing)
+    setText(waits, `${n} wait for you`);                 // the definition's words, whatever N (Q43); written only when N
+                                                         // changes, so its polite live region (index.html) says only that
+    // what holds the work up (SPEC §5a): its first line, red only for a stall; the whole line as its title
+    const held = $("#heldup"), hu = !SNAP && st.held_up;
+    if (held && held.hidden !== !hu) held.hidden = !hu;
+    if (held && hu) {
+      const hcls = "runstate heldup" + (hu.stall ? " bad" : hu.nothing_stuck ? "" : " warn");
+      if (held.className !== hcls) held.className = hcls;
+      if (held.title !== hu.line) held.title = hu.line;
+      setText(held, hu.line);
+    }
     if (document.title !== `${st.name} · ergostat`) document.title = `${st.name} · ergostat`;
     S.first = st.first;
     if (!SNAP) showAt();                               // the header's window, with how much of it is recorded
   } catch (e) { /* the server may be restarting */ }
 }
 
+/* the goals off as the server counted them (state.goals_off, in the status answer), never counted here: the system's,
+   and the model's own upkeep apart. A status without it (an older snapshot): "?", not known, never read as none */
+function goalsOff(st = S.status) {
+  const g = st?.goals_off;
+  return g ? { off: g.system, upkeep: Object.values(g.own || {}).reduce((a, b) => a + b, 0) } : { off: "?", upkeep: 0 };
+}
+const goalsOffText = (o = goalsOff()) => `${o.off}${o.upkeep ? ` · model upkeep ${o.upkeep}` : ""}`;
+
 /* the other running projects on this machine, in the header's list, to switch to, with what is off or unknown; then
    one muted line counting the stopped ones (the server lists them every minute, off the request path). Not waited
    for, and not changed while the list is open */
 function refreshProjects(sel) {
   S.projectsAt = Date.now();
-  api("projects").then((ps) => {
+  api("projects", {}, true).then((ps) => {
     if (ps.at == null) S.projectsAt = 0;             // not listed yet: asked again the next time the reader comes to it
     const name = S.status?.name || "";
     const opts = [h("option", { value: "" }, name)];
@@ -529,17 +605,32 @@ async function route() {
   oldAddress();
   const { path, q } = parseRoute();
   const top = path.split("/").slice(0, 2).join("/");
-  for (const a of document.querySelectorAll("#nav a")) a.classList.toggle("on", routeOfHref(a.getAttribute("href")) === top);
+  for (const a of document.querySelectorAll("#nav a")) {
+    const on = routeOfHref(a.getAttribute("href")) === top;
+    a.classList.toggle("on", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
   S.timer?.stop?.();
   closeDetail();
   if (typeof splitLayout === "function" && !PANE) splitLayout();
   const main = $("#main");
   S.was = path === "/diagram" ? main.querySelector(":scope > .diagram") : null;   // the diagram left: shown, dimmed, until the next is drawn
   main.replaceChildren();
-  const pages = { "/diagram": pageDiagram, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
+  leavePage();
+  const pages = { "/diagram": pageDiagram, "/dashboard": pageDashboard, "/loops": pageLoops, "/agents": pageAgents, "/record": pageRecord, "/items": pageItems,
                   "/model": pageModel, "/check": pageCheck, "/guide": pageGuide };
   if (path === "/fit" || path === "/residuals") { replaceRoute(`/model${q.toString() ? `?${q}` : ""}`); return route(); }   // the Model page's old names
   if (path.startsWith("/item/")) return pageItem(main, decodeURIComponent(path.slice(6)), q);
+  // the Items page: bare, the overview of the kinds (kinds.js); a kind's own page at /items/KIND (?kind=KIND goes there);
+  // any other question (a search, a view of every kind) the list of every kind, as before
+  if (path === "/items" && q.get("kind")) {
+    const k = q.get("kind");
+    q.delete("kind");
+    replaceRoute(`/items/${encodeURIComponent(k)}${q.toString() ? `?${q}` : ""}`);
+    return route();
+  }
+  if (path === "/items" && [...q.keys()].every((x) => x === "states")) return pageKinds(main, q);
+  if (path.startsWith("/items/")) { q.set("kind", decodeURIComponent(path.slice(7))); return pageItems(main, q, true); }
   return (pages[path] || pageDiagram)(main, q);
 }
 

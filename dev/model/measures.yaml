@@ -52,7 +52,7 @@ auxiliaries:
     sensor: {run: python3 dev/bin/measure.py fix-rounds, every: 10m, timeout: 1m, description: the factory's measures}
   flake-rate:
     unit: share
-    description: flaky retries per queue run
+    description: flakes per queue run, both triage's retries and the runs the queue excused as flakes (each run once); no value with no queue run
     driven-by: [+flow.flakes-retried]
     sensor: {run: python3 dev/bin/measure.py flake-rate, every: 10m, timeout: 1m, description: the factory's measures}
   cost-per-merged:
