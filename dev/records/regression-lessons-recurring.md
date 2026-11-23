@@ -73,3 +73,9 @@ no longer holds. The definition has no `allows-findings` line, and that line was
 - `test_a_carried_class_found_again_counts` now asserts that the model has no findings about the goal, the auxiliary,
   the new block or the librarian, and that the loop closes. It was run before the model change and failed with both
   findings.
+
+**Round 2 (2026-11-23): main (2f08c24e) merged.** The one conflict, dev/README.md *Regression guarantees*, kept
+main's `quarantine-small` bullet and the branch's `lessons-hold` bullet after it. The lessons-hold bullet's last
+sentence ("Nothing serves it yet (missing feedback)") was stale after round 1. It now names the `lessons-relearn`
+external block. After the merge, tests/test_factory_knowledge.py passed (106) and ruff was clean. The code did not
+change.
