@@ -1450,7 +1450,9 @@ folded into that document in sequence. The event chooses how it changes it, in o
 A changeset applies whole or not at all. A `test` that does not hold, a path that is not there,
 an index past an array's end, an operation that is not one, or a rule that cannot fold its value
 (`sum` of a word) refuses the whole event: none of it changes the item, and the item says which
-event was refused and why (its `refused` list, and its history). The event itself is recorded as
+event was refused and why (its `refused` list, and its history). A refused `patch` or `set` moves the
+item out of its state no more than it changes a field, so a `test` is a precondition of the move too
+(a refused `data` event still moves it: its move is what its block reported). The event itself is recorded as
 it was sent: the record holds what was said; the fold, what came of it. A changeset that is not
 even the right shape (a patch that is not a list of operations, `set` that is not an object, or
 two forms in one event) is refused before it is recorded, as a bad line is. `ergostat event --add`
