@@ -264,11 +264,30 @@ def test_the_default_has_a_panel_of_every_chart_family(browser, site):
     got = pg.evaluate("""([f, items]) => {
       const rich = JSON.parse(JSON.stringify(f));
       rich.sources.items.kinds.widget.fields = [{ name: "cost_usd", unit: "usd" }, { name: "net_lines", unit: "lines" }];
+      rich.sources.frequency = { goals: ["widgets-held"] };
       const made = dashDefault(rich, items.kinds).panels;
       return { made: made.map((p) => normalizeForm(p).form), all: Object.keys(plotForms()), n: made.length, most: DASH_MOST };
     }""", [FIELDS, ITEMS])
     assert set(got["all"]) <= set(got["made"])
     assert got["n"] <= got["most"]
+    ctx.close()
+
+
+def test_the_default_draws_no_response_from_arrivals_against_completions(browser, site):
+    """dev/records/frequency-refuses-noise.md: arrivals and completions are not shown as a working Bode or Nyquist
+    example; a goal's declared process is, when there is one."""
+    ctx = context(browser)
+    pg = opened(ctx, f"{site}/dashboard")
+    got = pg.evaluate("""([f, items]) => {
+      const freq = (made) => made.filter((p) => ["bode", "nyquist", "pole-zero"].includes(normalizeForm(p).form))
+        .map((p) => ({ form: normalizeForm(p).form, q: p.queries[0] }));
+      const withGoal = JSON.parse(JSON.stringify(f));
+      withGoal.sources.frequency = { goals: ["widgets-held"] };
+      return { bare: freq(dashDefault(f, items.kinds).panels), goal: freq(dashDefault(withGoal, items.kinds).panels) };
+    }""", [FIELDS, ITEMS])
+    assert got["bare"] == []
+    assert sorted(p["form"] for p in got["goal"]) == ["bode", "nyquist", "pole-zero"]
+    assert all(p["q"] == {"id": "a", "source": "frequency", "model": {"goal": "widgets-held"}} for p in got["goal"])
     ctx.close()
 
 
@@ -319,12 +338,17 @@ def test_edit_mode_moves_resizes_and_removes_by_keyboard(browser, site):
     pid = was[0]
     cell = pg.locator(f'[data-panel="{pid}"]')
     cell.focus()
-    pg.keyboard.press("Alt+ArrowRight")
-    assert order(pg)[:2] == [was[1], pid]
+    def at():
+        return pg.evaluate("(id) => dashboardDraft().panels.find((p) => p.id === id).layout", pid)
+    start = at()
+    pg.keyboard.press("Alt+ArrowDown")                                             # a line down: what it covers goes below it
+    assert at() == {**start, "y": start["y"] + 1}
     assert pg.evaluate("() => document.activeElement.dataset.panel") == pid       # focus stays on the panel
-    assert "moved to place 2 of" in pg.locator(".dash-live").inner_text()
+    assert "column 1, row 2" in pg.locator(".dash-live").inner_text()
+    pg.keyboard.press("Alt+ArrowUp")
+    assert at() == start
     pg.keyboard.press("Alt+ArrowLeft")
-    assert order(pg) == was
+    assert at() == start and "no further" in pg.locator(".dash-live").inner_text()
 
     pg.keyboard.press("Shift+Alt+ArrowRight")
     def size():
@@ -336,9 +360,10 @@ def test_edit_mode_moves_resizes_and_removes_by_keyboard(browser, site):
     assert pg.evaluate("(id) => dashboardDraft().panels.find((p) => p.id === id).tall", pid) is True
     pg.keyboard.press("Shift+Alt+ArrowUp")
 
+    now = order(pg)
     pg.keyboard.press("Delete")
     assert pid not in order(pg)
-    assert pg.evaluate("() => document.activeElement.dataset.panel") == was[1]    # focus goes to the next
+    assert pg.evaluate("() => document.activeElement.dataset.panel") == now[now.index(pid) + 1]    # focus goes to the next
     pg.get_by_role("button", name="Undo").click()
     assert pid in order(pg)
     assert pg.errors == []
@@ -354,16 +379,21 @@ def test_edit_mode_moves_and_resizes_by_mouse(browser, site):
     to = pg.locator(f'[data-panel="{was[1]}"]').bounding_box()
     pg.mouse.move(grip["x"] + 3, grip["y"] + 3)
     pg.mouse.down()
-    pg.mouse.move(to["x"] + to["width"] / 2, to["y"] + to["height"] / 2, steps=4)
+    def lay(pid):
+        return pg.evaluate("(id) => dashboardDraft().panels.find((p) => p.id === id).layout", pid)
+    first, second = lay(was[0]), lay(was[1])
+    pg.mouse.move(to["x"] + 3, to["y"] + 3, steps=4)                              # dropped where the second is: it goes below
     pg.mouse.up()
-    assert order(pg)[:2] == [was[1], was[0]]
+    assert lay(was[0])["x"] == second["x"] and lay(was[0])["y"] == second["y"]
+    assert lay(was[1])["y"] == second["y"] + first["h"]
+    assert order(pg)[:2] == [was[0], was[2]]
     pg.wait_for_function("() => !document.getAnimations().some((a) => a.effect?.target?.classList?.contains('dash-cell'))")   # settled
 
     handle = pg.locator(f'[data-panel="{was[1]}"] .dash-handle').bounding_box()
     pg.mouse.move(handle["x"] + 3, handle["y"] + 3)
     pg.mouse.down()
     grid = pg.locator(".dash-grid").bounding_box()
-    pg.mouse.move(grid["x"] + grid["width"] * 0.48, handle["y"] + 3, steps=4)
+    pg.mouse.move(handle["x"] + 3 + grid["width"] * 2 / 12, handle["y"] + 3, steps=4)     # two columns wider: a half
     pg.mouse.up()
     assert pg.evaluate("(id) => dashboardDraft().panels.find((p) => p.id === id).size", was[1]) == "m"
     assert "draft=" in pg.url
@@ -477,6 +507,39 @@ def test_the_header_window_is_used_and_kept(browser, site):
     assert "since=6h" in pg.url
     pg.reload()
     pg.wait_for_function("() => window.__since === 21600")
+    ctx.close()
+
+
+def test_the_dashboard_keeps_its_own_window_when_the_page_is_routed_again(browser, site):
+    """The Dashboard's window is its since= or its saved copy: the Moment slider and 'Back to live' (both route())
+    keep it, and the window=/1h the other pages carry in the address neither resets it nor is saved over it."""
+    ctx = context(browser)
+    seen = "() => [S.since, new URL(location.href).searchParams.get('since'), location.search.includes('window=')]"
+    pg = opened(ctx, f"{site}/dashboard?since=6h")
+    pg.wait_for_function("() => window.__since === 21600")
+    pg.evaluate("async () => { S.at = Date.now() / 1000 - 600; showAt(); await route(); }")       # a past moment
+    pg.evaluate("async () => { S.at = null; showAt(); await route(); }")                          # back to live
+    pg.wait_for_selector(".dash-cell")
+    assert pg.evaluate(seen) == ["6h", "6h", False]
+
+    pg.evaluate("() => localStorage.setItem(dashKey(), JSON.stringify({ ...dashboardDraft(), since: '7d' }))")
+    saved = "() => JSON.parse(localStorage.getItem(dashKey())).since"
+    kept = opened(ctx, f"{site}/dashboard")                                                       # a saved 7d
+    kept.wait_for_function("() => window.__since === 604800")
+    kept.evaluate("async () => { await route(); }")
+    kept.wait_for_selector(".dash-cell")
+    assert kept.evaluate("() => S.since") == "7d" and kept.evaluate(saved) == "7d"
+
+    kept.evaluate("async () => { navigate('/loops'); await setWindow('6h'); }")                   # another page, 6h
+    assert "window=6h" in kept.url
+    kept.evaluate("() => navigate('/dashboard')")
+    kept.wait_for_selector(".dash-cell")
+    kept.wait_for_function("() => window.__since === 604800")
+    assert kept.evaluate(seen)[2] is False                                                        # no window= carried
+    kept.evaluate("async () => { await route(); }")
+    kept.wait_for_selector(".dash-cell")
+    assert kept.evaluate("() => S.since") == "7d" and kept.evaluate(saved) == "7d"
+    assert pg.errors == [] and kept.errors == []
     ctx.close()
 
 

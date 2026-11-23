@@ -439,7 +439,7 @@ def test_the_alerts_loop_reads_through_a_labelled_sensor_and_its_collector():
     g = drawn(spec, {"*"})
     n = {x["id"]: x for x in g["nodes"]}
     sen = n["sen:stock.alerts-to-draft"]
-    assert sen["role"] == "sensor" and sen["fn"]["expr"] == "1" and not sen["fn"].get("sampled")
+    assert sen["role"] == "sensor" and sen["fn"]["expr"] == "e^(−sT)" and sen["fn"]["sampled"]
     assert sen["fn"]["reads"] == "items: alert, fired, every 5 s"
     assert "every-alert-drafted" in sen["loops"]
     col = n["col:alerts-fired.main"]                     # watch.py alert: it records the alerts the count reads
@@ -480,8 +480,12 @@ def test_a_sensor_that_polls_slowly_against_its_loop_is_a_sampler_with_a_delay(t
     assert slow["reads"] == "Jira: FF tickets approved, every 5 min"
     assert (slow["expr"], slow["sampled"], slow["T"]) == ("e^(−sT)", True, "5 min")
     assert "5 min" in _text(n["sen:stock.approvals-waiting"]["math"]) and "up to T old" in n["sen:stock.approvals-waiting"]["says"]
-    quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: H = 1
-    assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s" and quick["expr"] == "1"
+    assert not slow["slight"]
+    quick = n["sen:stock.inbox"]["fn"]                     # 30 s against 10 min: the same form, its sampler slight
+    assert quick["reads"] == "prometheus: sum(inbox_depth), every 30 s"
+    assert (quick["expr"], quick["sampled"], quick["T"], quick["slight"]) == ("e^(−sT)", True, "30 s", True)
+    assert ["T / loop", "30 s / 10 min = 0.05"] in n["sen:stock.inbox"]["rows"]
+    assert "drawn muted" in n["sen:stock.inbox"]["says"]
 
 
 def test_an_inflow_from_outside_names_its_source_in_the_dynamics_view(tmp_path):

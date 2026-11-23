@@ -685,10 +685,11 @@ function bdNode(n, c) {
     g.append(s("rect", { class: "hit bd-line bd-fill", width: w, height: hgt }));
     const head = bdSensorHead(fn), lines = bdLines(fn.reads);
     const x = w / 2 + (fn.sampled ? 16 : 0);
-    if (fn.sampled) {                                  // the sampler: a switch closed once every T
+    if (fn.sampled) {                                  // the sampler: a switch closed once every T (muted: T slight)
       const y = 16;
-      g.append(s("path", { class: "bd-line", d: `M8,${y} H12 M26,${y} H30 M12,${y} L25,${y - 7}` }),
-               s("circle", { class: "bd-dot", cx: 12, cy: y, r: 1.6 }), s("circle", { class: "bd-dot", cx: 26, cy: y, r: 1.6 }));
+      g.append(s("g", { class: `bd-sensor-sampler${fn.slight ? " bd-slight" : ""}` },
+                 s("path", { class: "bd-line", d: `M8,${y} H12 M26,${y} H30 M12,${y} L25,${y - 7}` }),
+                 s("circle", { class: "bd-dot", cx: 12, cy: y, r: 1.6 }), s("circle", { class: "bd-dot", cx: 26, cy: y, r: 1.6 })));
     }
     const t = s("text", { x, y: 20, class: n.role === "collector" ? "bd-name" : "bd-expr", "text-anchor": "middle" });
     if (n.role === "collector") t.textContent = head; else bdPower(t, head);         // e^(−sT): its exponent raised
@@ -1220,7 +1221,7 @@ function blocksLegend() {
     row(has((n) => !["sensor", "collector", "sum", "mux", "demux", "input", "output", "sampler", "port"].includes(kindOf(n))),`<rect x="2" y="3" width="26" height="14" ${ink}/><text x="15" y="14" font-size="9" text-anchor="middle" font-style="italic" fill="currentColor">P</text>`,
         "a block, its function inside: C a controller, P a process, Q a subsystem; C(z) runs every T, (s) is continuous; Q without (s) holds sampled or nonlinear parts; click it for its definition"),
     row(has((n) => n.role === "sensor"), `<rect x="2" y="2" width="26" height="16" ${ink}/><text x="15" y="10" font-size="7" text-anchor="middle" font-style="italic" fill="currentColor">H = 1</text><path d="M7,14 H23" stroke="currentColor" stroke-width="0.8"/>`,
-        "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, a period that matters against the loop's) and, beneath, what it reads and how often"),
+        "a sensor, on the feedback path beneath the loop: what finds the work. Inside, its function (H = 1: it reads what is there as it is; H(s): avg τ, a rate over a window; e^(−sT) with a switch: it polls every T, the switch muted when T is slight against the loop's) and, beneath, what it reads and how often"),
     row(has((n) => n.role === "collector"), `<rect x="2" y="2" width="26" height="16" ${ink}/><path d="M7,8 H23 M7,13 H19" stroke="currentColor" stroke-width="0.8"/>`,
         "a collector, in front of a sensor on the same path: the command or query that polls an outside system and records what it saw as items, which the sensor counts; a count is only as fresh as its collector"),
     row(has((n) => n.kind === "sampler"), `<path d="M0,10 H8 M22,10 H30 M8,10 L20,3" ${ink}/><circle cx="8" cy="10" r="1.6" fill="currentColor"/><circle cx="22" cy="10" r="1.6" fill="currentColor"/>`,

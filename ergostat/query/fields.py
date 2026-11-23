@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+from .. import datasources
 from ..spec import codec, numberreads
 from ..spec import items as its
 from . import transforms
@@ -60,15 +61,16 @@ def _read(p) -> dict:
     for name, got in sources.items():
         got["x"] = list(X_OF[name])
         got["ohlc"] = name in OHLC_SOURCES
-    return {"sources": sources, "x_types": list(X_TYPES),
+    return {"sources": sources, "datasources": datasources.listed(spec), "x_types": list(X_TYPES),
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),
             "rate_units": dict(transforms.SHORT)}
 
 
-def fields(live, p) -> dict:
+def fields(live, p, reader: bool = False) -> dict:
+    """``reader``: anyone under a public name, who may not ask a data source, so is offered none (SPEC §4e)."""
     key = ("query-fields", int(time.time() // KEEP), getattr(live, "mtime", None))
     got = live.cached(key)
     if got is None:
         got = _read(p)
         live.keep(key, got)
-    return got
+    return {**got, "datasources": []} if reader else got
