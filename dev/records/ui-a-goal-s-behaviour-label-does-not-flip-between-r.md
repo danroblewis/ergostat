@@ -228,3 +228,21 @@ live, the row reads 'within its bound' again. With the fix removed, it failed: t
 Run: the new test and both earlier behaviour tests (3 passed, rc 0, under the watchdog); `tests/test_graph_cli_web.py`
 (41 passed); ruff clean. Not run: the whole unit suite and the four browser files in full (left to the factory and the
 merge queue). `main` is still 7cb97857, already merged in, so there was nothing to merge.
+
+## Where it stopped (continued, round 4)
+
+The merge of main (ead497d1) conflicted in three files. All are resolved, and both sides are kept:
+- `pages.js`: main writes the Loops row's hold through `holdText` and names a limit in the 'how far' title
+  (`isLimit`). The branch writes time off through `shareText` ('<1%'). Kept: main's two cells, and time off through
+  `shareText`. No net lines added.
+- `tests/test_graph_cli_web.py`: the branch's source check and main's record-fold check are both kept.
+- `tests/test_diagram_rendering.py`: the branch's three behaviour tests and main's `off_for` helper are each kept
+  whole. The last behaviour test's `finally` (stop the server) was shared with `off_for` in the conflict, so each now
+  has its own.
+
+No review findings were open.
+
+Run: the three behaviour tests (3 passed, rc 0, under the watchdog); main's
+`test_a_suggestion_appears_when_it_has_a_verdict` and `test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks`
+(2 passed, rc 0, under the watchdog); `tests/test_graph_cli_web.py` (43 passed); ruff clean. Not run: the whole unit
+suite and the four browser files in full (left to the factory and the merge queue).
