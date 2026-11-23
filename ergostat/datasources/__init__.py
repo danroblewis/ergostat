@@ -1,4 +1,4 @@
-"""Dashboard data sources (SPEC §4f): a named connection under the model's ``sources:``, a query language, and a
+"""Dashboard data sources (SPEC §4e, *Data sources*; §11): a named connection under the model's ``sources:``, a query language, and a
 read-only ``query`` that answers a time window as series. A panel query is ``{"source": name, "text": ...}``, the text in
 the source's own language; the answer has the shape of every chart's (``times``, ``step``, ``series``).
 
@@ -6,7 +6,8 @@ A type is one module in this package, found by its name: ``TYPE`` (the word in `
 keys besides ``type``), ``LANGUAGE`` (what its text is written in) and ``query(source, text, window)``, which returns
 ``[(name, [(time, value), ...]), ...]``. It offers nothing else: a module with any other public function or class is
 refused, so ``query`` is the one operation anything can call on a source (and a type's ``query`` must itself only read).
-Every query is bounded here, whatever its type: its text, its window, its points and its series, and it is refused with words naming the bound it is over."""
+Every query is bounded here, whatever its type: its text, its window, its points and its series, and it is refused
+with words naming the bound it is over."""
 
 from __future__ import annotations
 
