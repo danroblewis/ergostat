@@ -70,7 +70,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "journal"
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
-                      "finished", "moves-from", "if-unchanged", "attention"}
+                      "finished", "moves-from", "if-unchanged", "attention", "pipeline"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -81,6 +81,8 @@ AUXILIARY_KEYS = COMMON | {"unit", "sensors", "sensor", "driven-by", "exogenous"
 PARAMETER_KEYS = COMMON | {"value", "unit", "estimate", "table", "range", "inferred"}
 DRIVERS = ("flow", "stock", "auxiliary")             # what a driven-by may name
 INFERRED = re.compile(r"^ergostat\.model-change/[0-9a-z-]+$")   # inferred: the model change that added a part
+WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")       # a field a SQL view names as a column
+STAGES_MOST = 32                                     # stage names a pipeline declares (its histograms' labels)
 AGENT_KEYS = {"kind", "external", "at-once", "model", "cost", "host", "description"}
 AGENT_KINDS = ("person", "ai", "narrow-ai", "decision", "program", "rule")
 SOURCE_TYPES = {"prometheus": {"type", "url"}, "command": {"type"}, "ergostat": {"type", "url", "token-file", "tls"}}
@@ -637,6 +639,31 @@ class Compiler:
                     f"{shown!r}; write \"{shown}\" (quoted) if the field holds text", w.at(k) if hasattr(w, "at") else None,
                     "where-typed", about))
 
+    def pipeline(self, m: Map, what: str, rules: dict) -> dict | None:
+        """``pipeline:`` (SPEC §5a, *Stages*): its items record stages, folded into ``stages`` by merge; ``title``,
+        the stage names its histograms label (at most STAGES_MOST), and ``waiting``: the line of work it takes from
+        (a kind, a state, the fields it is taken in order of)."""
+        p = m.get("pipeline")
+        if p is None:
+            return None
+        w = p.get("waiting") if isinstance(p, dict) else None
+        names = p.get("stages") if isinstance(p, dict) else None
+        ok = (isinstance(p, dict) and set(p) <= {"title", "stages", "waiting"} and isinstance(p.get("title", ""), str)
+              and isinstance(names, list) and 0 < len(names) <= STAGES_MOST
+              and all(isinstance(s, str) and NAME.match(s) for s in names)
+              and rules.get("stages", "merge") == "merge"
+              and (w is None or (isinstance(w, dict) and set(w) <= {"kind", "state", "order"}
+                                 and all(isinstance(w.get(k), str) and NAME.match(w[k]) for k in ("kind", "state"))
+                                 and all(isinstance(f, str) and WORD.match(f) for f in w.get("order") or []))))
+        if not ok:
+            self.err(f"{what}.pipeline: {{title: TEXT, stages: [its stage names, at most {STAGES_MOST}], waiting: "
+                     f"{{kind: KIND, state: STATE, order: [FIELD, ...]}}}}; its items' stages field folds by merge",
+                     m.at("pipeline") or m.where, "bad-pipeline")
+            return None
+        rules["stages"] = "merge"
+        return {"title": p.get("title") or "", "stages": list(names),
+                "waiting": {"kind": w["kind"], "state": w["state"], "order": list(w.get("order") or [])} if w else None}
+
     def item_kind(self, name: str, m: Map, what: str) -> ItemKind:
         self.keys(m, ITEM_KEYS, what)
         id = m.get("id")
@@ -736,7 +763,8 @@ class Compiler:
             self.err(f"{what}.attention: the name of a field (not a relation) whose words, on the latest item that has "
                      f"them, are shown on the attention list", m.at("attention"), "bad-attention")
             attention = None
-        return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
+        pipeline = self.pipeline(m, what, rules)
+        return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},

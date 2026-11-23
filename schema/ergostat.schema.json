@@ -2129,6 +2129,21 @@
           "type": "string",
           "description": "The field whose words, on the latest item of the kind that has them (by its latest event), are shown on the attention list: a finding that needs the owner, said where it is seen (SPEC section 5a)"
         },
+        "pipeline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stages"],
+          "properties": {
+            "title": {"type": "string", "description": "The default dashboard's row for it"},
+            "stages": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 32,
+                       "description": "The stage names its histograms are labelled by (any other: other)"},
+            "waiting": {"type": "object", "additionalProperties": false, "required": ["kind", "state"],
+                        "properties": {"kind": {"type": "string"}, "state": {"type": "string"},
+                                       "order": {"type": "array", "items": {"type": "string"}}},
+                        "description": "The line of work it takes from: a kind, its state, the fields it is taken in order of"}
+          },
+          "description": "Its items record named stages, folded into stages by merge (SPEC section 5a, Stages)"
+        },
         "final": {
           "type": "array",
           "items": {

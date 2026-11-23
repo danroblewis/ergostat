@@ -386,7 +386,62 @@ function dashDefault(fields, infos = [], queues = {}) {
       panels.push({ title: x.name, form: "line", size: "m", queries: [{ id: "a", source: "series", series: x.name, agg: "last", transform: "none" }],
                     display: { unit: x.unit || "", ...dashLegend() } });
   }
-  return { title: "Overview", since: null, panels: panels.slice(0, DASH_MOST).map((p, i) => ({ note: "", tall: false, ...p, id: `p${i + 1}` })) };
+  const out = { title: "Overview", since: null, panels: panels.slice(0, DASH_MOST).map((p, i) => ({ note: "", tall: false, ...p, id: `p${i + 1}` })) };
+  const sql = (fields?.datasources || []).find((s) => s.type === "sql");
+  const pipes = sql ? (fields?.pipelines || []).filter((x) => /^[A-Za-z_]\w*$/.test(x.kind.replace(/-/g, "_"))).slice(0, 2) : [];
+  if (!pipes.length) return out;
+  const span = (p) => ({ id: p.id, w: DASH_COLUMNS[p.size || "m"], h: dashRows(p) * (p.tall ? 2 : 1) });
+  const laid = DashLayout.pack(out.panels.map(span));
+  out.panels.forEach((p, i) => { p.layout = { x: laid[i].x, y: laid[i].y, w: laid[i].w, h: laid[i].h }; });
+  out.rows = [];
+  for (const [n, pipe] of pipes.entries()) {
+    const top = DashLayout.height([...out.panels.map((p) => p.layout), ...out.rows.map((r) => ({ y: r.layout.y, h: 1 }))]);
+    const mine = dashPipeline(pipe, sql.name).slice(0, DASH_MOST - out.panels.length).map((p, i) => ({ note: "", tall: false, ...p, id: `q${n + 1}-${i + 1}` }));
+    const at = DashLayout.pack(mine.map(span), [{ x: 0, y: top, w: 12, h: 1 }]);
+    mine.forEach((p, i) => { p.layout = { x: at[i].x, y: at[i].y, w: at[i].w, h: at[i].h }; });
+    out.rows.push({ id: `row-${pipe.kind}`, title: pipe.title || pipe.kind, collapsed: false, layout: { y: top } });
+    out.panels.push(...mine);
+  }
+  return out;
+}
+/* a pipeline's row (SPEC §5a, Stages): what its running item holds and the line waiting, its stage now and time left,
+   that item's every stage, its recent items and the typical time of each stage; ordinary SQL panels over item_stages,
+   item_progress and stage_estimates, which a person opens, edits and copies like any other */
+function dashPipeline(pipe, src) {
+  const lit = (s) => `'${String(s).replace(/'/g, "''")}'`, word = (s) => `"${s}"`, K = lit(pipe.kind);
+  const view = (k) => k.replace(/-/g, "_");
+  const live = `(select id from item_stages where kind = ${K} order by id in (select id from item_progress) desc, started desc limit 1)`;
+  const q = (text) => [{ id: "a", source: src, text }];
+  const out = [];
+  const w = pipe.waiting;
+  if (w && /^[A-Za-z_]\w*$/.test(view(w.kind))) {
+    const f = (x) => `(select value from item_fields f where f.id = w.id and f.field = ${lit(x)})`;
+    const order = [...w.order.flatMap((x) => [`${f(x)} is null`, f(x)]), "w.id"].join(", ");
+    const held = pipe.holds ? `select w.id as item, 'in ' || l.id as place, 0 as turn from ${word(view(w.kind))} w, ` +
+      `(select id, value from item_fields where field = ${lit(pipe.holds)} and id = ${live} and id in (select id from item_progress)) l ` +
+      `where instr(l.value, '"' || w.id || '"') > 0 union all ` : "";
+    out.push({ title: `${pipe.title || pipe.kind}: running, and waiting in the order taken`, form: "table", size: "m",
+               queries: q(`${held}select * from (select w.id as item, 'waiting' as place, row_number() over (order by ${order}) as turn ` +
+                          `from ${word(view(w.kind))} w where w.state = ${lit(w.state)}) order by turn`), display: {} });
+  }
+  const min = (x, as) => `round(${x} / 60.0, 1) as ${as}`;
+  out.push({ title: `${pipe.title || pipe.kind}: now`, form: "table", size: "m", display: {},
+             queries: q(`select id as item, coalesce(stage, '') as stage, note, ${min("elapsed", "elapsed_min")}, ${min("expected", "expected_min")}, ` +
+                        `samples, ${min('"left"', "left_min")} from item_progress where kind = ${K} order by id`) });
+  out.push({ title: `${pipe.title || pipe.kind}: each stage of the running one`, form: "table", size: "m", display: {},
+             queries: q(`select s.stage, s.run, s.run_kind, s.state, coalesce(s.outcome, '') as outcome, ${min("s.seconds", "minutes")}, ` +
+                        `${min("e.expected", "expected_min")} from item_stages s ` +
+                        `left join stage_estimates e on e.kind = s.kind and e.run_kind = s.run_kind and e.stage = s.stage where s.id = ${live} order by s.started`) });
+  const size = pipe.holds ? `(select json_array_length(value) from item_fields f where f.id = s.id and f.field = ${lit(pipe.holds)}) as size, ` : "";
+  out.push({ title: `${pipe.title || pipe.kind}: recent`, form: "table", size: "m", display: {},
+             queries: q(`select s.id as item, i.state as outcome, group_concat(s.stage || ' ' || coalesce(round(s.seconds / 60.0, 1) || ' min', s.state), ', ') as stages, ` +
+                        `${size}${min("(max(coalesce(s.finished, s.started)) - min(s.started))", "minutes")} from (select * from item_stages where kind = ${K} order by started) s ` +
+                        `join ${word(view(pipe.kind))} i on i.id = s.id group by s.id order by min(s.started) desc limit 10`) });
+  out.push({ title: `${pipe.title || pipe.kind}: median minutes per stage`, form: "line", size: "full", display: { unit: "min", ...dashLegend(), y: { min: 0 } },
+             queries: q(`select cast(finished / max(:step, 3600) as integer) * max(:step, 3600) as time, ` +
+                        pipe.stages.map((s) => `median(case when stage = ${lit(s)} then seconds / 60.0 end) as ${word(s)}`).join(", ") +
+                        ` from item_stages where kind = ${K} and outcome = 'passed' and finished >= :since and finished < :until group by 1 order by 1`) });
+  return out;
 }
 async function dashBuildDefault() {
   const fields = await queryFields();

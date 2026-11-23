@@ -66,6 +66,9 @@ def _read(p) -> dict:
         got["x"] = list(X_OF[name])
         got["ohlc"] = name in OHLC_SOURCES
     return {"sources": sources, "datasources": datasources.listed(spec), "x_types": list(X_TYPES),
+            "pipelines": [{"kind": n, **k.pipeline, "holds": next((r for r, x in k.relations.items()     # (§5a, Stages)
+                                                                 if k.pipeline["waiting"] and k.pipeline["waiting"]["kind"] in x.kinds), None)}
+                          for n, k in kinds.items() if k.pipeline],
             "aggregations": list(AGGS), "transforms": list(TRANSFORMS), "rate_per": list(RATE_PER),
             "rate_units": dict(transforms.SHORT)}
 

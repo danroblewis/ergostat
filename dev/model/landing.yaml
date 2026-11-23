@@ -26,6 +26,10 @@ items:
     fold: {runs: append, isolated: append}
     relations:
       gaps: {kind: gap, precedence: false, inverse: batches}   # each gap's page lists the batches it was in
+    pipeline:                       # each run's stages (batch.stage-started, -finished: dev/bin/batches.py stage())
+      title: Merge queue
+      stages: [ruff, unit, browser, host, demo, named, push-wait]
+      waiting: {kind: gap, state: approved, order: [rank, approved_at]}   # queue.py picks(): rank, then approved
 
 stocks:
   gaps-approved:

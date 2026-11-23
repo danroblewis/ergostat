@@ -792,6 +792,9 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             return None
         except ig.Bad as e:
             raise BadSet(str(e)) from e
+    if head == "stages" and name == "metrics":     # the pipelines' stage histograms, for Prometheus (SPEC §5a, Stages)
+        from ..datasources._itemviews import stage_metrics
+        return {"text": stage_metrics(p)}
     if head in ("dashboards", "dashboard"):         # the declared dashboards; one's every panel in one answer (SPEC §4f)
         from . import dashboard_api
         return dashboard_api.listing(p) if head == "dashboards" else dashboard_api.answer(live, p, name, q)
@@ -1543,6 +1546,8 @@ def handler(project):
                     return self._send(404, b'{"error": "not found"}', "application/json")
                 if u.path == "/api/export" and (q.get("format") or ["md"])[0] == "md":    # the document itself, for curl
                     return self._send(200, data["markdown"].encode(), "text/markdown; charset=utf-8")
+                if u.path == "/api/stages/metrics":         # Prometheus's text format, for a scrape
+                    return self._send(200, data["text"].encode(), "text/plain; version=0.0.4; charset=utf-8")
                 return self._send(200, json.dumps(data, default=str).encode(), "application/json", True)
             if u.path == "/file":                          # a file an item names (file:PATH), from inside the project only
                 return self._file((parse_qs(u.query).get("path") or [""])[0])
