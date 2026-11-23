@@ -70,3 +70,31 @@ Round 2 (the review's two blocking findings; it raised no others):
   `waits_on` id). Run one file at a time, all passing: test_todo_template, test_templates, test_library_trust,
   test_why, test_finished_states; ruff clean. demo_check, the whole unit suite and the browser files were not run
   here (no page changed). Main has not moved since the round-1 merge.
+
+Round 3 (the review's one finding, blocking: `why` on a waiting to-do with nothing unfinished to wait on):
+
+- `why` now says it. In the `work` root (a working state no block takes from: `ergostat/why/blocks.py`), for a kind
+  with precedence relations, it says that what the to-do waits on is finished (the ids named), or that it waits on
+  nothing recorded. It also gives the item's own `stuck` text when one is recorded. The next step is the first of the
+  kind's `on:` events in the order written, as with the `person` root. Events into the current state, back to the
+  kind's first state (`todo.added`, which re-adds it) and barred by `moves-from:` are left out. The step is given as
+  the `ergostat event --add` that records it (before, the work root had no command). For a waiting to-do that is
+  `todo.ready`, never `todo.added`, and not the batcher's `todo.freed`, which comes last as written. The `stuck` field
+  is read generically (any kind's item may carry one). SPEC §5a says so.
+- The batcher now also sets `stuck` when a waiting to-do's wait names nothing: nothing named by the move into
+  waiting or since. That covers the note-only re-wait and a to-do waiting on nothing named. Before, neither said
+  anything. Its text tells the person to record `todo.waiting` with a `waits_on`, or `todo.ready`.
+- Tests: the dropped-prerequisite and waiting-again tests now check the summary's stuck text and the next step
+  (owner `whoever records todo.ready`, command `ergostat event --add todo.ready --item ...`, no `todo.added`). A new
+  test, `test_a_todo_waiting_on_nothing_named_says_so_and_what_happens_next`, covers the nothing-named case. Each was
+  seen to fail with the code it guards broken: no stuck text in `why` (3 failed), the old sorted next step that
+  includes the first state (3 failed), and the batcher not saying stuck for a wait naming nothing (2 failed).
+- Run one file at a time: test_todo_template (14 passed), then it with test_why and test_finished_states (52
+  passed); ruff clean. tests/test_items_page.py under the watchdog: 56 passed and 2 failed, the same two in both
+  runs: `test_actions_say_per_class_asked_approved_denied_and_whether_held` and
+  `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (a Playwright wait timing out). Both read
+  the Actions class lines and the header's goal counts. Neither reads `why`, an item's `stuck` field or the to-do
+  template, so I take them to be unrelated. I could not confirm that on the previous code: putting the old two
+  source files back for one run was refused (`git checkout HEAD~1 -- ergostat/why/blocks.py
+  ergostat/library/run/todo.py`). demo_check and the whole unit suite were not run here. Main has not moved since
+  the round-1 merge. 518 net lines outside tests, docs and dev (budget 600).

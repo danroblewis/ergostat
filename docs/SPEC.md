@@ -249,8 +249,9 @@ another to-do or to a `KIND-wait` item, something someone else does; two person 
 wait to be written up, one while ready ones wait to be done, each answered with the inbox's `--done N`; and the
 batcher, a program on the rule rung, `todo batches`, which says a waiting to-do ready again once everything it
 waits on has happened (done, or answered: `--met`; only what its `waits_on` named since it last entered waiting
-counts, so a wait over before does not free a new one), keeps one whose prerequisite was dropped waiting and says
-so once in its `stuck` field (`KIND.stuck`), and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
+counts, so a wait over before does not free a new one), keeps one whose prerequisite was dropped, or whose wait
+names nothing, waiting and says so once in its `stuck` field (`KIND.stuck`, which `ergostat why` says, its next
+step `KIND.ready`), and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
 due first, every one's instructions in order in its `sitting`; it reads the record and prints events, and the
 template adds no action, workspace or daemon, so nothing it adds acts outside ergostat (the optional `command` is
 the owner's own, run by `collect` as a source); a freeing is `KIND.freed`, which `moves-from:` lets move a to-do
@@ -1507,7 +1508,11 @@ while the item is unfinished. The answer:
 - **the cause**, followed to its end: the precedence targets it waits on (as *Relations* reads them: unfinished, not in
   a `starts_at` state), what each of those waits on, depth first in link order, to each **root**: `work` (held by a
   lease whose taking recorded the pid of the process that took it, that pid running and an engine running; or in a
-  working state no block takes from: in progress outside ergostat), `person` (the owner asked to
+  working state no block takes from: in progress outside ergostat, saying, for a kind with precedence relations, that
+  what it waits on is finished, or that it waits on nothing recorded, and the item's own `stuck` text when one is
+  recorded (a program's reason it cannot go on); the next step is the first of its kind's `on:` events, in the order
+  written, that moves it out of its state, not back to its kind's first and not barred by `moves-from:`, given as the
+  `ergostat event --add` that records it), `person` (the owner asked to
   answer a gated action about it, or a gate whose input a person reads by hand: a manual sensor; or, with no block
   taking it from its state, a person block's goal on a part a sensor counts from its kind's items in that state,
   with no `where:`: the person is asked to do it, and the next step is the first of its kind's `on:` events, in the
