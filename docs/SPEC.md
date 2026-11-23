@@ -1543,6 +1543,16 @@ most held, over every root: `most` is its place in `roots`). The first 20 roots 
 them when it ranks lower (`more` counts the rest, none holding more than it). On a record of 3,000 items (about 2,400
 unfinished) it answers in under 200 ms (`tests/test_held_up.py`).
 
+**What the model must say for why.** An item in a working state no block takes is `work` outside ergostat, its owner
+whoever records the first of the events that move it on, ordered by the state each moves it to: the states after its
+own first, in the kind's order (its next state before a side exit), then those before it, then by name. `check` finds
+`wait-unexplained` (`spec/waits.py`) for a kind whose finished states `messages: done:` declares, not `ergostat.*`,
+sealed or made by a template, with no precedence relation, and a state an `on:` event moves its items into that is
+not finished, paused, `leased` or `dead`, that no block's `takes:` names, and that is either the kind's first state
+(where items wait to be taken: `why` can only say `nothing`) or one no event of the kind moves an item out of (`work`
+with no one named). A kind whose finished states are inferred from the record is not judged. The agent guide's section 3l is how
+to build a model that answers (`tests/test_why_guide.py` runs its worked example and every command in it).
+
 **Never enforced.** No transition is refused for a relation, and a block that does not ask (`takes: {unblocked:
 true}`, section 9.5) takes an item whatever it waits on: the record holds what happened. What relations are read
 for:

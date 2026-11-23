@@ -123,7 +123,9 @@ def taken(ctx, it, info) -> dict:
     """The root for an item in its state, nothing it waits on unfinished and no lease on it."""
     bs = [b for b in ctx.spec.blocks.values() if b.takes and b.takes.kind == it.kind and it.state in b.takes.at]
     kind = ctx.spec.items[it.kind]
-    onward = sorted(e for e, s in (kind.on or {}).items() if s != it.state)
+    at = {s: i for i, s in enumerate(kind.states)}           # the move on to the next state first, then later ones
+    onward = sorted((e for e, s in (kind.on or {}).items() if s != it.state),
+                    key=lambda e: (at.get(kind.on[e], -1) <= at.get(it.state, -1), at.get(kind.on[e], -1), e))
     moved = f"moved to {it.state} by {it.latest or 'an event'}"
     if not bs:
         if it.state in info["working"] and it.state not in info["queue"]:
