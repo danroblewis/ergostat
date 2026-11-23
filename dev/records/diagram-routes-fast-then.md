@@ -94,4 +94,4 @@ same rc 5. The code was left as it is. I did not add a unit test just to give th
 not change `affected_tests.py` (it is outside this gap, lesson-13). The most reversible choices left are to run this
 gap's build step with `build_browser = true` (Playwright installed), or a gap of its own where `affected_tests.py`
 counts a browser file as covered by the browser suites. Commands refused in this session: `git log --stat -3`, the
-first shell command I gave, was denied, so no shell command was run in this round.
+first shell command I gave, was denied. The only shell command run in this round was the commit of this note.
