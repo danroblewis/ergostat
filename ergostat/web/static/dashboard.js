@@ -20,6 +20,7 @@ const DASH = { draft: null, kept: false, editing: false, cells: new Map(), undo:
                drag: null, pending: null, lifted: null, slot: null, settle: 0,
                values: new Map(), room: new Map(), got: null,     // a repeated panel's values and the grid rows kept for them
                sel: new Map(), options: new Map(), varSaid: new Map(), vars: null,   // the variables: chosen, offered
+               listVer: new Map(), listed: 0,                     // the newest listing each variable keeps
                ver: new Map(), flights: new Set() };               // the ask each panel's answer is awaited from
 const DASH_VAR_VALUES = 200, DASH_VAR_VALUE = 200, DASH_VAR_TEXT = 4000;   // a variable's values, as the server bounds them
 const DASH_VAR_RE = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;   // $name, ${name}: as the server reads them
@@ -507,22 +508,27 @@ function dashBind(queries, pick) {
     return Object.keys(vars).length ? { ...q, vars } : q;
   });
 }
-/* each variable's values listed by its query, in order (a query may name the variables before it) */
+/* each variable's values listed by its query, in order (a query may name the variables before it, and one listed
+   again lists again those that name it). Each listing is numbered (DASH.listVer, from one counter never reset) and only
+   a variable's newest is kept, so an earlier listing answering later never overwrites it */
 async function dashLoadOptions(changed = null) {
-  const d = DASH.draft, page = DASH.page;
+  const d = DASH.draft, page = DASH.page, moved = new Set(changed ? [changed] : []);
   for (const [n, raw] of Object.entries(d?.vars || {})) {
     const v = dashVarDef(raw);
-    if (v.type !== "query" || (changed && !dashUses(v.text).has(changed))) continue;
-    const vars = {};
+    if (v.type !== "query" || (changed && ![...dashUses(v.text)].some((u) => moved.has(u)))) continue;
+    const vars = {}, seq = ++DASH.listed;
     for (const u of dashUses(v.text)) { const x = u !== n && dashPicked(u); if (x) vars[u] = x; }
+    DASH.listVer.set(n, seq);
     let got;
     try {
       const r = await fetch(`/api/query/values?q=${dashEncode({ source: v.source, text: v.text, since: WINDOWS[S.since], until: S.at || null, vars })}`);
       got = r.ok ? await r.json() : { error: `the values answered ${r.status}` };
     } catch (e) { got = { error: "the server did not answer" }; }
     if (page !== DASH.page || DASH.draft !== d) return;
+    if (DASH.listVer.get(n) !== seq) continue;         // a later listing was asked: it, and its own call, list on
     DASH.options.set(n, Array.isArray(got?.values) ? got.values.slice(0, DASH_VAR_VALUES) : []);
     DASH.varSaid.set(n, got?.error ? String(got.error) : "");
+    moved.add(n);
   }
 }
 /* a variable set: the address keeps it, and only the panels whose queries then change are asked again */

@@ -1320,7 +1320,10 @@ reads the event log.
   (`{"type": "constant", "value": "prod"}`), or a query (`{"type": "query", "source": "prom", "text":
   "label_values(ergostat_items, kind)", "multi": false}`; `label_values(label)` lists every series'). Each but a constant
   is a choice at the top of the Dashboard, and what is chosen is kept in the address (`var-kind=a&var-kind=b`); a
-  variable not chosen takes its first value, or every value when it takes several. A query's values are asked of
+  variable not chosen takes its first value, or every value when it takes several. A query variable's text may name
+  the variables before it; when one of them changes it is listed again, and so are those that name it in turn. Each
+  listing is numbered, and a variable keeps only its newest, so an earlier listing answering later is dropped. A
+  query's values are asked of
   `GET /api/query/values?q=` (base64url of `{source, text, since, until, vars}`), answered `{"values": [...]}`: at
   most 200, each at most 200 characters, else refused (`error_kind: limit`), and refused to a public reader as any
   data source query. A source type lists them by offering `values` beside `query` (for `prometheus`,

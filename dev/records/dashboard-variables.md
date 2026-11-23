@@ -157,3 +157,39 @@ Run here, after the merge:
 - Not run: the whole unit suite and the four browser files (the factory's job).
 
 Refused here: a no-op heredoc (`cat > /tmp/fix_prom.py <<'EOF' ... EOF`), sent by mistake. Nothing depended on it.
+
+### Round 4
+
+Built. The review had one finding, and it was blocking: in `dashLoadOptions`, a chained variable's listing was stored
+in the order the answers came (lesson 2). It is fixed. About 406 net lines of code outside tests and docs (464 added,
+58 removed, measured against main; budget 600).
+
+- `dashboard.js` `dashLoadOptions`: each listing is numbered from one counter that is never reset (`DASH.listed`,
+  so no number is reused across pages, lesson 5). `DASH.listVer` holds the newest number for each variable. When an
+  answer comes, it is stored only if its number is still that variable's newest. Otherwise it is dropped, and the
+  later call that asked the newer listing stores that one.
+- Choice taken without asking, the most reversible: a variable listed again now lists again the variables that name
+  it in turn (`$kind` → `$sub` → `$leaf`). Before, only the variables that named the changed one directly were listed
+  again. The record's "Chained variables" choice says a variable is listed again "when one of them changes", and a
+  new listing can change a parent's default value. A stale listing does not carry the change down: the newer call
+  does that.
+- New test, `tests/test_dashboard_variables_page.py::test_a_chained_variable_keeps_its_newest_listing_when_an_earlier_one_answers_later`
+  (browser). `$kind` is set to `a`, then to `b`, and the two listings of `$sub` are answered in reverse order. The
+  test checks that `$sub` keeps `b`'s values, both stored and shown. It checks that `$leaf` is listed from `b-1`, and
+  that the panel is asked with `b`'s values and never with `a-1`.
+- Seen to fail when the code it guards was broken:
+  - The sequence check removed: the new test failed, because `$sub` took `a`'s listing.
+  - The change carried only to direct dependents: the new test failed, because `$leaf` kept `z-1`'s listing.
+- SPEC §4e now describes chaining, the numbering, and the newest listing kept.
+
+Run here:
+- ruff is clean.
+- Under the watchdog, one file at a time, all with rc 0 and none skipped:
+  - test_dashboard_variables_page: 4 passed.
+  - test_dashboard_page: 35 passed.
+  - test_dashboard_layout: 26 passed.
+- `main` (2f08c24e) is already an ancestor of HEAD, so there was nothing new to merge.
+- Not run: the whole unit suite and the four browser files (the factory's job). No Python or example was touched.
+
+Refused here: `for f in tests/test_dashboard_page.py tests/test_dashboard_layout.py; do uv run python
+scripts/suite_watch.py -- ... $f 2>&1 | tail -2; done`. Each file was then run as its own command, with no pipe.

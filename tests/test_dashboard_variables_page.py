@@ -127,6 +127,54 @@ def test_an_earlier_ask_answering_after_a_variable_changed_does_not_overwrite_th
     ctx.close()
 
 
+def test_a_chained_variable_keeps_its_newest_listing_when_an_earlier_one_answers_later(browser, site):  # noqa: F811
+    """$sub is listed by $kind and $leaf by $sub. $kind is set to a, then to b; the listing of $sub for b answers
+    first and the one for a last. $sub keeps b's values (by the listing's sequence, not by when it answers), $leaf is
+    listed again from $sub's new value, and the panel is asked with values of b's listing."""
+    chain = {"title": "Chain", "vars": {
+        "kind": {"type": "custom", "values": ["z", "a", "b"]},
+        "sub": {"type": "query", "source": "prom", "text": 'label_values(ergostat_items{kind="$kind"}, sub)'},
+        "leaf": {"type": "query", "source": "prom", "text": 'label_values(ergostat_items{sub="$sub"}, leaf)'}},
+        "panels": [text_panel(1, 'sum(ergostat_items{sub="$sub", leaf="$leaf"})')]}
+    ctx = context(browser, 1440, 1000)
+    asks, _ = recorded(ctx)
+
+    def values(route):
+        text = route.request.url.split("q=")[1].split("&")[0]
+        asked = json.loads(base64.urlsafe_b64decode(text + "=" * (-len(text) % 4)))
+        by = asked["vars"].get("sub" if "leaf" in asked["text"] else "kind", ["?"])[0]
+        route.fulfill(json={"values": [f"{by}-1", f"{by}-2"]})
+    ctx.route("**/api/query/values?*", values)
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded(chain)}")
+    settle(pg, asks, 1)
+    assert asks[0][0]["vars"] == {"sub": ["z-1"], "leaf": ["z-1-1"]}
+    got = pg.evaluate("""async () => {
+      const real = window.fetch, held = [];
+      window.fetch = (url, ...more) => {
+        const q = new URL(url, location.href).searchParams.get("q");
+        if (!String(url).includes("/api/query/values") || !dashDecode(q).text.includes("kind")) return real(url, ...more);
+        return new Promise((done) => held.push({ kind: dashDecode(q).vars.kind[0], go: () => done(real(url, ...more)) }));
+      };
+      const first = dashSetVar("kind", ["a"]);
+      const second = dashSetVar("kind", ["b"]);
+      while (held.length < 2) await new Promise((r) => setTimeout(r, 20));
+      held[1].go();
+      await second;
+      held[0].go();
+      await first;
+      window.fetch = real;
+      return { order: held.map((x) => x.kind), sub: DASH.options.get("sub"), leaf: DASH.options.get("leaf"),
+               shown: [...document.querySelectorAll('[data-var="sub"] option')].map((o) => o.value) };
+    }""")
+    assert got == {"order": ["a", "b"], "sub": ["b-1", "b-2"], "leaf": ["b-1-1", "b-1-2"], "shown": ["b-1", "b-2"]}
+    pg.wait_for_function("() => !DASH.flights.size")
+    pg.wait_for_timeout(300)
+    assert asks[-1][0]["vars"] == {"sub": ["b-1"], "leaf": ["b-1-1"]}
+    assert all(q["vars"]["sub"] != ["a-1"] for a in asks for q in a)
+    assert pg.errors == []
+    ctx.close()
+
+
 def test_a_panel_repeated_by_a_variable_follows_its_chosen_values(browser, site):  # noqa: F811
     """Done 3: one panel for each value chosen, each asking with its own value; a value let go takes its panel away and
     asks nothing; a value chosen adds its panel, asked alone; the panels kept are not asked again."""
