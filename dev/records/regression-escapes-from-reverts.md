@@ -125,3 +125,10 @@ fix found is the fac.items change (55d39de7), and the review told this branch to
 not put back. No code or test bound changed. The branch still does not touch dev/bin/fac.py, drain.py or live.py
 (diff --stat against main above), so the code the test waits on is main's. This gap waits on the proposed gap
 "fac.items lists only the states that hold items", or on the factory's rerun on clean main to place the failure there.
+
+Continued, round 3: main (a08e4b3e) merged in (d7bc28ed). It had one conflict, in tests/test_factory.py's fold_line. Main
+added `.released` to the no-state events and this branch adds `.reverted`. Both are kept. No other code changed.
+The five acceptance tests and the risk test pass again, and `ruff check ergostat tests scripts` is clean. The branch
+still does not touch dev/bin/fac.py, tests/test_fac_items.py, drain.py or live.py (`git diff main --stat` on them is
+empty). So if the build shows the switch-test failure under load again, it is still main's code, and it waits on the
+proposed gap "fac.items lists only the states that hold items".
