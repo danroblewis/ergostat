@@ -108,6 +108,19 @@ def test_a_promql_panel_is_drawn_and_each_failure_says_so_in_its_panel(browser, 
     ctx.close()
 
 
+def test_a_source_that_trickles_its_answer_says_so_in_its_panel_at_the_time_bound(browser, site):
+    t0 = time.monotonic()
+    ctx, pg = opened(browser, f"{site}/dashboard?draft=" + draft(panel("slow", "prom", "trickle")))
+    pg.wait_for_function("""() => { const s = document.querySelector('[data-panel-id="slow"]')?.dataset.state;
+                                    return s && s !== 'loading'; }""", timeout=30000)
+    took = time.monotonic() - t0
+    assert state(pg, "slow") == "error"
+    assert "did not answer within" in pg.locator('[data-panel-id="slow"] .panel-message').inner_text()
+    assert took < 16, took                          # the 10 s bound, and the page's own load (the stub would go on 30 s)
+    assert pg.errors == []
+    ctx.close()
+
+
 def test_the_editor_offers_the_source_and_a_text_in_its_language(browser, site):
     ctx, pg = opened(browser, f"{site}/dashboard?draft=" + draft(panel("drawn", "prom", "up")))
     pg.wait_for_selector('[data-panel-id="drawn"][data-state="drawn"]', timeout=20000)

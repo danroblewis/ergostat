@@ -1,12 +1,15 @@
 """A Prometheus-compatible source: PromQL, asked as a range query (``GET /api/v1/query_range``) by the server, so the
-browser never holds the source's address or credentials. A GET to that one path is the only request it makes."""
+browser never holds the source's address or credentials. A GET to that one path is the only request it makes, and it is
+ended at the query's time bound however slowly the source answers."""
 
 from __future__ import annotations
 
+import http.client
 import json
-import urllib.error
+import socket
+import threading
+import time
 import urllib.parse
-import urllib.request
 
 from . import SourceError
 
@@ -26,18 +29,71 @@ def _said(body: bytes) -> str:
         return "it did not say why"
 
 
+def _connect(deadline: float, held: list):
+    """``socket.create_connection``, each address tried with only the time left, so connecting ends by the deadline;
+    the socket is kept in ``held`` (the response takes it over from the connection, and the cut must still reach it)."""
+    def connect(addr, timeout=None, source_address=None):
+        err: OSError = OSError("no address")
+        for *_, sa in socket.getaddrinfo(addr[0], addr[1], 0, socket.SOCK_STREAM):
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            try:
+                held.append(socket.create_connection(sa[:2], left, source_address))
+                return held[-1]
+            except OSError as e:
+                err = e
+        raise err
+    return connect
+
+
+def _cut(held: list, late: threading.Event) -> None:
+    """At the deadline: end the connection, so a source that stalls or trickles stops holding the request."""
+    late.set()
+    for s in held:
+        try:
+            s.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+
 def _get(src, params: dict, seconds: float) -> dict:
-    url = f"{src.url.rstrip('/')}{_PATH}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(url, method="GET", headers={"Accept": "application/json"})
+    """One GET, ended ``seconds`` from now however the source answers (connecting, a stalled header, a trickled body).
+    Only name resolution is left to the system's resolver, which this cannot interrupt."""
+    u = urllib.parse.urlsplit(src.url.rstrip("/"))
+    if u.scheme not in ("http", "https") or not u.hostname:
+        raise SourceError("unreachable", f"source {src.name!r} has no http or https url")
+    deadline = time.monotonic() + seconds
     try:
-        with urllib.request.urlopen(req, timeout=seconds) as r:  # noqa: S310 (the model's own source)
-            body = r.read(_MOST_BYTES + 1)
-    except urllib.error.HTTPError as e:
-        if e.code in (400, 422):
-            raise SourceError("refused", f"source {src.name!r} refused the query ({_said(e.read(_MOST_BYTES))})") from e
-        raise SourceError("unreachable", f"source {src.name!r} answered {e.code}") from e
-    except (OSError, ValueError) as e:              # (never the address: it may hold credentials)
+        conn = (http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection)(
+            u.hostname, u.port, timeout=seconds)
+    except ValueError as e:                         # (a port that is not a number)
         raise SourceError("unreachable", f"could not reach source {src.name!r} ({type(e).__name__})") from e
+    held: list = []
+    conn._create_connection = _connect(deadline, held)
+    late = threading.Event()
+    cut = threading.Timer(seconds, _cut, (held, late))
+    cut.daemon = True
+    cut.start()
+    try:
+        conn.request("GET", f"{u.path}{_PATH}?{urllib.parse.urlencode(params)}", headers={"Accept": "application/json"})
+        r = conn.getresponse()
+        body = r.read(_MOST_BYTES + 1)
+    except (OSError, ValueError, http.client.HTTPException) as e:   # (never the address: it may hold credentials)
+        if late.is_set() or time.monotonic() >= deadline:
+            raise SourceError("limit", f"source {src.name!r} did not answer within {seconds:g} s") from e
+        raise SourceError("unreachable", f"could not reach source {src.name!r} ({type(e).__name__})") from e
+    finally:
+        cut.cancel()
+        conn.close()
+        for s in held:
+            s.close()
+    if late.is_set():                               # (cut short: what was read is not the whole answer)
+        raise SourceError("limit", f"source {src.name!r} did not answer within {seconds:g} s")
+    if r.status in (400, 422):
+        raise SourceError("refused", f"source {src.name!r} refused the query ({_said(body[:_MOST_BYTES])})")
+    if r.status != 200:
+        raise SourceError("unreachable", f"source {src.name!r} answered {r.status}")
     if len(body) > _MOST_BYTES:
         raise SourceError("limit", f"source {src.name!r} answered more than {_MOST_BYTES // 2**20} MB; narrow the query")
     try:

@@ -113,3 +113,37 @@ Run here, round 3, one file at a time: test_web_lanes (11, was 8 failed), test_d
 test_web_access and test_projects_header all passed. test_data_source_panels passed under the watchdog (rc 0, none
 skipped). ruff is clean. Not run here: the whole unit suite and the four browser files. `main` (f086f76e) is already
 merged in and has not moved.
+
+### Round 4
+
+The finding (blocking): the 10 s time bound was not enforced. `urlopen`'s timeout covers each socket read, not the
+whole request, so a source that sent headers and then trickled its body held a web worker for as long as it kept
+sending. Fixed in the code. About 50 net lines more, so about 340 (budget 600).
+- `prometheus._get` now sends its one GET with `http.client`, not `urlopen`. One deadline covers the whole request:
+  - Each address is connected with only the time left.
+  - A `threading.Timer` shuts the socket down at the deadline, whatever is blocked on it (a stalled header, a
+    trickled body, a TLS handshake).
+  - The timer keeps its own handle on the socket, because the response takes the socket over from the connection.
+  - It is cancelled, and the socket closed, when the GET ends.
+- Past the deadline the query is refused with `error_kind: limit`: "source 'prom' did not answer within N s". A body
+  cut short is never parsed.
+- Not bounded: looking up the host name, which the system's resolver does and nothing here can interrupt. SPEC §4e
+  (*Data sources*) now says so, which narrows the claim.
+- Choices taken without asking (the most reversible):
+  - `http.client` does not read `HTTP_PROXY` or follow redirects, where `urlopen` did. No test or doc relied on either.
+  - A `url` that is not http or https is now refused as `unreachable` before anything is sent.
+- Tests:
+  - `tests/test_data_sources.py::test_a_source_that_is_slow_to_answer_is_cut_off_at_the_time_bound`, with the bound
+    set to 1 s. Its three cases are `late` (no headers for 30 s), `stall` (headers, then nothing) and `trickle` (a byte
+    every 0.1 s). Each must be refused with `limit` within 2.5 s.
+  - `tests/test_data_source_panels.py::test_a_source_that_trickles_its_answer_says_so_in_its_panel_at_the_time_bound`
+    (browser, real server, real 10 s bound). The panel must show the error within 16 s.
+  - With the timer not started, `trickle` failed: it took the stub's full 30 s and ended as `unreachable`. `late` and
+    `stall` still passed, because each socket read's timeout catches them. Only the trickle case is guarded by the
+    deadline alone.
+  - The first try at the fix cut `conn.sock`. The trickle test caught it (30 s), which is why the timer now keeps its
+    own handle.
+
+Run here, round 4, one file at a time: test_data_sources (16), test_query_engine (52), test_web_lanes (11) and
+test_web_access (26) all passed. test_data_source_panels (3) passed under the watchdog (rc 0, none skipped). ruff is
+clean. Not run here: the whole unit suite and the four browser files. `main` (28ad5c4a) is already merged in.

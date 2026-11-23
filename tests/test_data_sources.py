@@ -8,6 +8,7 @@ import base64
 import json
 import textwrap
 import threading
+import time
 import types
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -49,6 +50,8 @@ class Stub(BaseHTTPRequestHandler):
         if u.path != "/api/v1/query_range":
             return self.answer(404, {"status": "error", "error": "not found"})
         text, start, end, step = a["query"], float(a["start"]), float(a["end"]), float(a["step"])
+        if text in ("stall", "trickle", "late"):
+            return self.slow(text)
         if text.count("(") != text.count(")"):
             return self.answer(400, {"status": "error", "errorType": "bad_data",
                                      "error": "1:5: parse error: unclosed left parenthesis"})
@@ -57,6 +60,24 @@ class Stub(BaseHTTPRequestHandler):
         result = [{"metric": {"__name__": "up", "job": name},
                    "values": [[start + i * step, str(10 * j + i)] for i in range(n)]} for j, name in enumerate(names)]
         return self.answer(200, {"status": "success", "data": {"resultType": "matrix", "result": result}})
+
+    def slow(self, how: str) -> None:
+        """``late``: no headers for 30 s; ``stall``: headers, then nothing for 30 s; ``trickle``: a byte every 0.1 s,
+        each well inside any one read's timeout, until ergostat hangs up."""
+        if how == "late":
+            time.sleep(30)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(10**6))
+        self.end_headers()
+        try:
+            for _ in range(300 if how == "trickle" else 0):
+                self.wfile.write(b" ")
+                self.wfile.flush()
+                time.sleep(0.1)
+            time.sleep(0 if how == "trickle" else 30)
+        except OSError:
+            pass
 
     def do_POST(self):
         type(self).seen.append(("POST", self.path, {}))
@@ -133,6 +154,16 @@ def test_over_the_series_bound_unreachable_and_bad_each_say_so(p):
     assert bad["error_kind"] == "refused" and "parse error: unclosed left parenthesis" in bad["error"]
     assert long_["error_kind"] == "limit" and "characters" in long_["error"]
     assert "no source named 'nowhere'" in nobody["error"]
+
+
+@pytest.mark.parametrize("how", ["late", "stall", "trickle"])
+def test_a_source_that_is_slow_to_answer_is_cut_off_at_the_time_bound(p, monkeypatch, how):
+    monkeypatch.setattr(datasources, "MOST_SECONDS", 1.0)
+    t0 = time.monotonic()
+    [r] = ask(p, {"source": "prom", "text": how})
+    took = time.monotonic() - t0
+    assert r["error_kind"] == "limit" and "source 'prom' did not answer within 1 s" in r["error"], r
+    assert took < 2.5, took                                               # (the stub would go on for 30 s)
 
 
 def test_a_source_query_takes_only_source_and_text(p):
