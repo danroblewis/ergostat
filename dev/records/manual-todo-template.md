@@ -98,3 +98,17 @@ Round 3 (the review's one finding, blocking: `why` on a waiting to-do with nothi
   source files back for one run was refused (`git checkout HEAD~1 -- ergostat/why/blocks.py
   ergostat/library/run/todo.py`). demo_check and the whole unit suite were not run here. Main has not moved since
   the round-1 merge. 518 net lines outside tests, docs and dev (budget 600).
+
+Round 4 (the queue's one finding: `tests/test_changesets.py::test_every_examples_items_fold_as_they_did_where_no_rules_were_added[todo-list]` failed alone):
+
+- Cause: the test allowed a refused event only of a final state (form `final`). The todo kind's `moves-from:` (this
+  gap's generic change, SPEC §5a) refuses a state move out of any other state (form `from`), and the test's random
+  events hit it. The fields still fold latest-wins, which is what the test checks. The fold is right; the test did
+  not know the rule. It now allows a `from` refusal only for an event type the kind's `moves_from` names, and a
+  `final` one only for a kind with final states, so any other refusal still fails it. With the old assertion it
+  fails (as the queue saw); with the new one it passes. Only the test changed (3 lines), no code.
+- Run one file at a time: test_changesets (60 passed), test_todo_template (14), test_item_systems (7),
+  test_modelling_core (24), test_rollup (52); ruff clean. A shell loop over the other example-wide test files
+  (test_architecture, test_blockdiagram, test_chains, test_cli_fallback, test_cloud_arrivals, test_daemon_docs,
+  test_daemon_yaml_review, test_extremes_closed, test_scale_caches) was refused, so those were not run here.
+  demo_check, the whole unit suite and the browser files were not run. Main has not moved (merge base is main).

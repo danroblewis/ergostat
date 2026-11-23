@@ -266,7 +266,9 @@ def test_every_examples_items_fold_as_they_did_where_no_rules_were_added(example
                 "data": {n: _value(r) for n in r.sample(plain, r.randrange(len(plain) + 1))}} for i in range(40)]
         it = its.fold(f"{k.id.rstrip('*')}1", evs, k)
         assert it.fields == _latest_wins(evs), k.name
-        assert all(x["form"] == "final" for x in it.refused) if k.final else not it.refused, k.name   # (a final state's rule)
+        # a state rule's refusal only: a final state's, or an event's moves-from: (it bars a move, never a field)
+        assert all((x["form"] == "final" and k.final) or (x["form"] == "from" and x["type"] in k.moves_from)
+                   for x in it.refused), k.name
 
 
 def test_the_model_change_kind_folds_as_the_review_queue_read_it(tmp_path):
