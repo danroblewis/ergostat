@@ -761,7 +761,7 @@ function sdOpenSystem(n) {
     h("td", { class: "num" }, p.value || "")))) : h("p", { class: "muted" }, none);
   const inside = (S.graph?.causalLoops || []).filter((c) => c.nodes.includes(n.id) && sdVisible(c, S.graph).length < 2);
   showDetail(h("div", { class: "kind" }, n.remote ? "Module, remote" : "Module"), h("h2", {}, n.label),
-    moduleCharts(n),
+    quietLine(n), moduleCharts(n),
     n.description ? h("p", { class: "muted" }, n.description) : null,
     remoteNote(n.remote), remoteMeasures(n), n.size ? dl([["size", n.size]]) : null, sdAggregate(n.label),
     h("h3", {}, "In, from outside"), list(side("in"), "Nothing outside reaches in here."),

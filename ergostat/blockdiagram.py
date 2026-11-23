@@ -1076,6 +1076,11 @@ class _Diagram:
                     "math": math, "rows": rows + ([["gain", f"{_num(g)} a step per unit of error"]] if g is not None else []) + extra,
                     **({"deadband": db} if db else {})}
         law = (self.snap.get("laws") or {}).get(n) if b.type == "external" else None
+        if b.type == "external" and b.law is not None:     # its law declared from the catalogue (§12d): an assumption
+            from .control.laws import law as known
+            from .spec.explain import law_words
+            words = f"{b.law.kind}: {law_words(b)}"
+            rows = rows + [["declared", f"{words} (an assumption until tested against the record)"]]
         if law:                                            # an existing controller, its law identified from the record (§12d)
             sk = {"onoff": "relay", "stepper": "zoh", "proportional": "saturation" if law["params"].get("hi") is not None
                   or law["params"].get("lo") is not None else None}.get(law["family"])
@@ -1084,6 +1089,12 @@ class _Diagram:
                                               "linear": law["family"] in ("proportional", "pi")},
                     "math": [eq(mi("u"), mt(law["short"])), mt(f"identified, external: {law['said']}")],
                     "rows": rows + [["identified", law["said"]]]}
+        if b.type == "external" and b.law is not None:     # drawn as an identified law is, marked declared, not identified
+            short, mark = known(b.law).short(), f"declared {b.law.kind}"
+            return {"role": role, "declared": mark, "says": f"an external controller, its law declared, an assumption "
+                    f"until tested against the record: {words}.", "fn": {"name": n, "kind": mark, "law": short,
+                    "sketch": "saturation" if b.law.kind == "kubernetes-hpa" else "ideal-relay", "linear": False},
+                    "math": [eq(mi("u"), mt(short)), mt(f"declared, external: {words}")], "rows": rows}
         if b.type == "proportional":
             k = b.params.get("gain")
             sat = [x for x in (b.params.get("min"), b.params.get("max")) if x is not None]
