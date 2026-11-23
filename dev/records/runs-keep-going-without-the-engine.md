@@ -68,3 +68,13 @@ Round 2, answering the review (its one finding: a kept run had no stop once its 
   `block --stop` does not know the run, no lease kill is made for it, and no budget trip happens (no engine reads its
   cost lines). Its spend is then bounded by its timeout, and for an `ai` block's own `claude -p` under `budget:` by
   its `--max-budget-usd`. A block with no timeout runs until it ends or `run --stop --runs`.
+
+Round 3, answering the queue (two tests failed alone, both caused by this branch).
+- `tests/test_upkeep_record.py::test_a_killed_compactor_releases_the_lock` replaces `stream.follow` with a function
+  of four arguments, and the branch always passed a fifth (`leave`). With the setting off, the engine now calls
+  `follow` with the same four arguments as before; only a kept run passes `leave`. This is what done item 5 asks.
+- `tests/test_library_trust.py::test_every_compile_key_classified` found a new `self.keys(` site that was not
+  classified. The scan named it `run` (the method it sat in). The `runs:` read is now its own `Compiler.runs`
+  method, like `budget`, and the test's `by` table classifies `runs` as None (main or local file only, not a section
+  a template writes). This adds one line to that test's table, which is the edit its own comment asks for
+  ("a new self.keys( site: classify it here").

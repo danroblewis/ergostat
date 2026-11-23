@@ -1141,7 +1141,8 @@ class Engine:
                     tracked, left = SAMPLER.track(proc), False      # its process tree's CPU and memory, sampled
                     try:
                         proc.watch = reap.Watch(proc.pid)            # what it starts, for a lease kill (leases/kill.py)
-                        got = stream.follow(proc, files["out"], b.timeout, take, self.stop if kept else None)
+                        got = (stream.follow(proc, files["out"], b.timeout, take, self.stop) if kept
+                               else stream.follow(proc, files["out"], b.timeout, take))    # (off: the call as before)
                         left = got is None                           # we stop, it goes on: its end is not ours
                         if got or kept and not left and proc.how() == "timeout":   # (its keeper's, should that
                             note = f"stopped after its timeout of {b.timeout:g}s"     # come first)
