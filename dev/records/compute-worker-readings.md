@@ -75,3 +75,10 @@ resolved by keeping both sides: main's sentence that a model may declare `comput
 only), and the branch's "its CPU and memory read (12s.3)". Main's other change, to ergostat/compute/compile.py, does
 not touch the worker, so no code changed this round. After the merge, the five readings tests pass, and so do the
 keeper, output, worker-protocol and compile tests.
+
+Round 5: the one finding was the conflict with main (dc47a763) in docs/SPEC.md and ergostat/compute/worker/keeper.py.
+keeper.py keeps both sides: main's `wall` deadline (`timeout`, `WALL_GRACE`) and the branch's `reaped` write right
+after `wait4`, so a run stopped at its deadline still has its keeper's CPU. Its docstring says both. SPEC 12s's
+opening paragraph keeps main's text (the engine's session with each node, 12s.4; `runs-on:` checked only) with the
+branch's "and its CPU and memory read (12s.3)". After the merge, the readings (5), keeper (5), output (6),
+worker-protocol (8) and connection (6) tests pass, and ruff is clean.
