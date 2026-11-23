@@ -3437,7 +3437,8 @@ are taken at most one a second; more are dropped.
   the old process, and the items they leased are taken again when their leases end, uncounted. Dispatch is closed
   before the groups are signalled, so no item is handed to a daemon in that wait.
 
-Its state is written to `<state>/daemons.json` every 2 s (running, backoff, failed or stopped; its pid, restarts,
+Its state is written to `<state>/daemons.json` (a shard engine's to `daemons.SHARD.json`, §9.8) every 2 s
+(running, backoff, failed or stopped; its pid, restarts,
 last line, runs in flight, what it serves, CPU and memory): the Agents page lists the daemons, and an agent's panel
 names its daemon.
 
@@ -3554,7 +3555,13 @@ runs as a process of its own.
   command run from a shell still finds only the whole engine's socket. The watchdog writes `heartbeat.SHARD.json`
   (`heartbeat.json` for `None`), and the outer watcher treats the engine as stale when `heartbeat.json`, or any
   `heartbeat.SHARD.json` whose pid is the running engine's, is older than `STALE`. A shard heartbeat left by another
-  pid is ignored, and a file that cannot be read is no beat. `ergostat.started` (the lead's alone) and
+  pid is ignored, and a file that cannot be read is no beat. Its daemons' supervisor writes `daemons.SHARD.json`
+  (`daemons.json` for `None`), each through a temporary file of its own (`daemons.SHARD.tmp`), its final write on
+  close included. The daemon status the pages read (`read_status`) merges `daemons.json` and every
+  `daemons.NAME.json` whose NAME matches `^[a-z0-9][a-z0-9-]{0,63}$`, and no other file; a file that cannot be read,
+  or is not JSON, adds nothing. A shard file whose writer pid is not alive gives its daemons `stopped`, pid null (an
+  earlier run's file, or a shard the plan no longer has); `daemons.json` is read as it always was. A daemon in two
+  files is given once: the entry not `stopped`, else the file whose name sorts first. `ergostat.started` (the lead's alone) and
   `ergostat.stopped` (each engine's own) carry `data.shard`: the name, or `null` for `None`. A shard engine's
   `close` kills only what it started: each of its machine-block runs (by process group), its daemons and its reading
   pools. It never calls `kill_all` or sets the process-wide `STOPPING`, and its start never clears it. It waits for
@@ -3564,8 +3571,7 @@ runs as a process of its own.
   engine starts no agent runs of its own (the older runner does), and a sensor's command is bounded by its timeout
   and is not killed at close, the same with or without a shard.
 - **Not yet by shard.** The wires are not carried, and nothing refuses them yet: that is `shard-wires`, and the
-  shard tests read an estimate across shards on purpose. `daemons.json` is still one file per state directory, written by each engine
-  in turn. A swap does not reshard. It clears what moved out, which is what a reshard was to do.
+  shard tests read an estimate across shards on purpose. A swap does not reshard. It clears what moved out, which is what a reshard was to do.
 
 ### 9.9 The day's AI budget: runs reserve before they start
 
