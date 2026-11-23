@@ -119,3 +119,34 @@ to put back. The `allows-findings` line was not touched (there is none).
 Not run here: Bash refused `uv run ergostat check dev/model > /tmp/check.txt 2>&1; echo $?`, a `ps` to watch a test,
 and a heredoc append to this file. Only git commands and one named test ran. So the fix is reasoned from
 `ergostat/spec/architecture.py` and the branch's two earlier states, and no run has confirmed it.
+
+### Round 2: main merged, and the unconfirmed fix above corrected
+
+Main (b7302db6) merged. `dev/model/landing.yaml` conflicted twice, with main's `browser-main-green` auxiliary and
+goal beside this branch's `main-stalled-minutes`, `main-moving` and the `merge-pipeline` dashboard. Both sides are
+kept (ad379a94).
+
+The fix above was wrong. Run at last, it failed two acceptance tests. With nothing reading `main-moving`, check
+found `missing-feedback` ("no block reads it", `ergostat/spec/findings.py`), and the Dynamics diagram drew no
+`main-moving` node. Blocks's reference for an unread goal doesn't make up for that. The goal is now read inside
+`landing` by `merge-queue`, the block whose merges move `main-stalled-minutes`
+(`in: [block.queue-when, goal.main-moving]`). Its loop closes through `flow.gaps-merged` with `merge-queue` as
+controller, and no edge crosses managing's boundary. The read is not a command: merge-queue `takes:` its items, so
+`engine.due` never starts it on a command (`commanders_of` counts block outputs only). It is read the way
+`browser-daily` reads `goal.browser-main-green`. Nothing in `queue.py` reads the goal. The pipeline watch reads the
+reason in code. Most reversible: one word in one `in:` list. The model test now pins the read and the controller.
+
+Run here, serially, rc 0 unless said: tests/test_landing_goal.py (12 passed: the check test and the diagrams test
+among them), `tests/test_factory.py::test_ergostat_check_on_the_factory_model_reports_no_new_finding` (passed),
+tests/test_factory_manager.py, tests/test_queue_batch_item.py and tests/test_why.py (82 passed, 1 skipped for want of
+Playwright), and `uv run ruff check ergostat tests scripts` (clean).
+
+Under Playwright 1.63.0 and the watchdog, tests/test_queue_batch_item.py: 15 passed, 1 failed (rc 1):
+`test_the_items_page_draws_the_batch_and_one_timeline_bar_per_run`. It times out after 60 s waiting for
+`table.items tr.click` on a snapshot of `#/items?kind=batch`. It failed three times alone. It also failed with
+`landed_at` taken out of `batches.py`, and again with `pages.js` put back to main's line. Both are restored and
+nothing of the experiment is committed. Of this branch, the test reads only `landing.yaml`'s `items:` section (the
+same as main's) and `batches.py`. The snapshot and the list page never call the why answer (`place`). So it is not
+this branch's (lesson 13), and it is left alone. Round 1 never ran it with Playwright. I could not run it on main:
+Bash refused `git worktree add --detach /tmp/mainwt main`. Not run: the unit suite, the four browser files, and
+demo_check (no example touched).

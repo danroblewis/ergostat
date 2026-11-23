@@ -340,7 +340,7 @@ goals:
     hold: "<= 2"
     tolerance: 0
     description: a drain ends by its bound ([upgrade] drain_minutes) and the switcher's next minutes - past them the switch is stuck
-  main-moving:                      # read by the pipeline watch in its code (watch.py broken), not by an in: edge: one would cross managing's boundary
+  main-moving:                      # read by merge-queue's in: (landing); the pipeline watch reads its reason in code (watch.py broken), with no edge across managing's boundary
     auxiliary: main-stalled-minutes
     hold: "<= 120"
     tolerance: 30
@@ -397,7 +397,9 @@ blocks:
     lease: {ttl: 30m, attempts: 3}
     timeout: 3h
     actions: [push-main]
-    in: block.queue-when
+    # goal.main-moving: read, not commanded (it takes its items, so nothing commands it); the loop closes in landing
+    # through the merges it lands. Its reason is read in code by the pipeline watch, with no edge across managing
+    in: [block.queue-when, goal.main-moving]
     out: [flow.gaps-queued, flow.gaps-merged, flow.sent-back-by-queue, flow.queue-failures]
   push-settler:
     type: program
