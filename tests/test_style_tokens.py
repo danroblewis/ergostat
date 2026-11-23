@@ -150,6 +150,18 @@ def test_dark_theme_correspondence_colours_stand_3_to_1_on_the_paper():
     assert not low, low
 
 
+def test_on_a_phone_the_direction_hint_is_not_hidden():
+    """The narrow layout shows the "More beyond the edge" hint (a phone's first view may be centred on one part): no
+    rule inside a max-width media block hides .panhint. The browser test pins what the hint says."""
+    text = re.sub(r"/\*.*?\*/", "", CSS.read_text(), flags=re.S)
+    blocks = re.findall(r"@media[^{]*max-width[^{]*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}", text)
+    assert blocks, "style.css has no narrow (max-width) layout"
+    for block in blocks:
+        for sel, body in re.findall(r"([^{}]+)\{([^{}]*)\}", block):
+            if ".panhint" in sel:
+                assert not re.search(r"display\s*:\s*none", body), f"the phone layout hides the hint: {sel.strip()}"
+
+
 def test_the_arrows_and_guide_dot_borders_stand_3_to_1_on_the_paper_in_both_themes():
     """The /item lifecycle and /items state arrows (.arrow) and the Guide's dot borders (.g-dot::before, the dot drawn
     inside its 24px target) are graphics: WCAG's 3:1 against the page in the light and the dark theme, read from the

@@ -865,13 +865,20 @@ function applyView(svg) {
   const hint = document.getElementById("panhint"), lay = S.layout, r = svg.getBoundingClientRect();
   if (hint && lay && r.width) {
     const k = S.view.k, x0 = S.view.x + (lay.ox || 0) * k, y0 = S.view.y + (lay.oy || 0) * k;
-    hint.hidden = x0 >= -2 && y0 >= -2 && x0 + lay.width * k <= r.width + 2 && y0 + lay.height * k <= r.height + 2;
+    // which way the rest lies, as arrows
+    const ways = [[x0 < -2, "←"], [y0 < -2, "↑"], [x0 + lay.width * k > r.width + 2, "→"], [y0 + lay.height * k > r.height + 2, "↓"]];
+    hint.hidden = !ways.some(([off]) => off);
+    hint.textContent = "More beyond the edge " + ways.filter(([off]) => off).map(([, a]) => a).join("");
   }
 }
+
+const NARROW = "(max-width: 700px)", NARROW_K = 0.7;   // a phone (style.css's narrowest layout): fitted down to 11px text at 7.7px (the zoom a laptop still shows whole)
 
 function fit(svg, lay, legible = false) {
   const r = svg.getBoundingClientRect();
   if (!lay || !r.width) return;
+  // on a phone the toolbars sit above and below the canvas, not over it: the canvas is all the drawing's
+  if (matchMedia(NARROW).matches) return fitNarrow(svg, lay, Math.min(1.25, (r.width - 20) / lay.width, (r.height - 20) / lay.height), legible, r);
   // the "fit" button shows everything; the first view keeps labels legible, and a bigger system is panned
   const whole = Math.min(1.25, (r.width - 40) / lay.width, (r.height - 90) / lay.height);
   // the first view keeps 11px text at 9px or more on screen; a wider system is panned from its left
@@ -879,6 +886,24 @@ function fit(svg, lay, legible = false) {
   const fitsW = lay.width * k <= r.width - 20, fitsH = lay.height * k <= r.height - 120;   // the toolbars: 56 above, 50 below
   const ox = (lay.ox || 0) * k, oy = (lay.oy || 0) * k;
   S.view = { k, x: (fitsW ? (r.width - lay.width * k) / 2 : 20) - ox, y: (fitsH ? Math.max(56, (r.height - lay.height * k) / 2 + 20) : 60) - oy };
+  applyView(svg);
+}
+
+/* the drawing fitted to a phone's canvas, down to NARROW_K; still too big, it is centred on its first part (a system
+   box, else a stock, else what comes first), kept from showing empty space beyond the drawing, and the hint says
+   which way the rest lies */
+function fitNarrow(svg, lay, whole, legible, r) {
+  const k = legible ? Math.max(whole, NARROW_K) : Math.max(0.08, whole), ox = lay.ox || 0, oy = lay.oy || 0;
+  const at = (ext, size, o) => (ext * k <= size - 20 ? (size - ext * k) / 2 - o * k : null);   // it fits: centred
+  let x = at(lay.width, r.width, ox), y = at(lay.height, r.height, oy);
+  if (x == null || y == null) {
+    const box = Object.fromEntries(lay.children.map((c) => [c.id, c])), nodes = (S.graph?.nodes || []).filter((n) => box[n.id]);
+    const first = box[(nodes.find((n) => n.kind === "system") || nodes.find((n) => n.kind === "stock") || nodes[0] || {}).id] || lay.children[0];
+    const centre = (p, ext, size, o) => Math.min(10 - o * k, Math.max(size - 10 - (o + ext) * k, size / 2 - p * k));
+    if (x == null) x = first ? centre(first.x + first.width / 2, lay.width, r.width, ox) : 10 - ox * k;
+    if (y == null) y = first ? centre(first.y + first.height / 2, lay.height, r.height, oy) : 10 - oy * k;
+  }
+  S.view = { k, x, y };
   applyView(svg);
 }
 
