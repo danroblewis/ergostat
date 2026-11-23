@@ -241,3 +241,20 @@ since 5411f137 addresses the switcher test's 120 s wait (test_an_approved_switch
 so a build under `-n 8` may still fail on it, as reported above. That failure is outside this gap. I did not run the
 unit suite or the four browser files (the factory's and the queue's steps). `uv run ergostat check` was refused again,
 so done item 6's "no new finding" against main is still unverified by a full check.
+
+## Where it stopped
+
+The factory's `build` step failed again (tests/test_factory.py, `-n 8`). The tail stops at "bringing up nodes...", so
+it names no test, and I cannot say which one failed. I looked through this branch's own tests for a check that
+depends on load and found one in test_browser_daily_holds_the_queue_lock. After the SIGTERM it checked, with a single
+`os.kill(pid, 0)`, that the stand-in browser suite's shell was gone. fac.suite waits only for its direct child
+(`sh -c`, shell=True). When the shell is a grandchild, it is killed with the group, but init has to reap it, and until
+then `os.kill` succeeds on the zombie. So the check could fail under load. It now polls for up to 10 s
+(`daily_gone`): the process counts as gone when it no longer exists or /proc shows it as a zombie. When /proc cannot be
+read (macOS), the process counts as still alive (lesson-3). This is a test-only change. browserday.py and fac.py are
+unchanged, and no code bound was raised. I am guessing that this was the build's failure, because the tail does not
+show it. If the next build fails, its named test is the place to start, and the switcher test (above) is still the
+likelier cause. I could not reproduce the zombie window: a shell command that checks PID 1 and whether `sh -c` execs
+its last command (`cat /proc/1/comm; ls -l /bin/sh; sh -c 'sh -c "echo \$\$ \$PPID"; echo $$'`) was refused. Run
+here: ruff is clean, and test_browser_daily_holds_the_queue_lock, test_browser_daily_green_records_main and
+test_browser_daily_failure_names_tests_and_suspects pass (3 passed, 201 s).

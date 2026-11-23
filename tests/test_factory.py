@@ -5286,6 +5286,26 @@ def daily_clean(f: Factory) -> bool:
     return not (f.tmp / "wt" / "browser-daily").exists() and len(git(f.checkout, "worktree", "list").splitlines()) == 1
 
 
+def daily_gone(pid: int, wait: float = 10) -> bool:
+    """The suite's shell killed: gone, or a zombie (dead, its parent killed too, not yet reaped by init). Its own
+    parent (`sh -c`) is the one suite() waits for, so a killed grandchild can still be listed for a moment under load."""
+    until = time.time() + wait
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        try:                                                           # (no /proc, or unreadable: still alive)
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            state = "?"
+        if state == "Z":
+            return True
+        if time.time() > until:
+            return False
+        time.sleep(0.05)
+
+
 def test_browser_daily_green_records_main(tmp_path):
     f = browser_daily(tmp_path)
     assert daily_green(f)[0] == 1                                       # never run: no reading, not green (lesson-3)
@@ -5410,8 +5430,7 @@ def test_browser_daily_holds_the_queue_lock(tmp_path):
     pid = int((tmp_path / "browser-pid").read_text())
     p.send_signal(signal.SIGTERM)
     assert p.wait(timeout=60) == 143
-    with pytest.raises(ProcessLookupError):                            # its suite went with it
-        os.kill(pid, 0)
+    assert daily_gone(pid)                                             # its suite went with it
     assert daily_clean(f) and not (f.model / "run" / "browser-daily.json").exists()
     with open(lock, "a") as lk:                                        # and so did the lock
         fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
