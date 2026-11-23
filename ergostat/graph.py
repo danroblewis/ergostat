@@ -16,8 +16,12 @@ def _edge(src, dst, kind, **kw):
     return {"id": f"{kind}:{src}->{dst}", "source": src, "target": dst, "kind": kind, **kw}
 
 
-def select(model, system: str | None = None, around: str | None = None, depth: int = 1) -> set[str]:
-    """The parts to draw: a system's members, everything, or the parts within ``depth`` steps of one."""
+def select(model, system: str | None = None, around: str | None = None, depth: int = 1,
+           parts: set[str] | None = None) -> set[str]:
+    """The parts to draw: a system's members, everything, the parts within ``depth`` steps of one, or ``parts`` as
+    given (what an item passed through, or what a kind touches: ``touched``)."""
+    if parts is not None:
+        return set(parts)
     if around is None:
         return model.members(system)
     kind, _, name = around.rpartition("/")
@@ -228,6 +232,30 @@ def node_of(spec, part: str) -> str | None:
     if kind == "goal":
         return f"controller:{name}"
     return None
+
+
+def touched(fp: dict, steps: list[dict] | None = None) -> dict:
+    """The model's parts (``kind.name``) a kind touches (``fp``, its footprint: ``spec/footprint.py``), or, given an
+    item's ``steps`` (its path), the ones it passed through: each stock that counted it, with its steps' numbers in
+    move order, and each block that took it with the flows it moves, and how many runs of it took the item."""
+    part_of = {c["name"]: c["part"] for c in fp["counted_in"] if c["kind"] != "flow"}
+    out_of = {t["block"]: t["out"] for t in fp["taken_by"]}
+    if steps is None:
+        return {"parts": {c["part"] for c in fp["counted_in"]} | {f"block.{b}" for b in out_of} |
+                {f for o in out_of.values() for f in o}, "numbers": {}, "attempts": {}}
+    parts, numbers, runs, n = set(), {}, {}, 0
+    for s in steps:
+        if s.get("stock") in part_of:
+            n += 1
+            parts.add(part_of[s["stock"]])
+            numbers.setdefault(s["stock"], []).append(n)
+        if s.get("flow"):
+            parts.add(f"flow.{s['flow']}")
+        if s.get("block"):
+            parts |= {f"block.{s['block']}", *out_of.get(s["block"], ())}
+            runs.setdefault(s["block"], set()).add(s.get("run") or s.get("entered"))
+    return {"parts": parts, "numbers": numbers,
+            "attempts": {f.split(".", 1)[1]: len(r) for b, r in runs.items() for f in out_of.get(b, ())}}
 
 
 def causal_loops(model) -> list[dict]:

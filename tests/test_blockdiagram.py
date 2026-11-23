@@ -693,3 +693,24 @@ def test_every_system_has_the_same_letter_and_p_by_m_closed_and_open(example):
         assert (roles["factory"], roles["product"]) == ("C", "P")
     if example in ("big", "the-job", "ticket-factory"):
         assert all(v is None for k, v in roles.items() if spec.within.get(k) is None), (example, roles)
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_a_systems_letter_carries_its_name_once_closed_and_open(example):
+    """What blocks.js reads to print a system's name once: a C or P system's letter has the system's name as its
+    subscript (so the frame title drops the plain name after it), and a named one is its name alone, with no letter
+    and no subscript, on the closed block and on the open frame."""
+    spec = load(ROOT / "examples" / example / "ergostat.yaml")
+    for s in spec.systems:
+        above = set(spec.chain(s)[1:])
+        box = next((n for n in drawn(spec, above)["nodes"] if n["id"] == f"sys:{s}"), None)
+        if box is None:                                   # nothing of it in the control system
+            continue
+        frame = next(f for f in drawn(spec, above | {s})["frames"] if f["id"] == f"frame:{s}")
+        assert frame["label"] == box["label"] == s, (example, s)
+        for x in (box, frame):
+            fn = x["fn"]
+            if fn["letter"]:
+                assert (fn["sym"], fn["sub"], bool(fn.get("named"))) == (fn["letter"], s, False), (example, s, fn)
+            else:
+                assert (fn["sym"], fn["sub"], fn.get("named")) == (s, None, True), (example, s, fn)

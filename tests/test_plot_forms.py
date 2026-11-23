@@ -31,7 +31,7 @@ ORIGIN = "http://plots.test"
 NOW = 1795400000.0
 STEP = 720
 PLOTS = ["math", "frame", "xy", "bar", "dist", "heat", "candle", "freq"]
-SCRIPTS = ["elk.bundled.js", "uplot/uPlot.iife.min.js", "util.js", "charts.js", "panels.js", *[f"plots-{n}.js" for n in PLOTS]]
+SCRIPTS = ["elk.bundled.js", "uplot/uPlot.iife.min.js", "util.js", "charts.js", "frames.js", "panels.js", *[f"plots-{n}.js" for n in PLOTS]]
 PAGE = (
     '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
     '<link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/panels.css">'

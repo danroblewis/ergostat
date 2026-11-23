@@ -40,15 +40,17 @@ function sdRateSaid(now, rate, unit, flow) {
 }
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
-  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText];
+  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText,
+    ...(n.attempts ? [`${n.attempts} attempt${n.attempts === 1 ? "" : "s"}`] : [])];      // an item's: the runs that took it
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   if (n.kind === "cloud" && n.from) return [`from ${n.from}`];        // an inflow from outside: where it comes from, where the model knows it
   return [];
 }
 function sdAuxLines(n) {
   if (n.role === "decision") return [n.label];
-  return [n.label, sdValue(n), n.exogenous ? "(exogenous)" : null].filter(Boolean);
+  return [n.label, sdValue(n), n.exogenous ? "(exogenous)" : null, n.noFeedback ? SD_NO_FEEDBACK : null].filter(Boolean);
 }
+const SD_NO_FEEDBACK = "→ no feedback";                // a gap nothing in the model acts on (dynamics.py: noFeedback)
 function sdLabel(ng, n, t, i, cx, y) {
   if (n.kind === "cloud") return ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-sub sd-shadow" }, t));
   if (i === 0) return ng.append(s("text", { x: cx, y, "text-anchor": "middle", class: "t-label sd-name" }, t));
@@ -64,6 +66,8 @@ function sdStock(n, w, hgt) {
   g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
   if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v,
     sdNoUnit(n) ? s("tspan", { class: "sd-nounit" }, " unit ?") : null));
+  if (n.path?.length) g.append(s("text", { x: 4, y: 11, class: "t-sub sd-path", "data-path": n.path.join(",") },   // an item's steps here, in move order
+    n.path.join(", ")));
   return g;
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
@@ -71,7 +75,7 @@ function sdAux(n, w, hgt) {
   const g = s("g");
   g.append(s("rect", { class: "hit sd-aux", width: w, height: hgt, rx: 3 }));
   sdAuxLines(n).forEach((t, i) => g.append(s("text", { x: w / 2, y: 14 + i * 14, "text-anchor": "middle",
-    class: i === 0 ? "t-label sd-name" : t === "(exogenous)" ? "t-sub sd-exo" : "t-sub sd-value" + (n.role === "desired" ? "" : " live") }, t)));
+    class: i === 0 ? "t-label sd-name" : t === "(exogenous)" ? "t-sub sd-exo" : t === SD_NO_FEEDBACK ? "t-sub sd-exo sd-nofeedback" : "t-sub sd-value" + (n.role === "desired" ? "" : " live") }, t)));
   return g;
 }
 function sdValve(n, w, hgt, ln) {
@@ -664,6 +668,7 @@ const SD_LEGEND = {
   stub: '<path d="M1 9 H17" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink)"/><text x="21" y="12" font-size="8" fill="var(--sd-muted)">x</text>',
   shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-muted)">&lt;x&gt;</text>',
   nounit: '<text x="13" y="13" font-size="8" text-anchor="middle" fill="var(--sd-muted)">unit ?</text>',
+  nofeedback: '<text x="13" y="9" font-size="9" text-anchor="middle" fill="var(--sd-ink)">gap</text><text x="13" y="17" font-size="6" font-style="italic" text-anchor="middle" fill="var(--sd-muted)">→ no fb</text>',
 };
 function sdLegend() {
   const g = S.graph || { nodes: [], edges: [] };
@@ -681,6 +686,7 @@ function sdLegend() {
     has((n) => n.role === "desired") && row("aux", "desired level: the level wanted (desired backlog = 0)"),
     has((n) => n.role === "gap" && n.excess) && row("aux", "excess: actual − desired, for a level kept down; it drives the flow that brings it down (+)"),
     has((n) => n.role === "gap" && !n.excess) && row("aux", "gap: desired − actual, for a level kept up or held; it drives the flow that closes it"),
+    has((n) => n.noFeedback) && row("nofeedback", "no feedback: nothing in the model acts on this gap (no block serves its goal, or it acts by the clock), so no balancing loop closes it: an open loop"),
     has((n) => n.role === "decision") && row("aux", "decision: what it reads, joined to the flows it sets"),
     row("plus", "connector, +: the cause rises, the effect rises above what it would have been"),
     row("minus", "connector, −: the cause rises, the effect falls below what it would have been"),
@@ -803,8 +809,10 @@ async function openNodeSD(n) {
   showDetail(h("div", { class: "kind" }, n.kind === "valve" || n.kind === "disturbance" ? "Valve" : (SD_WHAT[kind] || [kind])[0]),
     h("h2", {}, n.flow || n.label), wait);
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
-    rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
+    // the bound as the goal writes it (desired users ≥ 180), the same on the stock's panel
+    rows.push(["desired level", n.goal ? `desired ${n.of} ${n.setpoint || `= ${n.desired ?? n.valueText}`} (${n.goal})` : null],
               [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.offBy || "not known yet"}` : null],
+              ["feedback", n.noFeedback ? "none: nothing in the model acts on this gap, so no loop closes it (an open loop)" : null],
               ["switching", n.switching || null],
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
@@ -837,7 +845,7 @@ async function openNodeSD(n) {
                                       ["outflow", now.outflow != null ? rateText(now.outflow, "", sdStockFlow(n.label, "out")) : null]);
     for (const gl of n.goals || []) {                     // the goal, and what serves it wherever it is in the model
       const by = (gl.by || []).map((b) => b.system ? `${b.block} in ${b.system}` : b.block).join(", ");
-      rows.push(["desired level", `desired ${n.label} = ${gl.desired ?? gl.setpoint} (${gl.name})` +
+      rows.push(["desired level", `desired ${n.label} ${gl.setpoint || `= ${gl.desired}`} (${gl.name})` +
         (by ? `, served by ${by}` : gl.acted ? "" : " (nothing in the model acts on its gap: no feedback closes it)")]);
     }
     if (n.kind === "auxiliary") numbers = equationSection(n.label, d?.numbers, { exogenous: n.exogenous });
