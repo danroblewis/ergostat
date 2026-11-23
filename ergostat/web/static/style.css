@@ -404,6 +404,9 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
 .sys-head .sys-desc { font-size: var(--text-sm); }
 .page h3.kind-head { font-size: var(--text); font-weight: 600; margin: var(--sp-5) 0 var(--sp-2); }
 .page h3.kind-head .muted { font-weight: 400; }
+/* a kind's pager, in its bar and under its table */
+.pager { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-left: var(--sp-3); font-weight: 400; }
+.pager.foot { display: flex; margin: var(--sp-2) 0 0; }
 .kind-flows { display: flex; flex-wrap: wrap; gap: var(--sp-4) var(--sp-6); margin: var(--sp-3) 0 var(--sp-5); }
 .kind-flow { flex: 1 1 24rem; min-width: min(20rem, 100%); max-width: 36rem; }
 .kind-flow .cfd { grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-3); align-items: start; margin: 0; }

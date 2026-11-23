@@ -1789,6 +1789,23 @@ index cannot answer for a kind (no index, or a moment so long past that most of 
 says so instead of its numbers. `/items?kind=KIND` goes to `/items/KIND`, which is the list, graph and timeline below
 for that kind alone; `/items` with any other question (a search, `view=`) is every kind's list, as before.
 
+**A kind's page.** `/items/KIND`'s list is a page of the kind's items, 25 rows by default (100 or 300 by choice), with
+a pager in the kind's bar and under its table: *1-25 of 1200 · Prev · Next* (*of 3 matches* with a search, *of 77
+review* with a state chosen). Each page is asked of the server, `GET /api/items?kind=KIND` with `state` (one, when
+chosen), `offset`, `n` (1..500) and, when given, `q` and `sort` (`items.kind_page`, read from the item index: the ids,
+states and times of the kind's rows, then only the items shown). `q` keeps the items whose id holds it or whose text
+(*Search*) holds each of its words (1 to 8), out of every item of the kind, finished ones too; the answer's `total` is
+how many match and `finished` how many of them are in one of the kind's finished states, said beside the search box
+(*3 matches, 1 finished*). `sort=FIELD` (up) or `sort=-FIELD` (down) orders the whole filtered set by that field
+before the page is cut: numbers as numbers, then text, a missing or non-finite value last, the newest first among
+equals. Up to 5,000 items are read for it (`items.SORTED_MOST`, without their moves); past that it is the newest 5,000
+that are sorted and paged, and the answer's `cut` (5000) says so, as the pager and the table's caption do. Without
+`sort`, the newest first. An `offset` past the end answers the last page, and says its `offset`. The page, the size
+and the sort are in the address, the page and sort named by their kind (`page=gap:3`, `sort=gap:-ai_cost_usd`,
+`size=100`); a new search, sort, state or size starts at page 1, and the poll asks again for the page shown. In a
+snapshot (no server) the kind's list is the snapshot's, as before. A set (`where`, `moved` and the process map's
+filters) is listed as before, its newest 300.
+
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
 (`GET /api/items-graph?kinds=A,B` or `system=NAME`; worked out again only when the record changes):
@@ -1959,6 +1976,9 @@ The Items page's filters, in its address (`/items?...`) and in `GET /api/items`:
 | `where=FIELD:VALUE` | the field equals the value (repeated: any of the values for one field, all the fields) |
 | `moved=FROM>TO` | moved from one of `FROM` to one of `TO` (states joined by commas); an empty side is any other state, or none (an arrival): `>done` entering done, `briefed>` leaving briefed |
 | `moved_since`, `moved_until` | the span of `moved` (after since, up to until): `2026-11-18T10:00:00Z` (UTC) or seconds since 1970; default the hour before now |
+| `offset`, `n` | with one kind and no set: the page of its items from `offset`, `n` of them (1..500; past the end, the last page); in the address `page=KIND:N` and `size=25`, `100` or `300` (*A kind's page*) |
+| `sort=FIELD`, `sort=-FIELD` | with one kind and no set: the whole filtered set ordered by the field before the page is cut (the newest 5,000 of a larger one, said by `cut`); in the address `sort=KIND:-FIELD` |
+| `q=TEXT` | with one kind and no set: the items whose id holds it or whose text holds each of its words, every item of the kind; `total` and `finished` count them |
 | `remote=NAME` | a remote's items instead, asked there within its budget (§4c, *Its items and events in the pages*); with it only `kind`, `state`, `n` and `offset` |
 
 The page shows the set as one chip with its count (for moves, the items and the moves), removed with its ×;
