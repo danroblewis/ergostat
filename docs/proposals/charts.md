@@ -3,7 +3,7 @@
 Status: planned 2026-11-16, built 2026-11-16. As built: a flow's rate counted from the record (items
 moving, or its valve's openings, which come after items and before the stock's changes) is counted
 over a twelfth of the window, so one event is not a spike; a kind's items finish in the states after
-its first that no item has left (else its last state); the Loops page's old trend in a loop's panel
+its first that no item has left (else its last state); the Goals page's old trend in a goal's panel
 is replaced by its scope.
 
 ## What the owner asked for
@@ -36,7 +36,7 @@ Both disciplines read behaviour beside the structure, never on a separate dashbo
    process output shows r and y on one plot (y measured, r dashed, the tolerance band shaded),
    u below (the control output: the actuator's moved amount or the knob's value, marking
    saturation at its limits), e below, one time axis; with the loop's numbers (time off, back
-   in, saturated share, last decision). The Loops page's sparklines open the same scope.
+   in, saturated share, last decision). The Goals page's sparklines open the same scope.
 3. **Items page.** Each kind: a cumulative flow diagram (its states stacked over the window, in
    state order) in place of the one-line counts; under each kind's table, a cycle-time scatter
    (each finished item: when it finished × how long it took), with the median line.

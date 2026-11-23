@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------ details */
 
 /* closed by hand (its ×, Escape): the loop chosen on the Loops page leaves the address too */
-function shutDetail() { closeDetail(); if (parseRoute().path === "/loops" && parseRoute().q.has("select")) setQuery({ select: null }); }
+function shutDetail() { closeDetail(); if (parseRoute().path === "/goals" && parseRoute().q.has("select")) setQuery({ select: null }); }
 function closeDetail() { S.again = null; if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
 /* the panel the window asks again: an opener's own, kept only while its panel is the last shown (any other clears it) */
 async function askedAgain(again, open) {
@@ -41,7 +41,7 @@ const WHAT = {
   disturbance: ["Flow, uncontrolled (a disturbance)", "material moving into or out of a stock that nothing in the model sets. The world pushes it; the loops on its stocks must make up for it."],
   sensor: ["Sensor", "an instrument. It reads one stock or flow; a loop sees only what its sensor reads."],
   controller: ["Controller", "the part that decides, to hold a goal. At its summing point (the Σ in its corner) it compares the stock's reading y with the setpoint r: e = r − y. While that error says the goal is off, it commands a valve. The badge names the block that fills it. With its sensor, the stock and the valve it closes a feedback loop: the loop is the whole cycle, not this box."],
-  loop: ["Feedback loop", "a goal on a stock and what serves it. When the stock's reading is off the setpoint, the controller commands a valve until it is back."],
+  goal: ["Goal", "what is wanted of a stock (its bound) and whether it holds; its control loop (sensor, controller, valve) serves it"],
   system: ["System", "a part of the model drawn as one part. Its ports are what crosses its edge: what it reads and is told, what it moves and drives."],
   agent: ["Agent", "the program, AI or person that does a part's work: reads a sensor, decides as a controller, or opens a valve."],
   pipe: ["Flow", "the pipe a flow runs along: material leaving one stock and arriving in another (or coming from or going to outside the model). Only flows change stocks."],
@@ -164,13 +164,13 @@ async function openNodeNow(n) {
 function openLoop(name, asController = false) { return askedAgain(() => openLoop(name, asController), () => openLoopNow(name, asController)); }
 async function openLoopNow(name, asController) {
   let lp;
-  const note = panelLoading(asController ? "Controller" : "Loop", name);
+  const note = panelLoading(asController ? "Controller" : "Goal", name);
   try { lp = await api(`loops/${encodeURIComponent(name)}`); } catch (e) { note.textContent = "Could not be read."; return; }
   const recorded = Math.min(lp.until - lp.since, S.status?.first ? lp.until - S.status.first : Infinity);
   const windowWords = recorded < (lp.until - lp.since) * 0.95 ? `of the ${dur(recorded)} recorded` : "of the window";
   const kids = asController
-    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("controller"), whatIs("loop")]
-    : [h("div", { class: "kind" }, lp.open_loop ? "Open loop" : "Loop"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("loop")];
+    ? [h("div", { class: "kind" }, "Controller"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("controller"), whatIs("goal")]
+    : [h("div", { class: "kind" }, lp.open_loop ? "Goal, open loop" : "Goal"), h("h2", {}, name, exceptional(goalWord(lp)) ? statusEl(goalWord(lp)) : null), whatIs("goal")];
   kids.push(loopScope(name, { numbers: "new" }));       // its scope first (charts.js); time off and back in are below
   if (lp.description) kids.push(h("p", { class: "muted" }, lp.description));
   if (lp.open_loop) kids.push(h("p", {}, "It acts on its schedule and reads nothing; its sensor only watches it against the setpoint."));
@@ -281,30 +281,31 @@ async function openAgentNow(name) {
             (v.pid ? ` (pid ${v.pid})` : "")).join(", ") : "") : null],
         ["log", a.log_path ? h("code", {}, a.log_path.split(/[\\/]/).pop()) : null]])];   // its file, not where it lies
   if ((a.recent || []).length > 1) kids.push(h("h3", {}, `Last ${a.recent.length} runs`), runsChart(a.recent, 400, 90));
-  if (a.use?.runs?.length) kids.push(...useSection(a.use));
+  if (a.use?.runs?.length) kids.push(...useSection(a.use, a));
   kids.push(h("h3", {}, "Recent runs"));
-  const costOf = (d) => ({ cost_usd: d.ai ? d.ai.cost_usd : d.cost_usd, cost: d.ai ? d.ai.cost : d.cost_usd != null ? "reported" : null,
-                            model: d.ai?.model, tokens: d.ai?.tokens?.total, cpu: d.resources?.cpu, memory: d.resources?.memory_peak });
+  const costOf = (e, d = e.data) => ({ cost_usd: d.ai ? d.ai.cost_usd : d.cost_usd, cost: d.ai ? d.ai.cost : d.cost_usd != null ? "reported" : null,
+    model: d.ai?.model, tokens: d.ai?.tokens?.total, cpu: d.resources?.cpu, memory: d.resources?.memory_peak,
+    exit: d.exit, note: d.note, failed: e.type === "agent.failed" });   // the run's own end, which costText reads
   const last = (a.recent || []).slice(-10).reverse(), th = (t, c) => h("th", c ? { class: c } : {}, t);
   const outcome = (e) => e.type === "agent.failed" ? [h("span", { class: "s-off" }, "failed"), h("span", { class: "muted" }, `: ${e.data.note || "no reason given"}`)]
     : (a.ended || {})[e.causedby]?.how === "nack" ? [h("span", { class: "s-open" }, "refused"), h("span", { class: "muted" }, `: ${a.ended[e.causedby].why || e.data.note || "no reason given"}`)]
     : [h("span", { class: "status" }, "done"), e.data.note ? h("span", { class: "muted" }, `: ${e.data.note}`) : null];
   kids.push(h("div", { class: "table-wrap runs-table" }, h("table", {}, tableCaption(`Recent runs of ${name}, newest first`), headRow(th("when"), th("item"), th("outcome"), th("outward actions asked"), th("cost", "num")),
-    last.map((e) => { const r = costOf(e.data), asked = (a.asked || {})[e.causedby] || []; return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
+    last.map((e) => { const r = costOf(e), asked = (a.asked || {})[e.causedby] || []; return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
       h("td", { class: "cell" }, e.data.item ? itemLink(e.data.item) : h("span", { class: "muted" }, "none")), h("td", { class: "cell" }, outcome(e)),
       h("td", { class: "cell" }, asked.length ? asked.map((x, i) => [i ? ", " : "", h("a", { href: `/item/${encodeURIComponent(x.id)}`, title: x.state }, x.action || x.id)]) : h("span", { class: "muted" }, "none")),
-      h("td", { class: "num nowrap", title: r.cost ? `${r.cost}${r.model ? ", " + r.model : ""}` : "" }, usd(r.cost_usd), r.cost && r.cost !== "reported" ? h("span", { class: "muted" }, " est.") : null)); }))),
+      h("td", { class: "num nowrap", title: r.cost ? `${r.cost}${r.model ? ", " + r.model : ""}` : "" }, costText({ ...r, runs: 1 }, a), r.cost && r.cost !== "reported" ? h("span", { class: "muted" }, " est.") : null)); }))),
     h("details", { class: "runs-resources" }, h("summary", {}, "resources"), h("div", { class: "table-wrap" }, h("table", {},
       tableCaption(`Resources of ${name}'s recent runs, newest first`),
       headRow(th("when"), ...["readings", "openings", "decisions", "tokens", "CPU", "memory"].map((t) => th(t, "num"))),
-      last.map((e) => { const r = costOf(e.data), n = (k) => h("td", { class: "num" }, String(e.data[k] || 0)); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
+      last.map((e) => { const r = costOf(e), n = (k) => h("td", { class: "num" }, String(e.data[k] || 0)); return h("tr", {}, h("td", { class: "nowrap" }, ago(e.time)),
         n("readings"), n("openings"), n("decisions"), h("td", { class: "num" }, tokensText(r.tokens)), h("td", { class: "num" }, cpuText(r.cpu)), h("td", { class: "num" }, bytesText(r.memory))); })))));
   if (a.log?.length) kids.push(h("h3", {}, "End of its log"), h("pre", {}, a.log.slice(-15).join("\n")));
   showDetail(...kids);
 }
 
 /* what an agent's runs cost over the window (SPEC §9.1): its totals, then one chart per number, sharing a cursor */
-function useSection(u) {
+function useSection(u, agent) {
   const t = u.totals, g = chartGroup("use"), rows = u.runs;
   const series = (k, scale = 1) => { const xs = rows.filter((r) => r[k] != null); return { times: xs.map((r) => r.time), values: xs.map((r) => r[k] * scale) }; };
   const span = { group: g, since: u.since, until: u.until }, made = [];
@@ -317,7 +318,7 @@ function useSection(u) {
   const charts = made.map((c, i) => useChart({ ...span, ...c, xAxis: i === made.length - 1 }));
   const est = t.cost && t.cost !== "reported" ? ` (${t.cost}: from tokens, by a price table)` : "";
   return [h("h3", {}, "What its runs cost"),
-    h("p", { class: "note use-totals" }, `${t.runs} runs: ${usd(t.cost_usd)}${est}, ${tokensText(t.tokens)} tokens, ${cpuText(t.cpu)} CPU, ` +
+    h("p", { class: "note use-totals" }, `${t.runs} runs: ${costText(t, agent)}${est}, ${tokensText(t.tokens)} tokens, ${cpuText(t.cpu)} CPU, ` +
       `at most ${bytesText(t.memory_peak)} in one run.`),
     h("div", { class: "charts use-charts" }, g.when, ...charts)];
 }

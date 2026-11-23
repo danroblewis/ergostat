@@ -93,6 +93,10 @@ section: Remote systems and libraries
     step each named item was last at (`at=`, at most 200 ids, chosen by id), and a link not drawn is counted by
     its reason (`unlinked`), never dropped. A remote's items in the Items page and its events in the Record
     page (done on `remote-items-record`, `tests/test_remote_items.py`): `remote=NAME`, read in place within 8
-    requests a remote a period, failing closed.
+    requests a remote a period, failing closed. A remote's parts are data here (done on
+    `remote-and-libraries-remote-parts-are-data`, `tests/test_remote_analysis.py`): its stocks given, never
+    integrated, in the replay and the projection (open and closed loop), and left out of the fit's total (listed
+    under `remote`), the residuals and the not-exercised findings; its flows' equations still serve the texts
+    for its owner.
   - *Left*: only serving the IR beside `ergostat-model/1` (`?format=ir`), once the IR exists; it is an item
     of *The IR and a Rust runtime*.

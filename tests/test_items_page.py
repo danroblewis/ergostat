@@ -139,7 +139,7 @@ def test_kinds_are_grouped_by_system_and_charts_sit_three_across(browser, site):
     pg.close()
 
 
-NAV = ["/diagram", "/dashboard", "/loops", "/agents", "/items", "/record", "/model", "/check", "/guide"]
+NAV = ["/diagram", "/dashboard", "/goals","/agents", "/items", "/record", "/model", "/check", "/guide"]
 
 
 @pytest.fixture(scope="module")
@@ -462,6 +462,72 @@ def test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_th
         assert len(rows) == n and all(r.startswith("hypothesis/") for r in rows), rows
         pg.locator(".set-chip button").click()                                     # the chip goes: the whole list again
         pg.wait_for_function("() => !document.querySelector('.set-chip') && location.search === ''")
+    assert not errors, errors
+    pg.close()
+
+
+def test_cost_is_stated_or_says_why_it_is_none_with_the_windows_total_and_on_an_item(browser, site):
+    """The Agents page: no cost cell a bare '–' or '$0' (an agent that never ran says so), a column empty for every
+    agent left out, and the table ends in the window's total; an item's header states what the runs that took it
+    cost: not known while none has ended, and an AI agent's run with no session a free stand-in."""
+    pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/agents")
+    pg.wait_for_selector("tr[data-total]")
+    costs = pg.eval_on_selector_all("td[data-use=cost]", "els => els.map((e) => e.textContent)")
+    assert len(costs) >= 3 and not [c for c in costs if c.strip() in ("–", "$0", "")], costs
+    first = pg.eval_on_selector_all(".table-wrap table tr", "trs => trs.map((tr) => tr.children[0].textContent)")
+    assert first[-1] == "total", first
+    heads = pg.eval_on_selector_all(".table-wrap table tr:first-child th", "els => els.map((e) => e.textContent)")
+    assert "cost" in heads and "tokens" not in heads and "peak memory" not in heads, heads   # no run here: none known
+    pg.goto(f"{site}/item/hypothesis%2F1")
+    pg.wait_for_selector(".meta [data-cost]")
+    head = pg.inner_text(".meta")
+    assert "cost" in head.lower() and "not known yet" in head and "0 of the 1 runs that took it ended" in head, head
+    code = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+p.events.add("agent.ran", item="developer", source="ergostat", causedby="run21aaaaaaa", data={{"exit": 0, "seconds": 3}})
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+    pg.goto(f"{site}/item/hypothesis%2F2")
+    pg.wait_for_function("() => /stand-in/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
+    cost = pg.inner_text(".meta [data-cost]")
+    assert cost.startswith("free stand-in, $0") and "1 of the 2 runs that took it ended" in cost, cost
+    # a run killed with no session recorded (a timeout, the cap) may have spent: not known, never $0 (lesson 3)
+    subprocess.run([sys.executable, "-c", code.replace('"agent.ran"', '"agent.failed"').replace("run21", "run22")
+                    .replace('"exit": 0', '"exit": -9, "note": "killed (a timeout?)"')],
+                   env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True, capture_output=True)
+    pg.goto(f"{site}/item/hypothesis%2F2")
+    pg.wait_for_function("() => /not known/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
+    cost = pg.inner_text(".meta [data-cost]")
+    assert cost.startswith("not known: 1 failed or stopped") and "$0" not in cost and "over 2 runs" in cost, cost
+    # taken by an AI block and a program: the AI run killed with no session is still not known, the program's failure
+    # (no session to spend) is not counted as one
+    mixed = f"""
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.spec import items as its
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(HOME["home"].parent / EXAMPLE)!r})))
+for run, block in (("run4aaaaaaaa", "developer"), ("run4bbbbbbbb", "matcher")):   # each take the next fence, as the fold wants
+    f = int((its.detail(p.events, p.model.spec, "hypothesis/4")["fields"].get("lease") or {{}}).get("fence") or 0) + 1
+    p.events.add("ergostat.lease.taken", item="hypothesis/4", data={{"run": run, "block": block, "fence": f, "ttl": 600}})
+    p.events.add("ergostat.lease.ended", item="hypothesis/4", data={{"run": run, "fence": f, "how": "ack"}})
+p.events.add("agent.failed", item="developer", source="ergostat", causedby="run4aaaaaaaa",
+             data={{"exit": -9, "seconds": 3, "note": "killed (a timeout?)"}})
+p.events.add("agent.failed", item="matcher", source="ergostat", causedby="run4bbbbbbbb", data={{"exit": 1, "seconds": 1}})
+"""
+    subprocess.run([sys.executable, "-c", mixed], env={**os.environ, "ERGOSTAT_HOME": str(HOME["home"])}, check=True,
+                   capture_output=True)
+    pg.goto(f"{site}/item/hypothesis%2F4")
+    pg.wait_for_function("() => /over 2 runs/.test(document.querySelector('.meta [data-cost]')?.textContent)", timeout=20000)
+    cost = pg.inner_text(".meta [data-cost]")
+    assert cost.startswith("not known: 1 failed or stopped") and "$0" not in cost, cost
     assert not errors, errors
     pg.close()
 
@@ -824,15 +890,15 @@ ev.add("session.started", item="session/s1")
 
 def test_an_uncounted_item_says_so(browser, lone):
     """An item of a kind no sensor counts and no block takes keeps the lifecycle strip, says it is not counted
-    anywhere in the model, and draws no path."""
+    anywhere in the model (main's 'Drawn alone' sentence, under the 'Where it went' heading), and draws no path."""
     pg = browser.new_page(viewport={"width": 1400, "height": 900})
     errors: list[str] = []
     pg.on("pageerror", lambda e: errors.append(str(e)))
     pg.goto(f"{lone}/item/session/strip")
     pg.wait_for_selector(".uncounted", timeout=20000)
     assert "not counted anywhere in the model" in pg.locator(".uncounted").inner_text()
-    assert pg.locator(".track").count() == 1 and not pg.locator(".went, .wv-path").count()
-    assert "Where it went" not in pg.locator("main").inner_text()
+    assert pg.locator(".track").count() == 1 and not pg.locator(".wv-path, .wv-step, section.went").count()
+    assert not pg.locator(".uncounted a").count()                        # no link to a path nothing drew
     assert not errors, errors
     pg.close()
 
@@ -861,6 +927,33 @@ def test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apa
         assert got["path"] == ["open"] and got["alt"] == ["done", "failed", "lost"] and got["worst"] >= 4.5, (theme, got)
         assert not errors, errors
         pg.close()
+
+
+def test_where_it_went_links_to_its_path_drawn_alone_or_says_nothing_counts_it(browser, site):
+    """An item its model counts (hypothesis/1, taken by the developer) has 'Where it went' with 'Draw its path in
+    Dynamics' and 'in Blocks' (item=ID) and its kind's footprint (kind=K), and the link draws it alone; an item of a
+    kind nothing counts or takes (release) says 'not counted anywhere in the model' and has no link."""
+    rel = json.loads(urllib.request.urlopen(f"{site}/api/kinds/release").read())
+    assert not rel["counted_in"] and not rel["taken_by"]                 # (what the second half stands on)
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/item/hypothesis%2F1")
+    went = pg.locator("p.went")
+    went.wait_for(timeout=20000)
+    links = went.locator("a").evaluate_all("els => els.map((a) => [a.textContent, a.getAttribute('href')])")
+    assert links == [["Draw its path in Dynamics", "/diagram?view=dynamics&item=hypothesis%2F1"],
+                     ["in Blocks", "/diagram?view=blocks&item=hypothesis%2F1"],
+                     ["what every hypothesis touches", "/diagram?view=dynamics&kind=hypothesis"]], links
+    went.locator("a").first.click()
+    pg.wait_for_function("() => typeof S !== 'undefined' && S.graph?.subset?.item === 'hypothesis/1' && S.layout", timeout=60000)
+    assert pg.locator(".toolbar .subset").inner_text().startswith("what hypothesis/1 passed through")
+    pg.goto(f"{site}/item/release%2Fr1")
+    went.wait_for(timeout=20000)
+    assert went.inner_text() == "Its moves are not counted anywhere in the model." and not went.locator("a").count()
+    assert not pg.locator('a[href*="item=release"]').count()
+    assert not errors, errors
+    pg.close()
 
 
 def test_the_supersede_picker_offers_the_confirmed_decisions(browser, site):
@@ -1357,6 +1450,133 @@ def test_the_timeline_opens_at_now(browser, roadmap):
     pg.close()
 
 
+BACKLOG = """name: backlog
+items:
+  gap:
+    id: gap/*
+    states: [ready, done, parked]
+    on: {gap.landed: done, gap.parked: parked}
+    relations:
+      after: gap
+    show: [title, rank]
+messages:
+  done: {gap: [done]}
+  paused: {gap: [parked]}
+blocks:
+  implementor:
+    type: program
+    run: "true"
+    takes: {kind: gap, at: ready, unblocked: true, order: rank}
+    pool: 3
+"""
+
+
+def seed_backlog(d: Path, home: Path) -> None:
+    """28 gaps ranked opposite to the order they were filed (the last filed ranked first), filed three at a moment so
+    no arrival rate is read (a batch); gap/p1 parked, and gap/p2 after it."""
+    code = f"""
+import time
+from pathlib import Path
+from ergostat import model as mdl
+from ergostat.store import Project
+p = Project(mdl.load(Path({str(d)!r})))
+t = time.time() - 3000
+for i in range(28):
+    p.events.add("gap.filed", item=f"gap/g{{i:02d}}", data={{"title": f"gap {{i}}", "rank": 28 - i}}, at=t + (i // 3) * 10)
+p.events.add("gap.filed", item="gap/p1", data={{"title": "parked one"}}, at=t - 16 * 86400)
+p.events.add("gap.parked", item="gap/p1", at=t - 15 * 86400)          # (before the estimates' history: no share parks)
+p.events.add("gap.filed", item="gap/p2", data={{"title": "after it", "after": "gap/p1"}}, at=t + 90)
+"""
+    subprocess.run([sys.executable, "-c", code], env={**os.environ, "ERGOSTAT_HOME": str(home)}, check=True,
+                   capture_output=True)
+
+
+@pytest.fixture(scope="module")
+def backlog(tmp_path_factory):
+    d = tmp_path_factory.mktemp("backlog") / "backlog"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(BACKLOG)
+    home = d.parent / "home"
+    seed_backlog(d, home)
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ, "ERGOSTAT_HOME": str(home)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    for _ in range(150):
+        try:
+            urllib.request.urlopen(url + "/api/status", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
+    else:
+        proc.kill()
+        pytest.fail("the page never came up")
+    yield url
+    proc.terminate()
+    proc.wait(timeout=10)
+
+
+TIMELINE_ROWS = """() => [...document.querySelectorAll('.rg-timeline .rg-row[data-id], .rg-timeline .rg-heading')].map((r) => ({
+  id: r.dataset.id || null, heading: r.classList.contains('rg-heading') ? r.textContent : null,
+  y: r.getBoundingClientRect().y, why: r.querySelector('.rg-why')?.textContent || null,
+  bars: [...r.querySelectorAll('.rg-proj')].map((p) => [+p.getAttribute('x'), +p.getAttribute('x') + +p.getAttribute('width')]) }))"""
+
+
+def test_the_timeline_shows_the_simulated_schedule_in_order(browser, backlog):
+    """A backlog of 28 ranked gaps, a pool of 3: the unfinished rows in the order the simulation starts them (each
+    row's bar starts no earlier than the one above: a staircase, never more than 3 at once, the best ranked first);
+    the parked gap and the one after it last, under 'Not scheduled (2)', each with why and no bar ahead; the legend's
+    finish a clock time with its date and the count not scheduled; the note each block's capacity and its source; no
+    'held'. With the estimates not yet worked out (stubbed to none), the note says the schedule is being worked out
+    and the bars drawn meanwhile are the levelled projection. The item page says why it is not scheduled."""
+    import re
+    pg, errors = open_view(browser, backlog, "items?kind=gap&view=timeline", ".rg-timeline[data-drawn] .rg-row")
+    pg.wait_for_function("() => document.querySelector('.rg-timeline .rg-note')?.textContent.includes('at once')", timeout=30000)
+    pg.wait_for_timeout(300)
+    rows = pg.evaluate(TIMELINE_ROWS)
+    heads = [i for i, r in enumerate(rows) if r["heading"]]
+    assert len(heads) == 1 and rows[heads[0]]["heading"] == "Not scheduled (2)", rows
+    ahead, apart = rows[:heads[0]], rows[heads[0] + 1:]
+    assert {r["id"] for r in apart} == {"gap/p1", "gap/p2"} and all(not r["bars"] for r in apart), apart
+    assert {r["id"]: r["why"] for r in apart} == {"gap/p1": "paused in parked", "gap/p2": "waits on gap/p1, which is parked"}
+    edges = [min(b[0] for b in r["bars"]) for r in ahead if r["bars"]]
+    assert len(edges) == 28 and edges == sorted(edges), edges                      # projected-start order
+    assert len({round(x) for x in edges}) >= 8, edges                              # a staircase, not all at now
+    spans = [b for r in ahead for b in r["bars"]]
+    most = max(sum(1 for a, b in spans if a < x - 0.5 and x + 0.5 < b) for x in (a + 1 for a, _ in spans))
+    assert most <= 3, most                                                         # the pool: 3 at once at most
+    first = [r["id"] for r in ahead[:3]]
+    assert set(first) == {"gap/g27", "gap/g26", "gap/g25"}, first                  # ranked 1-3: the last filed
+    said = pg.locator(".rg-legend .rg-eta").first.inner_text()
+    assert re.fullmatch(r"last gap \(\S+\) expected \w{3} \d+ \d\d:\d\d(?: \S+)?, by ((?:\w{3} \d+ )?\d\d:\d\d(?: \S+)?) at worst "
+                        r"\(9 in 10\); 2 not scheduled", said), said
+    note = pg.locator(".rg-timeline .rg-note").inner_text()
+    assert "implementor 3 at once (pool)" in note, note
+    text = pg.evaluate("() => document.querySelector('.rg-timeline').textContent + document.querySelector('.rg-legend').textContent")
+    assert "held" not in text.lower(), text
+    pg.goto(f"{backlog}/item/gap%2Fp2")
+    pg.wait_for_selector("[data-eta]", timeout=20000)
+    assert pg.locator("[data-eta]").first.inner_text() == "not scheduled: waits on gap/p1, which is parked"
+    assert not errors, errors
+    # the estimates stubbed to none (still being worked out): said so, and the bars are the levelled projection
+    import json
+
+    def stub(route):
+        got = route.fetch()
+        body = {**got.json(), "eta": None, "eta_pending": True}
+        body["items"] = [{k: v for k, v in x.items() if k != "eta"} for x in body["items"]]
+        route.fulfill(response=got, body=json.dumps(body))
+    pg.route("**/api/items-graph**", stub)
+    pg.goto(f"{backlog}/items?kind=gap&view=timeline")
+    pg.wait_for_selector(".rg-timeline[data-drawn] .rg-row", timeout=20000)
+    note = pg.locator(".rg-timeline .rg-note").inner_text()
+    assert "Working out the schedule: a simulation of 30 unfinished gaps at each block's capacity" in note, note
+    title = pg.locator(".rg-timeline .rg-proj title").first.text_content()
+    assert "the levelled projection, median times, until the simulation is worked out" in title, title
+    assert not errors, errors
+    pg.close()
+
+
 @pytest.mark.parametrize("view", ["graph", "timeline"])
 def test_the_graph_and_the_timeline_left_open_change_nothing(browser, roadmap, view):
     pg, errors = open_view(browser, roadmap, f"items?view={view}", f".rg-{view} [data-drawn], .rg-{view}[data-drawn]")
@@ -1444,6 +1664,19 @@ def test_a_snapshot_lists_a_parts_items_and_opens_its_set(browser, tmp_path):
         pg.wait_for_function(f"() => ({SNAP_IDS})().length >= {len(ids)}", timeout=20000)
         assert sorted(pg.evaluate(SNAP_IDS)) == ids
         assert "not in this snapshot" not in pg.locator(".page").inner_text()
+    assert not errors, errors
+    pg.close()
+
+
+def test_a_snapshots_item_page_says_its_changes_are_not_held(browser, tmp_path):
+    """A snapshot holds each item's answer without its history: the Changes section opens and says so."""
+    pg, errors = snapshot_page(browser, tmp_path)
+    pg.goto(pg.url.split("#")[0] + "#/item/ticket%2F1")
+    pg.wait_for_selector("details.changes summary", timeout=20000)
+    pg.locator("details.changes summary").click()
+    pg.wait_for_function("() => /not held in this snapshot/.test(document.querySelector('details.changes')?.textContent || '')",
+                         timeout=10000)
+    assert pg.locator("[data-field]").count() > 0 and "Nothing is recorded" not in pg.locator(".page").inner_text()
     assert not errors, errors
     pg.close()
 
@@ -1710,6 +1943,90 @@ def test_a_remote_items_file_field_never_reads_a_local_file(browser, tmp_path):
         events._kept.clear()
 
 
+CARDS = """
+name: cards
+items:
+  gap:
+    id: gap/*
+    states: [open, done]
+    show: [title]
+    fold:
+      contexts: append
+stocks:
+  queue:
+    sensor: {run: echo 1}
+"""
+
+
+def item_site(tmp_path, adds):
+    """A project of gaps served in process: ``adds(p, d)`` records its events."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    from ergostat.web import serve as web_serve
+    d = tmp_path / "cards"
+    d.mkdir()
+    (d / "ergostat.yaml").write_text(CARDS)
+    p = Project(mdl.load(d))
+    adds(p, d)
+    return web_serve(p, free_port())
+
+
+def item_page(browser, url, item, width=1440):
+    pg = browser.new_page(viewport={"width": width, "height": 1000})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 8")
+    asked: list[str] = []
+    errors: list[str] = []
+    pg.on("request", lambda r: asked.append(r.url))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{url}/item/{item.replace('/', '%2F')}")
+    return pg, asked, errors
+
+
+def test_a_list_of_records_is_cards_with_files_behind_disclosures(browser, tmp_path):
+    """An append field of records each naming a Markdown brief: cards, newest first; each brief a closed disclosure
+    named by its key and size, read only when opened, then as wide as the column; no table in a table's cell."""
+    def adds(p, d):
+        for n in (1, 2):
+            (d / f"b{n}.md").write_text(f"# Brief {n}\n\n## Its part\n\n| a | b |\n|---|---|\n| {'x' * 300} | y |\n\n"
+                                        + "a long line of words " * 80 + "\n")
+            p.events.add("gap.briefed", item="gap/1", data={"title": "cards", "contexts": {
+                "round": n, "kind": "fix", "model": "opus", "verdict": "pass", "cost": 0.5 * n, "seconds": 60 * n,
+                "reviewer": "r", "brief": f"file:b{n}.md", "ids": [f"gap/x{i}" for i in range(20)]}})
+    server, url = item_site(tmp_path, adds)
+    pg, asked, errors = item_page(browser, url, "gap/1")
+    try:
+        pg.wait_for_selector("[data-field=contexts] .card", timeout=10000)
+        cards = pg.locator("[data-field=contexts] .card")
+        assert cards.count() == 2 and "round 2" in cards.nth(0).inner_text(), "newest first, its scalars flowing"
+        assert cards.nth(0).locator(".chip").count() == 20, "a list of ids wraps as chips"
+        assert pg.locator("#main td table, #main td .md, #main td .file-view").count() == 0
+        assert pg.locator("[data-field=contexts] .md").count() == 0, "nothing rendered until opened"
+        folds = pg.locator("[data-field=contexts] details.file-fold")
+        assert folds.count() == 2 and not folds.nth(0).evaluate("e => e.open")
+        size = round((tmp_path / "cards" / "b2.md").stat().st_size / 1024)
+        assert "brief" in folds.nth(0).inner_text() and f"{size} KB" in folds.nth(0).inner_text(), folds.nth(0).inner_text()
+        pg.wait_for_timeout(1500)                                     # a few refreshes, the files closed
+        assert not [u for u in asked if "/file/" in u], asked
+        folds.nth(1).locator("summary").click()                       # the older card's brief: b1
+        pg.wait_for_selector("[data-field=contexts] details.file-fold[open] .md h4", timeout=10000)
+        opened = pg.locator("[data-field=contexts] details.file-fold[open]")
+        assert opened.locator(".md h1, .md h2, .md h3").count() == 0, "its headings below the page's"
+        pg.wait_for_timeout(800)
+        got = opened.evaluate("""e => { const v = e.querySelector('.file-view'), col = e.closest('.field-block');
+            return { w: v.getBoundingClientRect().width, col: col.getBoundingClientRect().width,
+                     sw: e.scrollWidth, cw: e.clientWidth, vsw: v.scrollWidth, vcw: v.clientWidth,
+                     colsw: col.scrollWidth, colcw: col.clientWidth }; }""")
+        assert got["w"] >= got["col"] - 40, got                       # the card's padding aside, the column's width
+        assert got["sw"] == got["cw"] and got["vsw"] == got["vcw"] and got["colsw"] == got["colcw"], got
+        files = [u for u in asked if "/file/" in u]
+        assert files and all(u.endswith("/file/b1.md") for u in files), files
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
 WIDE_TICKETS = """
 import time
 from pathlib import Path
@@ -1924,12 +2241,14 @@ def test_every_time_is_one_stamp_with_its_date_and_zone(browser, tmp_path):
 
     try:
         pg.goto(f"{url}/item/ticket%2FSCRUM-2")
-        pg.wait_for_selector("tr[data-field=done_at]")
+        pg.wait_for_selector(".field-grid [data-field=done_at]")
         pg.wait_for_function("() => document.querySelectorAll('#main td.data').length >= 2")
-        fields = pg.evaluate("""() => Object.fromEntries([...document.querySelectorAll('table.fields tr[data-field]')]
-          .map((r) => [r.dataset.field, r.querySelector('td')?.firstChild?.textContent ?? '']))""")
+        fields = pg.evaluate("""() => Object.fromEntries([...document.querySelectorAll('.field-grid [data-field]')]
+          .map((r) => [r.dataset.field, r.lastElementChild?.textContent ?? '']))""")
         stamps([fields["done_at"], fields["raised"], fields["since"]], 3)
-        stamps(pg.evaluate(WHEN_CELLS), 2 + 3)              # Events, and each field's history
+        pg.locator("details.changes summary").click()       # the fields' changes, in their one section
+        pg.wait_for_selector("details.changes table.history")
+        stamps(pg.evaluate(WHEN_CELLS), 2 + 3)              # Events, and the fields' changes
         no_epoch()
         held = json.loads(urllib.request.urlopen(f"{url}/api/items/ticket%2FSCRUM-2").read())["fields"]["done_at"]
         assert held == done
@@ -2116,7 +2435,7 @@ def test_the_timeline_of_tickets_with_relations_comes_before_ergostats_own_upkee
 
 @pytest.mark.parametrize("route, nav, view", [
     ("/diagram", "/diagram", "Dynamics"), ("/diagram?view=blocks", "/diagram", "Blocks"),
-    ("/diagram?view=process", "/diagram", "Process"), ("/loops", "/loops", None), ("/agents", "/agents", None),
+    ("/diagram?view=process", "/diagram", "Process"), ("/goals", "/goals", None), ("/agents", "/agents", None),
     ("/items", "/items", None), ("/items?view=list", "/items", "List"), ("/items?kind=hypothesis", "/items", "List"),
     ("/record", "/record", None),
     ("/model", "/model", None)])
@@ -2193,6 +2512,115 @@ def test_each_kinds_legend_says_which_states_finish_and_a_one_state_kind_lives_o
             e.querySelector('.kname').firstChild.textContent, e.querySelector('.cfd-states')?.title])"""))
         assert lines["gap"] == "finished: merged, closed (declared) · paused: parked", lines
         assert lines["pool"] == "lives on", lines
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_short_fields_flow_in_a_grid(browser, tmp_path):
+    """20 numeric fields at 1440 px: a grid of at most 4 rows, each name above its value."""
+    def adds(p, d):
+        p.events.add("gap.measured", item="gap/2", data={f"measure_{i:02d}": i * 1.5 for i in range(20)})
+    server, url = item_site(tmp_path, adds)
+    pg, _, errors = item_page(browser, url, "gap/2")
+    try:
+        pg.wait_for_selector(".field-grid [data-field=measure_19]", timeout=10000)
+        tops = pg.locator(".field-grid .field").evaluate_all("es => es.map((e) => e.getBoundingClientRect().top)")
+        assert len(tops) == 20 and len({round(t) for t in tops}) <= 4, sorted(tops)
+        name = pg.locator("[data-field=measure_03] .field-name").bounding_box()
+        value = pg.locator("[data-field=measure_03] > div").nth(1).bounding_box()
+        assert name["y"] + name["height"] <= value["y"] + 1, (name, value)
+        assert pg.locator("table.fields").count() == 0
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
+def test_field_history_is_one_section(browser, tmp_path):
+    """No field has a history disclosure: 'N changes' beside a name opens the one Changes section, at the page's end,
+    narrowed to that field, its changes latest first, each linked to its event; the poll asks for history only then."""
+    import json
+
+    def adds(p, d):
+        p.events.add("gap.opened", item="gap/3", data={"title": "one", "n": 1})
+        p.events.add("gap.moved", item="gap/3", data={"n": 2})
+        p.events.add("gap.moved", item="gap/3", data={"n": 3})
+    server, url = item_site(tmp_path, adds)
+    pg, asked, errors = item_page(browser, url, "gap/3")
+    try:
+        pg.wait_for_selector("[data-field=n] .changes-of", timeout=10000)
+        assert pg.locator("[data-field] details").count() == 0
+        assert pg.locator("[data-field=title] .changes-of").count() == 0, "one change: nothing to open"
+        assert pg.locator("[data-field=n] .changes-of").inner_text().strip() == "3 changes"
+        sec = pg.locator("details.changes")
+        assert sec.count() == 1 and not sec.evaluate("e => e.open")
+        assert sec.evaluate("e => !e.nextElementSibling"), "at the page's end"
+        pg.wait_for_timeout(800)
+        polls = [u for u in asked if "/api/items/gap%2F3" in u]
+        assert len(polls) >= 2 and not [u for u in polls if "history=" in u], polls
+        plain = json.loads(urllib.request.urlopen(f"{url}/api/items/gap%2F3").read())
+        assert "history" not in plain and plain["changes"]["n"] == 3
+        one = json.loads(urllib.request.urlopen(f"{url}/api/items/gap%2F3?history=n").read())
+        assert list(one["history"]) == ["n"] and len(one["history"]["n"]) == 3
+        pg.locator("[data-field=n] .changes-of").click()
+        pg.wait_for_selector("details.changes[open] table.history", timeout=10000)
+        rows = sec.locator("table.history tr")
+        assert rows.count() == 4, rows.count()                       # the head and three changes
+        assert [rows.nth(i).locator("td").nth(4).inner_text() for i in (1, 2, 3)] == ["3", "2", "1"]
+        assert all(rows.nth(i).locator("td").nth(5).locator("a").count() == 1 for i in (1, 2, 3))
+        assert [u for u in asked if "history=n" in u]
+        sec.locator("summary").click()                                # closed: the poll stops asking
+        pg.wait_for_timeout(300)
+        n = len(asked)
+        pg.wait_for_timeout(800)
+        assert not [u for u in asked[n:] if "history=" in u], asked[n:]
+        assert not errors, errors
+    finally:
+        pg.close()
+        server.shutdown()
+        server.server_close()
+
+
+HELD = """(() => {          // while window.__hold, an item answer asked with no history= waits for window.__release()
+  window.__hold = false; window.__held = 0; const gates = [];
+  window.__release = () => { while (gates.length) gates.shift()(); };
+  const f = window.fetch.bind(window);
+  window.fetch = (u, o) => {
+    if (!window.__hold || !String(u).startsWith('/api/items/gap%2F3?') || String(u).includes('history=')) return f(u, o);
+    window.__held++;
+    return new Promise((res) => gates.push(res)).then(() => f(u, o));
+  };
+})();"""
+
+
+def test_a_late_answer_without_history_never_hides_the_changes(browser, tmp_path):
+    """A poll's item answer, asked before 'N changes' was clicked and landing after the answer with history=, is not
+    drawn: the Changes section keeps that field's changes, and later polls (asking the same) do not leave it at '…'."""
+    def adds(p, d):
+        p.events.add("gap.opened", item="gap/3", data={"title": "one", "n": 1})
+        p.events.add("gap.moved", item="gap/3", data={"n": 2})
+        p.events.add("gap.moved", item="gap/3", data={"n": 3})
+    server, url = item_site(tmp_path, adds)
+    pg = browser.new_page(viewport={"width": 1440, "height": 1000})
+    pg.add_init_script("window.ERGOSTAT_POLL_SPEED = 8")
+    pg.add_init_script(HELD)
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{url}/item/gap%2F3")
+    try:
+        pg.wait_for_selector("[data-field=n] .changes-of", timeout=10000)
+        pg.evaluate("window.__hold = true")
+        pg.wait_for_function("window.__held > 0", timeout=10000)      # a poll's answer, no history=, held back
+        pg.locator("[data-field=n] .changes-of").click()
+        rows = pg.locator("details.changes[open] table.history tr")
+        pg.wait_for_function("document.querySelectorAll('details.changes[open] table.history tr').length === 4", timeout=10000)
+        pg.evaluate("window.__hold = false; window.__release()")      # the older answer lands after the newer
+        pg.wait_for_timeout(1500)                                     # several polls
+        assert rows.count() == 4, pg.locator("details.changes").inner_text()
         assert not errors, errors
     finally:
         pg.close()
@@ -2863,6 +3291,7 @@ MS_TIMELINE = """([d, o, n]) => { const m = rgModel(d, o), el = relTimeline(() =
     tx: r.querySelector('.rg-tally')?.getAttribute('x'),
     cy: +r.querySelector('.rg-id').getAttribute('y') - 4 }));
   const out = { rows: read(), note: el.querySelector('.rg-note').textContent,
+                heads: [...el.querySelectorAll('.rg-heading')].map((h) => h.textContent),
                 starts: [...el.querySelectorAll('.rg-edge path')].map((p) => +p.getAttribute('d').split(' ')[0].split(',')[1]) };
   if (n) { el.querySelector(`.rg-sumrow[data-id="${n}"] .rg-tri`).dispatchEvent(new MouseEvent('click')); out.after = read(); }
   el.remove(); return out; }"""
@@ -2897,6 +3326,18 @@ def test_the_timeline_groups_its_rows_by_milestone_in_the_schedules_order(browse
     sums = [r for r in big["rows"] if r["sum"]]
     assert len(sums) == 45 and len(big["rows"]) <= 200                          # every milestone kept, as a row
     assert any(r["open"] == "false" and r["id"].startswith("milestone/x") for r in sums)
+    assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
+    # with estimates and 6 not scheduled: room kept for their group, its heading and every row of it, none cut
+    ans = milestone_answer(n_extra=40)
+    ans["eta"] = {"runs": 10, "capacity": {"implementor": 3}, "sources": {}}
+    parked = [x["id"] for x in ans["items"] if x["kind"] == "gap" and x["status"] != "done"][-6:]
+    for x in ans["items"]:
+        if x["id"] in parked:
+            x["eta"] = {"unscheduled": True, "said": "paused in parked"}
+    big = pg.evaluate(MS_TIMELINE, [ans, MS, None])
+    ids = [r["id"] for r in big["rows"]]
+    assert big["heads"] == ["Not scheduled (6)"], big["heads"]
+    assert len(ids) <= 200 and ids[-6:] == sorted(parked), ids[-8:]
     assert "folded to keep within 200 rows" in big["note"] and "rows drawn" not in big["note"], big["note"]
     assert not errors, errors
     pg.close()

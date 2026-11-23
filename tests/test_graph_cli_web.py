@@ -212,11 +212,20 @@ def test_the_cli_topics_answer(repo, project, capsys):
     assert rc == 0 and "not running" in out and "disk-under-80" in out and "off by 5" in out
     for args, expect in [(["check"], "1 stock ·"), (["loop"], "disk-under-80"), (["loop", "disk-under-80"], "FILLED BY"),
                          (["agent"], "cleaner"), (["agent", "cleaner"], "fills"), (["system"], "host"),
-                         (["system", "host"], "loop disk-under-80"), (["system", "--all", "--wiring"], "cleaner"),
+                         (["system", "host"], "goal disk-under-80"), (["system", "--all", "--wiring"], "cleaner"),
                          (["stock"], "disk-used"), (["valve"], "delete-old-files"), (["disturbance"], "logs-written"),
                          (["sensor", "disk-usage"], "85"), (["residual"], "two readings"), (["event"], ""), (["item"], "")]:
         rc, out = run_cli(repo, *args, capsys=capsys)
         assert rc == 0 and expect in out, (args, out)
+
+
+def test_the_cli_calls_what_is_held_a_goal(repo, project, capsys):
+    """What show.py prints of a goal says 'goal NAME', never 'loop NAME'; the table's column is GOAL."""
+    import re
+    for args in (["system", "host"], ["system", "host", "--blocks"], ["loop", "disk-under-80"], ["loop"]):
+        rc, out = run_cli(repo, *args, capsys=capsys)
+        assert rc == 0 and ("goal disk-under-80" in out or "GOAL" in out), (args, out)
+        assert not re.search(r"\bloop disk-under-80|\bLOOP\b", out), (args, out)
 
 
 def test_the_status_says_the_models_purpose_its_systems_and_its_controlled_goals(tmp_path):
@@ -442,6 +451,18 @@ def test_the_agents_answer_gives_each_agent_the_rung_the_page_groups_and_counts_
     assert sum(a["rung"] == names.index("program") for a in agents.values()) == 1    # the disk model's cleaner
 
 
+def test_needs_attention_and_the_actions_page_say_one_sentence_of_what_a_person_may_do():
+    """The sentence is defined once (pages.js MAY_DO); the Needs attention group shows that same constant, described
+    by it (aria-describedby), with its empty form when nothing waits (the browser half is test_diagram_rendering.py)."""
+    from pathlib import Path
+    static = Path(__file__).resolve().parents[1] / "ergostat" / "web" / "static"
+    pages, diagram = (static / "pages.js").read_text(), (static / "diagram.js").read_text()
+    said = "You can look at everything. Approving or denying these is the only thing that changes the system."
+    assert f'const MAY_DO = "{said}";' in pages and said not in diagram
+    assert '"aria-describedby": "may-do"' in diagram and 'key: "may-do" }, MAY_DO)' in diagram
+    assert "Nothing waits for you. Looking never changes the system." in diagram
+
+
 def test_a_link_s_window_is_the_one_the_api_is_asked_for_and_its_address_is_the_page(project):
     """A pasted link's ?window= is S.since (main.js reads it only when it names one of WINDOWS) and goes to the API as
     since=: each name must be a window the server reads as its seconds, never its 1h fallback. A link with ?select=,
@@ -618,7 +639,7 @@ def test_every_page_address_is_the_page_and_never_shadows_the_api_static_or_file
         except urllib.error.HTTPError as e:
             return e.code, e.headers["Content-Type"], e.read()
     try:
-        for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/loops", "/agents", "/items?kind=ticket&state=open",
+        for path in ("/", "/diagram", "/diagram?view=blocks&open=*", "/goals", "/loops", "/agents", "/items?kind=ticket&state=open",
                      "/item/ticket%2F7", "/item/a%20b%3Fc%23d%25e%26f%2Fg", "/item/%C3%BCn%C3%AF(1)!'*~", "/item/hypothesis/1",
                      "/record?type=x.y", "/model", "/check", "/guide?frame=3", "/fit", "/residuals"):
             code, ctype, body = get(path)

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import types
 from pathlib import Path
 
 import pytest
@@ -33,8 +34,8 @@ def test_implementor_environment_has_a_browser():
     assert f"--with {PIN} " in cfg["browser_ready"] and f"--with {PIN} " in cfg["browser"]
     assert f"--with {PIN} " in cfg["rerun"]
     # each browser run prints its skips (-rfEs: one SKIPPED line per reason, and the FAILED and ERROR lines
-    # fac.failed_tests reads), as well as pytest's summary count
-    assert all(" -rfEs " in cfg[n] for n in ("browser", "rerun"))
+    # fac.failed_tests reads; the browser suite PASSED too, for flakes.green), as well as pytest's summary count
+    assert " -rpfEs " in cfg["browser"] and " -rfEs " in cfg["rerun"]
     # the session may run a named browser file under the watchdog, with the suite's own Playwright, and never the suite
     sys.modules.setdefault("fac", module("fac"))
     assert may(f"{PAGE} tests/test_items_page.py") and not may(cfg["browser"])
@@ -229,15 +230,32 @@ def test_a_rerun_is_timed_by_the_suite_that_failed(monkeypatch):
         monkeypatch.setitem(sys.modules, name, module(name))
     onmain = module("onmain")
     assert onmain.fac is sys.modules["fac"] and onmain.flakes.fac is onmain.fac and callable(onmain.agents.clone)
-    room, soon = onmain.room, time.time() + 200
+    # room() reads the clock itself: a fixed one for this onmain alone, so how long a loaded container takes between
+    # this test's reading and room()'s (or a clock another test moves) cannot decide the arithmetic
+    now = 1_000_000.0
+    monkeypatch.setattr(onmain, "time", types.SimpleNamespace(time=lambda: now))
+    room, soon = onmain.room, now + 200
     took = {"unit": {"seconds": 10}, "browser": {"seconds": 400}}
     assert not room({**took, "failed": "browser"}, soon) and room({**took, "failed": "unit"}, soon)
+    assert room({"unit": {"seconds": 10}}, now + onmain.LEAST + 1) and not room({"unit": {"seconds": 10}}, now + onmain.LEAST)
+
+
+def test_room_holds_on_a_slow_clock(monkeypatch):
+    """The container is slow: each reading of the wall clock is 150 s after the last (a worker starved under -n 8).
+    The rerun test still judges room() by its own arithmetic, not by the time that passed between its readings."""
+    t = [time.time()]
+
+    def slow():
+        t[0] += 150
+        return t[0]
+    monkeypatch.setattr(time, "time", slow)
+    with pytest.MonkeyPatch.context() as inner:
+        test_a_rerun_is_timed_by_the_suite_that_failed(inner)
 
 
 def test_room_holds_after_another_test_left_a_stub_fac(monkeypatch):
     """An earlier test in the worker left stand-ins: a fac and an agents lacking what onmain uses, no flakes module,
     and dev/bin not on sys.path. The rerun test still loads onmain on its own fresh modules, and leaves the stubs."""
-    import types
     stub_fac, stub_agents = types.ModuleType("fac"), types.ModuleType("agents")
     monkeypatch.setitem(sys.modules, "fac", stub_fac)
     monkeypatch.setitem(sys.modules, "agents", stub_agents)

@@ -1321,7 +1321,8 @@ def _classes(d: _Diagram) -> dict[str, dict]:
     return out
 
 
-def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
+def fold(d: _Diagram, open_: set[str] | None, focus: str | None, keep: set[str] | None = None) -> dict:
+    """``keep``: the only nodes drawn (the loops an item or a kind touches); a wire from any other ends at a port."""
     from .fold import default_open, upkeep
     from .remote import box as remote_box
     spec = d.s
@@ -1332,6 +1333,8 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
     nodes = d.nodes
 
     def rep(nid: str) -> str:
+        if keep is not None and nid not in keep:
+            return "ext"
         ch = _chain(spec, nodes[nid].get("system"))
         if focus:
             if focus not in ch:
@@ -1393,7 +1396,7 @@ def fold(d: _Diagram, open_: set[str] | None, focus: str | None) -> dict:
                           "fn": {"sym": sg.get("sym"), "sub": sg.get("sub")}, "ins": [], "outs": [], "system": focus,
                           "in": ch[0] if ch else None,
                           "says": f"{'an input from' if io == 'in' else 'an output to'} {ch[0] if ch else 'the top level'}, "
-                                  f"outside {focus}: {sg.get('sym') or ''}{'_' + sg['sub'] if sg.get('sub') else ''}.",
+                                  f"outside {focus or 'the loops drawn'}: {sg.get('sym') or ''}{'_' + sg['sub'] if sg.get('sub') else ''}.",
                           "port_of": io}
             if io == "in":
                 terms[tid]["outs"].append({"id": tid + "|out", "side": "E"})
@@ -1523,15 +1526,32 @@ def _keyname(k: str) -> str:
     return k.split(".", 1)[-1]
 
 
-def diagram(model, snap: dict | None = None, open_: set[str] | None = None, focus: str | None = None) -> dict:
-    """The control system of a model as a block diagram, folded by its systems."""
+def loop_parts(spec: Spec, goal: str) -> set[str]:
+    """A goal's control loop as the model's parts (``kind.name``): what it holds, its controllers and actuators, its
+    valves and disturbances, the long way round, and what its sensors read."""
+    g, lp = spec.goals[goal], spec.loop(goal)
+    return {str(g.of), *(f"block.{b}" for b in [*lp.controllers, *lp.actuators]), *lp.through,
+            *(f"flow.{v}" for v in [*lp.valves, *lp.disturbances]), *(s.rsplit(".", 1)[0] for s in lp.sensors)}
+
+
+def diagram(model, snap: dict | None = None, open_: set[str] | None = None, focus: str | None = None,
+            parts: set[str] | None = None) -> dict:
+    """The control system of a model as a block diagram, folded by its systems; given ``parts`` (what an item passed
+    through, or what a kind touches), only the control loops those meet, each whole, in its systems' frames."""
     spec = spec_of(model)
     if spec is None:
         return {"kind": "blocks", "nodes": [], "edges": [], "frames": [], "open": [], "focus": focus, "tree": {}}
     d = _Diagram(spec, snap)
     d.build()
     identified(d)
-    g = fold(d, open_, focus)
+    keep = None
+    if parts is not None:              # chosen from the model alone: a goal never read yet is touched like any other
+        goals = {g for g in spec.goals if loop_parts(spec, g) & parts}
+        keep = {nid for nid, n in d.nodes.items() if goals & set(n.get("loops") or ())}
+        fed = {w["target"] for w in d.wires if w["source"] in keep}       # (a stock's sum: between its flows and it)
+        keep |= fed & {w["source"] for w in d.wires if w["target"] in keep}
+        open_, focus = {s for nid in keep for s in spec.chain(d.nodes[nid].get("system"))}, None
+    g = fold(d, open_, focus, keep)
     loops = {}
     for name, lp in (snap or {}).get("loops", {}).items():
         if name in spec.goals:
