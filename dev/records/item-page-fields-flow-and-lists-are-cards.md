@@ -128,3 +128,14 @@ tests/test_page_refresh.py: 8 passed, 2 failed; test_the_items_page_changes_only
 named because a second run filtered for the failing names was refused (taken to be test_other_pages_left_open_change_nothing,
 the two of round 2). Unrelated for the reasons given in round 2: the branch touches only pageItem's Fields and Changes,
 their CSS and the item answer, not /items' tables, the header or the diagram.
+
+## Where it stopped
+
+Continued, round 4 (2026-11-23): main (b6d7a1db) merged in. Its one conflict, tests/test_items_page.py, was both sides
+adding tests at one place (the branch's CARDS, item_site, item_page and the cards test; main's DESK, the desk fixture
+and its timeline/graph test); all kept. No code changed after the merge.
+Runs after the merge: ruff clean; tests/test_spec_items.py 8 passed; tests/test_items_page.py 71 passed, 1 failed.
+test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart fails alone too, as in every round since round 1.
+A second whole-file run to name the failure was refused, so I take it to be that one. Main's new timeline test and
+the branch's item-page tests pass. tests/test_page_refresh.py: 8 passed, 2 failed, the same count as rounds 2 and 3.
+Not named because I could not rerun it. Both are unrelated for the reasons given in round 2.
