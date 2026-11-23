@@ -55,3 +55,21 @@ Built, round 1 (8 net lines outside tests: 14 added, 6 removed).
   background limit with no result; restarting it with a longer limit was refused). The unit suite and the other
   browser files were not run here, as the task said; the merge queue runs them. `main` is in the branch (nothing to
   merge).
+
+Round 2: main (bf6dbebf) merged in; the queue's conflicts resolved, keeping both sides.
+
+- `dynamics.py`: main's docstring ("off by 4") with the branch's goal wording. `diagram.js` Suggestions: main's
+  `goalButton`/`showGoal` with the branch's `(?:loop|goal)` match. `dynamics.js`: main's `sdPol(c)` with the
+  branch's `serves goal …`. `test_dynamics_view.py`: main's "off by 4" with the branch's goal assertions.
+  `test_diagram_rendering.py`: both sides' new tests kept.
+- A clash that merged cleanly but did not work (lesson 7): main made a goal's name in Needs attention a button only
+  for `loop NAME` (`diagram.js`), so in Dynamics, which now says `goal NAME`, the button went missing. It now matches
+  `loop` or `goal` (no net lines). Main's two tests that read the Dynamics card words now expect `goal NAME` in
+  Dynamics and `loop NAME` in Blocks: `test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction`
+  and `test_needs_attention_is_three_headed_groups_in_a_fixed_order`.
+- Runs: ruff clean; `tests/test_dynamics_view.py` 16 passed; under the watchdog, the acceptance test and both
+  parametrizations of `test_a_goal_name_opens_its_evidence…` passed. Failing, and not from this branch:
+  `test_needs_attention_is_three_headed_groups_in_a_fixed_order` times out (twice, also alone) in its first wait,
+  before any word this gap changes is read. That wait expects the header `#running` to match `/loops? off/`, but
+  main's `util.js` writes `N off`, and this branch leaves `util.js`, `index.html` and `state.py` identical to main.
+  So it fails on main too; left for main (lesson 13).
