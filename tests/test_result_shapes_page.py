@@ -73,11 +73,17 @@ def test_every_chart_family_against_every_shape(browser, tmp_path):            #
                 if family in TAKES[name]:
                     if state != "drawn" or s.page.evaluate(PAINTED, pid) <= 2:
                         wrong.append((name, family, f"not drawn: {state} {said}"))
+                    if family == "table" and result["shape"] == "table":      # a row a dimension's value and measure
+                        rows = s.page.evaluate("(id) => document.querySelectorAll(`[data-panel-id=\"${id}\"] tbody tr`).length", pid)
+                        if rows != len(result["rows"]) * len(result["measures"]):
+                            wrong.append((name, family, f"{rows} rows drawn of {len(result['rows'])}"))
                 elif not (state == "empty" and said == why and why.startswith(f"{labels[family]} needs ")
                           and "; this result is " in why and why.endswith(".") and why.count(".") == 1):
                     wrong.append((name, family, f"refused as {state}: {said!r}, not in one sentence {why!r}"))
                 s.clear()
         assert wrong == [], "\n".join(map(str, wrong))
+        s.mount(config("stat", pid="one"), got["table-one-row"], META)                # the one row's value, as given
+        assert s.page.locator('[data-panel-id="one"] .panel-stat-num').all_inner_texts() == ["3.00 items"]
         assert not s.errors, s.errors
     finally:
         s.close()
