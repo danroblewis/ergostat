@@ -1,0 +1,7 @@
+[{"goto":"http://127.0.0.1:8791/agents"},{"wait":2500},
+ {"click":"text=work >> nth=0"},{"wait":2000},{"shot":"plan-agentshow-work-panel.png"},
+ {"text":"css=#detail"},
+ {"goto":"http://127.0.0.1:8791/agents"},{"wait":2500},
+ {"click":"text=keep-located-worked"},{"wait":2000},{"shot":"plan-agentshow-rule-panel.png"},
+ {"text":"css=#detail"},
+ {"goto":"http://127.0.0.1:8791/agent/work"},{"wait":2000},{"shot":"plan-agentshow-route-today.png"}]

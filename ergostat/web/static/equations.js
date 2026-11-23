@@ -90,9 +90,16 @@ function provenance(p) {
   else if (p.estimate && p.value != null) bits.push("to estimate: not calibrated yet (the Model page's Calibrate)");
   return bits.join("; ");
 }
+/* why a calibration is not proposed; when the value written lies outside its estimate ± 3σ the record does say it is
+   wrong, only not yet what it is */
+function calNote(p, c) {
+  if (p.value == null || c.se == null || Math.abs(p.value - c.value) <= 3 * c.se) return c.note;
+  return c.note.replace(/([Nn])othing says the value written is wrong/,
+    (_, n) => `${n === "N" ? "T" : "t"}he record so far rejects ${amount(p, p.value, false)} but cannot yet settle a value`);
+}
 /* each calibration of a parameter side by side (Oliva 2003): which, its estimate ± one standard error (marked
-   when it is outside the range or at its end), from how many points (and how many independent), and whether
-   it is proposed or why not */
+   when it is outside the range or at its end; "not enough record yet" when that interval is wider than ten times the
+   estimate), from how many points (and how many independent), and whether it is proposed or why not */
 function calibrationTable(params) {
   const rows = (params || []).flatMap((p) => (p.calibrated || []).map((c) => ({ p, c })));
   if (!rows.length) return null;
@@ -101,10 +108,11 @@ function calibrationTable(params) {
     h("tr", {}, h("th", {}, "calibrated"), h("th", { class: "num" }, "estimate"), h("th", { class: "num" }, "n"), h("th", {}, "")),
     rows.map(({ p, c }) => h("tr", {},
       h("td", {}, h("b", {}, p.name), h("span", { class: "muted" }, ` ${c.scope?.startsWith("system:") ? `system ${c.scope.slice(7)} alone` : c.scope === "parts" ? words.parts : c.scope_words || words[c.scope] || ""}`)),
-      h("td", { class: "num nowrap" }, c.value != null ? `${amount(p, c.value, false)}${c.se != null ? ` \u00b1 ${amount(p, c.se, false)}` : ""}` : "\u2013",
+      h("td", { class: "num nowrap" }, c.value == null ? "\u2013" : c.se != null && 2 * c.se > 10 * Math.abs(c.value) ? "not enough record yet"
+        : `${amount(p, c.value, false)}${c.se != null ? ` \u00b1 ${amount(p, c.se, false)}` : ""}`,
         c.outside_range ? h("span", { class: "s-open" }, " outside its range") : c.at_range ? h("span", { class: "s-open" }, ` at its ${c.at_range} end`) : null),
       h("td", { class: "num nowrap" }, c.n != null ? `${c.n}${c.n_eff != null && c.n_eff < c.n * 0.9 ? ` (${Math.round(c.n_eff)})` : ""}` : ""),
-      h("td", { class: "muted small" }, c.value == null ? (c.note || "no value") : c.note ? `not proposed: ${c.note}` : `supported${c.when ? `, ${ago(c.when)}` : ""}`))));
+      h("td", { class: "muted small" }, c.value == null ? (c.note || "no value") : c.note ? `not proposed: ${calNote(p, c)}` : `supported${c.when ? `, ${ago(c.when)}` : ""}`))));
 }
 /* a value as the owner would type it: a time in seconds (read as a duration), else the number */
 const typed = (p, v) => (v == null ? "" : p.duration ? `${+(v * 3600).toPrecision(4)}s` : String(+v.toPrecision(6)));

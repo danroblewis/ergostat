@@ -170,7 +170,7 @@ def apply(gaps: dict[str, dict], p: dict, by: str) -> tuple[list[str], list[str]
         for part in s["into"]:
             kid = f"{s['gap']}-{len(kids) + 1}"
             say("gap.requested", kid, title=str(part.get("title") or kid)[:100], source="groom", parent=[s["gap"]],
-                branch=fac.slug(kid.split("/", 1)[1], 32), depends_on=prev, why=str(part.get("why") or ""),
+                branch=fac.slug(s["gap"].split("/", 1)[1], 29) + f"-{len(kids) + 1}", depends_on=prev, why=str(part.get("why") or ""),
                 requested_at=time.time())
             gaps[kid] = {"id": kid, "state": "open", "fields": {"depends_on": prev}}
             kids, prev = [*kids, kid], [kid]
