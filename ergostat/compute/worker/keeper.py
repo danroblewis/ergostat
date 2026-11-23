@@ -22,6 +22,9 @@ import threading
 import time
 import traceback
 
+if not __package__:     # the worker's and the keeper's process (by bare name, __main__.py): only they hold deadlines
+    import deadline
+
 RUN = re.compile(r"[0-9a-f]{32}")
 HERE = os.path.dirname(os.path.abspath(__file__))      # (the folder, or the zipapp: either runs as ``python3 -I``)
 TICK = 0.25
@@ -80,6 +83,10 @@ def handlers(root: str, said: dict) -> dict:
         run, cmd, inp, env = req.get("run"), req.get("command"), req.get("input", ""), req.get("env", {})
         if not (isinstance(cmd, str) and cmd and isinstance(inp, str) and _strings(env)):
             raise ValueError("start: command, input and env are strings")
+        lease = req.get("lease")
+        if lease is not None and not (isinstance(lease, dict) and _num(lease.get("left"), DAY)
+                                      and _num(lease.get("ttl"), DAY)):
+            raise ValueError("start: lease is {left, ttl}, seconds within a day")
         limits = req.get("limits", {})
         why = (None if isinstance(run, str) and RUN.fullmatch(run) else "bad name") or \
             ("limits over the node" if over(limits, said) else None) or claim(run)
@@ -88,7 +95,12 @@ def handlers(root: str, said: dict) -> dict:
         d = os.path.join(runs, run)
         try:
             put(os.path.join(d, "run.json"), json.dumps({"run": run, "block": req.get("block"), "backend": "process",
-                                                         "command": cmd, "env": env, "limits": limits}))
+                                                         "command": cmd, "env": env, "limits": limits,
+                                                         "deadlines": True}))
+            at = deadline.now()             # (no wall limit: a day, the most a run may have; never unbounded)
+            deadline.write(os.path.join(d, "deadline"), at + limits.get("wall", DAY),
+                           None if lease is None else at + lease["left"],
+                           WALL_GRACE if lease is None else deadline.kill_after(lease["ttl"]))
             put(os.path.join(d, "in"), inp)
             os.mkdir(os.path.join(d, "cwd"))
             with open(os.path.join(d, "keeper.log"), "ab") as log:
@@ -172,27 +184,35 @@ def grace(path: str) -> float:
         return 10.0                             # (a stop file half read still stops the run, with the usual grace)
 
 
-def keep(d: str, pid: int, wall: float | None = None) -> tuple[int, str]:
-    """Waits for the run; at the stop file, or ``wall`` seconds on (its own deadline, an engine or none), SIGTERM to
-    its group, then SIGKILL to the group past the grace while any of it is left. Its exit code (-N for a signal) and
-    how it ended: ``exit``, the signal, ``TERM``/``KILL``, or ``timeout`` (stopped at its deadline)."""
-    code = how = term = None
-    stop, late, timed = os.path.join(d, "stop"), None if wall is None else time.monotonic() + wall, False
+def keep(d: str, pid: int, wall: float | None = None, held: "deadline.Held | None" = None) -> tuple[int, str]:
+    """Waits for the run; at the stop file, at ``wall`` seconds on (an engine's run: its own deadline, or none), or
+    at the earlier of a node run's ``held`` deadlines (taken again each tick), SIGTERM to its group, then SIGKILL to
+    the group past the grace (a deadline's: ``WALL_GRACE``, or the held ``kill``) while any of it is left. Its exit
+    code (-N for a signal) and how it ended: ``exit``, the signal, ``TERM``/``KILL``, or the deadline that stopped
+    it, ``timeout`` (an engine's run), ``wall`` or ``lease``. Timed on ``deadline.CLOCK``, never the time of day."""
+    code = how = term = timed = None
+    stop, late = os.path.join(d, "stop"), None if wall is None else deadline.now() + wall
     while True:
         if code is None and (got := os.waitpid(pid, os.WNOHANG))[0]:
             code = os.waitstatus_to_exitcode(got[1])
-        if term is None and code is None and (os.path.exists(stop) or late is not None and time.monotonic() >= late):
-            timed = not os.path.exists(stop)
-            term, how = time.monotonic() + (WALL_GRACE if timed else grace(stop)), "TERM"
+        if held is not None and term is None:
+            held.look()
+        at = deadline.now()
+        due = held.due(at) if held is not None else "timeout" if late is not None and at >= late else None
+        if term is None and code is None and (os.path.exists(stop) or due):
+            timed = None if os.path.exists(stop) else due
+            term = at + (grace(stop) if timed is None else held.kill if held is not None else WALL_GRACE)
+            how = "TERM"
             group(pid, signal.SIGTERM)
-        if how == "TERM" and time.monotonic() >= term and group(pid, signal.SIGKILL):
+        if how == "TERM" and deadline.now() >= term and group(pid, signal.SIGKILL):
             how = "KILL"
         if code is not None and (how != "TERM" or not group(pid, 0)):
             break
-        time.sleep(TICK)
+        nxt = None if term is not None else held.next() if held is not None else late   # (woken at a nearer one)
+        time.sleep(0.05 if how == "TERM" else max(0.01, min(TICK, TICK if nxt is None else nxt - deadline.now())))
     if how is None:
         how = "exit" if code >= 0 else signal.Signals(-code).name.removeprefix("SIG")
-    return code, "timeout" if timed else how
+    return code, timed or how
 
 
 # ---- a machine block's run on this machine, under its keeper (SPEC §9.1, *A run outlives its engine*)
@@ -327,6 +347,7 @@ def main(argv: list[str]) -> int:
         wall = spec.get("wall")
         if wall is not None and (isinstance(wall, bool) or not isinstance(wall, int | float) or not 0 < wall < math.inf):
             raise ValueError(f"its deadline is not a number of seconds: {wall!r}")   # (not started, never unbounded)
+        held = deadline.Held(os.path.join(d, "deadline")) if spec.get("deadlines") is True else None
         me, pid = os.getpid(), os.fork()
         if pid == 0:
             child(d, spec, me)
@@ -334,7 +355,7 @@ def main(argv: list[str]) -> int:
             os.setpgid(pid, pid)                # (both sides set it, so a stop can't reach before the group exists)
         except OSError:
             pass
-        code, how = keep(d, pid, wall)
+        code, how = keep(d, pid, wall, held)
     except (OSError, ValueError):
         traceback.print_exc()
         code, how = None, "not started"
