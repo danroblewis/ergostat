@@ -142,9 +142,29 @@ def add(event: str, item: str, **data) -> None:
 
 
 def items(kind: str, state: str | None = None) -> list[dict]:
-    """The items of a kind (in a state), from the record (at most 5,000: the factory's kinds are small)."""
-    args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", state] if state else [])
-    return json.loads(ergostat(*args).stdout).get("items", [])
+    """The items of a kind (in a state), from the record. One listing carries at most 500 items (spec/items.py
+    LISTED), so with no state each state is listed on its own and the lists joined (past 500 gaps the
+    intake read merged and closed gaps as new and opened them again)."""
+    def one(st):
+        args = ["item", "--kind", kind, "--json", "-n", "5000"] + (["--state", st] if st else [])
+        got = json.loads(ergostat(*args).stdout)
+        if len(got.get("items", [])) < int(got.get("total") or 0):    # (a state past the cap: said, as before)
+            print(f"items({kind!r}, {st!r}): {got.get('total')} items, the listing carries "
+                  f"{len(got.get('items', []))}", file=sys.stderr)
+        return got.get("items", [])
+    if state:
+        return one(state)
+    head = [ln for ln in ergostat("item", "--kind", kind).stdout.splitlines() if ln.startswith(f"{kind} ")]
+    states = re.findall(r"([a-z][a-z-]*) \d+", head[0].split("  ", 2)[-1]) if head else []
+    if not states:
+        return one(None)
+    out, seen = [], set()
+    for st in states:
+        for i in one(st):
+            if i["id"] not in seen:
+                seen.add(i["id"])
+                out.append(i)
+    return out
 
 
 def act(name: str, key: str, **args) -> tuple[int, str]:
