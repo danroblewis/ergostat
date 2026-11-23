@@ -106,6 +106,8 @@ def cmd_item(args) -> int:
         return 2
     if args.near is not None or args.path_to is not None or args.about_item:
         return _item_graph(args)
+    if getattr(args, "groups", None) is not None:
+        return _item_groups(args)
     if args.name and args.json and not getattr(args, "at", None) and getattr(args, "history", None) is None:
         from ..calls.client import Refused
         from . import fast
@@ -200,6 +202,32 @@ def _item_graph(args) -> int:
         print("  " + "  ".join(" ".join(map(str, v.values())) if isinstance(v, dict) else str(v) for v in x.values()))
     print(c(got.get("says") or f"{len(got['items'])} items" + (f", capped at {got['cap']}" if got["capped"] else ""),
             "warn" if got["capped"] else "dim"))
+    return 0
+
+
+def _item_groups(args) -> int:
+    """``item --kind K --groups REL`` (``spec/grouptally.py``): each group's progress, as the record is now; over the
+    last day for its completion over time (``--json``)."""
+    from ..spec.grouptally import progress
+    from ..spec.item_sets import BadSet
+    if args.name or not args.kind or getattr(args, "at", None):
+        print("--groups: with --kind, of no one item, as the record is now (never with --at)", file=sys.stderr)
+        return 2
+    p, now = open_project(args), time.time()
+    try:
+        got = progress(p.events, getattr(p.model, "spec", None), args.kind, args.groups, now, now - 86400.0)
+    except BadSet as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    if args.json:
+        return out_json(got)
+    rows = [[r["id"] or f"(no {args.groups})", r["state"] or ("-" if r["id"] is None else "(no such item)"),
+             *[str(r["counts"][s]) for s in got["stacks"]], str(r["total"]), str(r["left"]), str(r["summaries"]),
+             ", ".join(r["waits_on"])] for r in got["rows"]]
+    print(table(["GROUP", "STATE", *[s.upper() for s in got["stacks"]], "OF", "LEFT", "SPLIT", "WAITS ON"], rows,
+                f"no {args.kind} names a {args.groups}"))
+    if got["odd_n"]:
+        print(c(f"{got['odd_n']} whose {args.groups} is not one id, counted in none: {', '.join(got['odd'])}", "warn"))
     return 0
 
 

@@ -1,6 +1,8 @@
 """ergostat's own conformance lists (dev/conformance/), read by the list reader: model-formats.yaml, its checks shown
 both able to say met and able to fail (conformance-model-formats-list); and the diagrams list, its unmet cases not
-asked, and each met check shown able to fail when its view's builder draws nothing (conformance-diagrams-list)."""
+asked, and each met check shown able to fail when its view's builder draws nothing (conformance-diagrams-list); and the
+discovery list, each check run three times on main with its recorded result, each met one unmet with its tolerance at
+zero or a wrong family (conformance-discovery-list)."""
 
 from __future__ import annotations
 
@@ -261,3 +263,85 @@ def test_each_diagram_check_on_main_gives_its_recorded_result_within_60s(case, r
     got = subprocess.run([sys.executable, str(CHECK), case], cwd=ROOT, capture_output=True, text=True, timeout=120)
     took = time.monotonic() - t
     assert (got.returncode, took < 60) == (rc, True), (case, got.returncode, round(took, 1), got.stdout, got.stderr)
+
+
+DISCOVERY = ROOT / "dev" / "conformance" / "checks" / "discovery.py"
+WRONG = {"process-fopdt": "integrating", "process-integrating": "fopdt", "law-onoff": "stepper",
+         "law-proportional": "pi", "law-pi": "proportional", "law-stepper": "onoff",
+         "structure-from-residuals": "residual-delay", "law-kubernetes-hpa": "stepper"}
+
+
+def discovery():
+    return load(DISCOVERY, "discovery_checks")
+
+
+def recorded() -> dict[str, int]:
+    """The results recorded in dev/records/conformance-discovery-list.md; the two unmet met once their feature lands."""
+    from ergostat.numbers import extlaw as el
+    return {"prometheus-draft": 0, "unwritten-loop": 0, "process-fopdt": 0, "process-integrating": 0, "law-onoff": 0,
+            "law-proportional": 0, "law-pi": 0, "law-stepper": 0,
+            "law-changed": 0 if callable(getattr(el, "changed", None)) else 1,
+            "law-kubernetes-hpa": 0 if "ratio" in el.FAMILIES else 1, "structure-from-residuals": 0}
+
+
+def test_discovery_list_parses_with_eleven_asked_cases():
+    got = read(ROOT / "dev" / "conformance", ["discovery"])
+    assert [c.name for c in got.cases] == list(recorded()) == list(discovery().CASES) and got.declared == 11
+    for c in got.cases:
+        assert c.asked and c.description and c.check == f"python3 dev/conformance/checks/discovery.py {c.name}"
+        path, _, line = c.from_.partition(":")
+        assert (ROOT / path).is_file() and line, c.from_
+
+
+@pytest.mark.parametrize("case", list(recorded()))
+def test_each_discovery_check_gives_its_recorded_result_three_runs_in_a_row(case):
+    """Three runs, one result, each run under 54 s, so the list of 11 runs under 10 minutes."""
+    for _ in range(3):
+        t = time.monotonic()
+        got = subprocess.run([sys.executable, str(DISCOVERY), case], cwd=ROOT, capture_output=True, text=True, timeout=120)
+        took = time.monotonic() - t
+        assert (got.returncode, took < 54) == (recorded()[case], True), (case, round(took, 1), got.stdout, got.stderr)
+
+
+@pytest.mark.parametrize("case", [c for c, rc in recorded().items() if rc == 0 and c != "prometheus-draft"])
+def test_each_met_discovery_check_fails_at_zero_tolerance_or_a_wrong_family(case, capsys):
+    mod = discovery()
+    assert mod.main([case]) == 0
+    if case in WRONG:
+        assert mod.main([case, f"--family={WRONG[case]}"]) == 1
+    if case in ("unwritten-loop", "process-fopdt", "process-integrating", "structure-from-residuals",
+                "law-kubernetes-hpa"):
+        assert mod.main([case, "--scale=0"]) == 1
+    assert "unmet:" in capsys.readouterr().err
+
+
+def test_the_prometheus_draft_check_fails_when_no_stem_is_shared(monkeypatch):
+    from ergostat.spec import discover
+    mod = discovery()
+    assert mod.main(["prometheus-draft"]) == 0
+    monkeypatch.setattr(discover, "stem", lambda name: name)      # no counter shares the gauge's stem: no flow into it
+    assert mod.main(["prometheus-draft"]) == 1
+
+
+def test_the_unmet_discovery_checks_are_unmet_for_their_reason(monkeypatch, capsys):
+    from ergostat.numbers import extlaw as el
+    mod = discovery()
+    if "ratio" not in el.FAMILIES:
+        assert mod.main(["law-kubernetes-hpa"]) == 1
+        err = capsys.readouterr().err
+        assert "not ratio" in err and "not accepted" not in err, err   # the law compiles; it is the fit that lacks it
+    if not callable(getattr(el, "changed", None)):
+        assert mod.main(["law-changed"]) == 1 and "no test of a law changed" in capsys.readouterr().err
+    for says, why in ((lambda xs, us, dt: False, "not said changed"), (lambda xs, us, dt: True, "30 false alarms")):
+        monkeypatch.setattr(el, "changed", says, raising=False)
+        assert mod.main(["law-changed"]) == 1 and why in capsys.readouterr().err
+    for target, rc in ((0.72, 0), (0.9, 1)):                     # a fit keeping the ratio family: met near its target
+        ratio = el.Law("ratio", {"target": target}, 15.0)
+        monkeypatch.setattr(el, "fit", lambda xs, us, dt, ratio=ratio: (ratio, [ratio], ""))
+        assert mod.main(["law-kubernetes-hpa"]) == rc
+
+
+def test_a_bad_discovery_case_or_option_is_broken_not_unmet():
+    mod = discovery()
+    assert mod.main(["no-such-case"]) == 2 and mod.main(["law-pi", "--tolerance=0"]) == 2
+    assert mod.main(["law-pi", "--scale=x"]) == 2
