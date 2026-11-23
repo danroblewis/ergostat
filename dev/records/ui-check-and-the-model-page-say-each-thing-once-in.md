@@ -62,3 +62,13 @@ Built, round 1: 47 net lines outside tests and docs (pages.js, review.js, web/nu
   refused in this session, so the factory's rerun on clean main must settle them. Also run: tests/test_control.py
   (52 passed), tests/test_exercised.py (7 passed), the touched extremes test, and ruff (clean). Main has not moved
   since the clone (277a9c6c), so there was nothing to merge.
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-23 14:35).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 13: nack queue: the push of af4bc34a9e4c (gap/dashboard-new-chart-forms) is requested
+- attempt 14: nack queue: the push of f2f65f066ded (gap/milestone-every-gap-has-one) is requested
+- attempt 15: nack queue: the push of 58471dafb951 (gap/compute-runs-on-config-continued-continued) is requested
+- attempt 16: nack its process has been gone since the engine stalled at 12:28: released so the pool can take work
