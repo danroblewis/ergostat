@@ -63,6 +63,8 @@ def _refold(p) -> tuple[set, set]:
     log, now = set(), set()
     for id, evs in by.items():
         k = its.kind_of(spec, id)
+        if k is None:
+            continue
         log |= {(k.name, f, t, id, v, d) for f, t, v, d in itemnumbers.history_of(id, evs, k, False)}
         now |= {(id, f, v) for f, v in itemnumbers.values(its.fold(id, evs, k, transcript=False).fields).items()}
     return log, now
@@ -128,6 +130,13 @@ def test_a_field_that_stops_being_a_number_leaves_the_current_values(tmp_path):
     ix = itemindex.index_for(p.events, p.model.spec, False)
     log, now = _table(ix)
     assert now == set() and ("ticket", "attempts", T0 + 1, "ticket/1", None, -2.0) in log
+
+
+def test_an_item_of_no_kind_is_folded_and_keeps_no_numbers(tmp_path):
+    p = _project(tmp_path)
+    p.events.add("other.note", item="other/1", data={"attempts": 2}, at=T0)
+    ix = itemindex.index_for(p.events, p.model.spec, False)
+    assert ix.total() == 1 and _table(ix) == (set(), set())
 
 
 def test_a_crash_part_way_resumes_to_the_same_table(tmp_path, monkeypatch):
