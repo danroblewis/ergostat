@@ -695,7 +695,25 @@ def _answer(live: Live, path: str, q: dict, project=None):
             for v in lp["valves"]:
                 parts.append({"kind": "valve", "name": v, "agent": agent(m.valves[v].agent), "mode": m.valves[v].mode,
                               "max": m.valves[v].max, "last": p.events.last_opening(v, snap["at"])})
-            return {**lp, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
+            # who acts for it, counted as Agents and the Record count them: commanded, ran, and what its valves moved
+            from ..runner import log_path
+            blocks = getattr(getattr(m, "spec", None), "blocks", {})
+            actors = []
+            for a in dict.fromkeys([m.valves[v].agent for v in c.drives if v in m.valves] + [
+                    b.name for b in blocks.values() if b.goal == name and b.machine and not b.implied]):
+                if a not in snap["agents"]:
+                    continue
+                mine = [x for x in m.valves.values() if x.agent == a]
+                opened = [e["data"].get("amount") or 0 for x in mine
+                          for e in p.events.query(n=None, type="valve.opened", item=x.name, since=since, until=snap["at"])]
+                got = [st.moved(p, x.flow, since, snap["at"]) for x in mine]     # else what its flows measured (None: unknown)
+                moved = sum(opened) if opened else (sum(got) if got and None not in got else None)
+                tail = _tail(log_path(p, a), 20)             # its last run's entry in its log: its last line
+                said = [x for x in tail[max((i for i, x in enumerate(tail) if x.startswith("--- ")), default=-1) + 1:] if x.strip()]
+                actors.append({"name": a, "ran": snap["agents"][a]["runs"], "moved": moved, "log": said[-1] if said else None,
+                               "commanded": len(p.events.query(n=None, type="block.commanded", item=a, since=since,
+                                                               until=snap["at"]))})
+            return {**lp, "actors": actors, "points": stock_pts[::step], "openings": openings, "openings_total": n_open,
                     "since": since, "until": snap["at"], "off_stretches": stretches,
                     "crossings": [{**e, "off_by_words": st.off_by_words(e["data"].get("setpoint") or c.setpoint, e["data"].get(
                         "error"), c.tolerance, getattr(m.stocks.get(c.holds), "unit", ""),
@@ -703,6 +721,8 @@ def _answer(live: Live, path: str, q: dict, project=None):
                     "crossings_total": len(in_window),
                     "description": c.description, "parts": parts,
                     "rates": {f: snap["flows"].get(f, {}).get("rate") for f in lp["flows"]},
+                    "moves": {m.valves[v].flow: snap["flows"].get(m.valves[v].flow, {}).get("rate")     # its own valves'
+                              for v in (lp["valves"] or (c.drives if c.through else [])) if v in m.valves},
                     "decisions": st.decisions(p, name, since, snap["at"]),
                     "hints": [h for h in snap["hints"] if h["controller"] == name]}
         # each loop with its stock's trend (the snapshot's), and with perf=1 how it is doing, from the background
