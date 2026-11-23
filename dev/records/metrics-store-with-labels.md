@@ -38,3 +38,9 @@ supervised VictoriaMetrics process, the guide text, and the `rate()`/`increase()
 Why: this is the environment, not the gap. No dependency is missing. I chose the most reversible option and wrote
 no untested code into the tree. Rerun the round with Bash allowed (at least `git`, `uv run`, and the test and ruff
 scripts).
+
+## Where it stopped
+
+Parked by the factory (review/metrics-store-with-labels-1, 2026-11-23 09:15).
+
+Done: only the definition of done and a Where it stopped note, committed. Left: everything in the definition (migration plus idempotence test against a real VictoriaMetrics binary, bounded labels, the built-in Prometheus data source, the SQLite PromQL-panel message, the supervised process and default-for-new-installs, the guide text, the rate()/increase() comparison). Why stop: the build session's tool permissions refused every shell command, so it could not run git, uv, pytest, ruff or the binary. A fix round in the same environment would fail the same way. This is an environment cause, not a fault in the gap's approach.
