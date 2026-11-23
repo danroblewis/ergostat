@@ -2710,6 +2710,69 @@ def charted(tmp_path: Path, monkeypatch) -> Path:
     return d
 
 
+def test_one_goals_distance_reads_the_same_on_every_surface_outside_blocks(browser, tmp_path, monkeypatch):
+    """A goal past its ceiling (backlog <= 5, tolerance 1, read at 12 tickets) says how far it is in one phrase, the
+    state's: on the Loops page, the Dynamics side list, its gap's panel and its evidence (the loop's panel). Blocks
+    keeps the discipline's e = r − y, its signed e charted, and never the phrase."""
+    from ergostat import model as mdl
+    from ergostat.store import Project
+    d = charted(tmp_path, monkeypatch)
+    p, now = Project(mdl.load(d)), time.time()
+    for i in range(6):
+        p.measurements.add("sensor/backlog.main", 12, at=now - 50 + i * 10)
+    p.events.add("loop.off", item="short-backlog", data={"value": 12}, at=now - 50)
+    want = "off by 7 tickets"
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "ergostat", "-C", str(d), "web", "--port", str(port)],
+                            env={**os.environ}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}"
+    try:
+        deadline = time.monotonic() + 120
+        while True:
+            try:
+                urllib.request.urlopen(url + "/api/status", timeout=2)
+                break
+            except Exception:
+                assert time.monotonic() < deadline and proc.poll() is None, "the page never answered"
+                time.sleep(0.2)
+        loops = json.loads(urllib.request.urlopen(url + "/api/loops", timeout=30).read())
+        assert loops["short-backlog"]["off_by_words"] == want, loops["short-backlog"]
+        pg = browser.new_page(viewport={"width": 1500, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(url + "/loops")
+        cell = pg.locator('td[data-off="short-backlog"]')
+        cell.wait_for(timeout=30000)
+        said = {"loops page": cell.inner_text().strip()}
+        drawn(pg, url, "view=dynamics", 0)
+        side = "() => [...document.querySelectorAll('.side .att')].map((x) => x.textContent).join(' | ')"
+        pg.wait_for_function(f"() => ({side})().includes('short-backlog')", timeout=30000)
+        side = pg.evaluate(side)
+        said["side list"] = want if f"desired backlog = 5: {want}" in side else side
+        pg.evaluate("() => openNode(S.graph.nodes.find((n) => n.id === 'gap:short-backlog'))")
+        pg.wait_for_function("() => document.querySelector('#detail dl')?.textContent.includes('now ')", timeout=30000)
+        gap = pg.locator("#detail dl").inner_text()
+        said["gap"] = want if f"now {want}" in gap else gap
+        pg.evaluate("() => openLoop('short-backlog')")
+        pg.wait_for_function("() => [...document.querySelectorAll('#detail dt')].some((t) => t.textContent === 'how far')",
+                             timeout=30000)
+        rows = pg.evaluate("() => Object.fromEntries([...document.querySelectorAll('#detail dl dt')]"
+                           ".map((t) => [t.textContent, t.nextElementSibling?.textContent]))")
+        said["evidence"] = rows.get("how far")
+        assert said == dict.fromkeys(said, want), said
+        drawn(pg, url, "view=blocks", 1)                 # Blocks: the error as control writes it, e = r − y, signed
+        pg.evaluate("() => openBlock(S.graph.nodes.find((n) => n.role === 'comparator'))")
+        pg.wait_for_function(f"() => ({CHARTS.format('#detail .scope')})() >= 3", timeout=30000)
+        names = pg.evaluate("() => [...document.querySelectorAll('#detail .scope .chart-name')].map((x) => x.textContent)")
+        text = pg.locator("#detail").inner_text()
+        assert "e" in names and "e = r − y" in text and want not in text, (names, text)
+        pg.close()
+        assert not errors, errors
+    finally:
+        proc.terminate()
+        proc.wait(10)
+
+
 def test_the_window_in_the_header_never_claims_more_than_the_record(browser, tmp_path, monkeypatch):
     """Acceptance (ui-the-window-in-the-header-never-claims-more-than): on a project whose record began 33 minutes
     ago, the header's window control says the window and how much of it is recorded ('Last 1h (33m recorded)'),
@@ -4559,6 +4622,105 @@ def test_a_stock_with_no_unit_reads_unit_query_after_its_value_and_the_legend_ex
     finally:
         proc.terminate()
         proc.wait(10)
+
+
+def open_all(pg) -> str:
+    """The ⋯ menu's Open all, clicked: its label as it read."""
+    pg.get_by_title("More: wrap, open or close every system, unpin").click()
+    item = pg.locator(".menu-pop .menu-item", has_text="Open all")
+    label = item.inner_text()
+    item.click()
+    return label
+
+
+OPENED = """(want) => typeof S !== 'undefined' && S.graph && [...(S.graph.open || [])].sort().join(',') === want &&
+  S.layout && S.graphSig && !S.layout.routing && document.querySelectorAll('svg.canvas g.node').length > 0"""
+LEVEL_SAID = "() => document.querySelector('.canvas-wrap .open-level')?.textContent || ''"
+
+
+@pytest.mark.serial
+def test_open_all_on_a_model_that_will_not_fit_opens_the_first_level_and_says_into_for_the_rest(browser, tmp_path):
+    """the-job (about 200 parts open) at 1600x1000: 'Open all (first level)' opens job and modelling, the ten systems
+    within job stay closed boxes with their Into, the canvas says so, the lines come within 3s, Blocks draws (never a
+    blank canvas), and the address lists what was opened, so a reload shows the same."""
+    with served("the-job", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        first = sorted(s for s, t in tree.items() if not t["within"])
+        nested = sorted(set(tree) - set(first))
+        assert first == ["job", "modelling"] and len(nested) == 10, (first, nested)
+        said = f"Opened to the first level: {len(nested)} systems stay closed. Use Into to open one."
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, (view, box, ctl) in enumerate([("view=dynamics", "system:", ".sys-btn"), ("view=blocks", "sys:", ".bd-toggle")]):
+            drawn(pg, url, view, i)
+            assert pg.evaluate(LEVEL_SAID) == ""
+            t0 = time.monotonic()
+            assert open_all(pg).startswith("Open all (first level)")
+            pg.wait_for_function(OPENED, arg=",".join(first), timeout=DRAWN_S * 1000)
+            took = time.monotonic() - t0
+            if view == "view=dynamics":
+                assert took < 3, f"the first level open, its lines routed, took {took:.1f}s"
+            assert f"open={','.join(first)}" in pg.url.replace("%2C", ","), pg.url
+            for _ in range(2):                                       # as opened, then as reloaded from the address
+                got = pg.evaluate("""([box, ctl, nested]) => nested.map((x) => {
+                  const el = document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(box + x)}"]`);
+                  return [x, !!el, !!el?.querySelector(ctl)]; }).filter(([, drawn, has]) => !drawn || !has)""", [box, ctl, nested])
+                assert not got, f"[{view}] not drawn as a closed box with its control: {got}"
+                assert pg.evaluate("() => document.querySelectorAll('svg.canvas g.node').length") > len(nested)
+                assert pg.evaluate(LEVEL_SAID) == (said if view == "view=dynamics" else said.replace("Into", "a block's +"))
+                pg.reload()
+                pg.wait_for_function(OPENED, arg=",".join(first), timeout=DRAWN_S * 1000)
+        pg.close()
+        assert not errors, errors
+
+
+@pytest.mark.serial
+def test_open_all_on_a_flat_model_that_will_not_fit_stays_at_the_system_boxes_and_says_into(browser, tmp_path):
+    """big (its systems all first level, too big open at 1600x1000): 'Open all (system boxes)' keeps every system a
+    closed box with its Into (Blocks: its +), the canvas says how many, and the address (open=-) shows the same on a
+    reload; the page as first drawn says nothing."""
+    with served("big", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        assert tree and not any(t["within"] for t in tree.values()), tree
+        said = f"Opened to the system boxes: {len(tree)} systems stay closed. Use Into to open one."
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, (view, box, ctl) in enumerate([("view=dynamics", "system:", ".sys-btn"), ("view=blocks", "sys:", ".bd-toggle")]):
+            drawn(pg, url, view, i)
+            assert pg.evaluate(LEVEL_SAID) == ""
+            t0 = time.monotonic()
+            assert open_all(pg).startswith("Open all (system boxes)")
+            pg.wait_for_function(OPENED, arg="-", timeout=DRAWN_S * 1000)    # (the server says back what was asked: "-")
+            if view == "view=dynamics":
+                assert time.monotonic() - t0 < 3, "the system boxes and their lines took 3s or more"
+            assert "open=-" in pg.url, pg.url
+            for _ in range(2):                                       # as opened, then as reloaded from the address
+                got = pg.evaluate("""([box, ctl, names]) => names.filter((x) =>
+                  !document.querySelector(`svg.canvas g.node[data-id="${CSS.escape(box + x)}"]`)?.querySelector(ctl))""",
+                                  [box, ctl, sorted(tree)])
+                assert not got, f"[{view}] not drawn as a closed box with its control: {got}"
+                assert pg.evaluate(LEVEL_SAID) == (said if view == "view=dynamics" else said.replace("Into", "a block's +"))
+                pg.reload()
+                pg.wait_for_function(OPENED, arg="-", timeout=DRAWN_S * 1000)
+        pg.close()
+        assert not errors, errors
+
+
+def test_open_all_on_a_model_that_fits_opens_every_system_as_before(browser, tmp_path):
+    """software-factory (about 65 parts open, a system within another) fits: Open all opens every system (open=*)."""
+    with served("software-factory", tmp_path) as url:
+        tree = json.loads(urllib.request.urlopen(url + "/api/graph?view=dynamics", timeout=60).read())["tree"]
+        assert any(t["within"] for t in tree.values()), tree
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        for i, view in enumerate(["view=dynamics", "view=blocks"]):
+            drawn(pg, url, view, i)
+            assert open_all(pg) == "Open all systems"
+            pg.wait_for_function(OPENED, arg=",".join(sorted(tree)), timeout=DRAWN_S * 1000)
+            assert "open=*" in pg.url.replace("%2A", "*"), pg.url
+            assert pg.evaluate(LEVEL_SAID) == ""
+        pg.close()
 
 
 # the reader's pages say what the reader can see or do, never a command, a line of the YAML or a section of SPEC

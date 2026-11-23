@@ -1240,6 +1240,17 @@ items:
 | `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `system`, `description` | | | |
 
+**Which states are finished.** One rule (`spec/finished.py`) decides it for the Items listing, the relations' status
+and critical path, and the completion estimates: the states `messages: {done:}` declares for the kind (*declared*),
+else the states after its first that no item has left yet (*inferred*, so it can change as items move); never its
+first state, a state a block takes from, `leased`, `dead`, or a state `messages: {paused:}` declares (those are
+*paused*, listed apart). A kind with one state, or with nothing declared and nothing inferable, *lives on*: it has
+no finished state (a pool is held, never done). `/api/items` gives each kind `finished`, `paused`, `dead` (a dead
+letter ends its items), `finished_from` (`declared`, `inferred` or `none`) and `lives_on`, and the Items page says it
+in one line under each kind's states: `finished: merged, closed (declared)`, `finished: answered (inferred: no item
+has left it yet)`, or `lives on`, with `paused: …` after it. The process map, the cumulative flow and message routing
+keep their own older rule for now (a kind's last state when every state has been left).
+
 **Changesets.** An item's fields are one JSON document, and every event about it is a changeset
 folded into that document in sequence. The event chooses how it changes it, in one of three forms
 (never two at once):
@@ -1577,14 +1588,25 @@ as its error (`eta_error` on the Timeline's answer, tried again as an answer wou
 two kinds, a rate limit), a goal that switches a block off (its
 gate is not simulated: a block takes whenever it has room), a process that changed (the record's two weeks are taken
 as how the work goes now), relations as they stand now, and a state never seen left (its items move to the next state
-in their kind's order, assumed). **Validated** (`tests/test_eta.py`; `tests/eta_backtest.py` replays past moments,
-estimates from the record before each alone, and compares with what happened): an M/M/c queue's mean wait matches
+in their kind's order, assumed). **Validated** (`tests/test_eta.py`; `numbers/etacheck.py`, which
+`tests/eta_backtest.py` uses, replays past moments, estimates from the record before each alone, and compares with
+what happened): an M/M/c queue's mean wait matches
 Erlang C within 12%; on three synthetic records of the owner's case (100 tickets brought in at once, a pool of six)
 the p90 covers 89 to 94% of the items, the estimates' mean is within a fifth of the error of what happened, and the
 p50's error is about a third of the median path's, whose p90 covered 36 to 42%. The components were kept by a
 backtest with ablations (`docs/roadmap/overnight/eta.md`): a throughput cap measured from the record changed no
 estimate, and was dropped. On the ticket-factory demo's record, with its workspace pool read as a capacity, the p90
 covers every item.
+
+**How well last week's held.** The same replay runs on the project's own record, so the Timeline says whether to
+believe it: the estimates' worker (never a page's request; when no estimate waits, after the estimates are kept) works
+out each kind's **calibration** at most once an hour: 4 moments over the last 7 days (7, 5¼, 3½ and 1¾ days ago),
+100 runs each within five seconds, against what happened by now. Per kind (`eta.calibration` in the items-graph
+answer): the p90's coverage (an item that finished, judged as above), how many items were judged (an item open at
+several of the moments judged once, by the latest it could be judged at), the p50's mean absolute error, and since when. The Timeline's note adds a clause per kind: "last week's estimates: 8 in 10 tickets
+finished by their p90 (41 tickets)", the share rounded down; fewer than 10 judged: "tickets: too few finished last
+week to check"; a coverage under 0.7 in the warning ink. Not said until first worked out, and kept as the last worked
+out when one fails.
 
 **The Items page's views.** Beside **List** (each kind's items, newest first), the Items page shows, per system
 group (or for the chosen kind), the kinds with relations and the items their relations reach, of any kind
@@ -6678,8 +6700,21 @@ item arrives `noted`, with a failure's fields, `swallowed: 1` and `count: 0`, an
 item that exists, in any state, the event says only `{"swallowed": 1, "last_swallowed": RUN}` (`swallowed` folds as a
 sum). The event moves no state, writes no `repair/NAME.input` for an existing item, and carries none of the fields the
 fixer reads, so a failure being fixed keeps its lease and its traceback. A trace with only library or runtime frames,
-or none, records nothing. A later failed run with the same signature opens the noted item as usual. A daemon's run
-hands back no standard error (above), so what a daemon swallows is not seen.
+or none, records nothing, unless the tail has an error-level log line (below). A later failed run with the same
+signature opens the noted item as usual. A daemon's run hands back no standard error (above), so what a daemon
+swallows is not seen.
+
+**Error log events.** "Log events" is taken here to mean errors a program logged without failing; this is ergostat's
+interpretation, nothing more is defined. When a good run's tail (the last 8,000 characters of its own run file) has no
+trace through the project's code, its last error-level log line of two forms is read: Python logging's default form,
+`ERROR:logger:message` or `CRITICAL:logger:message`, and a JSON line whose `level`, `levelname` or `severity` is
+`error`, `critical` or `fatal` (in any case) with a `logger` or `name` and a `message` or `msg`. No other logging format
+is read (a custom Python format, logfmt, syslog lines and the like are unread); lines of other levels, malformed or
+partial JSON, and lines over 8,000 characters are ignored. It is recorded as above, an `ergostat.run.swallowed` signed
+`(block, program, "log", LEVEL, logger)` (the level upper-cased): a new item arrives `noted` with `error` the scrubbed
+message (at most 300 characters) and no traceback, and is never opened; an existing one gets counts only. A trace
+always wins over a log line, and a failed run is still signed by its trace or by how it ended, so no existing id moves
+and a log item is never opened by a failed run.
 
 **Superseding.** Node, Java and Go failures were signed by how they ended before triage read their traces, so their old
 items have other ids. When a failure is signed by such a trace, triage looks for the item at its old signature (block,

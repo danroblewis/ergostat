@@ -674,7 +674,7 @@ async function openNodeSD(n) {
   let chart = null, numbers = null, found = null, items = null, counts = [];
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
     rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
-              [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.valueText || "not known yet"}` : null],
+              [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.offBy || "not known yet"}` : null],
               ["switching", n.switching || null],
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
