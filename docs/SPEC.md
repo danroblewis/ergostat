@@ -2894,20 +2894,66 @@ memory are the sampler's alone (no `wait4`: `method` is `sampled`, or `none` for
 sample). Its exit code is the wrapper's, as above.
 - **Stopping ergostat leaves it going.** `ergostat run --stop`, or a SIGKILL to the engine's whole process group (a
   crash): the run carries on to its end, its journal whole and its exit written. (A restart in place stops its runs
-  through the same `kill_all`, which passes a kept run by, so it is left going too; no test covers that path yet.) The engine records no end for it (no `agent.ran`); what it printed after the engine stopped is in its
-  journal only, and its keeper's folder stays (up to a day) for whoever reads it next. **Not built yet** (the gap
-  `engine-adopts-runs-from-their-journals`): no engine reads a journal left behind, so until then those lines are
-  recorded nowhere. Its lease is given back as the engine stops, as for any run then (section 9.5), so the item may be
-  taken again by the next engine while the old run still works on it; its reserve (section 9.9) stays charged
-  until recovery closes it. A run the engine read to its end has its journal removed and its keeper let go.
+  through the same `kill_all`, which passes a kept run by, so it is left going too; no test covers that path yet.) The
+  engine records no end for it (no `agent.ran`) and does not give its lease back: the lease stays held, with its
+  fence, for the engine that takes the run up next (below). What it printed after the engine stopped is in its
+  journal, and its keeper's folder stays (up to a day) for whoever reads it next. Its reserve (section 9.9) is
+  closed at the whole reserve by the next engine's budget recovery (the engine that reserved it is gone), and its
+  `agent.ran` later carries its real cost; the day is charged the larger, never less than it spent.
+- **Runs taken up again** (`ergostat/spec/adopt.py`). As it reads a kept run's journal, the engine saves, after each
+  batch of lines, where it has read to and what the lines came to by then (`runs/RUN.offset`: the counts, what it
+  moved, its nack, its AI usage, its claims and proposals), written whole or not at all, after the batch's events. Each event a journal line
+  makes has an id made of the run, the line's place in the journal and its count within the line, and the record
+  keeps an id once; so a line read again after a crash between its events and the saved offset adds no event, and
+  every event line, valve opening, decision and refusal is in the record exactly once. (What a line does outside the
+  record is not undone: an `auxiliary` set read again is one more reading of the same value.) An unreadable offset is
+  read from the start, which records nothing twice for the same reason. A starting engine, before its socket, its
+  loop or its leases' first look, takes up each run in `runs/` with a keeper's folder or a journal left (a run of a
+  block no longer in the model, or with no `agent.started` in the record, is left as it is, said):
+  - **Still going**, by its record: its pid, and that process's start time (a pid now another process's, whose
+    start time differs, is gone; a start time that cannot be read is not taken for gone). The start time is read at
+    most once a second (on macOS each reading is a `ps`); between readings, only whether the pid is still there is
+    checked, and a pid once found to be another process's stays gone. A run whose record was
+    never written (an engine killed just after its keeper started it) is known by its keeper's group id alone: it is
+    waited for while that pid is there, and never signalled by the engine (`run --stop --runs` still stops it). It is
+    followed from its saved offset, and, with its record, is this engine's: `block NAME --stop` and a lease's kill
+    reach it. Its lease, when it still
+    holds it with its fence, is renewed as it is taken up (the time no engine was up is not held against it), and the
+    watchdog renews it (`seen: keeper`) instead of expiring it while the run lives; its keeper's own deadline (its
+    timeout, 5 s on) still ends it, and that is its only timeout now. A block with no timeout taken up runs until it
+    ends or is stopped. Its spend cap (T1) is not applied to what it reports after it was taken up.
+  - **Ended while no engine was up** (its keeper's exit written; or its process gone with none written for 3 s,
+    read as killed, -9): its journal is read from its saved offset to the end, then it is ended as if the engine had
+    been there: `agent.ran` (`agent.failed` with its note), at the time its keeper wrote its exit, with `taken_up:
+    true` and its id made from the run's (written once, whichever engine writes it); its pooled workspace taken
+    without a lease released; its run's series at that time; then what follows any run's end (the engine's
+    `after_end`): its failure triaged from its run log's tail (section 12r: `capture.failed`, or `capture.swallowed`
+    for one that ended well), its claims checked (section 12g), its recipes' outcomes, its review (section 12j,
+    `review.required` or `review.skipped`); then its lease's ack or nack (section 9.5), not counted against it when
+    it moved the item on. Its run record carries what these need from its start (its run log, the item its context
+    was given, its workspace). Its journal, record and offset are removed only after that, and its keeper let go, so
+    a crash at any step leaves it to be ended by the next start, each of the record's events written once; the steps
+    after the end are marked done (`runs/RUN.settled`) once they are, so a crash between them and the mark has them
+    again (a review asked twice), never not at all. The same order holds for a kept run its own engine reads to its
+    end.
+  - **Its lease taken over** while no engine was up (it expired, and the item was leased again: a newer fence): its
+    lines about the item are refused (fencing, as a late run's are), its lease is neither renewed nor ended by it.
+  **When its lines were printed.** Its keeper stamps the journal: each tick (0.25 s) it grew, its size and the time
+  are appended to `runs/RUN/stamps` (at most 100,000 stamps). A run taken up has each line's events, valve
+  openings, `auxiliary` readings, decisions, claims, proposals and refusals at the time of the first stamp that
+  covers the line (within a tick after it was printed, never later than now), so what it did while no engine was up
+  stays in the period it happened. A line not stamped yet (still being written, past the stamps' limit, or a stamp
+  not readable) takes effect when it is read, as a kept run's lines do in the engine that started it. What the run's
+  end writes (its `agent.ran` and series) has the time it ended, and readings a run
+  records itself (`ergostat sensor STOCK.SENSOR --read V`, a manual sensor's) go to the store as it makes them, engine or none. What a run taken up
+  printed that is not JSON is not added to its run log (its errors still are: its keeper holds that file).
 - **What still stops it**, the whole process group each time, through its group's id (the run's own pid). While
-  the engine that started it is up: its timeout, `ergostat block NAME --stop`, a lease's kill (section 9.5), and a
-  budget's trip (the same kill). **Its timeout, engine or none:** the keeper is given the block's timeout and stops
+  an engine that started it or took it up is up: its timeout (the keeper's, once taken up), `ergostat block NAME
+  --stop`, a lease's kill (section 9.5), and, for the engine that started it, a budget's trip (the same kill). **Its
+  timeout, engine or none:** the keeper is given the block's timeout and stops
   the run itself 5 s after it (SIGTERM to the group, SIGKILL 2 s on; its exit's `how` is `timeout`), so the engine's
-  own timeout comes first while it is up and a run left going still ends by it. **Once that engine is gone**, nothing
-  else of these reaches the run (**a known limit** until `engine-adopts-runs-from-their-journals`): a new engine's
-  `block NAME --stop` does not know it, no lease's kill is made for it (its lease was given back), and no engine reads
-  its cost lines, so no budget's trip; what it spends then is bounded only by its timeout (and, for an `ai` block's
+  own timeout comes first while it is up and a run left going still ends by it. **While no engine is up**, nothing
+  else of these reaches the run: what it spends then is bounded only by its timeout (and, for an `ai` block's
   own `claude -p` in a model with `budget:`, by the `--max-budget-usd` of its reserve it was started with). A block with no timeout left going runs until it ends or **`ergostat run --stop
   --runs`**, which tells each keeper whose run has not ended to stop it (SIGTERM to the group, SIGKILL past the kill
   grace, `ERGOSTAT_KILL_GRACE`), engine or none, waits a grace and 5 s at most, and exits 1 naming any still going.

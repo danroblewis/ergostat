@@ -934,6 +934,22 @@
     const saveBtn = h("button", { type: "button", class: "pe-primary", onclick: save }, "Save");
     const tallIn = h("input", { type: "checkbox", onchange: () => { draft.tall = tallIn.checked; changed(); } });
     tallIn.checked = !!draft.tall;
+    /* a repeated panel: one on the dashboard for each series a query answers with (its label's values), or for each
+       value of a variable the draft names; the choices are read when the list is opened, so they follow the queries */
+    const repeatSel = h("select", { onchange: () => {
+      const v = repeatSel.value;
+      if (!v) delete draft.repeat; else draft.repeat = v.startsWith("$") ? { var: v.slice(1) } : { query: v };
+      changed();
+    } });
+    function fillRepeat() {
+      const asIs = draft.repeat?.var ? `$${draft.repeat.var}` : draft.repeat?.query ?? "";
+      const opts = [["", "No"], ...(draft.queries || []).filter((q) => q.id != null).map((q) => [String(q.id), `One per series of query ${q.label || q.id}`])];
+      if (draft.repeat?.var) opts.push([asIs, `One per value of $${draft.repeat.var}`]);
+      repeatSel.replaceChildren(...opts.map(([v, text]) => h("option", { value: v }, text)));
+      repeatSel.value = asIs;
+    }
+    repeatSel.addEventListener("focus", fillRepeat);
+    fillRepeat();
 
     const side = h("div", { class: "pe-side" },
       h("h3", {}, "Panel"),
@@ -955,7 +971,8 @@
       h("h3", {}, "Thresholds"), thresholdsBox, addThreshold,
       h("h3", {}, "Width"),
       radios(uid + "-size", "Width on the dashboard", SIZES, draft.size, v => { draft.size = v; changed(); }),
-      h("label", { class: "check" }, tallIn, "Double height"));
+      h("label", { class: "check" }, tallIn, "Double height"),
+      h("h3", {}, "Repeat"), field("Repeat", repeatSel));
 
     const root = h("div", { class: "pe-overlay", role: "dialog", "aria-modal": "true", "aria-label": "Edit panel", onkeydown: onKey },
       h("header", { class: "pe-head" }, h("h2", {}, "Edit panel"), saveMsg, h("span", { class: "pe-actions" }, cancelBtn, saveBtn)),
