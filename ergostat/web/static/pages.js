@@ -841,6 +841,15 @@ function leaseView(l, state) {
 
 /* a field's history: each change, oldest first, with the event that made it (a click opens it) */
 const when = (t) => new Date(t * 1000).toLocaleString([], { hour12: false });
+// why an unfinished item is not done (/api/why: SPEC §5a): the summary, who acts and how, the evidence linked
+function whyBox(w) {
+  if (!w || !w.known || w.done) return null;
+  const r = w.root;
+  return h("div", { class: "note why", "data-why": r ? r.kind : "unknown" }, h("b", {}, "Why isn't this done? "), w.summary,
+    r && r.command ? h("p", {}, h("span", { class: "muted" }, `${r.owner}: `), h("code", {}, r.command)) : null,
+    (w.evidence || []).length ? h("ul", { class: "small" }, w.evidence.slice(0, 6).map((e) =>
+      h("li", { key: `${e.says}|${e.link}` }, e.link ? h("a", { href: e.link }, e.says) : e.says))) : null);
+}
 function eventLink(eid, type, d) {
   return h("a", { href: "#", class: "plain", title: `event ${eid}`, onclick: async (ev) => {
     ev.preventDefault();
@@ -915,6 +924,7 @@ async function pageItem(main, id, q) {
   let full = null;                                   // its full history, once asked for: kept across refreshes
   let impact = null;                                 // a failure's or a change's impact (review.js): worked out once
   const ans = answers();
+  let whySig = null;                                 // what the why answer said when last drawn
   // a refresh asks for its answers first; if none changed (each a 304), nothing on the page is touched (its files
   // are still asked for: a transcript may grow before its events are recorded); else only what differs is
   async function tick(force = true) {
@@ -926,8 +936,16 @@ async function pageItem(main, id, q) {
     const ms = !k?.name?.startsWith("ergostat.") ? await ans.api("messages", { item: id }).catch(() => null) : null;
     const as = !k?.name?.startsWith("ergostat.") || k?.name === "ergostat.workspace" || /^session\//.test(id)
       ? await ans.api("actions", { item: id }).catch(() => null) : null;
+    // why it is not done (of now only, and of an unfinished item): its answer carries its time and live durations, so
+    // it is never a 304; what it says (its cause, owner, step and evidence) is what counts as a change, and the words'
+    // durations are redrawn with the rest of the page
+    const w = !S.at && !(k?.final || []).includes(d.state) ? await api("why", { item: id }).catch(() => null) : null;
+    const wsig = JSON.stringify(w && [w.known, w.done, w.missing?.length, w.chain, w.roots?.map((r) => [r.kind, r.item, r.owner,
+      r.action, r.command, r.since, r.path, r.evidence.map((e) => [e.link, e.event, e.at])])]);
     if (!p.isConnected) return;
-    if (!force && !ans.changed) { refreshFiles(); return; }
+    const same = wsig === whySig;
+    whySig = wsig;
+    if (!force && !ans.changed && same) { refreshFiles(); return; }
     const pair = (label, value) => h("span", {}, h("span", {}, label), value);
     const head = h("div", { class: "meta" },
       pair("Kind", k ? h("a", { href: `/items?kind=${encodeURIComponent(k.name)}` }, k.name) : h("span", { class: "muted" }, "none (nothing under items: matches this id)")),
@@ -984,7 +1002,7 @@ async function pageItem(main, id, q) {
     const imp = impact ? [h("h2", {}, "Impact"), live(impact)] : [];
     const why = d.eta?.why ? h("p", { class: "note eta-why" }, h("b", {}, d.eta.waits_in ? `Waiting in ${d.eta.waits_in}` + (d.eta.position ? `, ${ordinal(d.eta.position)} in its queue` : "") + ": " : ""),
       d.eta.why, h("span", { class: "muted" }, ` (estimated from the record: ${d.eta.runs} runs of a simulation of every open item, which leaves out a goal that switches a block off and a capacity no block declares; `, h("a", { href: `/items?kind=${encodeURIComponent(k?.name || "")}&view=timeline` }, "the timeline"), ")")) : null;
-    patch(body, head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
+    patch(body, whyBox(w), head, track, why, ...lease, ...relationsView(d.relations, d.kind_of), ...verdict, ...imp, ...about, h("h2", {}, "Fields"), fields, ...refused, h("h2", {}, "How it moved"), moves,
       h("h2", {}, "Events", h("span", { class: "muted" }, ` ${d.events}`)), said, rolled,
       eventsTable(full ? full.events : d.record, true));
   }

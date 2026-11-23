@@ -566,6 +566,11 @@ def _answer(live: Live, path: str, q: dict, project=None):
             return None
         except ig.Bad as e:
             raise BadSet(str(e)) from e
+    if head == "why":                             # why an item is not done (SPEC §5a), as the record is now
+        if not one("item") or one("at"):
+            raise BadSet("why: item=ID, as the record is now (never at=)")
+        from ..why import answer
+        return answer(p, one("item"))
     at = None
     if one("at"):
         try:
