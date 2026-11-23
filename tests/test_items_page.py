@@ -575,6 +575,24 @@ def test_the_lifecycle_strip_draws_the_path_taken_and_sets_the_other_endings_apa
         pg.close()
 
 
+def test_the_supersede_picker_offers_the_confirmed_decisions(browser, site):
+    """The Items list hides finished states by default, and a confirmed decision is one (no done: declared), but the
+    decision's 'replaced by…' picker asks for every state: it offers the confirmed and the proposed, not the dismissed."""
+    d = "ergostat.decision"
+    add_events(*[(f"{d}.proposed", f"{d}/{x}", {"decision": f"rule {x}"}) for x in ("old", "kept", "new", "gone")],
+               *[(f"{d}.confirmed", f"{d}/{x}", {}) for x in ("old", "kept")], (f"{d}.dismissed", f"{d}/gone", {}))
+    pg = browser.new_page(viewport={"width": 1400, "height": 900})
+    errors: list[str] = []
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(f"{site}/item/{d}/old")
+    pg.locator('button[data-act="supersede"]').click(timeout=20000)
+    pg.wait_for_function("() => document.querySelectorAll('select.by option').length > 1", timeout=20000)
+    offered = pg.locator("select.by option").evaluate_all("os => os.map((o) => o.value).filter(Boolean)")
+    assert sorted(offered) == [f"{d}/kept", f"{d}/new"], offered
+    assert not errors, errors
+    pg.close()
+
+
 # ---- the Graph and the Timeline (relations: SPEC §5a; relations.js), on the roadmap example's record
 
 ROADMAP = "roadmap"

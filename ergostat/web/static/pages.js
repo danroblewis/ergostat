@@ -369,7 +369,7 @@ function intentView(d, onDone) {
       for (const r of Object.values(rows)) r.hidden = true;
       row.hidden = false; reason.focus();
       if (by && by.options.length < 2) {
-        const all = await api("items", { kind: DECISION_KIND }).catch(() => ({ items: [] }));
+        const all = await api("items", { kind: DECISION_KIND, finished: "show" }).catch(() => ({ items: [] }));
         for (const x of all.items.filter((x) => x.id !== d.id && !["dismissed", "superseded"].includes(x.state)))
           by.append(h("option", { value: x.id }, `${x.fields.decision || x.id} (${x.state})`));
       }

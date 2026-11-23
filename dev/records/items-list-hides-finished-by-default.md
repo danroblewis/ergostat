@@ -51,3 +51,18 @@ Built, round 1: 80 net lines outside tests and docs (budget 170).
   `/api/projects`, which is the lister's cached `_LISTED` (`server.py`), and this branch does not change it. I
   could not run the test on main's sources: making a worktree and checking out main's files were both refused in
   this session. The factory's rerun on clean main should decide it.
+
+Round 2 (answering the one finding of review 1):
+- The decision's Supersede picker ('replaced by…', `pages.js` intentView) asked `/api/items` for the decision kind
+  with no `finished`, so the new default hid confirmed decisions (finish_of counts them finished when no `done:` is
+  declared) and the picker offered only proposed ones. It now asks `finished: "show"` and keeps its own filter
+  (leaving out dismissed and superseded). Test: `test_items_page.py::test_the_supersede_picker_offers_the_confirmed_decisions`
+  (two confirmed, one proposed, one dismissed: it offers the other confirmed one and the proposed one). Seen to fail
+  with the fix taken out (it offered only the proposed one).
+- Every other page caller of `/api/items` checked: `itemsets.js` passes the server's own set (a stock counting every
+  state already carries `finished=show`, a state set carries `state=`, a flow's set is never hidden), and the header's
+  remotes list (`pages.js`, `n: 1`) reads only `remotes`, which the parameter does not touch.
+- Still failing, as in round 1: `test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart` (the wait for
+  the project switcher's other project). The switcher reads `projects.running()` through `running_pid`, and no file
+  this branch changes is on that path (`git diff main` touches items, item_sets, the items handler, snapshot, pages.js
+  and util.js's api). 36 of the file's 37 tests pass. Not run on clean main here; the factory's rerun decides it.
