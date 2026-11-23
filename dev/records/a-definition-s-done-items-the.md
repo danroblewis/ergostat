@@ -13,3 +13,32 @@ depends-on: []
 Each is broken (classifier returns buildable for all) and seen to fail.
 ## Size budget
 180 net lines outside tests and docs.
+
+## Where it stopped
+
+Built, round 1: items 1-3 and dev/README's half of item 4. About 114 net lines in dev/bin (128 added, 14 removed),
+within the 180.
+
+Not done: docs/SPEC.md. SPEC describes ergostat itself and never the factory: it has no mention of the implementor,
+plan.py, the pipeline, or dev/README. A factory section in the product spec would be the first. Leaving it out is
+the more reversible choice, so the text is in dev/README instead (*Plans, research and what the factory knows*:
+"Done items the implementor cannot do"; *The pipeline manager*: measure-runs and the velocity record). The owner
+decides whether SPEC should carry it.
+
+Choices made without anyone to ask (each easy to undo):
+- The allowlist is applied to backticked spans that read as commands. A span counts as a command when it starts
+  with a known program name (uv, python, git, npm, docker, ergostat, ...) or is a script path with arguments.
+  Prose is checked against a pattern list of needs (a port, an env variable, screenshots by a person,
+  Docker/--sandbox/macOS/seatbelt, files outside the repo). Wording outside both is not caught, and dev/README says
+  so.
+- A command off the allowlist, a port server and an env variable are `measure` needs. They become owner needs when the
+  definition names no acceptance test a measure-runs request could run.
+- An owner need parks the gap in the same event that records its definition, so it is never ready and never leased.
+  `parks.py resume` readies it again as itself once `gap.need-met` is recorded. `manage.py continue` refuses such a
+  park, since there is no branch to continue.
+- Readying again records `gap.defined` with the gap's original `defined_by`. So knowledge.yaml's "entering ready by
+  defined_by" flows count that gap a second time. The model is unchanged.
+- `env-parks` counts the plan-time parks (`env_parked_at`, which a later park keeps) plus every review whose verdict
+  parked a marked gap (`env_needs`) for a need. `first-pass-yield` leaves out those first reviews.
+- A definition the coordinator wrote before planning, which the intake readies, is not classified. The planner's own
+  path, the S path, splits, the lint sweep, and a coordinator file that lands while the planner runs are classified.
