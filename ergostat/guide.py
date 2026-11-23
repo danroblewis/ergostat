@@ -130,7 +130,8 @@ FRAMES = [
      "text": "Between them is the rest of the system. System dynamics draws what is; control draws what we control.",
      "views": [{"view": "dynamics", "model": WANTED}, {"view": "blocks", "model": WANTED}]},
     # ---------------------------------------------------------------- system dynamics: what is
-    {"id": "fills", "part": "dynamics", "text": "A stock fills through its inflow.",
+    {"id": "fills", "part": "dynamics",
+     "text": "A stock fills through its inflow. Its value is in its unit ('unit ?' when the model gives none).",
      "views": [{"view": "dynamics", "model": CUSTOMERS + """
     flows:
       signups:

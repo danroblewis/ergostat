@@ -43,8 +43,9 @@ record:
 | craft | craft notes closed and opened |
 | fit | the replay's scaled error over the stocks both replay, not worse beyond 10%, where it can be worked out (a renamed part replayed on its old readings) |
 | behaviour kept | a stock the old replay followed (scaled error ≤ 0.5) or an equation that explained its flow (R² ≥ 0.5) still there, or renamed, and no worse |
+| systems | only when the change adds a system or moves a part between systems: for each system it adds or moves a part into or out of, the flows and causal links with both ends in it against those crossing out of it, before and after (a part of no declared system is in none, so its links cross); worse when one crosses more than it holds, improved when each holds more than it crosses. It measures how connected the systems are, not whether each has a purpose |
 
-Verdict: **better** when findings, chains and coherence improve (net), none is worse, the fit is no worse and nothing
+Verdict: **better** when findings, chains, coherence and systems improve (net), none is worse, the fit is no worse and nothing
 is lost; **mixed**; **no better**. Craft notes opened (a new flow between stocks wants an equation) are said beside the
 verdict, never enough alone to turn it. The judge takes a redesign up at once and works the scorecard out again on the
 record as it is. It is written only when the owner promotes the class by name, `accept: {redesign: auto}` (`accept:

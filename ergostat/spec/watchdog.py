@@ -82,7 +82,17 @@ class Watchdog:
             heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls,
                       heartbeat_stale(getattr(self.e, "spec", None)),   # (the model as it is now: a reload moves it)
                       getattr(getattr(self.e, "dispatch", None), "failing", None),
-                      shard=getattr(self.e, "shard", None))
+                      shard=getattr(self.e, "shard", None), compute=self.compute())
+
+    def compute(self) -> dict | None:
+        """The pools' status (SPEC §12s.4) for the heartbeat; None without pools, or when it cannot be read (said:
+        the heartbeat is written all the same, and /api/status then shows each pool's status as unknown)."""
+        pools = getattr(self.e, "compute", None)
+        try:
+            return pools.status() if pools is not None else None
+        except Exception as e:
+            self.e.say(f"watchdog: compute status: {type(e).__name__}")
+            return None
 
     # ---- looking
 
@@ -283,7 +293,8 @@ def startup(state: Path, say, restart, deadline: float | None = None) -> threadi
 
 
 def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None = None,
-              failing: tuple[str, float] | None = None, shard: str | None = None, start: bool = False) -> None:
+              failing: tuple[str, float] | None = None, shard: str | None = None, start: bool = False,
+              compute: dict | None = None) -> None:
     """``heartbeat.json`` (a shard engine's: ``heartbeat.SHARD.json``, SPEC §9.8): when the last pass finished (wall
     clock), and this pid. Written at start too, so a watcher never reads a slow start by the last process's heartbeat.
     ``stale``: the limit of ``use: upkeep``'s ``heartbeat-fresh`` (``ir.heartbeat_stale``), for the outer watcher; the
@@ -295,6 +306,7 @@ def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None =
     stale = _last_stale(path) if start and stale is None else stale
     tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     err = {"dispatch_error": {"why": failing[0], "since": round(failing[1], 3)}} if failing else {}
+    err.update({"compute": compute} if compute else {})          # (the pools' status, SPEC §12s.4: with pools only)
     try:
         tmp.write_text(json.dumps({"pass": round(passed, 3), "written": round(time.time(), 3), "stalls": stalls,
                                    "pid": os.getpid(), **({"stale": stale} if stale_ok(stale) else {}), **err}))

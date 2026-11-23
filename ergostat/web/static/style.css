@@ -121,10 +121,13 @@ button.ghost:hover, .menu-btn:hover { background: var(--fill); }
 button.name { border: 0; background: none; padding: 0; min-height: 0; color: inherit; font-weight: inherit; text-align: inherit; }
 button.name:hover:not(:disabled) { background: none; text-decoration: underline; }
 label.check { display: inline-flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
+.filters label.check input[type=checkbox] { width: 24px; height: 24px; margin: 0; }      /* a 24 px target (WCAG 2.5.8) */
+.hit24, button.rg-key { display: inline-flex; align-items: center; min-height: 24px; min-width: 24px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* a menu: a button and what it holds, floating; the one thing with a shadow */
 .menu { position: relative; display: inline-flex; }
-.menu-btn::after { content: "▾"; color: var(--muted); font-size: var(--text-sm); margin-left: var(--sp-1); }
+.menu-btn::after { content: "▾" / ""; color: var(--muted); font-size: var(--text-sm); margin-left: var(--sp-1); }
 .menu-btn.dots::after { content: none; }
 .menu-btn[aria-expanded=true] { background: var(--fill); }
 .menu-pop { position: absolute; top: calc(100% + var(--sp-1)); left: 0; z-index: 30; min-width: 12em; padding: var(--sp-1); background: var(--bg);
@@ -154,6 +157,8 @@ label.check { display: inline-flex; align-items: center; gap: var(--sp-1); curso
 .runstate { font-size: var(--text-sm); color: var(--muted); white-space: nowrap; }
 .runstate.bad { color: var(--bad); font-weight: 600; }
 .runstate.warn { color: var(--warn); font-weight: 600; }
+.heldup { display: inline-block; max-width: 48ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+.waits { font-size: var(--text-sm); font-weight: 600; white-space: nowrap; }
 .bar nav { display: flex; align-self: stretch; gap: var(--sp-1); flex: 1; overflow-x: auto; min-width: 0; scrollbar-width: none; }
 .bar nav a { display: flex; align-items: center; color: var(--muted); padding: 0 var(--sp-2); border-bottom: 2px solid transparent; border-top: 2px solid transparent; white-space: nowrap; }
 .bar nav a:hover { color: var(--ink); text-decoration: none; }
@@ -177,6 +182,7 @@ svg.canvas .opening-note { fill: var(--ink); font-size: var(--text-lg); font-wei
 
 /* tables: hairlines between rows, nothing else; numbers to the right */
 .table-wrap { overflow-x: auto; max-width: 100%; }
+.run-count { color: var(--muted); font-variant-numeric: tabular-nums; }   /* a folded run's ×N (the Record) */
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: var(--sp-2) var(--sp-3) var(--sp-2) 0; border-bottom: var(--hair) solid var(--line); vertical-align: baseline; }
 th { font-size: var(--text-sm); color: var(--muted); font-weight: 400; white-space: nowrap; border-bottom-color: var(--line-strong); }
@@ -231,7 +237,8 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .att-word + .ask-first { display: inline; }
 .att hr.att-rule { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
 details.housekeeping > summary h3 { display: inline; }
-details.suggest, details.changes, details.legend-box { margin-top: var(--sp-3); }
+details.suggest, details.changes, details.legend-box, details.loops { margin-top: var(--sp-3); }
+details.waiting-fold > .att { margin-top: var(--sp-3); }
 details > summary { cursor: pointer; color: var(--ink-2); }
 details > summary:hover { color: var(--ink); }
 details.suggest .hint { margin-top: var(--sp-3); }
@@ -253,6 +260,9 @@ body:has(#detail:not([hidden])) .diagram { grid-template-columns: minmax(0, 1fr)
 body:has(#detail:not([hidden])) .diagram > .side { display: none; }
 .canvas-wrap { position: relative; min-width: 0; min-height: 0; }
 .canvas-wrap svg { user-select: none; -webkit-user-select: none; }
+/* nothing to draw: said in the middle of the canvas, not below it */
+.canvas-wrap > .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.canvas-wrap > .empty a { pointer-events: auto; }
 .toolbar, .zoom { position: absolute; z-index: 2; display: flex; gap: var(--sp-1); align-items: center; flex-wrap: wrap;
   background: var(--bg); border: var(--hair) solid var(--line); border-radius: var(--radius-menu); padding: var(--sp-1); }
 .toolbar { top: var(--sp-3); left: var(--sp-3); right: var(--sp-3); width: max-content; max-width: calc(100% - var(--sp-5)); }
@@ -286,6 +296,7 @@ svg.canvas.dragging { cursor: grabbing; }
 .side h3 .muted { font-weight: 400; }
 .looprow { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--sp-2); padding: var(--sp-1) var(--sp-2); margin: 0 calc(-1 * var(--sp-2));
   border-radius: var(--radius); cursor: pointer; }
+button.looprow { width: calc(100% + 2 * var(--sp-2)); min-height: 0; border: 0; background: none; text-align: left; }   /* a row, by keyboard too */
 .looprow:hover, .looprow.hl { background: var(--fill); }
 .looprow .sub { grid-column: 1 / -1; color: var(--muted); font-size: var(--text-sm); }
 .change { font-size: var(--text-sm); padding: var(--sp-0) 0; overflow-wrap: anywhere; }
@@ -359,11 +370,24 @@ a.chart-name { color: var(--accent); }
 .chart-val { margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .chart-plot { width: 100%; min-width: 0; }
 .chart-foot { display: flex; justify-content: space-between; gap: var(--sp-2); font-size: var(--text-sm); color: var(--muted); }
+.off-key { width: 18px; height: 10px; vertical-align: -1px; margin-right: var(--sp-1); }   /* the off stretches' hatch (charts.js) */
 .chart-when { color: var(--accent); font-variant-numeric: tabular-nums; }
 .strip-title { display: flex; align-items: baseline; gap: var(--sp-2); margin: var(--sp-3) 0 0; }
 .side-charts h3 { margin-top: var(--sp-5); }
 .side-strip + .side-strip { border-top: var(--hair) solid var(--line); }
 .detail .scope dl { margin-top: var(--sp-2); }
+/* plots.js: a heatmap of rows and its key */
+figure.plot-fig { margin: 0 0 var(--sp-3); }
+.plot-fig .chart-head { flex-wrap: wrap; }
+.plot-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); font-size: var(--text-sm); color: var(--muted); }
+.plot-key .ramp { display: inline-flex; border: var(--hair) solid var(--line); }
+.plot-key .ramp span, .plot-key .hatch { display: inline-block; width: var(--sp-3); height: var(--sp-3); }
+.plot-key .hatch { margin-left: var(--sp-2); border-top: var(--sp-0) solid var(--bad);
+  background: repeating-linear-gradient(-45deg, var(--bad) 0 var(--hair), var(--bg) var(--hair) var(--sp-1)); }
+.plot-data summary { cursor: pointer; }
+.plot-data table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.plot-data th, .plot-data td { padding: 0 var(--sp-2); text-align: right; font-weight: normal; }
+.plot-data thead th { color: var(--muted); }
 /* the Items page: each kind's cumulative flow, its states named at the right; its cycle times under its table */
 .cfd { display: grid; grid-template-columns: minmax(0, 1fr) 12em; gap: var(--sp-4); align-items: center; margin: 0 0 var(--sp-3); }
 .cfd-states { display: flex; flex-direction: column; gap: var(--sp-0); }
@@ -380,12 +404,28 @@ a.chart-name { color: var(--accent); }
 .sys-head .sys-desc { font-size: var(--text-sm); }
 .page h3.kind-head { font-size: var(--text); font-weight: 600; margin: var(--sp-5) 0 var(--sp-2); }
 .page h3.kind-head .muted { font-weight: 400; }
+/* a kind's pager, in its bar and under its table */
+.pager { display: inline-flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-left: var(--sp-3); font-weight: 400; }
+.pager.foot { display: flex; margin: var(--sp-2) 0 0; }
 .kind-flows { display: flex; flex-wrap: wrap; gap: var(--sp-4) var(--sp-6); margin: var(--sp-3) 0 var(--sp-5); }
 .kind-flow { flex: 1 1 24rem; min-width: min(20rem, 100%); max-width: 36rem; }
-.kind-flow .cfd { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); margin: 0; }
+.kind-flow .cfd { grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-3); align-items: start; margin: 0; }
 .kind-flow .chart-plot { min-width: 0; overflow: hidden; }
-.kind-flow .cfd-states { flex-direction: row; flex-wrap: wrap; gap: 0 var(--sp-3); font-size: var(--text-sm); }
+.kind-flow .cfd-states { flex-wrap: wrap; align-content: flex-start; max-height: 7.5rem; gap: 0 var(--sp-3); font-size: var(--text-sm); }
+.kind-flow .cfd-states .stbox:not(.some):not(.on) { display: none; }
+@media (max-width: 40rem) {
+  .kind-flow .cfd { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
+  .kind-flow .cfd-states { flex-direction: row; max-height: none; }
+}
 .kind-flow > .states { margin: var(--sp-1) 0 0; }
+/* the overview (kinds.js): a dense grid of small cards, each chart's legend at its right but on a phone */
+.kind-overview .sys-head { margin: var(--sp-1) 0; }
+.kind-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--sp-2) var(--sp-4); margin: 0 0 var(--sp-2); }
+.kind-card { min-width: 0; max-width: none; }
+.kind-card .kname { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kind-card .kind-counts { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kind-card .cfd-states { max-height: 4.25rem; line-height: 1.25; }
+.kinds-quiet { font-size: var(--text-sm); }
 .kind-flow .kname { color: var(--ink); font-weight: 600; }
 .kind-flow .kname.on { color: var(--accent); }
 .kind-flow .kname .mono { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); }
@@ -489,6 +529,8 @@ svg.bd { color: var(--ink); }
 .bd .bd-name { font-weight: 500; font-size: var(--canvas); font-family: var(--font); }
 .bd .bd-note { fill: var(--muted); font-size: var(--canvas-sm); font-family: var(--font); }
 .bd .bd-sig { fill: var(--ink); }
+.bd .bd-state { font-family: var(--font); font-style: normal; }   /* a loop's state on its error: in ink, bold when off */
+.bd .bd-state.bd-off { font-weight: 600; }
 .bd .bd-sign { font-weight: 600; font-size: var(--canvas); font-family: var(--font); }
 .bd .bd-count { fill: var(--ink); font-size: var(--canvas-sm); font-family: var(--font); }
 .bd .bd-sketch .bd-axis { stroke: var(--muted); stroke-width: .8; fill: none; }
@@ -499,6 +541,8 @@ svg.bd { color: var(--ink); }
 .bd .bd-head { fill: var(--ink); }
 .bd .bd-hit { fill: none; stroke: transparent; stroke-width: 9; cursor: pointer; }
 .bd .bd-dot { fill: var(--ink); }
+.bd .bd-slight .bd-line { stroke: var(--muted); }   /* a sensor's sampler whose T is slight against its loop's */
+.bd .bd-slight .bd-dot { fill: var(--muted); }
 .bd .bd-portmark { fill: var(--bg); stroke: var(--ink); stroke-width: 1.1; }
 .bd .bd-portname { fill: var(--muted); }
 .bd .sys-hull.bd-frame rect { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: none; }
@@ -523,6 +567,10 @@ svg.bd.dragging-part .bd-node { cursor: grabbing; }
 .bd text.bd-lit, .bd text.bd-lit tspan { fill: var(--accent); }
 .bd-math { margin: var(--sp-2) 0 var(--sp-3); overflow-x: auto; }
 .bd-math math { font-size: var(--text-lg); }
+.bd-math::-webkit-scrollbar { height: 6px; }                  /* a wide matrix scrolls inside the panel, and shows it does */
+.bd-math::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--radius); }
+table.loop-table caption { text-align: left; font-weight: 600; padding-bottom: var(--sp-1); }
+table.loop-table th { text-align: left; font-weight: normal; color: var(--muted); white-space: nowrap; vertical-align: top; }
 .bd-legend svg { color: var(--ink); }
 
 /* the system dynamics view (dynamics.js) */
@@ -532,6 +580,7 @@ svg.sd .node .t-sub { fill: var(--sd-muted); }
 svg.sd .node .sd-name { font-weight: 500; font-size: var(--canvas); }
 svg.sd .node .sd-value { font-size: var(--canvas-sm); font-variant-numeric: tabular-nums; }
 svg.sd .node .sd-exo { font-style: italic; font-size: var(--canvas-sm); }
+svg.sd .node .sd-nounit { fill: var(--sd-muted); font-style: italic; }
 svg.sd .node .sd-shadow { fill: var(--sd-muted); font-size: var(--canvas); }
 svg.sd .sd-stock { fill: var(--sd-paper); stroke: var(--sd-ink); stroke-width: 1.6; }
 svg.sd .sd-aux { fill: var(--sd-paper); fill-opacity: 0.9; stroke: transparent; }
@@ -588,6 +637,10 @@ details.sd-unknown > summary { color: var(--muted); margin: var(--sp-2) 0; }
 /* Agents: one list, by rung; the ladder as a line of counts */
 .ladder-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); margin: 0 0 var(--sp-5); color: var(--muted); }
 .ladder-line .step b { color: var(--ink); }
+/* an agent that never ran, is behind its schedule or last failed: its word in the alarm colour, its reason under it */
+.exception { color: var(--bad); font-weight: 600; }
+.ladder-line .exception { margin-left: var(--sp-2); }
+tr.exception-why td { padding-top: 0; color: var(--bad); font-size: var(--text-sm); border-top: 0; }
 tbody.group th small { font-weight: normal; font-size: var(--text-sm); }
 .hints { margin: var(--sp-1) 0 0; padding: 0; list-style: none; font-size: var(--text-sm); }
 .hints li { color: var(--ink-2); margin-top: var(--sp-0); }
@@ -597,7 +650,7 @@ tbody.group th small { font-weight: normal; font-size: var(--text-sm); }
 /* Items: each kind one line, its states as counts */
 .states, .track { display: flex; gap: var(--sp-1) var(--sp-2); align-items: baseline; flex-wrap: wrap; }
 .track { margin: 0 0 var(--sp-4); }
-.arrow { color: var(--line-strong); }
+.arrow { color: var(--muted); }                /* 3:1 or more on the page, in both themes */
 .stbox { color: var(--muted); padding: 0 var(--sp-0); border-radius: var(--radius); }
 .stbox .n { font-variant-numeric: tabular-nums; margin-right: var(--sp-1); }
 .stbox.some { color: var(--ink); }
@@ -624,7 +677,7 @@ dl.counts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums;
 .g-part:hover, .g-part.on { color: var(--ink); }
 /* a 24px target, the 12px dot drawn inside it */
 .g-dot { width: var(--sp-5); height: var(--sp-5); min-height: 0; padding: 0; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; }
-.g-dot::before { content: ""; width: var(--sp-3); height: var(--sp-3); box-sizing: border-box; border-radius: 50%; border: var(--hair) solid var(--line-strong); }
+.g-dot::before { content: ""; width: var(--sp-3); height: var(--sp-3); box-sizing: border-box; border-radius: 50%; border: var(--hair) solid var(--muted); }
 .g-dot:hover::before { border-color: var(--ink-2); }
 .g-dot.on { background: transparent; }
 .g-dot.on::before { background: var(--ink); border-color: var(--ink); }
@@ -700,6 +753,8 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
 @media (max-width: 700px) {
   .bar { gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3) 0; }
   #when { margin-left: auto; }
+  .where { flex-wrap: wrap; column-gap: var(--sp-2); }
+  .where .waits-said:has(.waits:not([hidden])) { order: -1; flex: 1 0 100%; }   /* what waits for the reader: first, on a line of its own */
   main { overflow: auto; }
   .diagram { flex: none; grid-template-rows: auto auto; }
   .canvas-wrap { display: flex; flex-direction: column; }
@@ -707,7 +762,7 @@ code.hljs { padding: var(--sp-0) var(--sp-1); }
   .toolbar { order: -1; gap: 0; }
   .toolbar button { padding: var(--sp-1) var(--sp-2); }
   .toolbar select { max-width: 8em; }
-  .toolbar .sep, .panhint { display: none; }
+  .toolbar .sep { display: none; }
   .zoom { order: 3; align-self: flex-end; margin-bottom: var(--sp-2); }
   svg.canvas { height: 420px; flex: none; }
   .page { padding: var(--sp-4); }
@@ -941,6 +996,12 @@ button.rg-key.on { outline: var(--hair) solid var(--accent); }
 @media (prefers-reduced-motion: reduce) { .rg-node.rg-active .rg-box { animation: none; } }
 .rg-frame rect { fill: var(--sd-hull); stroke: var(--line-strong); }
 .rg-frame text { fill: var(--muted); font-size: var(--canvas-sm); font-weight: 600; }
+.rg-frame.rg-ms { cursor: pointer; }
+.rg-frame.rg-ms .rg-fhead { fill: var(--ink); }
+.rg-frame .rg-fsub { font-weight: 400; }
+.rg-frame.rg-ms.rg-active rect { stroke: var(--accent); stroke-width: 1.4; }
+.rg-frame.rg-plain rect { fill: none; stroke: var(--ink-2); stroke-dasharray: 6 4; }
+.rg-node.rg-fold .rg-box { fill: var(--sd-hull); stroke: var(--line-strong); stroke-dasharray: none; animation: none; }
 .rg-edge path { stroke: var(--muted); stroke-width: 1.3; }
 .rg-edge .rg-head { fill: var(--muted); stroke: none; }
 .rg-edge.rg-via path { stroke-dasharray: 6 4; }
@@ -975,6 +1036,10 @@ button.rg-key.on { outline: var(--hair) solid var(--accent); }
 .rg-gantt .rg-lanebar { fill-opacity: 0.55; stroke-dasharray: none; cursor: pointer; }
 .rg-gantt .rg-inbar { pointer-events: none; font-size: var(--text-sm); }
 .rg-gantt .rg-critical .rg-summary { stroke: var(--bad); }
+.rg-gantt .rg-msum { fill: var(--sd-hull); stroke: var(--ink-2); stroke-width: 1; }
+.rg-gantt .rg-msdone { fill: var(--ink-2); pointer-events: none; }
+.rg-gantt .rg-tri { cursor: pointer; fill: var(--ink-2); }
+.rg-gantt .rg-sumrow .rg-id { font-size: var(--canvas-sm); }
 .rg-gantt .rg-edge path { stroke-width: 1; }
 .rg-gantt .rg-now line { stroke: var(--accent); stroke-width: 1.4; }
 .rg-gantt .rg-now text { fill: var(--accent); font-size: var(--canvas-sm); }
