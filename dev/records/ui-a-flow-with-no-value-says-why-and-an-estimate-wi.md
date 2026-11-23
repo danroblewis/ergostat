@@ -76,3 +76,10 @@ valve answer painted over the Blocks panel), so the late-answer guard is kept. T
 `test_an_equation_its_numbers_its_replay_and_a_proposal_accepted_from_the_page` still fails at "Nothing waiting." on
 the /model page (`pages.js`, not touched here), as in round 1. Running it on clean main in a scratch worktree
 (`git worktree add -q --detach /tmp/main-check main`) was refused.
+
+After round 2's `build` step: rc 5 again, and again nothing failed. After the merge, the branch's diff against main
+has no `ergostat/**/*.py` (main already holds the `recorded` field and its check). So `scripts/affected_tests.py`
+selects only `tests/test_diagram_rendering.py`, and the build step's environment skips it without Playwright. No code
+was changed for this. Changing the selection script, or the build step's environment, is outside this gap (lesson 13).
+With Playwright, under the watchdog, the acceptance test and
+`test_a_valve_says_its_rate_inputs_and_equation_and_its_pipe_what_moves` pass (2 passed, rc 0). Ruff is clean.
