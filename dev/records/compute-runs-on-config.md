@@ -132,3 +132,14 @@ The case is in RUNS_ON_REFUSALS. It failed with `ValueError: lstat: embedded nul
 change and passes after it. Only one line was edited, so the net lines are the same as in round 3. Main (ead497d1) is
 already merged.
 Overrun reason: 97 net lines against 90; five are round 2's folder check on the script read, and two are the trust-table lines that classify `runs-on` for library templates.
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, gap/compute-runs-on-config-continued-continued round 5). The queue's finding
+(tests/test_library_trust.py::test_every_compile_key_classified failing on the runs-on keys) was answered in round 3:
+ergostat/library/trust.py classifies `runs-on` as NO for every kind and puts it in the machine-named group. At this
+HEAD, with main (af4bc34a) merged and nothing on main left to merge, the named test passes, and so do the whole file
+(49 passed), tests/test_compute_compile.py (62 passed) and ruff. No code changed this round. I tried to re-prove that
+the test can fail by taking the trust lines out for one run, but that command was refused in this session. Round 3's
+report has the test failing before those lines and passing after.
+Overrun reason: 97 net lines against 90; five are round 2's folder check on the script read, and two are the trust-table lines that classify `runs-on` for library templates.
