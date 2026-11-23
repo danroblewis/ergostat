@@ -73,7 +73,10 @@ Work through these steps in order. Ask the person only what you cannot infer.
    what is unblocked, the critical first: `takes: {kind: ticket, at: todo, unblocked: true}`. When a ticket may
    start once the one it waits on is in review, not done, say so on the relation: `blocked_by: {kind: ticket,
    starts_at: [review]}` (name every state from which on; a ticket held under a lease counts by the state it was
-   taken from, so never name `leased`; the projected schedule still waits for it to finish). Look at the Items
+   taken from, so never name `leased`; the projected schedule still waits for it to finish). Items grouped in one
+   group each (a ticket's `epic: {kind: epic, group: true}`, folded by `replace`) show each group's progress on the
+   kind's card (`ergostat item --kind ticket --groups epic`); when a finished state is not always done work (closed
+   as a duplicate), say which fields make it so: `done_when: {closed: {end: done}}`. Look at the Items
    page's **Graph** (what waits on what, the critical path) and **Timeline** (what happened, and what is projected)
    to check the links came through, or ask from the command line: `ergostat item ID --near [N]` (the items within N
    hops, 1 to 4), `ergostat item A --path B` (a shortest chain of relations, a backward step named by its inverse),
@@ -89,6 +92,14 @@ Work through these steps in order. Ask the person only what you cannot infer.
    without it after those with it; the critical first among equals). The completion estimates and the Timeline
    project the same order the block takes them in, so the Timeline is the queue's expected order. `ergostat check`
    notes an order field no item holds yet (`takes-order-unset`).
+   **When an item carries a finding the owner must see** (a diagnosis, a review's conclusion), declare
+   `attention: FIELD` on its kind: the words of that field on the kind's latest item that has them are a warning on
+   the page's attention list (SPEC §5a), so the finding is said where it is seen, not only stored.
+   **When a queue's items share something that can be down** (a tracker, a build service), give the stock that
+   checks it a sensor reading 1 while up and 0 while down, and say so on the block: `takes: {kind: ticket, at: todo,
+   faults: {healthy: sensor.tracker-up}}` (or a `goal.` that holds, or a `block.` command). While it is down or
+   unread, nothing new is taken and a run that fails spends no attempt, so the outage parks no ticket as a dead
+   letter; the hold is the event `ergostat.queue.held`, ended by `ergostat.queue.resumed` (SPEC §9.5, *Faults*).
    **When items are knowledge about the system** (a lesson, a runbook entry, a known cause), let them say which parts
    of the model they bear on: declare `about: FIELD` on the kind and record the names in that field (`{"data":
    {"about": ["goal.inbox-short", "stock.inbox"]}}`; SPEC §5a, *About*). An event that sets the field replaces the
@@ -154,7 +165,8 @@ Work through these steps in order. Ask the person only what you cannot infer.
    `keep` and measurement retention held at nothing due by `record-compactor`, `record-pruner` and
    `measurement-retainer` (`with: {rollup-every: 1h, retain-every: 1h}`, 1m to 1d), each taking over from the
    engine's own, and the engine's watchdog and the outer watcher drawn as external blocks under `no-stalls` and
-   `heartbeat-fresh` (`stale`, 180 s; `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
+   `heartbeat-fresh` (`stale`, 180 s), with the owner (a person) under `few-restarts` (`restarts-most`, 3 a day;
+   `leases: true` and `pool: NAME` add those loops) (SPEC §2a, *Upkeep*). Add it
    when the files a model's changing kinds leave behind, the record's growth, or the engine's own health, should show
    on the diagram; with it, leave `storage: rollup: every` out (`check` says it is unused).
 10. **Last, reconcile the three views.** Run it (stand-ins are enough), then `ergostat check` again: its
@@ -258,7 +270,9 @@ engine took, with one line on stderr naming the first error; anything that acts 
    checklist below. An agent that looked at its diagrams fixed a disconnected model on its own; one
    that did not, did not notice.
 4. **Run it briefly with stand-ins** (scripts that print plausible events) before connecting real
-   systems, and watch items move through the chain on the Items page.
+   systems, and watch items move through the chain on the Items page: `/items` is an overview, a card per kind with
+   its unfinished count, its states over the window (grouped as waiting, working, stopped and done, or every state)
+   and its rate in and out; a kind's name opens its own page, `/items/KIND`, with its list, graph and timeline.
 5. **Check that the work moves as modelled, in the Process view.** The Diagram page's Process view
    (SPEC §5b) is the process map the record draws: for each kind, the states its items really
    entered and the moves between them, how often, and the median time each took. Hold it against
@@ -278,7 +292,8 @@ The Dynamics view is the workflow you declared; the Process view is the one that
       never printed (look at the collector).
 - [ ] **Items end where the work ends.** The end node should follow your final states; an item that
       ends in a waiting state means a step that never reports.
-- [ ] **Rework is what the person expects.** Lines marked ↺ run back to an earlier state: a review
+- [ ] **Rework is what the person expects.** Lines marked ↺ took an item back to a state it had already
+      been in (a repeated step; how many returns, in the line's panel), never other items' order: a review
       sending work back is real; a lease handing items back over and over is a failing step (its median
       time says how long each try took).
 - [ ] **Fan-out and join** (dashed lines between kinds): work that starts other work (a ticket
@@ -304,7 +319,7 @@ blocks), run again, until every kind reads `N of N agree`. How to read each:
 | Mismatch | Pair | What it means | What to change |
 |---|---|---|---|
 | `move-without-flow` | Process ↔ Dynamics | items moved between two states with stocks, and no flow carries them | add the flow it names (or re-point the cloud flow it names) |
-| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (↺ on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
+| `rework-without-flow` | Process ↔ Dynamics | items went back to an earlier state (drawn running back on the Process view) and the chain has no way back | a flow from the later state's stock back to the earlier one's |
 | `chain-skipped` | Process ↔ Dynamics | items went straight from A to C; the chain only carries them through B | a flow from A's stock to C's, or fix the `on:` mapping if B was meant to be entered |
 | `order-contradicted` | Process ↔ Dynamics | items went from A to B; the chain's flows run from B to A | the flows are the wrong way round: re-point them |
 | `arrival-not-modelled`, `completion-not-modelled` | Process ↔ Dynamics | items arrive where no flow brings them in, or finish where no flow takes them out | the arrivals flow from outside into that stock, or the completions flow out |
@@ -412,7 +427,11 @@ keeps running it; this model reads it.
    system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
    box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in
    the **remote's** names (`stock.open`, never `stock.incidents-open`); `remote-show-unresolved` means it does
-   not serve one. A measure dimmed there is stale: it says how old its last reading is.
+   not serve one. A measure dimmed there is stale: it says how old its last reading is. `ergostat explain`
+   of any of its parts (and of `system.incidents`, once) starts `remote incidents's (runs at URL, model vM,
+   read T ago)`, or `not answering` in place of the age; a block of it is never run here. A feedback loop
+   through its parts ends `(crosses remote incidents: part, part)`, and a goal here whose loop reads them says
+   each is a measured input (a disturbance, or a setpoint handed to us), never an actuator.
 3. **Link to its parts by those names**, only to read them: a cause (`driven-by: [+stock.incidents-open]`)
    for the load it puts on our stocks, a goal here on one of its measures, a block's input. Never point a
    block's `out:` at a remote part (`remote-output`): its actuators are its own. If it should act
@@ -420,7 +439,10 @@ keeps running it; this model reads it.
 4. **Check against what it serves now**: `ergostat check` asks the remote first. A
    `remote-reference-unresolved` finding means the remote renamed or dropped a part you reference: fix the
    reference here (a stand-in is drawn meanwhile). `remote-unreachable` means it did not answer: the model
-   runs on what it read last, with its age shown; fix the URL, the tunnel or the token.
+   runs on what it read last, with its age shown; fix the URL, the tunnel or the token. `remote-stale`
+   means the remote's model answers but its readings request fails, which is not fixed here; tell its
+   owner, with the reason and the age the finding gives. (One reading refused as too old is not this
+   finding: it shows as that sensor's `sensor.failed`.)
 5. **Use its measures, not its items.** Its items can be seen in the Items page (a section marked remote)
    and its events in the Record page (`/record?remote=incidents`), but they are still never folded or counted
    locally: count them through the remote stock that counts them (its sensor is mirrored), or a sensor of your
@@ -456,7 +478,13 @@ choose one of three ways.
 ergostat measures every run itself (SPEC §9.1): what its AI sessions cost (dollars as Claude Code reported them, or
 estimated from tokens), its tokens, the CPU time and peak memory of its processes, its wall time and exit. You do not
 write anything for this: an `ai` block's own `claude -p`, and `ergostat session` inside any block's `run:`, report
-through the run. The Agents page shows each agent's totals and history; `ergostat agent NAME` the same.
+through the run. The Agents page shows each agent's totals and history (a cost of none says why: a free stand-in for an
+AI agent whose runs had no session, "not known" when one of those failed or was stopped (a pool-full give-back is neither), no AI, no runs; the table ends in the window's total), and an item's header what the
+runs that took it cost (every take in its lease's history, a rolled-up one too; an AI agent's words if any block that took it is AI; not known counts only those blocks' runs);
+`ergostat agent NAME` the same.
+An agent whose last run failed, that never ran on its schedule, or that ran under half the runs its `every:` asks for
+over the window's record ("behind: 10 of ~120") is marked in red with its reason under the row, and counted on the
+page's top line.
 
 When the person wants a limit ("no more than $5 a day on AI"), make it a goal, read from a built-in measure, and gate
 the AI blocks on it, so the loop that does the work also stops when the money is spent:
@@ -519,7 +547,13 @@ budget: {daily: 5, max-cost: 0.5}        # $5 over the trailing day; each charge
   a verdict is left due for the next pass, a system is listed as not reviewed. So do the modeller's calls (the
   redesigner, the modelling reviewer, the `modelling ai` tier, the architecture review). Each reserves its
   estimated cost. A refusal is said `budget: …`: the redesign's result is `no budget`, not `nothing proposed`, and
-  its request stays open. Not yet covered: models in `ergostat.toml` (SPEC §9.9).
+  its request stays open.
+- In `ergostat.toml`, write `[budget]` with `daily = 5` and `max-cost = 0.5` (same bounds). Each `[[agent]]` run
+  then asks first, and `ergostat agent NAME --now` says `refused: budget: …`. Write each agent's `kind`: one
+  without it is charged, even though it shows as a program. `decisions extract` reads this budget too (SPEC §9.9).
+  A command that starts with `claude` gets `--max-budget-usd` at its reserve right after `claude`, replacing any in
+  that call; a pipe or `&&` after it is kept. Start the command with `claude` (not `cd x && claude`), or it runs
+  uncapped while still charged its reserve. There is no `ERGOSTAT_MAX_COST` and no T1 kill for these runs.
 - A new place that starts `claude` or `$ERGOSTAT_AI` fails
   `tests/test_modeller_budget.py::test_only_listed_ai_starts`. Route the call through `decisions/ai.call` or `numbers/modeller.asked`; don't add the place to the allowlist.
 
@@ -560,7 +594,7 @@ one, `person-gate`) (SPEC §9.5, *Dispatch*):
 
 - **Reach the person while it lasts.** Everything waiting on them is one list, `ergostat inbox`, answered there
   (`ergostat inbox ID --approve | --deny | --done N`; a held modelling request is denied with `--deny --note WHY`,
-  dismissed until its part changes, and approved back to the AI tier), from the page's *Needs attention* (Approve / Deny inline) or by
+  dismissed until its part changes, and approved back to the AI tier), from the Diagram's *Waiting for you*, at the top of its side panel (Approve / Deny inline), or by
   the MCP `answer` tool when they tell you to (recorded as `owner via mcp`: never evidence for graduating). Set up
   `notify:` with the channels they use: `macos` on their own machine; `email` with `to:`; `slack` or `discord` with the
   webhook's URL in an environment variable (`url-env:`) or a file (`url-file:`), never in the YAML. Each channel is a
@@ -580,6 +614,12 @@ one, `person-gate`) (SPEC §9.5, *Dispatch*):
   raising its threshold, denying a channel or dropping a gate without automating what it guarded is recorded as
   **suppression**: it never lowers the measure, and the request stays open until the guard is back or the work is
   automated. Never change a gate yourself without the owner.
+- **Work the person does by hand, on purpose.** When they describe their own to-dos (done on a bastion, on a VPN, by
+  hand), add `uses: {todo: {use: todo}}` rather than modelling each one: each to-do is an item with its `where`,
+  `instructions` (`[{do, run, check}]`), `requester`, `due` and `waits_on`. Record one they tell you about in one
+  call (MCP `record_event`, type `todo.ready`, item `todo/<id>`; `todo.added` when they have not said how yet), and
+  record nothing as done that they did not say they did. When a stakeholder asks after one, answer from `ergostat
+  why todo/<id>` (its summary is the paragraph to paste), never from memory. The template has no action: keep it so.
 
 ## 3e. Many sensors, or many items: a daemon instead of a process each
 
@@ -641,6 +681,14 @@ blocks:
   duration past a threshold, each with a cooldown), each with a delay, and keeps the one that predicts the held-out record best for its
   number of parameters. The Blocks view writes the law in the block, marked *identified*; the closed-loop projection,
   what-if and risk run it in place of a generic stand-in.
+- Declare the law beside `identify:` (SPEC §12d, *Known laws*) when you have its configuration in front of you (the
+  HPA's manifest, the alert rule's file), not from what you remember of the product's defaults:
+  `law: {kind: kubernetes-hpa, target: 0.7, min: 2, max: 20}` (tolerance 0.1, stabilize-down 5m, stabilize-up 0s,
+  every 15s unless written) or `law: {kind: alert-rule, threshold: 300, side: above, for: 5m}`. A wrong kind, key or
+  value is `bad-law` at that key. The Blocks view writes it in the block, marked *declared kubernetes-hpa* (or
+  *declared alert-rule*), and `explain` says it in words. A declared law is an assumption until tested against the
+  record: once the record identifies a law, the block is drawn with that one, marked *identified*, and the declared one
+  stays in its rows to compare. It is not yet run by the projections.
 - `external-unidentified` means too little record (40 points of both at least, and three moves of its output) or no law
   fits: wait for more, or check the sensors read the right series. `external-not-run` means its output is an auxiliary
   (or a stock its `out:` flow does not move): the law is drawn, but the projection runs a generic stand-in.
@@ -717,9 +765,12 @@ a clone of the repository, tested in the sandbox, and proposed as the gated acti
 Once applied, the fix is verified by the runs of its block begun after it (`verify` of them finished well: not a claim
 the failure is fixed); one that fails again regresses it, and the gated action `revert-fix` offers one `git revert` of
 the fix. A regressed fix whose revert is denied stays regressed, for the owner.
-Triage reads Python, Node, Java and Go traces from the last 8,000 characters of a run's output (a trace whose header
-is cut off there counts as none), and a run that exits 0 but printed a trace through the project's code is noted as a
-swallowed error, never opened and never moving a failure already there. Ruby and other languages are not read.
+Triage reads Python, Node, Java, Go and Ruby traces from the last 8,000 characters of a run's output (a trace whose
+header is cut off there counts as none, except a Python traceback that runs to the end of the run's own file: that is
+read from the file's last 64,000 characters), and a run that exits 0 but printed a trace through the project's code is
+noted as a swallowed error, never opened and never moving a failure already there. Other languages are not read. With
+no such trace, its last error-level log line is noted the same way, in two forms only: Python logging's default
+`ERROR:logger:message` (or `CRITICAL`) and a JSON line with `level`/`levelname`/`severity` error, critical or fatal.
 What you set:
 
 - **`read-only: true`** on a block whose program changes nothing outside (a collector that only reads): its fix is
@@ -772,6 +823,35 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
    every write there is refused; `check` and the page's header say it is public. The tunnel must still keep the
    Host (step 2): the declared name is what opens it, and a request through Cloudflare by `127.0.0.1` is refused.
 
+## 3k. Asking for numbers over time
+
+To read a rate, a level or a duration without scanning the record, use `GET /api/query?q=<base64url of JSON>` and see what
+exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per hour by state is
+`{"since": 86400, "queries": [{"id": "a", "source": "items", "kind": "KIND", "field": "ai_cost_usd", "agg": "sum",
+"transform": "rate", "rate_per": "hour", "group_by": "state"}]}`. Prefer `items`, `moves`, `counts` and `series`; the
+`events` source reads the log, bounded, and says so.
+
+## 3l. A shared dashboard: declared by you, never by a person
+
+People do not write `dashboards:` by hand; you (or the Supervisor) add one when the owner asks for a shared view,
+or when the same question is asked of the page again and again (SPEC §4f):
+
+1. Ask what it is for, in one sentence: that is its `description`. Pick one `window` for all its panels (at most
+   `keep:`).
+2. Put it in the file of the system it is about (one whose `defaults:` sets the system), so it is named
+   `SYSTEM.NAME` and moves with that system; a dashboard across systems goes in the main file.
+3. Write each panel with the parameters its endpoint already takes (the table in SPEC §4f): `chart` with `refs`,
+   `items` with `kind` and `state`, `states` or `cycle-time` with `kind`, `scope` with `goal`, `goals` with the
+   goals it shows. At most 24 panels; every panel that shows a measure shows the model's reading beside it (`replay:
+   true` on a chart of stocks with equations).
+4. `ergostat check`: a name that is not the model's is **unknown-ref** at its line. When you rename or remove a part,
+   check finds every dashboard that named it: fix them in the same change.
+5. Open `GET /api/dashboard/NAME` (or `ergostat snapshot`) and read each panel's answer: none should be empty
+   without a reason.
+
+A dashboards-only change alters no version and no replay, but the judge does not yet know that (it would replay it
+as a parameter change): add a dashboard as a direct edit followed by `ergostat check`, not as a proposal.
+
 ## 4. Common mistakes
 
 | Looks like | What went wrong | Fix |
@@ -793,6 +873,14 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
   those whose fields' string values contain every word (1 to 8 words; a plain substring, case ignored, no ranking and
   no fuzzy match; only the first 65,536 characters of an item's text are read; as of now, never with `--at`).
   `--json` on each; `/api/items?search=WORDS` is the same list.
+- **Why an item is not done**: `ergostat why ID [--json]` (MCP `why`, `/api/why?item=ID`) follows what it waits on to
+  the root (a lease, a full pool, the budget, a gate and which of its inputs is 0, a parked or missing dependency, a
+  cycle, nothing taking its state, ...), names who must act and the command, and links the evidence. Ask it before
+  guessing why work has stalled; when it says `unknown`, the record lacks what it needs (SPEC §5a).
+- **What holds the work up**: `ergostat held-up [--json]` (MCP `held_up`, `/api/held-up`) groups every unfinished
+  item by its root, ranks the roots (stalls first, then by what waits on them), folds the goals off because of a root
+  under it, and its first line names the biggest stall and its next step, or says nothing is stuck. Ask it first when
+  many goals are off at once: fix the first stall, then ask again (SPEC §5a).
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.
@@ -806,6 +894,9 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
 - **Docs**: [SPEC.md](SPEC.md) (the format; sections 5a items, 6 sensors, 7 flows, 8 goals, 9 blocks,
   9.5 leases, 12k gated actions, 4c remote systems), [MODELLING.md](MODELLING.md) (improving a model from its record),
   [MODELLING-WELL.md](MODELLING-WELL.md) (the craft of each diagram),
+  [DASHBOARDS.md](DASHBOARDS.md) (`ergostat help dashboards`: sensible Dashboard panels, each from the question it
+  answers and the decision it supports, with recipes and real `chartPanel` configs; read it before you build a
+  dashboard for someone),
   [QUICKSTART.md](QUICKSTART.md), `examples/ticket-factory/` and `examples/the-job/`.
 
 ## 6. When ergostat itself is wrong

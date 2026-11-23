@@ -18,13 +18,20 @@ headings of one id.
 specific: a class of mistake with where it was seen and the check, not a story. Their ids: `rules-process` (the first
 word of each house-rule heading), `lesson-3` (each `## 3. Title`), and `<kind>-<slug of the heading>` for the other
 kinds (`finding-stale-cache`). Every brief carries the rules and lessons, then, within the `[knowledge]` budget of
-`dev/factory.toml`, the relevant decisions, related gaps, past findings on the files it touches and the module map
+`dev/factory.toml`, for an implementor, a reviewer and a planner first the gap's answered research (below), then the relevant decisions, related gaps, past findings on the files it touches and the module map
 (cached by main's sha in `run/modules/`, safe for sessions starting together: one read, a missing or half-written file
 made again, a whole write renamed into place, and a prune that keeps its own sha's file and skips one already gone; a temp file left by a killed session is removed after ten minutes); its
 recorded context lists the ids it carried and dropped. Entries of the four other kinds are synced as items but not yet
 carried in briefs. Each entry is an item, `knowledge/<id>` (active, or retired once no file holds it), kept by the
 collector `knowledge-sync` (`knowledge.py sync`) from the running version's files, with how many briefs carried it
 (`carried`); the stock `knowledge-entries` counts the active ones, so its panel links to them on /items.
+
+**Research for this gap.** A brief for an implementor, a reviewer or a planner carries, under "Research for this
+gap", each answered `research/...` item the gap or a parent of it lists in its `research` field (a planner's
+questions), or whose `gap` field names one of them (`dev/bin/ask.py --gap GAP`, which refuses a gap the record does
+not hold): its question, summary and report (from `run/research/`) in `<report>` tags, the report cut at a line to
+`[knowledge] research_chars` (6000). A question still asked or dead, or whose report cannot be read, is not carried.
+Each is whole or not at all: one that does not fit the role's budget is dropped and its id recorded as dropped.
 
 **Decisions are items.** Each heading of `decisions.md` is a decision, its body the owner's words, its *Areas* the
 scope: `knowledge-sync` proposes it (`ergostat.decision.proposed`) only while its `ergostat.decision/...` id (ergostat's

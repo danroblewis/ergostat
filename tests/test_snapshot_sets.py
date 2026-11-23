@@ -134,7 +134,7 @@ def test_the_sets_held_stop_at_the_maximum(p, monkeypatch):
     asked: list[dict] = []
 
     def counting(live, path, q):
-        if path == "items" and set(q) - {"since", "kind", "state"}:         # a set, not a kind's own list
+        if path == "items" and set(q) - {"since", "kind", "state", "finished"}:   # a set, not a kind's own list
             asked.append(q)
         return api(live, path, q)
     monkeypatch.setattr(snapshot, "api", counting)

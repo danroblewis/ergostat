@@ -277,10 +277,15 @@ flows:
   research-answered:
     system: research
     from: research-asked
-    description: a question answered - its report in run/research/, its summary on the item
+    description: a question answered with at least one source checked (a file and line of the clone, a URL the session opened) - its report in run/research/, its summary on the item
     driven-by: [+stock.research-asked]
     equation: stock.research-asked / research-time
     sensor: {items: research, entering: answered, over: 1d}
+  research-unsourced:
+    system: research
+    from: research-asked
+    description: an answer with no source checked - given back and asked again (back in through research-questions), the why in its brief; a second is a dead letter
+    sensor: {items: research, entering: unsourced, over: 1d}
   lessons-found:
     system: knowledge
     to: lessons-proposed
@@ -450,14 +455,22 @@ actions:
 blocks:
   plan-when:
     type: expr
-    description: plan while open gaps (or plans sent back) wait, planning is open, and the day's AI money is not spent
+    description: plan while open gaps (or plans sent back) wait, planning is open, and the AI is not stopped (ai-stopped)
     in:
       open: goal.open-gaps-planned.off
       replan: goal.replans-taken.off
       planning: auxiliary.planning-open
-      over: goal.ai-budget.off
-    expr: max(open, replan) * min(planning, 1) * (1 - over)
+      stop: block.ai-stopped
+    expr: max(open, replan) * min(planning, 1) * (1 - stop)
     out: block.planner
+  ai-stopped:
+    type: expr
+    description: planning's AI sessions stopped - the day's AI money spent, or the provider's usage limit holding the AI till its reset (one read of each for plan-when and plan-review-when)
+    in:
+      over: goal.ai-budget.off
+      held: goal.ai-not-held.off
+    expr: max(over, held)
+    out: [block.plan-when, block.plan-review-when]
   planner:
     type: ai
     agent: opus
@@ -465,7 +478,9 @@ blocks:
     run: python3 dev/bin/plan.py
     prompt: dev/prompts/planner.md
     takes: {kind: gap, at: [open, replan], to: [split, ready, replan, parked], unblocked: true, order: rank,
-            where: {continues: null}}  # a gap continuing a branch waits for the intake (its definition is on it)
+            where: {continues: null, waits_on_milestone: null}}
+    # (a gap continuing a branch waits for the intake: its definition is on it; one whose milestone is not active
+    # and that is not pulled waits for it, once [milestones] enforce: dev/bin/milestones.py)
     pool: 12                           # operator: planners spend AI budget, not machine
     lease: {ttl: 60m, attempts: 2}
     timeout: 2h
@@ -484,11 +499,11 @@ blocks:
 
   plan-review-when:
     type: expr
-    description: review a sample of plans while some wait and the day's AI money is not spent - advice, never a gate
+    description: review a sample of plans while some wait and the AI is not stopped (ai-stopped) - advice, never a gate
     in:
       waiting: goal.plan-reviews-done.off
-      over: goal.ai-budget.off
-    expr: waiting * (1 - over)
+      stop: block.ai-stopped
+    expr: waiting * (1 - stop)
     out: block.plan-review
   plan-review:
     type: program
@@ -529,21 +544,22 @@ blocks:
     in:
       waiting: goal.questions-answered.off
       over: goal.ai-budget.off
-    expr: waiting * (1 - over)
+      held: goal.ai-not-held.off
+    expr: waiting * (1 - over) * (1 - held)
     out: block.researcher
   researcher:
     type: ai
     system: research
     agent: opus
-    description: a session per question in a read-only clone of main - the code, the docs, the record and the web where allowed; a report with sources
+    description: a session per question in a read-only clone of main - the code, the docs, the record and the web where allowed; a report with sources, each checked (a file and line at the clone's sha, a URL its session opened)
     run: python3 dev/bin/research.py
     prompt: dev/prompts/researcher.md
     takes: {kind: research, at: asked, to: [answered]}
     pool: 1
-    lease: {ttl: 60m, attempts: 2}
+    lease: {ttl: 60m, attempts: 2}   # (an unsourced answer is a counted attempt: the second is the dead letter)
     timeout: 2h
     in: block.research-when
-    out: flow.research-answered
+    out: [flow.research-answered, flow.research-unsourced]
 
   librarian:
     type: program

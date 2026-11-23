@@ -82,7 +82,17 @@ class Watchdog:
             heartbeat(self.e.p.dir, time.time() - (now - self.e.passed_at), self.stalls,
                       heartbeat_stale(getattr(self.e, "spec", None)),   # (the model as it is now: a reload moves it)
                       getattr(getattr(self.e, "dispatch", None), "failing", None),
-                      shard=getattr(self.e, "shard", None))
+                      shard=getattr(self.e, "shard", None), compute=self.compute())
+
+    def compute(self) -> dict | None:
+        """The pools' status (SPEC §12s.4) for the heartbeat; None without pools, or when it cannot be read (said:
+        the heartbeat is written all the same, and /api/status then shows each pool's status as unknown)."""
+        pools = getattr(self.e, "compute", None)
+        try:
+            return pools.status() if pools is not None else None
+        except Exception as e:
+            self.e.say(f"watchdog: compute status: {type(e).__name__}")
+            return None
 
     # ---- looking
 
@@ -283,18 +293,35 @@ def startup(state: Path, say, restart, deadline: float | None = None) -> threadi
 
 
 def heartbeat(state: Path, passed: float, stalls: int = 0, stale: float | None = None,
-              failing: tuple[str, float] | None = None, shard: str | None = None) -> None:
+              failing: tuple[str, float] | None = None, shard: str | None = None, start: bool = False,
+              compute: dict | None = None) -> None:
     """``heartbeat.json`` (a shard engine's: ``heartbeat.SHARD.json``, SPEC §9.8): when the last pass finished (wall
     clock), and this pid. Written at start too, so a watcher never reads a slow start by the last process's heartbeat.
     ``stale``: the limit of ``use: upkeep``'s ``heartbeat-fresh`` (``ir.heartbeat_stale``), for the outer watcher; the
     file is written whole each time, so a model without the template leaves no ``stale`` in it. With ``failing``, the
-    dispatcher's error while every look meets one, and since when (``dispatch_error``)."""
+    dispatcher's error while every look meets one, and since when (``dispatch_error``). With ``start`` (the write as
+    the run starts, before the model is read): the previous file's ``stale`` when it passes ``stale_ok`` and is at
+    least the watcher's 180 s (which comes after ``STARTUP``: a start only ever gets a longer limit), else none."""
     path = state / ("heartbeat.json" if shard is None else f"heartbeat.{shard}.json")
+    stale = _last_stale(path) if start and stale is None else stale
     tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     err = {"dispatch_error": {"why": failing[0], "since": round(failing[1], 3)}} if failing else {}
+    err.update({"compute": compute} if compute else {})          # (the pools' status, SPEC §12s.4: with pools only)
     try:
         tmp.write_text(json.dumps({"pass": round(passed, 3), "written": round(time.time(), 3), "stalls": stalls,
                                    "pid": os.getpid(), **({"stale": stale} if stale_ok(stale) else {}), **err}))
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+def _last_stale(path: Path) -> float | None:
+    """The ``stale`` of the heartbeat file at ``path`` when it passes ``stale_ok``; None for anything else (no file,
+    one unreadable, not JSON or not an object, a ``stale`` missing, a bool, NaN, out of range, not a number, or under
+    the watcher's ``STALE``, so a carried limit never stops a start still inside its own start-up deadline)."""
+    from ..watcher import STALE
+    try:
+        got = json.loads(path.read_text()).get("stale")
+    except (OSError, ValueError, AttributeError, RecursionError):
+        return None
+    return got if stale_ok(got) and got >= STALE else None

@@ -9,6 +9,7 @@ import contextvars
 import glob as _glob
 import hashlib
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -141,3 +142,68 @@ def replay(kept: dict, fetch):
         yield
     finally:
         _NOW.reset(tok)
+
+
+class TreeError(ValueError):
+    """A library copy refused at ``path``: ``code`` bad-library-tree (a kind or shape not allowed) or library-too-big."""
+
+    def __init__(self, code: str, path: str, why: str):
+        super().__init__(f"{code}: {path!r}: {why}")
+        self.code, self.path = code, path
+
+
+_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
+DEPTH = 64
+
+
+def tree(root, max_entries: int = 2000, max_bytes: int = 20_000_000) -> dict[str, tuple[str, bytes | str | None]]:
+    """Every entry under ``root`` by its ``/``-joined path: (``dir``, None), (``file`` or ``exec``, its bytes) or
+    (``link``, its target). Walked with lstat through folder handles opened O_NOFOLLOW; a FIFO, socket or device is
+    refused unopened; a file is opened O_NOFOLLOW|O_NONBLOCK and refused unless its handle is S_ISREG. Past
+    ``max_entries``, ``max_bytes`` read or ``DEPTH`` folders is refused; never read while the last good model loads."""
+    if replaying():
+        raise NotKept(f"{root}: a library copy is not read while the last good model loads")
+    out: dict = {}
+    top = os.open(root, _DIR)
+    try:
+        _walk(top, "", out, max_entries, [max_bytes], 0)
+    finally:
+        os.close(top)
+    return out
+
+
+def _walk(fd: int, at: str, out: dict, cap: int, left: list, depth: int) -> None:
+    if depth >= DEPTH:
+        raise TreeError("library-too-big", at, f"more than {DEPTH} folders deep")
+    for name in sorted(os.listdir(fd)):
+        p = at + name
+        if len(out) >= cap:
+            raise TreeError("library-too-big", p, f"more than {cap} entries")
+        st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        if stat.S_ISLNK(st.st_mode):
+            out[p] = ("link", os.readlink(name, dir_fd=fd))
+        elif stat.S_ISDIR(st.st_mode):
+            out[p] = ("dir", None)
+            sub = os.open(name, _DIR, dir_fd=fd)
+            try:
+                _walk(sub, p + "/", out, cap, left, depth + 1)
+            finally:
+                os.close(sub)
+        elif stat.S_ISREG(st.st_mode):
+            h = os.open(name, _FILE, dir_fd=fd)
+            try:
+                hs = os.fstat(h)
+                if not stat.S_ISREG(hs.st_mode):
+                    raise TreeError("bad-library-tree", p, "not a regular file once opened")
+                data = bytearray()
+                while len(data) <= left[0] and (b := os.read(h, min(1 << 20, left[0] + 1 - len(data)))):
+                    data += b
+            finally:
+                os.close(h)
+            if len(data) > left[0]:
+                raise TreeError("library-too-big", p, "past the byte cap")
+            left[0] -= len(data)
+            out[p] = ("exec" if hs.st_mode & 0o111 else "file", bytes(data))
+        else:
+            raise TreeError("bad-library-tree", p, "a FIFO, socket or device")
