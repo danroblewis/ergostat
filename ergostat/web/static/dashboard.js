@@ -51,10 +51,14 @@ function dashStored() {
 }
 function dashAddress(d, since) {
   const q = new URLSearchParams();
-  if (d) q.set("draft", dashEncode(d));
+  if (d && dashFitsLink(d)) q.set("draft", dashEncode(d));
   if (since) q.set("since", since);
   return `/dashboard${q.toString() ? `?${q}` : ""}`;
 }
+/* the server refuses a very long address (414), and proxies refuse shorter ones: a larger draft stays in this browser */
+const DASH_LINK_MOST = 30000;
+const dashFitsLink = (d) => dashEncode(d).length <= DASH_LINK_MOST;
+const DASH_TOO_LONG = "Too large for a link: kept in this browser only";
 function dashboardDraft() { return DASH.draft ? JSON.parse(JSON.stringify(DASH.draft)) : null; }
 function saveDashboardDraft(d) {
   const clean = dashClean(d);
@@ -65,6 +69,7 @@ function saveDashboardDraft(d) {
   try { localStorage.setItem(dashKey(), JSON.stringify(clean)); } catch (e) { /* kept in the address alone */ }
   if (parseRoute().path === "/dashboard") replaceRoute(dashAddress(clean, clean.since));
   if (DASH.grid?.isConnected) { dashDraw(); dashHead(); }
+  if (!dashFitsLink(clean) && DASH.said) { DASH.said.textContent = DASH_TOO_LONG; dashAnnounce(DASH_TOO_LONG); }
 }
 
 /* ---- the default, from what the record holds ---- */
@@ -500,6 +505,11 @@ function dashAddPanel() {
   });
 }
 async function dashCopy() {
+  if (!dashFitsLink(DASH.draft)) {
+    if (DASH.said) DASH.said.textContent = DASH_TOO_LONG;
+    dashAnnounce(DASH_TOO_LONG);
+    return;
+  }
   const url = location.origin + dashAddress(DASH.draft, S.since);
   let ok = false;
   try { await navigator.clipboard.writeText(url); ok = true; } catch (e) {
