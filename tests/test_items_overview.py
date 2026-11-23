@@ -155,11 +155,12 @@ def test_the_endpoint_is_one_answer_and_takes_no_snapshot(factory, monkeypatch):
 
 
 def test_the_overviews_script_asks_one_answer_and_draws_no_rows():
-    """Done items 1 and 5, without a browser: kinds.js asks only items-overview (and a remote's own section), draws no
-    table, and switches the state groups from the answer it holds, the choice read from and written to the address."""
+    """Done items 1 and 5, without a browser: kinds.js asks only items-overview (and a remote's own section, and a
+    group relation's progress per group: dev/records/milestone-progress-per-group.md), draws no table, and switches
+    the state groups from the answer it holds, the choice read from and written to the address."""
     js = KINDS_JS.read_text()
     asked = re.findall(r"\bapi\(\s*\"([\w-]+)\"", js)
-    assert asked == ["items-overview"], asked
+    assert asked == ["items-overview", "items-groups"], asked
     assert "remoteApi(\"items\"" in js
     assert not re.search(r"\btable\(|h\(\"tr\"|<tr", js)
     toggle = js[js.index("const cardOf"):js.index("/* end showStates */")]       # the cards, and the switch that redraws them
