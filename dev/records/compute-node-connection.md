@@ -119,3 +119,24 @@ it false. Main's "a model is unchanged by any of this" now reads "a model withou
 §12k's `compute:` opens sessions. No code changed this round, and no review findings were open apart from the conflict.
 
 Overrun reason: connection.py is 321 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds no lines.
+
+## Where it stopped
+
+Built (implementor, 2026-11-23, continued round 6). The review's one finding answered (lessons 4, 8). A hello no
+longer resets the backoff or what was said. Only a session that stayed in service for three beats (30 s; `_steady`,
+checked in the read loop) sets `tries` back to 0 and lets any reason be said again. A worker that says a good hello
+and then dies or sends a bad line is now tried at 1, 2, 4 s and so on up to ten minutes. The record holds one
+`compute.node.up` and one `compute.node.lost` for the whole run of tries: once a session that was said up ends before
+it held, a later try's up is said only when its session holds three beats, and a lost reason that matches the last one
+said is not said again. The round-4 record's "The backoff bounds how often" was false then and is true now. SPEC
+§12s.4's backoff and record sentences say this. test_lost_on_eof's flapping worker (still six tests) now asserts five
+tries spaced by at least 0.2, 0.4, 0.8 and 1.6 s and the record exactly [up, lost]. When the fifth try holds, it
+asserts a second up is said only after three beats, with `tries` back to 0. test_backoff_and_return asserts `tries`
+goes back to 0 only once the session has held. I broke each fix on purpose and each test failed: with a hello resetting
+`tries` and `said`, the waits stayed at 0.2 s; with `_steady` not saying the deferred up, the record stayed [up, lost].
+
+Choice taken alone (the more reversible one): a node that flaps, is then refused, and then holds is said up only once
+it has held three beats (up to 30 s late), not at its hello. Saying it at once would mean resetting `upsaid` in `_out`
+for a session that had no hello.
+
+Overrun reason: connection.py is now 341 lines plus 14 in engine.py against a budget of 200, for the reasons given in round 1; this round adds about 20 net lines (the steady span that alone resets the backoff, and the deferred up).

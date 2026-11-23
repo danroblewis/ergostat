@@ -84,15 +84,25 @@ def test_lost_on_eof(tmp_path, monkeypatch):
         n.thread.join(10)
     tries = tmp_path / "tries"                      # a later line nested past the parser's depth: lost, tried again
     hello = {"v": 1, "seq": 1, "type": "hello", "slots": 4, "labels": {}}
-    script = (f"import sys, time\nopen({str(tries)!r}, 'a').write('x\\n')\n"
+    script = (f"import os, sys, time\nopen({str(tries)!r}, 'a').write(repr(time.monotonic()) + '\\n')\n"
+              f"len(open({str(tries)!r}).read().split()) < 5 or os.execv(sys.executable, "
+              f"{worker(tmp_path / 'r', beat=0.2)!r})\n"                 # (the fifth try holds)
               f"sys.stdout.write({json.dumps(hello)!r} + '\\n' + '[' * 200000 + '\\n')\n"
               "sys.stdout.flush()\ntime.sleep(60)\n")
-    n, seen = node(tmp_path, [sys.executable, "-I", "-c", script], first=0.2)
+    n, seen = node(tmp_path, [sys.executable, "-I", "-c", script], beat=1.0, first=0.2)
+    lost = [("compute.node.up", {"node": "farm/1", "slots": 4}),
+            ("compute.node.lost", {"node": "farm/1", "why": "line 2: not JSON"})]
     try:
-        assert wait_for(lambda: tries.exists() and len(tries.read_text().split()) >= 2, 15), n.status()
-        assert wait_for(lambda: seen.count(("compute.node.lost", {"node": "farm/1", "why": "line 2: not JSON"})) >= 2,
-                        15), seen                  # (each try: in service on its hello, then lost on line 2)
-        assert n.thread.is_alive()
+        assert wait_for(lambda: tries.exists() and len(tries.read_text().split()) >= 5, 20), n.status()
+        at = [float(x) for x in tries.read_text().split()]
+        gaps = [b - a for a, b in zip(at, at[1:], strict=False)]
+        assert all(g >= cx.backoff(i, 0.2) for i, g in enumerate(gaps)), gaps            # a hello is no reset
+        assert n.tries == 4 and seen == lost, seen                                        # said once, not each try
+        up(n)
+        assert seen == lost                         # (a retry's hello is said once it holds three beats)
+        assert wait_for(lambda: len(seen) == 3, 10) and n.tries == 0, seen
+        assert seen[2] == ("compute.node.up", {"node": "farm/1", "slots": n.hello["slots"]})
+        assert time.monotonic() - at[4] >= 3 * 1.0 and n.thread.is_alive()
     finally:
         n.close()
         n.thread.join(10)
@@ -130,8 +140,8 @@ def test_backoff_and_return(tmp_path):
     tries, ok = tmp_path / "tries", tmp_path / "ok"
     script = (f"import os, sys, time\nopen({str(tries)!r}, 'a').write(repr(time.monotonic()) + '\\n')\n"
               f"os.path.exists({str(ok)!r}) or sys.exit(1)\n"
-              f"os.execv(sys.executable, {worker(tmp_path / 'r')!r})\n")
-    n, seen = node(tmp_path, [sys.executable, "-I", "-c", script], first=0.2)
+              f"os.execv(sys.executable, {worker(tmp_path / 'r', beat=0.2)!r})\n")
+    n, seen = node(tmp_path, [sys.executable, "-I", "-c", script], beat=1.0, first=0.2)
     try:
         assert wait_for(lambda: tries.exists() and len(tries.read_text().split()) >= 4, 15)
         at = [float(x) for x in tries.read_text().split()]
@@ -141,7 +151,9 @@ def test_backoff_and_return(tmp_path):
         assert [k for k, _ in seen].count("compute.node.lost") == 1                         # said once, not each try
         ok.touch()
         up(n, 30)
-        assert n.tries == 0 and n.error is None and n.request({"type": "ping"}, timeout=10)["type"] == "pong"
+        assert n.tries >= 3 and [k for k, _ in seen] == ["compute.node.lost", "compute.node.up"]   # up said at once
+        assert wait_for(lambda: n.tries == 0, 10), n.status()       # the wait starts again once it held three beats
+        assert n.error is None and n.request({"type": "ping"}, timeout=10)["type"] == "pong"
     finally:
         n.close()
         n.thread.join(10)

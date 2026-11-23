@@ -7230,8 +7230,9 @@ pool's list (from 1), and never by its host.
   `line N: not JSON`), or on any other fault of the session, a temporary file for its standard error that cannot be
   made included (`the session failed: OSError`, the fault's kind alone); its process group is then killed and
   reaped (a stopped worker too). Each lost or refused session is tried again after a wait of 1 s, doubling each try
-  to ten minutes; a hello taken starts the wait at 1 s again. A refused node is tried again the same way, and stays
-  refused with its reason until a hello is taken.
+  to ten minutes; only a session that stayed in service for three beats (30 s) starts the wait at 1 s again, so a
+  worker that says a good hello and then dies or sends a bad line is tried at the same growing waits. A refused node
+  is tried again the same way, and stays refused with its reason until a hello is taken.
 - **Requests.** `request(msg, timeout=30)` sends `msg` with a new integer `id` and returns the frame that repeats
   it (a worker's `error` with that id included); it raises `Lost` when the node is out of service or its session
   ends first, and `TimeoutError` past the timeout. `on(type, fn)` calls `fn(node, frame)`, on the reader thread, for
@@ -7239,7 +7240,9 @@ pool's list (from 1), and never by its host.
   in the pool's log and the session goes on.
 - **The record.** `compute.node.up` (`node`, `slots`) when a hello is taken; `compute.node.lost` and
   `compute.node.refused` (`node`, `why`) when a node goes out of service, once for each new reason (a node that stays
-  down is not said again on each try). Their data, what the engine says and ergostat's own lines of the pool's log
+  down is not said again on each try). Once a session said up has ended before it held three beats, a later try's
+  hello is said only when its session has held three beats, and a lost reason the same as the last one said is not
+  said again, so a worker that keeps saying hello and dying is said up and lost once. Their data, what the engine says and ergostat's own lines of the pool's log
   name a node only as `POOL/N`: no host name, address or user (a `connect:` command's own standard error aside).
 
 ### 12s.5 The lease on a node

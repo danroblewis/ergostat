@@ -4,7 +4,8 @@ BatchMode=yes HOST ergostat worker --stdio``, or the pool's ``connect:`` argv) s
 thread, which also keeps the beat deadline and reconnects with backoff. A ``connect:`` session's standard error is
 kept in the pool's log; an ``ssh:`` session's never is (ssh names the HostName, address and user its config gives),
 only its exit status. A node is in service only after a ``hello`` of protocol 1 whose labels
-include the pool's; lost after three beats missed or the session's end, whichever first."""
+include the pool's; lost after three beats missed or the session's end, whichever first. Only a session that held
+three beats starts the backoff again, so a worker that says hello and dies is tried at growing waits, said once."""
 
 from __future__ import annotations
 
@@ -53,6 +54,7 @@ class Node:
         self.ssh = "ssh" in entry
         self.log, self.record, self.beat, self.first = log, record, beat, first
         self.state, self.error, self.hello, self.tries, self.said = "connecting", None, None, 0, None
+        self.since, self.steady, self.told, self.upsaid = None, False, False, False     # (see _hello and _steady)
         self.lock, self.closed = threading.Lock(), threading.Event()
         self.proc: subprocess.Popen | None = None
         self.rc: int | None = None                      # the last session's exit status
@@ -112,10 +114,13 @@ class Node:
 
     def _run(self) -> None:
         while not self.closed.is_set():
+            self.since, self.steady, self.told = None, False, False
             try:
                 state, why = self._session()
             except Exception as e:                      # (any fault, a temp file's too: lost, said, tried again)
                 state, why = "lost", f"the session failed: {type(e).__name__}"
+            if self.steady:                             # (a session that held: its next hello is said at once)
+                self.upsaid = False
             self._out(state, why)
             if self.closed.wait(backoff(self.tries, self.first)):
                 break
@@ -152,6 +157,8 @@ class Node:
                 left = heard + MISSED * self.beat - time.monotonic()
                 if left <= 0:
                     return "lost", f"{MISSED} beats missed"
+                if self.since is not None and not self.steady and time.monotonic() - self.since >= MISSED * self.beat:
+                    self._steady()
                 if not sel.select(min(left, 0.5)):
                     continue
                 got = os.read(fd, 1 << 16)
@@ -204,9 +211,22 @@ class Node:
         if type(f.get("slots")) is not int or not 0 <= f["slots"] <= MAX_SLOTS:
             return f"its slots are not 0 to {MAX_SLOTS}"
         with self.lock:
-            self.hello, self.state, self.error, self.tries, self.said = f, "in-service", None, 0, None
-        self.record("compute.node.up", {"node": self.name, "slots": f["slots"]}, f"{self.name}: in service")
+            self.hello, self.state, self.error, self.since = f, "in-service", None, time.monotonic()
+            self.told = not self.upsaid                # (a retry of a session that had a hello: said once it holds)
+            self.upsaid = True
+        if self.told:
+            self._up()
         return None
+
+    def _steady(self) -> None:
+        """In service for three beats: the backoff starts at its first wait again and any reason may be said anew."""
+        with self.lock:
+            self.steady, self.tries, self.said, tell, self.told = True, 0, None, not self.told, True
+        if tell:
+            self._up()
+
+    def _up(self) -> None:
+        self.record("compute.node.up", {"node": self.name, "slots": self.hello["slots"]}, f"{self.name}: in service")
 
     def _end(self) -> None:
         with self.lock:
