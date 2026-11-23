@@ -176,6 +176,96 @@ def test_approve_in_the_side_panel(site):
         b.close()
 
 
+def test_approve_and_deny_say_what_they_answer_in_an_order_the_keyboard_can_use(site):
+    """Each answer names its object (seen: 'Approve the push'; heard: with the entry's id, unique in the list); the
+    keyboard reaches the reason before Deny, which waits for the reason; Approve and Deny are drawn alike."""
+    from ergostat.actions import record
+    url, p, a = site
+    short = record.short(a["id"])
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        row = pg.locator(f'[data-inbox="action/{short}"]')
+        row.wait_for(timeout=20000)
+        pg.locator('[data-inbox^="person/reviewer@"] button').wait_for(timeout=20000)
+        names = pg.eval_on_selector_all(".att [data-inbox] button", "bs => bs.map((b) => b.getAttribute('aria-label') "
+                                        "|| b.textContent.trim())")
+        assert len(names) >= 3 and all(len(n.split()) > 1 for n in names), names
+        assert len(set(names)) == len(names), names
+        approve, deny = row.locator('button[data-verb="approve"]'), row.locator('button[data-verb="deny"]')
+        assert approve.inner_text() == "Approve the push" and deny.inner_text() == "Deny the push"
+        style = "b => { const s = getComputedStyle(b); return [s.borderTopStyle, s.borderTopWidth, s.borderTopColor]; }"
+        assert approve.evaluate(style) == deny.evaluate(style) and approve.evaluate(style)[0] != "none"
+        assert deny.is_disabled()
+        # the keyboard path: from the entry's link, Tab through the row (its folded command first) to the answer's
+        # controls: the reason, a reason typed, then Approve, then Deny
+        row.locator("a").first.focus()
+        seen = []
+        for _ in range(8):
+            pg.keyboard.press("Tab")
+            seen.append(pg.evaluate("() => { const e = document.activeElement; return e.closest('.inbox-act') ? "
+                                    "e.getAttribute('data-verb') || e.tagName.toLowerCase() : '-'; }"))
+            if seen[-1] == "input":
+                pg.keyboard.type("not today")
+            if seen[-1] == "deny":
+                break
+        assert [s for s in seen if s != "-"] == ["input", "approve", "deny"], seen
+        pg.wait_for_timeout(3000)                   # a refresh of the list (every 2.5 s) keeps the reason, and Deny on
+        assert not deny.is_disabled() and pg.evaluate("() => document.activeElement.dataset.verb") == "deny"
+        pg.keyboard.press("Enter")
+        pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=row.element_handle(), timeout=20000)
+        leave(pg)                                   # answered, it says so in its row until the reader leaves
+        pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="action/{short}"]')""", timeout=20000)
+        got = record.get(p, a["id"])
+        assert got["state"] == "denied" and got.get("note") == "not today", got
+        assert not errors, errors
+        b.close()
+
+
+def test_a_typed_reason_stays_with_its_entry_when_one_above_is_answered(site):
+    """Three pushes wait; a reason is typed for the middle one only, then the top one is approved. The rows shift up,
+    and the reason, and Deny's being on, go with the middle entry, not with its old place: the bottom entry shows no
+    reason and its Deny stays off, and the middle one's denial is recorded with its own reason."""
+    from ergostat.actions import gate, record
+    url, p, a = site
+    made = [a] + [gate.request(p, p.model.spec, "push", {}, {"block": "pusher", "item": None}) for _ in range(2)]
+    ids = {f"action/{record.short(x['id'])}": x["id"] for x in made}
+    with playwright.sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 900})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.goto(f"{url}/diagram?view=blocks")
+        pg.wait_for_function("""() => document.querySelectorAll('.att [data-inbox^="action/"]').length === 3""",
+                             timeout=20000)
+        top, mid, low = pg.eval_on_selector_all('.att [data-inbox^="action/"]', "rs => rs.map((r) => r.dataset.inbox)")
+        row = lambda what: pg.locator(f'[data-inbox="{what}"]')   # noqa: E731
+        waiting = record.get(p, ids[low])["state"]
+        row(mid).locator("input[type=text]").fill("not this one")
+        assert not row(mid).locator('button[data-verb="deny"]').is_disabled()
+        row(top).locator('button[data-verb="approve"]').click()
+        pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()",
+                             arg=row(top).element_handle(), timeout=20000)
+        leave(pg)                                   # the reader gone, the answered row leaves and the rows shift up
+        pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="{top}"]')""", timeout=20000)
+        pg.wait_for_timeout(3000)                   # and a refresh after it (every 2.5 s)
+        assert row(mid).locator("input[type=text]").input_value() == "not this one"
+        assert not row(mid).locator('button[data-verb="deny"]').is_disabled()
+        assert row(low).locator("input[type=text]").input_value() == ""
+        assert row(low).locator('button[data-verb="deny"]').is_disabled()
+        row(mid).locator('button[data-verb="deny"]').click()
+        pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()",
+                             arg=row(mid).element_handle(), timeout=20000)
+        got = record.get(p, ids[mid])
+        assert got["state"] == "denied" and got.get("note") == "not this one", got
+        assert record.get(p, ids[low])["state"] == waiting        # untouched
+        assert not errors, errors
+        b.close()
+
+
 def alarms_coming(pg, gone: set) -> list[int]:
     """New alarms, one more with each answer of the diagram's graph, ahead of what waits on the owner and in its group
     (``waiting``): the rows below them pushed down and out, unless the list holds still. What is in ``gone`` is taken
@@ -220,7 +310,7 @@ def test_the_side_list_holds_still_while_the_reader_is_in_it_and_a_request_stays
             assert row.count() == 1 and row.bounding_box()["y"] == top
         assert n[0] >= seen + 5, n                                             # (and the answers kept coming)
         assert "updates waiting" in pg.inner_text(".needs > .waiting")
-        why = row.locator('input[aria-label="Why"]')
+        why = row.locator('input[aria-label^="Why"]')
         why.fill("not this week")
         box = why.element_handle()
         off(pg)                                                                # the focus alone holds it now
@@ -236,7 +326,7 @@ def test_the_side_list_holds_still_while_the_reader_is_in_it_and_a_request_stays
         assert not pg.locator(".needs > .waiting").count()
         assert pg.locator('[data-inbox^="action/"]').count() == 3              # every request listed, alarms or not
         # answered from its row while the reader is in the list: it stays where it is and says so
-        row.locator('input[aria-label="Why"]').fill("not this week")
+        row.locator('input[aria-label^="Why"]').fill("not this week")
         row.locator('button[data-verb="deny"]').click()
         top = row.bounding_box()["y"]
         pg.wait_for_timeout(6000)
@@ -257,7 +347,8 @@ def test_the_side_list_holds_still_while_the_reader_is_in_it_and_a_request_stays
 
 def test_a_reason_typed_for_one_request_does_not_stay_for_the_request_below_it(three):
     """A reason typed in the top request, Deny, the reader gone: the next request moves up into the place, and its
-    Why box is its own (empty), so its Deny records no note of the first's."""
+    Why box is its own (empty, its Deny off until a reason is typed), so its Deny records its own note, not the
+    first's."""
     from ergostat.actions import record
     url, p, reqs = three
     with playwright.sync_playwright() as pw:
@@ -269,18 +360,20 @@ def test_a_reason_typed_for_one_request_does_not_stay_for_the_request_below_it(t
         pg.locator('[data-inbox^="action/"]').nth(2).wait_for(timeout=20000)
         first = pg.locator('[data-inbox^="action/"]').nth(0).get_attribute("data-inbox")
         row = pg.locator(f'[data-inbox="{first}"]')
-        row.locator('input[aria-label="Why"]').fill("not this week")
+        row.locator('input[aria-label^="Why"]').fill("not this week")
         row.locator('button[data-verb="deny"]').click()
         pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=row.element_handle(), timeout=20000)
         leave(pg)
         pg.wait_for_function(f"""() => !document.querySelector('[data-inbox="{first}"]')""", timeout=20000)
-        boxes = pg.locator('[data-inbox^="action/"] input[aria-label="Why"]')
+        boxes = pg.locator('[data-inbox^="action/"] input[aria-label^="Why"]')
         assert boxes.count() == 2 and [boxes.nth(i).input_value() for i in range(2)] == ["", ""]
         nxt = pg.locator('[data-inbox^="action/"]').nth(0)
+        assert nxt.locator('button[data-verb="deny"]').is_disabled()
+        nxt.locator('input[aria-label^="Why"]').fill("its own")
         nxt.locator('button[data-verb="deny"]').click()
         pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=nxt.element_handle(), timeout=20000)
         notes = sorted((record.get(p, a["id"]).get("note") or "") for a in reqs if record.get(p, a["id"])["state"] == "denied")
-        assert notes == ["", "not this week"], notes
+        assert notes == ["its own", "not this week"], notes
         assert not errors, errors
         b.close()
 
@@ -351,9 +444,10 @@ def test_a_request_answered_from_the_keyboard_holds_the_list_with_the_pointer_of
         off(pg)
         # several refreshes patched in first (the reader not in the list): the row's nodes kept, the handlers handed over
         pg.wait_for_function("() => document.querySelector('[data-row=\"alarm new-3\"]')", timeout=30000)
-        row.locator('input[aria-label="Why"]').focus()
+        row.locator('input[aria-label^="Why"]').focus()
         pg.keyboard.type("not this week")
-        pg.keyboard.press("Shift+Tab")                                       # to Deny, from the keyboard
+        pg.keyboard.press("Tab")                                             # past Approve to Deny, from the keyboard
+        pg.keyboard.press("Tab")
         assert pg.evaluate("() => document.activeElement.dataset.verb") == "deny"
         pg.keyboard.press("Enter")
         pg.wait_for_function("(el) => el.querySelector('.inbox-act .note').textContent.trim()", arg=row.element_handle(), timeout=20000)
