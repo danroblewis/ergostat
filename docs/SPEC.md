@@ -4773,7 +4773,14 @@ and the panel name the link; loops drawn alike share one marker, "N alike", its 
 as a desired level (a value: `desired backlog = 0`) and the discrepancy that drives the correction +:
 for a ceiling the **excess** (actual − desired), for a floor or a level held the **gap** (desired −
 actual); when the decisions serving it switch (on while backlog > 0, off once it is ≤ 0), the panel
-says so. A line between two parts both drawn, in open systems or not, is drawn as itself; only
+says so. Every goal is drawn so, in its own system: a block serving it (one of its controllers that names
+the goal, or any of them when the goal's loop closes; a block that only reads the stock of a goal it does
+not name, whose loop does not close, is a cause and still reads the stock) that reads the goal's stock (not
+the goal) is drawn reading the gap (stock → gap → flow, its sign kept, no loop added or lost), and its
+link crosses to another system as any line does (to a stub, or a closed module's port); a goal nothing
+in the model acts on (no block serves it, or an open loop) keeps its gap, marked *→ no feedback* with no
+link out, and the legend says what the mark means. The stock's panel names the same goals, each bound
+as the goal writes it (`desired users ≥ 180`). A line between two parts both drawn, in open systems or not, is drawn as itself; only
 where its other end is not on the canvas is it cut: a connector out of a closed module into an
 open system comes from a shadow variable `<x>` inside the receiving system, and a shadow is an
 input only, so a connector out to a part not drawn ends at a stub naming what it drives, and a
