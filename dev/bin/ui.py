@@ -32,7 +32,7 @@ import fac  # noqa: E402
 import live as lv  # noqa: E402
 
 REAL_BACKENDS = (8791, 8792)
-STAGING_BACKEND = 8793
+STAGING_BACKENDS = (8793, 8794)        # two, so a new server starts beside the one serving
 STAGING_PORT = 8796
 EVERY = 15                                   # seconds between looks at main and at the approved gaps
 START_WAIT = 90                              # seconds a new server has to answer before the old one is kept
@@ -273,7 +273,7 @@ def run(cfg: dict) -> int:
     (d / "ui.pid").write_text(str(os.getpid()))
     port = int(cfg["instance"]["port"])
     addr = f"http://127.0.0.1:{port}"
-    real, staging = Site(cfg, "real", REAL_BACKENDS, addr), Site(cfg, "staging", (STAGING_BACKEND,), addr)
+    real, staging = Site(cfg, "real", REAL_BACKENDS, addr), Site(cfg, "staging", STAGING_BACKENDS, addr)
     threading.Thread(target=front_when_free, args=(port, lambda: real.port, True), daemon=True).start()
     threading.Thread(target=front_when_free, args=(int(cfg["instance"].get("staging_port", STAGING_PORT)),
                                                    lambda: staging.port, False), daemon=True).start()
