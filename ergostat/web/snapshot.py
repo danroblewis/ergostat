@@ -108,7 +108,10 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
         ask(path, params)
     from .dashboard_api import answer as dashboard
     for d in data.get("dashboards") or []:      # each dashboard's one answer, every panel worked out (none pending)
-        data[key(f"dashboard/{_q(d['name'])}", {})] = dashboard(live, project, d["name"], {"since": [since]}, wait=True)
+        try:
+            data[key(f"dashboard/{_q(d['name'])}", {})] = dashboard(live, project, d["name"], {"since": [since]}, wait=True)
+        except Exception:                       # as any part that cannot be answered: left out, the rest kept
+            pass
     if isinstance(data.get("loops"), dict):     # the Loops page's one answer: each goal's summary from its analysis above
         from .control_api import summary
         data[key("loops", {"perf": 1})] = {n: {**lp, "perf": summary(data[c]) if (c := key("loop-control", {"goal": n})) in data
