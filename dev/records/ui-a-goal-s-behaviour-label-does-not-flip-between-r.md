@@ -99,3 +99,24 @@ Run: the new test, `test_a_goals_behaviour_holds_across_reloads_and_flapping_is_
 `tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` (3 passed, rc 0, under the watchdog);
 `tests/test_graph_cli_web.py` (33 passed); ruff clean. Not run: the whole unit suite and the four browser files in full
 (left to the factory and the merge queue). `main` is still 277a9c6c, already merged in, so there was nothing to merge.
+
+## Where it stopped (round 4)
+
+The queue's one finding: the merge of main (2a97eafb) conflicted in three files. All are resolved, and both sides are kept:
+- `control.js`: main wraps the scope's 'past its bound' in `ofRecorded` ("of the time" → "of the N recorded"). The
+  branch writes its shares through `shareText` and adds the definition. Both are kept: `ofRecorded` wraps the
+  measured part, and the definition follows it. No net lines added.
+- `tests/test_graph_cli_web.py`: the branch's source check and main's `/api/status` goals-off test are both kept.
+- `tests/test_diagram_rendering.py`: the branch's two behaviour tests and main's `goal_named` helper and its
+  goal-name test are each kept whole. The branch's test of the scope's text now accepts either "of the time" or main's
+  "of the N recorded".
+
+No other review findings were open.
+
+Run: `test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named`,
+`test_a_goals_behaviour_holds_across_refreshes_of_an_open_page` and main's
+`test_a_goal_name_opens_its_evidence_and_rings_its_stock_or_its_summing_junction` (both cases): 4 passed, rc 0, under
+the watchdog. `test_charts_draw_beside_the_model_with_one_cursor_and_in_a_snapshot` and
+`tests/test_page_polling.py::test_leaving_a_page_stops_its_polling` also passed (2 passed, rc 0).
+`tests/test_graph_cli_web.py`: 41 passed. Ruff is clean. Not run: the whole unit suite and the four browser files in
+full (left to the factory and the merge queue).

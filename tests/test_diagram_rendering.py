@@ -2934,7 +2934,8 @@ def test_a_goals_behaviour_holds_across_reloads_and_flapping_is_named(browser, t
         assert "flapping" in word and "23 crossings" in word, word
         rows = pg.evaluate("() => performanceRows({ performance: { constraint: { share: 0.003, share_off: 0, mean: 1, worst: 1 } } })")
         past = dict(rows)["past its bound"]
-        assert re.match(r"<1% of the (time|\S+ recorded) \(0% past its tolerance\)", past) and "by any amount" in past and "time off" in past, past
+        assert re.match(r"<1% of the (time|\S+ recorded) \(0% past its tolerance\)", past), past
+        assert "by any amount" in past and "time off" in past, past
         pg.close()
         assert not errors, errors
     finally:
