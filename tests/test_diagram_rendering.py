@@ -3711,6 +3711,7 @@ def test_a_goals_gap_in_dynamics_says_its_word_and_an_off_one_is_red_never_the_a
     word on each gap is /api/loops' word. 3: a lit loop's lines and an off gap's outline differ in colour, light and
     dark. 4: a goal going off between polls is marked with no new layout."""
     from ergostat import model as mdl
+    from ergostat.guide import FRAMES
     from ergostat.store import Project
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     d = tmp_path / "three"
@@ -3758,7 +3759,6 @@ def test_a_goals_gap_in_dynamics_says_its_word_and_an_off_one_is_red_never_the_a
                                                  for c in pg.evaluate("() => S.graph.causalLoops"))]
         assert mine and all(m["off"] and m["stroke"] == got["badRgb"] for m in mine), got["markers"]
         assert not [m for m in got["markers"] if m["off"] and m not in mine], got["markers"]
-        from ergostat.guide import FRAMES                                                # the legend and the Guide say so
         assert "a goal not holding: its word under its gap" in pg.evaluate("() => sdLegend().textContent")
         assert "'off by 36' in red" in next(f["text"] for f in FRAMES if f["id"] == "between")
         loop = next(m["loops"][0] for m in mine)                                         # 3: lit, it is the accent
