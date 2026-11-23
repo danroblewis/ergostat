@@ -105,3 +105,17 @@ unrelated (lesson 13):
   (the Model page) and test_needs_attention_is_three_headed_groups_in_a_fixed_order (a timeout).
 The other three browser files were not run (the factory runs them).
 Merge: main (f086f76e) was already merged into the branch (2d58c420) before this work, and main has not moved since.
+
+## Where it stopped
+
+Round 2 (2026-11-23): the merge of main (8a27f9e3) is finished. Its one conflict, `BD_LEGEND_DRAWN` in
+tests/test_diagram_rendering.py, keeps main's new "a loop's state" row and the branch's "a system as one block" row.
+Main's changes to blockdiagram.py and blocks.js (sensor samplers drawn muted, a loop's error state written by e) do not
+touch the classification, the ports or the legend's new row. Nothing else was changed in this round.
+
+Runs after the merge: tests/test_blockdiagram.py passes (92). Ruff is clean.
+test_each_blocks_legend_row_is_a_symbol_drawn (3 cases) and
+test_a_system_is_drawn_c_p_or_named_with_the_same_p_by_m_closed_and_open pass under the watchdog (4 passed).
+Not run: the whole of tests/test_diagram_rendering.py. A background run and a foreground run (under `timeout 580`) of
+`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py
+tests/test_diagram_rendering.py` were both refused by the session's permissions. The factory's suites run it.
