@@ -124,3 +124,16 @@ gone* now names the two files. Ran, one file at a time: tests/test_lease_gone.py
 and tests/test_factory_outage.py (21 passed); tests/test_finding_attention.py, tests/test_leases.py and
 tests/test_resilience.py (81 passed); tests/test_leased_workspaces.py, tests/test_faults_healthy.py and
 tests/test_runner_and_state.py (72 passed). ruff is clean.
+
+Round 7, after the factory's fast suites. They failed on
+`tests/test_leases.py::test_the_watchdog_renews_from_what_the_holder_does_elsewhere` (history
+`['expired', 'expired', 'ack']`). It passes alone on this branch (1 passed). No code changed, because this failure is
+not in this gap (lesson 13). In this test every lease is held by a run this engine took. The run's id is in `ours`
+before its lease is written (ergostat/leases/dispatch.py:297), so the branch's new step in `watch` (`gone.released`, then
+`gone.why`) returns at its first check, `run in d.ours`, and touches nothing. The expiry decision (`look`/`expire`, a
+1 s TTL with a 1 s grace) is main's, unchanged here. The run keeps its lease only by starting `$ERGOSTAT_CMD event`
+every 0.4 s, and under the suite's load a Python start-up can take longer than TTL plus grace. Many earlier gaps'
+records name this same failure on main's code (continue-branch2, code-health-simplifier, pool-control,
+daemons-left-over, library-trust-folders, quarantine-list-honest, a-lease-end-is-never-dropped). Changing the
+watchdog's renewal belongs in a gap of its own: either its quarantine (tests/quarantine.txt, added to by hand), or a
+renewal that does not depend on a CLI's start-up time. This branch waits for neither.
