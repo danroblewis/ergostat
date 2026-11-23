@@ -132,3 +132,18 @@ Refused this round, as given: `uv run python scripts/suite_watch.py -- uv run py
 tests/test_graph_cli_web.py` (it was then run without the watchdog), and `uv run --with playwright==1.63.0 python
 scripts/named_tests.py tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`
 (it was then run under suite_watch). The whole of tests/test_diagram_rendering.py was not run.
+
+Round 6: the merge of main (ee43cf60) is done (ab5c8540). It conflicted only in tests/test_diagram_rendering.py,
+resolved by keeping both sides one after the other: the branch's acceptance test, then main's
+`test_in_dynamics_a_goal_is_called_a_goal_and_loop_means_an_r_or_b_loop`, each closing its own page. No page code
+conflicted. Net lines outside tests and docs against main: 11 added, 5 removed (6 net), within the 20 budget. Ruff
+is clean.
+Suites, run serially: with Playwright under suite_watch, the acceptance test and main's merged dynamics test (3
+passed), tests/test_inbox_page.py (14 passed), and tests/test_items_page.py (67 passed, 1 failed: a 30 s
+`wait_for_function` timeout, the same count and kind as rounds 4-5's
+`test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart`, but the output kept did not name the test, so
+which one failed this round is not confirmed). tests/test_graph_cli_web.py without a browser: 55 passed.
+Refused this round, as given: `uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python
+scripts/named_tests.py tests/test_items_page.py::test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart
+2>&1 | grep -E '^_{3,}|passed|failed' | tail -4` (the rerun that would have named it). The whole of
+tests/test_diagram_rendering.py was not run.
