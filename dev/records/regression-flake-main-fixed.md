@@ -94,5 +94,18 @@ paragraph, and the five tests in tests/test_factory.py (`test_main_mend_clears_o
   tests/test_factory.py` (to name a hung test from its stack), and a python3 script editing this file. So the whole
   file was not run after the merge of main. Left: the build's full log or a faulthandler dump to name the test that
   stops. A stall that also happens on clean main under `-n 8` is not this branch's (lesson-10, lesson-13).
+- Round 4, the build again: it names `test_an_approved_switch_drains_and_switches_through_the_engine` (1 failed, 194
+  passed, 2 skipped, 687 s), and the factory asked for a code fix (not the test's bound). Cause found by reading:
+  the switcher's `under_way()` calls `fac.items(kind)` with no state for gap, research and situation, and
+  `fac.items` listed every state the kind's line names, counted 0 or not: one cold `ergostat item` start for each
+  of gap's 20-odd states and the others' 4 each, about 30 per drain.py step. Alone that is 27 s a step. Under
+  `-n 8` it went past the 120 s wait. The fix is outside the Files list, in dev/bin/fac.py (one line changed, one
+  comment): a state the kind's line counts 0 is not listed. The counts come from the item index over every item of
+  the kind, so no item is dropped. An item written between the head and the listings could be missed before this
+  too. Most reversible: one line, and the result is the same. Seen: the switcher test alone went from 118 s
+  (round 2) to 73.5 s. Passed: tests/test_fac_items.py (8), tests/test_backlog.py (20), tests/test_milestones.py
+  (41), tests/test_factory_manager.py (34), and the switcher test. Ruff is clean. The cost is main's, not this
+  branch's (lesson-13), but this branch's build cannot go green without it. Not run: tests/test_factory.py whole,
+  or under `-n 8`.
 
 Overrun reason: 160 net lines against 150 (131 in mend.py, 24 in landing.yaml); the 10 over are the stock, flow and parameter the block's in/out must name, which the definition's estimate did not count.
