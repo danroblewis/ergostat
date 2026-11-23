@@ -32,7 +32,8 @@ Working through them:
 - When someone asks how theirs is going, `ergostat why todo/ID` says its state and for how long, what it waits on,
   and who must do what next, from the record, in one paragraph to paste.
 
-Nothing here acts outside ergostat: the person does the work and records it; the batcher only reads the record.
+Nothing the template adds acts outside ergostat: the person does the work and records it; the batcher only reads the
+record and prints events; `cat todos.jsonl` is this demo's own source.
 
 Shows: items as a person's own units of work, a precedence relation (`waits_on`), a kind's own finished states, person
 blocks that only ask, a rule-rung program regrouping items, `why` as a stakeholder update.

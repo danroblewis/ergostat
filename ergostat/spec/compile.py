@@ -69,7 +69,7 @@ SENSOR_KEYS = {"run", "query", "manual", "items", "builtin", "daemon", "push", "
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"id", "states", "on", "show", "formats", "fold", "lease", "relations", "join", "about", "final",
-                      "finished"}
+                      "finished", "moves-from"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
@@ -706,11 +706,17 @@ class Compiler:
             self.err(f"{what}.finished: a list of its states, not its first, that count as finished ([done, dropped])",
                      m.at("finished") or m.where, "bad-finished")
             done = []
+        only = m.get("moves-from") or {}             # event type → the only states it moves an item out of
+        if not isinstance(only, dict) or not all(e in moves and isinstance(s, list) and s and set(s) <= set(states)
+                                                 for e, s in only.items()):
+            self.err(f"{what}.moves-from: a map of one of its on: events to the list of its states it alone moves an "
+                     f"item out of ({{ticket.reopened: [done]}})", m.at("moves-from") or m.where, "bad-moves-from")
+            only = {}
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats,
                         system=self.system("items", name, m), description=self.text(m, "description"), where=m.where,
                         fold=rules, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
-                        finished=list(done))
+                        finished=list(done), moves_from={e: tuple(s) for e, s in only.items()})
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a kind and its states."""

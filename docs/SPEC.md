@@ -250,7 +250,9 @@ wait to be written up, one while ready ones wait to be done, each answered with 
 batcher, a program on the rule rung, `todo batches`, which says a waiting to-do ready again once everything it
 waits on is finished and regroups the ready ones, one `KIND-batch/<where>` item a place, its to-dos the earliest
 due first, every one's instructions in order in its `sitting`; it reads the record and prints events, and the
-template has no action, workspace or daemon, so nothing in it acts outside ergostat; a to-do is added in one step,
+template adds no action, workspace or daemon, so nothing it adds acts outside ergostat (the optional `command` is
+the owner's own, run by `collect` as a source); a freeing is `KIND.freed`, which `moves-from:` lets move a to-do
+only out of waiting, so one dropped since the batcher read it stays dropped; a to-do is added in one step,
 `ergostat event --add KIND.ready --item KIND/ID --data '{...}'`, MCP's `record_event`, or a line of an optional
 `command`'s output). Each says its reading in both disciplines
 (`ergostat help adding`, `docs/ADDING.md`). They run ergostat's own programs (`python -m
@@ -1296,6 +1298,7 @@ items:
 | `about` | a field name | none | The field naming the parts of the model each item is about (*About*, below) |
 | `final` | list of its states | none | States no event moves an item out of: a later move is ignored and said (the item's `refused`, form `final`) |
 | `finished` | list of its states, not its first | none | The states it counts as finished, when `messages: done:` does not name the kind (a template's kind says its own: a template writes no `messages:`); `bad-finished` for a state it does not have, or its first |
+| `moves-from` | map of one of its `on:` events → a list of its states | none | The only states that event moves an item out of: from any other it is ignored and said (the item's `refused`), in the record's order, so a program that read an item before a person moved it cannot move it back (`bad-moves-from` for an event not in `on:` or a state it does not have) |
 | `system`, `description` | | | |
 
 **Which states are finished.** One rule (`spec/finished.py`) decides it for the Items listing, the relations' status

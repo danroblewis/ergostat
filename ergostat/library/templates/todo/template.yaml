@@ -11,8 +11,9 @@ reading: |
   to-dos at 0: they are asked to write each one's instructions and place. The second holds the ready ones at 0:
   they are asked to do a sitting. A program on the rule rung, the batcher, regroups the ready to-dos by place each
   pass (one batch item a place, its to-dos in the order to do them, the earliest due first, with every one's
-  instructions in order), so one sitting on a bastion or a VPN clears its batch. Nothing here acts outside ergostat:
-  the person does the work, and records it.
+  instructions in order), so one sitting on a bastion or a VPN clears its batch. Nothing the template adds acts
+  outside ergostat (no action, workspace or daemon; the batcher only reads the record and prints events, and the
+  optional command is the owner's own, read as a source): the person does the work, and records it.
 example: |
   uses:
     todos:
@@ -61,7 +62,10 @@ items:
       ${kind}.started: in-progress
       ${kind}.waiting: waiting
       ${kind}.dropped: dropped
+      ${kind}.freed: ready
     finished: [done, dropped]
+    moves-from:
+      ${kind}.freed: [waiting]
     fold:
       notes: append
     relations:
@@ -196,5 +200,4 @@ blocks:
     description: frees the waiting to-dos whose wait is over, then regroups the ready ones by place, one batch item a place (it reads the record and prints events; it runs nothing else)
     run: ${lib} todo batches --kind ${kind} --batch-kind ${batch-kind} --flow flow.freed
     every: ${regroup}
-    max: 1
     out: flow.freed

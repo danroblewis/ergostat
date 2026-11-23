@@ -7,8 +7,9 @@ Reads the to-dos of kind ``K`` in those states and groups them by their ``where`
 ``B/<where>``: its to-dos in the order to do them (the earliest ``due`` first, then the longest ready, then by id)
 and every one's instructions in order, as one text (``sitting``). Says ``B.grouped`` for a group that is new or
 changed, and ``B.cleared`` for one with nothing left in it; a group as the record already has it is not said again.
-First, a waiting to-do whose ``waits_on`` names only finished items is said ready again (``K.ready``), to be grouped
-on the next pass. It reads the record and prints lines; it runs nothing and writes nowhere else."""
+First, a waiting to-do whose ``waits_on`` names only finished items is said ready again (``K.freed``, which the
+kind's ``moves-from:`` lets move it only out of waiting, so a to-do dropped or done since it was read stays so), to
+be grouped on the next pass. It reads the record and prints lines; it runs nothing and writes nowhere else."""
 
 from __future__ import annotations
 
@@ -116,7 +117,7 @@ def batches(argv: list[str]) -> int:
 
 
 def free(p, kind: str) -> int:
-    """Each waiting to-do whose ``waits_on`` names only finished items is ready again (``K.ready``); one that names
+    """Each waiting to-do whose ``waits_on`` names only finished items is ready again (``K.freed``); one that names
     nothing, or an item never recorded or not finished, stays waiting. Returns how many were freed."""
     from ...spec import items as its
     from ...spec.finished import finish_of
@@ -131,7 +132,7 @@ def free(p, kind: str) -> int:
         got = [known.get(t) for t in on]
         if on and all(t is not None and (f := finish_of(spec, t.kind, set()))["from"] == "declared"   # (never guessed)
                       and t.state in f["finished"] for t in got):
-            say({"event": f"{kind}.ready", "item": it.id, "data": {"freed": "what it waited on is finished: " + ", ".join(on)}})
+            say({"event": f"{kind}.freed", "item": it.id, "data": {"freed": "what it waited on is finished: " + ", ".join(on)}})
             n += 1
     return n
 

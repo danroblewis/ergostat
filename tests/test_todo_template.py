@@ -33,6 +33,7 @@ uses:
 
 
 def project(tmp_path, monkeypatch, text=MODEL) -> Project:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(text))
@@ -135,15 +136,31 @@ def test_a_waiting_todo_is_freed_once_everything_it_waits_on_is_finished(tmp_pat
     add(p, "todo/ghost", "todo.waiting", 270, title="Waits on nothing recorded", waits_on="todo-wait/never")
     add(p, "todo/bare", "todo.waiting", 260, title="Waits on nothing named")
     lines = batcher(p, capsys)
-    assert not [x for x in lines if x.get("event") == "todo.ready"] and {"out": "flow.todo-freed", "moved": 0} in lines
+    assert not [x for x in lines if x.get("event") == "todo.freed"] and {"out": "flow.todo-freed", "moved": 0} in lines
     assert all(x["item"] != "todo-batch/bastion-b" for x in lines if "event" in x), "a waiting to-do is in no batch"
     add(p, "todo/access", "todo.done", 200)
-    assert not [x for x in batcher(p, capsys) if x.get("event") == "todo.ready"], "one of the two is still unanswered"
+    assert not [x for x in batcher(p, capsys) if x.get("event") == "todo.freed"], "one of the two is still unanswered"
     add(p, "todo-wait/sign-off", "todo-wait.answered", 100)
     lines = batcher(p, capsys)
-    assert [x["item"] for x in lines if x.get("event") == "todo.ready"] == ["todo/open"]
+    assert [x["item"] for x in lines if x.get("event") == "todo.freed"] == ["todo/open"]
     assert {"out": "flow.todo-freed", "moved": 1} in lines
     assert [x["data"]["todos"] for x in batcher(p, capsys) if x.get("item") == "todo-batch/bastion-b"] == [["todo/open"]]
+
+
+def test_a_todo_dropped_while_the_batcher_frees_it_stays_dropped(tmp_path, monkeypatch, capsys):
+    """The person's drop lands between the batcher's read and its write: the freeing moves only out of waiting."""
+    p = project(tmp_path, monkeypatch)
+    add(p, "todo/a", "todo.ready", 300, title="a")
+    add(p, "todo/b", "todo.waiting", 200, title="b", waits_on="todo/a")
+    add(p, "todo/a", "todo.done", 100)
+    lines = batcher(p, capsys, record=False)              # read while b waits
+    add(p, "todo/b", "todo.dropped", 50)                  # the person drops it, in the gap
+    for x in lines:
+        if "event" in x:
+            p.events.add(x["event"], item=x["item"], source="todo-batcher", data=x["data"])
+    assert [x["event"] for x in lines if x.get("item") == "todo/b"] == ["todo.freed"]
+    b = {i.id: i for i in its.project(p.events, p.model.spec)}["todo/b"]
+    assert b.state == "dropped" and "moves only from waiting" in b.refused[-1]["why"]
 
 
 # ---- the stakeholder update
@@ -194,15 +211,47 @@ def test_why_says_its_status_what_it_waits_on_and_what_happens_next(tmp_path, mo
     assert summary(d) == d["summary"]
 
 
+ASKED = """
+name: t
+items:
+  note:
+    id: note/*
+    states: [new, open, shut]
+    on: {note.opened: open, note.shut: shut}
+    finished: [shut]
+stocks:
+  open-notes:
+    unit: notes
+    sensor: {items: note, state: open, every: 1m{where}}
+goals:
+  none-open: {stock: open-notes, hold: "<= 0"}
+blocks:
+  reader: {type: person, goal: none-open, ask: read them}
+"""
+
+
+def test_a_person_is_the_cause_only_when_their_goal_counts_every_item_in_its_state(tmp_path, monkeypatch):
+    p = project(tmp_path / "a", monkeypatch, ASKED.replace("{where}", ""))
+    add(p, "note/1", "note.opened", 60)
+    r = why(p, "note/1")["root"]
+    assert r["kind"] == "person" and r["command"] == "ergostat event --add note.shut --item note/1"
+    p = project(tmp_path / "b", monkeypatch, ASKED.replace("{where}", ", where: {team: a}"))
+    add(p, "note/1", "note.opened", 60, team="a")
+    assert why(p, "note/1")["root"]["kind"] == "work", "a goal counting only some of them is not this item's"
+
+
 def test_a_kind_declares_its_own_finished_states(tmp_path, monkeypatch):
     """Without them, a state no item has left yet would read as finished: every ready to-do would be done."""
     p = project(tmp_path, monkeypatch)
     add(p, "todo/a", "todo.ready", 60, title="a")
     assert p.model.spec.items["todo"].finished == ["done", "dropped"]
     assert not why(p, "todo/a")["done"]
-    bad = MODEL + "items:\n  x:\n    id: x/*\n    states: [a, b]\n    finished: [a, c]\n"
-    (tmp_path / "ergostat.yaml").write_text(bad)
-    assert "bad-finished" in {x.code for x in read(tmp_path / "ergostat.yaml")[1] if x.level == "error"}
+    bad = MODEL + "items:\n  x:\n    id: x/*\n    states: [a, b]\n    finished: [a, c]\n    on: {x.b: b}\n"
+    for more, code in (("", "bad-finished"), ("    moves-from: {x.b: [c]}\n", "bad-moves-from"),
+                       ("    moves-from: {x.z: [a]}\n", "bad-moves-from")):
+        (tmp_path / "ergostat.yaml").write_text(bad + more)
+        assert code in {x.code for x in read(tmp_path / "ergostat.yaml")[1] if x.level == "error"}, more
+    assert p.model.spec.items["todo"].moves_from == {"todo.freed": ("waiting",)}
 
 
 # ---- nothing outside ergostat
