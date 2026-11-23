@@ -67,6 +67,8 @@ def _garbage(at: float) -> list[bytes]:
     return [b"", b"nonsense", b"{", b"[]", b"\xff\xfe", b"[" * 100000, b'{"wall": "x", "lease": null, "kill": 1}',
             b'{"wall": NaN, "lease": null, "kill": 1}', b'{"wall": 1e999, "lease": 1e999, "kill": 1}',
             b'{"wall": true, "lease": null, "kill": 1}', b'{"wall": 9' + b"9" * 5000 + b', "kill": 1}',
+            b'{"wall": 1' + b"0" * 400 + b', "lease": null, "kill": 1}',     # (parsed, but overflows a float)
+            b'{"wall": -1' + b"0" * 400 + b', "lease": null, "kill": 1}',
             json.dumps({"wall": later, "lease": at + 3 * 86400, "kill": 1}).encode(),
             json.dumps({"wall": later, "lease": later, "kill": -1}).encode(),
             json.dumps({"wall": later, "lease": later, "kill": 601}).encode(),

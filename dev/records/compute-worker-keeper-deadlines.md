@@ -26,3 +26,10 @@ Choices made alone (the most reversible; nobody to ask):
   process), since the worker's modules may import only the standard library and each other by bare name
   (tests/test_compute_worker_protocol.py); the engine imports keeper as a package and never calls `start`/`keep`.
 - Engine runs kept with `runs: outlive_engine` keep their `timeout` how; their wall is now timed on the same clock.
+
+Round 2: main (8a27f9e3) merged; keeper.py keeps main's `stamp`/`reaped` and the branch's held deadlines (`keep` takes
+`held` then `out`), SPEC §12s.3 lists both. The review's one finding fixed: `deadline.read` takes an integer that
+overflows a float (OverflowError, any ArithmeticError) as garbage, and `Held.look` keeps the last values on anything
+`read` did not foresee, so a run is never left with no deadline. `_garbage` gains a 401-digit integer, positive and
+negative; with the fix undone the garbage test fails (OverflowError at the start path; with `look`'s guard undone too,
+the keeper dies mid-run and no exit is written within 4 s).

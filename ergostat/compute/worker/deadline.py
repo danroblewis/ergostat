@@ -42,9 +42,12 @@ def read(path: str) -> tuple[float, float | None, float] | None:
     if not isinstance(got, dict):
         return None
     wall, lease, kill, at = got.get("wall"), got.get("lease"), got.get("kill"), now()
-    if not (_at(wall, at) and (lease is None or _at(lease, at)) and _at(kill, 0) and 0 <= kill <= MOST_KILL):
+    try:                                        # (an integer of hundreds of digits overflows a float: garbage too)
+        if not (_at(wall, at) and (lease is None or _at(lease, at)) and _at(kill, 0) and 0 <= kill <= MOST_KILL):
+            return None
+        return float(wall), None if lease is None else float(lease), float(kill)
+    except ArithmeticError:
         return None
-    return float(wall), None if lease is None else float(lease), float(kill)
 
 
 def write(path: str, wall: float, lease: float | None, kill: float) -> None:
@@ -67,7 +70,10 @@ class Held:
         self.path, (self.wall, self.lease, self.kill) = path, got
 
     def look(self) -> None:
-        got = read(self.path)
+        try:
+            got = read(self.path)
+        except Exception:                       # (anything read() did not foresee: the last values, never none)
+            return
         if got is not None:
             self.wall = min(self.wall, got[0])
             self.lease = self.lease if got[1] is None else got[1]
