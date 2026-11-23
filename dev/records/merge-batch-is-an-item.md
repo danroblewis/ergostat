@@ -23,3 +23,42 @@ Definition of done.
 4. The batch kind renders on Items, including its Timeline with one bar per run.
 
 Files: dev/bin/queue.py, a small new module in dev/bin for the events, dev/model/landing.yaml, tests/test_queue_batch_item.py (new).
+
+## Where it stopped
+
+Built, round 1. Main had not moved past this branch's base (the clone's `main` is 5411f137, this branch's parent), so
+there was nothing to merge. The choices I made alone, each the most reversible I saw:
+
+- **The event names.** A kind's `on:` maps each event type to one state, so one `batch.ended` cannot end in four
+  states. The end is said as `batch.ended.<outcome>` (`.landed`, `.partial`, `.failed`, `.given-back`), with the
+  outcome also in its data. To rename it, change the four `on:` lines and `batches._said()`.
+- **One added event, `batch.run-started`.** The Timeline draws an item's bars from its state moves alone
+  (`precedence._segments`), and a move needs a change of state. So each run starts with `batch.run-started` (to
+  `testing`) and ends with `batch.run-finished` (to `isolating`: between the runs of a red batch). Each run is then a
+  bar of its own without changing the shared renderer. A "run" is one round, as the definition's kinds say: `full`,
+  `named` (the failing tests on each prefix), `halves` (both halves at once, one run). Rounds follow one another, so
+  their bars never overlap. A clean batch spends a moment in `isolating` between its one green run and `batch.landed`.
+  That is the price of not touching the renderer.
+- **When a batch ends.** One that landed something is `pushing` until its push settles (`queue.settle()`: the push
+  ran, was denied, or the coordinator settled it). A denied push ends it `failed`, because its merges are undone and
+  its gaps sent back. With nothing landed it ends at once: `failed` if a gap was found failing, else `given-back`.
+- **Counts.** `failed` and `passed` are summed over the pytest suites that printed a summary (`counted` names them).
+  When none did, both read 0 with `counted: []`, which says the counts are unknown, not zero.
+- **Outside the Files list.** `ergostat.yaml` (`messages: done` for `batch`, so its finished states are declared, not
+  guessed from the record), `dev/README.md` (the paragraph on batch items), and `tests/test_factory.py` (its fixture
+  keeps `batch.*` events out of the event lists about 50 queue tests compare exactly, as it already does for
+  `session.*`; they still fold into its record).
+- **More than asked.** A run killed part way (SIGKILL) would leave its batch `testing` forever. `recover()`, which
+  already puts main back in that case, now ends the batch `given-back` (`batches.abandoned()`, read from
+  `run/batch.json`).
+
+Size: 0 net lines outside tests/, docs/ and dev/ (the one `ergostat.yaml` line is a change, not an addition).
+batches.py is 239 lines and the queue.py hooks are 21 net (28 added, 7 removed), both under dev/.
+
+Run here, serially, with rc 0: tests/test_queue_batch_item.py (13 passed, its browser test under Playwright 1.63.0
+and the watchdog), tests/test_queue.py (17), tests/test_queue_halves.py (55), tests/test_queue_host.py (12), and ruff.
+Not run here: the whole unit suite, the four browser files and the rest of tests/test_factory.py, whose fixture changed
+(the queue runs them). Seen to fail with the code broken: the failing-write test with begin() unguarded, and the
+Timeline test with `batch.run-finished` moving to `testing` (one bar, not three). The browser test is not mutated
+separately: it checks the same bars as drawn. Without Playwright, as in the unit suite, it skips, as
+tests/test_export.py's do.
