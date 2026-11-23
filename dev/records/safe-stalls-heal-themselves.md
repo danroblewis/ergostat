@@ -63,3 +63,13 @@ record, and the next engine's first pass read that as "the run no longer exists"
 there (`.in` is written before the process starts). Tests: `tests/test_lease_gone.py::test_a_run_record_tells_gone_from_unknown`
 and `::test_at_start_a_lease_of_a_run_that_no_longer_exists_is_ended` (a lease whose run has only its input is left);
 both failed with the new branch mutated to return `none`. About 8 net lines more outside tests/, docs/ and dev/.
+
+Round 3 (again no review findings came back). No code changed. Checked against the lessons again: the release reads
+the item again under the ends' lock and `_finish` checks the fence, so the run's own end or an expiry written in the
+meantime wins (lesson 1); a run this engine takes is in `ours` before its lease is written, so its own new run is never
+read as "no longer exists" (lessons 1 and 3); unknown (no start time, ps failing or timing out, an unreadable record) is
+never gone (lesson 3). main is already merged (28ca107a). Ran again, one file at a time: tests/test_lease_gone.py,
+tests/test_factory_outage.py and tests/test_finding_attention.py (13 passed); tests/test_leases.py,
+tests/test_resilience.py and tests/test_leased_workspaces.py (81 passed); tests/test_agents.py (20 passed, 1 failed:
+the unrelated `test_a_rerun_is_timed_by_the_suite_that_failed`, `No module named 'flakes'`, because it imports
+dev/bin/onmain.py without dev/bin on its path, and this branch changes neither that test nor onmain.py). ruff is clean.
