@@ -3,7 +3,7 @@
 /* ------------------------------------------------------------------ details */
 
 /* closed by hand (its ×, Escape): the loop chosen on the Loops page leaves the address too */
-function shutDetail() { closeDetail(); if (parseRoute().path === "/loops" && parseRoute().q.has("select")) setQuery({ select: null }); }
+function shutDetail() { closeDetail(); if (parseRoute().path === "/goals" && parseRoute().q.has("select")) setQuery({ select: null }); }
 function closeDetail() { S.again = null; if (S.selKey) { S.selKey = null; trace(S.hoverKey); } if (S.hlCausal) sdHighlight(null); const d = $("#detail"); d.hidden = true; d.replaceChildren(); for (const n of document.querySelectorAll(".node.sel")) n.classList.remove("sel"); }
 /* the panel the window asks again: an opener's own, kept only while its panel is the last shown (any other clears it) */
 async function askedAgain(again, open) {
