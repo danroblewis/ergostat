@@ -256,6 +256,22 @@ def test_the_migration_sends_each_reading_once_and_renames_the_old_name(tmp_path
     assert migrate(tmp_path, dst, src.tiers)["sent"] == 1
 
 
+def test_ergostat_migrate_says_what_it_sent_and_a_server_away_fails_it(tmp_path, monkeypatch, capsys):
+    import ergostat.victoria
+    from ergostat.cli import main
+    p = project(tmp_path)
+    p.measurements.add_many([("sensor/queue.depth", time.time() - 60 * i, float(i)) for i in range(5)])
+    assert main(["-C", str(tmp_path), "migrate", "--url", f"http://127.0.0.1:{free_port()}"]) == 1
+    assert "VictoriaMetrics at" in capsys.readouterr().err
+    mem = Mem(p.dir)
+    monkeypatch.setattr(ergostat.victoria, "Victoria", lambda url, d: mem)
+    assert main(["-C", str(tmp_path), "--json", "migrate", "--dry-run"]) == 0
+    got = json.loads(capsys.readouterr().out)
+    assert (got["sent"], got["dry_run"], got["url"], mem.new) == (5, True, "http://127.0.0.1:8428", {})
+    assert main(["-C", str(tmp_path), "migrate"]) == 0
+    assert "5 readings read from SQLite; sent 5" in capsys.readouterr().out and len(mem.new["sensor/queue.depth"]) == 5
+
+
 # ---- a real VictoriaMetrics
 
 

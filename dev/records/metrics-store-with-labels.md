@@ -70,3 +70,110 @@ committed). Do not schedule round 3 until a session's Bash is shown to work, for
 Parked by the factory (review/metrics-store-with-labels-2, 2026-11-23 14:49).
 
 Done: only the definition of done and the stopped-round notes are committed (0 core lines). Left: everything in the definition. That is the idempotent SQLite-to-VictoriaMetrics migration with a test against a real binary (skipped when absent) that keeps every reading and answers PromQL, a test that running it twice changes nothing, bounded series labels, the built-in Prometheus-compatible data source, the SQLite message on PromQL panels, VictoriaMetrics as a supervised process and the default for new installs, the guide text on turning it on, and the rate()/increase() comparison against Prometheus. Why stop: in three rounds, every build session's shell commands were refused ('don't ask mode'), so no code could be run, tested or committed. Another round in the same environment would fail the same way. The cause is the environment, not the gap's approach.
+
+## Where it stopped
+
+Round 3: built, 2026-11-23. The shell worked once each call was one plain command, as the queue's note said. About 210
+net lines outside tests, docs and dev (budget 600).
+
+Answering the queue's findings: the shell was not broken, and every call here was one allowed command. One was refused,
+as given: `uv run python scripts/suite_watch.py -- uv run python scripts/named_tests.py tests/test_daemons.py
+tests/test_daemon_yaml_review.py tests/test_spec_structure.py`. The same three files then ran without the watchdog. The
+build order asked for was kept: (1) the built-in source, (2) the migration and its tests, (3) the labels, (4) the rest.
+(1) and (3) went into one commit, because the source's names are the labels.
+
+Done, by the definition:
+- **Bounded labels** (`victoria.promql_name`). Each series is written under a name and labels taken from its own
+  structure. For example, `sensor/queue.depth` becomes `ergostat_sensor{part="queue",sensor="depth"}`, and
+  `run/BLOCK/cost_usd` becomes `ergostat_run_cost_usd{block="BLOCK"}`. Valves, blocks, observers and the rest are in
+  the SPEC §4b table. Every series also carries `project` and `series`. Every label's value is a name the model
+  declares, so nothing generated is ever a label.
+- **The built-in source** (`datasources.sources`). `ergostat` is a `prometheus` source over the project's
+  VictoriaMetrics. It is held to the project by VictoriaMetrics' `extra_label=project=...`, which the server applies
+  whatever the text says. A model's own source named `ergostat` wins. `query`, `suggest` and `query/fields` are given
+  the project's store.
+- **The SQLite message.** Over SQLite the built-in source is not listed. A panel naming it is refused in its own result
+  (`refused`), naming VictoriaMetrics, `storage: measurements: victoriametrics` and `ergostat migrate`. The page's
+  other panels are answered.
+- **The migration.** `ergostat migrate [--url] [--dry-run]` (`ergostat/migrate.py`) copies every reading SQLite answers
+  (raw, and each old bucket's last reading). It also renames a VictoriaMetrics record under the old single name
+  `ergostat_reading`. For each series it sends only what the server does not hold under the new name (same
+  millisecond, same value), so a second run sends nothing.
+- **Supervised.** `storage: measurements: run:` becomes the daemon `victoriametrics`. It is started though nothing
+  uses it, and restarted, given up and stopped as every daemon is. A `daemons:` entry of that name is an error.
+- **The default for new installs** (`storage.measurements_backend`). If the YAML names no backend:
+  - A record with a `measurements.db` keeps SQLite.
+  - A new record takes VictoriaMetrics when one answers `/health` at 127.0.0.1:8428, and leaves a mark, so a server
+    that is away later is never read as "use SQLite". Otherwise it uses SQLite.
+  - `ERGOSTAT_DEFAULT_MEASUREMENTS` overrides this. `tests/conftest.py` sets `sqlite`, so no test reaches a live
+    server.
+- **A record from before the labels.** Every read takes `ergostat_.+`, so a series written partly under the old name
+  is read whole until it is migrated (`_range` merges, and `series()` sums).
+- **The guide**: docs/DASHBOARDS.md §6a, *turning on VictoriaMetrics*. It covers getting it, `run:`, migrate, the
+  default and what to write. SPEC §4b and §4e say the same.
+- **rate() and increase()**: recorded in SPEC §4e. Prometheus extrapolates toward the window's edges, needs two
+  samples and can give a fractional increase. VictoriaMetrics counts from the sample before the window and does not
+  extrapolate. The test case gives 1.125 against 1.
+
+Choices taken without asking (the most reversible):
+- **The default.** It switches only when a server already answers, because ergostat starts nothing of its own accord
+  (invariant 12). A fresh install with no VictoriaMetrics stays on SQLite. Undo: delete `measurements.backend`, or
+  name the backend.
+- **A known cost.** SPEC §4b had kept SQLite as the default because the engine's reads through VictoriaMetrics were
+  slow (under one reading a second, against six). The owner's decision overrides that. The measurement was not
+  repeated here, and SPEC says so.
+- **Labels.** They are derived from the series' names, not declared per sensor. Declared labels would need a labelled
+  `add` through every writer. They are not built.
+- **Not copied.** The backfill ledger is not copied by `migrate`, and SPEC says so.
+- **Start-up.** While the supervised server starts (about a second), the engine's writes fail, as whenever the server
+  is away. That behaviour was already there, and changing it is outside this gap.
+
+Acceptance tests (`tests/test_metrics_store_labels.py`, 15):
+- Done 1: `test_a_record_is_migrated_with_every_reading_and_answers_promql`, against a real binary. It checks the
+  readings are identical, PromQL by label, and another project's series not seen.
+- Done 2: `test_migrating_twice_changes_nothing`, against a real binary.
+- Also against a real binary: `test_a_record_under_the_old_single_name_is_renamed_once` and
+  `test_rate_and_increase_differ_from_prometheus_as_recorded`.
+- These four need a server. They start one from `ERGOSTAT_TEST_VM_BIN` or `victoria-metrics` on the PATH, or use
+  `ERGOSTAT_TEST_VM_URL`. Otherwise they skip with the queue's exempt reason. **No binary is in this container, so
+  all four were skipped here and have never run.** Their VictoriaMetrics expectations come from its documentation.
+- Run here: `test_the_migration_sends_each_reading_once_and_renames_the_old_name`. It runs the same migration code
+  over an in-memory stand-in for the server: every reading once, twice changes nothing, then a later reading sent
+  alone.
+- Also run here: the source, SQLite-message, default, supervised, CLI, naming and mixed-name tests.
+- Done 3 is the guide. No live instance was changed.
+
+Seen to fail when the code they guard was broken, all four at once, then put back:
+- removing `_needs` failed the SQLite test;
+- dropping `extra_label` failed the built-in source test;
+- dropping the store daemon from `used` failed the supervised test;
+- ignoring what the server holds failed the in-memory migration test (757 sent, not 756).
+
+Run here, one file at a time:
+- test_metrics_store_labels: 11 passed and 4 skipped as above (15 tests). Before the CLI test was added, it ran
+  with test_upkeep_record: 24 passed.
+- test_data_sources, test_storage and test_spec_schema: 64 passed.
+- test_store_conformance, test_upkeep_record and test_cli_fallback: 78 passed, 12 skipped (VictoriaMetrics).
+- test_dashboards_doc and test_daemon_docs passed.
+- test_daemons, test_daemon_yaml_review and test_spec_structure: 78 passed.
+- test_web_lanes, test_web_access and test_daemons_restart: 43 passed.
+- test_data_source_panels (browser, under the watchdog): 3 passed, rc 0, none skipped.
+- ruff is clean.
+- test_query_engine: 114 passed, 1 failed in the batch.
+  `test_a_factory_sized_record_answers_each_source_within_100_ms_without_the_log` took 0.111 s on the `counts` source,
+  which this branch does not touch. It passed when run alone. It is a timing bound under load, not this change.
+
+Not run here: the whole unit suite, the four browser files and `demo_check` (no example touched). `main` (278f54a4)
+was already merged and has not moved.
+
+## Entry
+
+section: Runtime, scale and latency
+
+- **ergostat's own series in PromQL, with real labels** (done, on `metrics-store-with-labels`; SPEC §4b, §4e;
+  docs/DASHBOARDS.md §6a). On VictoriaMetrics, each series is named with bounded labels (`ergostat_sensor{part,
+  sensor}`, `ergostat_run_cost_usd{block}`, ...). The built-in `ergostat` data source answers PromQL for the project's
+  own series; over SQLite, a panel naming it says what it needs. `ergostat migrate` copies the readings idempotently.
+  `storage: measurements: run:` supervises the server, and a new record takes VictoriaMetrics when one answers. Left:
+  the four real-binary tests have not been seen to pass (no binary where it was built); labels declared per sensor;
+  the engine's reads through VictoriaMetrics were measured slow before and are not re-measured.
