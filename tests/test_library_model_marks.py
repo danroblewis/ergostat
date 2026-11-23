@@ -243,6 +243,25 @@ blocks:
         assert "./serve queue-backlog" in serve, serve
 
 
+def test_owner_field_holding_a_name_kept_only_there(tmp_path, capsys):
+    """An owner's field that holds an untrusted part's name (an equation ``stock.u-backlog``, a description ``u-b``)
+    is kept whole only where its own field is written: everywhere else the name is still marked."""
+    own = CONTEXTS.replace("[system.u]", "[system.u, auxiliary.seen]") + \
+        "auxiliaries:\n  seen: {unit: items, equation: stock.u-backlog, description: u-b}\n"
+    path = project(tmp_path, own=own)
+    s = Server(tmp_path)
+
+    def text(name, a=None):
+        return s.call(name, a or {})["content"][0]["text"]
+    status = json.loads(text("status"))
+    assert status["goals"]["u-low"]["of"] == "stock." + mark("u-backlog", LABEL), status
+    for got in (text("explain"), text("context", {"recipe": "look"}), check_out(path, capsys)):
+        assert inside("u-backlog", got) and not word("u-backlog", raw(got)), got
+        assert untrusted.KEEP not in got and untrusted.KEPT not in got             # the sentinels never shown
+    seen = text("explain", {"part": "auxiliary.seen"})
+    assert "Auxiliary seen (items): u-b." in seen, seen          # the owner's own description, as written
+
+
 def test_owner_text_unchanged(tmp_path, capsys, monkeypatch):
     own = """
 stocks:

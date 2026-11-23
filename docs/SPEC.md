@@ -196,11 +196,13 @@ for an untrusted template only; a trusted template's output is unchanged:
   or about an untrusted part, is marked whole in `ergostat check`'s lines and its `--json` messages, in the MCP
   `check` answer and in a `context` recipe's findings. The names of untrusted parts (identifiers, by NAME, each
   `INSTANCE-NAME`) are marked as whole words where those answers, the notes' lines of `check` and the values (never
-  the keys) of the MCP `status` answer write them, but never inside a mark or inside the owner's own fields (a
-  description, run, prompt, ask, equation, sensor's run or description, or system description, each as written). An
+  the keys) of the MCP `status` answer write them, but never inside a mark, nor inside an owner's own field (a
+  description, run, prompt, ask, equation, sensor's run or description, or system description) where the `explain`
+  and `context` answers write that field from the model's copy: there it is as written. The same words anywhere else
+  in an answer (a finding's message, a `status` value, another line of `explain`) have their names marked. An
   answer that carries a mark, a refusal's or a bad-param's included, ends with what the markers mean once (`check`'s
   last line; `"untrusted"` in a JSON answer). The owner's parts and those of trusted and built-in templates are not
-  marked, even where their text is the same as a library's or names an untrusted part, and an answer with no
+  marked, even where their text is the same as a library's, and an answer with no
   untrusted part or mark in it is unchanged.
 
 *Not marked.* The template's name and its parameters' names (checked instead), a parameter's `type` (one of the

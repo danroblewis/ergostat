@@ -164,3 +164,32 @@ instruction for this round was to move the entry, commit and stop. The finding i
 
 entry-of: shared-libraries
 done: 2026-11-23 The text an untrusted instance makes (descriptions, prompts, asks, runs, equations, its system's description) is marked where the MCP `explain` and `context` answers write it, its parts' names and the findings about them are marked in `ergostat check` and the MCP `check`, `status`, `explain` and `context` answers, with the markers' meaning once per answer, through one helper (`untrusted.Shown`), and the `library-untrusted`/`untrusted-text` refusals mark the refused key's path, template and folder (`library-model-text-marked`).
+
+## Where it stopped (round 7, the owner-field skip only where the field is written)
+
+The round-5 finding (the one open finding; the review lists no other) is answered. `Shown.skip` no longer holds
+the owner's texts. `Shown.model()` now wraps each owner field that holds an untrusted part's name in two private
+sentinels (`KEEP`/`KEPT`, U+E000/U+E001), in the model's copy only. `names` passes over a span between them and then
+takes the sentinels out of what it returns. `mark`/`escape` also take them out, so a library's text cannot carry
+one. So an owner's field is kept whole only where `explain` or `context` writes it from the copy. The same words
+elsewhere have their untrusted names marked: in `check` and the MCP `check` messages, the `status` values, and
+explain's other lines. An owner text `u-b` no longer splits `u-backlog`. The part copy is one helper
+(`Shown.fields`), used for both the marked fields and the kept ones, and it replaces `owners()`.
+
+New test `test_owner_field_holding_a_name_kept_only_there`. It has an owner aux `equation: stock.u-backlog`,
+`description: u-b`. It checks that status `of`, explain, context and `check` keep `u-backlog` marked, that no
+sentinel shows, and that the aux's own description reads `u-b` as written. Breaks checked (lesson 9), each then put
+back: (a) the old answer-wide skip, restored for this model's owner texts (`|stock\.u-backlog|u-b` in `skip`),
+fails it at status `of`. (b) The sentinels left in the output fails it in explain. (c) Owner fields not wrapped fails
+it and `test_owner_words_equal_to_names_stay`. SPEC §2a now says that an owner's field is kept as written only where
+`explain`/`context` write it, and that its names are marked anywhere else.
+
+Python run through Bash (`python3 - <<EOF`), `sed -i` and `git checkout -- tests/test_library_model_marks.py` were
+refused here, so the edits were made with the file tools.
+
+Overrun reason: the owner-field keep that round 2's finding 2 asked for (now the sentinel wrap in `model()` and its skip in `names`) and the SAYS rule for a message already marked take the code to 138 net lines (161 added, 23 removed), 18 over the 120 budget; the alternative, marking each name at each of explain's name sites, is larger and outside the files of this gap.
+
+Left: the diagrams (library-diagram-text-marked). Tests run this round: `tests/test_library_model_marks.py`,
+`tests/test_library_trust.py` and `tests/test_library_provenance.py` (112 passed), and ruff is clean. The unit suite
+and the browser files were not run here (house rule: the factory runs them). Main has not moved since the clone
+(278f54a4 is merged).
