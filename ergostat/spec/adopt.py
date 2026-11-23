@@ -12,7 +12,9 @@ is kept with its fence and renewed; once it has ended it is ended from its journ
 engine had been there: ``agent.ran`` (or ``agent.failed``; its id made from the run's, so written once) at the time it
 really ended (its exit file's), its costs at that time, what follows any run's end (``after``: its failure triaged,
 its claims checked, its review), then its lease's ack or nack. Its lines keep when they were printed, by its keeper's
-stamps of its journal (``Stamps``)."""
+stamps of its journal (``Stamps``). The engine may be another version than the one that started the run (a version
+switch): a run whose record states a format of its files it cannot read (``runrecord.JOURNAL``) is refused
+(``refuse``), never read."""
 
 from __future__ import annotations
 

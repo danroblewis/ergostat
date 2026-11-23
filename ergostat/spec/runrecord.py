@@ -3,9 +3,9 @@
 A run starts in its own session. Its input is a file, its output goes to its run log file (``runs/RUN.out`` in the
 state folder), and the engine follows that file: no pipe ties the run to the engine, so killing the engine never
 kills the run. A small ``sh`` wrapper (POSIX: bash 3.2 and dash alike) writes the run's exit code to ``RUN.exit``
-when it ends, whoever is watching. ``RUN.json`` is the run's record: its pid, its process's start time, its run id,
-its lease and its block. A pid alone names a process only until it is reused; the pid and its start time together
-name one process, once. The files are removed once the run's end is recorded.
+when it ends, whoever is watching. ``RUN.json`` is the run's record: the format of its files (``JOURNAL``), its pid,
+its process's start time, its run id, its lease and its block. A pid alone names a process only until it is reused;
+the pid and its start time together name one process, once. The files are removed once the run's end is recorded.
 
 With ``runs: outlive_engine`` the run is started by a keeper of its own instead (``compute/worker/keeper.py``), the
 same wrapper inside it, and its output file is its journal, ``runs/RUN.jsonl``: stopping the engine leaves it going."""

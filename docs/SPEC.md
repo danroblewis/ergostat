@@ -2931,7 +2931,15 @@ sample). Its exit code is the wrapper's, as above.
   record is not undone: an `auxiliary` set read again is one more reading of the same value.) An unreadable offset is
   read from the start, which records nothing twice for the same reason. A starting engine, before its socket, its
   loop or its leases' first look, takes up each run in `runs/` with a keeper's folder or a journal left (a run of a
-  block no longer in the model, or with no `agent.started` in the record, is left as it is, said):
+  block no longer in the model, or with no `agent.started` in the record, is left as it is, said). The engine taking
+  it up may be another version of ergostat than the one that started it (a version switch stops one engine and
+  starts another; the runs go on between them), so the run's record states the **format** of its files (its record,
+  journal, offset and keeper's folder) as `journal` (now 1; a record that states none was written before the format
+  was stated, and is format 1). A run of a format this ergostat cannot read is **refused**, none of its lines read:
+  `run.refused` on its block names the run, its journal and the format (recorded once, however often it is found;
+  said in the engine's log each start), its keeper is told to stop it (SIGTERM to its group, SIGKILL past the kill grace, 10 s), and its
+  lease, when it still holds it with its fence, is given back uncounted (a nack with `count: false`), so its item is
+  taken again by a run this engine reads, never beside one still going. A run of a format it reads:
   - **Still going**, by its record: its pid, and that process's start time (a pid now another process's, whose
     start time differs, is gone; a start time that cannot be read is not taken for gone). The start time is read at
     most once a second (on macOS each reading is a `ps`); between readings, only whether the pid is still there is

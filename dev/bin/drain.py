@@ -132,7 +132,8 @@ def step(cfg: dict, now: float | None = None) -> str:
         if top["state"] == "installed":
             if action_state(top) not in ("approved", "ran"):
                 return f"{top['id']} waits for its switch to be approved"
-            fac.say("upgrade.switch-approved", top["id"], approved_at=now)
+            fac.say("upgrade.switch-approved", top["id"], approved_at=now, switch_begun_at=None,   # (an earlier
+                    drained_at=None)                    # switch of the same version, installed again: not this one's)
         sha = top["fields"]["sha"]
         save(cfg, {"sha": sha, "switch_started": now})
         fac.say("upgrade.switch-begun", top["id"], switch_begun_at=now)

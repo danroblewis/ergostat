@@ -213,10 +213,12 @@ def test_a_switch_with_runs_under_way_stops_none_and_each_finishes_and_is_record
     p = i.project()
     runs = wait_for(lambda: under_way(p), 90)
     assert runs, "the three runs never started"
-    before = pids(i, runs.values())
+    before, t0 = pids(i, runs.values()), time.time()
+    os.utime(i.live / i.a, (0, 0))
     r = i.live_py("switch", i.b, check=False)
     assert r.returncode == 0 and json.loads(r.stdout.splitlines()[-1])["healthy"], (r.stdout, r.stderr)
     assert os.readlink(i.live / "current") == i.b and os.readlink(i.live / "previous") == i.a
+    assert (i.live / i.a).stat().st_mtime >= t0 - 1, "the runs' version not kept fresh for cleanup.py"
     assert all(alive(x) for x in before.values()), "a run under way was stopped by the switch"
     p = i.project()
     assert not p.events.query(n=None, type=ENDED), "a lease ended at the switch"
@@ -236,10 +238,12 @@ def test_a_reverted_switch_with_runs_under_way_stops_none_and_each_finishes_and_
     p = i.project()
     runs = wait_for(lambda: under_way(p), 90)
     assert runs, "the three runs never started"
-    before = pids(i, runs.values())
+    before, t0 = pids(i, runs.values()), time.time()
+    os.utime(i.live / i.b, (0, 0))
     r = i.live_py("switch", i.b, check=False)
     assert r.returncode == 1 and not json.loads(r.stdout.splitlines()[-1])["healthy"], (r.stdout, r.stderr)
     assert os.readlink(i.live / "current") == i.a, "not reverted"
+    assert (i.live / i.b).stat().st_mtime >= t0 - 1, "the reverted version not kept fresh for cleanup.py"
     assert all(alive(x) for x in before.values()), "a run under way was stopped by the switch or its revert"
     p = i.project()
     assert its.one(p.events, p.model.spec, f"upgrade/{i.b[:12]}").state == "reverted"

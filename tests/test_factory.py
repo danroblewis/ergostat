@@ -4147,10 +4147,12 @@ def test_an_installed_switch_waits_only_for_its_approval(tmp_path):
     uid = asked(f, b, "held")
     said, why, started = switcher(f, NOON)
     assert said == [] and started == [] and why == f"{uid} waits for its switch to be approved"
-    db = f.db()
+    f.fold([{"event": "upgrade.installed", "item": uid, "data": {"drained_at": NOON - 9999}}], None)  # (an earlier
+    db = f.db()                                                                  # switch of it, installed again)
     db["actions"][f.item(uid)["fields"]["switch_action"]] = "ran"
     f.record.write_text(json.dumps(db))
     assert switcher(f, NOON + 60)[::2] == (["upgrade.switch-approved", "upgrade.switch-begun"], [b])
+    assert f.item(uid)["fields"]["drained_at"] is None and f.item(uid)["fields"]["switch_begun_at"] == NOON + 60
 
 
 def test_an_upgrade_the_draining_switcher_left_is_read_as_before(tmp_path):

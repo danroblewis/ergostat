@@ -91,11 +91,11 @@ attempt, nothing toward the kill rule, never parked or a dead letter. While the 
 (the sensor `aihold.py held`, in its own system `ai-hold`; a stale reading counts as held) shuts implement-, review-
 and research-when, and plan- and plan-review-when through `ai-stopped` (planning's one read of it and the budget), so no
 AI-role lease is taken, and every AI program that took one in the sensor's lag gives it back the same way
-(`fac.drain_holds`); the groomer and the plan review start no session. The merge queue, triage and the suites read
-neither and run on. At the reset the hold lifts by itself and the items given back are taken again in their blocks'
-order. A reset time that cannot be read (no time, an unknown zone, a date that does not exist, more than 8 days off),
-or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit again or
-not. A switch's drain nacks are uncounted too (`count: false`), whether a run gives its item back or the switcher does.
+(`fac.ai_holds`); the groomer and the plan review start no session (`fac.ai_held`). The merge queue, triage and the
+suites read neither and run on. At the reset the hold lifts by itself and the items given back are taken again in their
+blocks' order. A reset time that cannot be read (no time, an unknown zone, a date that does not exist, more than 8 days
+off), or a hold file that cannot be read, holds for an hour and says so; the next session after it finds the limit
+again or not.
 
 **An outage is a pause, not a failure** (`dev/bin/outage.py`). A run that fails because Docker or the AI service cannot
 be reached gives its item back uncounted, put off 10 minutes, and is taken again after it, as often as the outage
@@ -995,25 +995,33 @@ gap is not on pushed main raises `waiting` at once too (past `park_wait_hours`).
 Each green merge opens an `upgrade` item; the upgrader installs it into `~/ergostat-live/<sha>` and checks the model
 with its own code, then asks for `switch-instance`. Only the newest waits: the switcher (`dev/bin/drain.py`, every
 minute) withdraws a request for a version older than one waiting, or than the one running (its action denied by the
-switcher, saying which version supersedes it), except that a drain under way is not withdrawn for a newer version
-only installed: the drain goes on to its switch and the newer one waits, its request open; a newer one approved takes
-the drain over, keeping its start. Approving it (the inbox, as above; or standing, with `gate: auto` on the
-action in the instance's model) does not switch at once: the switch waits for a quiet moment (at most `[upgrade]
-quiet_runs` AI runs under way) or, at the latest, the daily window (`[upgrade] daily_at`, 04:00 local) passing; then it
-drains: `run/drain.json` is written and the AI blocks take no new item (each run gives its item back uncounted) while
-the runs under way finish, for at most `[upgrade] drain_minutes` (45); the runs still going then are given back
-uncounted (not a failure of their gaps) and stopped with the engine. The switch then stops the engine, points `current`
-at the new version, starts it, and checks its health for two minutes (a pass, the sensors reading, the record read, the
-merge queue in the model); unhealthy, it goes back to the previous version by itself. Either way it removes
-`run/drain.json`. A switch that ends with no outcome recorded (it failed before stopping the engine, as with a version
-no longer installed), or whose flag is still there 30 minutes on, is recorded `failed`, with an intervention, and
-never begun again. A drain never switches in the step that began it, and no request is withdrawn while a switch
-runs. The goal `drains-within-bound` holds the minutes past `[upgrade] drain_minutes` (`drain.py overrun`) to 2;
-`drain-minutes` stops counting once the switch begins. The switcher reads the goal (`in:`) rather than naming it
-(`goal:`): a goal named would command it, and a commanded block leaves its `every:` (`ergostat check` says
-`schedule-removed`); the pipeline watch reads `no-stuck-gaps` and `merge-pipeline-flowing` the same way. The `in:`
-is drawing only: neither program reads the goal's value, as each finds what the goal measures itself. The groomer and
-the plan review start no session while `run/drain.json` is there. `status.py` says what the newest switch waits for, or how long it has drained. By hand:
+switcher, saying which version supersedes it); no request is withdrawn while a switch runs. Approving it (the inbox,
+as above; or standing, with `gate: auto` on the action in the instance's model) switches at once, in the switcher's
+next minute: it writes `run/switch.json`, says `upgrade.switch-begun`, and starts the switch in a process of its own.
+The switch stops the engine, points `current` at the new version, starts it, and checks its health for two minutes (a
+pass, the sensors reading, the record read, the merge queue in the model); unhealthy, it goes back to the previous
+version by itself. Either way it removes `run/switch.json`. A switch that ends with no outcome recorded (it failed
+before stopping the engine, as with a version no longer installed), or whose flag is still there 30 minutes on, is
+recorded `failed`, with an intervention, and never begun again.
+
+**What a switch does to running work: nothing.** The factory's model has `runs: outlive_engine` on, so every run
+(an implementor's session, a review, the merge queue's suites) is held by a keeper of its own, not by the engine. A
+switch, and a revert, stop the engine alone (`ergostat run --stop`, never `--runs`): each run under way carries on
+under the version it started with (its process, its `$ERGOSTAT_CMD`, the modules it has loaded), its lease kept with
+its fence, and writes what it says to its journal while no engine is up; the engine the switch starts takes it up
+from its journal (SPEC section 9.1, *Runs taken up again*), every line recorded once, and ends it as if it had been
+there: its `agent.ran`, its lease's ack or nack, no attempt lost. Nothing waits for the runs, and none is stopped or
+given back. The version switched from is touched as it stops running, so `cleanup.py` keeps its folder `[resources]
+session_keep_hours` (24) on, past any run's timeout, for the runs that still use it. What a run starts after the switch
+from the instance's `dev/` (a module imported late, another script) is the new version's: the instance's model is
+placed whole. A run of a journal format the new engine cannot read (`runs/RUN.json`'s `journal`) is refused and named
+(`run.refused`), its keeper told to stop it and its lease released uncounted, so its item is taken again.
+
+The switcher reads the goal `upgrades-switched-to` (`in:`) rather than naming it (`goal:`): a goal named would command
+it, and a commanded block leaves its `every:` (`ergostat check` says `schedule-removed`); the pipeline watch reads
+`no-stuck-gaps` and `merge-pipeline-flowing` the same way. The `in:` is drawing only: neither program reads the goal's
+value, as each finds what the goal measures itself. `status.py` says what the newest switch waits for, or since when it
+has been switching. By hand:
 
 ```sh
 python3 dev/bin/live.py switch <sha>           # the same, in the foreground
