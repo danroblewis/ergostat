@@ -45,13 +45,15 @@ def sentence(a: dict) -> str:
             + (f", for {a['item']}" if a.get("item") else "") + (f", asked by {a['block']}" if a.get("block") else ""))
 
 
-def _why(p, spec, item: str | None) -> str:
-    """The work item's impact sentence and its tests' result (the repair loop's failure, SPEC §12n), when it has them."""
-    from ..spec import items as its
-    try:
-        it = its.one(p.events, spec, item) if item else None
-    except Exception:
+WHY = ("impact", "tests", "test")              # the fields an action's why reads of its work item
+
+
+def _why(item: str | None, got: dict | None) -> str:
+    """The work item's impact sentence and its tests' result (the repair loop's failure, SPEC §12n), when it has them,
+    from ``got`` (the items as they are now, by id: None when they could not be read)."""
+    if got is None:
         return ""
+    it = got.get(item) if item else None
     f = it.fields if it else {}
     imp = f.get("impact")
     imp = imp.get("said") if isinstance(imp, dict) else imp
@@ -62,13 +64,19 @@ def _why(p, spec, item: str | None) -> str:
 
 def _actions(p, spec, now: float) -> list[dict]:
     from ..actions import record
+    from ..spec import items as its
     if not spec.actions:
         return []
+    held = list(record.stored(p, until=now, states=["requested"]).values())
+    try:
+        got = its.current(p.events, spec, [a.get("item") for a in held if a.get("action") != "revert-fix"], WHY)
+    except Exception:
+        got = None
     return [{"id": f"action/{record.short(a['id'])}", "kind": "action", "time": a["time"], "link": f"/item/{a['id']}",
              "verbs": ["approve", "deny"], "class": a.get("class") or a.get("action"), "action": a.get("action"),
              **({"warn": w} if (w := warning(p, spec, a)) else {}), "run": a.get("command"),
-             "summary": sentence(a), "why": w if a.get("action") == "revert-fix" else _why(p, spec, a.get("item"))}
-            for a in record.stored(p, until=now).values() if a["state"] == "requested"]
+             "summary": sentence(a), "why": w if a.get("action") == "revert-fix" else _why(a.get("item"), got)}
+            for a in held]
 
 
 def asks(p, b, since: float | None = None, until: float | None = None) -> list[dict]:

@@ -66,10 +66,11 @@ def get(p, aid: str) -> dict | None:
     return fold(evs[0]["item"], evs)
 
 
-def stored(p, since: float | None = None, until: float | None = None) -> dict[str, dict]:
-    """Every action requested since then, folded, oldest first (the item index's table: ``projections.stored``)."""
+def stored(p, since: float | None = None, until: float | None = None, states=None) -> dict[str, dict]:
+    """Every action requested since then (in ``states``, when given), folded, oldest first (the item index's table:
+    ``projections.stored``)."""
     from ..spec import projections
-    return projections.stored(p, "action", since, until)
+    return projections.stored(p, "action", since, until, states)
 
 
 def about(p, item: str) -> list[dict]:

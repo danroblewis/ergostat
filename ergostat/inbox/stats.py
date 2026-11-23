@@ -64,7 +64,10 @@ def asked(p, spec, since: float, until: float) -> list[dict]:
             cls, t0 = made.pop(e["item"])
             one(cls, e["item"], t0, e["time"], "approved" if e["type"].endswith("accepted") else "denied", e["source"],
                 e["data"].get("dismissed_because"))
-    waiting = {e["id"].split("/", 1)[1] for e in en.entries(p, spec, until) if e["kind"] == "change"}
+    try:                                                  # the changes waiting then (``entries``' own, alone)
+        waiting = {e["id"].split("/", 1)[1] for e in en._changes(p, spec, until)}
+    except Exception:
+        waiting = set()
     for item, (cls, t0) in made.items():
         if item.split("/", 1)[1] in waiting:
             one(cls, item, t0, None, None)

@@ -120,10 +120,11 @@ def asks(p, block: str, person: bool, since=None, until=None) -> list[dict]:
     return out
 
 
-def stored(p, fam: str, since=None, until=None) -> dict:
-    """``projections.stored`` as the modules read it before."""
+def stored(p, fam: str, since=None, until=None, states=None) -> dict:
+    """``projections.stored`` as the modules read it before (``states``: as the callers filtered it)."""
     if fam == "action":
-        return actions(p, since, until)
+        got = actions(p, since, until)
+        return got if states is None else {k: a for k, a in got.items() if a["state"] in states}
     if fam == "message":
         return messages(p, since, until, n=2000)        # (the status's unrouted messages read the latest 2,000 events)
     if fam == "report":
@@ -135,9 +136,37 @@ def query(p, type: str, **kw) -> list[dict]:
     return p.events.query(type=type, **kw)
 
 
+def latest(p, type: str, items, until=None) -> dict:
+    return {i: next(reversed(p.events.query(n=1, type=type, item=i, until=until)), None) for i in items}
+
+
+def openings(p, valves, since, until) -> dict:
+    return {k: [t for t, _, _ in v] for k, v in p.events.times(valves, "valve.opened", since, until).items()}
+
+
+def opened_amounts(p, valve, since, until, n=50) -> list:
+    return [e["data"].get("amount") for e in p.events.query(n=n, type="valve.opened", item=valve, since=since, until=until)]
+
+
+def current(events, spec, ids, fields=()) -> dict:
+    return {i: it for i in ids if i and (it := its.one(events, spec, i)) is not None}
+
+
 def old(monkeypatch) -> None:
-    """The old reads in place of the tables', for the rest of the test (or the ``monkeypatch.context()``)."""
-    from ergostat.spec import projections
+    """The old reads in place of the tables', for the rest of the test (or the ``monkeypatch.context()``): the
+    families, marks and asks; each agent's and loop's newest events, the window's tallies and openings
+    (``events.runs``, ``opened``, ``times``); an action's work item folded from the record (``items.one``); and every
+    item changed since a moment folded again from the record (no ``Index.still``)."""
+    from ergostat.spec import itemindex, projections
     monkeypatch.setattr(projections, "stored", stored)
     monkeypatch.setattr(projections, "query", query)
     monkeypatch.setattr(projections, "asks", asks)
+    monkeypatch.setattr(projections, "latest", latest)
+    monkeypatch.setattr(projections, "runs", lambda p, items, since, until: {i: p.events.runs(i, since, until)
+                                                                             for i in items})
+    monkeypatch.setattr(projections, "opened", lambda p, valves, since, until: {v: p.events.opened(v, since, until)
+                                                                                 for v in valves})
+    monkeypatch.setattr(projections, "openings", openings)
+    monkeypatch.setattr(projections, "opened_amounts", opened_amounts)
+    monkeypatch.setattr(its, "current", current)
+    monkeypatch.setattr(itemindex.Index, "still", lambda self, ids, keys, at: set())

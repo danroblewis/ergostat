@@ -2,10 +2,10 @@
 factory-size fixture (``factory_state``) with ergostat's own items added at the factory's rate: gated actions held and
 answered, messages, reports, model changes, modelling requests and model requests, a person block's asks, breakers.
 
-- once the index is current, none of the status's reads of what the tables hold (those items, the inbox's asks, loop
-  crossings, breakers, step tests, daemons, expired leases) reaches the event log's segments; the reads that are left
-  are named, and the whole answer's time is measured (the definition's no-segment-query and 100 ms bound are not met:
-  ``test_a_status_request_makes_no_segment_query_and_answers_in_100_ms`` is a strict xfail until they are);
+- once the index is current, none of the status's reads (those items, the inbox's asks and the actions' work items,
+  loop crossings, breakers, step tests, daemons, expired leases, each agent's and loop's newest events, the window's
+  tallies and openings, the items changed since a reading) reaches the event log's segments, and the answer is made in
+  under 100 ms; the old code, counted the same way, reads them all from the log;
 - the answer equals, field by field, the old code's on that record (tests/status_before.py: each module's own fold of
   the record, put back in place of the tables');
 - the answer says how old it is."""
@@ -28,9 +28,8 @@ from tests import status_before
 
 pytestmark = pytest.mark.slow
 
-TABLED = tuple(f"{pre}." for pre, *_ in projections.FAMILIES.values()) + tuple(     # (agent.ran is an ask's answer
-    m[:-1] if m.endswith("*") else m for m in projections.MARKS) + tuple(t for t, (_, ask) in    # only beside an ask)
-    projections.CHAINS.items() if ask or t.startswith("block."))
+TABLED = tuple(f"{pre}." for pre, *_ in projections.FAMILIES.values()) + tuple(
+    m[:-1] if m.endswith("*") else m for m in projections.MARKS) + tuple(projections.CHAINS) + projections.LATEST
 
 
 def _seed(p, now: float) -> int:
@@ -84,6 +83,8 @@ def _seed(p, now: float) -> int:
                 add("agent.ran", b.name, t0 + 300, {"done": 1}, "person")
     for b in [b for b in spec.blocks.values() if b.on is not None][:3]:
         add("trigger.tripped", b.name, now - 900, {"runs": 40, "most": 20})
+    for i in range(0, 60, 3):                             # work items an action asks about: their impact and tests
+        add("gap.noted", f"gap/{i}", t(), {"impact": f"impact {i}", **({"tests": "2 failed"} if i % 2 else {})})
     evs.sort(key=lambda e: e["at"])
     return p.events.add_many(evs)
 
@@ -126,8 +127,7 @@ def _reads(monkeypatch) -> list[tuple]:
 
 
 def _tabled(type: str | None, item, items: bool) -> bool:
-    """A read of what the tables hold: of their types, or of every item's events (a fold of the record). (A read of one
-    item's events, for the item index's as-of fold of an item changed since, is the items' table's, not these.)"""
+    """A read of what the tables hold: of their types, or of every item's events (a fold of the record)."""
     if type is None:
         return items
     return any(t.startswith(TABLED) for t in type.split(","))
@@ -138,28 +138,22 @@ def test_once_the_index_is_current_the_status_reads_none_of_the_tables_from_the_
     assert projections.stored(p, "action") and projections.stored(p, "message")        # (the seeded items are there)
     p.events.add("probe.tick", item="probe", source="test")      # a new event: the index follows it, the caches go
     reads = _reads(monkeypatch)
-    t0 = time.perf_counter()
     snap = state.snapshot(p)
-    took = time.perf_counter() - t0
-    assert snap["inbox"] and snap["messages"]
-    mine = [r for r in reads if _tabled(*r)]
-    assert mine == [], mine[:20]
-    # what is left: the loops' and agents' latest events and the window's tallies (controller.decided, valve.opened,
-    # auxiliary.set, agent.ran/failed/started, claims contradicted), and the index's own catch-up of the new event
-    left = sorted({str(t) for t, _, _ in reads})
-    print(f"status snapshot: {took * 1000:.0f} ms, {len(reads)} reads of the log left, of {left}")
-    n = len(reads)
+    assert snap["inbox"] and snap["messages"] and snap["agents"] and snap["loops"]
+    assert reads == [], reads[:20]
     with monkeypatch.context() as m:                     # the old code, counted the same way: it reads them all
         status_before.old(m)
         p.events.add("probe.tick", item="probe", source="test")
         state.snapshot(p)
-    assert {t.split(",")[0] for t, i, x in reads[n:] if _tabled(t, i, x)} >= {
+    assert {t.split(",")[0] for t, i, x in reads if _tabled(t, i, x)} >= {
         "loop.*", f"{ACTION}.*", f"{MESSAGE}.*", f"{MODEL_CHANGE}.*", f"{MODELLING_REQUEST}.*", "person.asked",
-        "ergostat.lease.expired"}, sorted({str(t) for t, _, _ in reads[n:]})
+        "ergostat.lease.expired", "agent.ran", "agent.failed", "agent.started", "controller.decided", "valve.opened",
+        "ergostat.claim.contradicted"}, sorted({str(t) for t, _, _ in reads})
+    one = [i for t, i, _ in reads if t is None and i is not None]          # and one item's events, folded: an action's
+    assert len(one) > 20, len(one)                                         # work item, an item changed since a reading
 
 
-@pytest.mark.xfail(strict=True, reason="the loops' and agents' latest events and the window's tallies have no table "
-                   "yet (dev/records/status-reads-the-projections.md, Where it stopped)")
+@pytest.mark.serial                                       # (a time bound: held only on a machine not under the suite)
 def test_a_status_request_makes_no_segment_query_and_answers_in_100_ms(record, monkeypatch):
     p = record
     p.events.add("probe.tick", item="probe", source="test")
@@ -181,6 +175,7 @@ def test_the_answer_equals_the_old_codes_field_by_field(record, monkeypatch):
         was = state.snapshot(p, now=now)
     _uncached()
     assert new["inbox"] and new["messages"] and new["reports"]
+    assert any("impact" in (e.get("why") or "") for e in new["inbox"] if e["kind"] == "action")   # (its work item's)
     breakers = {"breaker"} if any(b.on is not None for b in p.model.spec.blocks.values()) else set()
     assert {e["kind"] for e in new["inbox"]} >= {"action", "person", "change", "request", *breakers}, \
         {e["kind"] for e in new["inbox"]}

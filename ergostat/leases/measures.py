@@ -66,8 +66,9 @@ def attention(p, spec: Spec, now: float | None = None) -> list[dict]:
     """What needs the owner (SPEC §9.5): every dead letter, and every lease that expired over the last hour."""
     now = time.time() if now is None else now
     out = []
-    for kind in _kinds(spec, None):
-        for it in its.project(p.events, spec, kind, until=now, transcript=False):
+    for kind in _kinds(spec, None):                   # (its dead items alone, the latest first, as ``project`` has them)
+        for it in sorted(its.in_states(p.events, spec, kind, [DEAD], until=now, items=True, transcript=False)[2],
+                         key=lambda i: -i.last):
             lease = it.fields.get("lease") if isinstance(it.fields.get("lease"), dict) else None
             if lease is None or it.state != DEAD:
                 continue

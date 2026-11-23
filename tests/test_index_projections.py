@@ -29,6 +29,7 @@ T0 = 1_700_000_000.0
 BACKENDS = ("sqlite", "segments")
 BLOCKS = ("asker", "advisor")
 LOOPS = ("lp-a", "lp-b")
+AGENTS = ("asker", "valve-v", "lp-a", "ticket/1")
 
 
 def _project(tmp_path, backend: str, extra: str = "") -> Project:
@@ -67,9 +68,18 @@ def _events(r: random.Random, n: int, t0: float) -> list[tuple]:
             out.append((projections.EXPIRED, f"ticket/{r.randrange(4)}", {"block": "b"}, "ergostat"))
         elif pick < 0.83 and ids:
             out.append((projections.FORGOTTEN, "part", {"voids": r.sample(ids, min(len(ids), 2))}, "ergostat"))
-        elif pick < 0.97:
+        elif pick < 0.88:
             ty = r.choice(list(projections.CHAINS))
             out.append((ty, r.choice(BLOCKS), {"note": r.choice(["", "fine"]), "command": 1}, r.choice(["owner", "x"])))
+        elif pick < 0.97:                                  # each agent's and loop's newest events and the tallies
+            ty = r.choice([*projections.LATEST, "ergostat.claim.contradicted"])
+            data = {"agent.ran": {"refused": r.choice([0, 2]), "unread": r.choice([0, 1]), "why": r.choice(["", "by hand"]),
+                                  "note": r.choice(["", "workspace pool p has none free for b"])},
+                    "agent.failed": {"refused": 1},
+                    "valve.opened": {"amount": r.choice([0.5, 2, 2.25, None])} if r.random() < 0.8 else {},
+                    "controller.decided": {"decision": r.choice(["up", "down"])},
+                    "ergostat.claim.contradicted": {"block": r.choice(BLOCKS), "why": "no"}}.get(ty, {})
+            out.append((ty, r.choice(AGENTS), data, "ergostat"))
         else:
             out.append(("ticket.done" if r.random() < 0.3 else "ticket.opened", f"ticket/{r.randrange(4)}", {}, "x"))
         ids.append(None)
@@ -101,6 +111,29 @@ def _modules(p) -> dict:
             "change": proposals.changes(p), "request": requests.stored(p), "model-request": interventions.requests_now(p)}
 
 
+def _latest_and_tallies(p, r: random.Random, a: float | None = None, b: float | None = None) -> None:
+    """Each agent's and loop's newest event of each type as of a moment (``latest``), and over a span the runs, the
+    openings, their times and amounts (``ticks``), equal the record's own reads (``events.query``, ``runs``,
+    ``opened``)."""
+    span = [e["time"] for e in p.events.query(n=None)] or [T0]
+    a = r.uniform(min(span) - 1, max(span) + 1) if a is None else a
+    b = r.uniform(a, max(span) + 2) if b is None else b
+    for ty in projections.LATEST:
+        for until in (None, b, a):
+            assert projections.latest(p, ty, AGENTS, until) == old.latest(p, ty, AGENTS, until), (ty, until)
+    assert projections.runs(p, AGENTS, a, b) == {i: p.events.runs(i, a, b) for i in AGENTS}, (a, b)
+    assert projections.runs(p, AGENTS, a) == {i: p.events.runs(i, a) for i in AGENTS}, a
+    assert projections.opened(p, AGENTS, a, b) == {i: p.events.opened(i, a, b) for i in AGENTS}, (a, b)
+    assert projections.openings(p, list(AGENTS), a, b) == {
+        i: [e["time"] for e in p.events.query(n=None, type="valve.opened", item=i, since=a, until=b)] for i in AGENTS}
+    for i in AGENTS:
+        for n in (2, 50):
+            assert projections.opened_amounts(p, i, a, b, n) == old.opened_amounts(p, i, a, b, n), (i, n)
+    q = {"since": a, "until": b, "n": r.choice([None, 2, 500])}
+    assert projections.query(p, "ergostat.claim.contradicted", **q) == p.events.query(type="ergostat.claim.contradicted",
+                                                                                      **q)
+
+
 def _check(p, r: random.Random) -> None:
     """Every table's answer equals a fresh read of the record, for random questions."""
     for tr in (False, True):
@@ -111,6 +144,7 @@ def _check(p, r: random.Random) -> None:
         projections.index_of = lambda p: None              # same fold, of the record's events, in memory
         try:
             assert _modules(p) == want
+            _latest_and_tallies(p, r)
             for name in BLOCKS:
                 assert projections.asks(p, name, True) == old.asks(p, name, True)
                 assert projections.asks(p, name, False) == old.asks(p, name, False)
@@ -140,6 +174,7 @@ def _check(p, r: random.Random) -> None:
                  "item": r.choice([None, *LOOPS, *BLOCKS, "ticket/1"]), "since": r.choice([None, a]),
                  "until": r.choice([None, b]), "n": r.choice([None, 1, 3, 50]), "unvoided": r.random() < 0.5}
             assert ix.marked(**q) == p.events.query(**q) == projections.query(p, **q), q
+            _latest_and_tallies(p, r, a, b)
             assert ix.records("action", since=a) == actions.stored(p, since=a) == old.actions(p, since=a)
             assert ix.records("message", since=a) == messages.stored(p, since=a) == old.messages(p, since=a)
             # as of a moment: the table when no item of the family has an event after it, else folded up to then
@@ -194,6 +229,57 @@ def test_a_rollup_a_prune_and_a_fresh_record_leave_the_tables_right(tmp_path, ba
     p = Project(mdl.load(tmp_path))
     _add(p, _events(r, 50, T0), T0 + 5e6, r)
     _check(p, r)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_as_of_a_moment_only_an_item_whose_matched_fields_may_have_changed_is_folded_again(tmp_path, backend,
+                                                                                           monkeypatch):
+    """``items.moved`` with ``where:`` as of a moment (``state.counted``'s): an item changed since is read from the index
+    when no event since may have changed the fields it is matched on and its events came in time order around then
+    (``Index.still``), else folded again from the record; either way the answer is the record's as of then."""
+    from ergostat.spec import items as its
+    p = _project(tmp_path, backend)
+    spec, r, t = p.model.spec, random.Random("still" + backend), T0
+    for i in range(10):                                   # a field set once and never again: only the order can say
+        p.events.add("ticket.opened", item=f"ticket/{i}", data={"group": "g"}, at=t)
+    lately = []                                           # (when each written late happened)
+    for j in range(500):
+        item, t = f"ticket/{r.randrange(10)}", t + r.choice([1.0, 30.0, 600.0])
+        at, x = t - r.choice([0.0, 0.0, 0.0, 900.0]), r.random()                # (some written late: out of order)
+        lately += [at] if at < t else []
+        if x < 0.35:
+            p.events.add("ticket.noted", item=item, data={"flag": r.choice(["yes", "no"])}, at=at)
+        elif x < 0.55:
+            p.events.add("ticket.noted", item=item, data={"other": r.randrange(9)}, at=at)
+        elif x < 0.62:
+            p.events.add("ticket.noted", item=item, patch=[{"op": "add", "path": "/flag", "value": r.choice(["yes", "no"])}],
+                         at=at)
+        elif x < 0.66 and j < 100:                        # (a set changes every field: early on alone)
+            p.events.add("ticket.noted", item=item, set={"flag": r.choice(["yes", "no"]), "group": "g"}, at=at)
+        else:
+            p.events.add(r.choice(["ticket.done", "ticket.opened"]), item=item, at=at)
+    ix = itemindex.index_for(p.events, spec, False)
+    kept = folded = 0
+    real = ix.still
+    for k in range(120):
+        at = r.uniform(T0, t) if k % 2 else r.choice(lately) + r.uniform(0, 900)   # (just after one written late)
+        a, b = (T0, t) if k % 3 else sorted(r.uniform(T0, t) for _ in range(2))
+        for where in ({"flag": "yes"}, {"other": 3}, {"flag": ["yes", "no"]}, {"group": "g"}):
+            got = its.moved(p.events, spec, "ticket", "to", "done", a, b, where, at=at)
+            with ix.lock:
+                late = ix.late(at, "ticket")
+                still = real(late, tuple(where), at)
+            kept, folded = kept + len(still), folded + len(late) - len(still)
+            with monkeypatch.context() as m:              # every item changed since folded again (the old way)
+                m.setattr(itemindex.Index, "still", lambda self, ids, keys, at: set())
+                assert got == its.moved(p.events, spec, "ticket", "to", "done", a, b, where, at=at), (at, a, b, where)
+    assert kept and folded                                # (both ways were taken)
+    late = t + 1e5                                        # done, then done again written late, as of between them:
+    p.events.add("ticket.opened", item="ticket/late", data={"group": "g"}, at=late)        # by then it had moved at
+    p.events.add("ticket.done", item="ticket/late", at=late + 1000)                         # the second's time, which
+    p.events.add("ticket.done", item="ticket/late", at=late + 500)                          # the index's moves never
+    assert its.moved(p.events, spec, "ticket", "to", "done", late, late + 2000, {"group": "g"}, at=late + 700) == [
+        late + 500]                                                                         # held: folded again
 
 
 def test_an_index_of_an_older_layout_is_rebuilt(tmp_path, monkeypatch):

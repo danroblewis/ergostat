@@ -28,6 +28,7 @@ import sqlite3
 
 from ..leases import EXPIRED
 from ..reports.kind import REPORT, report_kind
+from ..segments import TALLIES, _types_matcher
 from ..store import _types
 from . import codec
 from .ir import (
@@ -54,10 +55,14 @@ FAMILIES = {                 # name: (item prefix and type prefix, its kind, the
 }
 FORGOTTEN = "ergostat.forgotten"
 MARKS = ("loop.*", "trigger.tripped", "trigger.reset", "steptest.offered", "steptest.approved", "ergostat.daemon.failed",
-         "ergostat.daemon.started", EXPIRED, f"{MODEL_CHANGE}.*", f"{MODELLING_REQUEST}.*", FORGOTTEN)
+         "ergostat.daemon.started", EXPIRED, f"{MODEL_CHANGE}.*", f"{MODELLING_REQUEST}.*", FORGOTTEN,
+         "ergostat.claim.contradicted")
 CHAINS = {"person.asked": (0, True), "agent.ran": (0, False),            # type: (chain, whether it asks)
           "block.advised": (1, True), "block.approved": (1, False), "block.denied": (1, False)}
-LOOSE = ",".join((*MARKS, *CHAINS))  # the types read beside the items' events (theirs without a ``/`` in their item)
+LATEST = ("agent.ran", "agent.failed", "agent.started", "controller.decided", "valve.opened", "auxiliary.set",
+          "variable.set")    # each item's newest of these types is kept (``latest``)
+TICKS = {w: (_types_matcher(TALLIES[w][0], ()), TALLIES[w][1]) for w in ("opened", "runs", "full")}   # ``ticks``
+LOOSE = ",".join((*MARKS, *CHAINS, *LATEST))  # the types read beside the items' events (theirs without a ``/``)
 
 SCHEMA = """
 create table if not exists records (fam text, id text, state text, cls text, first real, last real, seq0 integer,
@@ -71,8 +76,12 @@ create index if not exists marks_type_time on marks(type, time);
 create table if not exists voids (eid text primary key) without rowid;
 create table if not exists asks (block text, chain integer, seq integer, time real, answered real, verdict text,
     how integer, by text, note text, data blob, primary key (block, chain, seq));
+create table if not exists latest (type text, item text, seq integer, time real, body blob, primary key (type, item))
+    without rowid;
+create table if not exists ticks (what text, item text, time real, seq integer, a real, b real, c real, d,
+    primary key (what, item, time, seq)) without rowid;
 """
-TABLES = ("records", "marks", "voids", "asks")
+TABLES = ("records", "marks", "voids", "asks", "latest", "ticks")
 
 
 @functools.cache
@@ -115,8 +124,32 @@ def follow(ix, evs: list[dict], asks: bool = True) -> None:
                                [(str(v),) for v in ((e.get("data") or {}).get("voids") or [])])
         if asks and e["type"] in CHAINS and e.get("item") is not None:
             _ask(db, e)
+        if e.get("item") is not None:
+            _tick(db, e)
     for (fam, id), es in by.items():
         _record(db, fam, id, es)
+
+
+def _tick(db, e: dict) -> None:
+    """``latest``: the item's newest event of each ``LATEST`` type (by seq). ``ticks``: what the event adds to each
+    tally of ``TICKS`` it counts in (``segments.TALLIES``: ``opened`` (1, amount, time), ``runs`` (1, failed, refused,
+    unread), ``full`` (1,): a run that found its pool full), a row each; one that adds nothing (``full``'s 0) none."""
+    if e["type"] in LATEST:
+        db.execute("insert into latest(type, item, seq, time, body) values (?,?,?,?,?) on conflict(type, item) do "
+                   "update set seq = excluded.seq, time = excluded.time, body = excluded.body where excluded.seq > "
+                   "latest.seq", (e["type"], e["item"], e["seq"], e["time"], codec.pack(e)))
+    for what, (test, f) in TICKS.items():
+        if test(e["type"]):
+            try:
+                v = f(e)
+            except (TypeError, ValueError, AttributeError):    # (a field that is no number: counted, adding nothing else)
+                v = (1,)
+            if what == "opened":                     # (and its amount as written, a number or none: ``amounts``)
+                raw = (e.get("data") or {}).get("amount") if isinstance(e.get("data"), dict) else None
+                v = (*v, *(None,) * (3 - len(v)), raw if type(raw) in (int, float) else None)
+            if v[0]:
+                db.execute("insert or replace into ticks(what, item, time, seq, a, b, c, d) values (?,?,?,?,?,?,?,?)",
+                           (what, e["item"], e["time"], e["seq"], *v, *(None,) * (4 - len(v))))
 
 
 def _ask(db, e: dict) -> None:
@@ -176,11 +209,13 @@ def again(ix, events, seq: int) -> None:
     """After events were taken out of the record: ``records``, ``marks`` and ``voids`` folded again from what it holds
     up to ``seq`` (what the index has folded), and the asks whose event is gone dropped."""
     db = ix.db
-    for t in ("records", "marks", "voids"):
+    had = db.execute("select type, item from latest").fetchall()
+    for t in ("records", "marks", "voids", "latest", "ticks"):
         db.execute(f"delete from {t}")
     mine = [e for e in events.of_items([f"{pre}/*" for pre, *_ in FAMILIES.values()]) if e["seq"] <= seq]
-    marks = events.query(n=None, type=",".join(MARKS), before_seq=seq + 1)
-    got = {e["seq"]: e for e in mine + marks}
+    marks = events.query(n=None, type=",".join((*MARKS, *(TALLIES[w][0] for w in TICKS))), before_seq=seq + 1)
+    newest = [e for t, i in had for e in events.query(n=1, type=t, item=i, before_seq=seq + 1)]
+    got = {e["seq"]: e for e in mine + marks + newest}
     follow(ix, [got[q] for q in sorted(got)], asks=False)
     kept = {e["seq"] for e in events.query(n=None, type="person.asked,block.advised", before_seq=seq + 1)}
     gone = [(q,) for (q,) in db.execute("select seq from asks") if q not in kept]
@@ -267,6 +302,45 @@ def asked(ix, block: str, person: bool, since: float | None = None, until: float
     return out
 
 
+def latest_of(ix, type: str, items: list[str]) -> dict[str, dict]:
+    """Each of ``items``' newest event of ``type`` (one of ``LATEST``), by seq, from ``latest``."""
+    out = {}
+    for i in range(0, len(items), 500):
+        part = items[i:i + 500]
+        for item, body in ix.db.execute(f"select item, body from latest where type = ? and item in "
+                                        f"({','.join('?' * len(part))})", (type, *part)):
+            out[item] = codec.unpack(body)
+    return out
+
+
+def ticks_of(ix, what: str, items: list[str], since: float, until: float) -> dict[str, tuple]:
+    """``segments.Segments._tally`` of ``what`` (one of ``TICKS``) for each of ``items``, from ``ticks``: (count, then
+    each field's total, and the newest time); (0, 0.0, 0.0, 0.0, None) for one that has none."""
+    out = {i: (0, 0.0, 0.0, 0.0, None) for i in items}
+    for i in range(0, len(items), 500):
+        part = items[i:i + 500]
+        for item, *got in ix.db.execute(f"select item, count(*), total(b), total(c), total(d), max(time) from ticks where "
+                                        f"what = ? and item in ({','.join('?' * len(part))}) and time >= ? and time <= ? "
+                                        f"group by item", (what, *part, since, until)):
+            out[item] = tuple(got)
+    return out
+
+
+def ticked(ix, what: str, items: list[str], since: float, until: float) -> dict[str, list[float]]:
+    """When each of ``items`` counted in ``what`` in the span, in seq order (``segments.Segments.times``)."""
+    out: dict[str, list[float]] = {i: [] for i in items}
+    for item, t in ix.db.execute(f"select item, time from ticks where what = ? and item in ({','.join('?' * len(items))})"
+                                 " and time >= ? and time <= ? order by seq", (what, *items, since, until)):
+        out[item].append(t)
+    return out
+
+
+def amounts(ix, valve: str, since: float, until: float, n: int) -> list:
+    """The amounts the valve's newest ``n`` openings in the span were written with (None: none said), oldest first."""
+    return [d for (d,) in ix.db.execute("select d from ticks where what = 'opened' and item = ? and time >= ? and time <= ?"
+                                        " order by seq desc limit ?", (valve, since, until, n))][::-1]
+
+
 def newer(ix, fam: str, until: float) -> bool:
     """Whether one of the family's items has an event after ``until`` (then ``records`` is not its answer as of then)."""
     return ix.db.execute("select 1 from records where fam = ? and last > ? limit 1", (fam, until)).fetchone() is not None
@@ -293,15 +367,15 @@ class _Scratch:
         follow(self, sorted(evs, key=lambda e: e["seq"]), asks=asks)
 
 
-def stored(p, fam: str, since: float | None = None, until: float | None = None) -> dict:
-    """``records(fam, since=)`` as of ``until`` (None: now): the index's table, unless one of the family's items has an
-    event after ``until``; then the family's events up to then, folded the same way."""
+def stored(p, fam: str, since: float | None = None, until: float | None = None, states=None) -> dict:
+    """``records(fam, states, since=)`` as of ``until`` (None: now): the index's table, unless one of the family's
+    items has an event after ``until``; then the family's events up to then, folded the same way."""
     ix = index_of(p)
     if ix is not None:
         with ix.lock:                                # (no other thread's catch-up between the check and the read)
             if until is None or not ix.newer(fam, until):
-                return ix.records(fam, since=since)
-    return records(_Scratch(p.events.of_items([f"{FAMILIES[fam][0]}/*"], until=until), False), fam, since=since)
+                return ix.records(fam, states, since=since)
+    return records(_Scratch(p.events.of_items([f"{FAMILIES[fam][0]}/*"], until=until), False), fam, states, since=since)
 
 
 def _covered(type: str) -> bool:
@@ -313,6 +387,65 @@ def query(p, type: str, **kw) -> list[dict]:
     record has an index; else from the record."""
     ix = index_of(p) if _covered(type) else None
     return ix.marked(type, **kw) if ix is not None else p.events.query(type=type, **kw)
+
+
+def latest(p, type: str, items, until: float | None = None) -> dict[str, dict | None]:
+    """Each of ``items``' newest event of ``type`` (one of ``LATEST``) at or before ``until``: ``events.query(n=1)``
+    read from ``latest``; from the record when its newest is after ``until`` (an earlier one may be the answer) or the
+    record has no index."""
+    items, ix = list(items), index_of(p)
+    got = {}
+    if ix is not None:
+        got = ix.latest_of(type, items)
+    out = {}
+    for i in items:
+        e = got.get(i)
+        if ix is None or (e is not None and until is not None and e["time"] > until):
+            e = next(reversed(p.events.query(n=1, type=type, item=i, until=until)), None)
+        out[i] = e
+    return out
+
+
+def runs(p, items, since: float, until: float | None = None) -> dict[str, dict]:
+    """``events.runs`` of each of ``items`` (agents): its runs in the span, failed, refused and unread, and those that
+    found the pool full, read from ``ticks``."""
+    items, ix = list(items), index_of(p)
+    if ix is None:
+        return {i: p.events.runs(i, since, until) for i in items}
+    u = 1e18 if until is None else until
+    got, full = ix.ticks_of("runs", items, since, u), ix.ticks_of("full", items, since, u)
+    return {i: {"runs": got[i][0], "failed": int(got[i][1]), "refused": int(got[i][2]), "unread": int(got[i][3]),
+                "pool_full": full[i][0]} for i in items}
+
+
+def opened(p, valves, since: float, until: float | None = None) -> dict[str, dict]:
+    """``events.opened`` of each of ``valves``: how many times it opened in the span, the amount, and the last time,
+    from ``ticks``."""
+    valves, ix = list(valves), index_of(p)
+    if ix is None:
+        return {v: p.events.opened(v, since, until) for v in valves}
+    got = ix.ticks_of("opened", valves, since, 1e18 if until is None else until)
+    return {v: {"count": n, "amount": amount, "last": last if n else None} for v, (n, amount, _, _, last) in got.items()}
+
+
+def opened_amounts(p, valve: str, since: float, until: float, n: int = 50) -> list:
+    """The amounts the valve's newest ``n`` openings in the span were written with, from ``ticks`` (a number, or None)."""
+    ix = index_of(p)
+    if ix is not None:
+        return ix.amounts(valve, since, until, n)
+    return [(e.get("data") or {}).get("amount") for e in p.events.query(n=n, type="valve.opened", item=valve, since=since,
+                                                                          until=until)]
+
+
+def openings(p, valves: list[str], since: float, until: float) -> dict[str, list[float]]:
+    """When each valve opened in the span, in seq order, from ``ticks`` (``events.times``)."""
+    ix = index_of(p)
+    if ix is not None:
+        return ix.ticked("opened", valves, since, until) if valves else {}
+    if hasattr(p.events, "times"):
+        return {k: [t for t, _, _ in v] for k, v in p.events.times(valves, "valve.opened", since, until).items()}
+    return {i: [e["time"] for e in p.events.query(n=None, type="valve.opened", item=i, since=since, until=until)]
+            for i in valves}
 
 
 def asks(p, block: str, person: bool, since: float | None = None, until: float | None = None) -> list[dict]:

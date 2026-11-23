@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 
 from .durations import human
@@ -44,23 +45,33 @@ def _crossings(project, loops: list[str], since: float, until: float) -> dict[st
     return got
 
 
-def _times(project, items: list[str], type: str, since: float, until: float) -> dict[str, list[float]]:
-    """When each of ``items`` had an event of ``type`` in the span."""
-    ev = project.events
-    if hasattr(ev, "times"):
-        return {k: [t for t, _, _ in v] for k, v in ev.times(items, type, since, until).items()}
-    return {i: [e["time"] for e in ev.query(n=None, type=type, item=i, since=since, until=until)] for i in items}
+_BY: list = [None, 0, {}]      # the model's sensors last asked of, how many, and each part's (what measures it)
+_NEWEST = threading.local()    # while a snapshot is made: the store's newest reading of every series (``_latest``)
 
 
 def _sensor_for(m, target: str) -> list:
-    return [s for s in m.sensors.values() if s.measures == target]
+    if _BY[0] is not m.sensors or _BY[1] != len(m.sensors):
+        by: dict[str, list] = {}
+        for s in m.sensors.values():
+            by.setdefault(s.measures, []).append(s)
+        _BY[:] = [m.sensors, len(m.sensors), by]
+    return list(_BY[2].get(target, ()))
+
+
+def _latest(project, series: str, at: float | None):
+    """``measurements.latest(series, at)``: while a snapshot is made, from the store's ``newest()`` (read once for it)
+    when that reading is at or before ``at``."""
+    got = (getattr(_NEWEST, "got", None) or {}).get(series, ())
+    if got and (at is None or got[0] <= at):
+        return got
+    return project.measurements.latest(series, at) if got or getattr(_NEWEST, "got", None) is None else None
 
 
 def stock_value(project, stock: str, at: float | None = None) -> dict:
     m = project.model
     best = None
     for s in _sensor_for(m, stock):
-        got = project.measurements.latest(f"sensor/{s.name}", at)
+        got = _latest(project, f"sensor/{s.name}", at)
         if got and (best is None or got[0] > best[0]):
             best = (got[0], got[1], s.name)
     if best is None:
@@ -68,10 +79,24 @@ def stock_value(project, stock: str, at: float | None = None) -> dict:
     return {"value": best[1], "at": best[0], "sensor": best[2]}
 
 
+def _range(project, series: str, since: float, until: float, sampled: bool = False) -> list[tuple[float, float]]:
+    """``measurements.range`` (``sampled``: ``.sampled``) of a span: while a snapshot is made, from the window's raw
+    readings it read together (``Measurements.ranges``), where they answer it alone, as the store would."""
+    raw, span = getattr(_NEWEST, "raw", None), getattr(_NEWEST, "span", None)
+    got = raw.get(series) if raw is not None and span[0] <= since and until <= span[1] else None
+    if got is not None:
+        rows = got if (since, until) == span else [x for x in got if since <= x[0] <= until]
+        if not sampled or len(rows) <= 1200:              # (``sampled``'s own: its 600 points, twice)
+            return rows
+    m = project.measurements
+    return m.sampled(series, since, until) if sampled else m.range(series, since, until)
+
+
 def history(project, stock: str, since: float, until: float | None = None) -> list[tuple[float, float]]:
     pts = []
     for s in _sensor_for(project.model, stock):
-        pts += project.measurements.sampled(f"sensor/{s.name}", since, until)
+        pts += (project.measurements.sampled(f"sensor/{s.name}", since, until) if until is None else
+                _range(project, f"sensor/{s.name}", since, until, sampled=True))
     return sorted(pts)
 
 
@@ -82,7 +107,7 @@ def mean_rate(project, flow: str, t0: float, t1: float) -> float | None:
     when no sensor has a reading in the window."""
     rates = []
     for s in _sensor_for(project.model, flow):
-        pts = project.measurements.range(f"sensor/{s.name}", t0, t1)
+        pts = _range(project, f"sensor/{s.name}", t0, t1)
         pts = [(t, r) for t, r in pts if t0 <= t <= t1]
         if not pts:
             continue
@@ -124,8 +149,21 @@ def moved(project, flow: str, t0: float, t1: float) -> float | None:
 
 def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     """The state at ``now`` (default: now), over the window before it; a past ``now`` looks back. ``as_of``: the last
-    event the record held as it was read (``seq``) and when the answer was made (``made``): how old it is."""
-    from .spec.projections import query
+    event the record held as it was read (``seq``) and when the answer was made (``made``): how old it is. What it
+    reads of the event log it reads from the item index's tables (``spec/projections.py``), caught up once."""
+    from .spec.itemindex import pinned
+    newest = getattr(project.measurements, "newest", None)
+    with pinned():
+        _NEWEST.got = dict(newest()) if newest is not None else None
+        try:
+            return _snapshot(project, window, now)
+        finally:
+            _NEWEST.got = _NEWEST.raw = _NEWEST.span = None
+
+
+def _snapshot(project, window: float, now: float | None) -> dict:
+    from .spec.projections import latest, openings, query, runs
+    from .spec.projections import opened as opened_in
     m = project.model
     seq = project.events.last_seq() if hasattr(project.events, "last_seq") else None
     live = now is None
@@ -136,6 +174,9 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
     hours = max(now - start, 60.0) / 3600.0
     stocks, flows, loops, residuals = {}, {}, {}, {}
     full: dict[str, list] = {}
+    ranges = getattr(project.measurements, "ranges", None)    # the window's readings of every sensor, read together
+    _NEWEST.raw, _NEWEST.span = (ranges(sorted(f"sensor/{s}" for s in m.sensors), start, now), (start, now)) if ranges \
+        else (None, None)
 
     for name in m.stocks:
         v = stock_value(project, name, now)
@@ -148,13 +189,14 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
 
     # flows known from sensors or valves; a measured flow's reading is a rate per hour
     known: dict[str, float] = {}
+    opens = opened_in(project, sorted({v.name for f in m.flows.values() if (v := m.valve_of(f.name))}), start, now)
     for f in m.flows.values():
         rate, how, opened = None, None, None
         if f.rate is not None:
             rate, how = f.rate, "declared"
         sensors = _sensor_for(m, f.name)
         for s in sensors:
-            got = project.measurements.latest(f"sensor/{s.name}", now)
+            got = _latest(project, f"sensor/{s.name}", now)
             if got is not None:
                 # the average over the window, not the latest reading: one quiet scan is not a stopped flow
                 avg = mean_rate(project, f.name, start, now)
@@ -162,7 +204,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
                 how = f"measured by {s.name}"
         valve = m.valve_of(f.name)
         if valve is not None:
-            opened = project.events.opened(valve.name, start, now)
+            opened = dict(opens[valve.name])
             if rate is None:
                 rate, how = opened["amount"] / hours, f"opened by {valve.name}"
         if rate is not None:
@@ -182,14 +224,15 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             if f.name in known:
                 sign = 1 if f.target == name else -1
                 if flows[f.name]["openings"] is not None and flows[f.name]["how"].startswith("opened"):
-                    explained += sign * project.events.opened(flows[f.name]["valve"], pts[0][0], pts[-1][0])["amount"]
+                    v = flows[f.name]["valve"]
+                    explained += sign * opened_in(project, [v], pts[0][0], pts[-1][0])[v]["amount"]
                 elif f.rate is not None:
                     explained += sign * f.rate * span
                 else:
                     got = moved(project, f.name, pts[0][0], pts[-1][0])
                     explained += sign * (got if got is not None else known[f.name] * span)
         rest = change - explained
-        raw = [x for s_ in _sensor_for(m, name) for x in project.measurements.range(f"sensor/{s_.name}", pts[0][0], pts[-1][0])]
+        raw = [x for s_ in _sensor_for(m, name) for x in _range(project, f"sensor/{s_.name}", pts[0][0], pts[-1][0])]
         raw = sorted(raw) if len(raw) <= 5000 else sorted(raw)[:5000]      # the ordinary step of the readings themselves
         steps = sorted(d for a, b in zip(raw, raw[1:], strict=False) if (d := abs(b[1] - a[1])) > 0)
         typical = steps[len(steps) // 2] if len(steps) >= 2 and len(raw) >= 4 else 0.0
@@ -240,8 +283,10 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
 
     all_loops = list(m.loops())
     crossed = _crossings(project, [lp.name for lp in all_loops], start, now)
-    opened_at = _times(project, sorted({v for lp in all_loops for v in (lp.valves or (lp.controller.drives if lp.controller.through
-                                                                                       else []))}), "valve.opened", start, now)
+    acting = sorted({v for lp in all_loops for v in (lp.valves or (lp.controller.drives if lp.controller.through else []))})
+    opened_at = openings(project, acting, start, now)
+    last_opened = latest(project, "valve.opened", acting, now)
+    decided = latest(project, "controller.decided", sorted({lp.controller.name for lp in all_loops}), now)
     spec = getattr(m, "spec", None)
     for lp in all_loops:
         c = lp.controller
@@ -260,15 +305,14 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
             was_off = bool(last and last[-1]["type"] == "loop.off")
             error, status = (g.hold.error(value, r), g.status(value, was_off, r)) if held else \
                 (c.error(value), c.status(value, was_off=was_off))
-        decisions = project.events.query(n=1, type="controller.decided", item=c.name, until=now)
+        decisions = [decided[c.name]] if decided.get(c.name) else []
         acts_on = lp.valves or (c.drives if c.through else [])    # the long way: where its controller acts, first along it
-        last_open = max((o["time"] for v in acts_on for o in project.events.query(n=1, type="valve.opened", item=v, until=now)),
-                        default=None)
+        last_open = max((o["time"] for v in acts_on if (o := last_opened.get(v))), default=None)
         knob = next((p.split(".", 1)[1] for p in c.through if p.startswith("auxiliary.")), None) if not acts_on else None
         if knob:                                                  # it acts by setting an auxiliary: when it last set it
             last_open = max((e["time"] for t in ("auxiliary.set", "variable.set")      # variable.set: its old name, in old records
-                             for e in project.events.query(n=1, type=t, item=knob, until=now)), default=None)
-        reads = [project.measurements.latest(f"sensor/{s}", now) for s in lp.sensors]
+                             if (e := latest(project, t, [knob], now)[knob])), default=None)
+        reads = [_latest(project, f"sensor/{s}", now) for s in lp.sensors]
         last_read = max((r[0] for r in reads if r), default=None)
         stale = shown_stale(project, m.spec, lp.name, status, now) if getattr(m, "spec", None) else None
         if stale is not None:                             # its reading is too old to trust (SPEC §9.6)
@@ -326,16 +370,18 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         loops[lp.name].update(goal_row(loops[lp.name], getattr(m.stocks.get(c.holds), "unit", "")))
 
     contradicted: dict[str, list[dict]] = {}          # claims the record contradicts, by the block that made them (SPEC §12g)
-    for e in project.events.query(n=500, type="ergostat.claim.contradicted", since=since, until=now):
+    for e in query(project, "ergostat.claim.contradicted", n=500, since=since, until=now):
         contradicted.setdefault(e["data"].get("block") or "", []).append(e)
     agents = {}
     blocks = getattr(getattr(m, "spec", None), "blocks", None) or {}
+    names = list(m.agents)
+    ran, failed, started = (latest(project, t, names, now) for t in ("agent.ran", "agent.failed", "agent.started"))
+    tallied = runs(project, names, since, now)
     for a in m.agents.values():
-        counted = project.events.runs(a.name, since, now)
-        last_any = max(project.events.query(n=1, item=a.name, type="agent.ran", until=now) +
-                       project.events.query(n=1, item=a.name, type="agent.failed", until=now), key=lambda e: e["seq"], default=None)
-        begun = project.events.query(n=1, item=a.name, type="agent.started", until=now)
-        running_since = begun[-1]["time"] if begun and (last_any is None or begun[-1]["seq"] > last_any["seq"]) else None
+        counted = tallied[a.name]
+        last_any = max((e for e in (ran[a.name], failed[a.name]) if e), key=lambda e: e["seq"], default=None)
+        begun = started[a.name]
+        running_since = begun["time"] if begun and (last_any is None or begun["seq"] > last_any["seq"]) else None
         roles = m.roles_of(a.name)
         b_ = getattr(getattr(m, "spec", None), "blocks", {}).get(a.name)
         keeps = b_.goal if b_ is not None and b_.implied and b_.goal in m.controllers else None   # keep-GOAL: it decides for GOAL
@@ -343,7 +389,7 @@ def snapshot(project, window: float = WINDOW, now: float | None = None) -> dict:
         if a.every or a.cron:                             # a reading older than a few of its runs is stale
             for r in roles:
                 if r.kind == "sensor":
-                    got = project.measurements.latest(f"sensor/{r.name}", now)
+                    got = _latest(project, f"sensor/{r.name}", now)
                     if got is None or _missed(a, got[0], now):
                         stale.append(r.name)
         b = blocks.get(a.name)                            # its block: the goal its valves serve, and whether it takes items
@@ -605,8 +651,8 @@ def ladder_hints(project, snap: dict) -> list[dict]:
         if load > 0 and ours < 0.95 * load:
             # falling behind: what went out was less than what came in. Saturated only when each
             # opening moved the same amount (the valve at its limit); else it may be asking too little
-            amounts = [e["data"].get("amount") for v in lp["valves"]
-                       for e in project.events.query(n=50, type="valve.opened", item=v, since=since, until=snap["at"])]
+            from .spec.projections import opened_amounts
+            amounts = [a for v in lp["valves"] for a in opened_amounts(project, v, since, snap["at"])]
             limits = [m.valves[v].max for v in lp["valves"] if m.valves[v].max]
             at_limit = (bool(limits) and len(amounts) >= 3 and sum(a >= limits[0] * 0.999 for a in amounts) >= len(amounts) / 2) or (
                 not limits and len(amounts) >= 3 and len(set(amounts)) == 1 and (amounts[0] or 0) > 0)
