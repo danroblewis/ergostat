@@ -22,6 +22,7 @@ from pathlib import Path
 
 import agents
 import fac
+import flakes
 
 LEAST = 60.0          # seconds a rerun is assumed to take at the least (a container started, the tests collected)
 AGAIN = {"unit": "alone", "build": "alone", "browser": "rerun"}  # each one's tests run again alone ("rerun": Playwright)
@@ -71,7 +72,7 @@ def check(cfg: dict, gap: str, home: Path, branch: str, main: str, logs: Path, t
         if retried:
             return {**out, "flakes": tests, "not_checked": "passed alone, and the run's one flake retry is spent"}, True
         for t in tests:
-            fac.say("flake.seen", f"flake/{fac.slug(t, 80)}", test=t, gaps=[gap], times=1, seen_at=time.time())
+            flakes.say("flake.seen", t, gaps=[gap], times=1, seen_at=time.time())
         again = agents.suites(cfg, home, fast(cfg), logs, f"{tag}-retry")
         return {**again, "flakes": tests}, True
     still = list(alone.get("tests") or tests)
@@ -91,7 +92,7 @@ def record(gap: str, main: str, tests: list[str]) -> None:
     (what the coordinator sees, and interventions-trend counts)."""
     now = time.time()
     for t in tests:
-        fac.say("flake.main-broken", f"flake/{fac.slug(t, 80)}", test=t, main=main, gaps=[gap], main_broken_at=now)
+        flakes.say("flake.main-broken", t, main=main, gaps=[gap], main_broken_at=now)   # (a second: the first clock)
     fac.say("intervention.recorded", f"intervention/main-broken-{main[:12]}", recorded_at=now, main=main, tests=tests,
             gaps=[gap], reason=f"main {main[:12]} fails its own tests ({', '.join(tests[:5])}): {gap} waits for main to "
                                "move; fix them on main in a gap of their own", **{"class": "main-broken"})

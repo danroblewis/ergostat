@@ -21,17 +21,26 @@ function sdValue(n) {                                   // a stock's or an auxil
   const v = n.valueText && n.valueText !== "?" ? n.valueText : "–";
   return n.unit ? `${v} ${n.unit}` : v;
 }
+const sdNoUnit = (n) => n.kind === "stock" && !n.bare && !(n.unit || "").trim();   // check's no-unit: 'unit ?', muted
 function sdSize(n) {
-  if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n)) + 28), SD_STOCK_H];
+  if (n.kind === "stock") return [Math.max(96, textWidth(n.label) * 1.05 + 28, textWidth(sdValue(n) + (sdNoUnit(n) ? " unit ?" : "")) + 28), SD_STOCK_H];
   if (n.kind === "auxiliary") {                         // its name is the part: as wide as that, with its value under it
     const lines = sdAuxLines(n);
     return [Math.max(...lines.map((t) => textWidth(t) * (t === lines[0] ? 1.02 : 0.92))) + 10, 6 + lines.length * 14];
   }
   return SD_SIZE[n.kind] || [40, 40];
 }
+/* a flow's rate over the window, in its panel: not measured, or 0 with how long nothing moved (a declared 0 is declared) */
+function sdRateSaid(now, rate, unit, flow) {
+  const r = now?.rate !== undefined ? now.rate : rate;
+  if (r == null) return "not measured";
+  if (r !== 0 || now?.how === "declared") return rateText(r, unit, flow);
+  const span = Math.min(S.status?.window ?? Infinity, S.status?.recorded ?? Infinity);
+  return `${rateText(0, unit, flow)}: ${span === 0 ? "nothing recorded yet" : `no movement in ${Number.isFinite(span) ? dur(span) : "the window"}`}`;
+}
 /* the lines written beside a part (under a valve or a converter): its name, then its value */
 function sdLabelLines(n) {
-  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "–" : n.rateText];
+  if (n.kind === "valve" || n.kind === "disturbance") return n.bare ? [n.label] : [n.label, n.rate == null ? "not measured" : n.rateText];
   if (n.kind === "cloud" && n.beyond) return [`<${n.beyond}>`];      // where the flow goes on to, beyond this system
   if (n.kind === "cloud" && n.from) return [`from ${n.from}`];        // an inflow from outside: where it comes from, where the model knows it
   return [];
@@ -53,7 +62,8 @@ function sdStock(n, w, hgt) {
   g.append(s("rect", { class: "hit sd-stock", width: w, height: hgt, "stroke-dasharray": n.outside ? "5 4" : null }));
   const v = sdValue(n);
   g.append(s("text", { x: w / 2, y: v ? 19 : hgt / 2 + 4, "text-anchor": "middle", class: "t-label sd-name" }, n.label));
-  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v));
+  if (v) g.append(s("text", { x: w / 2, y: 34, "text-anchor": "middle", class: "t-sub sd-value live" }, v,
+    sdNoUnit(n) ? s("tspan", { class: "sd-nounit" }, " unit ?") : null));
   return g;
 }
 /* an auxiliary, unadorned as Vensim draws it: its name alone (its value under it, muted) */
@@ -498,7 +508,7 @@ function sdLoopList(side, g) {
   const modules = g.nodes.filter((n) => n.kind === "system").map((n) => [n, sdInside(g, n.id)]).filter(([, xs]) => xs.length);
   const every = new Set([...known, ...unknown, ...modules.flatMap(([, xs]) => xs)].map((c) => c.name));   // (one loop may run through two modules)
   side.append(h("h3", {}, "Feedback loops", h("span", { class: "muted" }, ` ${every.size}`)));
-  const row = (c) => h("div", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
+  const row = (c) => h("button", { class: "looprow", "data-loop": c.name, onmouseenter: () => sdHover(c.name), onmouseleave: () => sdHover(null),
                                 onclick: () => sdToggle(c.name) },
     h("div", {}, h("span", { class: `loop-tag pol-${sdPol(c) || "unknown"}` }, sdPol(c) ? c.label : "?"), h("span", {}, c.name)),
     h("div", { class: "sub" }, `${{ R: "Reinforcing", B: "Balancing" }[sdPol(c)] || "Polarity not known"}, ${new Set(c.nodes).size} parts`));
@@ -513,7 +523,7 @@ function sdLoopList(side, g) {
     side.append(d);
   }
   for (const [n, xs] of modules)                        // as many as the module's own caption says
-    side.append(h("div", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
+    side.append(h("button", { class: "looprow sd-inside", onclick: () => S.toggleSystem?.(n.label) },
       h("div", {}, h("b", {}, n.label), `: ${xs.length} feedback loop${xs.length > 1 ? "s" : ""} inside`),
       h("div", { class: "sub" }, "Open it to see them")));
 }
@@ -536,6 +546,7 @@ const SD_LEGEND = {
   sector: '<rect x="1" y="1" width="24" height="16" rx="3" fill="var(--sd-hull)"/><text x="3" y="7" font-size="5" fill="var(--sd-muted)">NAME</text>',
   stub: '<path d="M1 9 H17" stroke="var(--sd-ink)" stroke-width="1.1"/><path d="M20 9 L14 6 L14 12 Z" fill="var(--sd-ink)"/><text x="21" y="12" font-size="8" fill="var(--sd-muted)">x</text>',
   shadow: '<text x="13" y="13" font-size="10" text-anchor="middle" fill="var(--sd-muted)">&lt;x&gt;</text>',
+  nounit: '<text x="13" y="13" font-size="8" text-anchor="middle" fill="var(--sd-muted)">unit ?</text>',
 };
 function sdLegend() {
   const g = S.graph || { nodes: [], edges: [] };
@@ -544,6 +555,7 @@ function sdLegend() {
   const pols = new Set((g.causalLoops || []).map((c) => c.polarity || "?"));
   return h("div", { class: "legend sd-legend" },
     row("stock", "stock (level): what accumulates; it changes only by its flows"),
+    has(sdNoUnit) && row("nounit", "unit ?: the stock's value has no unit; the model says none (ergostat check: no-unit)"),
     row("flow", "flow (rate): a pipe with its valve, into or out of a stock; the head shows which way"),
     g.edges.some((e) => e.twoWay) && row("biflow", "biflow: a flow that may run either way"),
     has((n) => n.kind === "cloud") && row("cloud", "source or sink: outside the model's boundary"),
@@ -668,6 +680,11 @@ async function openNodeSD(n) {
   const kind = sdNodeKind(n);
   const rows = [];
   let chart = null, numbers = null, found = null, items = null, counts = [];
+  // its panel at once, titled, and filled when its numbers come; another panel opened meanwhile (or this one
+  // closed) leaves the late answer unshown
+  const wait = h("p", { class: "muted" }, "…");
+  showDetail(h("div", { class: "kind" }, n.kind === "valve" || n.kind === "disturbance" ? "Valve" : (SD_WHAT[kind] || [kind])[0]),
+    h("h2", {}, n.flow || n.label), wait);
   if (n.role === "desired" || n.role === "gap" || n.role === "decision") {
     rows.push(["desired level", n.goal ? `desired ${n.of} = ${n.desired ?? n.valueText}` : null],
               [n.excess ? "excess" : "gap", n.role === "gap" ? `${n.excess ? `${n.of} − desired ${n.of}` : `desired ${n.of} − ${n.of}`}, now ${n.offBy || "not known yet"}` : null],
@@ -675,10 +692,11 @@ async function openNodeSD(n) {
               ["description", n.description]);
   } else if (n.kind === "valve" || n.kind === "disturbance") {        // the valve: the rate, its inputs and its equation
     let d = null;
-    panelLoading("Valve", n.flow || n.label);
+    const loading = panelLoading("Valve", n.flow || n.label);        // (it replaces `wait`: the late-answer guard is this)
     try { d = await api(`part/${n.kind === "disturbance" ? "disturbance" : "flow"}/${encodeURIComponent(n.flow || n.label)}`); } catch (err) { d = null; }
+    if (!loading.isConnected) return;
     const m = d?.model || {}, now = d?.now || {};
-    rows.push(["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, n.flow || n.label) : n.rateText],
+    rows.push(["rate, over the window", sdRateSaid(d?.now, n.rate, d?.unit, n.flow || n.label)],
               ["how it is known", now.how || n.how],
               ["inputs", join(causes) || h("span", { class: "muted" }, "none drawn: nothing in the model points into it")],
               ["equation", d?.numbers?.equation_tree ? null : n.equation || d?.equation || "not known"]);
@@ -691,8 +709,9 @@ async function openNodeSD(n) {
     return;
   } else {
     let d = null;
-    panelLoading((SD_WHAT[kind] || [kind])[0], n.label);
+    const loading = panelLoading((SD_WHAT[kind] || [kind])[0], n.label);
     try { d = await api(`part/stock/${encodeURIComponent(n.label)}`); } catch (err) { d = null; }
+    if (!loading.isConnected) return;
     const m = d?.model || {}, now = d?.now || {};
     rows.push(["description", m.description || n.description], ...(d?.inferred ? [inferredRow(d.inferred)] : []),
               ["now", `${fmt(now.value ?? n.value)} ${m.unit || n.unit || ""}`],
@@ -763,7 +782,7 @@ async function openEdgeSD(e) {
     let d = null;
     panelLoading("Flow", e.flow);
     try { d = await api(`part/flow/${encodeURIComponent(e.flow)}`); } catch (err) { d = null; }
-    const m = d?.model || {}, now = d?.now || {};
+    const m = d?.model || {};
     const valve = Object.values(byId).find((n) => (n.kind === "valve" || n.kind === "disturbance") && (n.flow === e.flow));
     const unit = d?.unit || m.unit || "";
     showDetail(h("div", { class: "kind" }, "Flow"),
@@ -771,7 +790,7 @@ async function openEdgeSD(e) {
       causesStrip(`flow.${e.flow}`),
       dl([["what moves", [unit, m.description].filter(Boolean).join(": ") || "not said (no unit or description)"],
           ["from", m.source ? link(`stock:${m.source}`) : "a source outside the model"], ["to", m.target ? link(`stock:${m.target}`) : "a sink outside the model"],
-          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", now.rate != null ? rateText(now.rate, d?.unit, e.flow) : valve?.rateText],
+          ["its valve", valve ? link(valve.id) : e.flow], ["rate, over the window", sdRateSaid(d?.now, valve?.rate, d?.unit, e.flow)],
           ["runs", (m.two_way ?? e.twoWay) ? "either way (a biflow)" : "one way"]]),
       crossing.length ? h("p", {}, crossing.join("; ") + ".") : null, inLoops, sdWhat("pipe"));
   } else {

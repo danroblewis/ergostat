@@ -13,6 +13,8 @@ import threading
 import traceback
 
 import frames
+import keeper
+import output
 
 WORKER = "1"
 BEAT = 10.0
@@ -116,10 +118,10 @@ def hello(root: str) -> dict:
             "labels": labels(root), "slots": min(n or 0, MOST_SLOTS), "runs": []}
 
 
-def beats(w: frames.Writer, root: str, slots: int, every: float, stop: threading.Event) -> None:
+def beats(w: frames.Writer, root: str, slots: int, every: float, stop: threading.Event, runs=dict) -> None:
     while not stop.wait(every):
         try:
-            w.send("beat", free=slots, disk={"root": disk_free(root)}, runs={})
+            w.send("beat", free=slots, disk={"root": disk_free(root)}, runs=runs())
         except (OSError, ValueError):
             stop.set()
 
@@ -138,8 +140,12 @@ def the_root(given: str | None) -> str:
 def serve(root: str, inp, w: frames.Writer, every: float) -> int:
     said = hello(root)
     w.send("hello", **said)
+    HANDLERS.update(keeper.handlers(root, said))
+    out = output.Output(root, w)
+    HANDLERS.update(out.handlers(HANDLERS["start"]))
     stop = threading.Event()
-    threading.Thread(target=beats, args=(w, root, said["slots"], every, stop), daemon=True).start()
+    threading.Thread(target=beats, args=(w, root, said["slots"], every, stop, out.offsets), daemon=True).start()
+    threading.Thread(target=out.follow, args=(stop,), daemon=True).start()
     want = 1
     try:
         while not stop.is_set():

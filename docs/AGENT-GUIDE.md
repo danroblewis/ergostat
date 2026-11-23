@@ -413,7 +413,11 @@ keeps running it; this model reads it.
    system.incidents` and the Diagram (its box, opened) show its parts, named `incidents-PART`. Its closed
    box shows its own top systems' `show:`; to choose, put `show: [stock.open]` on the `remotes:` entry, in
    the **remote's** names (`stock.open`, never `stock.incidents-open`); `remote-show-unresolved` means it does
-   not serve one. A measure dimmed there is stale: it says how old its last reading is.
+   not serve one. A measure dimmed there is stale: it says how old its last reading is. `ergostat explain`
+   of any of its parts (and of `system.incidents`, once) starts `remote incidents's (runs at URL, model vM,
+   read T ago)`, or `not answering` in place of the age; a block of it is never run here. A feedback loop
+   through its parts ends `(crosses remote incidents: part, part)`, and a goal here whose loop reads them says
+   each is a measured input (a disturbance, or a setpoint handed to us), never an actuator.
 3. **Link to its parts by those names**, only to read them: a cause (`driven-by: [+stock.incidents-open]`)
    for the load it puts on our stocks, a goal here on one of its measures, a block's input. Never point a
    block's `out:` at a remote part (`remote-output`): its actuators are its own. If it should act
@@ -645,6 +649,10 @@ blocks:
   duration past a threshold, each with a cooldown), each with a delay, and keeps the one that predicts the held-out record best for its
   number of parameters. The Blocks view writes the law in the block, marked *identified*; the closed-loop projection,
   what-if and risk run it in place of a generic stand-in.
+- Where the controller's law is known, declare it beside `identify:` (SPEC §12d, *Known laws*):
+  `law: {kind: kubernetes-hpa, target: 0.7, min: 2, max: 20}` (tolerance 0.1, stabilize-down 5m, stabilize-up 0s,
+  every 15s unless written) or `law: {kind: alert-rule, threshold: 300, side: above, for: 5m}`. A wrong kind, key or
+  value is `bad-law` at that key. For now it is only checked and kept in the model, not yet drawn or run.
 - `external-unidentified` means too little record (40 points of both at least, and three moves of its output) or no law
   fits: wait for more, or check the sensors read the right series. `external-not-run` means its output is an auxiliary
   (or a stock its `out:` flow does not move): the law is drawn, but the projection runs a generic stand-in.
