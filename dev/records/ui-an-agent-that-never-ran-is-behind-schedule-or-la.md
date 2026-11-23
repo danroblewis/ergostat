@@ -57,3 +57,32 @@ A new check that needs no browser, `test_the_agents_listing_sends_each_agents_ru
 `/api/agents` on the standout fixture (judge 10 of 120, improver 0 of 20, tidy 1 asked for). With `expected` sent as
 null it failed, as it should. No code outside `tests/` changed. Run: the file without Playwright (1 passed, 4 skipped),
 with Playwright under suite_watch (5 passed, rc 0), and ruff (clean).
+
+## Where it stopped
+
+Parked by the factory (implementor, 2026-11-22 17:07).
+
+Stopped on its last attempt by RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
+Traceback (most recent call last):
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 166, in main
+    return build(cfg, given, began)
+  File "/Users/user/ergostat-live/instance/dev/bin/implement.py", line 221, in build
+    got = fac.session(cfg, "implementor", prompt, work)
+  File "/Users/user/ergostat-live/instance/dev/bin/fac.py", line 678, in session
+    out = agents.session(cfg, role, brief, work, keep=kept)
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 204, in session
+    egress(cfg)
+    ~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 117, in egress
+    _egress(cfg)
+    ~~~~~~~^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 124, in _egress
+    docker("network", "create", "--internal", NET)
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/user/ergostat-live/instance/dev/bin/agents.py", line 106, in docker
+    raise RuntimeError(f"docker {args[0]}: {r.stderr.strip()[-300:]}")
+RuntimeError: docker network: failed to connect to the docker API at unix:///Users/user/.docker/run/docker.sock; check if the path is correct and if the daemon is running: dial unix /Users/user/.docker/run/docker.sock: connect: no such file or directory
+
+```
