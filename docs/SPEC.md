@@ -98,8 +98,8 @@ out, never written.
   in the repository's `.gitignore`), it holds what belongs to the machine a model runs on rather than to the model, so
   a model shared through git carries no private hostname and a copy placed again keeps them. It is read after the
   main file and over it. The **per-machine settings** are exactly these: `web:` (section 4d; it replaces the main
-  file's whole) and `intake:`'s `bind:` and `allow:` (section 5c; each over the main file's, whose `hooks:` stay
-  the model's). Any other key, or another key under `intake:`, is an error at its line in `ergostat.local.yaml`
+  file's whole), `intake:`'s `bind:` and `allow:` (section 5c; each over the main file's, whose `hooks:` stay
+  the model's) and `runs:`'s `outlive_engine` (section 9.1). Any other key, or another key under `intake:`, is an error at its line in `ergostat.local.yaml`
   (**not-per-machine**). `check` says each setting it took and where (`web: from ergostat.local.yaml:1, this
   machine's own`; `--json`: `local`). It is not one of the model's files: nothing that edits the model (a proposal,
   a template's author) writes it, and a change to it reloads the model like any other.
@@ -610,11 +610,13 @@ uses:                           # optional: instances of templates (section 2a)
   ...
 remotes:                        # optional: systems other ergostats run, read here (section 4c)
   ...
+runs:                           # optional, main file only (or ergostat.local.yaml): how runs are held (section 9.1)
+  outlive_engine: false         # true: each run kept by a keeper of its own; stopping ergostat leaves it going
 web:                            # optional, main file only (or ergostat.local.yaml, section 2): the page's public names and their login (section 4d)
   ...
 library:                        # optional, main file only: folders of templates, {folder: P} untrusted (section 2a)
   - ...                         # a folder (trusted), {folder: PATH, trust: owner}, or {folder: PATH, untrusted: true|false}
-dashboards:                     # optional: shared, named dashboards, display only (section 4e)
+dashboards:                     # optional: shared, named dashboards, display only (section 4f)
   ...
 ```
 
@@ -1209,7 +1211,39 @@ machine (cloudflared runs here). `check` refuses a malformed `web:` (**bad-web**
 | `open` | `read`: the names public and read only, with no login (never with `access`) |
 | `mtls` | the remote API on a listener of its own, over mutual TLS: `port`, `bind`, `cert`, `key`, `client-ca` (section 4c) |
 
-## 4e. Dashboards: shared, named, and checked
+## 4e. Asking for numbers: the query API
+
+Every chart reads through one read-only endpoint, `GET /api/query?q=<base64url of JSON>` (a GET, so a read-only public
+name can use it). `GET /api/query/fields` lists what can be charted. Nothing here writes, and only the `events` source
+reads the event log.
+
+```json
+{"since": 86400, "until": null, "points": 120,
+ "queries": [{"id": "a", "source": "items", "kind": "gap", "field": "ai_cost_usd",
+              "where": {"state": ["merged"]}, "group_by": "state",
+              "agg": "sum", "transform": "rate", "rate_per": "hour", "bucket": "auto"}]}
+```
+
+- **Sources.** `items`: a numeric field of a kind, from the item index's `number_log`. `moves` (`measure`: `entries`,
+  `exits` or `time_in_state`, with `state`). `counts`: items per state, the level at each bucket's end. `series` (`series`:
+  a metric's name), from the metrics store's roll-ups. `events` (`type`, which may end in `*`): counts by type, at most the
+  latest 20,000 events of the window, marked `read_log` (and `truncated` when cut).
+- **Numbers of an item.** A value is a plain number at the top of its document: not a boolean, a numeric string, an id
+  or a timestamp. Each change is kept with the value and how much it moved: for `items`, `sum` adds the moves (what a cost
+  rose by in the bucket), and the other aggregations read the values taken.
+- **Aggregations.** `count`, `sum`, `avg`, `min`, `max`, `last`, `p50`, `p90`, `p95`, `p99` (percentiles interpolate
+  between ranks). A bucket with nothing in it counts and sums to 0 for what happens (`items`, `moves`, `events`), except
+  before the record began, and is `null` for a reading.
+- **Transforms.** `none`; `rate`, per `rate_per` (`second`, `minute`, `hour`, `day`; by default the shortest in which the
+  largest value is at least 1), over the seconds each bucket covers, so a part bucket is no dip; for a `series` with `agg:
+  last` it is a counter's rate, a fall being a reset; `delta`; `cumulative`; `moving_avg` (`window` in buckets).
+- **Groups.** `group_by` is `state`, `kind` or a low-cardinality field, at most 12 groups, the rest added up as `other`
+  (`capped` says how many).
+- **Bounds.** At most 64 queries, 1,000 points, a 400-day window and 48,000 characters of `q`. A malformed request is
+  refused with 400 and words naming what is wrong. A query that cannot be answered (a kind or field not there) has `error`
+  in its result, and the others still answer. An answer is kept by its query and the version of the data it read.
+
+## 4f. Dashboards: shared, named, and checked
 
 A reader's own arrangement of panels lives in the page's address and the browser. A dashboard shared by everyone is
 declared under `dashboards:`, compiled and checked as a system's `show:` is (section 4a), so a part renamed is an
@@ -2139,7 +2173,9 @@ waits for an approval holds no thread: it is answered when the owner answers.
 
 A run's call (`ERGOSTAT_SOCKET` set) survives the engine restarting: while no engine answers (no socket, a refused
 connection, or one closed before its answer), it asks again with backoff for `ERGOSTAT_CALL_RETRY` seconds (default
-120, at most 3600), then does what it does with no engine. A command from a shell does not wait. It does not wait
+120, at most 3600), then does what it does with no engine; a run kept by a keeper (section 9.1, `runs:
+outlive_engine`) writes an `event --add` or a `lease --nack` to its journal instead, at once. A command from a shell
+does not wait. It does not wait
 where the run's state folder (`ERGOSTAT_STATE_DIR`, or the socket's own folder) is not on this machine, and once
 the socket is removed it waits 10 s at most for it to be made again. Only a final stop removes it: `ergostat run`
 starting itself again in place under the same name (a change of storage or format, or the watchdog's restart) leaves
@@ -2763,6 +2799,46 @@ A run stopped part way (its timeout, the owner's `--stop`, ergostat stopping) ke
 was stopped: what it recorded stays recorded, what it moved counts. Equally for `program` blocks and `ai` blocks
 with `run:` (an `ai` block's own `claude -p`, and the session helper, `ergostat session`, print their result lines when the session ends; the session helper copies the transcript as it grows).
 
+**Runs kept going without the engine** (`runs: outlive_engine: true`, in the main file or `ergostat.local.yaml`;
+default false, which is everything above, unchanged). Each program or `ai` run (not one a daemon holds) starts under a
+**keeper** of its own, the compute worker's (`ergostat/compute/worker/keeper.py`, standard library only, section
+12s.3): a detached process in its own session that forks the run into its own process group, waits for it and writes
+its exit (`runs/RUN/exit`, `{"code": ..., "how": "exit" | "TERM" | "KILL" | "timeout" | a signal}`) whether or not any engine is
+there. The run's standard output is opened by the keeper, before the run's command, as its **journal**,
+`runs/RUN.jsonl` in the state folder, append-only: every write the run makes lands there as it makes it, so the
+journal is byte for byte what it printed, in order, a last line without a newline too (what a program holds in its
+own buffer arrives when it flushes, as above). The format is the line protocol above. The engine follows the journal
+as it followed the run log file: lines take effect as they arrive. Its errors go to its run log as before; its CPU and
+memory are the sampler's alone (no `wait4`: `method` is `sampled`, or `none` for a run that ended before the first
+sample). Its exit code is the wrapper's, as above.
+- **Stopping ergostat leaves it going.** `ergostat run --stop`, or a SIGKILL to the engine's whole process group (a
+  crash): the run carries on to its end, its journal whole and its exit written. (A restart in place stops its runs
+  through the same `kill_all`, which passes a kept run by, so it is left going too; no test covers that path yet.) The engine records no end for it (no `agent.ran`); what it printed after the engine stopped is in its
+  journal only, and its keeper's folder stays (up to a day) for whoever reads it next. **Not built yet** (the gap
+  `engine-adopts-runs-from-their-journals`): no engine reads a journal left behind, so until then those lines are
+  recorded nowhere. Its lease is given back as the engine stops, as for any run then (section 9.5), so the item may be
+  taken again by the next engine while the old run still works on it; its reserve (section 9.9) stays charged
+  until recovery closes it. A run the engine read to its end has its journal removed and its keeper let go.
+- **What still stops it**, the whole process group each time, through its group's id (the run's own pid). While
+  the engine that started it is up: its timeout, `ergostat block NAME --stop`, a lease's kill (section 9.5), and a
+  budget's trip (the same kill). **Its timeout, engine or none:** the keeper is given the block's timeout and stops
+  the run itself 5 s after it (SIGTERM to the group, SIGKILL 2 s on; its exit's `how` is `timeout`), so the engine's
+  own timeout comes first while it is up and a run left going still ends by it. **Once that engine is gone**, nothing
+  else of these reaches the run (**a known limit** until `engine-adopts-runs-from-their-journals`): a new engine's
+  `block NAME --stop` does not know it, no lease's kill is made for it (its lease was given back), and no engine reads
+  its cost lines, so no budget's trip; what it spends then is bounded only by its timeout (and, for an `ai` block's
+  own `claude -p` in a model with `budget:`, by the `--max-budget-usd` of its reserve it was started with). A block with no timeout left going runs until it ends or **`ergostat run --stop
+  --runs`**, which tells each keeper whose run has not ended to stop it (SIGTERM to the group, SIGKILL past the kill
+  grace, `ERGOSTAT_KILL_GRACE`), engine or none, waits a grace and 5 s at most, and exits 1 naming any still going.
+  On Linux a keeper killed takes its run with it (the death signal); elsewhere a run whose keeper was killed reads
+  as killed (-9) to the engine, which may not be so.
+- **Its calls while no engine answers.** The run is given `ERGOSTAT_JOURNAL`, its journal's path. A call that only
+  records (`ergostat event --add`, `ergostat lease --nack`) asks the engine once; when none answers it appends its
+  line to the journal, as the run would print it (`{"event": ...}`, `{"nack": {"why", "count", "after"}}`), in one
+  write, and succeeds; it is not written to the record. A line appended while the run holds half a line of its own
+  in the journal joins that line, so a run that calls while it prints should end its lines first. A call that needs
+  an answer (`act`, `lease --renew`, `item ID --json`) waits as before (below, *Calls from a step*).
+
 **When the model changes** (`ergostat.yaml` or a file it includes edited, or a change to the model accepted), a running
 ergostat takes the new model **in place, at run boundaries**: it never restarts and never kills a run for it.
 
@@ -2831,7 +2907,8 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
 - A change of the model's name, of its format (TOML to YAML) or of its storage is a new state directory or store:
   that one restarts in place, and stops the runs; a restarted runner whose files were edited again meanwhile waits,
   holding its lock, for a model that runs. `ergostat run --stop` (and any explicit restart) stops everything, as
-  always.
+  always, but the runs `runs: outlive_engine` leaves going (`run --stop --runs` stops those too: *Runs kept going
+  without the engine*, above).
 
 **The watchdog** (`ergostat/spec/watchdog.py`). Inside the engine, once a second: when the sensor pool has given
 nothing back for 30 s while readings are out (`ERGOSTAT_STALL`; or the longest timeout of the readings it has begun,

@@ -40,10 +40,18 @@
       }
     },
     "dashboards": {
-      "description": "Shared, named dashboards (SPEC section 4e); in a file whose defaults: set a system, each is named SYSTEM.NAME.",
+      "description": "Shared, named dashboards (SPEC section 4f); in a file whose defaults: set a system, each is named SYSTEM.NAME.",
       "type": "object",
       "propertyNames": {"$ref": "#/$defs/name", "not": {"const": "default"}},
       "additionalProperties": {"$ref": "#/$defs/dashboard"}
+    },
+    "runs": {
+      "description": "How a machine block's run is held (SPEC 9.1). Main file or ergostat.local.yaml only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outlive_engine": {"type": "boolean", "description": "true: each run is kept by a detached keeper and writes its own journal, so stopping ergostat (or a crash) leaves it going; default false"}
+      }
     },
     "defaults": {
       "type": "object",
@@ -611,7 +619,7 @@
       "pattern": "^[a-z][a-z0-9-]*$"
     },
     "dashboard": {
-      "description": "A shared, named dashboard (SPEC section 4e): one window for all its panels; display only.",
+      "description": "A shared, named dashboard (SPEC section 4f): one window for all its panels; display only.",
       "type": "object",
       "additionalProperties": false,
       "required": ["panels"],
@@ -623,7 +631,7 @@
       }
     },
     "panel": {
-      "description": "One panel: its kind, its words, and exactly the parameters its endpoint takes (SPEC section 4e).",
+      "description": "One panel: its kind, its words, and exactly the parameters its endpoint takes (SPEC section 4f).",
       "type": "object",
       "required": ["panel"],
       "properties": {

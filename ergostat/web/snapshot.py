@@ -15,6 +15,13 @@ from . import snapshot_sets
 from .server import STATIC, Live, api
 
 SKIP = {"since", "at"}            # one window, one moment: the snapshot's own
+_STYLESHEET = re.compile(r'<link rel="stylesheet" href="/static/([\w./-]+)">')      # each of the page's own, whatever its name
+
+
+def _style(mt: re.Match) -> str:
+    """A stylesheet the page links, as a style element. ``<\\/`` is the same text to CSS, and cannot close the element."""
+    css = re.sub(r"</(style)", r"<\\/\1", (STATIC / mt.group(1)).read_text(), flags=re.I)
+    return f"<style>\n{css}\n</style>"
 
 
 def key(path: str, params: dict) -> str:
@@ -137,8 +144,7 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
         return text.replace("<!--", "<\\!--")                          # nor open a comment that hides its end
 
     page = (STATIC / "index.html").read_text()
-    page = page.replace('<link rel="stylesheet" href="/static/style.css">',
-                        "<style>\n" + (STATIC / "style.css").read_text() + "\n</style>")
+    page = _STYLESHEET.sub(_style, page)
     # every < in the data as \u003c: no tag, comment or script end can form inside the script
     snapshot_js = "window.SNAPSHOT = " + json.dumps(snap, default=str).replace("<", "\\u003c") + ";"
 
@@ -150,4 +156,4 @@ def build(project, since: str = "1h", logs: bool = False) -> str:
             before += ("<script>window.LIBAVOID = " + json.dumps({"js": base64.b64encode((lib / "libavoid.js").read_bytes()).decode(),
                        "wasm": base64.b64encode((lib / "libavoid.wasm").read_bytes()).decode()}) + ";</script>\n")
         return before + "<script>" + body + "</script>"
-    return re.sub(r'<script src="/static/([\w./]+)"></script>', script, page)
+    return re.sub(r'<script src="/static/([\w./-]+)"></script>', script, page)

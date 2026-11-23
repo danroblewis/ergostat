@@ -26,7 +26,7 @@ items:
     id: release/*
     show: [commit, tickets]
 
-# A shared dashboard (SPEC §4e): added by the Supervisor, never written by hand. GET /api/dashboard/week.
+# A shared dashboard (SPEC §4f): added by the Supervisor, never written by hand. GET /api/dashboard/week.
 dashboards:
   week:
     title: The factory, this week

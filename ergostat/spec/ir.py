@@ -977,7 +977,7 @@ class NamedLoop:
 
 @dataclass
 class Panel:
-    """One panel of a declared dashboard (SPEC §4e): its kind, its words, and exactly the parameters its endpoint and
+    """One panel of a declared dashboard (SPEC §4f): its kind, its words, and exactly the parameters its endpoint and
     page address take (``params``, plain data)."""
 
     panel: str
@@ -990,7 +990,7 @@ class Panel:
 
 @dataclass
 class Dashboard:
-    """A shared, named dashboard (``dashboards:``, SPEC §4e): one window for all its panels. Display only: it is in
+    """A shared, named dashboard (``dashboards:``, SPEC §4f): one window for all its panels. Display only: it is in
     no version hash, so declaring one changes no structure and no replay."""
 
     name: str                      # in a system's file: SYSTEM.NAME
@@ -1041,7 +1041,8 @@ class Spec:
     remotes: dict = field(default_factory=dict)                        # remote system → url, version, parts (SPEC §4c)
     remote_files: list[Path] = field(default_factory=list)            # each remote's cached model: a new version reloads it
     budget: RunBudget | None = None                                     # the day's AI budget runs reserve from (SPEC §9.9)
-    dashboards: dict[str, Dashboard] = field(default_factory=dict)     # the shared, named dashboards (SPEC §4e)
+    dashboards: dict[str, Dashboard] = field(default_factory=dict)     # the shared, named dashboards (SPEC §4f)
+    outlive_engine: bool = False            # runs: outlive_engine: a run kept by its keeper, never stopped with us (§9.1)
 
     def lookups(self):
         """The reverse relations, worked out once (``lookups.py``): again when a part was added or removed. Kept

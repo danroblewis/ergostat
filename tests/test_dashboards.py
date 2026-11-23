@@ -1,4 +1,4 @@
-"""Named dashboards (SPEC §4e): declared under dashboards:, checked like show:, namespaced by a system's file, and
+"""Named dashboards (SPEC §4f): declared under dashboards:, checked like show:, namespaced by a system's file, and
 served in one request whose panels say what their own endpoints say of the same snapshot."""
 
 import json

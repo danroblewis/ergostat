@@ -800,16 +800,24 @@ Cloudflare tunnel and an Access login, and declare both (SPEC §4d).
    every write there is refused; `check` and the page's header say it is public. The tunnel must still keep the
    Host (step 2): the declared name is what opens it, and a request through Cloudflare by `127.0.0.1` is refused.
 
-## 3k. A shared dashboard: declared by you, never by a person
+## 3k. Asking for numbers over time
+
+To read a rate, a level or a duration without scanning the record, use `GET /api/query?q=<base64url of JSON>` and see what
+exists with `GET /api/query/fields` (SPEC §4e). For example, a kind's cost per hour by state is
+`{"since": 86400, "queries": [{"id": "a", "source": "items", "kind": "KIND", "field": "ai_cost_usd", "agg": "sum",
+"transform": "rate", "rate_per": "hour", "group_by": "state"}]}`. Prefer `items`, `moves`, `counts` and `series`; the
+`events` source reads the log, bounded, and says so.
+
+## 3l. A shared dashboard: declared by you, never by a person
 
 People do not write `dashboards:` by hand; you (or the Supervisor) add one when the owner asks for a shared view,
-or when the same question is asked of the page again and again (SPEC §4e):
+or when the same question is asked of the page again and again (SPEC §4f):
 
 1. Ask what it is for, in one sentence: that is its `description`. Pick one `window` for all its panels (at most
    `keep:`).
 2. Put it in the file of the system it is about (one whose `defaults:` sets the system), so it is named
    `SYSTEM.NAME` and moves with that system; a dashboard across systems goes in the main file.
-3. Write each panel with the parameters its endpoint already takes (the table in SPEC §4e): `chart` with `refs`,
+3. Write each panel with the parameters its endpoint already takes (the table in SPEC §4f): `chart` with `refs`,
    `items` with `kind` and `state`, `states` or `cycle-time` with `kind`, `scope` with `goal`, `goals` with the
    goals it shows. At most 24 panels; every panel that shows a measure shows the model's reading beside it (`replay:
    true` on a chart of stocks with equations).

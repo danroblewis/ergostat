@@ -1,4 +1,4 @@
-"""``GET /api/dashboards`` and ``GET /api/dashboard/NAME`` (SPEC §4e): a dashboard's every panel in one answer, each
+"""``GET /api/dashboards`` and ``GET /api/dashboard/NAME`` (SPEC §4f): a dashboard's every panel in one answer, each
 built by the very function its own endpoint calls (``server._answer`` on the same path and parameters), all on one
 snapshot, so a panel says exactly what its endpoint would at that moment.
 

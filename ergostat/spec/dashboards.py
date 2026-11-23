@@ -1,4 +1,4 @@
-"""``dashboards:``: shared, named dashboards, read and checked like a system's ``show:`` (SPEC §4e). Each panel's
+"""``dashboards:``: shared, named dashboards, read and checked like a system's ``show:`` (SPEC §4f). Each panel's
 parameters are exactly those its endpoint and page address take; every reference in them must name something
 the model has, or it is an error at its line, so a renamed stock is a finding instead of a blank panel."""
 

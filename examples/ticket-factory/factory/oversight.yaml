@@ -175,7 +175,7 @@ blocks:
     every: 30s
     out: flow.reports-written
 
-# A shared dashboard (SPEC §4e), added by the Supervisor: in oversight's file, so named oversight.hours.
+# A shared dashboard (SPEC §4f), added by the Supervisor: in oversight's file, so named oversight.hours.
 dashboards:
   hours:
     title: Where a ticket's hour goes
