@@ -28,6 +28,7 @@
 .pe-msg-warn { color: var(--warn); font-size: var(--text-sm); }
 .pe-f { display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0; }
 .pe-f select, .pe-f input { width: 100%; min-width: 0; box-sizing: border-box; }
+.pe-f textarea.pe-text { width: 100%; box-sizing: border-box; font-family: var(--mono); font-size: var(--text-sm); resize: vertical; }
 .pe-l { color: var(--muted); font-size: var(--text-sm); padding: 0; }
 .pe-group { border: 0; margin: 0; padding: 0; min-width: 0; }
 .pe-wide { grid-column: 1 / -1; }

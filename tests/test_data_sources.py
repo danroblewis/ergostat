@@ -104,6 +104,18 @@ def test_a_promql_range_query_answers_as_series_on_the_window(p):
     assert (float(a["start"]), float(a["end"]), a["step"]) == (T, T + 360, "120")
 
 
+def test_the_most_points_and_the_longest_window_are_answered(p):
+    [r] = ask(p, {"source": "prom", "text": "up"}, since=400 * 86400.0, until=T + 7, points=1000)
+    assert "error" not in r, r
+    assert len(r["times"]) == 1001 and all(len(s["values"]) == 1001 for s in r["series"])
+
+
+def test_a_window_past_the_points_bound_is_refused_in_words(p, monkeypatch):
+    monkeypatch.setattr(datasources, "MOST_POINTS", 3)
+    [r] = ask(p, {"source": "prom", "text": "up"}, until=T + 7)
+    assert r["error_kind"] == "limit" and "points, more than the 3 allowed" in r["error"]
+
+
 def test_an_old_query_still_answers_beside_a_source_query(p):
     r = ask(p, {"source": "counts"}, {"source": "prom", "text": "up"})
     assert "error" not in r[0] and "error" not in r[1]
