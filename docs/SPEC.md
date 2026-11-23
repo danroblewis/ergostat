@@ -1410,7 +1410,8 @@ reads the event log.
   line: `goal NAME` (the goal's declared `process:`, or, when it declares none, the process its
   record identifies, section 12c), `goal NAME declared`, `goal NAME identified`, `fopdt gain=K tau=DURATION
   delay=DURATION` (K e^(−θs)/(τs + 1)) or `ipdt gain=K delay=DURATION` (K e^(−θs)/s, K per second), each optionally ending
-  `dt=DURATION`. It answers a `response` with `system` (`form`, `gain`, `tau`, `delay`, `poles`, `zeros`) and the exact
+  `dt=DURATION`; a written `tau`, `delay` or `dt` past a year is refused at its word, and the phase is worked out in
+  closed form (the rational part's less θω), so an answer costs the same for any delay. It answers a `response` with `system` (`form`, `gain`, `tau`, `delay`, `poles`, `zeros`) and the exact
   frequency response, which Bode, Nyquist and pole-zero draw. A process with dead time has its poles and zeros from its
   model sampled through a zero-order hold every `dt` (on the z-plane; a continuous delay has no finite set of poles), at
   the goal's controller period or a quarter of the dead time when no `dt` is given, lengthened when needed to keep the

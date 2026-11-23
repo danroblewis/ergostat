@@ -179,11 +179,8 @@ def _unwrapped(vals: list[complex]) -> list[float]:
     out, last = [], None
     for v in vals:
         ph = math.degrees(cmath.phase(v))
-        if last is not None:
-            while ph - last > 180:
-                ph -= 360
-            while ph - last < -180:
-                ph += 360
+        if last is not None:                          # into [last − 180°, last + 180°), in one step however far
+            ph -= 360 * math.floor((ph - last + 180) / 360)
         out.append(ph)
         last = ph
     return out
@@ -207,13 +204,21 @@ def bode(p: dict, c: dict | None = None, n: int = 240) -> dict:
 
 def response(p: dict, n: int = 240) -> dict:
     """The process's frequency response P(jω), exact (its dead time a pure phase lag): by frequency in Hz, its real and
-    imaginary parts, gain in dB and phase in degrees, unwrapped. A gain of 0 responds to nothing: ValueError."""
+    imaginary parts, gain in dB and phase in degrees, unwrapped in closed form (the rational part's phase less θω, so a
+    long delay costs no more than a short one). A gain of 0 responds to nothing, and a delay too long to evaluate
+    has no answer: ValueError."""
     if not p.get("K") or not math.isfinite(p["K"]):
         raise ValueError("a process of gain 0 responds to nothing, so it has no frequency response")
     ws = grid(p, None, n)
+    th = p.get("theta") or 0.0
+    if not math.isfinite(th * ws[-1]):
+        raise ValueError("the dead time is too long for its frequency response to be worked out")
     P = [process_at(p, w) for w in ws]
+    sign = 180.0 if p["K"] < 0 else 0.0
+    lag = [90.0 if p["form"] == "integrating" else math.degrees(math.atan(w * p["tau"])) for w in ws]
     return {"hz": [w / (2 * math.pi) for w in ws], "re": [x.real for x in P], "im": [x.imag for x in P],
-            "magnitude_db": [20 * math.log10(abs(x)) for x in P], "phase_deg": _unwrapped(P)}
+            "magnitude_db": [20 * math.log10(abs(x)) for x in P],
+            "phase_deg": [sign - g - math.degrees(th * w) for g, w in zip(lag, ws, strict=True)]}
 
 
 MOST_PERIODS = 64           # a sampled model's dead time, in periods: past it, too many poles at 0 to draw

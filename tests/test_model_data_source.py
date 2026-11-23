@@ -206,6 +206,23 @@ def test_a_bad_model_query_is_refused_in_words_at_its_place(tune, text, word, co
     assert word in r["error"] and r["error_at"] == [1, col] and r["error_kind"] == "refused" and "frequency" not in r
 
 
+def test_a_very_long_delay_against_a_short_tau_is_answered_or_refused_within_the_querys_bound(tune):
+    """A delay of 300 days against a tau of 1 s: about 1e8 turns of phase over the grid, answered exactly and at once;
+    a delay past a year, or of 10^300 s, is refused at its word, before any working out."""
+    t0 = time.monotonic()
+    r = model(tune, "fopdt gain=1 tau=1s delay=300d")
+    assert "error" not in r, r
+    f, th = r["frequency"], 300 * 86400.0
+    for i in (0, len(f["hz"]) // 2, len(f["hz"]) - 1):
+        w = 2 * math.pi * f["hz"][i]
+        assert f["phase_deg"][i] == pytest.approx(-math.degrees(math.atan(w) + w * th), rel=1e-9)
+    assert f["phase_deg"][-1] < -1e10                                   # (unwrapped: about 1e8 turns down at the top)
+    for text, col in (("fopdt gain=1 tau=1s delay=1000d", 21), ("ipdt gain=1 delay=" + "9" * 300 + "s", 13)):
+        bad = model(tune, text)
+        assert bad["error_kind"] == "refused" and "longer than the 366 days" in bad["error"] and bad["error_at"] == [1, col]
+    assert time.monotonic() - t0 < 2.0
+
+
 def test_the_model_source_is_there_undeclared_and_a_declared_source_of_that_name_wins(tune, tmp_path):
     assert {"name": "model", "type": "model", "language": "model"} in datasources.listed(tune.model.spec)
     (tmp_path / "ergostat.yaml").write_text("name: x\nstocks:\n  q: {unit: t}\nsources:\n"

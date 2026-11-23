@@ -15,6 +15,9 @@ Its language, one line:
   period, or a quarter of the dead time, when no ``dt`` is given, lengthened to keep the dead time within
   ``lti.MOST_PERIODS`` periods; the answer states the ``dt``. Only a ``dt`` written too short is refused.
 
+A written duration is at most ``MOST_SECONDS`` (a year), and the phase is worked out in closed form, so the answer costs
+the same for any delay.
+
 An identified process is answered only when the record tells it apart (``ident.judge``), with how well it fits (the
 share of the record held out it follows, and its numbers' standard errors); otherwise the query is refused with the
 record's reasons, never drawn as if it were known. Identifying reads the whole fine record, so it is not done for
@@ -39,6 +42,7 @@ _HOW = ("declared", "identified")
 _IDENTIFYING = threading.Lock()     # one identification at a time: each fits a few hundred models
 _KEPT: dict = {}                    # (id(project), id(spec), goal, until, record version) -> (project, spec, found)
 MOST_KEPT = 16
+MOST_SECONDS = 366 * 86400.0        # a written tau=, delay= or dt= past a year is refused at its word
 PUBLIC_REFUSED = ("identifying a process from the record is done for the owner or a login, not under a public name; "
                   "ask goal {goal} declared, or a process written out")
 
@@ -111,6 +115,8 @@ def _parsed(text: str) -> tuple[str, str | None, dict, dict]:
             raise _refused(f"{k}=: {v!r} is not a {'number' if k == 'gain' else 'duration (like 30s, 5m, 2h)'}", c) from e
         if not math.isfinite(nums[k]) or (k == "gain" and nums[k] == 0):
             raise _refused(f"{k}=: {v!r} is not a finite number{' other than 0' if k == 'gain' else ''}", c)
+        if k != "gain" and nums[k] > MOST_SECONDS:
+            raise _refused(f"{k}=: {v!r} is longer than the {MOST_SECONDS // 86400:.0f} days a model query takes", c)
         cols[k] = c
     if head in _FORMS and (missing := [k for k in _FORMS[head] if k not in nums and k != "delay"]):
         raise _refused(f"{head} needs {', '.join(f'{k}=' for k in missing)}", at)

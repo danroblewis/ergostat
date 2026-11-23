@@ -87,6 +87,23 @@ Round 2, answering every finding of the round-1 review:
 - Run here: `tests/test_model_data_source.py` (all passing), ruff. Not run: the unit suite, the four browser files and
   `demo_check` (no example touched); main has not moved since the clone, so there was nothing to merge.
 
+Round 3, answering the one finding of the queue (lessons 4 and 8: a written delay with no ceiling made `_unwrapped`
+loop once per 360° of phase, so `fopdt gain=1 tau=1s delay=1000d` held the GIL for minutes, open to a public reader):
+- `lti.response` now gives the phase in closed form (the rational part's phase, 180° for a negative gain, less θω in
+  degrees): O(1) a point whatever the delay, and exact where unwrapping by neighbours aliases once θ·Δω passes 180°.
+  A delay so long that θω is not finite is refused (ValueError, answered as a refusal).
+- `_unwrapped` (still used by `bode` and `margins` for loops) brings each phase in line in one step, not one 360° turn
+  per loop iteration.
+- A written `tau=`, `delay=` or `dt=` past a year (`model.MOST_SECONDS`) is refused at its word's column. Choice taken
+  without the owner (the more reversible: the ceiling can be raised): a year, far past any process ergostat models.
+  A declared `process:` dead time has no such ceiling, and needs none now that the cost no longer grows with it.
+- Test: `::test_a_very_long_delay_against_a_short_tau_is_answered_or_refused_within_the_querys_bound` (300 days
+  against 1 s answered with the analytic phase, about 1e8 turns down; 1000 days and 10^300 s refused at column; all
+  under 2 s). Seen to fail with the ceiling lifted (answered, not refused) and with the phase by neighbour unwrapping
+  (−618° where −168378° is right, at the grid's first point). SPEC §4e says so.
+- Run here: `tests/test_model_data_source.py` and `tests/test_control.py` (88 passed), ruff clean. Not run: the unit
+  suite, the four browser files, `demo_check` (no example touched); main has not moved since the clone.
+
 ## Entry
 
 section: Modelling
