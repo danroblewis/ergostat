@@ -67,3 +67,25 @@ Its runs failed past their attempts (a dead letter):
 - attempt 18: nack a switch drains the runs under way (run/drain.json): taken again after it
 - attempt 19: nack given back
 - attempt 20: nack the run ended with gap/item-page-fields-flow-and-lists-are-cards still parked
+
+## Where it stopped
+
+Continued, round 1 (2026-11-23): main (63998238) merged in. Its one conflict, tests/test_items_page.py, was both sides
+adding tests at the file's end; both kept, each with its own teardown. No code changed after the merge.
+Runs after the merge: ruff clean; tests/test_spec_items.py 8 passed; tests/test_items_page.py 29 passed, 6 failed
+(7 on a second run); tests/test_page_refresh.py 8 passed, 1 failed. The branch's five new item-page tests pass.
+The failures, none of them on the item page:
+- test_a_stocks_and_a_flows_side_panel_list_their_items_and_link_to_exactly_that_set,
+  test_a_valves_leased_items_are_listed_live, test_the_model_changes_are_found_by_heading_search_and_panel
+  (the diagram's side panel, itemsets.js: .item-list, .leases-line, .counts-line never appear);
+  test_a_crossing_opens_the_record_narrowed_to_its_goal_and_time_and_the_filter_stays_in_the_address,
+  test_a_snapshot_lists_a_parts_items_and_opens_its_set, test_a_set_left_out_of_a_snapshot_says_so,
+  test_the_header_counts_the_systems_goals_and_the_models_upkeep_apart (the last added by this merge);
+  test_page_refresh's test_other_pages_left_open_change_nothing[diagram?view=process&by=events-graph].
+  Three of them fail alone too, so load isn't the cause.
+Why I take them to be unrelated: the branch changes only pageItem's Fields and Changes (pages.js), its CSS and
+/api/items/ID (server.py); the side panel is itemsets.js reading /api/parts, which the branch doesn't touch, and none of
+the branch's new top-level names (isShort, isScalar, pageFieldView, recordView, fileFold, historyRows) is declared
+in another script. The merge brought 84 changed files under ergostat/, among them diagram.js, details.js, relations.js
+and server.py. Not proved: running them on main was refused (`git checkout main -- <the branch's 3 files>` and
+`git worktree add --detach /tmp/mainwt main`), so whether main fails them alone was not seen.
