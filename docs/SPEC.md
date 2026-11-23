@@ -1423,7 +1423,12 @@ reads the event log.
   change (those that use it, and the copies of a panel repeated by it); each panel takes only the answer of the last
   ask it was in, by sequence, and a duration stat's *still waiting* note comes with that ask (the first draw's too,
   with no poll). Leaving the page drops every ask still out: it is neither said nor asked again. A panel repeated by a variable (section 4f's design, *Repeated panels*) shows one panel
-  for each value chosen.
+  for each value chosen. A query is sent its variables' values in full, so the page splits its asks by length as well
+  as by count (at most 35,000 bytes of JSON each, within the 48,000 characters of `q`): many panels using a long
+  variable are asked in several asks, each within the bound. A query that alone is longer (a variable of 200 values of
+  200 characters, all chosen, is about 41,000) is never sent: its panel says how long it is and asks for fewer values,
+  nothing is asked again for it, and the other panels still answer. A multi-value choice left empty is not kept in
+  the address, so a reload takes the default again.
 - **Result shapes.** Every answer says which of five shapes it is (`shape`), so a chart is chosen by what the data is and
   not by where it came from: `series` (values over time; `roles` `input` and `output` when it is two signals, one drawn
   against the other, as an X of another query gives; `open`, `high`, `low`, `close` for candles), `table` (`dims`,

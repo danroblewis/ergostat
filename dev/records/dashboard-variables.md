@@ -306,3 +306,52 @@ Refused here:
 - A no-op heredoc (`cat > /tmp/edit.txt <<'EOF' ... EOF`), sent by mistake. Nothing depended on it.
 - `git diff --numstat main...HEAD -- . ':!tests' ':!docs' ':!dev' | awk ...; git diff --numstat -- ergostat`. It was
   replaced by `git diff --shortstat main -- ergostat scripts`.
+
+### Round 8
+
+Built. The review had one finding, and it was blocking. A query variable at its listing's maximum (200 values of 200
+characters, all chosen by default) pushed `q` past `MOST_ENCODED` (48,000). Then the server refused the whole request,
+so every panel failed and the page asked again every 10 s with no end. It is fixed in `panels.js`. The size is 426 net
+lines outside tests, docs and dev (501 added, 75 removed in `ergostat` and `scripts`, measured against main; budget
+600).
+
+- `batched()` now splits a request by length as well as by count. Each request holds at most `MOST_SENT` = 35,000
+  bytes of JSON (UTF-8, measured as sent). The 48,000 characters of base64 hold 36,000 bytes, and the rest leaves room
+  for the window. A query still goes in the same request as the one it reads its X from.
+- A query that is longer than `MOST_SENT` alone, counting what it reads from, is never sent. Its result is an error made
+  in the page: "not asked: ... this query is N bytes, more than the 35000 one ask may carry. Choose fewer values". It is
+  a result of that one query, not a failed ask, so no retry is made for it and the other panels answer. When every query
+  is too long, nothing is sent and `meta` is null, as for a page with nothing to ask.
+- Choice taken without asking, the most reversible: the bounds stay as they are on both sides, and the page keeps to the
+  server's `q` bound. The protocol is unchanged. Sending each variable's values once per request was not chosen. It
+  would change the server's request shape, and one variable at the maximum (about 41,000 bytes) would still not fit in
+  one request. The server's listing bound (200 × 200) was not lowered either, since eight variables could still add up
+  past the bound.
+- Round 1's record says two limits are "said in SPEC": the 48,000 bound and an empty multi-value choice not kept in the
+  address. Neither was in SPEC. SPEC §4e now says both: asks split by length, a query too long alone not sent and saying
+  so, and an empty multi-value choice not kept. The first of these replaces round 1's "Not tested" limit.
+- New tests in `tests/test_dashboard_variables_page.py` (browser). Their stub `/api/query` refuses `q` through the
+  server's own `ergostat.query.parse.decode`, so it holds to the real bound:
+  - `test_a_variable_at_its_listing_maximum_leaves_the_panels_not_using_it_answered`: a 200 × 200 listing, all chosen.
+    No ask is refused. Only the two panels without the variable are sent, and both answer. The panel using the variable
+    says "not asked ... Choose fewer values", and no 10 s retry is set.
+  - `test_many_panels_using_a_long_variable_are_asked_in_asks_each_within_the_bound`: 12 panels use a 100 × 100
+    variable and one uses none. They take several asks, each `q` is at most 48,000, none is refused, and all 13
+    answer.
+- Seen to fail when the code they guard was broken:
+  - No length bound (`MOST_SENT = Infinity`): both tests failed. The asks were refused whole, and no panel answered.
+  - Split by length, but a query too long alone still sent: the first test failed, because its ask was refused. The
+    second passed, as expected: it has no query too long alone.
+- Known limit, not changed (outside the finding): a chained listing whose parent's chosen values are too long for the
+  `/api/query/values` `q` is refused by the server. It then offers nothing, as a failed listing does. Not tested.
+
+Run here:
+- ruff is clean.
+- Under the watchdog, all with rc 0 and none skipped:
+  - test_dashboard_variables_page: 9 passed.
+  - test_dashboard_page and test_dashboard_layout: 62 passed.
+  - test_data_source_panels and test_panel_editor: 37 passed. They also use `queryPanels`.
+- `main` (278f54a4) is already an ancestor of HEAD, so there was nothing new to merge.
+- Not run: the whole unit suite and the four browser files (the factory's job). No Python or example was touched.
+
+Refused here: nothing.

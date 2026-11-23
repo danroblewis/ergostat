@@ -263,6 +263,82 @@ def test_a_panel_repeated_by_a_variable_follows_its_chosen_values(browser, site)
     ctx.close()
 
 
+def bounded(ctx, listing):
+    """/api/query bounded as the server bounds q (decode's MOST_ENCODED), and every values request answered with
+    ``listing``: what each request asked, by panel query, and the lengths refused."""
+    from ergostat.query.parse import BadQuery, decode
+    asks, refused = [], []
+
+    def query(route):
+        text = route.request.url.split("q=")[1].split("&")[0]
+        try:
+            asks.append(decode(text)["queries"])
+        except BadQuery as e:
+            refused.append(len(text))
+            route.fulfill(status=400, json={"error": str(e), "error_kind": "bad-query"})
+            return
+        answer(route)
+    ctx.route("**/api/query?*", query)
+    ctx.route("**/api/query/values?*", lambda r: r.fulfill(json={"values": listing}))
+    return asks, refused
+
+
+def errors(pg):
+    return pg.evaluate("() => Object.fromEntries([...DASH.got].map(([id, a]) => [id, a.results.map((r) => r.error || null)]))")
+
+
+def test_a_variable_at_its_listing_maximum_leaves_the_panels_not_using_it_answered(browser, site):  # noqa: F811
+    """A multi-value query variable listing 200 values of 200 characters (the most a listing takes), all chosen by
+    default: the one query using it is too long for any ask, so it alone says so and is not sent; the panels not
+    using it are asked and answer, no ask is refused for its length, and nothing is asked again."""
+    from ergostat.query.parse import MOST_VAR_VALUE, MOST_VAR_VALUES
+    listing = [f"{i:03d}" + "x" * (MOST_VAR_VALUE - 3) for i in range(MOST_VAR_VALUES)]
+    draft = {"title": "Big", "vars": {"inst": {"type": "query", "source": "prom", "multi": True,
+                                               "text": "label_values(up, instance)"}},
+             "panels": [text_panel(1, 'sum(up{instance=~"$inst"})'), text_panel(2, "sum(up)"),
+                        {**text_panel(3, ""), "queries": [{"id": "a", "source": "counts", "agg": "last", "kind": "k"}]}]}
+    ctx = context(browser, 1440, 1000)
+    ctx.add_init_script(RETRIES)
+    asks, refused = bounded(ctx, listing)
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded(draft)}")
+    pg.wait_for_function("() => DASH.got && !DASH.flights.size && DASH.got.size === 3")
+    pg.wait_for_timeout(300)
+    assert pg.evaluate("() => DASH.options.get('inst').length") == MOST_VAR_VALUES
+    assert refused == []
+    assert [q.get("text") or q["source"] for a in asks for q in a] == ["sum(up)", "counts"]
+    got = errors(pg)
+    assert got["p2"] == [None] and got["p3"] == [None]
+    [said] = got["p1"]
+    assert "not asked" in said and "Choose fewer values" in said, said
+    assert pg.evaluate("() => window.__retries") == []
+    assert pg.errors == []
+    ctx.close()
+
+
+def test_many_panels_using_a_long_variable_are_asked_in_asks_each_within_the_bound(browser, site):  # noqa: F811
+    """Twelve panels each using a 100-value variable of 100 characters, and one using none: one ask would be about
+    170,000 characters of q, so the panels are asked in several asks, each within the server's bound, and every
+    panel answers."""
+    from ergostat.query.parse import MOST_ENCODED
+    listing = [f"{i:03d}" + "y" * 97 for i in range(100)]
+    draft = {"title": "Many", "vars": {"inst": {"type": "query", "source": "prom", "multi": True,
+                                                "text": "label_values(up, instance)"}},
+             "panels": [text_panel(i, f'sum(up{{instance=~"$inst", n="{i}"}})') for i in range(1, 13)]
+             + [{**text_panel(13, ""), "queries": [{"id": "a", "source": "counts", "agg": "last", "kind": "k"}]}]}
+    ctx = context(browser, 1440, 1000)
+    asks, refused = bounded(ctx, listing)
+    lengths = []
+    ctx.on("request", lambda r: lengths.append(len(r.url.split("q=")[1])) if "/api/query?" in r.url else None)
+    pg = opened_plain(ctx, f"{site}/dashboard?draft={encoded(draft)}")
+    pg.wait_for_function("() => DASH.got && !DASH.flights.size && DASH.got.size === 13")
+    assert refused == [] and len(asks) > 1 and max(lengths) <= MOST_ENCODED, lengths
+    assert sum(len(a) for a in asks) == 13
+    got = errors(pg)
+    assert len(got) == 13 and all(v == [None] for v in got.values()), got
+    assert pg.errors == []
+    ctx.close()
+
+
 POLL_OFF = """
 const realGet = Storage.prototype.getItem;
 Storage.prototype.getItem = function (k) { return String(k).endsWith(".every") ? "Off" : realGet.call(this, k); };

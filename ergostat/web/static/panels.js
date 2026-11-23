@@ -1126,12 +1126,12 @@
     });
     const out = new Map(configs.map((c) => [c.id, { results: [], meta: null }]));
     if (!asked.size) return out;
-    const batches = batched([...asked.values()]);
-    const q = encodeQuery({ since, until, points, queries: batches[0] });
+    const { batches, left } = batched([...asked.values()]);
     let answer;
-    if (typeof SNAP !== "undefined" && SNAP) answer = await api("query", { q });
+    if (!batches.length) answer = { results: [] };
+    else if (typeof SNAP !== "undefined" && SNAP) answer = await api("query", { q: encodeQuery({ since, until, points, queries: batches[0] }) });
     else {
-      const r = await fetch(`/api/query?q=${q}`, { signal });
+      const r = await fetch(`/api/query?q=${encodeQuery({ since, until, points, queries: batches[0] })}`, { signal });
       if (!r.ok) throw new Error(`the query answered ${r.status}`);
       answer = await r.json();
       await askAgainWhenBusy(answer, batches[0], points, signal);
@@ -1145,8 +1145,9 @@
         answer.results.push(...next.results.filter((x) => !have.has(x.id)));
       }
     }
-    const meta = { now: answer.now, since: answer.since, until: answer.until, step: answer.step };
+    const meta = batches.length ? { now: answer.now, since: answer.since, until: answer.until, step: answer.step } : null;
     const byId = new Map((answer.results || []).map((r) => [r.id, r]));
+    for (const [x, n] of left) byId.set(x.id, { id: x.id, error: `not asked: with what it reads from and the values its variables take, this query is ${n} bytes, more than the ${MOST_SENT} one ask may carry. Choose fewer values` });
     for (const c of configs) out.get(c.id).meta = meta;
     for (const w of wanted) {
       const r = byId.get(w.as);
@@ -1154,19 +1155,24 @@
     }
     return out;
   }
-  /* at most what one request may hold, a query always beside the one it reads its X from */
-  const MOST_IN_REQUEST = 64;
+  /* at most what one request may hold, by count and by length (the server's q is at most 48,000 base64 characters,
+     so 36,000 bytes of JSON, less room for the window), a query always beside the one it reads its X from. A query
+     too long to go even alone (a variable's many long values) is left out, with its length, and the others still go */
+  const MOST_IN_REQUEST = 64, MOST_SENT = 35000;
   function batched(queries) {
-    const byId = new Map(queries.map((x) => [x.id, x])), out = [[]];
+    const byId = new Map(queries.map((x) => [x.id, x])), out = [[]], left = [], sizes = new Map();
+    const size = (x) => (sizes.has(x) ? sizes.get(x) : sizes.set(x, new TextEncoder().encode(JSON.stringify(x)).length + 1).get(x));
+    let bytes = 0;
     for (const x of queries) {
       const feeds = typeof x.x?.query === "string" ? byId.get(x.x.query) : null;
+      const adds = (now) => [...new Set([feeds, x])].filter((y) => y && !now.includes(y));
+      const cost = (now) => adds(now).reduce((a, y) => a + size(y), 0);
+      if (cost([]) > MOST_SENT) { left.push([x, cost([])]); continue; }
       let now = out[out.length - 1];
-      const need = 1 + (feeds && !now.includes(feeds) ? 1 : 0);
-      if (now.length + need > MOST_IN_REQUEST) out.push(now = []);
-      if (feeds && !now.includes(feeds)) now.push(feeds);
-      if (!now.includes(x)) now.push(x);
+      if (now.length + adds(now).length > MOST_IN_REQUEST || bytes + cost(now) > MOST_SENT) { out.push(now = []); bytes = 0; }
+      for (const y of adds(now)) { now.push(y); bytes += size(y); }
     }
-    return out;
+    return { batches: out.filter((b) => b.length), left };
   }
   /* the server reads the event log for only a few charts at once and refuses the rest at once. Those are asked for again,
      alone, on the same window, a few times with a growing pause: what was read is kept there, so each round gets further */
