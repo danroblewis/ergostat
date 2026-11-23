@@ -167,3 +167,31 @@ The merge queue should run these on clean main.
 
 Overrun reason: tests are net +44 lines against a test budget of 20 (the acceptance tests check every point of DoD 1-3
 and four CLI commands); code is net +2 (budget 70), docs net +12 (budget 35).
+
+## Where it stopped
+
+Merge of main (8a27f9e38afe, 3db9c0e3), round 2. Conflicts kept both sides: SPEC's process/controller-panel text from
+main, with 'a goal's panel on the Goals page'; running.py's `ergostat projects` takes main's one count
+(state.goals_said), its empty case 'no goals'; goalrow.js takes main's shareText with the tooltip 'the goal spent off';
+pages.js takes main's steadyWord behaviour with first column 'goal' and caption 'Goals'; test_diagram_rendering's
+attention test takes main's ' · model upkeep N' heading check (main rewrote the count check that round 1 had changed).
+Main also brought two more reader 'Loops': SPEC §goals_off 'the Loops page's heading' (now 'Goals page's', so the DoD 4
+grep holds) and goalrow.js's behaviour tooltip 'on Loops it changes' (now 'on Goals'). Main's Goals h1 now holds
+' · goals off N' after its title, so the acceptance test compares the text before ' · ' with 'Goals' (still fails if
+the title is 'Loops').
+
+Tests run after the merge: ruff clean; tests/test_graph_cli_web.py 53 passed; tests/test_quiet_system.py 5 passed;
+tests/test_page_polling.py 22 passed, 1 failed (the h1 match above), fixed, and then the acceptance test passed alone;
+test_needs_attention_is_three_headed_groups_in_a_fixed_order passed (it failed in round 1).
+tests/test_diagram_rendering.py in full: 36 failed, 285 passed. These are the round-1 failures listed above, without
+the attention test: test_sensors_are_blocks_…_no_part_has_a_tooltip over 21 examples ('tooltip on title: Drawn alike
+here with …', dynamics.js); test_every_view_draws_cleanly_and_in_time [autoscaler, coordinator, image-squeeze, the-job,
+ticket-factory] and the control view [autoscaler] (satellite-far, valve-orientation-mismatch, routing 20.7 s and
+21.8 s against 20 s, a 240 s wait); test_a_big_tangled_model… (2718 ms against 2500); the panel-mid-redraw, box-move,
+crossings ('fit' matches 5 buttons), keyboard, goal-evidence[False], exported-png (legend 6 rows, wants >10),
+panel-across-views and equation tests. None reads a word or route this branch changed. They were not run on clean
+main here (a second worktree was refused in round 1). The merge queue should run them on main.
+Not run: the unit suite and the other browser files (left to the factory).
+
+Overrun reason: tests are net +44 lines against a test budget of 20 (the acceptance tests check every point of DoD 1-3
+and four CLI commands); code is net +2 (budget 70), docs net +12 (budget 35).
