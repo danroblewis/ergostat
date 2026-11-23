@@ -11,6 +11,8 @@ from __future__ import annotations
 import threading
 import time
 
+from . import graph_parts
+
 KEPT = 300.0              # an answer is worked out again at least this often, the record quiet or not
 _CACHE: dict = {}
 _LOCK = threading.Lock()
@@ -42,6 +44,7 @@ def graph(p, m, snap: dict, q: dict) -> dict:
     now = snap["at"]
     ans = precedence.build(ev, spec, kinds, now, now - snap["window"], until=None if live else now)   # as it stood then
     ans["asked"] = kinds
+    ans = graph_parts.mark(ans)                                  # what the Graph may draw, in connected groups
     with _LOCK:
         for k in [k for k in _CACHE if k[:2] == key[:2] or time.time() - _CACHE[k][0] > KEPT]:
             _CACHE.pop(k, None)

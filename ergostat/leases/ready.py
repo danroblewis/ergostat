@@ -74,7 +74,8 @@ class Ready:
 
 def unblocked(d, b, got: list) -> list:
     """The hook for ``takes: {unblocked: true}`` (SPEC §9.5): of the items a block may take (``Dispatcher.ready``, in
-    its order), those whose precedence relations name only finished items, the critical first
+    its order), those whose precedence relations name only finished items (or ones in a state the relation's
+    ``starts_at`` names), the critical first
     (``precedence.order_ready``). Any other block's are as they were."""
     if not got or not getattr(b.takes, "unblocked", False):
         return got
