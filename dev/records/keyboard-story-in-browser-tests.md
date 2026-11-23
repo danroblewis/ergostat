@@ -56,3 +56,18 @@ stop still works then, so that is not a regression of it.
 Run here: tests/test_keyboard_story.py under suite_watch with Playwright (2 passed, rc 0, none skipped, about 4 s),
 ruff (clean). Not run: the unit suite, the four browser files, demo_check (no example touched). Main is in the
 branch (it is the base; nothing to merge).
+
+Round 2 (the one blocking finding: done item 2 not met). tests/test_keyboard_story.py is now the fifth file of
+dev/factory.toml's `[suites] browser` command and of `browser_paths` (so the merge queue and the daily browser run
+run it, and a batch that changes it runs the browser step), and of the browser command in CLAUDE.md and
+docs/DEVELOPMENT.md (which carries the same command). With that, done item 1's regressions have a gate behind them.
+The round-1 claim that the factory's config was not this gap's to touch is withdrawn: the definition asks for it.
+No other finding was raised. Still 0 lines of product code; the test file is unchanged (88 lines). Text elsewhere
+that says "the four browser files" (the house rules in the factory's prompts) now means five; that wording is not
+in this gap's files and is left as it is.
+
+Run here, round 2: tests/test_keyboard_story.py under suite_watch with Playwright (2 passed, rc 0, none skipped);
+the config readers tests/test_agents.py::test_the_whole_suite_watch_command_is_not_the_implementors,
+tests/test_factory.py::test_every_suite_fac_reads_prints_failed_lines and ::test_a_failing_browser_test_is_named
+(3 passed); ruff (clean). Not run: the unit suite, the whole browser command, demo_check (no example touched).
+Main is still the base (nothing to merge).
