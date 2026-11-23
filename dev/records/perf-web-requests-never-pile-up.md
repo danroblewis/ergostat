@@ -54,3 +54,5 @@ Main (2a97eafb2781) conflicted in the three web files, and the branch now holds 
 - `refreshProjects` keeps the header's `kept` fetch (it belongs to no page, so it is not aborted) and main's re-ask when the list is not ready yet (`ps.at == null`).
 - Main now answers /api/projects from its lister at the top of `_answer`, before any snapshot. That makes the branch's own early `projects` answer (which called `projects.known()`) dead code, so it is removed. The fast lane still takes /api/projects, and it is still cheap: main's answer reads the lister's last list and takes no lock.
 No review findings were listed for this round other than the merge conflicts, so nothing else changed.
+
+Run in round 3, after the merge: tests/test_web_lanes.py (11 passed), tests/test_web_access.py (26 passed), tests/test_projects_header.py (6 passed), tests/test_page_polling.py with Playwright under suite_watch (20 passed, rc 0, none skipped, 897 s), and ruff (clean). Not run: the full unit suite, the other three browser files (test_page_refresh among them, which reads /api/projects) and demo_check (no example touched).
