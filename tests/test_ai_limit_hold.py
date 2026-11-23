@@ -175,26 +175,6 @@ def test_the_queue_runs_while_ai_is_held(tmp_path):
         assert "goal.ai-not-held.off" not in {str(x) for x in ins}, b
 
 
-def test_drain_nacks_are_not_attempts(tmp_path):
-    f = Factory(tmp_path)
-    gid = ready(f)
-    (f.model / "run" / "drain.json").write_text(json.dumps({"sha": "a" * 40, "since": time.time()}))
-    said, lines = f.run("implement.py", gid)
-    assert said == [] and [n["count"] for n in nacks(lines)] == [False] and "drains" in nacks(lines)[0]["why"]
-    item = {"id": gid, "fields": {"lease": {"fence": 1, "holder": "r1"}}}  # a run under way given back by the drain
-    code = (f"import sys, json; sys.path[:0] = [{str(BIN)!r}]; import drain; "
-            f"print(json.dumps(drain.give_back([json.loads(sys.argv[1])], 'a' * 40)))")
-    r = subprocess.run([sys.executable, "-c", code, json.dumps(item)], cwd=f.model, env=f.env, capture_output=True,
-                       text=True)
-    assert r.returncode == 0, r.stderr
-    assert [n["count"] for n in f.db()["nacks"]] == [False]
-    nk = nacks(lines)[0]                                                    # never an attempt in ergostat's fold
-    it = folded([nk | {"after_s": seconds(nk["after"])}] * 3, time.time())
-    assert it.fields["lease"]["attempts"] == 0 and it.state == "ready"
-    counted = folded([{"why": "a real failure"}] * 2, time.time())          # (what a counted one does: dead)
-    assert counted.state == "dead"
-
-
 def test_the_hold_lifts_at_the_reset(tmp_path, monkeypatch, capsys):
     f = Factory(tmp_path)
     monkeypatch.chdir(f.model)

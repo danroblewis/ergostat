@@ -185,7 +185,7 @@ def stacked_base(wt: Path, branch: str, on, main: str, at: str = "") -> tuple[st
 
 def judge(cfg: dict, gap: dict, began: float) -> int:
     f = gap["fields"]
-    if fac.drain_holds(cfg):
+    if fac.ai_holds(cfg):
         return 0
     refused = fac.may_spend(cfg, float(cfg["ai"]["reviewer_session_usd"]))
     if refused:

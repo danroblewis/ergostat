@@ -77,7 +77,7 @@ elif args[0] == "event" and args[1] == "--add" and args[args.index("--item") + 1
     db.setdefault("flakes_said", []).append(args[2])
     rec.write_text(json.dumps(db))
 elif args[0] == "lease":
-    if "--nack" in args:                                           # (a lease given back, as its run would: drain.py)
+    if "--nack" in args:                                           # (a lease given back, as its run would)
         import os
         db.setdefault("nacks", []).append({k: os.environ.get(f"ERGOSTAT_{k.upper()}") for k in ("item", "lease", "run")}
                                           | {"count": "--no-count" not in args})
@@ -4568,9 +4568,10 @@ def test_a_dead_letter_on_main_broken_tests_says_so(monkeypatch):
     assert dead.on_main({"suites_fast": {}}) == ""
 
 
-# ---- switch-drain: an approved switch drains the runs under way, and older switch requests are withdrawn
+# ---- switch-without-draining: an approved switch starts at once, leaving the runs under way, and older switch
+# requests are withdrawn
 
-NOON = time.mktime(time.localtime()[:3] + (12, 0, 0, 0, 0, -1))              # today 12:00, local (no 04:00 near)
+NOON = time.mktime(time.localtime()[:3] + (12, 0, 0, 0, 0, -1))              # today 12:00, local
 
 
 def versions(f: Factory, n: int) -> list[str]:
@@ -4609,11 +4610,8 @@ def held(f: Factory, *gids: str, block: str = "implementor") -> None:
     f.record.write_text(json.dumps(db))
 
 
-def switcher(f: Factory, now: float, **upgrade) -> tuple[list[str], str, list[str]]:
+def switcher(f: Factory, now: float) -> tuple[list[str], str, list[str]]:
     """One step of the switcher at ``now``: (the events it said, why, the switches it started)."""
-    if upgrade:
-        with f.config.open("a") as c:
-            c.write("[upgrade]\n" + "".join(f"{k} = {json.dumps(v)}\n" for k, v in upgrade.items()))
     code = ("import sys, json; sys.path[:0] = [sys.argv[1]]; import fac, live, drain; cfg = fac.config(); "
             "live.detach = lambda cfg, sha: print(json.dumps({'detached': sha})); "
             "print(json.dumps({'why': drain.step(cfg, float(sys.argv[2]))}))")
@@ -4625,69 +4623,109 @@ def switcher(f: Factory, now: float, **upgrade) -> tuple[list[str], str, list[st
             [x["detached"] for x in lines if "detached" in x])
 
 
-def test_a_switch_waits_for_the_runs_under_way(tmp_path):
+def test_an_approved_switch_starts_at_once_and_leaves_the_runs_under_way(tmp_path):
+    """switch-without-draining: no quiet moment, no drain: the step that sees the approval starts the switch, with
+    three runs under way, none given back; the AI blocks go on taking items."""
     f = Factory(tmp_path)
     a, b = versions(f, 2)
     uid = asked(f, b, "ran")                                                     # approved
-    held(f, "gap/one", "gap/two")
-    said, why, started = switcher(f, NOON, quiet_runs=1)
-    assert said == ["upgrade.switch-approved"] and "waits" in why and started == []
-    flag = f.model / "run" / "drain.json"
-    assert not flag.exists() and f.item(uid)["state"] == "approved"
-    held(f, "gap/one")                                                           # a quiet moment: one run under way
-    said, why, started = switcher(f, NOON + 60)
-    assert said == ["upgrade.draining"] and "drains" in why and started == [] and flag.exists()
-    gid = ready(f)                                                               # the AI blocks take no new item
-    said, lines = f.run("implement.py", gid)
-    assert said == [] and lines == [{"nack": {"why": lines[0]["nack"]["why"], "count": False, "after": "5m"}}]
-    f.fold([{"event": "gap.built", "item": gid, "data": {}}], None)
-    said, lines = f.run("review.py", gid)
-    assert said == [] and lines[0]["nack"]["count"] is False
-    held(f, "gap/one")
-    said, why, started = switcher(f, NOON + 120)
-    assert said == [] and started == [] and "1 run(s) under way" in why        # gap/one still runs
-    held(f)                                                                      # it finished
-    said, why, started = switcher(f, NOON + 180)
-    assert said == ["upgrade.drained"] and started == [b] and f.db().get("nacks") is None
-    assert f.item(uid)["fields"]["given_back"] == [] and f.item(uid)["state"] == "draining"
-    assert switcher(f, NOON + 240)[1:] == (f"switching to {b[:12]}", [])        # started once
-    said, why, started = switcher(f, NOON + 180 + 30 * 60)                       # its process never cleared the flag
+    held(f, "gap/one", "gap/two", "gap/three")
+    said, why, started = switcher(f, NOON)
+    assert said == ["upgrade.switch-approved", "upgrade.switch-begun"] and started == [b], (said, why)
+    assert "the runs under way carry on" in why and f.db().get("nacks") is None  # none waited for, none given back
+    flag = f.model / "run" / "switch.json"
+    assert json.loads(flag.read_text()) == {"sha": b, "switch_started": NOON} and f.item(uid)["state"] == "approved"
+    assert f.item(uid)["fields"]["switch_begun_at"] == NOON
+    gid = ready(f)                                                               # an AI run takes its item as ever
+    assert not any("nack" in x for x in f.run("implement.py", gid)[1])
+    assert switcher(f, NOON + 60)[1:] == (f"switching to {b[:12]}", [])         # started once
+    said, why, started = switcher(f, NOON + 30 * 60)                             # its process never cleared the flag
     assert said == ["upgrade.failed", "intervention.recorded"] and started == []
     assert f.item(uid)["state"] == "failed" and not flag.exists() and "no outcome recorded" in f.item(uid)["fields"]["why"]
-    assert switcher(f, NOON + 181 + 30 * 60)[::2] == ([], [])                    # never begun again
-    r = subprocess.run([sys.executable, "-c", "import sys, json; sys.path[:0] = [sys.argv[1]]; import drain; "
-                        "print(json.dumps(drain.AI))", str(BIN)], cwd=f.model, env=f.env, capture_output=True, text=True)
-    spec, _ = read(ROOT / "ergostat.yaml")
-    own = {"improver", "modeller", "redesigner", "model-reviewer"}   # (ergostat's own modelling, the template's: not drained)
-    assert set(json.loads(r.stdout)) == {n for n, x in spec.blocks.items() if x.type == "ai"} - own   # every other
+    assert switcher(f, NOON + 31 * 60)[::2] == ([], [])                          # never begun again
+    for gone in ("drain_holds", "draining"):                                     # (nothing of the drain is left)
+        assert not hasattr(module("fac"), gone), gone
+    assert "[upgrade]" not in (BIN.parent / "factory.toml").read_text()
 
 
-def test_a_drain_past_its_bound_gives_the_runs_back_uncounted(tmp_path):
+def test_an_installed_switch_waits_only_for_its_approval(tmp_path):
+    f = Factory(tmp_path)
+    _, b = versions(f, 2)
+    uid = asked(f, b, "held")
+    said, why, started = switcher(f, NOON)
+    assert said == [] and started == [] and why == f"{uid} waits for its switch to be approved"
+    f.fold([{"event": "upgrade.installed", "item": uid, "data": {"drained_at": NOON - 9999}}], None)  # (an earlier
+    db = f.db()                                                                  # switch of it, installed again)
+    db["actions"][f.item(uid)["fields"]["switch_action"]] = "ran"
+    f.record.write_text(json.dumps(db))
+    assert switcher(f, NOON + 60)[::2] == (["upgrade.switch-approved", "upgrade.switch-begun"], [b])
+    assert f.item(uid)["fields"]["drained_at"] is None and f.item(uid)["fields"]["switch_begun_at"] == NOON + 60
+
+
+def test_an_upgrade_the_draining_switcher_left_is_read_as_before(tmp_path):
+    """The record the switcher before this one wrote still reads: an upgrade it left draining whose switch began
+    (drained_at) and recorded nothing is failed; one still draining, its switch not begun, is switched at once."""
+    f = Factory(tmp_path)
+    _, b, c = versions(f, 3)
+    u_b = asked(f, b, "ran")
+    f.fold([{"event": "upgrade.draining", "item": u_b, "data": {"drain_began_at": NOON - 600, "drained_at": None}},
+            {"event": "upgrade.drained", "item": u_b, "data": {"drained_at": NOON - 60}}], None)
+    assert f.item(u_b)["state"] == "draining"
+    said, _, started = switcher(f, NOON)
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == []
+    u_c = asked(f, c, "ran")
+    f.fold([{"event": "upgrade.switch-approved", "item": u_c, "data": {}},
+            {"event": "upgrade.draining", "item": u_c, "data": {"drain_began_at": NOON, "drained_at": None}}], None)
+    assert switcher(f, NOON + 60)[::2] == (["upgrade.switch-begun"], [c])
+
+
+def test_the_switch_the_draining_switcher_runs_onto_this_version_is_under_way_not_failed(tmp_path):
+    """The handover: the first switch onto this version is run by the switcher and live.py before it, which mark it
+    under way in run/drain.json (switch_started) and record upgrade.drained, then start this version's engine, whose
+    switcher steps at once, before that live.py records upgrade.switched. That switch is under way, not failed."""
+    f = Factory(tmp_path)
+    _, b = versions(f, 2)
+    uid = asked(f, b, "ran")
+    old = f.model / "run" / "drain.json"
+    old.parent.mkdir(exist_ok=True)
+    f.fold([{"event": "upgrade.switch-approved", "item": uid, "data": {"approved_at": NOON - 900}},
+            {"event": "upgrade.draining", "item": uid, "data": {"drain_began_at": NOON - 600, "drained_at": None}},
+            {"event": "upgrade.drained", "item": uid, "data": {"drained_at": NOON - 20}}], None)
+    old.write_text(json.dumps({"sha": b, "since": NOON - 600, "switch_started": NOON - 20}))
+    assert switcher(f, NOON) == ([], f"switching to {b[:12]}", [])               # the new engine's first step
+    assert f.item(uid)["state"] == "draining" and old.exists()
+    old.unlink()                                                                 # live.py before: switched, its flag
+    f.fold([{"event": "upgrade.switched", "item": uid, "data": {}}], None)       # removed
+    assert switcher(f, NOON + 60)[::2] == ([], []) and f.item(uid)["state"] == "switched"
+    # one whose live.py never ended it: given up 30 minutes on, as this switcher's own
+    old.write_text(json.dumps({"sha": b, "since": NOON - 600, "switch_started": NOON - 20}))
+    f.fold([{"event": "upgrade.draining", "item": uid, "data": {"drained_at": None}},
+            {"event": "upgrade.drained", "item": uid, "data": {"drained_at": NOON - 20}}], None)
+    assert switcher(f, NOON + 25 * 60)[::2] == ([], [])
+    said, _, started = switcher(f, NOON + 30 * 60)
+    assert said == ["upgrade.failed", "intervention.recorded"] and started == [] and not old.exists()
+    old.write_text("not json")                                                   # unreadable: begun when written
+    assert switcher(f, time.time())[1].startswith("switching to")
+    old.write_text(json.dumps({"sha": b, "since": NOON}))                        # only draining: no switch under way
+    assert switcher(f, NOON + 31 * 60)[1] == "no switch waiting"
+
+
+def test_a_switch_that_records_no_outcome_is_failed_and_never_begun_again(tmp_path):
     f = Factory(tmp_path)
     a, b = versions(f, 2)
     uid = asked(f, b, "ran")
     held(f, "gap/long", block="reviewer")
-    said, why, _ = switcher(f, NOON, drain_minutes=45)
-    assert said == ["upgrade.switch-approved", "upgrade.draining"]
-    said, why, started = switcher(f, NOON + 44 * 60)
-    assert said == [] and started == [] and "44 of 45 minutes" in why
-    said, why, started = switcher(f, NOON + 45 * 60)                             # the bound
-    assert said == ["upgrade.drained"] and started == [b]
-    assert f.db()["nacks"] == [{"item": "gap/long", "lease": "3", "run": "run-long", "count": False}]
-    assert f.item(uid)["fields"]["given_back"] == ["gap/long"] and f.item(uid)["fields"]["drain_minutes"] == 45
-    flag = f.model / "run" / "drain.json"
-    assert json.loads(flag.read_text())["switch_started"] == NOON + 45 * 60
+    assert switcher(f, NOON)[::2] == (["upgrade.switch-approved", "upgrade.switch-begun"], [b])
+    flag = f.model / "run" / "switch.json"
     r = subprocess.run([sys.executable, str(BIN / "live.py"), "switch", b], cwd=f.model, env=f.env,
                        capture_output=True, text=True)
-    assert r.returncode != 0 and "not installed" in r.stderr and not flag.exists()   # a switch ends the drain,
-    # whatever becomes of it; one that recorded no outcome is failed, asked of the coordinator, and not begun again
-    said, why, started = switcher(f, NOON + 46 * 60)
+    assert r.returncode != 0 and "not installed" in r.stderr and not flag.exists()   # its flag goes, whatever
+    # becomes of it; one that recorded no outcome is failed, asked of the coordinator, and not begun again
+    said, why, started = switcher(f, NOON + 60)
     assert said == ["upgrade.failed", "intervention.recorded"] and started == [] and f.item(uid)["state"] == "failed"
-    assert switcher(f, NOON + 47 * 60)[::2] == ([], []) and not flag.exists() and len(f.db()["nacks"]) == 1
-    sensor = [sys.executable, "-c", "import sys; sys.path[:0] = [sys.argv[1]]; import drain; print(drain.gone("
-              "{'since': 0, 'switch_started': 60}, 3600), drain.gone({'since': 0}, 3600), drain.gone(None, 3600))", str(BIN)]
-    assert subprocess.run(sensor, cwd=f.model, env=f.env, capture_output=True, text=True).stdout.split() == [
-        "0.0", "60.0", "0.0"]                                                    # the switch's own time is not the drain's
+    assert switcher(f, NOON + 120)[::2] == ([], []) and not flag.exists() and f.db().get("nacks") is None
+    flag.write_text("not json")                                                  # unreadable: begun when written
+    assert switcher(f, time.time())[1].startswith("switching to")
 
 
 def test_an_older_switch_request_is_withdrawn(tmp_path):
@@ -4698,7 +4736,7 @@ def test_an_older_switch_request_is_withdrawn(tmp_path):
     u_old, u_mid, u_new = asked(f, old, "held"), asked(f, mid, "ran"), asked(f, new, "held")
     held(f)
     said, why, started = switcher(f, NOON)
-    assert said == ["upgrade.withdrawn", "upgrade.withdrawn"] and started == [] and why == "no switch approved"
+    assert said == ["upgrade.withdrawn", "upgrade.withdrawn"] and started == [] and "waits for its switch" in why
     assert f.item(u_old)["fields"]["superseded_by"] == f"the running {running[:12]}"
     assert f.item(u_mid)["fields"]["superseded_by"] == u_new                      # approved, but older: withdrawn
     assert [f.item(u)["state"] for u in (u_old, u_mid, u_new)] == ["withdrawn", "withdrawn", "installed"]
@@ -4711,99 +4749,18 @@ def test_an_older_switch_request_is_withdrawn(tmp_path):
     db["actions"][aid_new] = "ran"
     f.record.write_text(json.dumps(db))
     said, _, started = switcher(f, NOON + 120)
-    assert said == ["upgrade.switch-approved", "upgrade.draining"] and started == []   # never in the same step
-    said, _, started = switcher(f, NOON + 180)
-    assert said == ["upgrade.drained"] and started == [new]
+    assert said == ["upgrade.switch-approved", "upgrade.switch-begun"] and started == [new]
     u_newer = asked(f, newer, "held")                                            # installed while the switch runs
-    said, why, started = switcher(f, NOON + 240)
+    said, why, started = switcher(f, NOON + 180)
     assert said == [] and why == f"switching to {new[:12]}" and started == []   # nothing withdrawn meanwhile
-    assert f.item(u_new)["state"] == "draining" and f.item(u_newer)["state"] == "installed"
-
-
-def draining(f: Factory) -> tuple[list[str], str]:
-    """Versions running, older, draining and newer; the one draining asked for, approved, and drained while one run
-    goes on: (the versions, the draining upgrade)."""
-    vs = versions(f, 4)
-    uid = asked(f, vs[2], "ran")
-    held(f, "gap/one")
-    assert switcher(f, NOON)[0] == ["upgrade.switch-approved", "upgrade.draining"]
-    return vs, uid
-
-
-def test_a_newer_installed_version_leaves_the_drain_and_its_flag_in_place(tmp_path):
-    f = Factory(tmp_path)
-    (_, old, b, c), uid = draining(f)
-    u_old, u_c = asked(f, old, "held"), asked(f, c, "held")                      # installed during the drain
-    said, why, started = switcher(f, NOON + 60)
-    assert said == ["upgrade.withdrawn"] and started == [] and why == f"{uid} drains: 1 run(s) under way, 1 of 45 minutes"
-    assert f.item(u_old)["state"] == "withdrawn" and f.item(u_old)["fields"]["superseded_by"] == u_c   # older: as today
-    flag = f.model / "run" / "drain.json"
-    assert json.loads(flag.read_text()) == {"sha": b, "since": NOON}
-    assert f.item(uid)["state"] == "draining" and f.item(u_c)["state"] == "installed"
-    assert f.db()["actions"][f.item(u_c)["fields"]["switch_action"]] == "held"   # its request still open
-
-
-def test_the_drain_then_switches_to_the_version_it_was_draining_for_and_the_newer_one_still_waits(tmp_path):
-    f = Factory(tmp_path)
-    (_, _, b, c), uid = draining(f)
-    u_c = asked(f, c, "held")
-    assert switcher(f, NOON + 60)[0] == []
-    held(f)                                                                      # the run finished
-    said, why, started = switcher(f, NOON + 120)
-    assert said == ["upgrade.drained"] and started == [b] and why == f"switching to {b[:12]}"
-    assert switcher(f, NOON + 180)[1:] == (f"switching to {b[:12]}", [])
-    flag = f.model / "run" / "drain.json"                                        # the switch as live.py makes it
-    f.fold([{"event": "upgrade.switched", "item": uid, "data": {"switch": "ran"}},
-            {"event": "upgrade.kept", "item": uid, "data": {}}], None)
+    assert f.item(u_new)["state"] == "approved" and f.item(u_newer)["state"] == "installed"
+    f.fold([{"event": "upgrade.switched", "item": u_new, "data": {"switch": "ran"}},      # the switch as live.py
+            {"event": "upgrade.kept", "item": u_new, "data": {}}], None)                 # makes it
     (f.tmp / "live" / "current").unlink()
-    (f.tmp / "live" / "current").symlink_to(b)
-    flag.unlink()
+    (f.tmp / "live" / "current").symlink_to(new)
+    (f.model / "run" / "switch.json").unlink()
     said, why, started = switcher(f, NOON + 240)
-    assert said == [] and why == "no switch approved" and started == []
-    assert f.item(u_c)["state"] == "installed" and "superseded_by" not in f.item(u_c)["fields"]
-    assert f.db()["actions"][f.item(u_c)["fields"]["switch_action"]] == "held"   # it waits, its request open
-
-
-def test_a_newer_approved_version_takes_over_the_drain_with_its_start_time(tmp_path):
-    f = Factory(tmp_path)
-    (_, _, b, c), uid = draining(f)
-    u_c = asked(f, c, "ran")                                                     # approved during the drain
-    said, why, started = switcher(f, NOON + 60)
-    assert said == ["upgrade.withdrawn", "upgrade.switch-approved", "upgrade.draining"] and started == []
-    assert f.item(uid)["state"] == "withdrawn" and f.item(uid)["fields"]["superseded_by"] == u_c
-    assert json.loads((f.model / "run" / "drain.json").read_text()) == {"sha": c, "since": NOON}
-    assert f.item(u_c)["state"] == "draining" and f.item(u_c)["fields"]["drain_began_at"] == NOON
-    held(f)
-    said, _, started = switcher(f, NOON + 120)
-    assert said == ["upgrade.drained"] and started == [c]
-
-
-def test_a_switch_waits_for_a_quiet_moment_or_the_daily_window(tmp_path, monkeypatch):
-    f = Factory(tmp_path)
-    a, b = versions(f, 2)
-    uid = asked(f, b, "ran")
-    held(f, "gap/one", "gap/two", "gap/three")
-    day = time.localtime(NOON)
-    five = time.mktime(day[:3] + (5, 0, 0, 0, 0, -1))                           # today 05:00, past today's window
-    said, why, _ = switcher(f, five, quiet_runs=2, daily_at="04:00")
-    assert said == ["upgrade.switch-approved"] and "waits for at most 2 run(s) under way (3 now) or 04:00" in why
-    before = time.mktime((day.tm_year, day.tm_mon, day.tm_mday + 1, 3, 59, 0, 0, 0, -1))
-    assert switcher(f, before)[0] == []                                          # tomorrow 03:59: still waits
-    said, why, _ = switcher(f, before + 120)                                     # tomorrow 04:01: the window
-    assert said == ["upgrade.draining"] and f.item(uid)["fields"]["runs_at_drain"] == 3
-    g = Factory(tmp_path / "g")
-    _, b = versions(g, 2)
-    asked(g, b, "ran")
-    held(g, "gap/one", "gap/two")
-    assert switcher(g, five, quiet_runs=2)[0] == ["upgrade.switch-approved", "upgrade.draining"]   # quiet enough
-    monkeypatch.setitem(sys.modules, "fac", sys.modules.get("fac") or module("fac"))
-    monkeypatch.setitem(sys.modules, "live", sys.modules.get("live") or module("live"))
-    drain = module("drain")
-    assert drain.settings({}) == (1, (4, 0), 45.0)
-    for bad in ({"quiet_runs": 11}, {"quiet_runs": -1}, {"drain_minutes": 0}, {"drain_minutes": 241},
-                {"daily_at": "24:00"}, {"daily_at": "4am"}):
-        with pytest.raises(SystemExit):
-            drain.settings({"upgrade": bad})
+    assert said == [] and started == [] and f.item(u_newer)["state"] == "installed"   # it waits, its request open
 
 
 ALLOWED = ["Bash(git rm:*)", "Bash(git mv:*)", "Bash(git restore:*)", "Bash(rm:*)",
@@ -4935,7 +4892,7 @@ def on_the_clock(tmp_path, name: str, goal: str) -> None:
 
 
 def test_the_switcher_is_on_the_engines_schedule(tmp_path):
-    on_the_clock(tmp_path, "switcher", "drains-within-bound")
+    on_the_clock(tmp_path, "switcher", "upgrades-switched-to")
 
 
 def test_the_pipeline_watch_is_on_the_engines_schedule(tmp_path):
@@ -5108,8 +5065,8 @@ def test_check_reports_a_schedule_a_goal_removes(tmp_path, capsys):
             (old / "dev" / x.name).symlink_to(x)
     (old / "dev" / "model").mkdir()
     for x in (ROOT / "dev" / "model").iterdir():
-        (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.drains-within-bound", "goal: drains-"
-                                                    "within-bound").replace("in: [goal.no-stuck-gaps,",
+        (old / "dev" / "model" / x.name).write_text(x.read_text().replace("in: goal.upgrades-switched-to    #", "goal: "
+                                                    "upgrades-switched-to    #").replace("in: [goal.no-stuck-gaps,",
                                                                             "goal: no-stuck-gaps\n    in: ["))
     (old / "ergostat.yaml").write_text((ROOT / "ergostat.yaml").read_text())
 
@@ -5147,7 +5104,7 @@ def test_a_paced_block_raises_no_modelling_request(tmp_path):
 
 
 @pytest.mark.serial            # (each switcher run is ~43 CPU-s against its 120 s bound: it holds on a quiet machine)
-def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, monkeypatch):
+def test_an_approved_switch_switches_through_the_engine(tmp_path, monkeypatch):
     from ergostat.actions import gate
     f = Factory(tmp_path)
     f.config.write_text(f.config.read_text().replace("[instance]\nport = 0\n", "[instance]\nport = 0\nhealth_wait = 1\n")
@@ -5172,21 +5129,20 @@ def test_an_approved_switch_drains_and_switches_through_the_engine(tmp_path, mon
     sw = spec.blocks["switcher"]
     assert "switcher" in scheduled
     try:
-        for _ in range(2):                                     # two of its minutes: it drains, then switches
-            assert e.start(sw, "schedule")                     # as the clock starts it (_schedule)
-            deadline = time.monotonic() + 120
-            while "switcher" in e.running and time.monotonic() < deadline:
-                time.sleep(0.2)
-            assert "switcher" not in e.running
+        assert e.start(sw, "schedule")                         # one of its minutes: it switches (_schedule)
+        deadline = time.monotonic() + 120
+        while "switcher" in e.running and time.monotonic() < deadline:
+            time.sleep(0.2)
+        assert "switcher" not in e.running
         said = [x["type"] for x in p.events.query(n=None, item=uid)]
-        assert said[-3:] == ["upgrade.switch-approved", "upgrade.draining", "upgrade.drained"], said
+        assert said[-2:] == ["upgrade.switch-approved", "upgrade.switch-begun"], said
         runs = p.events.query(n=None, type="agent.started", item="switcher")
-        assert len(runs) == 2 and all(r["data"]["trigger"] == "schedule" for r in runs)
+        assert len(runs) == 1 and runs[0]["data"]["trigger"] == "schedule"
         deadline = time.monotonic() + 90                       # the switch, in its own process (live.py switch)
-        while (os.readlink(live / "current") != b or (f.model / "run" / "drain.json").exists()) \
+        while (os.readlink(live / "current") != b or (f.model / "run" / "switch.json").exists()) \
                 and time.monotonic() < deadline:
             time.sleep(0.5)
-        assert os.readlink(live / "current") == b and not (f.model / "run" / "drain.json").exists()
+        assert os.readlink(live / "current") == b and not (f.model / "run" / "switch.json").exists()
     finally:
         e.close()
 

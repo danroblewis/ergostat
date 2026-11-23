@@ -3,9 +3,9 @@
 A run starts in its own session. Its input is a file, its output goes to its run log file (``runs/RUN.out`` in the
 state folder), and the engine follows that file: no pipe ties the run to the engine, so killing the engine never
 kills the run. A small ``sh`` wrapper (POSIX: bash 3.2 and dash alike) writes the run's exit code to ``RUN.exit``
-when it ends, whoever is watching. ``RUN.json`` is the run's record: its pid, its process's start time, its run id,
-its lease and its block. A pid alone names a process only until it is reused; the pid and its start time together
-name one process, once. The files are removed once the run's end is recorded.
+when it ends, whoever is watching. ``RUN.json`` is the run's record: the format of its files (``JOURNAL``), its pid,
+its process's start time, its run id, its lease and its block. A pid alone names a process only until it is reused;
+the pid and its start time together name one process, once. The files are removed once the run's end is recorded.
 
 With ``runs: outlive_engine`` the run is started by a keeper of its own instead (``compute/worker/keeper.py``), the
 same wrapper inside it, and its output file is its journal, ``runs/RUN.jsonl``: stopping the engine leaves it going."""
@@ -22,6 +22,10 @@ import uuid
 from pathlib import Path
 
 SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+# The format of a run's files (its record, a kept run's journal, offset and keeper's folder), stated in its record as
+# ``journal``: an engine takes up only a run of a format it reads (``adopt.refuse``). A record with none was written
+# before it was stated, in format 1. Raise it with any change an engine before it could not read.
+JOURNAL = 1
 # $1: the run's command, $2: where its exit code goes (a line; an empty file is not yet an exit). A signal to the group
 # (a timeout, a stop, a lease's SIGTERM) leaves the wrapper waiting for its command (a caught signal is the default
 # again in the command); a command ended by a signal ends the wrapper by the same one, so its exit reads as before.
@@ -73,7 +77,7 @@ def start_time(pid: int) -> str | None:
 def write(f: dict[str, Path], pid: int, run_id: str, block: str, item: str | None, fence: int | None,
           more: dict | None = None) -> dict:
     """``more``: what a kept run's end needs from its start, should another engine end it (``adopt.settle``)."""
-    rec = {"pid": pid, "start": start_time(pid), "run": run_id, "block": block,
+    rec = {"journal": JOURNAL, "pid": pid, "start": start_time(pid), "run": run_id, "block": block,
            "lease": {"item": item, "fence": fence} if item else None, **(more or {})}
     tmp = f["json"].with_suffix(".json.tmp")
     tmp.write_text(json.dumps(rec))

@@ -1,7 +1,7 @@
 """The AI hold: a session that ends on the provider's usage-limit message ("You've hit your weekly limit · resets
 Nov 25, 3pm (UTC)") holds every AI role, factory-wide, until the reset it names (run/ai_hold.json). Its run is given
 back uncounted (fac.session raises Limited), never an attempt, a kill-rule count, a park or a dead letter. While the
-hold stands no AI-role lease is taken (the goal ai-not-held closes the -when blocks; drain_holds gives back a run that
+hold stands no AI-role lease is taken (the goal ai-not-held closes the -when blocks; fac.ai_holds gives back a run that
 took one in the sensor's lag); the merge queue and the suites read neither. At the reset it lifts by itself: each held
 item was put off till then, and is taken again in its block's order. A reset time that cannot be read holds for
 UNREAD_HOLD and says so (the next session after it finds the limit again, or not); a hold file that cannot be read

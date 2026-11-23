@@ -228,7 +228,7 @@ def main() -> int:
 def build(cfg: dict, given: dict, began: float) -> int:
     gap = given["item"]
     f = gap["fields"]
-    if fac.drain_holds(cfg):
+    if fac.ai_holds(cfg):
         return 0
     refused = fac.may_spend(cfg, float(cfg["ai"]["implementor_session_usd"]))
     if refused:

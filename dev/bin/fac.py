@@ -93,24 +93,17 @@ def _outage():
     return outage
 
 
-def draining(cfg: dict) -> bool:
-    """A switch drains the runs under way (run/drain.json): a session that holds no lease (the groomer, the plan
-    review) waits for its next turn instead of starting; so it does while the AI is held (aihold.py)."""
-    aihold = _aihold()
-    return (run_dir(cfg) / "drain.json").exists() or aihold.held(cfg) is not None
+def ai_held(cfg: dict) -> bool:
+    """While the AI is held for the provider's usage limit (aihold.py), a session that holds no lease (the groomer,
+    the plan review) waits for its next turn instead of starting. (A version switch holds nothing: its runs under way
+    carry on, dev/bin/drain.py.)"""
+    return _aihold().held(cfg) is not None
 
 
-def drain_holds(cfg: dict) -> bool:
-    """While an approved switch drains the runs under way (run/drain.json, dev/bin/drain.py), or the AI is held for the
-    provider's usage limit (aihold.py), an AI run takes no new item: it gives it back uncounted, to be taken again
-    after the switch, or at the reset."""
-    aihold = _aihold()
-    if aihold.holds(cfg):
-        return True
-    if not (run_dir(cfg) / "drain.json").exists():
-        return False
-    nack("a switch drains the runs under way (run/drain.json): taken again after it", after="5m", count=False)
-    return True
+def ai_holds(cfg: dict) -> bool:
+    """While the AI is held for the provider's usage limit (aihold.py), an AI run takes no new item: it gives it back
+    uncounted, to be taken again at the reset."""
+    return bool(_aihold().holds(cfg))
 
 
 def ergostat(*args: str, check: bool = True) -> subprocess.CompletedProcess:
