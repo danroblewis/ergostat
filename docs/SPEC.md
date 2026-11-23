@@ -2973,7 +2973,7 @@ blocks:
 
 | Key | On | Meaning |
 |---|---|---|
-| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`) |
+| `takes` | a `program` or `ai` block | `kind` (a kind of the model's own), `at` (the states it takes from), `to` (the states that count as done), `where` (field: value, or a list of values), `unblocked` (true: only items whose precedence relations name only finished items, or items in a state the relation's `starts_at` names, the critical first; section 5a, *Relations*), `order` (a field, or a list of them, of any kind of item: the items taken by it, lowest first, `-FIELD` highest first, those without it after those with it; a backlog's `rank`, a ticket's `-priority`), `faults` (`{healthy: R}`: a sensor, goal or command that says the queue's shared environment is up; while it does not, nothing is taken and a failing run spends no attempt: *Faults* below) |
 | `pool` | a block that takes | The most runs of it at once, counting the leases its runs hold, whichever engine started them: the owner's cap on how much of this work runs at once. Lowering it drains: no new lease until fewer are held; nothing running is stopped. Or `{now: stock.NAME, most: N}`: the pool is the stock's level, read at each dispatch, rounded down and held within 0 and `most` (required, a whole number, 1 or more). The stock must have a sensor (else `pool-unmeasured`). No reading, or one that is not a number, is a pool of 0: nothing new is taken, and ergostat says so once until it is read again. A lowered stock drains as a lowered number does. The block's box in the Blocks view shows its pool: `3`, or `2 now, at most 4 (stock.NAME)` (`no reading, at most 4 ...`) |
 | `lease` | a block, a kind | `ttl` (how long a run may be silent before its lease expires) and `attempts` (counted attempts before the item is a dead letter) |
 | `leases` | the top level | Each tier's `ttl` and `attempts`, keyed by the rung: `person`, `ai`, `narrow-ai`, `decision`, `program`, `rule` |
@@ -3018,6 +3018,43 @@ or has no reading yet, the items wait. A `person` block is no gate: its `--done`
 sets a command, so `check` refuses one wired to command a block that takes (`person-gate`). A kind taken
 by a block gains two states, when it does not list them: `leased`, after the first `at` state, and
 `dead`, last.
+
+**Faults: a shared environment that is down.** A queue's items often share what their work needs (a tracker, a
+build service, a network). When that is down every run fails, and each failure would spend an attempt and park items
+as dead letters that nothing is wrong with. `takes` may say what tells it the environment is up:
+
+```yaml
+    takes:
+      kind: todo
+      at: ready
+      faults: {healthy: sensor.tracker-reachable}
+```
+
+`healthy` is a part's reading (`sensor.NAME`: the stock, flow or auxiliary NAME that a sensor reads; or `stock.NAME`,
+`flow.NAME`, `auxiliary.NAME`), healthy above 0; a goal (`goal.NAME`), healthy while it holds (its `.off` is 0); or a
+command (`block.NAME`, or `block.NAME.PORT`: what that block outputs, as any command is read), healthy above 0. It is
+read as the engine last read it, at each look (no sensor runs at dispatch). `check` refuses one naming a part, goal or
+block the model lacks, a `sensor.NAME` no sensor reads, or the block's own command (`unknown-ref`).
+
+- While it does not read healthy, the block takes no new item (a run already going goes on). It resumes by itself, at
+  the first look that reads healthy.
+- **Unknown is not healthy.** No reading, one that is not a number, a stale one (its sensors' third reading missed,
+  section 9.6), a goal not worked out yet or whose part is stale: the queue is held as for an outage, and the hold says
+  `unknown`. For 30 s after the engine starts (or wakes from a sleep), while its sensor's first reading may still be
+  on its way, an unknown holds the queue without recording a hold; past that, the hold is recorded.
+- **The hold is an event** about the block: `ergostat.queue.held` (`block`, `healthy`, `cause`: `unhealthy` or
+  `unknown`, `why`: what it read, `since`) when it begins, and `ergostat.queue.resumed` (the same, with `until` and
+  `held`, seconds; caused by the hold) when it ends, each said once. An engine that starts takes up a hold the last one
+  recorded and did not end, and ends it.
+- **A run that fails through an outage spends no attempt.** A run of the block whose lease would end with a counted
+  nack (its exit, its own `{"nack": ...}`, or the end of its run with the item not moved on), or would expire counted,
+  is given back uncounted (`count: false`) when `healthy` does not read healthy at its end, or a look since it was
+  taken found it not healthy. Its `fault` says which, and its `why` (kept in the item's lease history) ends `(not
+  counted: CAUSE)`. So nothing becomes a dead letter for an outage. A run failing while it reads healthy throughout is
+  counted as before; a model with no `faults:` is unchanged.
+- The looks are once a second: an outage that begins and ends between two looks is not seen. `ergostat block NAME
+  --now` runs whatever `healthy` reads (its failure is still not counted through an outage). Under engine shards
+  (section 9.8) a `healthy` the block's shard does not read has no reading, so it holds.
 
 **A lease** is a run's hold on one item. Its events, about the item, are ergostat's own:
 

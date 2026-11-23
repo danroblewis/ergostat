@@ -871,6 +871,7 @@ class Takes:
     unblocked: bool = False         # only items whose predecessors are all finished, the critical first (SPEC §5a, relations)
     order: list[str] = field(default_factory=list)   # fields (-FIELD: highest first): taken by them first, those
                                                      # without one after those with it; the order above among equals
+    healthy: Ref | None = None      # ``faults: {healthy: R}``: the shared environment; not healthy, nothing is taken
 
 
 @dataclass
