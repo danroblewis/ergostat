@@ -35,3 +35,36 @@ dev/bin/stack.py (new), dev/model/building.yaml, dev/README.md (Stacked gaps), t
 150 net lines in dev/bin.
 
 Area: merge-pipeline. The second wave, planned 2026-11-22 from landed proposals and the owner's open asks.
+
+## Where it stopped
+
+Built: items 1 to 6. dev/bin/stack.py is 147 lines, all of them counted (blank lines and the docstring too). With
+dev/ left out of the core count, fac.net_lines says 0. Choices made alone, each the more reversible one:
+
+- The block is commanded by an expr gate, `stack-forward-when` (`stale-stacks > 0`), and keeps its `every: 5m`, as
+  the simplifier is. A `goal:` with `every:` was tried first. `ergostat check` found schedule-removed on it (the
+  goal's controller takes it off its clock), so there is no goal on stale-stacks.
+- One pass holds the queue's lock (taken only if free; a queue run holding it means the next pass). The queue is the
+  only thing that moves an approved gap, and it reads the reviewed heads it merges, so the read, the decision and
+  the write on an approved gap are all under that lock (lesson-1). A reviewer or implementor lease taken during a
+  pass is not locked out. The branch's update-ref old value protects the branch, and the gap's state is read again
+  just before it. That narrows the window but does not close it, and no test puts a lease in it.
+- An approved gap whose branch is no longer its reviewed head is left alone: merging forward would record
+  unreviewed commits as reviewed.
+- On a clean merge, `stacked_on` is recorded on built and fix gaps too, not only approved ones. A built gap also
+  gets the merge as its `head`. review.py judges `head`, so without it the review would approve the old head, and
+  the queue would refuse it because the branch had moved. These are written as gap.measured (no state change).
+- A landed base (merged or closed) is dropped from `stacked_on`, and nothing is merged.
+- A conflict on a gap already in fix also sends gap.sent-back (fix to fix). The flow sent-back-by-stack-forward is
+  drawn from gaps-approved; built and fix gaps can be sent back too.
+- A `stacked_on` that cannot be read, or that names a gap not in the record, counts in stale-stacks and is never
+  moved (lesson-3). The gate then stays open, and each pass only says so on stderr until someone fixes it.
+- Item 6: the existing test_ergostat_check_on_the_factory_model_reports_no_new_finding compared two copies of the
+  same tree, so it could not catch a finding this gap adds. Its "before" copy now has this gap's model parts removed
+  (without_stack_forward), and it caught schedule-removed before the fix. Running `ergostat check` directly in the
+  shell was refused here.
+
+Extra test, not named in the definition: test_a_branch_moved_during_the_merge_forward_is_refused_and_theirs_kept
+(item 5). Each test was seen to fail when the code it guards was broken: sorting by id instead of depth
+(stack of three), update-ref with no old value (branch moved), merging forward leased, building and in-review gaps
+(leased).
