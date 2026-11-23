@@ -159,3 +159,13 @@ Its runs failed past their attempts (a dead letter):
 - attempt 30: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 31: nack the implementor pool is full (run/pools.json): waits its turn
 - attempt 32: nack the run ended with gap/ui-a-goal-s-behaviour-label-does-not-flip-between-r still parked
+
+## Where it stopped
+
+Parked by the factory (dead-letters, 2026-11-22 17:23).
+
+Its runs failed past their attempts (a dead letter):
+- attempt 30: nack the implementor pool is full (run/pools.json): waits its turn
+- attempt 31: nack the implementor pool is full (run/pools.json): waits its turn
+- attempt 32: nack the run ended with gap/ui-a-goal-s-behaviour-label-does-not-flip-between-r still parked
+- attempt 33: nack the implementor pool is full (run/pools.json): waits its turn
