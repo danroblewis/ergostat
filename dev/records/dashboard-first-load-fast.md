@@ -35,3 +35,9 @@ Round 1 (2026-11-23). Nothing built: this gap waits for `dashboard-v2`, which is
 
 Not run: no test and no ruff, because no code changed (this section is the only change). main has not moved since
 the branch was made, so there was nothing to merge.
+
+## Where it stopped
+
+Parked by the factory (review/dashboard-first-load-fast-1, 2026-11-23 03:34).
+
+Done: only the definition of done and a 'Where it stopped' note; no code, no tests. Left: everything. Measure each query of the default dashboard on factory_state, serve the dominant one from the item index or a cached roll-up, ask for above-the-fold panels first, and write the three acceptance tests (cold first answer under a stated budget, per-query times in the output, answers identical to before). Why stop: there is no dashboard on main to measure. ergostat/query/ and the dashboard route and handler arrive with gap/dashboard-v2 (origin/factory/dashboard-v2, 762ad7eb), which is not an ancestor of origin/main.
