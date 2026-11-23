@@ -2602,9 +2602,9 @@ def test_a_loop_marker_lights_its_loop_and_opens_its_panel(browser, tmp_path):
 
 FOCUSED = ("() => { const a = document.activeElement; "
            "return a && [a.tagName, a.getAttribute('aria-label') || '', a.dataset.key || '', a.getAttribute('role') || '']; }")
-# every element the svg points at as clickable, and whether a keyboard button (tabindex 0) is it or holds it
+# every element the svg points at as clickable, and whether a keyboard button (tabindex 0, or -1 under the roving stop) is it or holds it
 UNREACHED = """() => [...document.querySelectorAll('svg.canvas *')].filter((el) => getComputedStyle(el).cursor === 'pointer'
-  && !el.closest('svg.canvas [tabindex="0"][role="button"][aria-label]')).map((el) => el.getAttribute('class') || el.tagName)"""
+  && !el.closest('svg.canvas [tabindex][role="button"][aria-label]')).map((el) => el.getAttribute('class') || el.tagName)"""
 
 
 def tab_to(pg, want, most=600) -> list:
@@ -2618,24 +2618,44 @@ def tab_to(pg, want, most=600) -> list:
     raise AssertionError(f"Tab never reached {want}; it went {seen[:40]} ... {seen[-10:]}")
 
 
+IN_SVG = "(a) => !!a.closest('svg.canvas')"
+
+
+def step_to(pg, want, most=600) -> list:
+    """Into the diagram by Tab (its one stop), then Shift+Right round its parts in drawing order (keys.js) until the
+    focus is on what ``want`` accepts."""
+    if not pg.evaluate(f"() => ({IN_SVG})(document.activeElement)"):
+        tab_to(pg, IN_SVG)
+    seen = []
+    for _ in range(most):
+        if pg.evaluate(f"() => {{ const a = document.activeElement; return !!a && ({want})(a); }}"):
+            return pg.evaluate(FOCUSED)
+        seen.append(pg.evaluate(FOCUSED))
+        pg.keyboard.press("Shift+ArrowRight")
+        if pg.evaluate(FOCUSED) == seen[0]:
+            break                                        # round every part drawn, and back to the first
+    raise AssertionError(f"Shift+Right never reached {want}; it went {seen[:40]} ... {seen[-10:]}")
+
+
 def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard(browser, tmp_path):
-    """Only Tab, Enter and Escape: Open on factory reached and pressed opens it; a stock reached and pressed opens
-    its panel with the focus on its heading, and Escape gives the focus back to the stock. In every view, everything
-    the svg shows as clickable is a named keyboard button, and the side panel's loop rows are buttons."""
+    """Only the keyboard: Open on factory reached and pressed opens it; a stock reached and pressed opens its panel
+    with the focus on its heading, and Escape gives the focus back to the stock. In every view, everything the svg
+    shows as clickable is a named keyboard button, one of them the diagram's tab stop, and the side panel's loop rows
+    are buttons. (Tab reaches the diagram once; Shift and an arrow step through its parts: keys.js.)"""
     with served("software-factory", tmp_path) as url:
         pg = browser.new_page(viewport={"width": 1600, "height": 1000})
         errors: list[str] = []
         pg.on("pageerror", lambda e: errors.append(str(e)))
         drawn(pg, url, "open=-", 0)
-        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open factory'")
+        step_to(pg, "(a) => a.getAttribute('aria-label') === 'Open factory'")
         pg.keyboard.press("Enter")
         pg.wait_for_function("() => (S.graph?.open || []).includes('factory') && document.querySelector('svg.canvas g.node')",
                              timeout=30000)
-        tab_to(pg, "(a) => a.getAttribute('aria-label') === 'Open intake'")   # (factory holds systems; intake, the backlog)
+        step_to(pg, "(a) => a.getAttribute('aria-label') === 'Open intake'")   # (factory holds systems; intake, the backlog)
         pg.keyboard.press("Enter")
         pg.wait_for_function("() => (S.graph?.open || []).includes('intake') && document.querySelector('svg.canvas g.node.k-stock')",
                              timeout=30000)
-        stock = tab_to(pg, "(a) => a.matches('svg.canvas g.node.k-stock')")
+        stock = step_to(pg, "(a) => a.matches('svg.canvas g.node.k-stock')")
         assert stock[3] == "button" and stock[1].startswith("stock "), stock
         pg.keyboard.press("Enter")
         pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.querySelector('#detail h2')", timeout=10000)
@@ -2652,12 +2672,193 @@ def test_everything_clickable_in_the_diagram_is_reached_and_acted_on_by_keyboard
                 pm_served(pg, url, 9)
             else:
                 drawn(pg, url, view, i + 1)
-            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [tabindex=\"0\"]').length") > 0, view
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [tabindex=\"0\"]').length") == 1, view
             assert not pg.evaluate(UNREACHED), (view, pg.evaluate(UNREACHED)[:10])
             rows = pg.evaluate("() => [...document.querySelectorAll('.looprow[data-loop], .looprow.sd-inside')].map((r) => r.tagName)")
             assert (rows or "open=*" not in view) and set(rows) <= {"BUTTON"}, (view, rows)   # the side panel's loop rows
         assert not errors, errors
         pg.close()
+
+
+# the focused part: its key, what it is called, its id, and the graph's kind and role of it
+ON = ("() => { const a = document.activeElement, n = a && S.graph?.nodes.find((x) => x.id === a.dataset?.id); "
+      "return a && { key: a.dataset?.key || '', aria: a.getAttribute('aria-label') || '', id: a.dataset?.id || '', "
+      "edge: a.matches('.edge'), kind: n?.kind || '', role: n?.role || '', label: n?.flow || n?.label || '', "
+      "inSvg: !!a.closest('svg.canvas'), inPanel: !!a.closest('#detail') }; }")
+VIEWS = ("view=dynamics&open=*", "view=blocks&open=*")
+
+
+def test_the_diagram_is_one_tab_stop_that_remembers_the_part_last_on(browser, tmp_path):
+    """Done 1 (software-factory stands in for :8791, as the other page tests serve it), in both views: one part of the
+    svg is its tab stop; Tab reaches the diagram once and the next Tab leaves it, and no Tab after comes back into it;
+    Shift+Tab back in lands on the part the arrows last moved to."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, view in enumerate(VIEWS):
+            drawn(pg, url, view, i)
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [data-key][tabindex=\"0\"]').length") == 1, view
+            assert pg.evaluate("() => document.querySelectorAll('svg.canvas [data-key]').length") > 20, view
+            tab_to(pg, IN_SVG, most=200)
+            pg.keyboard.press("Shift+ArrowRight")            # moved on, by the keyboard: this part is remembered
+            moved = pg.evaluate(ON)
+            assert moved["inSvg"], (view, moved)
+            pg.keyboard.press("Tab")
+            after = pg.evaluate(ON)
+            assert after and not after["inSvg"], (view, "the next Tab stayed in the diagram", after)
+            pg.keyboard.press("Shift+Tab")
+            assert pg.evaluate(ON)["key"] == moved["key"], (view, moved, pg.evaluate(ON))
+            pg.keyboard.press("Tab")
+            for _ in range(150):                             # on through the rest of the page: never into the diagram again
+                pg.keyboard.press("Tab")
+                now = pg.evaluate(ON)
+                if not now or now["aria"] == after["aria"] and now["key"] == after["key"]:
+                    break
+                assert not now["inSvg"], (view, "a second tab stop in the diagram", now)
+        assert not errors, errors
+        pg.close()
+
+
+def test_the_arrows_follow_pipes_connectors_and_signals(browser, tmp_path):
+    """Done 2: in Dynamics, from the stock backlog Right goes to its outflow valve (submitted) and on to the next stock
+    (in-review), Left back; Down steps onto a connector into or out of the stock, saying its other end and its sign. In
+    Blocks, from a summing junction Right reaches C, then the actuator, then P, and Down from P takes the return path."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        drawn(pg, url, VIEWS[0], 0)
+        step_to(pg, "(a) => a.dataset.id === 'stock:backlog'")
+        # the server lists pipes first: the walk must not lean on that (the lines turned round, until the next refresh)
+        outs = pg.evaluate("() => S.graph.edges.reverse().filter((e) => e.source === 'stock:backlog').map((e) => e.kind)")
+        assert outs == ["connector", "pipe"], outs
+        pg.keyboard.press("ArrowRight")
+        valve = pg.evaluate(ON)
+        assert valve["kind"] == "valve" and valve["label"] == "submitted", valve
+        pg.keyboard.press("ArrowRight")
+        assert pg.evaluate(ON)["id"] == "stock:in-review", pg.evaluate(ON)
+        pg.keyboard.press("ArrowRight")                      # on: in-review's outflow, and the stock it fills (never a connector's end)
+        on = pg.evaluate(ON)
+        assert on["kind"] == "valve" and on["label"] in ("merged", "rejected"), on
+        pg.keyboard.press("ArrowRight")
+        assert pg.evaluate(ON)["id"] in ("stock:awaiting-deploy", "stock:backlog"), (on, pg.evaluate(ON))
+        pg.keyboard.press("ArrowLeft")
+        pg.keyboard.press("ArrowLeft")
+        assert pg.evaluate(ON)["id"] == "stock:in-review", pg.evaluate(ON)
+        pg.keyboard.press("ArrowLeft")
+        assert pg.evaluate(ON)["id"] == valve["id"], pg.evaluate(ON)
+        pg.keyboard.press("ArrowLeft")
+        assert pg.evaluate(ON)["id"] == "stock:backlog", pg.evaluate(ON)
+        pg.keyboard.press("ArrowDown")
+        line = pg.evaluate(ON)
+        assert line["edge"] and line["aria"].startswith("connector line") and "backlog" in line["aria"] and "sign" in line["aria"], line
+        pg.keyboard.press("ArrowDown")                       # the next connector of the stock (or the same, if it has one)
+        assert pg.evaluate(ON)["edge"] and pg.evaluate(ON)["aria"].startswith("connector line"), pg.evaluate(ON)
+        pg.keyboard.press("Home")
+        assert pg.evaluate(ON)["inSvg"] and not pg.evaluate(ON)["edge"], pg.evaluate(ON)
+
+        drawn(pg, url, VIEWS[1], 1)
+        # backlog-clear's loop: Σ, its rule (C), the developer filling the actuator, the backlog (P, after the summing
+        # point where its flows add; the developer drives in-review's too, a longer way round), its sensor
+        step_to(pg, "(a) => a.dataset.id === 'sum:backlog-clear'")
+        went = []
+        for _ in range(3):
+            pg.keyboard.press("ArrowRight")
+            went.append((pg.evaluate(ON)["role"], pg.evaluate(ON)["id"]))
+        assert went == [("controller", "blk:keep-backlog-clear"), ("actuator", "blk:developer"),
+                        ("process", "proc:stock.backlog")], went
+        pg.keyboard.press("ArrowDown")                       # the return path: the sensor, then round to the junction
+        assert (pg.evaluate(ON)["role"], pg.evaluate(ON)["id"]) == ("sensor", "sen:stock.backlog"), pg.evaluate(ON)
+        pg.keyboard.press("ArrowDown")
+        assert pg.evaluate(ON)["id"] == "sum:backlog-clear", pg.evaluate(ON)
+        for want in ("blk:keep-backlog-clear", "blk:developer", "proc:stock.backlog"):
+            pg.keyboard.press("ArrowRight")
+            assert pg.evaluate(ON)["id"] == want, pg.evaluate(ON)
+        pg.keyboard.press("ArrowLeft")                       # and back along the signal, through the summing point
+        assert pg.evaluate(ON)["id"] == "blk:developer", pg.evaluate(ON)
+        assert not errors, errors
+        pg.close()
+
+
+def test_enter_opens_the_panel_with_the_focus_inside_and_escape_returns_to_the_part(browser, tmp_path):
+    """Done 3, in both views: a part reached by the keyboard, Enter opens its panel with the focus inside it; Escape
+    closes it and gives the focus back to the same part, still the diagram's tab stop."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        for i, (view, want) in enumerate(zip(VIEWS, ("(a) => a.dataset.id === 'stock:backlog'",
+                                                    "(a) => S.graph.nodes.find((x) => x.id === a.dataset.id)?.role === 'controller'"),
+                                             strict=True)):
+            drawn(pg, url, view, i)
+            step_to(pg, want)
+            part = pg.evaluate(ON)
+            pg.keyboard.press("Enter")
+            try:
+                pg.wait_for_function("() => !document.querySelector('#detail').hidden && document.activeElement?.closest('#detail')",
+                                     timeout=10000)
+            except playwright.TimeoutError as e:
+                raise AssertionError((view, part, pg.evaluate(ON), pg.evaluate("() => document.querySelector('#detail').hidden"))) from e
+            pg.keyboard.press("Escape")
+            pg.wait_for_function("() => document.querySelector('#detail').hidden", timeout=5000)
+            back = pg.evaluate(ON)
+            assert back["key"] == part["key"], (view, part, back)
+            assert pg.evaluate("() => document.activeElement.getAttribute('tabindex')") == "0", view
+        pg.close()
+
+
+def test_i_goes_into_a_system_and_escape_comes_back_out_onto_it(browser, tmp_path):
+    """Done 4, in both views: on the closed box factory, I goes Into it (the view of factory, the focus on its first
+    part); Escape goes back out, with the focus on factory again. Backspace goes out as Escape does."""
+    with served("software-factory", tmp_path) as url:
+        pg = browser.new_page(viewport={"width": 1600, "height": 1000})
+        errors: list[str] = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        for i, view in enumerate(("view=dynamics&open=-", "view=blocks&open=-")):
+            drawn(pg, url, view, i)
+            step_to(pg, "(a) => a.matches('.node') && systemOf(a) === 'factory'")
+            for out in ("Escape", "Backspace"):
+                pg.keyboard.press("i")
+                pg.wait_for_function(f"() => S.here === 'factory' && ({READY})() && ({IN_SVG})(document.activeElement)",
+                                     timeout=DRAWN_S * 1000)
+                assert pg.evaluate("() => new URLSearchParams(location.search).get('system')") == "factory", view
+                pg.keyboard.press(out)
+                pg.wait_for_function(f"() => S.here === '' && ({READY})() && ({IN_SVG})(document.activeElement)",
+                                     timeout=DRAWN_S * 1000)
+                on = pg.evaluate(ON)
+                assert on["label"] == "factory" or "factory" in on["aria"], (view, out, on)
+        assert not errors, errors
+        pg.close()
+
+
+def _contrast(a: str, b: str) -> float:
+    """WCAG's contrast of two computed colours (rgb() or rgba(), opaque)."""
+    def lum(c: str) -> float:
+        r, g, b = (int(x) / 255 for x in re.findall(r"[\d.]+", c)[:3])
+        f = [x / 12.92 if x <= 0.04045 else ((x + 0.055) / 1.055) ** 2.4 for x in (r, g, b)]
+        return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]
+    la, lb = lum(a), lum(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def test_the_focus_ring_is_the_accent_and_stands_3_to_1_in_both_themes(browser, tmp_path):
+    """Done 5: the part the keyboard is on has a ring (its outline, and its shape's outline) in the accent token, the
+    selection's colour, at least 3:1 against the canvas, in the light and the dark theme."""
+    ring = ("() => { const a = document.activeElement, st = getComputedStyle(a), hit = a.querySelector('.hit'); "
+            "return { outline: st.outlineStyle + ' ' + st.outlineWidth, color: st.outlineColor, "
+            "hit: hit && getComputedStyle(hit).stroke, accent: (() => { const p = document.createElement('p'); "
+            "p.style.color = 'var(--accent)'; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; })(), "
+            "bg: getComputedStyle(document.querySelector('svg.canvas')).backgroundColor, "
+            "body: getComputedStyle(document.body).backgroundColor }; }")
+    with served("software-factory", tmp_path) as url:
+        for i, scheme in enumerate(("light", "dark")):
+            pg = browser.new_page(viewport={"width": 1600, "height": 1000}, color_scheme=scheme)
+            drawn(pg, url, VIEWS[0], i)
+            step_to(pg, "(a) => a.dataset.id === 'stock:backlog'")
+            r = pg.evaluate(ring)
+            bg = r["bg"] if not r["bg"].startswith("rgba(0, 0, 0, 0") else r["body"]
+            assert r["outline"].startswith("solid") and r["color"] == r["accent"] and r["hit"] == r["accent"], (scheme, r)
+            assert _contrast(r["color"], bg) >= 3, (scheme, r, _contrast(r["color"], bg))
+            pg.close()
 
 
 SD_WORDS = r"\b(controller|setpoint|rule|goal)s?\b|<=|>="   # (a valve is Sterman's word for where a rate is set)

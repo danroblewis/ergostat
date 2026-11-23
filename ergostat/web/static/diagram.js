@@ -1113,6 +1113,7 @@ async function pageDiagram(main, q) {
                paths: q.get("paths") || "", show: q.get("show") || "" };
   S.pmShow = pq.show;
   const system = q.get("system") || "";
+  S.here = system;                                               // (Escape by keyboard goes back out of it: keys.js)
   const around = q.get("around") || "";
   const item = view !== "process" ? q.get("item") || "" : "", kind = view !== "process" && !item ? q.get("kind") || "" : "";
   const subQ = item ? { item } : kind ? { kind } : {};          // drawn alone: what an item passed through, a kind touches
