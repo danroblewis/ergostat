@@ -290,19 +290,23 @@ function proposableView(d) {
 
 /* ---- the Model page's "What's available": for this project, each loop (identified or not, and what would
    identify it), each parameter to estimate (and whether the record is long enough yet), and where each model
-   tool lives; every link opens the part's view and panel (openTool). Loops are analysed one at a time, each
-   kept half a minute (the server's own analysis is as old) */
+   tool lives; every link opens the part's view and panel (openTool). The loops' summaries come in one answer (the
+   Loops page's, loops?perf=1), worked out on the server in the background: asked again every few seconds while
+   some are still being worked out, and while the list is shown */
 const AVAIL = new Map();
 let availBusy = false;
-async function availLoops(goals, redraw) {
+async function availLoops(goals, redraw, box) {
   if (availBusy) return;
   availBusy = true;
   try {
-    for (const g of goals) {
-      const got = AVAIL.get(g);
-      if (got && Date.now() - got.t < 30000) continue;
-      try { AVAIL.set(g, { t: Date.now(), d: await api("loop-control", { goal: g }) }); } catch (e) { AVAIL.set(g, { t: Date.now(), d: null, err: String(e.message || e) }); }
+    for (let i = 0; i < 40; i++) {                                    // two minutes at most; none once the list has gone
+      if (i && (await new Promise((ok) => setTimeout(ok, 3000)), !box.isConnected)) return;
+      if (document.hidden) continue;
+      let loops;
+      try { loops = await api("loops", { perf: 1 }); } catch (e) { for (const g of goals) AVAIL.set(g, { d: null, err: String(e.message || e) }); redraw(); return; }
+      for (const g of goals) { const s = loops[g]?.perf; if (s?.working) AVAIL.delete(g); else AVAIL.set(g, s?.failed ? { d: null, err: `could not be worked out: ${s.failed}` } : { d: s && !s.not_analysed ? s : null }); }
       redraw();
+      if (SNAP || goals.every((g) => AVAIL.has(g))) return;
     }
   } finally { availBusy = false; }
 }
@@ -403,7 +407,7 @@ function availableView(d, box) {
       table(["tool", "where"], tools.map(([k, v]) => h("tr", {}, h("td", {}, k), h("td", { class: "small" }, v))), "avail"));
   };
   draw();
-  availLoops(goals, draw);
+  availLoops(goals, draw, box);
 }
 
 /* a fix's or a change's impact (SPEC §12n), on its item's page: worked out once, apart from the page's refresh; the
