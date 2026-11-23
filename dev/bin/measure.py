@@ -306,9 +306,15 @@ def knowledge_reading(name: str, since: float) -> float:
                       if g["fields"].get("parent")], name)
     first = [r for r in recent(fac.items("review"), "written_at", since) if r["fields"].get("round") == 1]
     if name == "first-pass-with-lessons":
-        return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(r["fields"].get("gap"))], name)
-    risks = {r["id"]: set(gaps.get(r["fields"].get("gap"), {}).get("fields", {}).get("risks") or []) for r in first}
+        return share([r["fields"].get("verdict") == "merge" for r in first if carried.get(review_gap(r))], name)
+    risks = {r["id"]: set(gaps.get(review_gap(r), {}).get("fields", {}).get("risks") or []) for r in first}
     return share([not (risks[r["id"]] & set(r["fields"].get("classes") or [])) for r in first if risks[r["id"]]], name)
+
+
+def review_gap(review: dict) -> str | None:
+    """The gap a review is of: its ``gap`` field is a relation, which the record may hold as a list of one."""
+    got = review["fields"].get("gap")
+    return (got[0] if got else None) if isinstance(got, list) else got
 
 
 STALE = 20                                              # main's merges after which a coverage report says nothing
