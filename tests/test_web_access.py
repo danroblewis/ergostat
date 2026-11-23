@@ -343,8 +343,11 @@ def test_every_answer_the_page_records_says_who_made_it(page, monkeypatch):
     """Every write path the page answers, called as a request under the public name would be: each records the
     email, none ``owner``."""
     from types import SimpleNamespace
+
+    from ergostat.web.goal_work import GoalWork
     p, _ = page
-    live = SimpleNamespace(get=lambda: p, reloaded=lambda: None, _lock=threading.Lock(), _kept={})
+    live = SimpleNamespace(get=lambda: p, reloaded=lambda: None, _lock=threading.Lock(), _kept={},
+                           work=GoalWork(background=False))                         # as Live has (server.py)
     calls, seen = _calls(monkeypatch)
     as_who = wa.acting("owner@example.org")
     try:

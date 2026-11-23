@@ -454,7 +454,7 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     q = s.items or {}
     now = now or time.time()
     where = q.get("where") or {}
-    if s.of.kind != "flow":                         # a stock, or an auxiliary: how many there are now
+    if not (q.get("entering") or q.get("leaving")):  # a stock, or an auxiliary: how many there are now
         if q.get("measure") == "age":                   # since it was first seen, whatever states it passed through
             _, _, got = in_states(events, spec, q["kind"], q.get("state") or None, where, until=now, items=True)
             return (max((now - i.first) / 3600 for i in got) if got else 0.0), ""
@@ -465,10 +465,11 @@ def measure(events, spec: Spec, s: Sensor, now: float | None = None) -> tuple[fl
     over = q.get("over") or 3600.0
     since = now - over
     key, state = ("to", q["entering"]) if q.get("entering") else ("from", q.get("leaving"))
+    per = 3600.0 / over if s.of.kind == "flow" else 1.0   # a flow: per hour; an auxiliary: how many over the window
     if q.get("sum"):                                # a field summed over the items moving, not how many moved
-        return sum(x for _, x in summed(events, spec, q, since, now)) * 3600.0 / over, ""
+        return sum(x for _, x in summed(events, spec, q, since, now)) * per, ""
     n = sum(1 for t in moved(events, spec, q["kind"], key, state, since, now, where, at=now) if t > since)
-    return n * 3600.0 / over, ""
+    return n * per, ""
 
 
 def summed(events, spec: Spec, q: dict, since: float, until: float) -> list[tuple[float, float]]:
@@ -551,10 +552,23 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
     return {"kinds": [{"name": k.name, "title": TITLES.get(k.name), "id": k.id, "states": k.states, "show": k.show, "formats": k.formats,
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "relations": {r: x.kinds for r, x in k.relations.items()},
-                       "counts": counts.get(k.name, {})} for k in kinds.values()],
+                       "counts": counts.get(k.name, {}), **finishes(events, spec, k.name)} for k in kinds.values()],
             "systems": systems, "unkinded": unkinded,
             "total": total, "offset": offset,
             "items": [_listed(i, kinds, where) for i in page]}
+
+
+def finishes(events, spec, kind: str) -> dict:
+    """A kind's finished and paused states as the listing gives them (``finished.finish_of``), from the states its
+    items have left by now (none known for a record kept nowhere on disk)."""
+    from .finished import finish_of
+    ix = _index(events, spec, False)
+    if ix is not None:
+        with ix.lock:
+            left = set(ix.left(kind))
+    f = finish_of(spec, kind, left if ix is not None else set())
+    return {"finished": f["finished"], "paused": f["paused"], "dead": f["dead"], "finished_from": f["from"],
+            "lives_on": f["lives_on"]}
 
 
 def _paged(events, spec, kind: str | None, state: str | None, until: float | None, n: int, offset: int, ws=()):
@@ -656,13 +670,14 @@ def related(events, spec, it: Item, k) -> dict | None:
         seen = {}
     if not out["out"] and not out["in"]:
         return None
-    from ..precedence import Kinds, status
+    from ..precedence import Kinds, starts, status
     info = Kinds(spec, ix)
     title = lambda x: x.fields.get("title") if isinstance(x.fields.get("title"), str) else ""      # noqa: E731
     out["items"] = {i: {"kind": x.kind, "state": x.state, "title": title(x), "done": status(x, info[x.kind], []) == "done"}
                     for i, x in seen.items()}
-    prec = {r for r, rel in (k.relations.items() if k else []) if rel.precedence}
-    out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")]
-    out["relations"] = {r: {"kinds": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group}
-                        for r, rel in (k.relations.items() if k else [])}
+    prec = {r: rel for r, rel in (k.relations.items() if k else []) if rel.precedence}
+    out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")
+                      and not (i in seen and starts(seen[i], prec[r]))]
+    out["relations"] = {r: {"kinds": rel.kinds, "precedence": rel.precedence, "inverse": rel.inverse, "group": rel.group,
+                            "starts_at": rel.starts_at} for r, rel in (k.relations.items() if k else [])}
     return out
