@@ -50,3 +50,11 @@ Its runs failed past their attempts (a dead letter):
 - attempt 9: nack queue: the push of 76e1a9ab1945 (gap/perf-segments-item-span-first) is requested
 - attempt 10: nack queue: the push of 2985c7826921 (gap/milestone-kind-and-lifecycle) is requested
 - attempt 11: nack the implementor pool is full (run/pools.json): waits its turn
+
+## Where it stopped
+
+Built, continued round 1. The dead letter was the queue's and the pool's nacks (pushes requested, a full pool), not
+a fault in the branch, so no code changed. Main (b7302db6) is merged in: dev/README.md keeps both the kept-slot
+paragraph and main's usage-limit and outage paragraphs; in fac.suite, main's `group.add(boxed)` is kept with the
+branch's `slotted` gate. The three acceptance tests pass again after the merge, and ruff on ergostat, tests and scripts
+is clean. The unit suite and the four browser files were not run here; they run in the merge queue.
