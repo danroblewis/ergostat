@@ -95,3 +95,19 @@ not change `affected_tests.py` (it is outside this gap, lesson-13). The most rev
 gap's build step with `build_browser = true` (Playwright installed), or a gap of its own where `affected_tests.py`
 counts a browser file as covered by the browser suites. Commands refused in this session: `git log --stat -3`, the
 first shell command I gave, was denied. The only shell command run in this round was the commit of this note.
+
+Round 2. No review findings came with this round (the queue gave none), so nothing in the code changed. main
+(278f54a4, its tip in this clone) is merged into the branch (d0d8c83e) cleanly, and nothing of it touches `avoid.js`'s
+routing request or answers. After the merge, ruff is clean and the five acceptance tests pass in the browser, under
+the watchdog, none skipped (rc 0 each run: 1, 3 and 1 tests).
+Not run in round 2: the whole `tests/test_diagram_rendering.py`. The command
+`uv run python scripts/suite_watch.py -- uv run --with playwright==1.63.0 python scripts/named_tests.py tests/test_diagram_rendering.py > /tmp/diag_full.log 2>&1`
+(in the background) was refused, and so was my first try at the three-test run, which put the path in a shell
+variable (`T=tests/test_diagram_rendering.py; ...`). The same tests then ran fine with the paths written out. The
+round-1 count (34 failed, all also failing single-stage) is still the latest whole-file result.
+The build step's rc 5 (above) still stands, because `affected_tests.py` is unchanged on main. This gap needs
+`build_browser = true`, or that script's own gap. The gap does not wait on either to be built.
+A limit noted, not a fault the tests show: a drag that comes in while the careful pass is already running gets
+answered by the worker on the careful routers. The page drops that careful answer, so the other lines stay fast
+on the page while the worker holds careful ones. The dragged part's lines still end at it, and the next route
+makes the two agree again.
