@@ -48,7 +48,7 @@ def _carried(e: dict, transcript: bool, it: Item) -> list[tuple]:
     return [(f, e["time"], v, v) for f, v in values(it.fields).items()]
 
 
-def follow(id: str, events: list[dict], kind, it: Item | None, transcript: bool) -> tuple[Item, list[tuple], bool]:
+def follow(id: str, events: list[dict], kind, it: Item | None, transcript: bool, fold=fold) -> tuple[Item, list[tuple], bool]:
     """``fold`` of ``events`` into ``it``, an event at a time: the item, the rows of the changes to its numbers
     ``(field, time, value, delta)``, and whether a snapshot replaced what came before them."""
     was = values(it.fields) if it is not None else {}
