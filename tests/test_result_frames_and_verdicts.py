@@ -185,6 +185,11 @@ def test_an_inferred_edge_needs_its_confidence_and_a_service_map_may_hold_one():
     assert got["edges"]["confidence"] == [1.0, 0.4] and got["semantics"]["paths_real"] is False
 
 
+def test_a_histogram_of_more_buckets_than_series_allowed_is_a_limit():
+    with pytest.raises(_frames.TooMany, match="buckets has 4 entries, more than the 3 allowed"):
+        _frames.answer(buckets(), G, 3)
+
+
 def test_a_graph_over_its_bound_is_a_limit(monkeypatch):
     monkeypatch.setattr(_frames, "MOST_ROWS", 2)
     with pytest.raises(_frames.TooMany, match="nodes.id has 3 entries"):
